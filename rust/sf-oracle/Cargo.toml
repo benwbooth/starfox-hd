@@ -17,6 +17,7 @@ sf-game.workspace = true
 sf-map.workspace = true
 sf-path.workspace = true
 sf-render.workspace = true
+sf-audio.workspace = true
 sf2-game = { workspace = true, features = ["oracle-bridge"] }
 sf2-data = { workspace = true, features = ["oracle-data"] }
 sf2-path.workspace = true

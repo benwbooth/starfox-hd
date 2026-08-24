@@ -17,8 +17,12 @@
 //! Each tick emits one `T` line (map VM + ported globals) and one `O` line
 //! per active alien in active-list order.  The format originated in gc_main.c,
 //! but fixture fields that differ from the old compatibility C are maintained
-//! from ROM-backed Rust behavior (for example COLDET's per-frame `collcount=1`
-//! initialization from `init_strats_ram_l`).
+//! from ROM-backed Rust behavior. Examples include COLDET's per-frame
+//! `collcount=1` initialization from `init_strats_ram_l`, the player colour
+//! cycle from `init_strats_l`, and Corneria's literal `meters_on trans`,
+//! `wipein`, and `mapendwipe` command streams. Map-pointer values are offsets
+//! into that current, byte-accurate serialized stream rather than source ROM
+//! addresses.
 
 use sf_game::alien::{ASF4_PLAYEROBJ, NUMBER_AL};
 use sf_game::obj::strat_init_obj_vars;
@@ -164,8 +168,10 @@ fn assert_trace_matches(scenario: u32, fixture_name: &str) {
     // can't be regenerated from C. SF_BLESS_FIXTURES=1 rewrites them from the
     // current (ROM-verified) Rust trace. The spawn-time init fields these pin
     // (type_/flags/sflags3/animframe/colframe) are proven ROM-correct by
-    // sf-oracle tests/audit_boss.rs + audit_coldet.rs; this is now a regression
-    // guard, not a C-parity proof.
+    // sf-oracle tests/audit_boss.rs + audit_coldet.rs. Corneria's colour,
+    // meters, wipe, engine-sound, and map-stream-offset updates are additionally
+    // covered by the strict title/weapon oracles and sf-map's binary fixture.
+    // This remains a regression guard, not an independent C-parity proof.
     if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
         std::fs::write(&path, &produced).unwrap_or_else(|e| panic!("write {path}: {e}"));
         return;

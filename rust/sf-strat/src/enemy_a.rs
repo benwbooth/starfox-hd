@@ -27,10 +27,10 @@ use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_core::sf1_shape_metrics::sf1_shape_metrics;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
-    ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF3_REALOBJ, ASF4_CSPECIAL,
-    ASF4_SFLAG8, ASF4_SPECIAL, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE,
-    ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE,
-    NUMBER_AL,
+    ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT,
+    ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_SFLAG8, ASF4_SPECIAL, ASF_COLLDISABLE, ASF_COLLIDE,
+    ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SSPRITE, ATGND,
+    ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::PCBOX_WING_HP;
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -1001,7 +1001,7 @@ const ACF_COLLTYPE4_BIT: u8 = ACF_COLLTYPE4;
 /// C `Strat_HitFlash` (strat_enemy.c:5895) — damage + flash + death check.
 pub fn strat_hit_flash(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
-    if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT != 0 {
+    if g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT != 0 {
         // ROM `.nocol: s_jmpto_strat`: collision handlers do not consume the
         // object's normal update.  This matters for hard/no-hit boss bodies
         // that overlap the player for many consecutive frames.
@@ -1043,7 +1043,7 @@ fn hitflash_exp_at_collobj(
 
 /// ROM `hitflashBOSSd_Istrat` (GSTRATS.ASM:843) — MED exp + $80, or $24 if nohitaffect.
 pub fn hitflash_bossd_istrat(g: &mut Game, idx: u16) {
-    if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT != 0 {
+    if g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT != 0 {
         g.hooks.play_se(0x24);
         strat_hit_flash(g, idx);
         return;
@@ -1102,7 +1102,7 @@ pub fn misscol_istrat(g: &mut Game, idx: u16) {
 /// ROM `mchitflash_strat` (GSTRATS.ASM:950) — one-shot flash then restore misscol.
 pub fn mchitflash_strat(g: &mut Game, idx: u16) {
     // s_docoll — apply one more damage tick when hittable.
-    if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT == 0 {
+    if g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT == 0 {
         let hp = g.objs.aliens[idx as usize].hp;
         if hp != HARD_HP && hp > 0 {
             g.objs.aliens[idx as usize].hp = hp - 1;
@@ -1375,7 +1375,8 @@ fn explode_icont(g: &mut Game, idx: u16) {
         object.flags |= AFEXP;
         object.hp = 0;
         object.visual_kind = ObjectVisualKind::Mesh;
-        object.sflags |= ASF_COLLDISABLE;
+        object.sflags &= !ASF_SSPRITE;
+        object.sflags2 |= ASF2_COLLDISABLE;
         object.shape = presentation.polygon_shape;
         object.expstratptr = Some(if presentation.half_rate_polygons {
             large_explode_tick
@@ -1410,7 +1411,8 @@ fn explode_icont(g: &mut Game, idx: u16) {
         object.expstratptr = None;
         object.hp = HARD_HP;
         object.ap = HARD_AP;
-        object.sflags |= ASF_COLLDISABLE;
+        object.sflags |= ASF_SSPRITE;
+        object.sflags2 |= ASF2_COLLDISABLE;
         object.count = 0;
         object.count1 = presentation.sprite_ticks;
         crate::common::init_colanim(object, 0);

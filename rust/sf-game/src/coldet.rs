@@ -6,8 +6,8 @@
 
 use crate::alien::{
     Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
-    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_SAMESHAPECOLLIDE, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
-    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_LCOLLIDE,
+    ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF2_COLLDISABLE, ASF2_LCOLLIDE, ASF3_SAMESHAPECOLLIDE,
+    ASF4_PLAYEROBJ, ASF_COLLIDE, ASF_HITFLASH,
 };
 use crate::game::Game;
 use crate::vars::{FRAMESPERAP, HARD_AP, PSF3_INTUNNEL};
@@ -81,6 +81,7 @@ pub const PCBOX_WING_Z: i16 = 0;
 struct ShapeCollisionBox {
     offset: (i16, i16, i16),
     half_extents: (i16, i16, i16),
+    hit_flags: u8,
     rotation: CollisionBoxRotation,
     coordinate_shift: u8,
 }
@@ -100,18 +101,21 @@ const ARCH_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
     ShapeCollisionBox {
         offset: (-100, -60, 0),
         half_extents: (20, 60, 20),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     },
     ShapeCollisionBox {
         offset: (100, -60, 0),
         half_extents: (20, 60, 20),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     },
     ShapeCollisionBox {
         offset: (0, -140, 0),
         half_extents: (60, 20, 20),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     },
@@ -123,18 +127,21 @@ const BIG_GATE_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
     ShapeCollisionBox {
         offset: (-180, -100, 0),
         half_extents: (20, 100, 220),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     },
     ShapeCollisionBox {
         offset: (180, -100, 0),
         half_extents: (20, 100, 220),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     },
     ShapeCollisionBox {
         offset: (0, -220, 0),
         half_extents: (200, 20, 220),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     },
@@ -146,18 +153,21 @@ const BASE_1_FIXED_COLLISION_BOXES: [ShapeCollisionBox; 3] = [
     ShapeCollisionBox {
         offset: (-32, -20, 5),
         half_extents: (7, 20, 30),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (32, -20, 5),
         half_extents: (7, 20, 30),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (0, -47, 5),
         half_extents: (40, 7, 30),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
@@ -171,48 +181,56 @@ const BASE_1_ANIMATED_COLLISION_BOXES: [ShapeCollisionBox; 8] = [
     ShapeCollisionBox {
         offset: (0, -35, -30),
         half_extents: (25, 0, 5),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (0, -33, -30),
         half_extents: (25, 2, 5),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (0, -30, -30),
         half_extents: (25, 5, 5),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (0, -28, -30),
         half_extents: (25, 7, 5),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (0, -25, -30),
         half_extents: (25, 10, 5),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (0, -23, -30),
         half_extents: (25, 12, 5),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (0, -20, -30),
         half_extents: (25, 15, 5),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
     ShapeCollisionBox {
         offset: (0, -18, -30),
         half_extents: (25, 17, 5),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 3,
     },
@@ -237,48 +255,56 @@ const PILLAR3_COLLISION_BOXES: [ShapeCollisionBox; 8] = [
     ShapeCollisionBox {
         offset: (0, -10, 0),
         half_extents: (6, 5, 6),
+        hit_flags: PCBOX_HF_LWING,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 2,
     },
     ShapeCollisionBox {
         offset: (0, -20, 0),
         half_extents: (6, 5, 6),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::Roll,
         coordinate_shift: 2,
     },
     ShapeCollisionBox {
         offset: (0, -30, 0),
         half_extents: (6, 5, 6),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::Roll,
         coordinate_shift: 2,
     },
     ShapeCollisionBox {
         offset: (0, -40, 0),
         half_extents: (6, 5, 6),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::Roll,
         coordinate_shift: 2,
     },
     ShapeCollisionBox {
         offset: (0, -50, 0),
         half_extents: (6, 5, 6),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::Roll,
         coordinate_shift: 2,
     },
     ShapeCollisionBox {
         offset: (0, -60, 0),
         half_extents: (6, 5, 6),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::Roll,
         coordinate_shift: 2,
     },
     ShapeCollisionBox {
         offset: (0, -70, 0),
         half_extents: (6, 5, 6),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::Roll,
         coordinate_shift: 2,
     },
     ShapeCollisionBox {
         offset: (0, -80, 0),
         half_extents: (6, 5, 6),
+        hit_flags: PCBOX_HF_BODY,
         rotation: CollisionBoxRotation::Roll,
         coordinate_shift: 2,
     },
@@ -328,6 +354,7 @@ fn resolve_collision_box(object: Alien, collision_box: ShapeCollisionBox) -> Sha
             collision_box.half_extents.1.wrapping_shl(shift),
             collision_box.half_extents.2.wrapping_shl(shift),
         ),
+        hit_flags: collision_box.hit_flags,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     }
@@ -357,41 +384,50 @@ fn collision_box_overlap(
     )
 }
 
-fn object_collision_overlap(
+fn object_collision_hit(
     first: Alien,
     first_entry: ColEntry,
     second: Alien,
     second_entry: ColEntry,
-) -> bool {
+) -> Option<(u8, u8)> {
     let first_default = ShapeCollisionBox {
         offset: (0, 0, 0),
         half_extents: (first_entry.xmax, first_entry.ymax, first_entry.zmax),
+        hit_flags: 0,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     };
     let second_default = ShapeCollisionBox {
         offset: (0, 0, 0),
         half_extents: (second_entry.xmax, second_entry.ymax, second_entry.zmax),
+        hit_flags: 0,
         rotation: CollisionBoxRotation::None,
         coordinate_shift: 0,
     };
-    let first_boxes = shape_collision_boxes(first);
-    let second_boxes = shape_collision_boxes(second);
+    let first_boxes = shape_collision_boxes(first)
+        .map(|boxes| boxes.iter().collect::<Vec<_>>())
+        .unwrap_or_else(|| vec![first_default]);
+    let second_boxes = shape_collision_boxes(second)
+        .map(|boxes| boxes.iter().collect::<Vec<_>>())
+        .unwrap_or_else(|| vec![second_default]);
 
-    match (first_boxes, second_boxes) {
-        (Some(first_boxes), Some(second_boxes)) => first_boxes.iter().any(|first_box| {
-            second_boxes
-                .iter()
-                .any(|second_box| collision_box_overlap(first, first_box, second, second_box))
-        }),
-        (Some(first_boxes), None) => first_boxes
-            .iter()
-            .any(|first_box| collision_box_overlap(first, first_box, second, second_default)),
-        (None, Some(second_boxes)) => second_boxes
-            .iter()
-            .any(|second_box| collision_box_overlap(first, first_default, second, second_box)),
-        (None, None) => collision_box_overlap(first, first_default, second, second_default),
+    // Source ordering is significant. It scans one box from the first object
+    // against every box from the second, combines the second object's region
+    // flags, and stops on the first box of the first object that hits.
+    for first_box in first_boxes {
+        let mut second_hit_flags = 0;
+        let mut collided = false;
+        for second_box in second_boxes.iter().copied() {
+            if collision_box_overlap(first, first_box, second, second_box) {
+                collided = true;
+                second_hit_flags |= second_box.hit_flags;
+            }
+        }
+        if collided {
+            return Some((first_box.hit_flags, second_hit_flags));
+        }
     }
+    None
 }
 
 /// Body/wing box HP and AP (STRATEQU.INC:324-327).
@@ -528,43 +564,42 @@ impl Game {
     /// when the player is the outer object it returns after the first matching
     /// body/left/right box; when the player is the inner object it visits and
     /// combines every matching box before returning.
-    fn pcbox_hitflags(&self, player: u16, other: ColEntry, scan: PlayerBoxScan) -> u8 {
+    fn pcbox_collision_hit(
+        &self,
+        player: u16,
+        other: ColEntry,
+        scan: PlayerBoxScan,
+    ) -> Option<(u8, u8)> {
         let p = self.objs.aliens[player as usize];
         let o = self.objs.aliens[other.alien as usize];
-        let mut flags = 0;
+        let other_default = ShapeCollisionBox {
+            offset: (0, 0, 0),
+            half_extents: (other.xmax, other.ymax, other.zmax),
+            hit_flags: 0,
+            rotation: CollisionBoxRotation::None,
+            coordinate_shift: 0,
+        };
+        let other_boxes = shape_collision_boxes(o)
+            .map(|boxes| boxes.iter().collect::<Vec<_>>())
+            .unwrap_or_else(|| vec![other_default]);
 
-        let overlaps = |x: i16, y: i16, z: i16, ext: (i16, i16, i16)| {
-            if let Some(boxes) = shape_collision_boxes(o) {
-                return boxes.iter().any(|target| {
-                    let target = resolve_collision_box(o, target);
-                    aabb_overlap(
-                        x,
-                        y,
-                        z,
-                        ext.0,
-                        ext.1,
-                        ext.2,
-                        o.worldx.wrapping_add(target.offset.0),
-                        o.worldy.wrapping_add(target.offset.1),
-                        o.worldz.wrapping_add(target.offset.2),
-                        target.half_extents.0,
-                        target.half_extents.1,
-                        target.half_extents.2,
-                    )
-                });
-            }
+        let overlaps = |x: i16, y: i16, z: i16, ext: (i16, i16, i16), target: ShapeCollisionBox| {
+            let target = resolve_collision_box(o, target);
             aabb_overlap(
-                x, y, z, ext.0, ext.1, ext.2, o.worldx, o.worldy, o.worldz, other.xmax, other.ymax,
-                other.zmax,
+                x,
+                y,
+                z,
+                ext.0,
+                ext.1,
+                ext.2,
+                o.worldx.wrapping_add(target.offset.0),
+                o.worldy.wrapping_add(target.offset.1),
+                o.worldz.wrapping_add(target.offset.2),
+                target.half_extents.0,
+                target.half_extents.1,
+                target.half_extents.2,
             )
         };
-
-        if overlaps(p.worldx, p.worldy, p.worldz, PCBOX_BODY_EXT) {
-            flags |= PCBOX_HF_BODY;
-            if scan == PlayerBoxScan::FirstMatch {
-                return flags;
-            }
-        }
 
         // `s_add_Roffs2pos ...,0,0,1`: rotate the signed byte offsets around
         // Z only.  `strat_roffs_roll` is the byte-exact SNES helper used by the
@@ -575,33 +610,62 @@ impl Game {
             PCBOX_WING_Y as i8,
             PCBOX_WING_Z as i8,
         );
-        if overlaps(
-            p.worldx.wrapping_add(left_dx),
-            p.worldy.wrapping_add(left_dy),
-            p.worldz.wrapping_add(PCBOX_WING_Z),
-            PCBOX_WING_EXT,
-        ) {
-            flags |= PCBOX_HF_LWING;
-            if scan == PlayerBoxScan::FirstMatch {
-                return flags;
-            }
-        }
-
         let (rdx, rdy, _) = sf_core::snes_trig::strat_roffs_roll(
             p.rotz,
             PCBOX_WING_X as i8,
             PCBOX_WING_Y as i8,
             PCBOX_WING_Z as i8,
         );
-        if overlaps(
-            p.worldx.wrapping_add(rdx),
-            p.worldy.wrapping_add(rdy),
-            p.worldz.wrapping_add(PCBOX_WING_Z),
-            PCBOX_WING_EXT,
-        ) {
-            flags |= PCBOX_HF_RWING;
+
+        let player_boxes = [
+            (p.worldx, p.worldy, p.worldz, PCBOX_BODY_EXT, PCBOX_HF_BODY),
+            (
+                p.worldx.wrapping_add(left_dx),
+                p.worldy.wrapping_add(left_dy),
+                p.worldz.wrapping_add(PCBOX_WING_Z),
+                PCBOX_WING_EXT,
+                PCBOX_HF_LWING,
+            ),
+            (
+                p.worldx.wrapping_add(rdx),
+                p.worldy.wrapping_add(rdy),
+                p.worldz.wrapping_add(PCBOX_WING_Z),
+                PCBOX_WING_EXT,
+                PCBOX_HF_RWING,
+            ),
+        ];
+
+        match scan {
+            PlayerBoxScan::FirstMatch => {
+                for (x, y, z, ext, player_hit_flags) in player_boxes {
+                    let mut other_hit_flags = 0;
+                    let mut collided = false;
+                    for other_box in other_boxes.iter().copied() {
+                        if overlaps(x, y, z, ext, other_box) {
+                            collided = true;
+                            other_hit_flags |= other_box.hit_flags;
+                        }
+                    }
+                    if collided {
+                        return Some((player_hit_flags, other_hit_flags));
+                    }
+                }
+            }
+            PlayerBoxScan::AllMatches => {
+                for other_box in other_boxes {
+                    let mut player_hit_flags = 0;
+                    for (x, y, z, ext, hit_flags) in player_boxes {
+                        if overlaps(x, y, z, ext, other_box) {
+                            player_hit_flags |= hit_flags;
+                        }
+                    }
+                    if player_hit_flags != 0 {
+                        return Some((player_hit_flags, other_box.hit_flags));
+                    }
+                }
+            }
         }
-        flags
+        None
     }
 
     /// C `Coldet_GenerateList()` (src/game/coldet.c:75) — walk the active
@@ -619,7 +683,7 @@ impl Game {
             let next = al.next;
             // Skip: just spawned / collision disabled / no HP / exploding.
             if al.collflags & ACF_FIRSTFRAME != 0
-                || al.sflags & ASF_COLLDISABLE != 0
+                || al.sflags2 & ASF2_COLLDISABLE != 0
                 || al.hp == 0
                 || al.flags & AFEXP != 0
             {
@@ -693,9 +757,9 @@ impl Game {
         for idx in active {
             let al = &mut self.objs.aliens[idx as usize];
             if al.sflags & ASF_COLLIDE != 0 {
-                al.sflags |= ASF_LCOLLIDE;
+                al.sflags2 |= ASF2_LCOLLIDE;
             } else {
-                al.sflags &= !ASF_LCOLLIDE;
+                al.sflags2 &= !ASF2_LCOLLIDE;
                 // ROM init_strats_ram_l (COLDET.ASM:172-182): an object that is
                 // NOT already colliding gets `al_collcount = 1` each frame
                 // (`s_set_alvar B,x,al_collcount,#1`). This is what makes the
@@ -771,31 +835,18 @@ impl Game {
                 }
                 let ea = self.coldet.list[i];
                 let eb = self.coldet.list[j];
-                let player_side = if self.coldet.pcbox.player == Some(ia) {
-                    Some((
-                        ia,
-                        ib,
-                        self.pcbox_hitflags(ia, eb, PlayerBoxScan::FirstMatch),
-                    ))
+                let collision_hit = if self.coldet.pcbox.player == Some(ia) {
+                    self.pcbox_collision_hit(ia, eb, PlayerBoxScan::FirstMatch)
                 } else if self.coldet.pcbox.player == Some(ib) {
-                    Some((
-                        ib,
-                        ia,
-                        self.pcbox_hitflags(ib, ea, PlayerBoxScan::AllMatches),
-                    ))
+                    self.pcbox_collision_hit(ib, ea, PlayerBoxScan::AllMatches)
+                        .map(|(player_hit_flags, other_hit_flags)| {
+                            (other_hit_flags, player_hit_flags)
+                        })
                 } else {
-                    None
+                    object_collision_hit(a, ea, b, eb)
                 };
-                let hitflags = if let Some((_, _, flags)) = player_side {
-                    if flags == 0 {
-                        continue;
-                    }
-                    flags
-                } else {
-                    if !object_collision_overlap(a, ea, b, eb) {
-                        continue;
-                    }
-                    0
+                let Some((ia_hit_flags, ib_hit_flags)) = collision_hit else {
+                    continue;
                 };
 
                 // --- Collision occurred ---
@@ -804,9 +855,8 @@ impl Game {
                 self.objs.aliens[ia as usize].collobjptr = ib;
                 self.objs.aliens[ib as usize].collobjptr = ia;
 
-                if let Some((player, _, _)) = player_side {
-                    self.objs.aliens[player as usize].hitflags |= hitflags;
-                }
+                self.objs.aliens[ia as usize].hitflags |= ia_hit_flags;
+                self.objs.aliens[ib as usize].hitflags |= ib_hit_flags;
 
                 // Collision detection only records the pair. The source
                 // `chkcoll` routine never changes health; each object's
@@ -860,7 +910,8 @@ impl Game {
         };
         let setup = |al: &mut crate::alien::Alien, hp: u8, ap: u8, strat: StratId| {
             al.shape = 0;
-            al.sflags = ASF_INVISIBLE | ASF_COLLDISABLE;
+            al.sflags = 0;
+            al.sflags2 = ASF2_COLLDISABLE;
             al.sflags4 = ASF4_PLAYEROBJ;
             al.collflags = 0;
             al.hp = hp;
@@ -903,10 +954,12 @@ impl Game {
         self.objs.active_move_after(lwing, rwing);
         self.objs.active_move_after(body, lwing);
 
-        // GSTRATS marks all four objects playerobj. PSTRATS marks only the
-        // three HP proxies colldisable; the ship itself stays live in coldet.
+        // GSTRATS marks all four objects playerobj. PSTRATS marks the three HP
+        // proxies colldisable. Preserve the ship's current source flag byte:
+        // its active strategy clears the startup `colldisable` at the exact
+        // control-body boundary (Training intentionally reaches that one
+        // update after the boxes are attached).
         let p = &mut self.objs.aliens[player as usize];
-        p.sflags &= !ASF_COLLDISABLE;
         p.sflags4 |= ASF4_PLAYEROBJ;
 
         self.coldet.pcbox = PcboxState {
@@ -953,7 +1006,7 @@ impl Game {
         .flatten()
         {
             let al = &mut self.objs.aliens[slot as usize];
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.sflags &= !ASF_COLLIDE;
             al.stratptr = None;
             al.collstratptr = None;
@@ -966,7 +1019,7 @@ impl Game {
 
 #[cfg(test)]
 mod tests {
-    use super::{object_collision_overlap, ColEntry, SHAPE_PILLAR3};
+    use super::{object_collision_hit, ColEntry, PCBOX_HF_LWING, SHAPE_PILLAR3};
     use crate::alien::Alien;
 
     const SHAPE_ENEMY_LASER: u16 = 478;
@@ -1001,12 +1054,15 @@ mod tests {
             ..Alien::default()
         };
 
-        assert!(!object_collision_overlap(
-            laser,
-            entry(0, LASER_EXTENTS),
-            pillar,
-            entry(1, PILLAR_HEADER_EXTENTS),
-        ));
+        assert_eq!(
+            object_collision_hit(
+                laser,
+                entry(0, LASER_EXTENTS),
+                pillar,
+                entry(1, PILLAR_HEADER_EXTENTS),
+            ),
+            None
+        );
 
         let centered_laser = Alien {
             worldx: PILLAR_POSITION.0,
@@ -1014,11 +1070,14 @@ mod tests {
             worldz: PILLAR_POSITION.2,
             ..laser
         };
-        assert!(object_collision_overlap(
-            centered_laser,
-            entry(0, LASER_EXTENTS),
-            pillar,
-            entry(1, PILLAR_HEADER_EXTENTS),
-        ));
+        assert_eq!(
+            object_collision_hit(
+                centered_laser,
+                entry(0, LASER_EXTENTS),
+                pillar,
+                entry(1, PILLAR_HEADER_EXTENTS),
+            ),
+            Some((0, PCBOX_HF_LWING))
+        );
     }
 }

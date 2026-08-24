@@ -32,8 +32,8 @@
 use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON,
-    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND,
-    ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ASF3_NOHITAFFECT, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT,
+    ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
@@ -2956,7 +2956,7 @@ pub fn base_1_istrat(g: &mut Game, idx: u16) {
         al.expstratptr = Some(exp);
         al.hp = HARDHP;
         al.ap = HARD_AP;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.animframe = 0x80;
         al.sbyte1 = 0;
         al.sflags2 &= !ASF2_SFLAG1;

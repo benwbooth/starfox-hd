@@ -10,8 +10,8 @@
 //! PFM_SHADOWS)`, and the AF_* placement-flag clears/sets on the alien.
 
 use crate::alien::{
-    ObjectVisualKind, ACF_FIRSTFRAME, AFEXP, ASF4_TEXTOBJ, ASF_HITFLASH, ASF_INVISIBLE,
-    ASF_PARTOBJ, ASF_SHADOW, ATGND, ATZREMOVE,
+    ObjectVisualKind, ACF_FIRSTFRAME, AFEXP, ASF4_INVISIBLE, ASF_HITFLASH, ASF_PARTOBJ, ASF_SHADOW,
+    ASF_TEXTOBJ, ATGND, ATZREMOVE,
 };
 use crate::obj::Objects;
 use crate::vars::{GF_NOZREMOVE, PFM_SHADOWS};
@@ -115,7 +115,7 @@ pub fn build_list(
         // ROM checks asf_invisible BEFORE the behind test (alienflags_l,
         // MAIN.ASM:2019-2021): invisible objects are never z-freed, keep the
         // flags written above, and consume no drawlist slot.
-        if objs.aliens[idx].sflags & ASF_INVISIBLE != 0 {
+        if objs.aliens[idx].sflags4 & ASF4_INVISIBLE != 0 {
             continue;
         }
 
@@ -139,6 +139,7 @@ pub fn build_list(
             let dz = al.worldz.wrapping_sub(view.z);
             sf_core::snes_trig::matrix_rotate_q15(view_matrix, dx, dy, dz)
         };
+        let mut remove_after_draw = false;
         {
             let al = &objs.aliens[idx];
             let zmax = shape_extents(al.shape).map_or(0, |(_, _, z)| z);
@@ -160,14 +161,10 @@ pub fn build_list(
                     && al.collflags & ACF_FIRSTFRAME == 0
                     && al.type_ & ATZREMOVE != 0
                 {
-                    // ROM freed the alien after its slot was already emitted;
-                    // we skip the entry instead (behind the near plane, the
-                    // renderer would clip it anyway).
-                    objs.free(i);
-                    // ROM kill path runs CLC;ADC #dl_sizeof for its pointer
-                    // bump — carry-out is always 0 here.
-                    cull_carry = 0;
-                    continue;
+                    // `alienflags_l` runs only after MARIO has consumed the
+                    // completed list. Preserve this object's final command,
+                    // then retire its live slot below.
+                    remove_after_draw = true;
                 }
             }
         }
@@ -183,13 +180,11 @@ pub fn build_list(
             }
         }
 
-        // MARIO handles scaled text before shape lookup; textpath carriers
-        // deliberately use nullshape. Ordinary shape-zero objects remain
-        // invisible as in the object pass.
-        let is_text = objs.aliens[idx].sflags4 & ASF4_TEXTOBJ != 0;
-        if objs.aliens[idx].shape == 0 && !is_text {
-            continue;
-        }
+        // The source semantic draw list contains every non-invisible live
+        // object, including `nullshape` controller and camera roles. MARIO's
+        // null shape has no faces, so retaining the command preserves source
+        // order without producing geometry.
+        let is_text = objs.aliens[idx].sflags & ASF_TEXTOBJ != 0;
 
         let al = objs.aliens[idx];
         let mut entry = DrawListEntry::default();
@@ -277,6 +272,12 @@ pub fn build_list(
         // Game_SubmitDrawEntry cap (boot.c:295-299).
         if out.len() < MAX_DRAW_LIST {
             out.push(entry);
+        }
+        if remove_after_draw {
+            objs.free(i);
+            // ROM kill path runs CLC;ADC #dl_sizeof for its pointer bump —
+            // carry-out is always zero here.
+            cull_carry = 0;
         }
     }
 }
@@ -376,7 +377,7 @@ mod tests {
             al.sbyte1 = 34; // particle amount
             al.sbyte3 = 56; // type
         }
-        objs.aliens[a as usize].shape = 0; // skipped: no shape
+        objs.aliens[a as usize].shape = 0; // retained source null-shape command
 
         let mut out = Vec::new();
         build_list(
@@ -388,8 +389,8 @@ mod tests {
             &|_| None,
             &mut out,
         );
-        // Active list is newest-first: only slot 1 emitted.
-        assert_eq!(out.len(), 1);
+        // Active list is newest-first: slot 1 precedes the null-shape command.
+        assert_eq!(out.len(), 2);
         assert_eq!(out[0].explosion_cnt, 12);
         assert_ne!(out[0].flags & dl_flags::SCALED_SPRITE, 0);
         assert_eq!(out[0].shad_y, 1); // alien index
@@ -500,7 +501,8 @@ mod tests {
         assert_eq!(object.flags & AF_INVIEW_PL, AF_INVIEW_PL);
     }
 
-    /// Without GF_NOZREMOVE, behind + ATZREMOVE frees the alien (no draw slot).
+    /// Without GF_NOZREMOVE, behind + ATZREMOVE emits its final command and
+    /// then frees the alien, matching showview/alienflags ordering.
     #[test]
     fn yaw_behind_atzremove_frees_without_nozremove() {
         let mut objs = Objects::init();
@@ -515,7 +517,8 @@ mod tests {
         }
         let mut out = Vec::new();
         build_list(&mut objs, 0, 0, CullView::default(), 0, &|_| None, &mut out);
-        assert!(out.is_empty());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].obj_id, 1);
         assert!(objs.active_head.is_none());
     }
 }

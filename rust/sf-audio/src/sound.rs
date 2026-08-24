@@ -143,6 +143,42 @@ pub const POS_ENEMYDOWNSEA: PosSndFamily = PosSndFamily {
     m: 0x77,
     f: 0x78,
 };
+
+/// Resolve SOUND.ASM `makesnd` to the exact one-shot effect without mutating
+/// the sound queue. Differential runners use this same source-derived policy
+/// to compare a typed positional command with the retail effect-ring write.
+pub fn resolve_positional_effect(
+    player_view_x: i16,
+    player_worldx: i16,
+    player_worldz: i16,
+    obj_worldx: i16,
+    obj_worldz: i16,
+    family: &PosSndFamily,
+) -> Option<u8> {
+    let rangexz = xzdiffs_rangexz(player_worldx, player_worldz, obj_worldx, obj_worldz) as u16;
+
+    if rangexz < SOUND_MAKESND_NEAR {
+        let dx = player_view_x.wrapping_sub(obj_worldx);
+        Some(if dx >= 0 {
+            if dx < SOUND_MAKESND_XSPLIT {
+                family.c
+            } else {
+                family.l
+            }
+        } else if dx >= -SOUND_MAKESND_XSPLIT {
+            family.c
+        } else {
+            family.r
+        })
+    } else if rangexz < SOUND_DIST3SND as u16 {
+        Some(family.m)
+    } else if rangexz < SOUND_CUTOFFSND as u16 {
+        Some(family.f)
+    } else {
+        None
+    }
+}
+
 /// `separatemissile_l` — SOUND.ASM:887 ($49/$4a/$4b).
 pub const POS_SEPARATEMISSILE: PosSndFamily = PosSndFamily::near(0x49, 0x4a, 0x4b);
 
@@ -460,30 +496,14 @@ impl Sound {
         obj_worldz: i16,
         family: &PosSndFamily,
     ) -> Option<u8> {
-        let rangexz = xzdiffs_rangexz(player.worldx, player.worldz, obj_worldx, obj_worldz) as u16;
-
-        let id = if rangexz < SOUND_MAKESND_NEAR {
-            // Near: pick L/C/R by dx = pviewposx - obj.worldx (split +-170).
-            let dx = state.pviewposx.wrapping_sub(obj_worldx);
-            if dx >= 0 {
-                if dx < SOUND_MAKESND_XSPLIT {
-                    family.c
-                } else {
-                    family.l
-                }
-            } else if dx >= -SOUND_MAKESND_XSPLIT {
-                family.c
-            } else {
-                family.r
-            }
-        } else if rangexz < SOUND_DIST3SND as u16 {
-            // Mid — dead in ROM (dist3snd < near threshold); kept for fidelity.
-            family.m
-        } else if rangexz < SOUND_CUTOFFSND as u16 {
-            family.f
-        } else {
-            return None; // .ret without setport3 -> silence
-        };
+        let id = resolve_positional_effect(
+            state.pviewposx,
+            player.worldx,
+            player.worldz,
+            obj_worldx,
+            obj_worldz,
+            family,
+        )?;
 
         self.play_se(state, id);
         Some(id)
@@ -1363,6 +1383,22 @@ mod tests {
         let spt = snd.sdspt3;
         assert_eq!(snd.make_snd(&st, &player, 0, 4000, &POS_LASER), None);
         assert_eq!(snd.sdspt3, spt, "silence queues no SE");
+    }
+
+    #[test]
+    fn positional_effect_resolver_is_pure_and_uses_source_bands() {
+        assert_eq!(
+            resolve_positional_effect(0, 0, 0, 200, 0, &POS_LASER),
+            Some(POS_LASER.r)
+        );
+        assert_eq!(
+            resolve_positional_effect(0, 0, 0, 0, 2500, &POS_DOORCLOSE),
+            Some(POS_DOORCLOSE.f)
+        );
+        assert_eq!(
+            resolve_positional_effect(0, 0, 0, 0, 4000, &POS_DOORCLOSE),
+            None
+        );
     }
 
     #[test]

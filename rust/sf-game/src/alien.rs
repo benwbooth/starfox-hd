@@ -148,15 +148,21 @@ pub struct Alien {
     pub active: bool,
 }
 
-// Alien strategy flags al_sflags (C `src/game/obj.h` ASF_*).
+// Source `al_sflags` byte (STRATEQU.INC `make_sflag`, bits 0 through 7).
 pub const ASF_INVISIBLE: u8 = 0x01;
 pub const ASF_HITFLASH: u8 = 0x02;
-pub const ASF_SHADOW: u8 = 0x04;
-pub const ASF_PARTOBJ: u8 = 0x08;
+pub const ASF_SHADOW: u8 = 0x08;
+pub const ASF_PARTOBJ: u8 = 0x10;
+pub const ASF_SSPRITE: u8 = 0x20;
+pub const ASF_TEXTOBJ: u8 = 0x40;
 pub const ASF_COLLDISABLE: u8 = 0x10;
-pub const ASF_COLLIDE: u8 = 0x20;
+pub const ASF_COLLIDE: u8 = 0x80;
 pub const ASF_NOHITAFFECT: u8 = 0x40;
 pub const ASF_LCOLLIDE: u8 = 0x80;
+
+// Source `al_sflags2` byte (STRATEQU.INC bits 8 through 15).
+pub const ASF2_COLLDISABLE: u8 = 0x01;
+pub const ASF2_LCOLLIDE: u8 = 0x02;
 
 // al_sflags3 bits (C ASF3_* / STRATEQU.INC make_sflag childobj/motherobj).
 pub const ASF3_REALOBJ: u8 = 0x08;
@@ -171,9 +177,12 @@ pub const ASF3_LOCKON: u8 = 0x40;
 /// collision detector (chkcoll0, COLDET.ASM) skips any same-shape pair UNLESS
 /// both objects set this bit (~nothing does). C `src/game/obj.h` ASF3_*.
 pub const ASF3_SAMESHAPECOLLIDE: u8 = 0x80;
+pub const ASF3_NOHITAFFECT: u8 = 0x20;
 
 // al_sflags4 bits (C `src/game/obj.h` ASF4_* + `src/game/world.h` markers).
 pub const ASF4_PLAYEROBJ: u8 = 0x01;
+pub const ASF4_DONESND: u8 = 0x02;
+pub const ASF4_INVISIBLE: u8 = 0x08;
 /// HD-side render tag for a MARIO scaled-text carrier. The retained C-style
 /// flag layout places path `textobj` on `sflags3 & 0x40`, which is also used
 /// by its compatibility lock-on remap; this otherwise-unused bit keeps those

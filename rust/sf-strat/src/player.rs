@@ -36,8 +36,9 @@ use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME,
-    ACF_WEAPON, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ACF_WEAPON, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
+    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE,
+    NUMBER_AL,
 };
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
@@ -173,6 +174,9 @@ pub const PSHIPNUM_BLACK: u8 = 5;
 pub const PSHIPNUM_ZOOM: u8 = 6;
 /// `maxpships` — rows in `player_shapes`.
 pub const MAX_PSHIPS: u8 = 7;
+/// One source `initgame_strats_l` colour-cycle step occurs before the first
+/// live `dostrats` update.
+const PLAYER_PRELEVEL_COLOR_FRAME: u8 = 0x81;
 
 /// One `def_playership` row: intact, no-left, no-right, both-wings-gone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -830,7 +834,7 @@ pub fn strat_ship_intro_init(g: &mut Game, idx: u16) {
 fn player_hitflash_update(g: &mut Game, idx: u16) {
     let i = idx as usize;
     if g.objs.aliens[i].sbyte1 == 0 {
-        g.objs.aliens[i].sflags &= !ASF_NOHITAFFECT;
+        g.objs.aliens[i].sflags3 &= !ASF3_NOHITAFFECT;
         g.vars.set_sv_u8(sv::VIEWSHAKEX, 0);
         g.vars.set_sv_u8(sv::VIEWSHAKEY, 0);
         g.vars.set_sv_u8(sv::VIEWSHAKEZ, 0);
@@ -850,7 +854,7 @@ fn player_hitflash_update(g: &mut Game, idx: u16) {
     // Toggle hitflash every other frame while invulnerable.
     if g.vars.gameframe & 1 == 0 {
         g.objs.aliens[i].sflags |= ASF_HITFLASH;
-        g.objs.aliens[i].sflags |= ASF_NOHITAFFECT;
+        g.objs.aliens[i].sflags3 |= ASF3_NOHITAFFECT;
     }
 }
 
@@ -893,7 +897,7 @@ fn playercoll_istrat(g: &mut Game, idx: u16) {
         }
     }
 
-    if g.objs.aliens[i].sflags & ASF_NOHITAFFECT == 0 {
+    if g.objs.aliens[i].sflags3 & ASF3_NOHITAFFECT == 0 {
         // Barrel-roll laser deflection (PSTRATS.ASM:3297-3328).
         if g.vars.sv_u8(sv::PLAYER_ROLLZVEL) != 0
             && (partner as usize) < g.objs.aliens.len()
@@ -918,7 +922,7 @@ fn playercoll_istrat(g: &mut Game, idx: u16) {
                     strat_apply_velocity(shot);
                 }
                 shot.sflags &= !ASF_COLLIDE;
-                shot.sflags |= ASF_COLLDISABLE;
+                shot.sflags2 |= ASF2_COLLDISABLE;
                 shot.count = 30;
             }
             crate::enemy_a::relflatmiss_istrat(g, partner);
@@ -945,7 +949,8 @@ fn playercoll_istrat(g: &mut Game, idx: u16) {
             // Compatibility fallback for sf-game-only/headless callers that
             // spawn a player without the per-level MAPP pcbox objects.
             g.objs.aliens[i].sbyte1 = PLAYER_HITFLASH_FRMS;
-            g.objs.aliens[i].sflags |= ASF_HITFLASH | ASF_NOHITAFFECT;
+            g.objs.aliens[i].sflags |= ASF_HITFLASH;
+            g.objs.aliens[i].sflags3 |= ASF3_NOHITAFFECT;
             g.vars.set_sv_u8(sv::SCREENFLASHCNT, SCREENFLASH_BODY_FRMS);
             g.vars.set_sv_u8(sv::SCREENFLASHTYPE, SCREENFLASH_BODY_TYPE);
             if g.objs.aliens[i].hp == 0 {
@@ -2956,6 +2961,12 @@ pub fn strat_player(g: &mut Game, idx: u16) {
         sf_game::vars::TrainingPlayerStartupPhase::Inactive => {}
     }
 
+    // The ordinary player-control body clears `colldisable` every update
+    // (PSTRATS.ASM `.nsp`). Training's first short-transfer update returns
+    // above before reaching that body, so the source ship remains disabled
+    // for exactly that initial movement update.
+    g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
+
     boost_brake_update(g, idx);
 
     // The ROM picks the do_player_* velocity handler by the active player STRAT
@@ -3000,12 +3011,16 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
         al.ap = HARD_AP;
         al.type_ = 0;
         al.sflags = ASF_SHADOW;
+        al.sflags2 = ASF2_COLLDISABLE;
         al.sflags4 = ASF4_PLAYEROBJ;
         al.collstratptr = Some(coll_id);
         al.expstratptr = Some(exp_id);
         al.endcollstratptr = None;
-        al.animframe = 0xFF;
-        al.colframe = 0xFF;
+        // `init_objvars_l` leaves both frame selectors at zero. Player setup
+        // keeps animation on that live game-frame selector, while the source
+        // prelevel step advances colour into its first fixed-cycle frame.
+        al.animframe = 0;
+        al.colframe = PLAYER_PRELEVEL_COLOR_FRAME;
     }
 
     let v = &mut g.vars;

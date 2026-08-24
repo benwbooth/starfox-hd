@@ -706,6 +706,7 @@ class ShapeHeader:
     points_label: str       # label for vertex data
     faces_label: str        # label for face data
     shift: int              # coordinate shift
+    sort_depth: int         # assembled ShapeHdr sh_sortz
     visual_extent: int      # assembled ShapeHdr sh_size
     half_extents: Tuple[int, int, int]  # assembled sh_xmax/ymax/zmax
     color_table: str        # color table name
@@ -725,6 +726,7 @@ class ShapeData:
     # this header table"; retaining it is required for sprite-textured and
     # per-shape animated materials (asteroids, explosions, lasers, etc.).
     color_table: str
+    sort_depth: int
     visual_extent: int
     coordinate_shift: int
     half_extents: Tuple[int, int, int]
@@ -1176,6 +1178,17 @@ def parse_shape_headers(af: AsmFile) -> List[ShapeHeader]:
         shift_val = eval_in_file(af, args[7])
         shift = shift_val if shift_val is not None else 0
 
+        # SHMACS.INC assembles the authored sorting bias in the same shifted
+        # coordinate domain as the shape geometry.
+        sort_depth_val = eval_in_file(af, args[4])
+        unshifted_sort_depth = sort_depth_val if sort_depth_val is not None else 0
+        shifted_sort_depth = (unshifted_sort_depth << shift) & 0xFFFF
+        sort_depth = (
+            shifted_sort_depth - 0x10000
+            if shifted_sort_depth & 0x8000
+            else shifted_sort_depth
+        )
+
         # SHMACS.INC assembles `sh_size` as the semantic size operand shifted
         # by the header coordinate scale. Preserve that finished domain value
         # without carrying a ShapeHdr address into the Rust port.
@@ -1204,6 +1217,7 @@ def parse_shape_headers(af: AsmFile) -> List[ShapeHeader]:
                 points_label=points_label,
                 faces_label=faces_label,
                 shift=shift,
+                sort_depth=sort_depth,
                 visual_extent=visual_extent,
                 half_extents=half_extents,
                 color_table=color_table,
@@ -1371,17 +1385,19 @@ def emit_rust_metrics(sorted_shapes: List[ShapeData]) -> None:
     out.append("")
     out.append("#[derive(Debug, Clone, Copy, PartialEq, Eq)]")
     out.append("pub struct Sf1ShapeMetrics {")
+    out.append("    pub sort_depth: i16,")
     out.append("    pub visual_extent: u16,")
     out.append("    pub coordinate_shift: u8,")
     out.append("    pub half_extents: [i16; 3],")
     out.append("}")
     out.append("")
     out.append("pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[")
-    out.append("    (0, Sf1ShapeMetrics { visual_extent: 188, coordinate_shift: 2, half_extents: [136, 136, 144] }), // nullshape")
+    out.append("    (0, Sf1ShapeMetrics { sort_depth: 0, visual_extent: 188, coordinate_shift: 2, half_extents: [136, 136, 144] }), // nullshape")
     for shape in sorted_shapes:
         out.append(
             "    ("
-            f"{shape.shape_id}, Sf1ShapeMetrics {{ visual_extent: "
+            f"{shape.shape_id}, Sf1ShapeMetrics {{ sort_depth: "
+            f"{shape.sort_depth}, visual_extent: "
             f"{shape.visual_extent}, coordinate_shift: "
             f"{shape.coordinate_shift}, half_extents: "
             f"[{shape.half_extents[0]}, {shape.half_extents[1]}, "
@@ -1525,6 +1541,7 @@ def main() -> int:
             animation_frames=vertex_frames if len(vertex_frames) > 1 else [],
             faces=faces,
             color_table=hdr.color_table,
+            sort_depth=hdr.sort_depth,
             visual_extent=hdr.visual_extent,
             coordinate_shift=hdr.shift,
             half_extents=hdr.half_extents,
@@ -1588,6 +1605,7 @@ def main() -> int:
             animation_frames=vertex_frames if len(vertex_frames) > 1 else [],
             faces=faces,
             color_table=hdr.color_table,
+            sort_depth=hdr.sort_depth,
             visual_extent=hdr.visual_extent,
             coordinate_shift=hdr.shift,
             half_extents=hdr.half_extents,

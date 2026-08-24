@@ -6,7 +6,7 @@
 //! These tests exercise the routing through the real collision tick
 //! (`Game::tick` -> coldet_generate + coldet_run -> box collide-strat).
 
-use sf_game::alien::{ACF_COLLTYPE1, ACF_FIRSTFRAME, ASF_COLLDISABLE, ASF_COLLIDE};
+use sf_game::alien::{ACF_COLLTYPE1, ACF_FIRSTFRAME, ASF2_COLLDISABLE, ASF_COLLIDE};
 use sf_game::vars::{GameVars, GF_PLAYERDYING, HARD_AP, HARD_HP, SPACE_MODE};
 use sf_game::{Game, Hooks};
 use sf_strat::common::{sv, StratRam};
@@ -62,10 +62,11 @@ fn big_gate_collision_preserves_the_authored_center_opening() {
     ship.worldx = 180;
     ship.worldy = -100;
     ship.collflags &= !ACF_FIRSTFRAME;
-    spawn_gate(&mut hit_right_post);
+    let gate = spawn_gate(&mut hit_right_post);
     hit_right_post.coldet_generate_list();
     hit_right_post.coldet_run();
     assert_eq!(hit_right_post.objs.aliens[player as usize].hitflags, 1);
+    assert_eq!(hit_right_post.objs.aliens[gate as usize].hitflags, 1);
 }
 
 #[test]
@@ -189,6 +190,10 @@ fn spawn_with_boxes() -> (Game, u16) {
     g.objs.aliens[p as usize].worldz = 0;
     g.objs.aliens[p as usize].rotz = 0;
     g.objs.aliens[p as usize].stratptr = None; // don't run playermove in the test
+                                               // Gameplay clears the source startup collision-disable bit on the first
+                                               // ordinary player update. These focused tests neutralize that strategy,
+                                               // so advance the same typed state explicitly.
+    g.objs.aliens[p as usize].sflags2 &= !ASF2_COLLDISABLE;
     assert!(pcbox_attach(&mut g, p), "pcbox_attach failed");
     (g, p)
 }
@@ -215,7 +220,7 @@ fn spawn_shot(g: &mut Game, x: i16, y: i16, z: i16, ap: u8) -> u16 {
 fn attach_keeps_ship_live_and_builds_three_colldisable_damage_boxes() {
     let (g, p) = spawn_with_boxes();
     // The ship owns playerB_col; only its state proxies are colldisable.
-    assert_eq!(g.objs.aliens[p as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[p as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[p as usize].hp, HARD_HP);
     assert_eq!(g.objs.aliens[p as usize].ap, HARD_AP);
     let pc = g.coldet.pcbox;
@@ -225,8 +230,8 @@ fn attach_keeps_ship_live_and_builds_three_colldisable_damage_boxes() {
     // Body box carries the body HP (40); wings carry 5.
     assert_eq!(g.objs.aliens[pc.body.unwrap() as usize].hp, 40);
     assert_eq!(g.objs.aliens[pc.lwing.unwrap() as usize].hp, 5);
-    assert!(g.objs.aliens[pc.body.unwrap() as usize].sflags & ASF_COLLDISABLE != 0);
-    assert!(g.objs.aliens[pc.lwing.unwrap() as usize].sflags & ASF_COLLDISABLE != 0);
+    assert!(g.objs.aliens[pc.body.unwrap() as usize].sflags2 & ASF2_COLLDISABLE != 0);
+    assert!(g.objs.aliens[pc.lwing.unwrap() as usize].sflags2 & ASF2_COLLDISABLE != 0);
 }
 
 #[test]
@@ -287,7 +292,7 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
     // End the sustained pair. The ROM gives end-collision callbacks priority
     // over an explosion callback while LCOLLIDE drains, so allow those exact
     // handoff frames before pcolBexp kills the player.
-    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[shot as usize].sflags2 |= ASF2_COLLDISABLE;
     for _ in 0..8 {
         g.tick();
         if g.vars.gameflags & GF_PLAYERDYING != 0 {
@@ -300,8 +305,8 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
     // Boxes detached: state cleared, boxes colldisable so they leave the
     // collision list.
     assert!(!g.coldet.pcbox.attached());
-    assert!(g.objs.aliens[body as usize].sflags & ASF_COLLDISABLE != 0);
-    assert!(g.objs.aliens[lwing as usize].sflags & ASF_COLLDISABLE != 0);
+    assert!(g.objs.aliens[body as usize].sflags2 & ASF2_COLLDISABLE != 0);
+    assert!(g.objs.aliens[lwing as usize].sflags2 & ASF2_COLLDISABLE != 0);
 
     // A fresh overlapping shot must NOT re-damage the detached boxes nor
     // re-enter the crash (no panic, still dying).
@@ -333,7 +338,7 @@ fn wing_box_destroyed_breaks_wing_and_drops_from_collision() {
     assert_eq!(g.objs.aliens[rwing as usize].hp, 1);
     g.tick(); // route + pwingcol: fixed 1 wing damage -> hp 0
     assert_eq!(g.objs.aliens[rwing as usize].hp, 0);
-    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[shot as usize].sflags2 |= ASF2_COLLDISABLE;
     for _ in 0..6 {
         g.tick();
         if g.vars.pshipflags & 16 != 0 {
@@ -349,7 +354,7 @@ fn wing_box_destroyed_breaks_wing_and_drops_from_collision() {
     assert_eq!(g.coldet.pcbox.rwing, Some(rwing));
     assert_eq!(g.objs.aliens[rwing as usize].hp, 0xff);
     assert_eq!(g.objs.aliens[rwing as usize].ap, 0);
-    assert!(g.objs.aliens[rwing as usize].sflags & ASF_COLLDISABLE != 0);
+    assert!(g.objs.aliens[rwing as usize].sflags2 & ASF2_COLLDISABLE != 0);
     // All proxy slots remain addressable; later HF3 hits follow the broken-wing
     // bounce-to-body path in the ROM.
     assert!(g.coldet.pcbox.body.is_some());
@@ -364,8 +369,9 @@ fn unattached_keeps_direct_model() {
     let mut g = new_game();
     let p = strat_spawn_player(&mut g).unwrap();
     assert!(!g.coldet.pcbox.attached());
+    g.tick();
     assert_eq!(
-        g.objs.aliens[p as usize].sflags & ASF_COLLDISABLE,
+        g.objs.aliens[p as usize].sflags2 & ASF2_COLLDISABLE,
         0,
         "ship must remain a direct collider when no boxes are attached"
     );

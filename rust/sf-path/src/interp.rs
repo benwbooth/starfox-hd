@@ -35,8 +35,9 @@
 
 use crate::alien::{
     Alien, ObjectVisualKind, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE4, ACF_COLLTYPE5,
-    AFEXP, ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF3_SFLAG5, ASF3_SFLAG7, ASF3_TEXTOBJ, ASF4_SFLAG8,
-    ASF_COLLDISABLE, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATZREMOVE, NUMBER_AL,
+    AFEXP, ASF2_COLLDISABLE, ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF3_NOHITAFFECT, ASF3_SFLAG5,
+    ASF3_SFLAG7, ASF4_INVISIBLE, ASF4_SFLAG8, ASF_PARTOBJ, ASF_SHADOW, ASF_TEXTOBJ, ATZREMOVE,
+    NUMBER_AL,
 };
 use crate::alien_compat;
 use crate::opcodes::*;
@@ -1290,7 +1291,7 @@ pub fn particleexplode_istrat(world: &mut PathWorld, self_idx: u16) {
     // s_set_expstrat x,particleexplode_strat
     al.expstratptr = Some(StratRef::ParticleExplodeStrat);
     // s_set_alsflag x,colldisable
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     // s_set_alflag x,exp
     al.flags |= AFEXP;
     // Particle payload for renderer: s_particle_data x,6,60,30
@@ -1378,7 +1379,7 @@ fn path_apply_addv(al: &mut Alien, op: u8, dst_off: u8, src_off: u8) {
 
 /// C `path_spawn_text_trail`.
 fn path_spawn_text_trail<H: PathHost>(world: &mut PathWorld, host: &mut H, self_idx: usize) {
-    if world.aliens[self_idx].sflags3 & ASF3_TEXTOBJ == 0 {
+    if world.aliens[self_idx].sflags & ASF_TEXTOBJ == 0 {
         return;
     }
     if world.aliens[self_idx].ty == 0 {
@@ -1404,8 +1405,8 @@ fn path_spawn_text_trail<H: PathHost>(world: &mut PathWorld, host: &mut H, self_
     t.stratptr = Some(StratRef::TrailTick);
     t.collstratptr = None;
     t.expstratptr = None;
-    t.sflags3 |= ASF3_TEXTOBJ;
-    t.sflags |= ASF_COLLDISABLE;
+    t.sflags |= ASF_TEXTOBJ;
+    t.sflags2 |= ASF2_COLLDISABLE;
     t.sbyte1 = 5;
 
     t.rotx = rotx;
@@ -1455,8 +1456,8 @@ pub fn strat_pathdha_init(al: &mut Alien) {
 
 /// C `Strat_PathText_Init` (patht_istrat: colldisable + textobj + HP/AP).
 pub fn strat_pathtext_init(al: &mut Alien) {
-    al.sflags |= ASF_COLLDISABLE;
-    al.sflags3 |= ASF3_TEXTOBJ;
+    al.sflags2 |= ASF2_COLLDISABLE;
+    al.sflags |= ASF_TEXTOBJ;
     al.hp = 10;
     al.ap = 8; // hardAP
     path_init_common(al);
@@ -2263,8 +2264,8 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_TEXT => {
-                world.aliens[si].sflags3 |= ASF3_TEXTOBJ;
-                world.aliens[si].sflags |= ASF_COLLDISABLE;
+                world.aliens[si].sflags |= ASF_TEXTOBJ;
+                world.aliens[si].sflags2 |= ASF2_COLLDISABLE;
                 world.aliens[si].coltab = world.pread16(ip, 1);
                 world.aliens[si].depthoffset = world.pread8s(ip, 3) as i16;
                 world.aliens[si].tx = world.pread8(ip, 4);
@@ -2692,14 +2693,14 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_INVISIBLEON => {
-                world.aliens[si].sflags |= ASF_INVISIBLE;
-                world.aliens[si].sflags |= ASF_COLLDISABLE;
+                world.aliens[si].sflags4 |= ASF4_INVISIBLE;
+                world.aliens[si].sflags2 |= ASF2_COLLDISABLE;
                 advance = 1;
             }
 
             P_INVISIBLEOFF => {
-                world.aliens[si].sflags &= !ASF_INVISIBLE;
-                world.aliens[si].sflags &= !ASF_COLLDISABLE;
+                world.aliens[si].sflags4 &= !ASF4_INVISIBLE;
+                world.aliens[si].sflags2 &= !ASF2_COLLDISABLE;
                 advance = 1;
             }
 
@@ -2799,12 +2800,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_COLLISIONSON => {
-                world.aliens[si].sflags &= !ASF_COLLDISABLE;
+                world.aliens[si].sflags2 &= !ASF2_COLLDISABLE;
                 advance = 1;
             }
 
             P_COLLISIONSOFF => {
-                world.aliens[si].sflags |= ASF_COLLDISABLE;
+                world.aliens[si].sflags2 |= ASF2_COLLDISABLE;
                 advance = 1;
             }
 
@@ -2820,12 +2821,12 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_INVINCIBLEON => {
-                world.aliens[si].sflags |= ASF_NOHITAFFECT;
+                world.aliens[si].sflags3 |= ASF3_NOHITAFFECT;
                 advance = 1;
             }
 
             P_INVINCIBLEOFF => {
-                world.aliens[si].sflags &= !ASF_NOHITAFFECT;
+                world.aliens[si].sflags3 &= !ASF3_NOHITAFFECT;
                 advance = 1;
             }
 

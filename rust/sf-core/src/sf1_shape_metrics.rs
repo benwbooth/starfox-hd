@@ -3,6 +3,7 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sf1ShapeMetrics {
+    pub sort_depth: i16,
     pub visual_extent: u16,
     pub coordinate_shift: u8,
     pub half_extents: [i16; 3],
@@ -12,6 +13,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         0,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 188,
             coordinate_shift: 2,
             half_extents: [136, 136, 144],
@@ -20,6 +22,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         1,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 159,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -28,6 +31,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         2,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [36, 14, 80],
@@ -36,6 +40,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         3,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 114,
             coordinate_shift: 0,
             half_extents: [90, 60, 50],
@@ -44,6 +49,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         4,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 81,
             coordinate_shift: 0,
             half_extents: [20, 60, 60],
@@ -52,6 +58,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         5,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 44,
             coordinate_shift: 2,
             half_extents: [40, 20, 40],
@@ -60,6 +67,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         6,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 87,
             coordinate_shift: 0,
             half_extents: [40, 65, 55],
@@ -68,6 +76,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         7,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 120,
             coordinate_shift: 2,
             half_extents: [104, 120, 20],
@@ -76,6 +85,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         8,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 116,
             coordinate_shift: 1,
             half_extents: [20, 22, 116],
@@ -84,6 +94,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         9,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 57,
             coordinate_shift: 0,
             half_extents: [10, 40, 50],
@@ -92,6 +103,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         10,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 4,
             half_extents: [64, 64, 64],
@@ -100,6 +112,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         11,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 276,
             coordinate_shift: 2,
             half_extents: [216, 104, 160],
@@ -108,6 +121,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         12,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 196,
             coordinate_shift: 1,
             half_extents: [120, 80, 180],
@@ -116,6 +130,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         13,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 98,
             coordinate_shift: 1,
             half_extents: [40, 40, 80],
@@ -124,6 +139,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         14,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 72,
             coordinate_shift: 1,
             half_extents: [60, 40, 30],
@@ -132,6 +148,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         15,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [80, 40, 20],
@@ -140,6 +157,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         16,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 76,
             coordinate_shift: 0,
             half_extents: [30, 48, 59],
@@ -148,6 +166,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         17,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 304,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -156,6 +175,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         18,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 90,
             coordinate_shift: 1,
             half_extents: [40, 60, 44],
@@ -164,6 +184,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         19,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 260,
             coordinate_shift: 2,
             half_extents: [40, 40, 80],
@@ -172,6 +193,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         20,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 1000,
             coordinate_shift: 3,
             half_extents: [240, 160, 1000],
@@ -180,6 +202,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         21,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 456,
             coordinate_shift: 2,
             half_extents: [152, 240, 400],
@@ -188,6 +211,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         22,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 2416,
             coordinate_shift: 4,
             half_extents: [1600, 1072, 0],
@@ -196,6 +220,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         23,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 604,
             coordinate_shift: 2,
             half_extents: [400, 268, 480],
@@ -204,6 +229,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         24,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 952,
             coordinate_shift: 3,
             half_extents: [88, 320, 880],
@@ -212,6 +238,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         25,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 952,
             coordinate_shift: 3,
             half_extents: [88, 320, 880],
@@ -220,6 +247,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         26,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 160,
             coordinate_shift: 2,
             half_extents: [128, 392, 136],
@@ -228,6 +256,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         27,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 480,
             coordinate_shift: 2,
             half_extents: [480, 480, 48],
@@ -236,6 +265,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         28,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 159,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -244,6 +274,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         29,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 159,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -252,6 +283,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         30,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 159,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -260,6 +292,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         31,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [10, 12, 5],
@@ -268,6 +301,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         32,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 170,
             coordinate_shift: 0,
             half_extents: [120, 120, 10],
@@ -276,6 +310,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         33,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 159,
             coordinate_shift: 0,
             half_extents: [0, 0, 300],
@@ -284,6 +319,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         34,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 69,
             coordinate_shift: 0,
             half_extents: [5, 60, 5],
@@ -292,6 +328,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         35,
         Sf1ShapeMetrics {
+            sort_depth: 800,
             visual_extent: 200,
             coordinate_shift: 2,
             half_extents: [200, 20, 40],
@@ -300,6 +337,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         36,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 44,
             coordinate_shift: 1,
             half_extents: [40, 20, 40],
@@ -308,6 +346,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         37,
         Sf1ShapeMetrics {
+            sort_depth: 400,
             visual_extent: 318,
             coordinate_shift: 1,
             half_extents: [200, 70, 20],
@@ -316,6 +355,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         38,
         Sf1ShapeMetrics {
+            sort_depth: 200,
             visual_extent: 159,
             coordinate_shift: 0,
             half_extents: [70, 65, 10],
@@ -324,6 +364,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         39,
         Sf1ShapeMetrics {
+            sort_depth: 800,
             visual_extent: 636,
             coordinate_shift: 2,
             half_extents: [360, 160, 40],
@@ -332,6 +373,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         40,
         Sf1ShapeMetrics {
+            sort_depth: 400,
             visual_extent: 318,
             coordinate_shift: 1,
             half_extents: [40, 30, 20],
@@ -340,6 +382,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         41,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 332,
             coordinate_shift: 2,
             half_extents: [32, 316, 40],
@@ -348,6 +391,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         42,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 83,
             coordinate_shift: 0,
             half_extents: [8, 79, 10],
@@ -356,6 +400,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         43,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 320,
             coordinate_shift: 2,
             half_extents: [240, 240, 120],
@@ -364,6 +409,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         44,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 120,
             coordinate_shift: 3,
             half_extents: [160, 240, 192],
@@ -372,6 +418,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         45,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 808,
             coordinate_shift: 3,
             half_extents: [80, 800, 40],
@@ -380,6 +427,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         46,
         Sf1ShapeMetrics {
+            sort_depth: 1600,
             visual_extent: 240,
             coordinate_shift: 3,
             half_extents: [240, 80, 88],
@@ -388,6 +436,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         47,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 76,
             coordinate_shift: 1,
             half_extents: [40, 70, 40],
@@ -396,6 +445,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         48,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 71,
             coordinate_shift: 0,
             half_extents: [40, 40, 50],
@@ -404,6 +454,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         49,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 0,
             half_extents: [35, 60, 40],
@@ -412,6 +463,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         50,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 92,
             coordinate_shift: 2,
             half_extents: [80, 80, 76],
@@ -420,6 +472,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         51,
         Sf1ShapeMetrics {
+            sort_depth: 40,
             visual_extent: 124,
             coordinate_shift: 2,
             half_extents: [100, 124, 100],
@@ -428,6 +481,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         52,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 1,
             half_extents: [66, 20, 78],
@@ -436,6 +490,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         53,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 110,
             coordinate_shift: 0,
             half_extents: [80, 70, 30],
@@ -444,6 +499,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         54,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 156,
             coordinate_shift: 1,
             half_extents: [30, 134, 80],
@@ -452,6 +508,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         55,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 472,
             coordinate_shift: 3,
             half_extents: [160, 240, 440],
@@ -460,6 +517,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         56,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 84,
             coordinate_shift: 2,
             half_extents: [60, 80, 60],
@@ -468,6 +526,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         57,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 552,
             coordinate_shift: 3,
             half_extents: [480, 160, 160],
@@ -476,6 +535,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         58,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 480,
             coordinate_shift: 2,
             half_extents: [80, 480, 160],
@@ -484,6 +544,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         59,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 86,
             coordinate_shift: 0,
             half_extents: [20, 76, 20],
@@ -492,6 +553,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         60,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 392,
             coordinate_shift: 3,
             half_extents: [160, 320, 160],
@@ -500,6 +562,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         61,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 416,
             coordinate_shift: 2,
             half_extents: [80, 400, 80],
@@ -508,6 +571,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         62,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 584,
             coordinate_shift: 3,
             half_extents: [80, 560, 160],
@@ -516,6 +580,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         63,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 460,
             coordinate_shift: 2,
             half_extents: [80, 320, 320],
@@ -524,6 +589,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         64,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 488,
             coordinate_shift: 2,
             half_extents: [200, 400, 200],
@@ -532,6 +598,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         65,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 488,
             coordinate_shift: 2,
             half_extents: [200, 400, 200],
@@ -540,6 +607,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         66,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 488,
             coordinate_shift: 2,
             half_extents: [200, 400, 200],
@@ -548,6 +616,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         67,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 384,
             coordinate_shift: 2,
             half_extents: [80, 340, 160],
@@ -556,6 +625,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         68,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 196,
             coordinate_shift: 2,
             half_extents: [80, 160, 80],
@@ -564,6 +634,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         69,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 232,
             coordinate_shift: 3,
             half_extents: [216, 240, 216],
@@ -572,6 +643,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         70,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 180,
             coordinate_shift: 1,
             half_extents: [90, 120, 100],
@@ -580,6 +652,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         71,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 86,
             coordinate_shift: 1,
             half_extents: [26, 86, 26],
@@ -588,6 +661,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         72,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 150,
             coordinate_shift: 1,
             half_extents: [90, 120, 40],
@@ -596,6 +670,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         73,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 159,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -604,6 +679,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         74,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 159,
             coordinate_shift: 0,
             half_extents: [0, 0, 300],
@@ -612,6 +688,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         75,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 432,
             coordinate_shift: 2,
             half_extents: [384, 316, 272],
@@ -620,6 +697,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         76,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 252,
             coordinate_shift: 2,
             half_extents: [180, 140, 240],
@@ -628,6 +706,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         77,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 148,
             coordinate_shift: 2,
             half_extents: [80, 296, 152],
@@ -636,6 +715,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         78,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 186,
             coordinate_shift: 1,
             half_extents: [78, 72, 178],
@@ -644,6 +724,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         79,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 50,
             coordinate_shift: 0,
             half_extents: [15, 42, 110],
@@ -652,6 +733,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         80,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 100,
             coordinate_shift: 0,
             half_extents: [54, 0, 89],
@@ -660,6 +742,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         81,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 496,
             coordinate_shift: 3,
             half_extents: [400, 120, 488],
@@ -668,6 +751,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         82,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 130,
             coordinate_shift: 1,
             half_extents: [50, 120, 10],
@@ -676,6 +760,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         83,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 57,
             coordinate_shift: 0,
             half_extents: [25, 33, 52],
@@ -684,6 +769,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         84,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 172,
             coordinate_shift: 2,
             half_extents: [136, 160, 68],
@@ -692,6 +778,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         85,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 140,
             coordinate_shift: 1,
             half_extents: [120, 60, 40],
@@ -700,6 +787,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         86,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 100,
             coordinate_shift: 1,
             half_extents: [90, 20, 40],
@@ -708,6 +796,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         87,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 122,
             coordinate_shift: 1,
             half_extents: [90, 40, 20],
@@ -716,6 +805,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         88,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 124,
             coordinate_shift: 1,
             half_extents: [30, 60, 20],
@@ -724,6 +814,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         89,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 130,
             coordinate_shift: 1,
             half_extents: [50, 60, 20],
@@ -732,6 +823,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         90,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 122,
             coordinate_shift: 1,
             half_extents: [10, 60, 20],
@@ -740,6 +832,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         91,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 94,
             coordinate_shift: 1,
             half_extents: [90, 10, 20],
@@ -748,6 +841,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         92,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 68,
             coordinate_shift: 1,
             half_extents: [30, 30, 20],
@@ -756,6 +850,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         93,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 82,
             coordinate_shift: 1,
             half_extents: [10, 40, 20],
@@ -764,6 +859,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         94,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 528,
             coordinate_shift: 3,
             half_extents: [488, 88, 480],
@@ -772,6 +868,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         95,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 214,
             coordinate_shift: 1,
             half_extents: [126, 120, 180],
@@ -780,6 +877,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         96,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 81,
             coordinate_shift: 0,
             half_extents: [55, 50, 55],
@@ -788,6 +886,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         97,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 156,
             coordinate_shift: 0,
             half_extents: [115, 10, 105],
@@ -796,6 +895,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         98,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 68,
             coordinate_shift: 0,
             half_extents: [30, 60, 30],
@@ -804,6 +904,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         99,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 113,
             coordinate_shift: 0,
             half_extents: [80, 25, 80],
@@ -812,6 +913,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         100,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 226,
             coordinate_shift: 1,
             half_extents: [40, 80, 210],
@@ -820,6 +922,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         101,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 154,
             coordinate_shift: 1,
             half_extents: [30, 30, 150],
@@ -828,6 +931,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         102,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 128,
             coordinate_shift: 0,
             half_extents: [25, 125, 25],
@@ -836,6 +940,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         103,
         Sf1ShapeMetrics {
+            sort_depth: -800,
             visual_extent: 80,
             coordinate_shift: 3,
             half_extents: [80, 80, 80],
@@ -844,6 +949,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         104,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 84,
             coordinate_shift: 1,
             half_extents: [66, 60, 60],
@@ -852,6 +958,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         105,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 158,
             coordinate_shift: 1,
             half_extents: [140, 40, 120],
@@ -860,6 +967,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         106,
         Sf1ShapeMetrics {
+            sort_depth: 1280,
             visual_extent: 1200,
             coordinate_shift: 4,
             half_extents: [320, 320, 320],
@@ -868,6 +976,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         107,
         Sf1ShapeMetrics {
+            sort_depth: 640,
             visual_extent: 600,
             coordinate_shift: 3,
             half_extents: [160, 160, 160],
@@ -876,6 +985,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         108,
         Sf1ShapeMetrics {
+            sort_depth: 320,
             visual_extent: 300,
             coordinate_shift: 2,
             half_extents: [80, 80, 80],
@@ -884,6 +994,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         109,
         Sf1ShapeMetrics {
+            sort_depth: 80,
             visual_extent: 122,
             coordinate_shift: 0,
             half_extents: [30, 50, 120],
@@ -892,6 +1003,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         110,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 424,
             coordinate_shift: 3,
             half_extents: [344, 376, 128],
@@ -900,6 +1012,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         111,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 110,
             coordinate_shift: 1,
             half_extents: [92, 60, 10],
@@ -908,6 +1021,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         112,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 110,
             coordinate_shift: 1,
             half_extents: [92, 60, 10],
@@ -916,6 +1030,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         113,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 150,
             coordinate_shift: 1,
             half_extents: [90, 110, 60],
@@ -924,6 +1039,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         114,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 344,
             coordinate_shift: 2,
             half_extents: [328, 160, 292],
@@ -932,6 +1048,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         115,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 296,
             coordinate_shift: 3,
             half_extents: [240, 320, 400],
@@ -940,6 +1057,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         116,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 4,
             coordinate_shift: 0,
             half_extents: [4, 4, 4],
@@ -948,6 +1066,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         117,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 144,
             coordinate_shift: 1,
             half_extents: [64, 128, 10],
@@ -956,6 +1075,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         118,
         Sf1ShapeMetrics {
+            sort_depth: 3136,
             visual_extent: 256,
             coordinate_shift: 3,
             half_extents: [64, 144, 200],
@@ -964,6 +1084,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         119,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 3072,
             coordinate_shift: 6,
             half_extents: [2560, 2560, 1600],
@@ -972,6 +1093,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         120,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 106,
             coordinate_shift: 0,
             half_extents: [50, 60, 90],
@@ -980,6 +1102,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         121,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 36,
             coordinate_shift: 0,
             half_extents: [20, 20, 30],
@@ -988,6 +1111,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         122,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 124,
             coordinate_shift: 1,
             half_extents: [28, 120, 20],
@@ -996,6 +1120,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         123,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 21,
             coordinate_shift: 0,
             half_extents: [15, 5, 15],
@@ -1004,6 +1129,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         124,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 664,
             coordinate_shift: 3,
             half_extents: [344, 352, 440],
@@ -1012,6 +1138,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         125,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 360,
             coordinate_shift: 3,
             half_extents: [336, 160, 24],
@@ -1020,6 +1147,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         126,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 360,
             coordinate_shift: 3,
             half_extents: [360, 144, 40],
@@ -1028,6 +1156,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         127,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 128,
             coordinate_shift: 1,
             half_extents: [80, 80, 120],
@@ -1036,6 +1165,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         128,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 59,
             coordinate_shift: 0,
             half_extents: [58, 37, 28],
@@ -1044,6 +1174,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         129,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 44,
             coordinate_shift: 0,
             half_extents: [32, 42, 25],
@@ -1052,6 +1183,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         130,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 65,
             coordinate_shift: 0,
             half_extents: [60, 25, 60],
@@ -1060,6 +1192,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         131,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 204,
             coordinate_shift: 2,
             half_extents: [160, 100, 124],
@@ -1068,6 +1201,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         132,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 92,
             coordinate_shift: 1,
             half_extents: [52, 64, 90],
@@ -1076,6 +1210,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         133,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 108,
             coordinate_shift: 1,
             half_extents: [60, 34, 90],
@@ -1084,6 +1219,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         134,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 180,
             coordinate_shift: 1,
             half_extents: [130, 100, 150],
@@ -1092,6 +1228,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         135,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 340,
             coordinate_shift: 2,
             half_extents: [272, 100, 216],
@@ -1100,6 +1237,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         136,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1108,6 +1246,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         137,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1116,6 +1255,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         138,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1124,6 +1264,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         139,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1132,6 +1273,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         140,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1140,6 +1282,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         141,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1148,6 +1291,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         142,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1156,6 +1300,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         143,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1164,6 +1309,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         144,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1172,6 +1318,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         145,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1180,6 +1327,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         146,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1188,6 +1336,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         147,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1196,6 +1345,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         148,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1204,6 +1354,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         149,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1212,6 +1363,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         150,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1220,6 +1372,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         151,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -1228,6 +1381,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         152,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 568,
             coordinate_shift: 3,
             half_extents: [400, 488, 280],
@@ -1236,6 +1390,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         153,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 528,
             coordinate_shift: 3,
             half_extents: [440, 136, 280],
@@ -1244,6 +1399,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         154,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 110,
             coordinate_shift: 1,
             half_extents: [92, 60, 40],
@@ -1252,6 +1408,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         155,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 992,
             coordinate_shift: 4,
             half_extents: [80, 400, 160],
@@ -1260,6 +1417,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         156,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 992,
             coordinate_shift: 4,
             half_extents: [672, 672, 800],
@@ -1268,6 +1426,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         157,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 88,
             coordinate_shift: 1,
             half_extents: [64, 84, 50],
@@ -1276,6 +1435,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         158,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 46,
             coordinate_shift: 1,
             half_extents: [42, 40, 40],
@@ -1284,6 +1444,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         159,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 48,
             coordinate_shift: 1,
             half_extents: [48, 40, 48],
@@ -1292,6 +1453,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         160,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 44,
             coordinate_shift: 1,
             half_extents: [40, 40, 34],
@@ -1300,6 +1462,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         161,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 1,
             half_extents: [48, 58, 50],
@@ -1308,6 +1471,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         162,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 1,
             half_extents: [48, 58, 50],
@@ -1316,6 +1480,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         163,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 1,
             half_extents: [48, 58, 50],
@@ -1324,6 +1489,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         164,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 88,
             coordinate_shift: 0,
             half_extents: [30, 87, 47],
@@ -1332,6 +1498,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         165,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 1192,
             coordinate_shift: 3,
             half_extents: [480, 640, 960],
@@ -1340,6 +1507,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         166,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 1192,
             coordinate_shift: 3,
             half_extents: [480, 640, 960],
@@ -1348,6 +1516,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         167,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 156,
             coordinate_shift: 1,
             half_extents: [60, 120, 100],
@@ -1356,6 +1525,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         168,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 240,
             coordinate_shift: 2,
             half_extents: [72, 236, 80],
@@ -1364,6 +1534,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         169,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 672,
             coordinate_shift: 3,
             half_extents: [96, 640, 440],
@@ -1372,6 +1543,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         170,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 672,
             coordinate_shift: 3,
             half_extents: [96, 640, 440],
@@ -1380,6 +1552,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         171,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 680,
             coordinate_shift: 3,
             half_extents: [136, 640, 440],
@@ -1388,6 +1561,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         172,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 680,
             coordinate_shift: 3,
             half_extents: [136, 640, 440],
@@ -1396,6 +1570,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         173,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 696,
             coordinate_shift: 3,
             half_extents: [208, 640, 440],
@@ -1404,6 +1579,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         174,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 696,
             coordinate_shift: 3,
             half_extents: [208, 640, 440],
@@ -1412,6 +1588,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         175,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 432,
             coordinate_shift: 3,
             half_extents: [184, 400, 160],
@@ -1420,6 +1597,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         176,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 672,
             coordinate_shift: 3,
             half_extents: [96, 640, 440],
@@ -1428,6 +1606,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         177,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 672,
             coordinate_shift: 3,
             half_extents: [96, 640, 440],
@@ -1436,6 +1615,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         178,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 680,
             coordinate_shift: 3,
             half_extents: [136, 640, 440],
@@ -1444,6 +1624,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         179,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 680,
             coordinate_shift: 3,
             half_extents: [136, 640, 440],
@@ -1452,6 +1633,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         180,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 696,
             coordinate_shift: 3,
             half_extents: [208, 640, 440],
@@ -1460,6 +1642,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         181,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 696,
             coordinate_shift: 3,
             half_extents: [208, 640, 440],
@@ -1468,6 +1651,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         182,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 432,
             coordinate_shift: 3,
             half_extents: [184, 400, 160],
@@ -1476,6 +1660,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         183,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 672,
             coordinate_shift: 3,
             half_extents: [96, 640, 440],
@@ -1484,6 +1669,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         184,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 672,
             coordinate_shift: 3,
             half_extents: [96, 640, 440],
@@ -1492,6 +1678,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         185,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 680,
             coordinate_shift: 3,
             half_extents: [136, 640, 440],
@@ -1500,6 +1687,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         186,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 680,
             coordinate_shift: 3,
             half_extents: [136, 640, 440],
@@ -1508,6 +1696,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         187,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 696,
             coordinate_shift: 3,
             half_extents: [208, 640, 440],
@@ -1516,6 +1705,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         188,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 696,
             coordinate_shift: 3,
             half_extents: [208, 640, 440],
@@ -1524,6 +1714,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         189,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 432,
             coordinate_shift: 3,
             half_extents: [184, 400, 160],
@@ -1532,6 +1723,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         190,
         Sf1ShapeMetrics {
+            sort_depth: -40,
             visual_extent: 224,
             coordinate_shift: 2,
             half_extents: [120, 200, 200],
@@ -1540,6 +1732,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         191,
         Sf1ShapeMetrics {
+            sort_depth: -20,
             visual_extent: 112,
             coordinate_shift: 1,
             half_extents: [60, 100, 100],
@@ -1548,6 +1741,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         192,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 192,
             coordinate_shift: 1,
             half_extents: [182, 64, 188],
@@ -1556,6 +1750,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         193,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 4,
             half_extents: [64, 64, 64],
@@ -1564,6 +1759,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         194,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 4,
             half_extents: [64, 64, 64],
@@ -1572,6 +1768,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         195,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 160,
             coordinate_shift: 3,
             half_extents: [160, 160, 0],
@@ -1580,6 +1777,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         196,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 116,
             coordinate_shift: 1,
             half_extents: [60, 24, 100],
@@ -1588,6 +1786,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         197,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 78,
             coordinate_shift: 0,
             half_extents: [30, 75, 30],
@@ -1596,6 +1795,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         198,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 40,
             coordinate_shift: 0,
             half_extents: [25, 40, 20],
@@ -1604,6 +1804,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         199,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 284,
             coordinate_shift: 2,
             half_extents: [188, 204, 60],
@@ -1612,6 +1813,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         200,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 50,
             coordinate_shift: 0,
             half_extents: [15, 50, 15],
@@ -1620,6 +1822,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         201,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 86,
             coordinate_shift: 0,
             half_extents: [70, 53, 49],
@@ -1628,6 +1831,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         202,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [15, 40, 15],
@@ -1636,6 +1840,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         203,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 120,
             coordinate_shift: 0,
             half_extents: [50, 25, 120],
@@ -1644,6 +1849,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         204,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 111,
             coordinate_shift: 0,
             half_extents: [110, 23, 102],
@@ -1652,6 +1858,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         205,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 36,
             coordinate_shift: 1,
             half_extents: [34, 20, 20],
@@ -1660,6 +1867,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         206,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 130,
             coordinate_shift: 1,
             half_extents: [52, 130, 42],
@@ -1668,6 +1876,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         207,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 170,
             coordinate_shift: 1,
             half_extents: [52, 170, 42],
@@ -1676,6 +1885,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         208,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 50,
             coordinate_shift: 0,
             half_extents: [20, 50, 20],
@@ -1684,6 +1894,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         209,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 1,
             half_extents: [60, 80, 60],
@@ -1692,6 +1903,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         210,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 60,
             coordinate_shift: 1,
             half_extents: [52, 60, 14],
@@ -1700,6 +1912,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         211,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 45,
             coordinate_shift: 0,
             half_extents: [10, 15, 41],
@@ -1708,6 +1921,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         212,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 2144,
             coordinate_shift: 5,
             half_extents: [1248, 1920, 1504],
@@ -1716,6 +1930,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         213,
         Sf1ShapeMetrics {
+            sort_depth: 1600,
             visual_extent: 1600,
             coordinate_shift: 4,
             half_extents: [112, 1600, 1600],
@@ -1724,6 +1939,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         214,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 108,
             coordinate_shift: 2,
             half_extents: [96, 0, 96],
@@ -1732,6 +1948,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         215,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 168,
             coordinate_shift: 1,
             half_extents: [112, 126, 20],
@@ -1740,6 +1957,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         216,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 114,
             coordinate_shift: 1,
             half_extents: [60, 50, 100],
@@ -1748,6 +1966,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         217,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 116,
             coordinate_shift: 1,
             half_extents: [72, 74, 60],
@@ -1756,6 +1975,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         218,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [36, 14, 80],
@@ -1764,6 +1984,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         219,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 116,
             coordinate_shift: 1,
             half_extents: [50, 104, 48],
@@ -1772,6 +1993,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         220,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 100,
             coordinate_shift: 0,
             half_extents: [46, 61, 100],
@@ -1780,6 +2002,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         221,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 79,
             coordinate_shift: 0,
             half_extents: [60, 60, 50],
@@ -1788,6 +2011,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         222,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 192,
             coordinate_shift: 2,
             half_extents: [152, 100, 164],
@@ -1796,6 +2020,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         223,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 944,
             coordinate_shift: 4,
             half_extents: [480, 800, 80],
@@ -1804,6 +2029,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         224,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 125,
             coordinate_shift: 0,
             half_extents: [70, 28, 100],
@@ -1812,6 +2038,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         225,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 250,
             coordinate_shift: 1,
             half_extents: [140, 56, 200],
@@ -1820,6 +2047,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         226,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -1828,6 +2056,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         227,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 252,
             coordinate_shift: 2,
             half_extents: [60, 80, 240],
@@ -1836,6 +2065,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         228,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 172,
             coordinate_shift: 2,
             half_extents: [120, 160, 40],
@@ -1844,6 +2074,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         229,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 160,
             coordinate_shift: 1,
             half_extents: [74, 54, 220],
@@ -1852,6 +2083,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         230,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 45,
             coordinate_shift: 0,
             half_extents: [45, 40, 40],
@@ -1860,6 +2092,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         231,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 84,
             coordinate_shift: 1,
             half_extents: [66, 60, 60],
@@ -1868,6 +2101,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         232,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 736,
             coordinate_shift: 3,
             half_extents: [320, 640, 360],
@@ -1876,6 +2110,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         233,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 408,
             coordinate_shift: 2,
             half_extents: [200, 280, 300],
@@ -1884,6 +2119,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         234,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 1,
             half_extents: [48, 58, 50],
@@ -1892,6 +2128,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         235,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 78,
             coordinate_shift: 0,
             half_extents: [45, 60, 20],
@@ -1900,6 +2137,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         236,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 110,
             coordinate_shift: 1,
             half_extents: [90, 60, 20],
@@ -1908,6 +2146,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         237,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 256,
             coordinate_shift: 6,
             half_extents: [256, 256, 256],
@@ -1916,6 +2155,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         238,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 60,
             coordinate_shift: 1,
             half_extents: [56, 20, 36],
@@ -1924,6 +2164,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         239,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 156,
             coordinate_shift: 1,
             half_extents: [60, 120, 100],
@@ -1932,6 +2173,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         240,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -1940,6 +2182,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         241,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -1948,6 +2191,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         242,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -1956,6 +2200,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         243,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -1964,6 +2209,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         244,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 10, 60],
@@ -1972,6 +2218,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         245,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 3,
             half_extents: [80, 80, 80],
@@ -1980,6 +2227,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         246,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 3,
             half_extents: [80, 80, 80],
@@ -1988,6 +2236,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         247,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 164,
             coordinate_shift: 1,
             half_extents: [28, 160, 28],
@@ -1996,6 +2245,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         248,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 94,
             coordinate_shift: 0,
             half_extents: [90, 20, 20],
@@ -2004,6 +2254,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         256,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 1200,
             coordinate_shift: 4,
             half_extents: [800, 672, 752],
@@ -2012,6 +2263,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         257,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 56,
             coordinate_shift: 0,
             half_extents: [35, 47, 30],
@@ -2020,6 +2272,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         258,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 49,
             coordinate_shift: 0,
             half_extents: [10, 20, 7],
@@ -2028,6 +2281,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         259,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 320,
             coordinate_shift: 3,
             half_extents: [320, 320, 320],
@@ -2036,6 +2290,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         260,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 320,
             coordinate_shift: 3,
             half_extents: [160, 560, 160],
@@ -2044,6 +2299,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         261,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 528,
             coordinate_shift: 3,
             half_extents: [368, 248, 520],
@@ -2052,6 +2308,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         262,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 440,
             coordinate_shift: 3,
             half_extents: [264, 528, 288],
@@ -2060,6 +2317,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         263,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 320,
             coordinate_shift: 3,
             half_extents: [216, 480, 216],
@@ -2068,6 +2326,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         264,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 840,
             coordinate_shift: 3,
             half_extents: [320, 800, 320],
@@ -2076,6 +2335,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         265,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 840,
             coordinate_shift: 3,
             half_extents: [320, 800, 320],
@@ -2084,6 +2344,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         266,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 800,
             coordinate_shift: 3,
             half_extents: [56, 112, 800],
@@ -2092,6 +2353,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         267,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 95,
             coordinate_shift: 0,
             half_extents: [60, 70, 70],
@@ -2100,6 +2362,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         268,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 22,
             coordinate_shift: 0,
             half_extents: [20, 20, 0],
@@ -2108,6 +2371,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         269,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 74,
             coordinate_shift: 1,
             half_extents: [50, 40, 60],
@@ -2116,6 +2380,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         270,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 85,
             coordinate_shift: 0,
             half_extents: [50, 60, 60],
@@ -2124,6 +2389,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         271,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 63,
             coordinate_shift: 0,
             half_extents: [55, 40, 60],
@@ -2132,6 +2398,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         272,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 32,
             coordinate_shift: 3,
             half_extents: [32, 32, 32],
@@ -2140,6 +2407,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         273,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 160,
             coordinate_shift: 4,
             half_extents: [160, 160, 160],
@@ -2148,6 +2416,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         274,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -2156,6 +2425,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         275,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 4,
             half_extents: [64, 64, 64],
@@ -2164,6 +2434,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         276,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -2172,6 +2443,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         277,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -2180,6 +2452,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         279,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 256,
             coordinate_shift: 6,
             half_extents: [256, 256, 256],
@@ -2188,6 +2461,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         280,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -2196,6 +2470,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         281,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 776,
             coordinate_shift: 3,
             half_extents: [160, 160, 400],
@@ -2204,6 +2479,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         282,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 172,
             coordinate_shift: 1,
             half_extents: [170, 134, 128],
@@ -2212,6 +2488,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         283,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 40,
             coordinate_shift: 1,
             half_extents: [24, 18, 30],
@@ -2220,6 +2497,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         284,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 66,
             coordinate_shift: 0,
             half_extents: [20, 60, 20],
@@ -2228,6 +2506,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         285,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 2304,
             coordinate_shift: 3,
             half_extents: [1040, 480, 2000],
@@ -2236,6 +2515,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         286,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 640,
             coordinate_shift: 3,
             half_extents: [128, 120, 608],
@@ -2244,6 +2524,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         287,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 66,
             coordinate_shift: 0,
             half_extents: [20, 60, 20],
@@ -2252,6 +2533,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         288,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 114,
             coordinate_shift: 1,
             half_extents: [80, 78, 80],
@@ -2260,6 +2542,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         289,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 228,
             coordinate_shift: 2,
             half_extents: [160, 224, 160],
@@ -2268,6 +2551,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         290,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 220,
             coordinate_shift: 2,
             half_extents: [220, 220, 220],
@@ -2276,6 +2560,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         291,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 432,
             coordinate_shift: 2,
             half_extents: [180, 400, 140],
@@ -2284,6 +2569,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         292,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -2292,6 +2578,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         293,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -2300,6 +2587,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         294,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -2308,6 +2596,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         295,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -2316,6 +2605,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         296,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 30, 60],
@@ -2324,6 +2614,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         297,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 34,
             coordinate_shift: 0,
             half_extents: [8, 10, 60],
@@ -2332,6 +2623,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         298,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 60,
             coordinate_shift: 1,
             half_extents: [40, 60, 40],
@@ -2340,6 +2632,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         299,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 30,
             coordinate_shift: 1,
             half_extents: [20, 30, 18],
@@ -2348,6 +2641,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         300,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 204,
             coordinate_shift: 2,
             half_extents: [192, 80, 192],
@@ -2356,6 +2650,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         301,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 768,
             coordinate_shift: 3,
             half_extents: [160, 760, 768],
@@ -2364,6 +2659,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         302,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 768,
             coordinate_shift: 3,
             half_extents: [560, 128, 760],
@@ -2372,6 +2668,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         303,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 256,
             coordinate_shift: 2,
             half_extents: [120, 240, 40],
@@ -2380,6 +2677,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         304,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 400,
             coordinate_shift: 2,
             half_extents: [32, 400, 0],
@@ -2388,6 +2686,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         305,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 304,
             coordinate_shift: 3,
             half_extents: [240, 216, 200],
@@ -2396,6 +2695,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         306,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 688,
             coordinate_shift: 3,
             half_extents: [488, 600, 640],
@@ -2404,6 +2704,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         307,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 264,
             coordinate_shift: 3,
             half_extents: [232, 200, 160],
@@ -2412,6 +2713,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         308,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 568,
             coordinate_shift: 3,
             half_extents: [48, 168, 560],
@@ -2420,6 +2722,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         309,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 568,
             coordinate_shift: 3,
             half_extents: [48, 168, 560],
@@ -2428,6 +2731,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         310,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 2176,
             coordinate_shift: 3,
             half_extents: [720, 480, 2000],
@@ -2436,6 +2740,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         311,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 640,
             coordinate_shift: 3,
             half_extents: [128, 120, 608],
@@ -2444,6 +2749,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         312,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 1920,
             coordinate_shift: 4,
             half_extents: [400, 640, 1920],
@@ -2452,6 +2758,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         313,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 464,
             coordinate_shift: 4,
             half_extents: [208, 96, 416],
@@ -2460,6 +2767,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         314,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 464,
             coordinate_shift: 4,
             half_extents: [208, 96, 416],
@@ -2468,6 +2776,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         315,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 464,
             coordinate_shift: 4,
             half_extents: [208, 96, 416],
@@ -2476,6 +2785,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         316,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 464,
             coordinate_shift: 4,
             half_extents: [208, 96, 416],
@@ -2484,6 +2794,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         317,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 400,
             coordinate_shift: 4,
             half_extents: [208, 96, 320],
@@ -2492,6 +2803,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         318,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 400,
             coordinate_shift: 4,
             half_extents: [208, 96, 320],
@@ -2500,6 +2812,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         319,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 832,
             coordinate_shift: 4,
             half_extents: [224, 160, 800],
@@ -2508,6 +2821,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         320,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 66,
             coordinate_shift: 0,
             half_extents: [60, 20, 20],
@@ -2516,6 +2830,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         321,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 88,
             coordinate_shift: 1,
             half_extents: [60, 60, 20],
@@ -2524,6 +2839,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         322,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 130,
             coordinate_shift: 0,
             half_extents: [70, 96, 52],
@@ -2532,6 +2848,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         323,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 188,
             coordinate_shift: 2,
             half_extents: [140, 68, 132],
@@ -2540,6 +2857,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         324,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [36, 14, 80],
@@ -2548,6 +2866,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         325,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 156,
             coordinate_shift: 0,
             half_extents: [115, 110, 105],
@@ -2556,6 +2875,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         326,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 204,
             coordinate_shift: 2,
             half_extents: [120, 80, 200],
@@ -2564,6 +2884,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         327,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 50,
             coordinate_shift: 1,
             half_extents: [160, 160, 160],
@@ -2572,6 +2893,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         328,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 160,
             coordinate_shift: 1,
             half_extents: [40, 40, 160],
@@ -2580,6 +2902,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         329,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 240,
             coordinate_shift: 2,
             half_extents: [200, 200, 220],
@@ -2588,6 +2911,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         330,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 240,
             coordinate_shift: 2,
             half_extents: [200, 200, 220],
@@ -2596,6 +2920,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         331,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 240,
             coordinate_shift: 2,
             half_extents: [200, 200, 220],
@@ -2604,6 +2929,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         332,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 93,
             coordinate_shift: 0,
             half_extents: [40, 36, 88],
@@ -2612,6 +2938,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         333,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 36,
             coordinate_shift: 1,
             half_extents: [34, 20, 20],
@@ -2620,6 +2947,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         334,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 40,
             coordinate_shift: 2,
             half_extents: [40, 40, 120],
@@ -2628,6 +2956,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         335,
         Sf1ShapeMetrics {
+            sort_depth: -200,
             visual_extent: 96,
             coordinate_shift: 1,
             half_extents: [76, 70, 80],
@@ -2636,6 +2965,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         336,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 120,
             coordinate_shift: 0,
             half_extents: [15, 120, 23],
@@ -2644,6 +2974,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         337,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 50,
             coordinate_shift: 0,
             half_extents: [15, 50, 15],
@@ -2652,6 +2983,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         338,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 4,
             coordinate_shift: 0,
             half_extents: [4, 4, 4],
@@ -2660,6 +2992,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         339,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 8,
             coordinate_shift: 1,
             half_extents: [8, 8, 8],
@@ -2668,6 +3001,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         340,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -2676,6 +3010,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         341,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 32,
             coordinate_shift: 3,
             half_extents: [32, 32, 32],
@@ -2684,6 +3019,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         342,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -2692,6 +3028,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         343,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 200,
             coordinate_shift: 1,
             half_extents: [200, 200, 200],
@@ -2700,6 +3037,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         344,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 0,
             coordinate_shift: 0,
             half_extents: [0, 0, 0],
@@ -2708,6 +3046,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         345,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 1184,
             coordinate_shift: 4,
             half_extents: [448, 960, 976],
@@ -2716,6 +3055,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         346,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 1120,
             coordinate_shift: 4,
             half_extents: [480, 960, 400],
@@ -2724,6 +3064,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         347,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 400,
             coordinate_shift: 3,
             half_extents: [160, 400, 160],
@@ -2732,6 +3073,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         348,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 236,
             coordinate_shift: 2,
             half_extents: [120, 200, 20],
@@ -2740,6 +3082,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         349,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 236,
             coordinate_shift: 2,
             half_extents: [120, 200, 20],
@@ -2748,6 +3091,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         350,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 30,
             coordinate_shift: 0,
             half_extents: [20, 30, 20],
@@ -2756,6 +3100,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         351,
         Sf1ShapeMetrics {
+            sort_depth: -10,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [34, 14, 80],
@@ -2764,6 +3109,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         352,
         Sf1ShapeMetrics {
+            sort_depth: -10,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [33, 16, 80],
@@ -2772,6 +3118,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         353,
         Sf1ShapeMetrics {
+            sort_depth: -10,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [33, 16, 80],
@@ -2780,6 +3127,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         354,
         Sf1ShapeMetrics {
+            sort_depth: -10,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [25, 13, 80],
@@ -2788,6 +3136,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         355,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 30,
             coordinate_shift: 1,
             half_extents: [20, 30, 18],
@@ -2796,6 +3145,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         356,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 46,
             coordinate_shift: 0,
             half_extents: [36, 23, 35],
@@ -2804,6 +3154,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         357,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 188,
             coordinate_shift: 2,
             half_extents: [136, 136, 144],
@@ -2812,6 +3163,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         358,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 40,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -2820,6 +3172,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         359,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -2828,6 +3181,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         360,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 32,
             coordinate_shift: 3,
             half_extents: [32, 32, 32],
@@ -2836,6 +3190,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         361,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 8,
             coordinate_shift: 1,
             half_extents: [8, 8, 8],
@@ -2844,6 +3199,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         362,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 20,
             coordinate_shift: 1,
             half_extents: [20, 20, 20],
@@ -2852,6 +3208,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         363,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 40,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -2860,6 +3217,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         364,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 3,
             half_extents: [80, 80, 80],
@@ -2868,6 +3226,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         365,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 320,
             coordinate_shift: 5,
             half_extents: [320, 320, 320],
@@ -2876,6 +3235,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         366,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 400,
             coordinate_shift: 2,
             half_extents: [400, 400, 400],
@@ -2884,6 +3244,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         367,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -2892,6 +3253,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         368,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [36, 14, 80],
@@ -2900,6 +3262,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         369,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [36, 14, 80],
@@ -2908,6 +3271,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         370,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [20, 14, 80],
@@ -2916,6 +3280,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         371,
         Sf1ShapeMetrics {
+            sort_depth: 3200,
             visual_extent: 0,
             coordinate_shift: 5,
             half_extents: [0, 0, 3200],
@@ -2924,6 +3289,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         372,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [36, 14, 80],
@@ -2932,6 +3298,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         373,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [36, 14, 80],
@@ -2940,6 +3307,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         374,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [36, 14, 80],
@@ -2948,6 +3316,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         375,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 0,
             half_extents: [20, 14, 80],
@@ -2956,6 +3325,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         376,
         Sf1ShapeMetrics {
+            sort_depth: -1280,
             visual_extent: 1280,
             coordinate_shift: 4,
             half_extents: [576, 224, 1280],
@@ -2964,6 +3334,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         377,
         Sf1ShapeMetrics {
+            sort_depth: -1280,
             visual_extent: 1280,
             coordinate_shift: 4,
             half_extents: [576, 224, 1280],
@@ -2972,6 +3343,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         378,
         Sf1ShapeMetrics {
+            sort_depth: -1280,
             visual_extent: 1280,
             coordinate_shift: 4,
             half_extents: [576, 224, 1280],
@@ -2980,6 +3352,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         379,
         Sf1ShapeMetrics {
+            sort_depth: -1280,
             visual_extent: 1280,
             coordinate_shift: 4,
             half_extents: [320, 224, 1280],
@@ -2988,6 +3361,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         380,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 22,
             coordinate_shift: 0,
             half_extents: [20, 20, 0],
@@ -2996,6 +3370,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         381,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 128,
             coordinate_shift: 1,
             half_extents: [88, 86, 96],
@@ -3004,6 +3379,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         382,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 82,
             coordinate_shift: 1,
             half_extents: [40, 40, 60],
@@ -3012,6 +3388,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         383,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 50,
             coordinate_shift: 1,
             half_extents: [160, 160, 160],
@@ -3020,6 +3397,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         384,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 70,
             coordinate_shift: 1,
             half_extents: [60, 70, 52],
@@ -3028,6 +3406,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         385,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 112,
             coordinate_shift: 4,
             half_extents: [112, 112, 112],
@@ -3036,6 +3415,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         386,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 48,
             coordinate_shift: 3,
             half_extents: [48, 48, 48],
@@ -3044,6 +3424,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         387,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 372,
             coordinate_shift: 2,
             half_extents: [284, 284, 192],
@@ -3052,6 +3433,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         388,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 372,
             coordinate_shift: 2,
             half_extents: [284, 284, 192],
@@ -3060,6 +3442,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         389,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 40,
             coordinate_shift: 1,
             half_extents: [30, 40, 30],
@@ -3068,6 +3451,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         390,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 42,
             coordinate_shift: 1,
             half_extents: [30, 40, 30],
@@ -3076,6 +3460,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         391,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 108,
             coordinate_shift: 1,
             half_extents: [42, 36, 94],
@@ -3084,6 +3469,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         392,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 128,
             coordinate_shift: 0,
             half_extents: [38, 117, 36],
@@ -3092,6 +3478,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         393,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 59,
             coordinate_shift: 0,
             half_extents: [30, 50, 5],
@@ -3100,6 +3487,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         394,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 336,
             coordinate_shift: 2,
             half_extents: [200, 180, 200],
@@ -3108,6 +3496,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         395,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 552,
             coordinate_shift: 3,
             half_extents: [480, 176, 200],
@@ -3116,6 +3505,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         396,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 552,
             coordinate_shift: 3,
             half_extents: [480, 176, 200],
@@ -3124,6 +3514,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         397,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 204,
             coordinate_shift: 2,
             half_extents: [88, 176, 120],
@@ -3132,6 +3523,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         398,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 204,
             coordinate_shift: 2,
             half_extents: [88, 176, 120],
@@ -3140,6 +3532,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         399,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 268,
             coordinate_shift: 2,
             half_extents: [180, 136, 144],
@@ -3148,6 +3541,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         400,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 236,
             coordinate_shift: 2,
             half_extents: [40, 120, 220],
@@ -3156,6 +3550,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         401,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 56,
             coordinate_shift: 0,
             half_extents: [36, 14, 40],
@@ -3164,6 +3559,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         402,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 40,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -3172,6 +3568,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         403,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 72,
             coordinate_shift: 1,
             half_extents: [24, 30, 60],
@@ -3180,6 +3577,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         404,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 80,
             coordinate_shift: 3,
             half_extents: [80, 80, 240],
@@ -3188,6 +3586,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         405,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 32,
             coordinate_shift: 3,
             half_extents: [32, 32, 32],
@@ -3196,6 +3595,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         406,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -3204,6 +3604,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         407,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 32,
             coordinate_shift: 3,
             half_extents: [32, 32, 32],
@@ -3212,6 +3613,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         408,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 176,
             coordinate_shift: 3,
             half_extents: [160, 160, 0],
@@ -3220,6 +3622,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         409,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 116,
             coordinate_shift: 2,
             half_extents: [80, 80, 20],
@@ -3228,6 +3631,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         410,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 125,
             coordinate_shift: 0,
             half_extents: [70, 28, 100],
@@ -3236,6 +3640,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         411,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 125,
             coordinate_shift: 0,
             half_extents: [70, 28, 100],
@@ -3244,6 +3649,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         412,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 90,
             coordinate_shift: 1,
             half_extents: [40, 60, 44],
@@ -3252,6 +3658,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         413,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 82,
             coordinate_shift: 1,
             half_extents: [60, 40, 80],
@@ -3260,6 +3667,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         414,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 452,
             coordinate_shift: 2,
             half_extents: [200, 376, 132],
@@ -3268,6 +3676,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         415,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [64, 40, 120],
@@ -3276,6 +3685,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         416,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 32,
             coordinate_shift: 3,
             half_extents: [32, 32, 32],
@@ -3284,6 +3694,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         417,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 120,
             coordinate_shift: 1,
             half_extents: [86, 100, 110],
@@ -3292,6 +3703,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         418,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 25,
             coordinate_shift: 0,
             half_extents: [20, 25, 20],
@@ -3300,6 +3712,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         419,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 29,
             coordinate_shift: 0,
             half_extents: [25, 11, 15],
@@ -3308,6 +3721,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         420,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 348,
             coordinate_shift: 2,
             half_extents: [80, 348, 80],
@@ -3316,6 +3730,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         421,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 416,
             coordinate_shift: 3,
             half_extents: [240, 160, 360],
@@ -3324,6 +3739,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         422,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 472,
             coordinate_shift: 3,
             half_extents: [160, 240, 440],
@@ -3332,6 +3748,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         423,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 360,
             coordinate_shift: 3,
             half_extents: [80, 160, 320],
@@ -3340,6 +3757,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         424,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 416,
             coordinate_shift: 3,
             half_extents: [280, 280, 360],
@@ -3348,6 +3766,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         425,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 440,
             coordinate_shift: 3,
             half_extents: [280, 328, 360],
@@ -3356,6 +3775,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         426,
         Sf1ShapeMetrics {
+            sort_depth: -120,
             visual_extent: 280,
             coordinate_shift: 2,
             half_extents: [228, 264, 100],
@@ -3364,6 +3784,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         427,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 36,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -3372,6 +3793,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         428,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 36,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -3380,6 +3802,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         429,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 28,
             coordinate_shift: 2,
             half_extents: [16, 8, 20],
@@ -3388,6 +3811,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         430,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 28,
             coordinate_shift: 2,
             half_extents: [16, 8, 20],
@@ -3396,6 +3820,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         431,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 1120,
             coordinate_shift: 4,
             half_extents: [480, 960, 400],
@@ -3404,6 +3829,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         432,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 400,
             coordinate_shift: 2,
             half_extents: [344, 396, 336],
@@ -3412,6 +3838,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         433,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 400,
             coordinate_shift: 2,
             half_extents: [396, 396, 336],
@@ -3420,6 +3847,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         434,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 120,
             coordinate_shift: 2,
             half_extents: [120, 120, 120],
@@ -3428,6 +3856,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         435,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 132,
             coordinate_shift: 1,
             half_extents: [118, 130, 40],
@@ -3436,6 +3865,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         436,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 420,
             coordinate_shift: 2,
             half_extents: [140, 160, 80],
@@ -3444,6 +3874,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         437,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 84,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -3452,6 +3883,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         438,
         Sf1ShapeMetrics {
+            sort_depth: -400,
             visual_extent: 40,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -3460,6 +3892,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         439,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 480,
             coordinate_shift: 2,
             half_extents: [480, 480, 48],
@@ -3468,6 +3901,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         440,
         Sf1ShapeMetrics {
+            sort_depth: 320,
             visual_extent: 2144,
             coordinate_shift: 5,
             half_extents: [1184, 352, 1888],
@@ -3476,6 +3910,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         441,
         Sf1ShapeMetrics {
+            sort_depth: 320,
             visual_extent: 2240,
             coordinate_shift: 5,
             half_extents: [1344, 704, 1920],
@@ -3484,6 +3919,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         442,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 212,
             coordinate_shift: 2,
             half_extents: [72, 100, 72],
@@ -3492,6 +3928,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         443,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 176,
             coordinate_shift: 1,
             half_extents: [36, 58, 172],
@@ -3500,6 +3937,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         444,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 85,
             coordinate_shift: 0,
             half_extents: [60, 60, 20],
@@ -3508,6 +3946,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         445,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 160,
             coordinate_shift: 2,
             half_extents: [284, 196, 100],
@@ -3516,6 +3955,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         446,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 160,
             coordinate_shift: 2,
             half_extents: [284, 196, 100],
@@ -3524,6 +3964,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         447,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 72,
             coordinate_shift: 1,
             half_extents: [64, 50, 64],
@@ -3532,6 +3973,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         448,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 240,
             coordinate_shift: 2,
             half_extents: [100, 228, 32],
@@ -3540,6 +3982,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         449,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 56,
             coordinate_shift: 2,
             half_extents: [40, 40, 40],
@@ -3548,6 +3991,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         450,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 22,
             coordinate_shift: 1,
             half_extents: [20, 20, 0],
@@ -3556,6 +4000,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         451,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 56,
             coordinate_shift: 2,
             half_extents: [40, 40, 0],
@@ -3564,6 +4009,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         452,
         Sf1ShapeMetrics {
+            sort_depth: 400,
             visual_extent: 480,
             coordinate_shift: 2,
             half_extents: [480, 48, 48],
@@ -3572,6 +4018,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         453,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 44,
             coordinate_shift: 1,
             half_extents: [40, 40, 40],
@@ -3580,6 +4027,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         454,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 108,
             coordinate_shift: 1,
             half_extents: [60, 34, 90],
@@ -3588,6 +4036,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         455,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 108,
             coordinate_shift: 1,
             half_extents: [60, 34, 90],
@@ -3596,6 +4045,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         456,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 108,
             coordinate_shift: 1,
             half_extents: [60, 34, 90],
@@ -3604,6 +4054,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         457,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 952,
             coordinate_shift: 3,
             half_extents: [880, 320, 88],
@@ -3612,6 +4063,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         458,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 952,
             coordinate_shift: 3,
             half_extents: [880, 320, 88],
@@ -3620,6 +4072,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         459,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 116,
             coordinate_shift: 0,
             half_extents: [50, 50, 100],
@@ -3628,6 +4081,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         460,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 46,
             coordinate_shift: 0,
             half_extents: [20, 40, 20],
@@ -3636,6 +4090,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         461,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 32,
             coordinate_shift: 3,
             half_extents: [32, 32, 32],
@@ -3644,6 +4099,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         462,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 4,
             half_extents: [64, 64, 64],
@@ -3652,6 +4108,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         463,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 128,
             coordinate_shift: 5,
             half_extents: [128, 128, 128],
@@ -3660,6 +4117,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         464,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 256,
             coordinate_shift: 6,
             half_extents: [256, 256, 256],
@@ -3668,6 +4126,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         465,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 45,
             coordinate_shift: 0,
             half_extents: [27, 20, 35],
@@ -3676,6 +4135,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         466,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 30,
             coordinate_shift: 0,
             half_extents: [19, 20, 29],
@@ -3684,6 +4144,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         467,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 35,
             coordinate_shift: 0,
             half_extents: [17, 20, 32],
@@ -3692,6 +4153,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         468,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 432,
             coordinate_shift: 2,
             half_extents: [384, 316, 272],
@@ -3700,6 +4162,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         469,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 520,
             coordinate_shift: 2,
             half_extents: [80, 40, 80],
@@ -3708,6 +4171,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         470,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 176,
             coordinate_shift: 3,
             half_extents: [160, 160, 0],
@@ -3716,6 +4180,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         471,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 176,
             coordinate_shift: 3,
             half_extents: [160, 160, 0],
@@ -3724,6 +4189,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         472,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 176,
             coordinate_shift: 3,
             half_extents: [160, 160, 0],
@@ -3732,6 +4198,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         473,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 160,
             coordinate_shift: 2,
             half_extents: [64, 20, 148],
@@ -3740,6 +4207,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         474,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 148,
             coordinate_shift: 2,
             half_extents: [28, 100, 112],
@@ -3748,6 +4216,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         475,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 140,
             coordinate_shift: 2,
             half_extents: [40, 100, 124],
@@ -3756,6 +4225,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         476,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 112,
             coordinate_shift: 2,
             half_extents: [104, 60, 40],
@@ -3764,6 +4234,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         477,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 372,
             coordinate_shift: 2,
             half_extents: [200, 376, 120],
@@ -3772,6 +4243,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         478,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 396,
             coordinate_shift: 2,
             half_extents: [8, 8, 120],
@@ -3780,6 +4252,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         479,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 64,
             coordinate_shift: 4,
             half_extents: [64, 64, 64],
@@ -3788,6 +4261,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         480,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 32,
             coordinate_shift: 3,
             half_extents: [32, 32, 32],
@@ -3796,6 +4270,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         481,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 16,
             coordinate_shift: 2,
             half_extents: [16, 16, 16],
@@ -3804,6 +4279,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         482,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 86,
             coordinate_shift: 1,
             half_extents: [80, 80, 10],
@@ -3812,6 +4288,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         508,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 512,
             coordinate_shift: 3,
             half_extents: [120, 120, 480],
@@ -3820,6 +4297,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         509,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 688,
             coordinate_shift: 3,
             half_extents: [344, 504, 480],
@@ -3828,6 +4306,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         510,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 512,
             coordinate_shift: 3,
             half_extents: [120, 120, 480],
@@ -3836,6 +4315,7 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
     (
         511,
         Sf1ShapeMetrics {
+            sort_depth: 0,
             visual_extent: 396,
             coordinate_shift: 2,
             half_extents: [32, 20, 120],

@@ -823,6 +823,7 @@ dependencies = [
 name = "sf-oracle"
 version = "0.1.0"
 dependencies = [
+ "sf-audio",
  "sf-core",
  "sf-difftest",
  "sf-game",

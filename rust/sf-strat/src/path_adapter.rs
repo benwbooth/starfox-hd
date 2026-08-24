@@ -48,8 +48,8 @@
 //! identity.
 
 use sf_game::alien::{
-    Alien as GAlien, ObjectVisualKind as GObjectVisualKind, StratId, ACF_COLLTYPE2, ASF4_TEXTOBJ,
-    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ASF_SHADOW, NUMBER_AL,
+    Alien as GAlien, ObjectVisualKind as GObjectVisualKind, StratId, ACF_COLLTYPE2,
+    ASF2_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_SHADOW, ASF_TEXTOBJ, NUMBER_AL,
 };
 use sf_game::game::Game;
 use sf_game::vars::FRAMESPERAP;
@@ -145,12 +145,6 @@ fn register_path_inline_callbacks(
         }
     }
 }
-
-/// PathWorld's compatibility location for the ROM `al_sflags` textobj bit.
-/// The game pool additionally carries [`ASF4_TEXTOBJ`] as a renderer-only
-/// discriminator because its retained flag layout already assigned this bit
-/// position to lock-on behavior.
-const ASF3_TEXTOBJ: u8 = 0x40;
 
 /// Encoded source operands for the two path latches. These exist only at the
 /// retained path-program import boundary.
@@ -371,9 +365,8 @@ fn pw_pathtext_init(g: &mut Game, idx: u16) {
     let Some(ids) = load_ids(g) else { return };
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
-        al.sflags3 |= ASF3_TEXTOBJ;
-        al.sflags4 |= ASF4_TEXTOBJ;
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.sflags |= ASF_TEXTOBJ;
         al.hp = 10;
         al.ap = 8; // hardAP
     }
@@ -477,11 +470,6 @@ fn sync_out(g: &mut Game, pw: &PathWorld, ids: PathStratIds) {
         let s4 = ref2id(pa.tempstratptr, ids, &g.world);
         let ga = &mut g.objs.aliens[i];
         copy_p2g_data(&pa, ga);
-        if pa.sflags3 & ASF3_TEXTOBJ != 0 {
-            ga.sflags4 |= ASF4_TEXTOBJ;
-        } else {
-            ga.sflags4 &= !ASF4_TEXTOBJ;
-        }
         ga.stratptr = s0;
         ga.expstratptr = s1;
         ga.collstratptr = s2;
@@ -736,12 +724,12 @@ impl PathHost for Adapter<'_> {
         // and set hitflash. The previous reduced version subtracted a flat 1
         // and ignored the attacker, so path scenery survived ship rams that
         // kill it in retail (Corneria tick 1741 tower).
-        let (collobjptr, collcount, hp, sflags) = {
+        let (collobjptr, collcount, hp, sflags3) = {
             let al = &mut world.aliens[idx as usize];
             al.sflags &= !ASF_COLLIDE;
-            (al.collobjptr, al.collcount, al.hp, al.sflags)
+            (al.collobjptr, al.collcount, al.hp, al.sflags3)
         };
-        if sflags & ASF_NOHITAFFECT != 0 {
+        if sflags3 & sf_path::alien::ASF3_NOHITAFFECT != 0 {
             // ROM `.nocol` falls straight to `s_jmpto_strat`; the caller
             // already dispatches the ordinary strategy after this hook.
             return;
@@ -913,7 +901,8 @@ impl PathHost for Adapter<'_> {
                 particle.worldx = worldx;
                 particle.worldy = worldy.wrapping_sub(120);
                 particle.worldz = worldz;
-                particle.sflags |= ASF_COLLDISABLE | ASF_PARTOBJ;
+                particle.sflags2 |= ASF2_COLLDISABLE;
+                particle.sflags |= ASF_PARTOBJ;
                 particle.flags |= AFEXP;
                 particle.sbyte1 = 6;
                 particle.sbyte2 = 60;

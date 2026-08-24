@@ -14,8 +14,8 @@
 //!   [`Game::run_inline`]
 
 use crate::alien::{
-    StratId, ACF_FIRSTFRAME, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_PLAYEROBJ, ASF4_SFLAG8,
-    ASF4_SPECIAL, ASF_COLLIDE, ASF_LCOLLIDE, ATNUKED, ATZREMOVE, NUMBER_AL,
+    StratId, ACF_FIRSTFRAME, ASF2_LCOLLIDE, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_PLAYEROBJ,
+    ASF4_SFLAG8, ASF4_SPECIAL, ASF_COLLIDE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use crate::alien_compat as compat;
 use crate::coldet::Coldet;
@@ -34,6 +34,8 @@ const FIRST_FLOAT_OSCILLATOR_STEP: u8 = 4;
 const SECOND_FLOAT_OSCILLATOR_STEP: u8 = 8;
 const VIEW_FLOAT_ENTRY_BYTES: u16 = 2;
 const VIEW_FLOAT_TABLE_BYTE_LENGTH: u16 = 72;
+const PLAYER_COLOR_CYCLE_FRAME_COUNT: u8 = 4;
+const FIXED_COLOR_FRAME_FLAG: u8 = 0x80;
 const VIEW_FLOAT_TABLE: [i16; 36] = [
     0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -6, -6,
     -6, -5, -5, -4, -4, -3, -2, -1,
@@ -397,6 +399,14 @@ impl Game {
             return;
         };
         self.try_change_player_view(player);
+        // GSTRATS.ASM `init_strats_l` advances the ordinary Arwing's fixed
+        // four-frame colour cycle before the object strategy walk.
+        let player_color = &mut self.objs.aliens[usize::from(player)].colframe;
+        let mut color = (*player_color & !FIXED_COLOR_FRAME_FLAG).wrapping_add(1);
+        if color >= PLAYER_COLOR_CYCLE_FRAME_COUNT {
+            color = color.wrapping_sub(PLAYER_COLOR_CYCLE_FRAME_COUNT);
+        }
+        *player_color = FIXED_COLOR_FRAME_FLAG | color;
         // GSTRATS.ASM init_strats float block: the two shared oscillators
         // advance only while the active player view enables wobble.
         if self.vars.playerflymode & PFM_WOBBLE != 0 {
@@ -426,9 +436,7 @@ impl Game {
         // entered only while GF_PLAYERDYING is set; unless GF_PLAYERDEAD is
         // also set (fade-countdown path), OUTDIST proportionally chases 500
         // at rate 4 — the deepening pull-back through the corridor curve.
-        if self.vars.gameflags & GF_PLAYERDYING != 0
-            && self.vars.gameflags & GF_PLAYERDEAD == 0
-        {
+        if self.vars.gameflags & GF_PLAYERDYING != 0 && self.vars.gameflags & GF_PLAYERDEAD == 0 {
             let od = self.vars.strategy.view_distance;
             let delta = (500 - od as i32) >> 4;
             self.vars.strategy.view_distance = (od as i32 + delta) as i16;
@@ -454,8 +462,8 @@ impl Game {
         // Dead object path (unless nuked).
         if al.hp == 0 && (al.type_ & ATNUKED) == 0 {
             if let Some(endcoll) = al.endcollstratptr {
-                if al.sflags & ASF_LCOLLIDE != 0 {
-                    self.objs.aliens[idx as usize].sflags &= !ASF_LCOLLIDE;
+                if al.sflags2 & ASF2_LCOLLIDE != 0 {
+                    self.objs.aliens[idx as usize].sflags2 &= !ASF2_LCOLLIDE;
                     self.call_strat(endcoll, idx);
                     return;
                 }
@@ -480,8 +488,8 @@ impl Game {
             // strategies on objects that overlap every frame (notably the
             // collision-disabled boss explosion countdown).
             self.objs.aliens[idx as usize].sflags &= !ASF_COLLIDE;
-        } else if al.sflags & ASF_LCOLLIDE != 0 {
-            self.objs.aliens[idx as usize].sflags &= !ASF_LCOLLIDE;
+        } else if al.sflags2 & ASF2_LCOLLIDE != 0 {
+            self.objs.aliens[idx as usize].sflags2 &= !ASF2_LCOLLIDE;
             if let Some(endcoll) = al.endcollstratptr {
                 self.call_strat(endcoll, idx);
                 return;

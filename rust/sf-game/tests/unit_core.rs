@@ -778,11 +778,11 @@ fn coldet_skips_firstframe_colldisable_hp0_exploding() {
     assert!(g.coldet.list.is_empty(), "firstframe skipped");
 
     g.objs.aliens[a as usize].collflags = 0;
-    g.objs.aliens[a as usize].sflags = ASF_COLLDISABLE;
+    g.objs.aliens[a as usize].sflags2 = ASF2_COLLDISABLE;
     g.coldet_generate_list();
     assert!(g.coldet.list.is_empty(), "colldisable skipped");
 
-    g.objs.aliens[a as usize].sflags = 0;
+    g.objs.aliens[a as usize].sflags2 = 0;
     g.objs.aliens[a as usize].hp = 0;
     g.coldet_generate_list();
     assert!(g.coldet.list.is_empty(), "hp 0 skipped");

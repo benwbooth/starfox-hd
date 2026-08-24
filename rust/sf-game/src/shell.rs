@@ -42,6 +42,7 @@ use sf_core::{
     DrawListEntry,
 };
 
+use crate::alien::{ASF3_REALOBJ, ASF4_DONESND};
 use crate::camera::GameCamera;
 use crate::charmap::CharMap;
 use crate::game::{Game, Hooks, PosSndFamilyId};
@@ -50,7 +51,7 @@ use crate::planets::{Planets, RouteSelectionResult, DEFAULT_LIVES};
 use crate::score;
 use crate::strings::Strings;
 use crate::vars::{
-    BossEncounter, GameVars, GF_PLAYERDEAD, PFM_SHADOWS, PLAYER_DEATH_FADE_DELAY_TICKS,
+    BossEncounter, GameVars, GF_PLAYERDEAD, HARD_HP, PFM_SHADOWS, PLAYER_DEATH_FADE_DELAY_TICKS,
     PSF2_PLAYERHP0, PSF3_ENGINESND, PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, STAY_BLACK_INACTIVE,
 };
 use crate::windows::{MapFadeRate, Windows, BLACK_FADE_MAX};
@@ -133,6 +134,12 @@ const BRIEFING_SPECIAL_WEAPON_COUNT: u16 = 3;
 const TRAINING_LIVES: u8 = 1;
 /// Source `gf2_ingame` bit used by the training exit guard.
 const GAME_FLAG2_INGAME: u8 = 1;
+const OBSTACLE_SOUND_LATERAL_RANGE: i16 = 300;
+const OBSTACLE_SOUND_DEPTH_RANGE: i16 = 100;
+const OBSTACLE_SOUND_PAN_THRESHOLD: i16 = 80;
+const OBSTACLE_SOUND_RIGHT: u8 = 109;
+const OBSTACLE_SOUND_CENTER: u8 = 110;
+const OBSTACLE_SOUND_LEFT: u8 = 111;
 
 /// Route-map music package.
 pub const MUSIC_PLANET_MAP: u8 = 1;
@@ -2783,6 +2790,62 @@ impl Shell {
         }
     }
 
+    /// SOUND.ASM `do_obstacles`: emit one panned fly-by cue for the first
+    /// hard, real object entering the narrow player corridor, then latch that
+    /// typed object so it cannot sound again. This is part of `dosounds_l`,
+    /// after the camera/player-view update and before draw-list construction.
+    fn emit_obstacle_sound(&mut self) {
+        if self.game.vars.shared.game_flags2 & GAME_FLAG2_INGAME != 0
+            && self.game.vars.pshipflags2 & PSF2_PLAYERHP0 != 0
+        {
+            return;
+        }
+        if matches!(
+            self.game.world.levelfinished,
+            le::ENTERSPEC | le::ENTERBHOLE | le::BHOLE1 | le::BHOLE2 | le::BHOLE3
+        ) {
+            return;
+        }
+        let player_index = self.game.vars.internal_playpt;
+        if player_index < 0
+            || player_index as usize >= self.game.objs.aliens.len()
+            || !self.game.objs.aliens[player_index as usize].active
+        {
+            return;
+        }
+        let player_depth = self.game.objs.aliens[player_index as usize].worldz;
+        let player_view_x = self.camera.vars.pviewposx;
+        let mut current = self.game.objs.active_head;
+        while let Some(slot) = current {
+            let object = self.game.objs.aliens[usize::from(slot)];
+            current = object.next;
+            if object.hp != HARD_HP
+                || object.sflags3 & ASF3_REALOBJ == 0
+                || object.sflags4 & ASF4_DONESND != 0
+            {
+                continue;
+            }
+            let lateral = player_view_x.wrapping_sub(object.worldx);
+            if !(-OBSTACLE_SOUND_LATERAL_RANGE..OBSTACLE_SOUND_LATERAL_RANGE).contains(&lateral) {
+                continue;
+            }
+            let depth = object.worldz.wrapping_sub(player_depth);
+            if !(0..OBSTACLE_SOUND_DEPTH_RANGE).contains(&depth) {
+                continue;
+            }
+            let effect = if lateral >= OBSTACLE_SOUND_PAN_THRESHOLD {
+                OBSTACLE_SOUND_RIGHT
+            } else if lateral < -OBSTACLE_SOUND_PAN_THRESHOLD {
+                OBSTACLE_SOUND_LEFT
+            } else {
+                OBSTACLE_SOUND_CENTER
+            };
+            self.game.objs.aliens[usize::from(slot)].sflags4 |= ASF4_DONESND;
+            self.state.borrow_mut().sound.push(SoundCmd::PlaySe(effect));
+            return;
+        }
+    }
+
     /// C `Nmi_GameTick()` (src/game/nmi.c:49) — PLAYING-state tick, exact
     /// ordering.
     fn nmi_game_tick(&mut self) {
@@ -2807,6 +2870,7 @@ impl Shell {
 
         // dosounds_l (nmi.c:73) runs app-side: sf-app feeds the
         // FrameSnapshot sound-layer inputs to sf-audio each tick.
+        self.emit_obstacle_sound();
 
         // TRANS.ASM:166-167: palgoto_l then fadepalto_l. palgoto_l is inert
         // in retail; advance the typed background-palette cursor here so the
