@@ -62,6 +62,8 @@ struct DrawUniform {
 const UNIFORM_STRIDE: u64 = 512;
 const FLAT_FILL_SOLID: u32 = 0;
 const FLAT_FILL_PALETTE_PAIR: u32 = 1;
+const DISPLAY_BRIGHTNESS_MAX: u8 = 15;
+const DISPLAY_SCALE_DENOMINATOR: u32 = DISPLAY_BRIGHTNESS_MAX as u32;
 
 fn identity() -> [[f32; 4]; 4] {
     [
@@ -164,10 +166,17 @@ pub struct Gpu {
     textured_tri: wgpu::RenderPipeline,
     overlay: wgpu::RenderPipeline,
     overlay_add: wgpu::RenderPipeline,
+    display_brightness: wgpu::RenderPipeline,
 
     uniform_bgl: wgpu::BindGroupLayout,
     texture_bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    color_format: wgpu::TextureFormat,
+    presentation_texture: wgpu::Texture,
+    presentation_view: wgpu::TextureView,
+    presentation_bind: wgpu::BindGroup,
+    presentation_scale_numerator: u32,
+    presentation_black_subtraction: u32,
 
     // Persistent GPU buffers (grown on demand).
     vbuf3: wgpu::Buffer,
@@ -557,6 +566,31 @@ impl Gpu {
         };
         let overlay = make_overlay("overlay", wgpu::BlendState::ALPHA_BLENDING);
         let overlay_add = make_overlay("overlay-add", additive_blend);
+        let display_brightness = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("display-brightness"),
+            layout: Some(&overlay_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_display_brightness"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_display_brightness"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+            cache: None,
+        });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("nearest"),
@@ -573,6 +607,8 @@ impl Gpu {
         });
 
         let depth_view = make_depth(&device, width, height);
+        let (presentation_texture, presentation_view, presentation_bind) =
+            make_presentation_target(&device, &texture_bgl, &sampler, color_format, width, height);
 
         // Initial buffers (small; grown on demand).
         let vbuf3 = make_vbuf(&device, 4096 * std::mem::size_of::<Vertex3>() as u64);
@@ -600,9 +636,16 @@ impl Gpu {
             textured_tri,
             overlay,
             overlay_add,
+            display_brightness,
             uniform_bgl,
             texture_bgl,
             sampler,
+            color_format,
+            presentation_texture,
+            presentation_view,
+            presentation_bind,
+            presentation_scale_numerator: DISPLAY_SCALE_DENOMINATOR,
+            presentation_black_subtraction: 0,
             vbuf3,
             vbuf3_cap: 4096 * std::mem::size_of::<Vertex3>() as u64,
             vbuf3t,
@@ -647,7 +690,32 @@ impl Gpu {
         if self.depth_size != (w, h) {
             self.depth_view = make_depth(&self.device, w, h);
             self.depth_size = (w, h);
+            let (texture, view, bind) = make_presentation_target(
+                &self.device,
+                &self.texture_bgl,
+                &self.sampler,
+                self.color_format,
+                w,
+                h,
+            );
+            self.presentation_texture = texture;
+            self.presentation_view = view;
+            self.presentation_bind = bind;
         }
+    }
+
+    /// Select the source display's typed presentation state. Visible levels
+    /// zero through 15 use `level / 15` component scaling; scene
+    /// transfer blanking is a separate all-black state.
+    pub fn set_display_presentation(
+        &mut self,
+        level: u8,
+        forced_blank: bool,
+        black_subtraction: u8,
+    ) {
+        let level = level.min(DISPLAY_BRIGHTNESS_MAX);
+        self.presentation_scale_numerator = if forced_blank { 0 } else { u32::from(level) };
+        self.presentation_black_subtraction = u32::from(black_subtraction.min(31));
     }
 
     // ---- Texture cache ------------------------------------------------------
@@ -1166,6 +1234,24 @@ impl Gpu {
             }
         };
 
+        let apply_display_presentation = self.presentation_scale_numerator
+            < DISPLAY_SCALE_DENOMINATOR
+            || self.presentation_black_subtraction != 0;
+        let display_uniform_index = apply_display_presentation.then(|| {
+            self.push_uniform(DrawUniform {
+                proj: identity(),
+                view: identity(),
+                model: identity(),
+                color: [1.0; 4],
+                mode: [
+                    self.presentation_scale_numerator,
+                    self.presentation_black_subtraction,
+                    0,
+                    0,
+                ],
+                palette: [[0.0; 4]; 16],
+            })
+        });
         self.upload_frame_buffers();
 
         let mut encoder = self
@@ -1177,7 +1263,11 @@ impl Gpu {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &color_view,
+                    view: if apply_display_presentation {
+                        &self.presentation_view
+                    } else {
+                        &color_view
+                    },
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -1251,6 +1341,31 @@ impl Gpu {
                     }
                 }
             }
+        }
+        if let Some(uniform_index) = display_uniform_index {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("display-brightness-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &color_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            rpass.set_pipeline(&self.display_brightness);
+            rpass.set_bind_group(
+                0,
+                &self.uniform_bind,
+                &[(u64::from(uniform_index) * UNIFORM_STRIDE) as u32],
+            );
+            rpass.set_bind_group(1, &self.presentation_bind, &[]);
+            rpass.draw(0..3, 0..1);
         }
         self.queue.submit(Some(encoder.finish()));
 
@@ -1390,6 +1505,46 @@ fn make_depth(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureVi
         view_formats: &[],
     });
     tex.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn make_presentation_target(
+    device: &wgpu::Device,
+    texture_bgl: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    format: wgpu::TextureFormat,
+    width: u32,
+    height: u32,
+) -> (wgpu::Texture, wgpu::TextureView, wgpu::BindGroup) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("presentation-color"),
+        size: wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("presentation-bind"),
+        layout: texture_bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+    (texture, view, bind)
 }
 
 fn make_vbuf(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
@@ -1547,5 +1702,31 @@ fn fs_overlay(in: OvOut) -> @location(0) vec4<f32> {
         return texel * u.color;
     }
     return u.color;
+}
+
+struct DisplayBrightnessOut {
+    @builtin(position) clip: vec4<f32>,
+};
+
+@vertex
+fn vs_display_brightness(@builtin(vertex_index) vertex_index: u32) -> DisplayBrightnessOut {
+    let positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    var out: DisplayBrightnessOut;
+    out.clip = vec4<f32>(positions[vertex_index], 0.0, 1.0);
+    return out;
+}
+
+@fragment
+fn fs_display_brightness(in: DisplayBrightnessOut) -> @location(0) vec4<f32> {
+    let texel = textureLoad(tex, vec2<i32>(in.clip.xy), 0);
+    let source = vec3<u32>(texel.rgb * 255.0 + vec3<f32>(0.5)) >> vec3<u32>(3u);
+    let subtracted = source - min(source, vec3<u32>(u.mode.y));
+    let scaled = subtracted * u.mode.x / 15u;
+    let expanded = (scaled << vec3<u32>(3u)) | (scaled >> vec3<u32>(2u));
+    return vec4<f32>(vec3<f32>(expanded) / 255.0, texel.a);
 }
 "#;

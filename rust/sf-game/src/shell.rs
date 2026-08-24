@@ -24,6 +24,7 @@ use std::rc::Rc;
 use sf_core::{
     pad,
     player_view::{PlayerViewMode, PlayerViewOptions},
+    point_field::PointPixel,
     scene::{PaletteFadeTarget, SceneStyle},
     screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCircleState},
     screen_wipe::{ScreenWipeKind, ScreenWipeState},
@@ -48,6 +49,7 @@ use crate::charmap::CharMap;
 use crate::game::{Game, Hooks, PosSndFamilyId};
 use crate::obj::Objects;
 use crate::planets::{Planets, RouteSelectionResult, DEFAULT_LIVES};
+use crate::point_field::PointField;
 use crate::score;
 use crate::strings::Strings;
 use crate::vars::{
@@ -86,6 +88,9 @@ pub const OPENING_WIPE_BLACK_HOLD_TICKS: u8 = 5;
 /// updates. `do_circle_explosion` observes the authored wipe on the following
 /// update, so the typed aperture keeps frame zero for the same three ticks.
 const SCRAMBLE_WIPE_BLACK_HOLD_TICKS: u8 = 3;
+/// Reduced-speed dust depth carried from the completed attract intro into the
+/// title map (68 source updates at `MEDPSPEED / 4`).
+const TITLE_SPACE_DUST_ENTRY_DEPTH: i16 = 1_088;
 
 /// Retail reset-to-attract handoff measured from the full-machine oracle.
 /// Boot remains active for 43 complete native 20 Hz ticks; the attract state
@@ -1004,6 +1009,8 @@ pub struct FrameSnapshot {
     pub bg2_xscroll: i32,
     pub nomax_bg2_yscroll: bool,
     pub scene_style: SceneStyle,
+    /// Source-resolution pixels produced by the typed background point field.
+    pub point_pixels: Vec<PointPixel>,
     /// Background palette-row source selected by FADETOSEA/FADETOGROUND.
     pub pal_target: Option<PaletteFadeTarget>,
     /// ROM `palnum` remaining counter. Starts at 30 and steps by two while
@@ -1011,6 +1018,12 @@ pub struct FrameSnapshot {
     pub palfade_num: u16,
     pub windowmode: u8,
     pub windows: [WindowSlot; 8],
+    /// Source display brightness after the current presentation fade step.
+    pub display_brightness: u8,
+    /// Typed scene-transfer blanking, independent of visible brightness.
+    pub display_forced_blank: bool,
+    /// Typed fixed-colour subtraction published by the black-window lane.
+    pub display_black_subtraction: u8,
     /// Typed source-authored playfield reveal, if one is being presented.
     pub screen_wipe: ScreenWipeState,
     /// Typed retail fixed-colour circle presentation.
@@ -1353,6 +1366,11 @@ pub struct Shell {
     gameplay_entry_phase: GameplayEntryPhase,
     gameplay_initialization_ticks_remaining: u8,
     camera: GameCamera,
+    /// Flat typed state for space dust and planetary point fields.
+    point_field: PointField,
+    /// Completed point-field pixels published with the preceding source
+    /// framebuffer, one presentation update behind the working point state.
+    presented_point_pixels: Vec<PointPixel>,
     /// C `s_draw_list` (boot.c:46).
     draw_list: Vec<DrawListEntry>,
     cam_snapshot: CameraSnapshot,
@@ -1425,6 +1443,8 @@ impl Shell {
             gameplay_entry_phase: GameplayEntryPhase::Inactive,
             gameplay_initialization_ticks_remaining: 0,
             camera: GameCamera::new(),
+            point_field: PointField::new(),
+            presented_point_pixels: Vec::new(),
             draw_list: Vec::new(),
             cam_snapshot: CameraSnapshot::default(),
             prev_pad: 0,
@@ -1788,10 +1808,14 @@ impl Shell {
             bg2_xscroll: v.shared.background_scroll_x as i32,
             nomax_bg2_yscroll: v.strategy.no_maximum_background_y != 0,
             scene_style: v.scene_style,
+            point_pixels: self.presented_point_pixels.clone(),
             pal_target: v.palfade_target,
             palfade_num: v.palfade_num,
             windowmode: st.windows.windowmode,
             windows: st.windows.slots,
+            display_brightness: st.windows.display_brightness(),
+            display_forced_blank: st.windows.display_forced_blank(),
+            display_black_subtraction: st.windows.display_black_subtraction(),
             screen_wipe: st.screen_wipe,
             screen_fill_circle,
             meters: v.meters,
@@ -1880,6 +1904,8 @@ impl Shell {
         self.game.objs = Objects::init();
         self.camera = GameCamera::new();
         self.camera.init(&mut self.game.vars);
+        self.point_field = PointField::new();
+        self.presented_point_pixels.clear();
         self.game.world = World::init();
         self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:123-127): the sf-path literal
@@ -2512,6 +2538,11 @@ impl Shell {
     fn load_presentation_map(&mut self, map_id: u32, spawn_player: bool) {
         self.game.objs = Objects::init();
         self.camera.init(&mut self.game.vars);
+        // The source rebuilds its point-field storage in initmario3d_l for
+        // every presentation scene, including the Intro-to-Title handoff.
+        // Keep the port's equivalent as ordinary typed scene state.
+        self.point_field = PointField::new();
+        self.presented_point_pixels.clear();
         self.game.world = World::init();
         self.reregister_strats();
         {
@@ -2563,6 +2594,7 @@ impl Shell {
         self.draw_list.clear();
         self.game.run_strategies();
         self.cam_snapshot = self.camera.update(&mut self.game.vars, &self.game.objs);
+        self.update_point_field();
         self.game.step_palette_fade();
         draw::build_list(
             &mut self.game.objs,
@@ -2586,6 +2618,24 @@ impl Shell {
         if let Some((map_id, player)) = self.pending_presentation_player.take() {
             self.initialize_player_for_map(map_id, player);
         }
+    }
+
+    fn update_point_field(&mut self) {
+        self.presented_point_pixels.clear();
+        self.presented_point_pixels
+            .extend_from_slice(self.point_field.pixels());
+        let mut view_position = [
+            self.camera.vars.viewposx,
+            self.camera.vars.viewposy,
+            self.camera.vars.viewposz,
+        ];
+        if self.game.vars.space_dust_uses_reduced_speed {
+            view_position[2] = self.game.vars.space_dust_view_depth;
+        }
+        let rotation = self.camera.vars.view_rotation;
+        let matrix = sf_core::snes_trig::zxy_matrix_q15_fine(rotation[0], rotation[1], rotation[2]);
+        self.point_field
+            .update(self.game.vars.point_field_mode, view_position, matrix);
     }
 
     fn begin_attract_fade(
@@ -2640,6 +2690,7 @@ impl Shell {
     fn enter_title(&mut self) {
         self.game_state = GameState::Title;
         self.attract = AttractSequence::default();
+        self.game.vars.space_dust_view_depth = TITLE_SPACE_DUST_ENTRY_DEPTH;
     }
 
     /// Enter the retail level-start handoff. The source reaches `gamestart`
@@ -2730,6 +2781,8 @@ impl Shell {
         // Gameplay subsystem re-init, preserving route/stage (boot.c:76-86).
         self.game.objs = Objects::init();
         self.camera.init(&mut self.game.vars);
+        self.point_field = PointField::new();
+        self.presented_point_pixels.clear();
         self.game.world = World::init();
         self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:79-83): static catalog via
@@ -2903,6 +2956,7 @@ impl Shell {
 
         // getview_l (nmi.c:70).
         self.cam_snapshot = self.camera.update(&mut self.game.vars, &self.game.objs);
+        self.update_point_field();
 
         // dosounds_l (nmi.c:73) runs app-side: sf-app feeds the
         // FrameSnapshot sound-layer inputs to sf-audio each tick.

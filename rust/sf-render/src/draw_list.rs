@@ -4,8 +4,10 @@
 //! struct and `DL_FLAG_*` constants from `src/types.h`.
 
 use crate::font::Font;
-use crate::gpu::Gpu;
+use crate::gpu::{Gpu, TextureId};
 use crate::shapes_gl::ShapeStore;
+use crate::source_projection::SourcePose;
+use crate::source_raster::SourceRaster;
 use crate::transform::Transform;
 
 pub const MAX_OBJECTS: usize = 128;
@@ -187,11 +189,15 @@ fn apply_scaled_sprite_model(
     }
 }
 
-pub struct DrawListRenderer;
+pub struct DrawListRenderer {
+    source_texture: Option<TextureId>,
+}
 
 impl DrawListRenderer {
     pub fn new() -> Self {
-        DrawListRenderer
+        DrawListRenderer {
+            source_texture: None,
+        }
     }
 
     /// Mirror of `RenderShadow` (MARIO/MDRAWLIS.MC shadow pass): project the
@@ -275,6 +281,7 @@ impl DrawListRenderer {
         // Interpolated entries that want a drop shadow (collected during the
         // main pass, drawn afterwards as a translucent overlay).
         let mut shadow_list: Vec<DrawListEntry> = Vec::new();
+        let mut source_raster = SourceRaster::new();
 
         // Pair current entries with the previous frame's entries by stable
         // object id (alien index), not by list position.
@@ -356,8 +363,28 @@ impl DrawListRenderer {
             // Retail wireframe objects are dedicated Face2-only shapes, so
             // they take the same exact material-aware shape path as every
             // other object.
+            let source_pose = (interp.flags & DL_FLAG_SCALED_SPRITE == 0
+                && matches!(alpha, 0.0 | 1.0))
+            .then(|| {
+                let (camera, view_rotation) = transform.source_camera();
+                SourcePose {
+                    world_position: [
+                        (interp.x >> 16) as i16,
+                        (interp.y >> 16) as i16,
+                        (interp.z >> 16) as i16,
+                    ],
+                    rotation: [interp.rx as u8, interp.ry as u8, interp.rz as u8],
+                    view_position: [
+                        (camera.x >> 16) as i16,
+                        (camera.y >> 16) as i16,
+                        (camera.z >> 16) as i16,
+                    ],
+                    view_rotation,
+                }
+            });
             shapes.render(
                 gpu,
+                &mut source_raster,
                 transform,
                 interp.shape_id,
                 interp.anim_frame,
@@ -365,6 +392,7 @@ impl DrawListRenderer {
                 interp.color_table,
                 interp.explosion_cnt,
                 &model,
+                source_pose,
                 shape_palette,
             );
 
@@ -376,6 +404,9 @@ impl DrawListRenderer {
                 shadow_list.push(interp);
             }
         }
+
+        let (output_width, output_height) = gpu.size();
+        source_raster.submit(gpu, &mut self.source_texture, output_width, output_height);
 
         // --- Shadow pass (after the opaque pass so depth testing hides
         // shadow fragments behind solid geometry). The retained flat pipeline

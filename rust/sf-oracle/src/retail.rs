@@ -1720,6 +1720,18 @@ impl RetailBootBus {
         self.ppu.frame()
     }
 
+    pub fn ppu_snapshot_rgba(&self) -> Vec<u8> {
+        self.ppu.snapshot_rgba()
+    }
+
+    pub fn ppu_snapshot_bg_rgba(&self, bg: usize) -> Vec<u8> {
+        self.ppu.snapshot_bg_rgba(bg)
+    }
+
+    pub fn ppu_snapshot_bg_indices(&self, bg: usize) -> Vec<u8> {
+        self.ppu.snapshot_bg_indices(bg)
+    }
+
     /// Write the CPU-visible address space without advancing either processor.
     /// Used to seed input/state in reset-boot archaeology tools.
     pub fn poke8(&mut self, addr: u32, value: u8) {
@@ -2537,6 +2549,18 @@ impl RetailMachine {
 
     pub fn ppu_frame(&self) -> PpuFrame {
         self.bus.ppu_frame()
+    }
+
+    pub fn ppu_snapshot_rgba(&self) -> Vec<u8> {
+        self.bus.ppu_snapshot_rgba()
+    }
+
+    pub fn ppu_snapshot_bg_rgba(&self, bg: usize) -> Vec<u8> {
+        self.bus.ppu_snapshot_bg_rgba(bg)
+    }
+
+    pub fn ppu_snapshot_bg_indices(&self, bg: usize) -> Vec<u8> {
+        self.bus.ppu_snapshot_bg_indices(bg)
     }
 
     /// Clone the native 32 kHz stereo PCM queue consumed by the front end.

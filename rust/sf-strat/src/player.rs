@@ -3118,6 +3118,7 @@ fn presentation_player_istrat(g: &mut Game, idx: u16) {
     player_move_init(g, idx);
     player_cred_istrat(g, idx);
     g.objs.aliens[idx as usize].sflags4 &= !ASF4_INVISIBLE;
+    g.vars.space_dust_uses_reduced_speed = false;
 }
 
 /// Select the source-defined initial strategy for an already spawned player.
@@ -6909,6 +6910,7 @@ pub fn queue_player_cred_istrat(g: &mut Game, idx: u16) {
 
 /// ROM `playercred_Istrat`.
 pub fn player_cred_istrat(g: &mut Game, idx: u16) {
+    g.vars.space_dust_uses_reduced_speed = true;
     g.world.lastplayz = 0;
     g.vars.set_sv_i16(sv::VIEWPOSZ, 0);
     g.vars.set_sv_i16(sv::PLAYER_TURNROT, 0);
@@ -6952,6 +6954,7 @@ pub fn player_cred_strat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     g.vars.set_sv_i16(sv::OUTVZ, 0);
     g.vars.set_sv_i16(sv::PLROTZ, 0);
+    g.vars.space_dust_view_depth = g.vars.space_dust_view_depth.wrapping_add(MED_PSPEED / 4);
 }
 
 /// ROM `set_playerIntoLB1_l` — start chase toward mapvar1 then LB1 cutscene.

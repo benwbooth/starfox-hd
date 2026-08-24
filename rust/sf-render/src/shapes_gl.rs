@@ -8,8 +8,10 @@
 
 use crate::gpu::{Gpu, TextureId, Vertex3, Vertex3Tex};
 use crate::light_data::SHADE_TABLE_LEN;
-use crate::shape_data::{self, ShapeFace, ShapeVertex};
+use crate::shape_data::{self, ShapeFace, ShapePainterNode, ShapeVertex};
 use crate::shapes::{self, DEPTHZ_COUNT, DEPTHZ_NORMAL, SHAPE_COLTAB_ID_0};
+use crate::source_projection::{self, ProjectedPoint, SourcePose};
+use crate::source_raster::SourceRaster;
 use crate::transform::Transform;
 use sf_core::scene::{DepthColors, SceneStyle};
 use std::collections::HashMap;
@@ -108,6 +110,8 @@ pub struct GpuShape {
     pub is_sf2: bool,
     pub vertices: Vec<ShapeVertex>,
     pub faces: Vec<ShapeFace>,
+    /// Authored back-to-front hierarchy for source-resolution rendering.
+    pub painter_nodes: Vec<ShapePainterNode>,
     /// Derived flat normals, one per face (zero for degenerate faces).
     pub face_normals: Vec<[f32; 3]>,
     /// All fan-triangulated triangle vertices (3 per triangle), face order.
@@ -264,9 +268,9 @@ fn project_visibility_point(vertex: &ShapeVertex, pvm: &[f32; 16]) -> Option<[f3
 
 /// Source `msh_vizis` records one independently selected triangle per face.
 /// The source visibility result includes the front-of-camera bit, so an
-/// in-front source polygon is visible when its screen-down winding is
-/// positive. Reflecting screen Y into normalized-device coordinates makes
-/// the equivalent renderer winding strictly negative.
+/// in-front source polygon is visible when its projected winding is positive.
+/// The renderer's complete source-to-clip basis preserves that sign; applying
+/// an extra screen-space reflection here selects the retail back faces.
 fn face_is_camera_visible(shape: &GpuShape, face: &ShapeFace, pvm: &[f32; 16]) -> bool {
     let Some(indices) = face.visibility_vertices else {
         return true;
@@ -294,7 +298,7 @@ fn face_is_camera_visible(shape: &GpuShape, face: &ShapeFace, pvm: &[f32; 16]) -
     };
 
     let signed_area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-    signed_area < 0.0
+    signed_area > 0.0
 }
 
 fn resolve_registered_face_material(
@@ -510,6 +514,7 @@ impl ShapeStore {
     fn build_gpu_shape(
         verts: &[ShapeVertex],
         faces: &[ShapeFace],
+        painter_nodes: &[ShapePainterNode],
         default_color_table: u16,
         is_sf2: bool,
     ) -> GpuShape {
@@ -597,6 +602,7 @@ impl ShapeStore {
             is_sf2,
             vertices,
             faces,
+            painter_nodes: painter_nodes.to_vec(),
             face_normals,
             tri_verts,
             line_verts,
@@ -622,6 +628,7 @@ impl ShapeStore {
         self.shapes[id] = Some(Self::build_gpu_shape(
             verts,
             faces,
+            &[],
             default_color_table,
             false,
         ));
@@ -664,7 +671,7 @@ impl ShapeStore {
                     visibility_vertices: face.visibility_vertices,
                 })
                 .collect();
-            let shape = Self::build_gpu_shape(&vertices, &faces, entry.color_table, true);
+            let shape = Self::build_gpu_shape(&vertices, &faces, &[], entry.color_table, true);
             let flat_shape_id = sf_core::shape::sf2_shape_id(entry.header_index);
             self.sf2_shapes.insert(flat_shape_id, shape);
             if !entry.animation_frames.is_empty() {
@@ -675,6 +682,7 @@ impl ShapeStore {
                         Self::build_gpu_shape(
                             &convert_vertices(vertices),
                             &faces,
+                            &[],
                             entry.color_table,
                             true,
                         )
@@ -702,12 +710,29 @@ impl ShapeStore {
         for entry in shape_data::SHAPE_DATA.iter() {
             let table = crate::color_data::table_id_by_name(entry.default_color_table)
                 .unwrap_or(SHAPE_COLTAB_ID_0 as u16);
-            self.register_with_color(entry.shape_id, entry.vertices, entry.faces, table);
+            let id = usize::from(entry.shape_id);
+            if id < MAX_SHAPES {
+                self.shapes[id] = Some(Self::build_gpu_shape(
+                    entry.vertices,
+                    entry.faces,
+                    entry.painter_nodes,
+                    table,
+                    false,
+                ));
+            }
             if !entry.animation_frames.is_empty() {
                 let frames = entry
                     .animation_frames
                     .iter()
-                    .map(|vertices| Self::build_gpu_shape(vertices, entry.faces, table, false))
+                    .map(|vertices| {
+                        Self::build_gpu_shape(
+                            vertices,
+                            entry.faces,
+                            entry.painter_nodes,
+                            table,
+                            false,
+                        )
+                    })
                     .collect();
                 self.sf1_animation_frames.insert(entry.shape_id, frames);
             }
@@ -773,6 +798,145 @@ impl ShapeStore {
         Some((out, texture, high_nibble))
     }
 
+    fn source_face_order(shape: &GpuShape, points: &[ProjectedPoint]) -> Vec<usize> {
+        if shape.painter_nodes.is_empty() {
+            return (0..shape.faces.len()).collect();
+        }
+
+        fn append_group(order: &mut Vec<usize>, face_start: u16, face_count: u16, limit: usize) {
+            let start = usize::from(face_start).min(limit);
+            let end = start.saturating_add(usize::from(face_count)).min(limit);
+            order.extend(start..end);
+        }
+
+        fn visit(
+            shape: &GpuShape,
+            points: &[ProjectedPoint],
+            node_index: u16,
+            depth: usize,
+            order: &mut Vec<usize>,
+        ) {
+            if depth >= shape.painter_nodes.len() {
+                return;
+            }
+            let Some(node) = shape.painter_nodes.get(usize::from(node_index)) else {
+                return;
+            };
+            match *node {
+                ShapePainterNode::Leaf {
+                    face_start,
+                    face_count,
+                } => append_group(order, face_start, face_count, shape.faces.len()),
+                ShapePainterNode::Partition {
+                    visibility_vertices,
+                    face_start,
+                    face_count,
+                    left,
+                    right,
+                } => {
+                    let visible = visibility_vertices
+                        .is_none_or(|indices| source_projection::face_is_visible(points, indices));
+                    let visit_child = |child: Option<u16>, order: &mut Vec<usize>| {
+                        if let Some(child) = child {
+                            visit(shape, points, child, depth + 1, order);
+                        }
+                    };
+                    if visible {
+                        visit_child(left, order);
+                        append_group(order, face_start, face_count, shape.faces.len());
+                        visit_child(right, order);
+                    } else {
+                        visit_child(right, order);
+                        visit_child(left, order);
+                    }
+                }
+            }
+        }
+
+        let mut order = Vec::with_capacity(shape.faces.len());
+        visit(shape, points, 0, 0, &mut order);
+        order
+    }
+
+    fn render_source_projected(
+        &self,
+        raster: &mut SourceRaster,
+        shape_id: u16,
+        shape: &GpuShape,
+        col_frame: u8,
+        color_table: u16,
+        depth_bank: u8,
+        pose: SourcePose,
+        palette: &shapes::ShapePaletteRgb,
+    ) -> bool {
+        if shape.is_sf2
+            || shape.faces.iter().any(|face| face.num_verts < 3)
+            || shape.faces.iter().any(|face| {
+                resolve_registered_face_material(shape, face.color_index, col_frame, color_table)
+                    .is_some_and(|material| material & 0xC000 == shapes::MATERIAL_COLTEXT_FLAG)
+            })
+        {
+            return false;
+        }
+        let flat_shape_id = shapes::resolve_shape_word(shape_id);
+        let Some(metrics) = sf_core::sf1_shape_metrics::sf1_shape_metrics(flat_shape_id) else {
+            return false;
+        };
+        let projected =
+            source_projection::project_shape(&shape.vertices, metrics.coordinate_shift, pose);
+        if projected
+            .points
+            .iter()
+            .any(|point| point.depth < source_projection::MIN_FRONT_DEPTH)
+        {
+            return false;
+        }
+
+        let texture_palette: [[f32; 4]; 16] = std::array::from_fn(|index| {
+            [palette[index][0], palette[index][1], palette[index][2], 1.0]
+        });
+        for face_index in Self::source_face_order(shape, &projected.points) {
+            let face = &shape.faces[face_index];
+            if face.visibility_vertices.is_some_and(|indices| {
+                !source_projection::face_is_visible(&projected.points, indices)
+            }) {
+                continue;
+            }
+            let indices = &face.vertex_indices[..usize::from(face.num_verts)];
+            let shade_index =
+                shapes::compute_quantized_shade_index(face.normal, projected.object_light);
+            if let Some(pair) = resolve_registered_face_palette_pair(
+                shape,
+                face.color_index,
+                col_frame,
+                color_table,
+                shade_index,
+                depth_bank,
+                self.depth_colors,
+            ) {
+                raster.draw_palette_pair(
+                    &projected.points,
+                    indices,
+                    &texture_palette,
+                    [pair.low, pair.high],
+                );
+            } else {
+                let color = resolve_registered_face_color(
+                    shape,
+                    face.color_index,
+                    col_frame,
+                    color_table,
+                    shade_index,
+                    depth_bank,
+                    self.depth_colors,
+                    palette,
+                );
+                raster.draw_solid(&projected.points, indices, color);
+            }
+        }
+        true
+    }
+
     /// Mirror of `Shapes_Render`, pushing per-face flat triangles/lines to the
     /// retained `Gpu` with `transform`'s current proj/view. `palette` is the
     /// frame's decoded BGS-selected polygon palette.
@@ -780,6 +944,7 @@ impl ShapeStore {
     pub fn render(
         &self,
         gpu: &mut Gpu,
+        source_raster: &mut SourceRaster,
         transform: &Transform,
         shape_id: u16,
         anim_frame: u8,
@@ -787,6 +952,7 @@ impl ShapeStore {
         color_table: u16,
         explosion_state: u8,
         model_matrix: &[f32; 16],
+        source_pose: Option<SourcePose>,
         palette: &shapes::ShapePaletteRgb,
     ) {
         let shape = if let Some(frames) = self.sf2_animation_frames.get(&shape_id) {
@@ -815,7 +981,23 @@ impl ShapeStore {
         let mut projection_view_model = [0.0; 16];
         crate::transform::multiply(&mut projection_view_model, &projection_view, model_matrix);
         let depth_bank = self.select_depth_bank(&view, model_matrix);
-        let light_obj = compute_object_light(model_matrix);
+        let light_object = compute_object_light(model_matrix);
+        if explosion_state == 0
+            && source_pose.is_some_and(|pose| {
+                self.render_source_projected(
+                    source_raster,
+                    shape_id,
+                    shape,
+                    col_frame,
+                    color_table,
+                    depth_bank,
+                    pose,
+                    palette,
+                )
+            })
+        {
+            return;
+        }
         let texture_palette: [[f32; 4]; 16] =
             std::array::from_fn(|i| [palette[i][0], palette[i][1], palette[i][2], 1.0]);
 
@@ -895,7 +1077,7 @@ impl ShapeStore {
                 *model_matrix
             };
 
-            let shade_index = shapes::compute_shade_index(face.normal, light_obj);
+            let shade_index = shapes::compute_shade_index(face.normal, light_object);
 
             let material =
                 resolve_registered_face_material(shape, face.color_index, col_frame, color_table);
@@ -999,11 +1181,11 @@ mod tests {
             normal: [0, 127, 0],
             visibility_vertices: selector,
         }];
-        ShapeStore::build_gpu_shape(&vertices, &faces, 0, false)
+        ShapeStore::build_gpu_shape(&vertices, &faces, &[], 0, false)
     }
 
     #[test]
-    fn source_visibility_winding_is_rejected_in_gl_coordinates() {
+    fn source_visibility_winding_is_preserved_in_clip_coordinates() {
         let identity = [
             1.0, 0.0, 0.0, 0.0, // column 0
             0.0, 1.0, 0.0, 0.0, // column 1
@@ -1011,7 +1193,7 @@ mod tests {
             0.0, 0.0, 0.0, 1.0, // column 3
         ];
 
-        let visible = visibility_test_shape(Some([0, 2, 1]));
+        let visible = visibility_test_shape(Some([0, 1, 2]));
         assert_eq!(visible.face_normals[0], [0.0, 1.0, 0.0]);
         assert!(face_is_camera_visible(
             &visible,
@@ -1019,7 +1201,7 @@ mod tests {
             &identity
         ));
 
-        let hidden = visibility_test_shape(Some([0, 1, 2]));
+        let hidden = visibility_test_shape(Some([0, 2, 1]));
         assert!(!face_is_camera_visible(
             &hidden,
             &hidden.faces[0],

@@ -23,6 +23,7 @@ use crate::transform::Transform;
 use crate::ui::Ui;
 use sf_core::{
     player_view::PlayerViewMode,
+    point_field::PointPixel,
     scene::{PaletteFadeTarget, SceneStyle},
     screen_fill_circle::{
         ScreenFillCircleCenter, ScreenFillCircleScope, ScreenFillCircleState, MAX_COLOR_LEVEL,
@@ -338,6 +339,12 @@ pub const WINDOW_MODE_BLACK: u8 = 1;
 pub const WINDOW_MODE_WHITEFADE: u8 = 2;
 pub const WINDOW_MODE_WHITE2NORM: u8 = 3;
 pub const WINDOW_MODE_MAPFADE: u8 = 4;
+/// Full source display brightness.
+pub const DISPLAY_BRIGHTNESS_MAX: u8 = 15;
+/// Maximum source fixed-colour component.
+const FIXED_COLOR_COMPONENT_MAX: u8 = 31;
+const SOURCE_CLEAR_COMPONENT: f32 = 0.0;
+const SF2_SIDEBAR_BLUE_COMPONENT: f32 = 0.05;
 
 /// Mirror of the C `WindowState` (fade slot).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -369,6 +376,8 @@ pub struct FrameInputs<'a> {
     /// Typed polygon lighting and shadow-plane state selected by the active
     /// background script.
     pub scene_style: SceneStyle,
+    /// Source-resolution pixels emitted by the native point-field simulation.
+    pub point_pixels: &'a [PointPixel],
 
     // Background palette-row fade (map-VM FADETOSEA/FADETOGROUND,
     // WORLD.ASM:371-394; consumer fadepalto_l MAIN.ASM:2762).
@@ -380,6 +389,13 @@ pub struct FrameInputs<'a> {
     /// g_windowmode bitmask of allocated slots.
     pub windowmode: u8,
     pub windows: [WindowState; WINDOWARRAY_SIZE],
+    /// Typed 0..15 source display brightness. This is visible game state,
+    /// not a source-machine register model.
+    pub display_brightness: u8,
+    /// Typed scene-transfer blanking, independent of visible brightness.
+    pub display_forced_blank: bool,
+    /// Typed fixed-colour subtraction published by the black-window lane.
+    pub display_black_subtraction: u8,
     /// Native source-authored playfield reveal.
     pub screen_wipe: ScreenWipeState,
     /// Retail fixed-colour circle presentation.
@@ -475,10 +491,14 @@ impl<'a> Default for FrameInputs<'a> {
             bg2_xscroll: 0,
             nomax_bg2_yscroll: false,
             scene_style: SceneStyle::default(),
+            point_pixels: &[],
             pal_target: None,
             palfade_num: 0,
             windowmode: 0,
             windows: [WindowState::default(); WINDOWARRAY_SIZE],
+            display_brightness: DISPLAY_BRIGHTNESS_MAX,
+            display_forced_blank: false,
+            display_black_subtraction: 0,
             screen_wipe: ScreenWipeState::inactive(),
             screen_fill_circle: ScreenFillCircleState::inactive(),
             meters: 0,
@@ -604,9 +624,9 @@ impl Renderer {
         let mut shapes = ShapeStore::new();
         shapes.register_builtins(&mut gpu);
 
-        // Deep space blue-black (was gl.clear_color(0,0,0.05,1)). Depth test
-        // and no culling are baked into the wgpu pipelines.
-        gpu.set_clear_color(0.0, 0.0, 0.05, 1.0);
+        // CGRAM color zero is black in the retail game. Scene backdrops and
+        // point fields supply any authored sky color above that base.
+        gpu.set_clear_color(0.0, 0.0, 0.0, 1.0);
 
         println!("Renderer initialized ({width}x{height})");
 
@@ -660,6 +680,24 @@ impl Renderer {
         alpha: f32,
         inputs: &FrameInputs,
     ) {
+        let clear_blue = if inputs.sf2.is_some() {
+            SF2_SIDEBAR_BLUE_COMPONENT
+        } else {
+            SOURCE_CLEAR_COMPONENT
+        };
+        self.gpu.set_clear_color(
+            SOURCE_CLEAR_COMPONENT,
+            SOURCE_CLEAR_COMPONENT,
+            clear_blue,
+            1.0,
+        );
+        self.gpu.set_display_presentation(
+            inputs.display_brightness,
+            inputs.display_forced_blank,
+            inputs
+                .display_black_subtraction
+                .min(FIXED_COLOR_COMPONENT_MAX),
+        );
         // Rebuild the interpolated view matrix first: the BG layer derives
         // the painted-horizon scroll from the render-frame camera, so it
         // must see the same camera the 3D pass uses (DrawList render's own
@@ -696,13 +734,18 @@ impl Renderer {
         let shape_palette = if let Some(sf2) = inputs.sf2.filter(|sf2| sf2.mode == Sf2Mode::Mission)
         {
             crate::shapes::sf2_polygon_shape_palette(sf2.polygon_palette)
-        } else if inputs.game_state == GameState::Title {
-            crate::shapes::decode_shape_palette(self.bg2d.title_polygon_palette())
         } else {
             crate::shapes::decode_shape_palette(crate::shapes::game_palette_bgr(
                 inputs.scene_style.game_palette,
             ))
         };
+        self.ui.render_point_field(
+            &mut self.gpu,
+            inputs.point_pixels,
+            &shape_palette,
+            self.width,
+            self.height,
+        );
         let sf2_mission = inputs.sf2.is_some_and(|sf2| sf2.mode == Sf2Mode::Mission);
         let sf1_briefing = inputs.game_state == GameState::Briefing;
         if sf2_mission {

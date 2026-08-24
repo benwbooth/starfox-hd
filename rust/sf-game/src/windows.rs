@@ -28,6 +28,10 @@ pub const WINDOW_MODE_HALFFADE: u8 = 7;
 
 /// Full black intensity and the number of unit-speed fade steps.
 pub const BLACK_FADE_MAX: u8 = 30;
+/// Full source display brightness.
+pub const DISPLAY_BRIGHTNESS_MAX: u8 = 15;
+/// Maximum fixed-colour component used by the black window.
+const FIXED_COLOR_COMPONENT_MAX: u8 = 31;
 /// `initblack_l` hold value before its immediate first presentation step.
 pub(crate) const INITIAL_BLACK_HOLD_STEPS: i8 = 40;
 /// Remaining hold value after `initblack_l` performs that first step.
@@ -78,7 +82,7 @@ pub const HITFLASH_RED: u8 = 2;
 const MSTARWIPE_CIRCLE: i16 = 1;
 
 /// Windows/fade state (C g_windowmode + g_windowarray + g_fadedir).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Windows {
     /// C `g_windowmode` — bitmask of allocated slots.
     pub windowmode: u8,
@@ -86,12 +90,80 @@ pub struct Windows {
     pub slots: [WindowSlot; WINDOWARRAY_SIZE],
     /// C `g_fadedir` (int8; 0 = no map fade active).
     pub fadedir: i8,
+    /// Typed visible result of the source display fade (`fade`, 0..15).
+    /// This is presentation state, not a processor register or byte-addressed
+    /// machine model.
+    display_brightness: u8,
+    /// True while presentation is completely disabled during a scene
+    /// transfer. This remains distinct from a zero-brightness visible raster
+    /// because the source uses the two states at different boundaries.
+    display_forced_blank: bool,
+    /// Fixed black component used by the completed source raster. This
+    /// intentionally trails the next component while the reveal advances.
+    display_black_subtraction: u8,
+    next_black_subtraction: u8,
     map_fade_timing: MapFadeTiming,
+}
+
+impl Default for Windows {
+    fn default() -> Self {
+        Self {
+            windowmode: 0,
+            slots: [WindowSlot::default(); WINDOWARRAY_SIZE],
+            fadedir: 0,
+            display_brightness: DISPLAY_BRIGHTNESS_MAX,
+            display_forced_blank: false,
+            display_black_subtraction: 0,
+            next_black_subtraction: 0,
+            map_fade_timing: MapFadeTiming::PerSimulationTick,
+        }
+    }
 }
 
 impl Windows {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn display_brightness(&self) -> u8 {
+        self.display_brightness
+    }
+
+    pub fn display_forced_blank(&self) -> bool {
+        self.display_forced_blank
+    }
+
+    pub fn display_black_subtraction(&self) -> u8 {
+        self.display_black_subtraction
+    }
+
+    fn brightness_for_black_intensity(intensity: u8) -> u8 {
+        let visible_intensity = BLACK_FADE_MAX.saturating_sub(intensity);
+        (visible_intensity / 2).min(DISPLAY_BRIGHTNESS_MAX)
+    }
+
+    fn update_display_brightness(&mut self) {
+        let step = match self.fadedir {
+            // IRQ.ASM `qfadeup` performs three increments before publishing
+            // the next visible brightness; `qfadedown` performs two
+            // decrements. Normal and slow presentation use unit steps.
+            2 => 3,
+            -2 => 2,
+            direction if direction != 0 => 1,
+            _ => return,
+        };
+        if self.fadedir > 0 {
+            self.display_brightness = self
+                .display_brightness
+                .saturating_add(step)
+                .min(DISPLAY_BRIGHTNESS_MAX);
+            self.display_forced_blank = false;
+        } else {
+            self.display_brightness = self.display_brightness.saturating_sub(step);
+            if self.display_brightness == 0 {
+                self.display_forced_blank = true;
+            }
+        }
     }
 
     /// C `window_find_mode` (src/game/windows.c:10).
@@ -138,13 +210,17 @@ impl Windows {
         let test = stay_black.wrapping_add(1);
         if test == 0 {
             self.dealloc(slot);
+            self.next_black_subtraction = 0;
             return;
         }
 
         if *stay_black != 0 {
+            self.next_black_subtraction = FIXED_COLOR_COMPONENT_MAX;
             *stay_black = stay_black.wrapping_sub(1);
             return;
         }
+
+        self.next_black_subtraction = self.slots[slot].wm_val.min(FIXED_COLOR_COMPONENT_MAX);
 
         if *oncewipe == 0 {
             *oncewipe = 1;
@@ -185,6 +261,8 @@ impl Windows {
             return;
         }
 
+        self.update_display_brightness();
+
         if self.fadedir < 0 {
             if let MapFadeTiming::FixedPresentation {
                 elapsed_ticks,
@@ -199,6 +277,9 @@ impl Windows {
                 self.slots[slot].wm_val = start_intensity
                     .saturating_add(completed_span as u8)
                     .min(BLACK_FADE_MAX);
+                self.display_brightness =
+                    Self::brightness_for_black_intensity(self.slots[slot].wm_val);
+                self.display_forced_blank = self.display_brightness == 0;
                 if *elapsed_ticks >= *total_ticks {
                     self.fadedir = 0;
                     self.map_fade_timing = MapFadeTiming::PerSimulationTick;
@@ -243,6 +324,10 @@ impl Windows {
     pub fn init(&mut self) {
         self.windowmode = 0;
         self.fadedir = 0;
+        self.display_brightness = DISPLAY_BRIGHTNESS_MAX;
+        self.display_forced_blank = false;
+        self.display_black_subtraction = 0;
+        self.next_black_subtraction = 0;
         self.map_fade_timing = MapFadeTiming::PerSimulationTick;
         self.slots = [WindowSlot::default(); WINDOWARRAY_SIZE];
     }
@@ -257,12 +342,15 @@ impl Windows {
             .alloc(WINDOW_MODE_MAPFADE)
             .expect("fresh window state must have a map-fade slot");
         self.slots[slot].wm_val = BLACK_FADE_MAX;
+        self.display_brightness = 0;
+        self.display_forced_blank = true;
     }
 
     /// C `Windows_Update()` (src/game/windows.c:124). `oncewipe` /
     /// `circleanim` are `GameVars::oncewipe` / `GameVars::circleanim`
     /// (C `g_oncewipe` / `g_circleanim`).
     pub fn update(&mut self, stay_black: &mut i8, oncewipe: &mut u8, circleanim: &mut i16) {
+        self.display_black_subtraction = self.next_black_subtraction;
         for i in 0..WINDOWARRAY_SIZE {
             if self.windowmode & (1 << i) == 0 {
                 continue;
@@ -324,6 +412,8 @@ impl Windows {
             }
         } else if self.slots[slot].wm_val == 0 {
             self.slots[slot].wm_val = BLACK_FADE_MAX;
+            self.display_brightness = 0;
+            self.display_forced_blank = true;
         }
 
         self.fadedir = fadedir;
@@ -354,6 +444,8 @@ impl Windows {
         self.slots[slot].mode = WINDOW_MODE_MAPFADE;
         self.slots[slot].stayblack = 0;
         self.slots[slot].wm_val = intensity.min(BLACK_FADE_MAX);
+        self.display_brightness = Self::brightness_for_black_intensity(intensity);
+        self.display_forced_blank = self.display_brightness == 0;
         self.fadedir = rate.to_black_direction();
         self.map_fade_timing = MapFadeTiming::PerSimulationTick;
     }
@@ -409,6 +501,8 @@ impl Windows {
         };
         self.slots[slot].mode = WINDOW_MODE_BLACK;
         self.slots[slot].wm_val = BLACK_FADE_MAX;
+        self.display_black_subtraction = FIXED_COLOR_COMPONENT_MAX;
+        self.next_black_subtraction = FIXED_COLOR_COMPONENT_MAX;
     }
 
     /// C `setblack_l()` (src/game/windows.c:209).
@@ -606,6 +700,8 @@ mod tests {
         assert_eq!(w.slots[0].wm_val, 30);
         assert_eq!(w.fadedir, 0);
         assert_eq!(w.windowmode, 1);
+        assert_eq!(w.display_brightness(), 0);
+        assert!(w.display_forced_blank());
     }
 
     #[test]
@@ -615,6 +711,8 @@ mod tests {
 
         assert_eq!(w.slots[0].mode, WINDOW_MODE_MAPFADE);
         assert_eq!(w.slots[0].wm_val, BLACK_FADE_MAX);
+        assert_eq!(w.display_brightness(), 0);
+        assert!(w.display_forced_blank());
         assert!(!w.is_map_fade_active());
 
         w.fade_to_black(2);
@@ -634,8 +732,13 @@ mod tests {
         w.fade_from_black(2);
         assert_eq!(w.fadedir, 2);
         assert_eq!(w.slots[0].wm_val, 30); // nonzero wm_val kept (windows.c:169)
+        assert!(w.display_forced_blank());
 
-        tick(&mut w, &mut ow, &mut ca, 14);
+        tick(&mut w, &mut ow, &mut ca, 1);
+        assert_eq!(w.display_brightness(), 3);
+        assert!(!w.display_forced_blank());
+
+        tick(&mut w, &mut ow, &mut ca, 13);
         assert_eq!(w.slots[0].wm_val, 2);
         assert_eq!(w.fadedir, 2);
         tick(&mut w, &mut ow, &mut ca, 1);
@@ -713,6 +816,23 @@ mod tests {
         w.update(&mut stay_black, &mut ow, &mut ca);
         // test = stayblack + 1 == 0 -> dealloc.
         assert_eq!(w.windowmode, 0);
+    }
+
+    #[test]
+    fn black_reveal_retains_completed_raster_component() {
+        let mut w = Windows::new();
+        let mut stay_black = 0;
+        let mut oncewipe = 1;
+        let mut circleanim = 0;
+        w.init_black();
+
+        w.update(&mut stay_black, &mut oncewipe, &mut circleanim);
+
+        assert_eq!(w.display_black_subtraction(), FIXED_COLOR_COMPONENT_MAX);
+        assert_eq!(w.slots[0].wm_val, BLACK_FADE_MAX - 2);
+
+        w.update(&mut stay_black, &mut oncewipe, &mut circleanim);
+        assert_eq!(w.display_black_subtraction(), BLACK_FADE_MAX);
     }
 
     /// White fade caps at 31, and white2norm walks back down and deallocs.

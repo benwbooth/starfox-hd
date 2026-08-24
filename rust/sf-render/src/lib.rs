@@ -20,6 +20,8 @@ pub mod light_data;
 mod scene_color_data;
 pub mod shape_data;
 pub mod shapes;
+mod source_projection;
+mod source_raster;
 
 pub mod bg2d;
 pub mod builtin_shapes;

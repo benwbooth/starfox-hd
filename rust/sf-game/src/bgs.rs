@@ -133,6 +133,17 @@ pub fn update(vars: &mut GameVars) {
         do_bg_req(vars);
     }
     if vars.bgflags & BGF_INFO != 0 {
+        if let Some(info) = sf_map::catalog::background_info(vars.currentbg) {
+            vars.point_field_mode = info.point_field;
+            vars.dotsflag = info.point_field.source_flag();
+            if info.vertical_offsets {
+                vars.vofs_on_please();
+            } else {
+                vars.vofs_off_please();
+            }
+            vars.dohofs = u8::from(info.horizontal_offsets);
+            vars.shared.do_depth_rotation = u8::from(info.depth_rotation);
+        }
         vars.preserve_player_strategy = false;
         vars.bgflags &= !BGF_INFO;
     }
@@ -192,6 +203,48 @@ mod tests {
 
         assert!(!vars.preserve_player_strategy);
         assert_eq!(vars.bgflags, 0);
+    }
+
+    #[test]
+    fn background_info_applies_title_and_training_declarations() {
+        use sf_core::point_field::PointFieldMode;
+        use sf_map::catalog::background_id;
+
+        let mut vars = GameVars::init();
+        vars.currentbg = background_id::TITLE;
+        vars.bgflags = BGF_INFO;
+        update(&mut vars);
+        assert_eq!(vars.point_field_mode, PointFieldMode::SpaceDust);
+        assert_eq!(vars.dotsflag, -1);
+        assert_eq!((vars.dovofs, vars.dohofs), (0, 0));
+        assert_eq!(vars.shared.do_depth_rotation, 0);
+
+        vars.currentbg = background_id::TRAINING;
+        vars.bgflags = BGF_INFO;
+        update(&mut vars);
+        assert_eq!(vars.point_field_mode, PointFieldMode::GroundGrid);
+        assert_eq!(vars.dotsflag, 1);
+        assert_eq!((vars.dovofs, vars.dohofs), (1, 1));
+        assert_eq!(vars.shared.do_depth_rotation, 1);
+    }
+
+    #[test]
+    fn blink_background_retains_previous_info() {
+        use sf_core::point_field::PointFieldMode;
+
+        let mut vars = GameVars::init();
+        vars.currentbg = 1;
+        vars.point_field_mode = PointFieldMode::SpaceDust;
+        vars.dotsflag = -1;
+        vars.dovofs = 1;
+        vars.dohofs = 1;
+        vars.shared.do_depth_rotation = 1;
+        vars.bgflags = BGF_INFO;
+        update(&mut vars);
+        assert_eq!(vars.point_field_mode, PointFieldMode::SpaceDust);
+        assert_eq!(vars.dotsflag, -1);
+        assert_eq!((vars.dovofs, vars.dohofs), (1, 1));
+        assert_eq!(vars.shared.do_depth_rotation, 1);
     }
 
     #[test]

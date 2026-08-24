@@ -250,6 +250,36 @@ impl Ppu {
         }
     }
 
+    pub(crate) fn snapshot_rgba(&self) -> Vec<u8> {
+        self.render_rgba()
+    }
+
+    pub(crate) fn snapshot_bg_rgba(&self, bg: usize) -> Vec<u8> {
+        let mut rgba = vec![0; FRAME_WIDTH * FRAME_HEIGHT * 4];
+        for y in 0..FRAME_HEIGHT {
+            for x in 0..FRAME_WIDTH {
+                let output = self
+                    .bg_pixel(bg, x, y)
+                    .map_or([0, 0, 0, 255], |(color, _)| self.color(usize::from(color)));
+                let offset = (y * FRAME_WIDTH + x) * 4;
+                rgba[offset..offset + 4].copy_from_slice(&output);
+            }
+        }
+        rgba
+    }
+
+    pub(crate) fn snapshot_bg_indices(&self, bg: usize) -> Vec<u8> {
+        let mut indices = vec![u8::MAX; FRAME_WIDTH * FRAME_HEIGHT];
+        for y in 0..FRAME_HEIGHT {
+            for x in 0..FRAME_WIDTH {
+                if let Some((color, _)) = self.bg_pixel(bg, x, y) {
+                    indices[y * FRAME_WIDTH + x] = color;
+                }
+            }
+        }
+        indices
+    }
+
     fn color(&self, index: usize) -> [u8; 4] {
         let offset = (index & 0xFF) * 2;
         let raw = u16::from_le_bytes([self.cgram[offset], self.cgram[offset + 1]]);

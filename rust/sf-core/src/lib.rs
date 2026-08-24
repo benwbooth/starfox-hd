@@ -10,6 +10,7 @@
 
 pub mod aim_angle;
 pub mod player_view;
+pub mod point_field;
 pub mod scene;
 pub mod screen_fill_circle;
 pub mod screen_wipe;

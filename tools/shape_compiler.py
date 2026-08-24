@@ -701,6 +701,17 @@ class Face:
 
 
 @dataclass
+class PainterNode:
+    """One typed node in the authored back-to-front face hierarchy."""
+    visibility_vertices: Optional[Tuple[int, int, int]]
+    face_start: int
+    face_count: int
+    left: Optional[int]
+    right: Optional[int]
+    is_leaf: bool = False
+
+
+@dataclass
 class ShapeHeader:
     label: str              # shape name (from the label on the shapehdr line)
     points_label: str       # label for vertex data
@@ -722,6 +733,7 @@ class ShapeData:
     # include frame zero as the first entry.
     animation_frames: List[List[Vertex]]
     faces: List[Face]
+    painter_nodes: List[PainterNode]
     # ShapeHdr sh_col_ptr.  Zero in a live object's al_coltab means "use
     # this header table"; retaining it is required for sprite-textured and
     # per-shape animated materials (asteroids, explosions, lasers, etc.).
@@ -1022,21 +1034,55 @@ def find_label_line_range(af: AsmFile, label: str, start: int, end: int) -> int:
 # Parse faces
 # ---------------------------------------------------------------------------
 
-def parse_faces(af: AsmFile, faces_label: str) -> List[Face]:
-    """Parse face data starting from faces_label."""
+def parse_faces(
+        af: AsmFile,
+        faces_label: str,
+) -> Tuple[List[Face], List[PainterNode]]:
+    """Parse faces and the authored back-to-front painter hierarchy."""
     start = find_label_line(af, faces_label)
     if start < 0:
-        return []
+        return [], []
 
     faces: List[Face] = []
     visibility_tests: List[Tuple[int, int, int]] = []
     visibility_tests_remaining = 0
+    face_groups: Dict[str, Tuple[int, int]] = {}
+    current_group: Optional[str] = None
+    current_group_start = 0
+    painter_start: Optional[int] = None
+    painter_directives: List[int] = []
 
     for i in range(start, len(af.lines)):
         line = af.lines[i]
 
         if line.op == 'endshape':
             break
+
+        if line.op == 'bspinit':
+            painter_start = i
+            continue
+
+        if painter_start is not None and line.op in (
+                'bsp', 'bspnull', 'bspe', 'bspend'):
+            painter_directives.append(i)
+
+        if line.op == 'faces':
+            if current_group is not None:
+                face_groups[current_group] = (
+                    current_group_start,
+                    len(faces) - current_group_start,
+                )
+            current_group = line.label.lower() if line.label else None
+            current_group_start = len(faces)
+            continue
+
+        if line.op in ('fend', 'fendq') and current_group is not None:
+            face_groups[current_group] = (
+                current_group_start,
+                len(faces) - current_group_start,
+            )
+            current_group = None
+            continue
 
         if line.op == 'vizis':
             count = eval_in_file(af, line.args)
@@ -1134,7 +1180,98 @@ def parse_faces(af: AsmFile, faces_label: str) -> List[Face]:
                 visibility_vertices=visibility_vertices,
             ))
 
-    return faces
+    if current_group is not None:
+        face_groups[current_group] = (
+            current_group_start,
+            len(faces) - current_group_start,
+        )
+
+    if not painter_directives:
+        return faces, []
+
+    directive_index = {
+        source_line: index
+        for index, source_line in enumerate(painter_directives)
+    }
+    label_targets: Dict[str, int] = {}
+    for source_line in painter_directives:
+        line = af.lines[source_line]
+        if line.label:
+            label_targets[line.label.lower()] = directive_index[source_line]
+        previous = source_line - 1
+        while previous > start:
+            candidate = af.lines[previous]
+            if candidate.op:
+                break
+            if candidate.label:
+                label_targets[candidate.label.lower()] = directive_index[source_line]
+            previous -= 1
+
+    def group_range(label: str, source_line: int) -> Tuple[int, int]:
+        key = label.strip().strip('<>').lower()
+        if key not in face_groups:
+            raise ValueError(
+                f"unknown face group {label} at {af.path}:{source_line + 1}")
+        return face_groups[key]
+
+    painter_nodes: List[PainterNode] = []
+    for index, source_line in enumerate(painter_directives):
+        line = af.lines[source_line]
+        args = split_asm_args(line.args)
+        if line.op == 'bspend':
+            painter_nodes.append(PainterNode(
+                visibility_vertices=None,
+                face_start=0,
+                face_count=0,
+                left=None,
+                right=None,
+                is_leaf=True,
+            ))
+            continue
+        if line.op == 'bspe':
+            if len(args) != 1:
+                raise ValueError(
+                    f"invalid painter leaf at {af.path}:{source_line + 1}")
+            face_start, face_count = group_range(args[0], source_line)
+            painter_nodes.append(PainterNode(
+                visibility_vertices=None,
+                face_start=face_start,
+                face_count=face_count,
+                left=None,
+                right=None,
+                is_leaf=True,
+            ))
+            continue
+        expected_args = 2 if line.op == 'bspnull' else 3
+        if len(args) != expected_args:
+            raise ValueError(
+                f"invalid painter partition at {af.path}:{source_line + 1}")
+        visibility_index = eval_in_file(af, args[0])
+        if visibility_index is None or not -1 <= visibility_index < len(visibility_tests):
+            raise ValueError(
+                f"invalid painter visibility at {af.path}:{source_line + 1}")
+        face_start, face_count = group_range(args[1], source_line)
+        left = index + 1 if index + 1 < len(painter_directives) else None
+        right = None
+        if line.op == 'bsp':
+            target = args[2].strip().lower()
+            if target not in label_targets:
+                raise ValueError(
+                    f"unknown painter target {args[2]} at "
+                    f"{af.path}:{source_line + 1}")
+            right = label_targets[target]
+        painter_nodes.append(PainterNode(
+            visibility_vertices=(
+                None if visibility_index == -1
+                else visibility_tests[visibility_index]
+            ),
+            face_start=face_start,
+            face_count=face_count,
+            left=left,
+            right=right,
+        ))
+
+    return faces, painter_nodes
 
 
 # ---------------------------------------------------------------------------
@@ -1275,6 +1412,19 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
     out.append("    pub visibility_vertices: Option<[u16; 3]>,")
     out.append("}")
     out.append("")
+    out.append("/// One node in the authored back-to-front face hierarchy.")
+    out.append("#[derive(Debug, Clone, Copy, PartialEq, Eq)]")
+    out.append("pub enum ShapePainterNode {")
+    out.append("    Partition {")
+    out.append("        visibility_vertices: Option<[u16; 3]>,")
+    out.append("        face_start: u16,")
+    out.append("        face_count: u16,")
+    out.append("        left: Option<u16>,")
+    out.append("        right: Option<u16>,")
+    out.append("    },")
+    out.append("    Leaf { face_start: u16, face_count: u16 },")
+    out.append("}")
+    out.append("")
     out.append("/// One compiled shape, matching C `ShapeDataEntry` (shape_data.h).")
     out.append("#[derive(Debug, Clone, Copy)]")
     out.append("pub struct ShapeDataEntry {")
@@ -1282,6 +1432,7 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
     out.append("    pub vertices: &'static [ShapeVertex],")
     out.append("    pub animation_frames: &'static [&'static [ShapeVertex]],")
     out.append("    pub faces: &'static [ShapeFace],")
+    out.append("    pub painter_nodes: &'static [ShapePainterNode],")
     out.append("    pub default_color_table: &'static str,")
     out.append("    pub name: &'static str,")
     out.append("}")
@@ -1340,11 +1491,41 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
                 f"Some([{', '.join(str(idx) for idx in face.visibility_vertices)}])"
                 if face.visibility_vertices is not None else "None"
             )
-            normal = [face.normal[0], -face.normal[1], face.normal[2]]
+            # FaceN writes the authored Z normal with the opposite sign, and
+            # the native renderer converts source Y-down vertices to Y-up.
+            # Apply both source transforms so lighting uses the same normal
+            # that the retail shape stream stores.
+            normal = [face.normal[0], -face.normal[1], -face.normal[2]]
             normal_str = ", ".join(str(component) for component in normal)
             out.append(
                 f"    f([{indices_str}], {len(face.vertex_indices)}, "
                 f"{face.color_index}, [{normal_str}], {visibility}),")
+        out.append("];")
+        out.append("")
+
+        out.append(
+            f"static SHAPE_{shape.shape_id}_PAINTER: "
+            f"[ShapePainterNode; {len(shape.painter_nodes)}] = [")
+        for node in shape.painter_nodes:
+            if node.is_leaf:
+                out.append(
+                    "    ShapePainterNode::Leaf { "
+                    f"face_start: {node.face_start}, "
+                    f"face_count: {node.face_count} }},")
+                continue
+            visibility = (
+                "Some([" + ", ".join(
+                    str(index) for index in node.visibility_vertices) + "])"
+                if node.visibility_vertices is not None else "None")
+            left = f"Some({node.left})" if node.left is not None else "None"
+            right = f"Some({node.right})" if node.right is not None else "None"
+            out.append("    ShapePainterNode::Partition {")
+            out.append(f"        visibility_vertices: {visibility},")
+            out.append(f"        face_start: {node.face_start},")
+            out.append(f"        face_count: {node.face_count},")
+            out.append(f"        left: {left},")
+            out.append(f"        right: {right},")
+            out.append("    },")
         out.append("];")
         out.append("")
 
@@ -1360,6 +1541,7 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
             f"vertices: &SHAPE_{shape.shape_id}_VERTS, "
             f"animation_frames: {animation_frames}, "
             f"faces: &SHAPE_{shape.shape_id}_FACES, "
+            f"painter_nodes: &SHAPE_{shape.shape_id}_PAINTER, "
             f'default_color_table: "{shape.color_table.lower()}", '
             f'name: "{shape.name}" }},')
     out.append("];")
@@ -1506,7 +1688,7 @@ def main() -> int:
         # then fall back to searching all loaded files (cross-file refs).
         vertex_frames = parse_vertex_frames(af, hdr.points_label, hdr.shift)
         vertices = vertex_frames[0] if vertex_frames else []
-        faces = parse_faces(af, hdr.faces_label)
+        faces, painter_nodes = parse_faces(af, hdr.faces_label)
 
         if not vertices:
             for other_af in asm_files:
@@ -1520,7 +1702,7 @@ def main() -> int:
         if not faces:
             for other_af in asm_files:
                 if other_af is not af:
-                    faces = parse_faces(other_af, hdr.faces_label)
+                    faces, painter_nodes = parse_faces(other_af, hdr.faces_label)
                     if faces:
                         break
 
@@ -1540,6 +1722,7 @@ def main() -> int:
             vertices=vertices,
             animation_frames=vertex_frames if len(vertex_frames) > 1 else [],
             faces=faces,
+            painter_nodes=painter_nodes,
             color_table=hdr.color_table,
             sort_depth=hdr.sort_depth,
             visual_extent=hdr.visual_extent,
@@ -1567,7 +1750,7 @@ def main() -> int:
 
         vertex_frames = parse_vertex_frames(af, hdr.points_label, hdr.shift)
         vertices = vertex_frames[0] if vertex_frames else []
-        faces = parse_faces(af, hdr.faces_label)
+        faces, painter_nodes = parse_faces(af, hdr.faces_label)
 
         if not vertices:
             for other_af in asm_files:
@@ -1581,7 +1764,7 @@ def main() -> int:
         if not faces:
             for other_af in asm_files:
                 if other_af is not af:
-                    faces = parse_faces(other_af, hdr.faces_label)
+                    faces, painter_nodes = parse_faces(other_af, hdr.faces_label)
                     if faces:
                         break
 
@@ -1604,6 +1787,7 @@ def main() -> int:
             vertices=vertices,
             animation_frames=vertex_frames if len(vertex_frames) > 1 else [],
             faces=faces,
+            painter_nodes=painter_nodes,
             color_table=hdr.color_table,
             sort_depth=hdr.sort_depth,
             visual_extent=hdr.visual_extent,

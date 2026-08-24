@@ -11,6 +11,7 @@ use std::sync::OnceLock;
 
 use crate::levels::{self, BuiltLevel};
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
+use sf_core::point_field::PointFieldMode;
 use sf_core::screen_wipe::ScreenWipeKind;
 
 /// Planet map IDs (matches PLANETS.ASM path table values; levels.h).
@@ -87,6 +88,57 @@ pub mod background_id {
     pub const CREDITS: u16 = 43;
     pub const TRAINING: u16 = 44;
     pub const SPECIAL: u16 = 62;
+}
+
+/// Typed `info` declaration owned by a BGS.ASM background.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackgroundInfo {
+    pub point_field: PointFieldMode,
+    pub vertical_offsets: bool,
+    pub horizontal_offsets: bool,
+    pub depth_rotation: bool,
+}
+
+const fn background_info_value(
+    point_field: PointFieldMode,
+    vertical_offsets: bool,
+    horizontal_offsets: bool,
+    depth_rotation: bool,
+) -> BackgroundInfo {
+    BackgroundInfo {
+        point_field,
+        vertical_offsets,
+        horizontal_offsets,
+        depth_rotation,
+    }
+}
+
+/// Exact `info` declaration selected by a flat background id.
+///
+/// `None` is significant: source `blink` declarations do not execute an
+/// `info` command and therefore retain the preceding background state.
+pub fn background_info(background: u16) -> Option<BackgroundInfo> {
+    use PointFieldMode::{GroundGrid, None as NoPoints, Pollen, Snow, SpaceDust};
+
+    let info = match background {
+        // BGS.ASM `bg_1_1a`, `bg_1_1b`, and `bg_3_4a` are blink-only.
+        1 | 2 | 32 => return None,
+        0 | 8 | 10 | 16 | 18 | 24 | 25 | 27 | 29 | 34 => {
+            background_info_value(NoPoints, false, true, false)
+        }
+        11 => background_info_value(NoPoints, true, true, true),
+        17 | 28 => background_info_value(NoPoints, false, true, true),
+        3 | 4 | 13 | 15 | 19 | 36 | 38 | 44 => background_info_value(GroundGrid, true, true, true),
+        23 => background_info_value(Snow, true, true, true),
+        31 => background_info_value(Pollen, true, true, true),
+        5 | 6 | 7 | 9 | 12 | 14 | 20 | 21 | 22 | 26 | 30 | 33 | 35 | 37 | 40 | 43 | 62 => {
+            background_info_value(SpaceDust, true, true, true)
+        }
+        39 => background_info_value(SpaceDust, false, true, true),
+        41 | 42 => background_info_value(SpaceDust, false, false, false),
+        _ => return None,
+    };
+    Some(info)
 }
 
 /// Semantic identity recorded by each completed boss marker and consumed by
@@ -732,5 +784,24 @@ mod tests {
             background_player_view(background_id::THREE_FOUR_CLEAR),
             None
         );
+    }
+
+    #[test]
+    fn presentation_and_training_background_info_matches_source() {
+        use PointFieldMode::{GroundGrid, SpaceDust};
+
+        assert_eq!(
+            background_info(background_id::TITLE),
+            Some(background_info_value(SpaceDust, false, false, false))
+        );
+        assert_eq!(
+            background_info(background_id::INTRO),
+            Some(background_info_value(SpaceDust, true, true, true))
+        );
+        assert_eq!(
+            background_info(background_id::TRAINING),
+            Some(background_info_value(GroundGrid, true, true, true))
+        );
+        assert_eq!(background_info(1), None, "blink retains prior info");
     }
 }

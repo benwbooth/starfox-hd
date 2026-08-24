@@ -39,6 +39,7 @@ pub struct Transform {
     /// per 20 Hz tick (see `set_view_lerp`).
     cam_render_pitch_f: f32,
     cam_render_yaw_f: f32,
+    cam_render_rotation: [u16; 3],
 }
 
 pub fn identity(m: &mut [f32; 16]) {
@@ -145,6 +146,7 @@ impl Transform {
             cam_render: CameraState::default(),
             cam_render_pitch_f: 0.0,
             cam_render_yaw_f: 0.0,
+            cam_render_rotation: [0; 3],
         }
     }
 
@@ -242,6 +244,8 @@ impl Transform {
         };
         self.cam_render_pitch_f = signed_angle_f(crx);
         self.cam_render_yaw_f = signed_angle_f(cry);
+        self.cam_render_rotation = [crx, cry, crz]
+            .map(|angle| (angle.rem_euclid(256.0) * FINE_ANGLE_SCALE).round() as u16);
         // Build view matrix from camera position and SNES rotation angles.
         // SNES -> GL world: negate Y translation, negate X/Z rotation angles.
         let cy = -cy;
@@ -430,6 +434,13 @@ impl Transform {
     /// Mirror of `Transform_GetRenderCamera`.
     pub fn render_camera(&self) -> CameraState {
         self.cam_render
+    }
+
+    /// Camera position and complete authored turn fractions used by the most
+    /// recent view build. Fixed-update source projection consumes this typed
+    /// snapshot without reconstructing angles from a floating-point matrix.
+    pub fn source_camera(&self) -> (CameraState, [u16; 3]) {
+        (self.cam_render, self.cam_render_rotation)
     }
 
     /// Fractional signed render-camera pitch/yaw (SNES units) for the 2D

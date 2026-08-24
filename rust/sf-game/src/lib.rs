@@ -48,6 +48,7 @@ pub mod draw;
 pub mod foxy;
 pub mod heap;
 pub mod planets;
+pub mod point_field;
 pub mod score;
 pub mod shell;
 pub mod strings;

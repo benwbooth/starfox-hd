@@ -49,7 +49,20 @@ pub const BG2D_W: usize = 256;
 pub const BG2D_H: usize = 224;
 const COLORS_PER_PALETTE: usize = 16;
 const BACKGROUND_FADE_PALETTE: usize = 4;
+/// Native polygon materials for the pre-rendered title presentation use the
+/// authored CP-US row 6 ramp.
 const TITLE_POLYGON_PALETTE: usize = 6;
+/// The source reserves palette row 7 for its independently loaded game
+/// palette while the title asset supplies rows 0 through 6.
+const TITLE_GAME_PALETTE: usize = 7;
+/// Effective BG3 horizontal scroll retained by the source Mode-1 setup.
+const TITLE_BG3_HORIZONTAL_SCROLL: usize = 1_020;
+const SOURCE_TILEMAP_EXTENT: usize = 1_024;
+const TITLE_TILEMAP_EXTENT: usize = 256;
+const TITLE_FRAMEBUFFER_LEFT: usize = 16;
+const TITLE_FRAMEBUFFER_TOP: usize = 16;
+const TITLE_FRAMEBUFFER_WIDTH: usize = 224;
+const TITLE_FRAMEBUFFER_HEIGHT: usize = 192;
 const STATIC_PALETTE_PIXEL: u8 = u8::MAX;
 
 /// MHOFS.MC `bholetab` (70 signed bytes). The source deliberately places
@@ -566,7 +579,7 @@ pub fn decode_4bpp_tile(src: &[u8], dst8x8: &mut [u8; 64]) {
     }
 }
 
-/// BGR555 -> RGB888 (matches the C `* 255 / 31` integer scaling).
+/// BGR555 -> RGB888 using the source display's five-bit replication.
 pub fn cgram_color(col: &[u8], index: usize) -> [u8; 3] {
     bgr555_color(cgram_word(col, index))
 }
@@ -576,21 +589,28 @@ fn cgram_word(col: &[u8], index: usize) -> u16 {
 }
 
 fn bgr555_color(word: u16) -> [u8; 3] {
-    [
-        ((word & 0x1F) as u32 * 255 / 31) as u8,
-        (((word >> 5) & 0x1F) as u32 * 255 / 31) as u8,
-        (((word >> 10) & 0x1F) as u32 * 255 / 31) as u8,
-    ]
+    let expand = |component: u16| -> u8 {
+        let five_bits = component & 31;
+        ((five_bits << 3) | (five_bits >> 2)) as u8
+    };
+    [expand(word), expand(word >> 5), expand(word >> 10)]
 }
 
 fn cgram_palette(col: &[u8], palette: usize) -> [u16; COLORS_PER_PALETTE] {
     std::array::from_fn(|index| cgram_word(col, palette * COLORS_PER_PALETTE + index))
 }
 
-/// The title's BG1 SuperFX framebuffer uses `pal3d = 6` from CP-US.COL.
-/// Return that source palette as typed BGR555 entries for polygon rendering.
+/// Return the authored palette used by native title polygon materials.
 pub fn title_polygon_palette(col: &[u8]) -> [u16; COLORS_PER_PALETTE] {
     cgram_palette(col, TITLE_POLYGON_PALETTE)
+}
+
+fn title_cgram_color(col: &[u8], index: usize) -> [u8; 3] {
+    if index / COLORS_PER_PALETTE == TITLE_GAME_PALETTE {
+        bgr555_color(crate::shapes::NIGHT_PALETTE[index % COLORS_PER_PALETTE])
+    } else {
+        cgram_color(col, index)
+    }
 }
 
 /// Tilemap entry for map pixel (mx, my). 8 KB .SCR = 64x64 tiles stored as
@@ -810,8 +830,8 @@ pub fn compose_title_layers(
         // Flip vertically so GL row 0 = picture bottom (standard UVs)
         let row_off = (BG2D_H - 1 - y) * BG2D_W * 4;
 
-        let by2 = (y + 1) % 256; // BG2: bg2Yscroll 257 -> effective +1
-        let by3 = (y + 9) % 256; // BG3: setbg3vofs 9
+        let by2 = (y + 1) % TITLE_TILEMAP_EXTENT; // BG2 scroll 257 -> effective +1
+        let by3 = (y + 9) % TITLE_TILEMAP_EXTENT; // BG3 vertical scroll 9
 
         for x in 0..BG2D_W {
             let mut cp_pixel = None;
@@ -835,7 +855,7 @@ pub fn compose_title_layers(
                     let v = cp_px[tile * 64 + r * 8 + c];
                     if v != 0 {
                         cp_pixel = Some((
-                            cgram_color(col, pal * 16 + v as usize),
+                            title_cgram_color(col, pal * 16 + v as usize),
                             e & TILE_PRIORITY != 0,
                         ));
                     }
@@ -844,12 +864,14 @@ pub fn compose_title_layers(
 
             // --- BG3 (TI-3 logo, 2bpp) over the top ---
             {
-                let me = ((by3 / 8) * 32 + (x / 8)) * 2;
+                let bx3 = (x + TITLE_BG3_HORIZONTAL_SCROLL % SOURCE_TILEMAP_EXTENT)
+                    % TITLE_TILEMAP_EXTENT;
+                let me = ((by3 / 8) * 32 + (bx3 / 8)) * 2;
                 let e = ti_scr[me] as u16 | ((ti_scr[me + 1] as u16) << 8);
                 let tile = (e & 0x3FF) as usize;
                 let pal = ((e >> 10) & 7) as usize;
                 let mut r = by3 & 7;
-                let mut c = x & 7;
+                let mut c = bx3 & 7;
                 if e & 0x8000 != 0 {
                     r = 7 - r;
                 }
@@ -917,6 +939,22 @@ pub fn compose_title(
         }
     }
     Some(background)
+}
+
+fn title_live_background(mut low_priority_tiles: Vec<u8>) -> Vec<u8> {
+    let right = TITLE_FRAMEBUFFER_LEFT + TITLE_FRAMEBUFFER_WIDTH;
+    let bottom = TITLE_FRAMEBUFFER_TOP + TITLE_FRAMEBUFFER_HEIGHT;
+    for y in 0..BG2D_H {
+        for x in 0..BG2D_W {
+            if !(TITLE_FRAMEBUFFER_LEFT..right).contains(&x)
+                || !(TITLE_FRAMEBUFFER_TOP..bottom).contains(&y)
+            {
+                let offset = (BG2D_H - 1 - y) * BG2D_W * 4 + x * 4;
+                low_priority_tiles[offset..offset + 4].fill(0);
+            }
+        }
+    }
+    low_priority_tiles
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,8 +1100,13 @@ impl Bg2d {
             return;
         };
         match compose_title_layers(&ti_cgx, &ti_scr, &cp_cgx, &cp_scr, &col) {
-            Some((background, foreground)) => {
-                self.title_tex = upload_rgba(gpu, &background, BG2D_W, BG2D_H);
+            Some((low_priority_tiles, foreground)) => {
+                // The 224-by-192 BG1 framebuffer exposes low-priority title
+                // tiles only inside its centered playfield. The surrounding
+                // border remains black; high-priority title tiles can still
+                // draw over it in the later foreground pass.
+                let live_background = title_live_background(low_priority_tiles);
+                self.title_tex = upload_rgba(gpu, &live_background, BG2D_W, BG2D_H);
                 self.title_foreground_tex = upload_rgba(gpu, &foreground, BG2D_W, BG2D_H);
                 self.title_polygon_palette = title_polygon_palette(&col);
             }
@@ -1302,9 +1345,9 @@ impl Bg2d {
         );
     }
 
-    /// Draw the title tilemap priorities that sit above the low-priority BG1
-    /// SuperFX framebuffer. The ordinary title background pass already drew
-    /// the complementary low-priority plane.
+    /// Draw the title tilemap priorities that sit above the centered BG1
+    /// SuperFX framebuffer. The complementary low-priority plane is clipped
+    /// to that framebuffer's 224-by-192 source playfield.
     pub fn render_title_foreground(&self, gpu: &mut Gpu, screen_width: i32, screen_height: i32) {
         let Some(texture) = self.title_foreground_tex else {
             return;

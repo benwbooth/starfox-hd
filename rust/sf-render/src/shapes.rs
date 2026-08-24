@@ -408,13 +408,15 @@ pub fn resolve_color_table_id(shape_id: u16, color_table: u16) -> u16 {
 // Color resolution (pure mirrors of the shapes.c statics)
 // ---------------------------------------------------------------------------
 
-/// Decode a SNES BGR555 word to linear RGB in [0,1].
+/// Decode a SNES BGR555 word to its exact replicated eight-bit RGB value,
+/// normalized for the GPU. The PPU expands five bits as `abcdeabc`, rather
+/// than scaling by 255/31 and rounding through floating point.
 pub fn decode_bgr555(color: u16) -> [f32; 3] {
-    [
-        (color & 0x1F) as f32 / 31.0,
-        ((color >> 5) & 0x1F) as f32 / 31.0,
-        ((color >> 10) & 0x1F) as f32 / 31.0,
-    ]
+    let expand = |component: u16| {
+        let five_bits = component & 31;
+        f32::from(((five_bits << 3) | (five_bits >> 2)) as u8) / 255.0
+    };
+    [expand(color), expand(color >> 5), expand(color >> 10)]
 }
 
 /// The two palette entries carried by every retail flat-polygon material.
@@ -793,18 +795,23 @@ pub fn compute_shade_index(normal: [i16; 3], light_obj: [f32; 3]) -> i32 {
     const LIGHT_COMPONENT_SCALE: f32 = 128.0;
     const LIGHT_COMPONENT_MIN: f32 = -128.0;
     const LIGHT_COMPONENT_MAX: f32 = 127.0;
-    const SHADE_SHIFT: u32 = 10;
-    const SHADE_MIN: i32 = 6;
-    const SHADE_MAX: i32 = 15;
 
     let light = light_obj.map(|component| {
         (component * LIGHT_COMPONENT_SCALE)
             .floor()
-            .clamp(LIGHT_COMPONENT_MIN, LIGHT_COMPONENT_MAX) as i32
+            .clamp(LIGHT_COMPONENT_MIN, LIGHT_COMPONENT_MAX) as i8
     });
-    let dot = i32::from(normal[0]) * light[0]
-        + i32::from(normal[1]) * light[1]
-        + i32::from(normal[2]) * light[2];
+    compute_quantized_shade_index(normal, light)
+}
+
+pub fn compute_quantized_shade_index(normal: [i16; 3], light_obj: [i8; 3]) -> i32 {
+    const SHADE_SHIFT: u32 = 10;
+    const SHADE_MIN: i32 = 6;
+    const SHADE_MAX: i32 = 15;
+
+    let dot = i32::from(normal[0]) * i32::from(light_obj[0])
+        + i32::from(normal[1]) * i32::from(light_obj[1])
+        + i32::from(normal[2]) * i32::from(light_obj[2]);
     (dot >> SHADE_SHIFT).clamp(SHADE_MIN, SHADE_MAX) - SHADE_MIN
 }
 

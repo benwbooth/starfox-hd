@@ -20,6 +20,7 @@ use crate::renderer::{
 };
 use crate::sprites::decode_4bpp_tile;
 use sf_core::{
+    point_field::PointPixel,
     screen_wipe::{SOURCE_HEIGHT, SOURCE_WIDTH},
     sf1_controls::{BriefingChoice, BriefingPhase},
     sf1_planets::{
@@ -36,6 +37,11 @@ const IDENTITY: [f32; 16] = [
 
 const SF2_REFERENCE_WIDTH: i32 = 256;
 const SF2_REFERENCE_HEIGHT: i32 = 224;
+/// The retail title presentation forces the final 17 source scanlines black.
+/// This is visible composition behavior, independent of the output scale.
+const SF1_TITLE_VISIBLE_SCANLINES: i32 = 207;
+const SF1_TITLE_BLANK_SCANLINES: i32 = SF2_REFERENCE_HEIGHT - SF1_TITLE_VISIBLE_SCANLINES;
+const SF1_TITLE_BLANK_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const SF2_OPAQUE_BLACK_PIXEL: [u8; 4] = [0, 0, 0, u8::MAX];
 const SF2_GAME_OVER_CONTINUE_END_RETAIL_FRAME: u16 = 172;
 const SF2_GAME_OVER_RESULTS_END_RETAIL_FRAME: u16 = 76;
@@ -1587,6 +1593,45 @@ impl Ui {
             if (self.frame / 32) & 1 != 0 {
                 self.text_centered(gpu, font, 128, 96, "PRESS START", 1.0, 1.0, 1.0);
             }
+        }
+        self.quad_snes(
+            gpu,
+            SF1_TITLE_BLANK_COLOR,
+            0,
+            0,
+            SF2_REFERENCE_WIDTH,
+            SF1_TITLE_BLANK_SCANLINES,
+        );
+    }
+
+    pub(crate) fn render_point_field(
+        &mut self,
+        gpu: &mut Gpu,
+        pixels: &[PointPixel],
+        palette: &[[f32; 3]; 16],
+        screen_width: i32,
+        screen_height: i32,
+    ) {
+        const PLAYFIELD_LEFT: i32 = 16;
+        const PLAYFIELD_TOP: i32 = 16;
+        const SOURCE_FRAME_HEIGHT: i32 = 224;
+
+        if pixels.is_empty() {
+            return;
+        }
+        self.begin_2d(screen_width, screen_height);
+        for pixel in pixels {
+            let color = palette[usize::from(pixel.palette_index)];
+            let source_top = PLAYFIELD_TOP + i32::from(pixel.y);
+            let logical_bottom = SOURCE_FRAME_HEIGHT - source_top - 1;
+            self.quad_snes(
+                gpu,
+                [color[0], color[1], color[2], 1.0],
+                PLAYFIELD_LEFT + i32::from(pixel.x),
+                logical_bottom,
+                1,
+                1,
+            );
         }
     }
 
@@ -4029,8 +4074,9 @@ impl Ui {
         }
     }
 
-    /// Fade overlay: wm_val 0..30 (black/mapfade) or 0..31 (white) maps to
-    /// alpha. Mirror of `Ui_RenderFade`.
+    /// Present aperture and white color-window effects. Typed display
+    /// brightness is an exact final-frame quantization pass in the GPU layer;
+    /// black and map-fade lanes do not create a second alpha overlay.
     pub fn render_fade(
         &mut self,
         gpu: &mut Gpu,
@@ -4038,7 +4084,7 @@ impl Ui {
         screen_width: i32,
         screen_height: i32,
     ) {
-        let mut black_a = 0.0f32;
+        let black_a = 0.0f32;
         let mut white_a = 0.0f32;
 
         for (i, w) in inputs.windows.iter().enumerate() {
@@ -4046,12 +4092,10 @@ impl Ui {
                 continue;
             }
             match w.mode {
-                WINDOW_MODE_BLACK | WINDOW_MODE_MAPFADE => {
-                    let a = (w.wm_val as f32 / 30.0).min(1.0);
-                    if a > black_a {
-                        black_a = a;
-                    }
-                }
+                // The source black and map-fade lanes drive typed display
+                // brightness and the separately modelled aperture wipe. They
+                // are not additional whole-screen alpha overlays.
+                WINDOW_MODE_BLACK | WINDOW_MODE_MAPFADE => {}
                 WINDOW_MODE_WHITEFADE | WINDOW_MODE_WHITE2NORM => {
                     let a = (w.wm_val as f32 / 31.0).min(1.0);
                     if a > white_a {

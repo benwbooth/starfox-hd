@@ -11,6 +11,7 @@
 //! their lanes (strat/render/audio/windows) come over.
 
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
+use sf_core::point_field::PointFieldMode;
 use sf_core::scene::{DepthColors, DepthThresholds, GamePalette, PaletteFadeTarget, SceneStyle};
 use sf_core::screen_fill_circle::ScreenFillCircleState;
 
@@ -575,6 +576,12 @@ pub struct GameVars {
     pub stagecnt: i16,
     /// C `g_dotsflag` (-1 space dust, 0 none, 1 ground dots).
     pub dotsflag: i16,
+    /// Typed point-field declaration selected by the active background.
+    pub point_field_mode: PointFieldMode,
+    /// Source `slowstars`: space dust uses its independent depth while true.
+    pub space_dust_uses_reduced_speed: bool,
+    /// Source `slowstars_viewposz`, retained as ordinary typed scene state.
+    pub space_dust_view_depth: i16,
     /// C `g_othmusic`.
     pub othmusic: u8,
 
@@ -705,6 +712,9 @@ impl Default for GameVars {
             mapptr: 0,
             stagecnt: 0,
             dotsflag: 0,
+            point_field_mode: PointFieldMode::None,
+            space_dust_uses_reduced_speed: false,
+            space_dust_view_depth: 0,
             othmusic: 0,
             currentbg: 0,
             bgflags: 0,
