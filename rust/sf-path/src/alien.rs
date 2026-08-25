@@ -54,6 +54,15 @@ pub enum StratRef {
     External(u32),
 }
 
+/// Source-authored size of a face-less explosion control shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExplosionSize {
+    Small,
+    Medium,
+    Large,
+    Oversized,
+}
+
 /// Native presentation selected for an object.
 ///
 /// The source stores software-sprite promotion in a packed strategy flag.
@@ -63,6 +72,7 @@ pub enum ObjectVisualKind {
     #[default]
     Mesh,
     ScaledSprite,
+    ExplosionEnvelope(ExplosionSize),
 }
 
 /// Alien (object) structure — every 3D entity in the game: enemies, items,

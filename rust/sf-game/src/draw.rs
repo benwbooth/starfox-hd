@@ -284,7 +284,34 @@ pub fn build_list(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alien::ASF_HITFLASH;
+    use crate::alien::{ExplosionSize, ASF_HITFLASH};
+
+    #[test]
+    fn abstract_explosion_envelope_cannot_alias_a_catalog_mesh() {
+        let mut objs = Objects::init();
+        let idx = objs.alloc().expect("explosion envelope");
+        {
+            let object = &mut objs.aliens[idx as usize];
+            object.shape = 0;
+            object.visual_kind = ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Medium);
+            object.worldz = 100;
+        }
+
+        let mut out = Vec::new();
+        build_list(
+            &mut objs,
+            0,
+            0,
+            CullView::default(),
+            GF_NOZREMOVE,
+            &|_| None,
+            &mut out,
+        );
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].shape_id, 0);
+        assert_eq!(out[0].flags & dl_flags::SCALED_SPRITE, 0);
+    }
 
     /// A synthetic alien must produce exactly the DrawListEntry the C
     /// Draw_BuildList would emit, including the alien-side flag effects.

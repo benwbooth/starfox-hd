@@ -20,10 +20,11 @@
 
 use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
-    Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
-    ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF2_COLLDISABLE, ASF3_NOHITAFFECT,
-    ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    Alien, ExplosionSize, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3,
+    ACF_COLLTYPE4, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF2_COLLDISABLE,
+    ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE, ASF4_SFLAG8, ASF_COLLDISABLE,
+    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER,
+    ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
@@ -52,8 +53,8 @@ use crate::enemy_a::{
     boss_find_child_obj, boss_get_mother_obj, boss_keeprel_to_player, boss_obj_index_or_null,
     boss_prune_family_links, bossflags, copy_pos, currentlevel, explodegate2_istrat,
     fire_hmissile2, fire_hplasma as fire_shared_hplasma, frame_tick_mod, pviewposz, set_bossflags,
-    strat_boss_explode_init, strat_explode, strat_hit_flash, strat_pitch_toward,
-    strat_relslowelaser_speed, AF_LEFT_PL, ASF3_SFLAG6, SH_MISSILE,
+    set_explosion_envelope, strat_boss_explode_init, strat_explode, strat_hit_flash,
+    strat_pitch_toward, strat_relslowelaser_speed, AF_LEFT_PL, ASF3_SFLAG6, SH_MISSILE,
 };
 
 // ============================================================
@@ -314,11 +315,6 @@ const SH_L2SMOKE_PROXY: u16 = 273;
 // boss2petal_tab (GBSTRATS.ASM): dw boss_2_5, boss_2_4, boss_2_3
 const BOSS2PETAL_TAB: [u16; 3] = [SH_BOSS_2_5_PROXY, SH_BOSS_2_4_PROXY, SH_BOSS_2_3_PROXY];
 
-// Explosion size markers.
-const B2_EXPSHAPE_MEDIUM: u16 = 2;
-const B2_EXPSHAPE_LARGE: u16 = 3;
-const B2_EXPSHAPE_FOLARGE: u16 = 4;
-
 // Sound ids (trigse args).
 const B2_SE_SPAWN: u8 = 0x95;
 const B2_SE_SPIN: u8 = 0x71;
@@ -460,17 +456,17 @@ fn b2_make_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
 }
 fn b2_make_large_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let c = b2_make_exp_obj(g, parent)?;
-    g.objs.aliens[c as usize].shape = B2_EXPSHAPE_LARGE;
+    set_explosion_envelope(&mut g.objs.aliens[c as usize], ExplosionSize::Large);
     Some(c)
 }
 fn b2_make_medium_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let c = b2_make_exp_obj(g, parent)?;
-    g.objs.aliens[c as usize].shape = B2_EXPSHAPE_MEDIUM;
+    set_explosion_envelope(&mut g.objs.aliens[c as usize], ExplosionSize::Medium);
     Some(c)
 }
 fn b2_make_fol_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let c = b2_make_exp_obj(g, parent)?;
-    g.objs.aliens[c as usize].shape = B2_EXPSHAPE_FOLARGE;
+    set_explosion_envelope(&mut g.objs.aliens[c as usize], ExplosionSize::Oversized);
     Some(c)
 }
 
@@ -1773,8 +1769,6 @@ const BOSSG_MODE_SF9E_B: u16 = 33;
 const BOSSG_MODE_RUNAWAY_B: u16 = 34;
 const BOSSG_MODE_LOOPBACK: u16 = 35;
 
-const SEA_EXPSHAPE_SMALL: u16 = 1;
-
 // ---- Small helpers (strat_boss_sea.c:154-346) ----
 
 #[inline]
@@ -1934,10 +1928,11 @@ fn sea_expchild_strat(g: &mut Game, idx: u16) {
 }
 
 fn sea_make_small_expobj(g: &mut Game, parent: u16) -> Option<u16> {
-    let child = make_obj(g, SEA_EXPSHAPE_SMALL)?;
+    let child = make_obj(g, 0)?;
     let s = sid(g, sea_expchild_strat);
     let p = g.objs.aliens[parent as usize];
     let al = &mut g.objs.aliens[child as usize];
+    set_explosion_envelope(al, ExplosionSize::Small);
     al.sflags3 &= !ASF3_REALOBJ;
     al.sflags |= ASF_COLLDISABLE;
     al.sflags2 |= ASF2_NOEXPSND | ASF2_RELEXPLODE;
@@ -2826,10 +2821,6 @@ const B8_SFLAG4: u8 = 0x80; // sflags2 — open-flap latch (boss8a sets / boss8b
 const B8_SFLAG5: u8 = 0x01; // sflags3 — cover fully-open → anim gate
 const B8_SHOT_NOCHASE: u8 = 0x01;
 
-const B8_EXPSHAPE_MEDIUM: u16 = 2;
-const B8_EXPSHAPE_LARGE: u16 = 3;
-const B8_EXPSHAPE_FOLARGE: u16 = 4;
-
 const B8_CHILD_COVER: u8 = 1;
 const B8_CHILD_BEAM1: u8 = 2;
 const B8_CHILD_BEAM2: u8 = 3;
@@ -2891,7 +2882,7 @@ fn b8_spawn_child(
 // ---- Explosion factories (strat_boss8.c:343-411) ----
 
 /// Public for AUDIT_BOSS_TICKS2 expobj-lifecnt tests (makeexpobj leaves count=0).
-pub fn b8_make_exp_obj(g: &mut Game, parent: u16, size_shape: u16) -> Option<u16> {
+pub fn b8_make_exp_obj(g: &mut Game, parent: u16, size: ExplosionSize) -> Option<u16> {
     let child = make_obj(g, 0)?;
     let s_tick = sid(g, boss8_delayexplode_strat);
     let s_exp = sid(g, strat_explode);
@@ -2907,7 +2898,7 @@ pub fn b8_make_exp_obj(g: &mut Game, parent: u16, size_shape: u16) -> Option<u16
         al.expstratptr = Some(s_exp);
     }
     copy_pos(g, child, parent);
-    g.objs.aliens[child as usize].shape = size_shape;
+    set_explosion_envelope(&mut g.objs.aliens[child as usize], size);
     Some(child)
 }
 
@@ -3419,14 +3410,14 @@ pub fn boss8die_strat(g: &mut Game, idx: u16) {
     if g.vars.gameframe & 1 == 0 {
         g.objs.aliens[idx as usize].sflags |= ASF_HITFLASH;
 
-        if let Some(e) = b8_make_exp_obj(g, idx, B8_EXPSHAPE_MEDIUM) {
+        if let Some(e) = b8_make_exp_obj(g, idx, ExplosionSize::Medium) {
             b8_add_rnd_xy(g, e);
             g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
             if g.vars.gameframe & 3 == 0 {
                 g.objs.aliens[e as usize].sflags2 &= !ASF2_NOEXPSND;
             }
         }
-        if let Some(e) = b8_make_exp_obj(g, idx, B8_EXPSHAPE_LARGE) {
+        if let Some(e) = b8_make_exp_obj(g, idx, ExplosionSize::Large) {
             b8_add_rnd_xy(g, e);
             g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
             if g.vars.gameframe & 3 == 0 {
@@ -3476,7 +3467,7 @@ pub fn boss8die_strat(g: &mut Game, idx: u16) {
 /// back to the delay handler itself.
 pub fn boss8_bigexplode(g: &mut Game, idx: u16) {
     for i in 0..5u8 {
-        if let Some(e) = b8_make_exp_obj(g, idx, B8_EXPSHAPE_LARGE) {
+        if let Some(e) = b8_make_exp_obj(g, idx, ExplosionSize::Large) {
             g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
             b8_add_rnd_xy(g, e);
             g.objs.aliens[e as usize].count = i + 1;
@@ -3696,7 +3687,7 @@ fn boss8shrap_strat(g: &mut Game, idx: u16) {
     }
 
     if g.objs.aliens[idx as usize].sbyte1 == 0 {
-        if let Some(e) = b8_make_exp_obj(g, idx, B8_EXPSHAPE_FOLARGE) {
+        if let Some(e) = b8_make_exp_obj(g, idx, ExplosionSize::Oversized) {
             g.objs.aliens[e as usize].worldz = g.objs.aliens[e as usize].worldz.wrapping_sub(1000);
             g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
             b8_add_rnd2pos_folexp(g, e);
@@ -3718,7 +3709,7 @@ fn boss8shrap_strat(g: &mut Game, idx: u16) {
     }
 
     if g.vars.gameframe & 1 == 0 {
-        if let Some(e) = b8_make_exp_obj(g, idx, B8_EXPSHAPE_LARGE) {
+        if let Some(e) = b8_make_exp_obj(g, idx, ExplosionSize::Large) {
             b8_add_rnd_xyz(g, e);
         }
     }

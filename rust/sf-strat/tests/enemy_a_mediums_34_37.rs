@@ -2,12 +2,12 @@
 //! delayexplode s_decbpl (count_down); pillar3explode 8-child chain + silent;
 //! init→strat same-frame fall-through.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF3_REALOBJ, ASF_COLLDISABLE};
 use sf_game::game::{Game, Hooks};
 use sf_strat::enemy_a::{
     delayexplode_strat, strat_hard180yr_init, strat_hard90yr_init, strat_houdai_init,
     strat_pillar3_init, strat_skillfly_init, strat_spacebarshoot_init, strat_zaco1l_init,
-    strat_zacos_init, wm, ASF4_NOPOLYEXP, COLLTYPE_ENEMY1, EXPSHAPE_MEDIUM,
+    strat_zacos_init, wm, ASF4_NOPOLYEXP, COLLTYPE_ENEMY1,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -120,11 +120,15 @@ fn pillar3explode_spawns_eight_silent_children() {
         .iter()
         .enumerate()
         .filter(|(i, a)| {
-            a.active && *i as u16 != 0 && *i as u16 != idx && a.shape == EXPSHAPE_MEDIUM
+            a.active
+                && *i as u16 != 0
+                && *i as u16 != idx
+                && a.visual_kind == ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Medium)
         })
         .collect();
     assert_eq!(children.len(), 8);
     for (i, (_slot, al)) in children.iter().enumerate() {
+        assert_eq!(al.shape, 0, "child {i} uses the non-mesh envelope");
         assert_ne!(al.sflags4 & ASF4_NOPOLYEXP, 0, "child {i} nopolyexp");
         assert_eq!(al.count, i as u8, "staggered lifecnt 0..7");
     }

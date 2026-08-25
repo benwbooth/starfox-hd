@@ -60,11 +60,11 @@ pub const STRAT_ADDR_BOSSF: u32 = sf_map::consts::is::BOSSF;
 #[allow(unused_imports)]
 pub(crate) mod eb_compat {
     pub use sf_game::alien::{
-        Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
-        ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ, ASF4_CSPECIAL,
-        ASF4_PLAYEROBJ, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE,
-        ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED,
-        ATZREMOVE, NUMBER_AL,
+        Alien, ExplosionSize, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
+        ACF_COLLTYPE5, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ,
+        ASF4_CSPECIAL, ASF4_PLAYEROBJ, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
+        ASF_INVISIBLE, ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER,
+        ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
     };
     pub use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
     pub use sf_game::vars::{
@@ -111,13 +111,13 @@ pub(crate) mod eb_compat {
         delayremove_strat, fire_hplasma as fire_shared_hplasma, fire_relslowlaser_weapon_pos,
         frame_tick_mod, hmissile1_remove, hmissile1_remove_strat, hmissile1_strat,
         homingflat_strat, make_exp_obj, make_fol_exp_obj, make_large_exp_obj, make_medium_exp_obj,
-        make_small_exp_obj, projectile_target_obj, relelaserhome_strat, set_hard_vars,
-        strat_aim_3d, strat_aim_yaw, strat_boss_delay_explode_init, strat_boss_explode_init,
-        strat_find_near_colltype, strat_find_near_shape, strat_fire_relslowlaser,
-        strat_fire_relslowlaserhome, strat_move3d, strat_obj_from_ptr, strat_obj_index_or_null,
-        strat_phase_offset, strat_pitch_toward, strat_points_positive_z, strat_qboss_explode_init,
-        strat_random_centered, strat_relslowelaser_speed, strat_tab_scaled, zaco2_istrat,
-        SH_MISSILE,
+        make_small_exp_obj, projectile_target_obj, relelaserhome_strat, set_explosion_envelope,
+        set_hard_vars, strat_aim_3d, strat_aim_yaw, strat_boss_delay_explode_init,
+        strat_boss_explode_init, strat_find_near_colltype, strat_find_near_shape,
+        strat_fire_relslowlaser, strat_fire_relslowlaserhome, strat_move3d, strat_obj_from_ptr,
+        strat_obj_index_or_null, strat_phase_offset, strat_pitch_toward, strat_points_positive_z,
+        strat_qboss_explode_init, strat_random_centered, strat_relslowelaser_speed,
+        strat_tab_scaled, zaco2_istrat, SH_MISSILE,
     };
 
     // ---- Flag constants missing from sf-game (C src/variables.h,
@@ -346,7 +346,6 @@ const HMISSILE1_LIFE: u8 = 100;
 const HMISSILE1_AP: u8 = 8;
 const RELSLOWELASERHOME_LIFE: u8 = 40; // strat_enemy.c:192
 const RELSLOWELASERHOME_AP: u8 = 2; // strat_enemy.c:193
-const EXPSHAPE_LARGE: u16 = 3; // strat_enemy.c:6900
 
 // --- boss7 (strat_enemy.c:274-300) ---
 const BOSS7_HP: u8 = 40;
@@ -3229,7 +3228,7 @@ fn bossfcsmoke_srou(g: &mut Game, idx: u16) {
     let s_strat = sid(g, delayexplode_strat);
     let s_exp = sid(g, strat_explode);
     let al = &mut g.objs.aliens[smoke as usize];
-    al.shape = EXPSHAPE_LARGE;
+    set_explosion_envelope(al, ExplosionSize::Large);
     al.count = 10;
     al.sflags |= ASF_COLLDISABLE;
     al.sflags2 |= ASF2_NOEXPSND;

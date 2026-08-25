@@ -26,11 +26,11 @@ use sf_core::player_view::PlayerViewMode;
 use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_core::sf1_shape_metrics::sf1_shape_metrics;
 use sf_game::alien::{
-    Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
-    ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT,
-    ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE,
-    ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL,
-    ASF_SSPRITE, ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
+    Alien, ExplosionSize, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3,
+    ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF2_COLLDISABLE,
+    ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_SFLAG8, ASF_COLLDISABLE,
+    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW,
+    ASF_SPECIAL, ASF_SSPRITE, ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::PCBOX_WING_HP;
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -1194,13 +1194,15 @@ struct ExplosionPresentation {
     half_rate_polygons: bool,
 }
 
-fn explosion_presentation(shape: u16) -> Option<ExplosionPresentation> {
-    let metrics = sf1_shape_metrics(shape)?;
-    let class = if metrics.visual_extent < EXPLOSION_SMALL_THRESHOLD {
+fn explosion_presentation_from_extent(
+    visual_extent: u16,
+    coordinate_shift: u8,
+) -> ExplosionPresentation {
+    let class = if visual_extent < EXPLOSION_SMALL_THRESHOLD {
         ExplosionSizeClass::Small
-    } else if metrics.visual_extent < EXPLOSION_MEDIUM_THRESHOLD {
+    } else if visual_extent < EXPLOSION_MEDIUM_THRESHOLD {
         ExplosionSizeClass::Medium
-    } else if metrics.visual_extent < EXPLOSION_LARGE_THRESHOLD {
+    } else if visual_extent < EXPLOSION_LARGE_THRESHOLD {
         ExplosionSizeClass::Large
     } else {
         ExplosionSizeClass::Oversized
@@ -1231,26 +1233,44 @@ fn explosion_presentation(shape: u16) -> Option<ExplosionPresentation> {
             SH_EXPLOSION_LARGE_POLYGONS,
             SH_EXPLOSION_OVERSIZED_SPRITE,
             EXPLOSION_LARGE_SPRITE_TICKS,
-            metrics.visual_extent,
+            visual_extent,
             0,
         ),
     };
     let sprite_scale_adjustment = if class == ExplosionSizeClass::Oversized {
         0
     } else {
-        metrics
-            .visual_extent
+        visual_extent
             .wrapping_sub(ceiling)
-            .wrapping_shr(u32::from(metrics.coordinate_shift))
+            .wrapping_shr(u32::from(coordinate_shift))
             .wrapping_shr(adjustment_shift) as u8
     };
-    Some(ExplosionPresentation {
+    ExplosionPresentation {
         polygon_shape,
         sprite_shape,
         sprite_ticks,
         sprite_scale_adjustment,
         half_rate_polygons: class == ExplosionSizeClass::Oversized,
-    })
+    }
+}
+
+fn explosion_presentation(source: Alien) -> Option<ExplosionPresentation> {
+    let (visual_extent, coordinate_shift) = match source.visual_kind {
+        ObjectVisualKind::ExplosionEnvelope(size) => match size {
+            ExplosionSize::Small => (50, 0),
+            ExplosionSize::Medium => (90, 0),
+            ExplosionSize::Large => (200, 0),
+            ExplosionSize::Oversized => (1000, 0),
+        },
+        ObjectVisualKind::Mesh | ObjectVisualKind::ScaledSprite => {
+            let metrics = sf1_shape_metrics(source.shape)?;
+            (metrics.visual_extent, metrics.coordinate_shift)
+        }
+    };
+    Some(explosion_presentation_from_extent(
+        visual_extent,
+        coordinate_shift,
+    ))
 }
 
 #[cfg(test)]
@@ -1309,7 +1329,27 @@ mod explosion_presentation_tests {
                 },
             ),
         ] {
-            assert_eq!(explosion_presentation(source_shape), Some(expected));
+            let mut source = Alien::default();
+            source.shape = source_shape;
+            assert_eq!(explosion_presentation(source), Some(expected));
+        }
+    }
+
+    #[test]
+    fn abstract_source_envelopes_use_their_shape_header_extents() {
+        for (size, expected_sprite, expected_adjustment) in [
+            (ExplosionSize::Small, SH_EXPLOSION_SMALL_SPRITE, 254),
+            (ExplosionSize::Medium, SH_EXPLOSION_MEDIUM_SPRITE, 253),
+            (ExplosionSize::Large, SH_EXPLOSION_LARGE_SPRITE, 254),
+            (ExplosionSize::Oversized, SH_EXPLOSION_OVERSIZED_SPRITE, 0),
+        ] {
+            let source = Alien {
+                visual_kind: ObjectVisualKind::ExplosionEnvelope(size),
+                ..Alien::default()
+            };
+            let presentation = explosion_presentation(source).expect("envelope presentation");
+            assert_eq!(presentation.sprite_shape, expected_sprite);
+            assert_eq!(presentation.sprite_scale_adjustment, expected_adjustment);
         }
     }
 }
@@ -1352,7 +1392,7 @@ fn explode_icont(g: &mut Game, idx: u16) {
         return;
     }
     let source = g.objs.aliens[idx as usize];
-    let Some(presentation) = explosion_presentation(source.shape) else {
+    let Some(presentation) = explosion_presentation(source) else {
         // Every retail visual shape has a generated profile. A non-catalog
         // native id has no ShapeHdr behavior to reproduce and cannot safely
         // enter a guessed size class.
@@ -16550,12 +16590,6 @@ pub fn strat_clship_underc_init(g: &mut Game, idx: u16) {
 const BGM_BOSS_DYING: u8 = 0xF1;
 const SE_BOSS_DYING: u8 = 0x1E;
 
-// Explosion size markers (C EXPSHAPE_*).
-pub const EXPSHAPE_SMALL: u16 = 1;
-pub const EXPSHAPE_MEDIUM: u16 = 2;
-pub const EXPSHAPE_LARGE: u16 = 3;
-pub const EXPSHAPE_FOLARGE: u16 = 4;
-
 /// C `addrnd2pos_xy` (strat_enemy.c:6832, addrnd2posy_srou).
 pub(crate) fn addrnd2pos_xy(g: &mut Game, idx: u16) {
     let rx = (sf_random(&mut g.vars) & 0xFF) as u8 as i8;
@@ -16598,31 +16632,38 @@ pub(crate) fn make_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     Some(child)
 }
 
+/// Preserve a retail face-less explosion `ShapeHdr` as typed state. Shape zero
+/// deliberately selects the native null mesh while the envelope is waiting.
+pub(crate) fn set_explosion_envelope(object: &mut Alien, size: ExplosionSize) {
+    object.shape = 0;
+    object.visual_kind = ObjectVisualKind::ExplosionEnvelope(size);
+}
+
 /// C `make_large_exp_obj` (strat_enemy.c:6903, makeLexpobj_srou).
 pub fn make_large_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let child = make_exp_obj(g, parent)?;
-    g.objs.aliens[child as usize].shape = EXPSHAPE_LARGE;
+    set_explosion_envelope(&mut g.objs.aliens[child as usize], ExplosionSize::Large);
     Some(child)
 }
 
 /// C `make_medium_exp_obj` (strat_enemy.c:6911, makeMEDexpobj_srou).
 pub fn make_medium_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let child = make_exp_obj(g, parent)?;
-    g.objs.aliens[child as usize].shape = EXPSHAPE_MEDIUM;
+    set_explosion_envelope(&mut g.objs.aliens[child as usize], ExplosionSize::Medium);
     Some(child)
 }
 
 /// C `make_small_exp_obj` (strat_enemy.c:6919, makeSMLexpobj_srou).
 pub fn make_small_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let child = make_exp_obj(g, parent)?;
-    g.objs.aliens[child as usize].shape = EXPSHAPE_SMALL;
+    set_explosion_envelope(&mut g.objs.aliens[child as usize], ExplosionSize::Small);
     Some(child)
 }
 
 /// C `make_fol_exp_obj` (strat_enemy.c:6927, makeFOLexpobj_srou).
 pub(crate) fn make_fol_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     let child = make_exp_obj(g, parent)?;
-    g.objs.aliens[child as usize].shape = EXPSHAPE_FOLARGE;
+    set_explosion_envelope(&mut g.objs.aliens[child as usize], ExplosionSize::Oversized);
     Some(child)
 }
 

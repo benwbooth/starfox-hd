@@ -716,6 +716,16 @@ fn copy_g2p(ga: &GAlien, ids: PathStratIds) -> PAlien {
     pa.visual_kind = match ga.visual_kind {
         GObjectVisualKind::Mesh => PObjectVisualKind::Mesh,
         GObjectVisualKind::ScaledSprite => PObjectVisualKind::ScaledSprite,
+        GObjectVisualKind::ExplosionEnvelope(size) => {
+            PObjectVisualKind::ExplosionEnvelope(match size {
+                sf_game::alien::ExplosionSize::Small => sf_path::alien::ExplosionSize::Small,
+                sf_game::alien::ExplosionSize::Medium => sf_path::alien::ExplosionSize::Medium,
+                sf_game::alien::ExplosionSize::Large => sf_path::alien::ExplosionSize::Large,
+                sf_game::alien::ExplosionSize::Oversized => {
+                    sf_path::alien::ExplosionSize::Oversized
+                }
+            })
+        }
     };
     pa.stratptr = id2ref(ga.stratptr, ids);
     pa.expstratptr = id2ref(ga.expstratptr, ids);
@@ -735,6 +745,16 @@ fn copy_p2g_data(pa: &PAlien, ga: &mut GAlien) {
     ga.visual_kind = match pa.visual_kind {
         PObjectVisualKind::Mesh => GObjectVisualKind::Mesh,
         PObjectVisualKind::ScaledSprite => GObjectVisualKind::ScaledSprite,
+        PObjectVisualKind::ExplosionEnvelope(size) => {
+            GObjectVisualKind::ExplosionEnvelope(match size {
+                sf_path::alien::ExplosionSize::Small => sf_game::alien::ExplosionSize::Small,
+                sf_path::alien::ExplosionSize::Medium => sf_game::alien::ExplosionSize::Medium,
+                sf_path::alien::ExplosionSize::Large => sf_game::alien::ExplosionSize::Large,
+                sf_path::alien::ExplosionSize::Oversized => {
+                    sf_game::alien::ExplosionSize::Oversized
+                }
+            })
+        }
     };
 }
 

@@ -5,15 +5,12 @@
 //! When lifecnt IS set (boss8_bigexplode 1..5), survive count+1 ticks — the
 //! old `if count>0{--}; if==0{die}` fired one frame early.
 
-use sf_game::alien::ASF_HITFLASH;
+use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF_HITFLASH};
 use sf_game::Game;
 use sf_strat::bosses::{b8_make_exp_obj, boss8_bigexplode, boss8_delayexplode_strat};
 use sf_strat::enemy_a::{
     delayexplode_strat, make_large_exp_obj, make_medium_exp_obj, make_small_exp_obj,
 };
-
-const B8_EXPSHAPE_MEDIUM: u16 = 2;
-const B8_EXPSHAPE_LARGE: u16 = 3;
 
 fn spawn(g: &mut Game) -> u16 {
     let idx = g.objs.alloc().expect("obj");
@@ -32,6 +29,11 @@ fn makeexpobj_default_count_zero_explodes_first_tick() {
     assert_eq!(g.objs.aliens[med as usize].count, 0);
     assert_eq!(g.objs.aliens[sml as usize].count, 0);
     assert_eq!(g.objs.aliens[lrg as usize].count, 0);
+    assert_eq!(
+        g.objs.aliens[med as usize].visual_kind,
+        ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Medium)
+    );
+    assert_eq!(g.objs.aliens[med as usize].shape, 0);
 
     g.objs.aldead = 0;
     delayexplode_strat(&mut g, med);
@@ -49,7 +51,7 @@ fn makeexpobj_default_count_zero_explodes_first_tick() {
 fn b8_make_exp_obj_default_count_zero_explodes_first_tick() {
     let mut g = Game::new();
     let parent = spawn(&mut g);
-    let e = b8_make_exp_obj(&mut g, parent, B8_EXPSHAPE_MEDIUM).expect("exp");
+    let e = b8_make_exp_obj(&mut g, parent, ExplosionSize::Medium).expect("exp");
     assert_eq!(g.objs.aliens[e as usize].count, 0);
     g.objs.aldead = 0;
     boss8_delayexplode_strat(&mut g, e);
@@ -62,7 +64,7 @@ fn b8_make_exp_obj_default_count_zero_explodes_first_tick() {
 fn delayexplode_lifecnt_survives_count_plus_one() {
     let mut g = Game::new();
     let parent = spawn(&mut g);
-    let e = b8_make_exp_obj(&mut g, parent, B8_EXPSHAPE_LARGE).expect("exp");
+    let e = b8_make_exp_obj(&mut g, parent, ExplosionSize::Large).expect("exp");
     g.objs.aliens[e as usize].count = 3; // like bigexplode i+1 for i=2
 
     for tick in 1..=3 {
@@ -82,7 +84,7 @@ fn delayexplode_lifecnt_survives_count_plus_one() {
 fn delayexplode_lifecnt_one_survives_first_tick() {
     let mut g = Game::new();
     let parent = spawn(&mut g);
-    let e = b8_make_exp_obj(&mut g, parent, B8_EXPSHAPE_LARGE).expect("exp");
+    let e = b8_make_exp_obj(&mut g, parent, ExplosionSize::Large).expect("exp");
     g.objs.aliens[e as usize].count = 1; // bigexplode first child
     g.objs.aldead = 0;
     boss8_delayexplode_strat(&mut g, e);

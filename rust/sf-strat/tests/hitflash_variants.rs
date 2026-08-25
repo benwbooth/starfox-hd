@@ -1,12 +1,13 @@
 //! ROM hitflash M/S/L/BOSSd + misscol / mchitflash (GSTRATS.ASM).
 
-use sf_game::alien::{ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ATMISSILE};
+use sf_game::alien::{
+    ExplosionSize, ObjectVisualKind, ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ATMISSILE,
+};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
     hitflash_bossd_istrat, hitflash_lexp_istrat, hitflash_mexp_istrat, hitflash_sexp_istrat,
-    mchitflash_strat, misscol_istrat, strat_hit_flash, ASF4_NOPOLYEXP, EXPSHAPE_LARGE,
-    EXPSHAPE_MEDIUM, EXPSHAPE_SMALL,
+    mchitflash_strat, misscol_istrat, strat_hit_flash, ASF4_NOPOLYEXP,
 };
 
 fn mark_normal_strategy(g: &mut Game, idx: u16) {
@@ -80,7 +81,10 @@ fn hitflash_mexp_spawns_med_at_collobj() {
         .enumerate()
         .find(|(i, a)| a.active && *i as u16 != victim && *i as u16 != laser)
         .expect("exp");
-    assert_eq!(exp.1.shape, EXPSHAPE_MEDIUM);
+    assert_eq!(
+        exp.1.visual_kind,
+        ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Medium)
+    );
     assert_eq!(exp.1.worldx, 50);
     assert_eq!(g.objs.aliens[victim as usize].hp, 9);
 }
@@ -94,22 +98,18 @@ fn hitflash_sexp_and_lexp_shapes() {
     g.objs.aliens[v as usize].collobjptr = p;
 
     hitflash_sexp_istrat(&mut g, v);
-    assert!(g
-        .objs
-        .aliens
-        .iter()
-        .any(|a| a.active && a.shape == EXPSHAPE_SMALL));
+    assert!(g.objs.aliens.iter().any(|a| {
+        a.active && a.visual_kind == ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Small)
+    }));
 
     let v2 = g.objs.alloc().expect("v2");
     let p2 = g.objs.alloc().expect("p2");
     g.objs.aliens[v2 as usize].hp = HARD_HP;
     g.objs.aliens[v2 as usize].collobjptr = p2;
     hitflash_lexp_istrat(&mut g, v2);
-    assert!(g
-        .objs
-        .aliens
-        .iter()
-        .any(|a| a.active && a.shape == EXPSHAPE_LARGE));
+    assert!(g.objs.aliens.iter().any(|a| {
+        a.active && a.visual_kind == ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Large)
+    }));
 }
 
 #[test]
@@ -120,11 +120,11 @@ fn hitflash_bossd_sets_nopolyexp_when_hittable() {
     g.objs.aliens[v as usize].hp = 8;
     g.objs.aliens[v as usize].collobjptr = p;
     hitflash_bossd_istrat(&mut g, v);
-    assert!(g
-        .objs
-        .aliens
-        .iter()
-        .any(|a| a.active && a.shape == EXPSHAPE_MEDIUM && a.sflags4 & ASF4_NOPOLYEXP != 0));
+    assert!(g.objs.aliens.iter().any(|a| {
+        a.active
+            && a.visual_kind == ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Medium)
+            && a.sflags4 & ASF4_NOPOLYEXP != 0
+    }));
 }
 
 #[test]

@@ -20,14 +20,25 @@ pub const NUMBER_AL: usize = 70;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StratId(pub u16);
 
-/// Semantic presentation selected by strategy code. This replaces the
-/// source `ssprite` flag with a typed flat field instead of preserving its
-/// packed-machine representation.
+/// Source-authored size of an abstract explosion envelope. Retail stores
+/// these as face-less `ShapeHdr` records; they select a later explosion
+/// presentation and are not drawable meshes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExplosionSize {
+    Small,
+    Medium,
+    Large,
+    Oversized,
+}
+
+/// Semantic presentation selected by strategy code. This replaces packed
+/// source flags and face-less control shapes with typed flat fields.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ObjectVisualKind {
     #[default]
     Mesh,
     ScaledSprite,
+    ExplosionEnvelope(ExplosionSize),
 }
 
 /// Flat, typed object state for every 3D entity in the game. Source gameplay
