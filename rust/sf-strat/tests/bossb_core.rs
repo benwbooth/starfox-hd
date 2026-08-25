@@ -1,6 +1,6 @@
 //! Tick 92: bossB core leaves + bossflash + range/pointdir helpers.
 
-use sf_game::alien::ASF_NOHITAFFECT;
+use sf_game::alien::ASF3_NOHITAFFECT;
 use sf_game::vars::GF_BOSSDEAD;
 use sf_game::windows::{Windows, WINDOW_MODE_DYINGRED};
 use sf_game::Game;
@@ -63,7 +63,7 @@ fn bossb_core_init_dodge_escape() {
     assert_eq!(g.vars.bossmaxhp, BOSSB_AIR_HP as u16);
     assert_eq!(g.objs.aliens[boss as usize].vel, 40);
     // Init sets roty=#deg90 then same-frame strat aims at player (may change).
-    assert_ne!(g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     // cont2 ran → bosshp accumulated
     assert_eq!(g.vars.bosshp, BOSSB_AIR_HP as u16);
 
@@ -75,7 +75,7 @@ fn bossb_core_init_dodge_escape() {
     // already present on entry, so the ROM branches to dodge on the next tick.
     assert_eq!(g.objs.aliens[boss as usize].vel, 0);
     bossb_strat(&mut g, boss);
-    assert_eq!(g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_eq!(g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     // dodge_init sets sbyte3=#1 then same-frame strat: near tab keeps 1;
     // far-from-target (.nthere) sets sbyte3=#25 (GB3STRAT.ASM:1393-1399).
     let sb3 = g.objs.aliens[boss as usize].sbyte3;

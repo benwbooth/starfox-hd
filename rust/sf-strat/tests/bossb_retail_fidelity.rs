@@ -1,6 +1,6 @@
 //! Retail Andross split-link, collision, smoke, and animation regressions.
 
-use sf_game::alien::{AFONFIRE, ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF_COLLIDE, ASF_HITFLASH};
+use sf_game::alien::{AFONFIRE, ASF4_CHILDOBJ, ASF4_MOTHEROBJ, ASF_COLLIDE, ASF_HITFLASH};
 use sf_game::{Game, Hooks};
 use sf_strat::bossb::{
     bossbentsplit_istrat, bossbentsplit_strat, bossbentsplitcol_istrat, bossbrobcol_istrat,
@@ -52,10 +52,10 @@ fn split_parts_use_a_plain_object_link_without_corrupting_coordinates() {
     assert_eq!(game.objs.aliens[part as usize].ptr, mother + 1);
     assert_eq!(game.objs.aliens[mother as usize].sword1, 450);
     assert_eq!(
-        game.objs.aliens[mother as usize].sflags3 & ASF3_MOTHEROBJ,
+        game.objs.aliens[mother as usize].sflags4 & ASF4_MOTHEROBJ,
         0
     );
-    assert_eq!(game.objs.aliens[part as usize].sflags3 & ASF3_CHILDOBJ, 0);
+    assert_eq!(game.objs.aliens[part as usize].sflags4 & ASF4_CHILDOBJ, 0);
 }
 
 #[test]

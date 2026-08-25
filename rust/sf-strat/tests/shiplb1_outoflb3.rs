@@ -6,7 +6,7 @@ use sf_strat::common::StratRam;
 use sf_strat::enemy_a::wm;
 use sf_strat::enemy_a::{
     boss1makechild, shiplb1_istrat, shiplb1ychase_srou, shipoutoflb3_istrat, shipoutoflb3_strat,
-    strat_boss1_init, ASF3_CHILDOBJ, DEG45, DEG90, MEDPSPEED_I16,
+    strat_boss1_init, ASF4_CHILDOBJ, DEG45, DEG90, MEDPSPEED_I16,
 };
 
 fn spawn(g: &mut Game) -> u16 {
@@ -110,7 +110,7 @@ fn boss1makechild_spawns_family() {
     // Full init (includes makechild)
     strat_boss1_init(&mut g, boss);
     let children: Vec<_> = (0..NUMBER_AL)
-        .filter(|&i| g.objs.aliens[i].active && g.objs.aliens[i].sflags3 & ASF3_CHILDOBJ != 0)
+        .filter(|&i| g.objs.aliens[i].active && g.objs.aliens[i].sflags4 & ASF4_CHILDOBJ != 0)
         .collect();
     assert!(
         children.len() >= 9,
@@ -125,7 +125,7 @@ fn boss1makechild_spawns_family() {
     let m = spawn(&mut g2);
     boss1makechild(&mut g2, m);
     let n = (0..NUMBER_AL)
-        .filter(|&i| g2.objs.aliens[i].active && g2.objs.aliens[i].sflags3 & ASF3_CHILDOBJ != 0)
+        .filter(|&i| g2.objs.aliens[i].active && g2.objs.aliens[i].sflags4 & ASF4_CHILDOBJ != 0)
         .count();
     assert!(n >= 9);
 }

@@ -11,8 +11,7 @@ use sf_render::renderer::{
 pub const WEAPON_TRACE_END_TICK: u32 = 1_231;
 pub const WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME: u16 = 312;
 pub const WEAPON_VIDEO_CAPTURE_LAST_GAME_FRAME: u16 = 337;
-pub const WEAPON_VIDEO_PRESENTATION_LAST_GAME_FRAME: u16 =
-    WEAPON_VIDEO_CAPTURE_LAST_GAME_FRAME + 1;
+pub const WEAPON_VIDEO_PRESENTATION_LAST_GAME_FRAME: u16 = WEAPON_VIDEO_CAPTURE_LAST_GAME_FRAME + 1;
 
 const SOURCE_SHAPE_CATALOG_ENTRIES: u16 = 512;
 const GSU_DRAW_COUNT: usize = 0x01B6;
@@ -272,6 +271,7 @@ pub fn native_source_projections(shell: &Shell) -> Vec<NativeProjection> {
             };
             let projected = sf_render::source_projection::project_shape(
                 vertices,
+                shape_data.reflected_pair_starts,
                 metrics.coordinate_shift,
                 sf_render::source_projection::SourcePose {
                     world_position: [
@@ -299,6 +299,144 @@ pub fn native_source_projections(shell: &Shell) -> Vec<NativeProjection> {
                     .map(|point| [point.x, point.y])
                     .collect(),
             })
+        })
+        .collect()
+}
+
+pub fn native_source_shadow_projections(shell: &Shell) -> Vec<NativeProjection> {
+    let frame = shell.frame();
+    let camera = frame.camera;
+    let camera_position = [
+        (camera.x >> 16) as i16,
+        (camera.y >> 16) as i16,
+        (camera.z >> 16) as i16,
+    ];
+    let view_matrix = sf_core::snes_trig::zxy_matrix_q15_fine(
+        camera.rotation[0],
+        camera.rotation[1],
+        camera.rotation[2],
+    );
+    shell
+        .draw_list()
+        .iter()
+        .enumerate()
+        .filter_map(|(list_order, draw)| {
+            if draw.flags & sf_core::dl_flags::SHADOW == 0 {
+                return None;
+            }
+            let shape = sf_render::shapes::resolve_shape_word(draw.shape_id);
+            let metrics = sf_core::sf1_shape_metrics::sf1_shape_metrics(shape)?;
+            let shape_data = sf_render::shape_data::SHAPE_DATA
+                .iter()
+                .find(|entry| entry.shape_id == shape)?;
+            let vertices = if shape_data.animation_frames.is_empty() {
+                shape_data.vertices
+            } else {
+                shape_data.animation_frames
+                    [usize::from(draw.anim_frame) % shape_data.animation_frames.len()]
+            };
+            let world_position = [
+                (draw.x >> 16) as i16,
+                frame.scene_style.shadow_height,
+                (draw.z >> 16) as i16,
+            ];
+            let relative = [
+                world_position[0].wrapping_sub(camera_position[0]),
+                world_position[1].wrapping_sub(camera_position[1]),
+                world_position[2].wrapping_sub(camera_position[2]),
+            ];
+            let position = sf_core::snes_trig::matrix_rotate_q15(
+                view_matrix,
+                relative[0],
+                relative[1],
+                relative[2],
+            );
+            let projected = sf_render::source_projection::project_shadow_shape(
+                vertices,
+                shape_data.reflected_pair_starts,
+                metrics.coordinate_shift,
+                sf_render::source_projection::SourcePose {
+                    world_position,
+                    rotation: [draw.rx as u8, draw.ry as u8, draw.rz as u8],
+                    view_position: camera_position,
+                    view_rotation: camera.rotation,
+                },
+            );
+            Some(NativeProjection {
+                list_order,
+                position: [position.0, position.1, position.2],
+                shape,
+                object_light: projected.object_light,
+                points: projected
+                    .points
+                    .into_iter()
+                    .map(|point| [point.x, point.y])
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+pub fn native_source_exploded_shadow_faces(shell: &Shell) -> Vec<NativeProjection> {
+    let frame = shell.frame();
+    let camera = frame.camera;
+    shell
+        .draw_list()
+        .iter()
+        .filter(|draw| draw.flags & sf_core::dl_flags::SHADOW != 0 && draw.explosion_cnt != 0)
+        .flat_map(|draw| {
+            let shape = sf_render::shapes::resolve_shape_word(draw.shape_id);
+            let metrics = sf_core::sf1_shape_metrics::sf1_shape_metrics(shape)
+                .expect("exploding source shape metrics");
+            let shape_data = sf_render::shape_data::SHAPE_DATA
+                .iter()
+                .find(|entry| entry.shape_id == shape)
+                .expect("exploding source shape data");
+            let vertices = if shape_data.animation_frames.is_empty() {
+                shape_data.vertices
+            } else {
+                shape_data.animation_frames
+                    [usize::from(draw.anim_frame) % shape_data.animation_frames.len()]
+            };
+            shape_data
+                .faces
+                .iter()
+                .enumerate()
+                .map(move |(face_index, face)| {
+                    let projected = sf_render::source_projection::project_exploded_shadow_face(
+                        vertices,
+                        shape_data.reflected_pair_starts,
+                        &face.vertex_indices[..usize::from(face.num_verts)],
+                        face.normal,
+                        metrics.coordinate_shift,
+                        draw.explosion_cnt,
+                        sf_render::source_projection::SourcePose {
+                            world_position: [
+                                (draw.x >> 16) as i16,
+                                frame.scene_style.shadow_height,
+                                (draw.z >> 16) as i16,
+                            ],
+                            rotation: [draw.rx as u8, draw.ry as u8, draw.rz as u8],
+                            view_position: [
+                                (camera.x >> 16) as i16,
+                                (camera.y >> 16) as i16,
+                                (camera.z >> 16) as i16,
+                            ],
+                            view_rotation: camera.rotation,
+                        },
+                    );
+                    NativeProjection {
+                        list_order: face_index,
+                        position: projected.view_position,
+                        shape,
+                        object_light: projected.object_light,
+                        points: projected
+                            .points
+                            .into_iter()
+                            .map(|point| [point.x, point.y])
+                            .collect(),
+                    }
+                })
         })
         .collect()
 }
@@ -453,10 +591,20 @@ pub fn presentation_aligned_source_frame(
     aligned.stayblack = scene.stayblack;
     aligned.gameflags = scene.gameflags;
     aligned.gameframe = scene.gameframe;
+    // Display brightness and aperture/window geometry are committed with the
+    // completed scene transfer. Later BG/CGRAM state remains live, but taking
+    // these fields from the following update advances level-opening fades one
+    // whole source scene too early (the uninterrupted Training oracle proves
+    // the black hold and 3/6/9/12/15 quick-fade sequence).
+    aligned.display_brightness = scene.display_brightness;
+    aligned.display_forced_blank = scene.display_forced_blank;
+    aligned.display_black_subtraction = scene.display_black_subtraction;
+    aligned.screen_wipe = scene.screen_wipe;
     aligned.boostcnt = scene.boostcnt;
     aligned.arrows = scene.arrows;
     aligned.player_view_mode = scene.player_view_mode;
     aligned.stage = scene.stage;
+    aligned.stage_banner = scene.stage_banner;
     aligned.shield_cur = scene.shield_cur;
     aligned.shield_max = scene.shield_max;
     aligned.boss_hp_cur = scene.boss_hp_cur;
@@ -489,10 +637,29 @@ pub fn render_presentation_aligned_source_frame(
     if std::env::var_os("SF1_WEAPON_DISABLE_TYPED_HORIZONTAL_OFFSETS").is_some() {
         inputs.bg2_horizontal_offsets = None;
     }
+    if std::env::var_os("SF1_TRAINING_DISABLE_TYPED_VERTICAL_OFFSETS").is_some() {
+        inputs.bg2_vertical_offsets = None;
+    }
+    if let Some(delta) = std::env::var("SF1_TRAINING_DIAGNOSTIC_VERTICAL_OFFSET_DELTA")
+        .ok()
+        .map(|value| value.parse::<i16>().expect("signed vertical offset delta"))
+    {
+        inputs.bg2_vertical_offsets = inputs
+            .bg2_vertical_offsets
+            .map(|offsets| offsets.map(|offset| offset.wrapping_add(delta)));
+    }
     inputs.source_scene_camera = Some(SourceSceneCamera {
         position: [scene.camera.x, scene.camera.y, scene.camera.z],
         rotation: scene.camera.rotation,
     });
+    if std::env::var_os("SF1_TRAINING_ISOLATE_BACKGROUND").is_some() {
+        inputs.game_state = RenderGameState::Playing;
+        inputs.stayblack = 0;
+        inputs.stage_banner = None;
+        inputs.display_forced_blank = false;
+        inputs.display_black_subtraction = 0;
+        inputs.screen_wipe = sf_core::screen_wipe::ScreenWipeState::inactive();
+    }
     let camera = presentation.camera;
     renderer
         .transform
@@ -552,6 +719,7 @@ pub fn frame_inputs(frame: &FrameSnapshot, game_state: RenderGameState) -> Frame
         arrows: frame.arrows,
         player_view_mode: frame.player_view_mode,
         stage: frame.stage,
+        stage_banner: frame.stage_banner,
         shield_cur: frame.shield_cur,
         shield_max: frame.shield_max,
         boss_hp_cur: frame.boss_hp_cur,

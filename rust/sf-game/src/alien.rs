@@ -150,6 +150,7 @@ pub struct Alien {
 
 // Source `al_sflags` byte (STRATEQU.INC `make_sflag`, bits 0 through 7).
 pub const ASF_INVISIBLE: u8 = 0x01;
+pub const ASF_SPECIAL: u8 = 0x01;
 pub const ASF_HITFLASH: u8 = 0x02;
 pub const ASF_SHADOW: u8 = 0x08;
 pub const ASF_PARTOBJ: u8 = 0x10;
@@ -164,15 +165,9 @@ pub const ASF_LCOLLIDE: u8 = 0x80;
 pub const ASF2_COLLDISABLE: u8 = 0x01;
 pub const ASF2_LCOLLIDE: u8 = 0x02;
 
-// al_sflags3 bits (C ASF3_* / STRATEQU.INC make_sflag childobj/motherobj).
+// Source `al_sflags3` byte (STRATEQU.INC bits 16 through 23).
 pub const ASF3_REALOBJ: u8 = 0x08;
-/// Child in a mother/child family (`asf_childobj`).
-pub const ASF3_CHILDOBJ: u8 = 0x10;
-/// Mother of a child list (`asf_motherobj`); `al_sword1` is the child-list head.
-pub const ASF3_MOTHEROBJ: u8 = 0x20;
-/// Helpball / lock-on marker. ROM `asf_lockon` is sflags3 bit4 (0x10), but
-/// this port already uses 0x10 for [`ASF3_CHILDOBJ`]; use free bit 0x40 here.
-pub const ASF3_LOCKON: u8 = 0x40;
+pub const ASF3_LOCKON: u8 = 0x10;
 /// Allow this object to collide with another of the SAME al_shape. The ROM
 /// collision detector (chkcoll0, COLDET.ASM) skips any same-shape pair UNLESS
 /// both objects set this bit (~nothing does). C `src/game/obj.h` ASF3_*.
@@ -183,14 +178,16 @@ pub const ASF3_NOHITAFFECT: u8 = 0x20;
 pub const ASF4_PLAYEROBJ: u8 = 0x01;
 pub const ASF4_DONESND: u8 = 0x02;
 pub const ASF4_INVISIBLE: u8 = 0x08;
+/// Child in a mother/child family (`childobj`).
+pub const ASF4_CHILDOBJ: u8 = 0x10;
 /// HD-side render tag for a MARIO scaled-text carrier. The retained C-style
 /// flag layout places path `textobj` on `sflags3 & 0x40`, which is also used
 /// by its compatibility lock-on remap; this otherwise-unused bit keeps those
 /// two independent ROM concepts distinguishable at the draw boundary.
 pub const ASF4_TEXTOBJ: u8 = 0x08;
 pub const ASF4_SFLAG8: u8 = 0x20;
-/// Map `special` marker (C `src/game/world.h` ASF4_SPECIAL).
-pub const ASF4_SPECIAL: u8 = 0x40;
+/// Mother of a child list (`motherobj`); `al_sword1` is the child-list head.
+pub const ASF4_MOTHEROBJ: u8 = 0x40;
 /// Map `cspecial` marker (C `src/game/world.h` ASF4_CSPECIAL).
 pub const ASF4_CSPECIAL: u8 = 0x80;
 

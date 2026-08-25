@@ -11,11 +11,14 @@ use crate::builder::MapBuilder;
 pub fn build() -> Route2Level {
     let mut b = MapBuilder::new();
 
-    // The source `initlevel` macro ends with two `mapwait 1` barriers.  Normal
-    // stages consume them inside the longer planet-transfer handoff, whereas
-    // Training's short direct handoff exposes both as live level updates.
+    // The source `initlevel` macro ends with two `mapwait 1` barriers, starts
+    // the stage announcement, then performs `setfadeup quick`. Normal stages
+    // consume this inside the longer planet-transfer handoff, whereas
+    // Training's short direct handoff exposes it as live level updates.
     b.mapwait(1);
     b.mapwait(1);
+    b.setstage();
+    b.qfadeup();
     b.mapwait(2000);
 
     // ELSEIF block (actual training content):

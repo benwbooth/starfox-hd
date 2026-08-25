@@ -1,6 +1,6 @@
 //! ROM walkright / walker1/2 / duct + public wall/shou0/bholecoll aliases.
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::Game;
 use sf_strat::bosses::{bholecoll_istrat, bholecoll_strat};
 use sf_strat::enemies_ground::{
@@ -102,7 +102,7 @@ fn duct_is_nocoll_and_wall_aliases_work() {
     spawn_player(&mut g, 0);
     let d = spawn_obj(&mut g);
     duct_istrat(&mut g, d);
-    assert_ne!(g.objs.aliens[d as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[d as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.aliens[d as usize].stratptr.is_none());
 
     let w = spawn_obj(&mut g);
@@ -221,7 +221,7 @@ fn bholecoll_public_spin() {
     spawn_player(&mut g, 0);
     let idx = spawn_obj(&mut g);
     bholecoll_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     let rz0 = g.objs.aliens[idx as usize].rotz;
     // Far player — just spin.
     g.objs.aliens[idx as usize].worldz = 5000;

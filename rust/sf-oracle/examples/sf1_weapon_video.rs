@@ -37,10 +37,7 @@ fn retail_video_path(directory: &std::path::Path, game_frame: u16) -> std::path:
     }
 }
 
-fn projected_draw_points(
-    frame: &FrameSnapshot,
-    draw: &DrawListEntry,
-) -> Option<Vec<[i16; 2]>> {
+fn projected_draw_points(frame: &FrameSnapshot, draw: &DrawListEntry) -> Option<Vec<[i16; 2]>> {
     let shape_id = sf_render::shapes::resolve_shape_word(draw.shape_id);
     let metrics = sf_core::sf1_shape_metrics::sf1_shape_metrics(shape_id)?;
     let shape = sf_render::shape_data::SHAPE_DATA
@@ -49,13 +46,13 @@ fn projected_draw_points(
     let vertices = if shape.animation_frames.is_empty() {
         shape.vertices
     } else {
-        shape.animation_frames
-            [usize::from(draw.anim_frame) % shape.animation_frames.len()]
+        shape.animation_frames[usize::from(draw.anim_frame) % shape.animation_frames.len()]
     };
     let camera = frame.camera;
     Some(
         sf_render::source_projection::project_shape(
             vertices,
+            shape.reflected_pair_starts,
             metrics.coordinate_shift,
             sf_render::source_projection::SourcePose {
                 world_position: [
@@ -133,10 +130,12 @@ fn main() {
             .iter()
             .map(support::render_entry)
             .collect();
-        if let Some((pending_game_frame, pending_frame, pending_draw_list)) =
-            pending_scene.take()
-        {
-            assert_eq!(game_frame, pending_game_frame + 1, "weapon presentation phase");
+        if let Some((pending_game_frame, pending_frame, pending_draw_list)) = pending_scene.take() {
+            assert_eq!(
+                game_frame,
+                pending_game_frame + 1,
+                "weapon presentation phase"
+            );
             let diagnostic_game_frame = std::env::var("SF1_WEAPON_VIDEO_DIAGNOSTIC_GAME_FRAME")
                 .ok()
                 .and_then(|value| value.parse::<u16>().ok())
@@ -222,9 +221,7 @@ fn main() {
             )
             .expect("read retail weapon source frame");
             let divergence = compare_source_rgb(
-                u64::from(
-                    pending_game_frame - support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME,
-                ),
+                u64::from(pending_game_frame - support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME),
                 retail_video_frame(&retail_directory, pending_game_frame),
                 &retail_rgb,
                 &native_rgb,
@@ -277,7 +274,10 @@ fn main() {
                     .map(|owner| {
                         (
                             owner,
-                            source_owners.iter().filter(|candidate| **candidate == owner).count(),
+                            source_owners
+                                .iter()
+                                .filter(|candidate| **candidate == owner)
+                                .count(),
                         )
                     })
                     .collect::<Vec<_>>();

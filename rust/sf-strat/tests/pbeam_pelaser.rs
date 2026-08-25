@@ -1,6 +1,6 @@
 //! ROM `Pbeam` / `Pelaser` / `fire_playerbeam` / `fire_Elaser` / `miss_end`.
 
-use sf_game::alien::{ObjectVisualKind, ASF_COLLDISABLE};
+use sf_game::alien::{ObjectVisualKind, ASF2_COLLDISABLE};
 use sf_game::vars::{GF_BOSSDEAD, HARD_HP, PSF2_PLAYERHP0};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
@@ -26,7 +26,7 @@ fn pelaser_istrat_builds_scaled_vecs_and_anim() {
     assert_eq!(g.objs.aliens[idx as usize].animframe & 0x7F, 4);
     assert_eq!(g.objs.aliens[idx as usize].vel, 66);
     // Without firstframeLcol, colldisable is set
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]

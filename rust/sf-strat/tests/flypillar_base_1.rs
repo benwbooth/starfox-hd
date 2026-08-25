@@ -1,4 +1,4 @@
-use sf_game::alien::{ASF_NOHITAFFECT, ASF_SHADOW, ATZREMOVE};
+use sf_game::alien::{ASF3_NOHITAFFECT, ASF_SHADOW, ATZREMOVE};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemies_ground::{base_1_istrat, base_1_strat, flypillar_istrat};
@@ -58,7 +58,7 @@ fn base_1_runs_the_autonomous_open_hold_close_cycle() {
     base_1_istrat(&mut g, door);
     let al = g.objs.aliens[door as usize];
     assert_eq!((al.hp, al.ap), (0xff, 8));
-    assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(al.sflags3 & ASF3_NOHITAFFECT, 0);
     assert_eq!(al.animframe & 0x7f, 1, "init falls into the closing half");
 
     for _ in 0..20 {

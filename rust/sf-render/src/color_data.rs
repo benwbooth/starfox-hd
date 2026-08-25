@@ -105,23 +105,25 @@ pub static TABLE_PEXPLOD2S_C_44: [u16; 1] = [0x4639];
 #[rustfmt::skip]
 pub static TABLE_PLAYERBEAM_C_45: [u16; 1] = [0x4005];
 #[rustfmt::skip]
-pub static TABLE_RINGLASER_C_46: [u16; 1] = [0x874B];
+pub static TABLE_RED_C_46: [u16; 110] = [0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44, 0x3F44];
 #[rustfmt::skip]
-pub static TABLE_ROCKBEAM_C_47: [u16; 1] = [0x8707];
+pub static TABLE_RINGLASER_C_47: [u16; 1] = [0x874B];
 #[rustfmt::skip]
-pub static TABLE_SMOKE_C_48: [u16; 1] = [0x8814];
+pub static TABLE_ROCKBEAM_C_48: [u16; 1] = [0x8707];
 #[rustfmt::skip]
-pub static TABLE_SPARK_C_49: [u16; 1] = [0x8825];
+pub static TABLE_SMOKE_C_49: [u16; 1] = [0x8814];
 #[rustfmt::skip]
-pub static TABLE_SPECIALWEAPON_C_50: [u16; 1] = [0x877B];
+pub static TABLE_SPARK_C_50: [u16; 1] = [0x8825];
 #[rustfmt::skip]
-pub static TABLE_SPLASH_C_51: [u16; 1] = [0x88BF];
+pub static TABLE_SPECIALWEAPON_C_51: [u16; 1] = [0x877B];
 #[rustfmt::skip]
-pub static TABLE_TELEPORT_C_52: [u16; 1] = [0x6034];
+pub static TABLE_SPLASH_C_52: [u16; 1] = [0x88BF];
 #[rustfmt::skip]
-pub static TABLE_WHITE_C_53: [u16; 56] = [0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x84FC];
+pub static TABLE_TELEPORT_C_53: [u16; 1] = [0x6034];
+#[rustfmt::skip]
+pub static TABLE_WHITE_C_54: [u16; 56] = [0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3FEE, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x3F99, 0x84FC];
 
-pub const COLOR_TABLE_COUNT: usize = 54;
+pub const COLOR_TABLE_COUNT: usize = 55;
 #[rustfmt::skip]
 pub static COLOR_TABLES: [ColorTable; COLOR_TABLE_COUNT] = [
     ColorTable { name: "id_0_c", entries: &TABLE_ID_0_C_0 },
@@ -170,72 +172,189 @@ pub static COLOR_TABLES: [ColorTable; COLOR_TABLE_COUNT] = [
     ColorTable { name: "over_c", entries: &TABLE_OVER_C_43 },
     ColorTable { name: "pexplod2s_c", entries: &TABLE_PEXPLOD2S_C_44 },
     ColorTable { name: "playerbeam_c", entries: &TABLE_PLAYERBEAM_C_45 },
-    ColorTable { name: "ringlaser_c", entries: &TABLE_RINGLASER_C_46 },
-    ColorTable { name: "rockbeam_c", entries: &TABLE_ROCKBEAM_C_47 },
-    ColorTable { name: "smoke_c", entries: &TABLE_SMOKE_C_48 },
-    ColorTable { name: "spark_c", entries: &TABLE_SPARK_C_49 },
-    ColorTable { name: "specialweapon_c", entries: &TABLE_SPECIALWEAPON_C_50 },
-    ColorTable { name: "splash_c", entries: &TABLE_SPLASH_C_51 },
-    ColorTable { name: "teleport_c", entries: &TABLE_TELEPORT_C_52 },
-    ColorTable { name: "white_c", entries: &TABLE_WHITE_C_53 },
+    ColorTable { name: "red_c", entries: &TABLE_RED_C_46 },
+    ColorTable { name: "ringlaser_c", entries: &TABLE_RINGLASER_C_47 },
+    ColorTable { name: "rockbeam_c", entries: &TABLE_ROCKBEAM_C_48 },
+    ColorTable { name: "smoke_c", entries: &TABLE_SMOKE_C_49 },
+    ColorTable { name: "spark_c", entries: &TABLE_SPARK_C_50 },
+    ColorTable { name: "specialweapon_c", entries: &TABLE_SPECIALWEAPON_C_51 },
+    ColorTable { name: "splash_c", entries: &TABLE_SPLASH_C_52 },
+    ColorTable { name: "teleport_c", entries: &TABLE_TELEPORT_C_53 },
+    ColorTable { name: "white_c", entries: &TABLE_WHITE_C_54 },
 ];
+
+pub const COLOR_TABLE_AMOEBA_C: u16 = 7;
+pub const COLOR_TABLE_ANDROSS_C: u16 = 8;
+pub const COLOR_TABLE_ANDROSSHOLE_C: u16 = 9;
+pub const COLOR_TABLE_ANDROSSL3_C: u16 = 10;
+pub const COLOR_TABLE_ASTEROID2_C: u16 = 11;
+pub const COLOR_TABLE_ASTEROID_C: u16 = 12;
+pub const COLOR_TABLE_BALLANDCHAIN_C: u16 = 13;
+pub const COLOR_TABLE_BIG_METEOR_C: u16 = 14;
+pub const COLOR_TABLE_BLACK_C: u16 = 6;
+pub const COLOR_TABLE_BLACKHOLE_C: u16 = 15;
+pub const COLOR_TABLE_BONFIRE_C: u16 = 16;
+pub const COLOR_TABLE_BOOST_C: u16 = 17;
+pub const COLOR_TABLE_BOUNCYBALL_C: u16 = 18;
+pub const COLOR_TABLE_BRITENORMAL_C: u16 = 19;
+pub const COLOR_TABLE_BULLET_C: u16 = 20;
+pub const COLOR_TABLE_BURNMARK_C: u16 = 21;
+pub const COLOR_TABLE_CORNFLAKES_C: u16 = 22;
+pub const COLOR_TABLE_DEFAULT_C: u16 = 23;
+pub const COLOR_TABLE_EBULLET_C: u16 = 24;
+pub const COLOR_TABLE_EGG_C: u16 = 25;
+pub const COLOR_TABLE_ESCAPEE_C: u16 = 26;
+pub const COLOR_TABLE_EXITLIGHT_C: u16 = 27;
+pub const COLOR_TABLE_EXPLODE2_C: u16 = 28;
+pub const COLOR_TABLE_EXPLODE3_C: u16 = 29;
+pub const COLOR_TABLE_EXPLODE_C: u16 = 30;
+pub const COLOR_TABLE_FINALBOSS_C: u16 = 31;
+pub const COLOR_TABLE_FIRE_C: u16 = 32;
+pub const COLOR_TABLE_FIREBALL_C: u16 = 33;
+pub const COLOR_TABLE_FLASH_C: u16 = 34;
+pub const COLOR_TABLE_FRUITMACHINE_C: u16 = 35;
+pub const COLOR_TABLE_GAME_C: u16 = 36;
+pub const COLOR_TABLE_HYPER_C: u16 = 37;
+pub const COLOR_TABLE_ID_0_C: u16 = 0;
+pub const COLOR_TABLE_ID_1_C: u16 = 1;
+pub const COLOR_TABLE_ID_2_C: u16 = 2;
+pub const COLOR_TABLE_ID_3_C: u16 = 3;
+pub const COLOR_TABLE_ID_5_C: u16 = 5;
+pub const COLOR_TABLE_IRONBALL_C: u16 = 38;
+pub const COLOR_TABLE_LFDIE_C: u16 = 39;
+pub const COLOR_TABLE_LINE_C: u16 = 40;
+pub const COLOR_TABLE_NORMAL_C: u16 = 41;
+pub const COLOR_TABLE_OVALBEAM_C: u16 = 42;
+pub const COLOR_TABLE_OVER_C: u16 = 43;
+pub const COLOR_TABLE_PEXPLOD2S_C: u16 = 44;
+pub const COLOR_TABLE_PLAYERBEAM_C: u16 = 45;
+pub const COLOR_TABLE_RED_C: u16 = 46;
+pub const COLOR_TABLE_RINGLASER_C: u16 = 47;
+pub const COLOR_TABLE_ROCKBEAM_C: u16 = 48;
+pub const COLOR_TABLE_SMOKE_C: u16 = 49;
+pub const COLOR_TABLE_SPARK_C: u16 = 50;
+pub const COLOR_TABLE_SPECIALWEAPON_C: u16 = 51;
+pub const COLOR_TABLE_SPLASH_C: u16 = 52;
+pub const COLOR_TABLE_TELEPORT_C: u16 = 53;
+pub const COLOR_TABLE_WHITE_C: u16 = 54;
 
 pub fn table_id_by_name(name: &str) -> Option<u16> {
     match name.to_ascii_lowercase().as_str() {
-        "id_4_c" => Some(4),
-        "amoeba_c" => Some(7),
-        "andross_c" => Some(8),
-        "androsshole_c" => Some(9),
-        "androssl3_c" => Some(10),
-        "asteroid2_c" => Some(11),
-        "asteroid_c" => Some(12),
-        "ballandchain_c" => Some(13),
-        "big_meteor_c" => Some(14),
-        "black_c" => Some(6),
-        "blackhole_c" => Some(15),
-        "bonfire_c" => Some(16),
-        "boost_c" => Some(17),
-        "bouncyball_c" => Some(18),
-        "britenormal_c" => Some(19),
-        "bullet_c" => Some(20),
-        "burnmark_c" => Some(21),
-        "cornflakes_c" => Some(22),
-        "default_c" => Some(23),
-        "ebullet_c" => Some(24),
-        "egg_c" => Some(25),
-        "escapee_c" => Some(26),
-        "exitlight_c" => Some(27),
-        "explode2_c" => Some(28),
-        "explode3_c" => Some(29),
-        "explode_c" => Some(30),
-        "finalboss_c" => Some(31),
-        "fire_c" => Some(32),
-        "fireball_c" => Some(33),
-        "flash_c" => Some(34),
-        "fruitmachine_c" => Some(35),
-        "game_c" => Some(36),
-        "hyper_c" => Some(37),
-        "id_0_c" => Some(0),
-        "id_1_c" => Some(1),
-        "id_2_c" => Some(2),
-        "id_3_c" => Some(3),
-        "id_5_c" => Some(5),
-        "ironball_c" => Some(38),
-        "lfdie_c" => Some(39),
-        "line_c" => Some(40),
-        "normal_c" => Some(41),
-        "ovalbeam_c" => Some(42),
-        "over_c" => Some(43),
-        "pexplod2s_c" => Some(44),
-        "playerbeam_c" => Some(45),
-        "ringlaser_c" => Some(46),
-        "rockbeam_c" => Some(47),
-        "smoke_c" => Some(48),
-        "spark_c" => Some(49),
-        "specialweapon_c" => Some(50),
-        "splash_c" => Some(51),
-        "teleport_c" => Some(52),
-        "white_c" => Some(53),
+        "id_4_c" => Some(COLOR_TABLE_ID_5_C - 1),
+        "amoeba_c" => Some(COLOR_TABLE_AMOEBA_C),
+        "andross_c" => Some(COLOR_TABLE_ANDROSS_C),
+        "androsshole_c" => Some(COLOR_TABLE_ANDROSSHOLE_C),
+        "androssl3_c" => Some(COLOR_TABLE_ANDROSSL3_C),
+        "asteroid2_c" => Some(COLOR_TABLE_ASTEROID2_C),
+        "asteroid_c" => Some(COLOR_TABLE_ASTEROID_C),
+        "ballandchain_c" => Some(COLOR_TABLE_BALLANDCHAIN_C),
+        "big_meteor_c" => Some(COLOR_TABLE_BIG_METEOR_C),
+        "black_c" => Some(COLOR_TABLE_BLACK_C),
+        "blackhole_c" => Some(COLOR_TABLE_BLACKHOLE_C),
+        "bonfire_c" => Some(COLOR_TABLE_BONFIRE_C),
+        "boost_c" => Some(COLOR_TABLE_BOOST_C),
+        "bouncyball_c" => Some(COLOR_TABLE_BOUNCYBALL_C),
+        "britenormal_c" => Some(COLOR_TABLE_BRITENORMAL_C),
+        "bullet_c" => Some(COLOR_TABLE_BULLET_C),
+        "burnmark_c" => Some(COLOR_TABLE_BURNMARK_C),
+        "cornflakes_c" => Some(COLOR_TABLE_CORNFLAKES_C),
+        "default_c" => Some(COLOR_TABLE_DEFAULT_C),
+        "ebullet_c" => Some(COLOR_TABLE_EBULLET_C),
+        "egg_c" => Some(COLOR_TABLE_EGG_C),
+        "escapee_c" => Some(COLOR_TABLE_ESCAPEE_C),
+        "exitlight_c" => Some(COLOR_TABLE_EXITLIGHT_C),
+        "explode2_c" => Some(COLOR_TABLE_EXPLODE2_C),
+        "explode3_c" => Some(COLOR_TABLE_EXPLODE3_C),
+        "explode_c" => Some(COLOR_TABLE_EXPLODE_C),
+        "finalboss_c" => Some(COLOR_TABLE_FINALBOSS_C),
+        "fire_c" => Some(COLOR_TABLE_FIRE_C),
+        "fireball_c" => Some(COLOR_TABLE_FIREBALL_C),
+        "flash_c" => Some(COLOR_TABLE_FLASH_C),
+        "fruitmachine_c" => Some(COLOR_TABLE_FRUITMACHINE_C),
+        "game_c" => Some(COLOR_TABLE_GAME_C),
+        "hyper_c" => Some(COLOR_TABLE_HYPER_C),
+        "id_0_c" => Some(COLOR_TABLE_ID_0_C),
+        "id_1_c" => Some(COLOR_TABLE_ID_1_C),
+        "id_2_c" => Some(COLOR_TABLE_ID_2_C),
+        "id_3_c" => Some(COLOR_TABLE_ID_3_C),
+        "id_5_c" => Some(COLOR_TABLE_ID_5_C),
+        "ironball_c" => Some(COLOR_TABLE_IRONBALL_C),
+        "lfdie_c" => Some(COLOR_TABLE_LFDIE_C),
+        "line_c" => Some(COLOR_TABLE_LINE_C),
+        "normal_c" => Some(COLOR_TABLE_NORMAL_C),
+        "ovalbeam_c" => Some(COLOR_TABLE_OVALBEAM_C),
+        "over_c" => Some(COLOR_TABLE_OVER_C),
+        "pexplod2s_c" => Some(COLOR_TABLE_PEXPLOD2S_C),
+        "playerbeam_c" => Some(COLOR_TABLE_PLAYERBEAM_C),
+        "red_c" => Some(COLOR_TABLE_RED_C),
+        "ringlaser_c" => Some(COLOR_TABLE_RINGLASER_C),
+        "rockbeam_c" => Some(COLOR_TABLE_ROCKBEAM_C),
+        "smoke_c" => Some(COLOR_TABLE_SMOKE_C),
+        "spark_c" => Some(COLOR_TABLE_SPARK_C),
+        "specialweapon_c" => Some(COLOR_TABLE_SPECIALWEAPON_C),
+        "splash_c" => Some(COLOR_TABLE_SPLASH_C),
+        "teleport_c" => Some(COLOR_TABLE_TELEPORT_C),
+        "white_c" => Some(COLOR_TABLE_WHITE_C),
+        _ => None,
+    }
+}
+
+pub fn table_id_by_source_word(source_word: u16) -> Option<u16> {
+    match source_word {
+        0x8004 => Some(COLOR_TABLE_HYPER_C),
+        0x800C => Some(COLOR_TABLE_WHITE_C),
+        0x807C => Some(COLOR_TABLE_BLACK_C),
+        0x80FC => Some(COLOR_TABLE_RED_C),
+        0x81D8 => Some(COLOR_TABLE_DEFAULT_C),
+        0x8213 => Some(COLOR_TABLE_ID_0_C),
+        0x82ED => Some(COLOR_TABLE_ID_1_C),
+        0x83C1 => Some(COLOR_TABLE_ID_2_C),
+        0x8421 => Some(COLOR_TABLE_ID_3_C),
+        0x8481 => Some(COLOR_TABLE_ID_5_C),
+        0x8520 => Some(COLOR_TABLE_PEXPLOD2S_C),
+        0x852C => Some(COLOR_TABLE_CORNFLAKES_C),
+        0x852E => Some(COLOR_TABLE_BURNMARK_C),
+        0x8530 => Some(COLOR_TABLE_SMOKE_C),
+        0x8532 => Some(COLOR_TABLE_SPARK_C),
+        0x8534 => Some(COLOR_TABLE_BOUNCYBALL_C),
+        0x8536 => Some(COLOR_TABLE_EXPLODE_C),
+        0x8538 => Some(COLOR_TABLE_EXPLODE2_C),
+        0x853A => Some(COLOR_TABLE_EXPLODE3_C),
+        0x853C => Some(COLOR_TABLE_BULLET_C),
+        0x853E => Some(COLOR_TABLE_EBULLET_C),
+        0x8540 => Some(COLOR_TABLE_LINE_C),
+        0x8542 => Some(COLOR_TABLE_ASTEROID_C),
+        0x8544 => Some(COLOR_TABLE_ASTEROID2_C),
+        0x8546 => Some(COLOR_TABLE_EXITLIGHT_C),
+        0x8548 => Some(COLOR_TABLE_SPLASH_C),
+        0x854C => Some(COLOR_TABLE_EGG_C),
+        0x854E => Some(COLOR_TABLE_ESCAPEE_C),
+        0x8552 => Some(COLOR_TABLE_SPECIALWEAPON_C),
+        0x8554 => Some(COLOR_TABLE_LFDIE_C),
+        0x8556 => Some(COLOR_TABLE_BALLANDCHAIN_C),
+        0x8558 => Some(COLOR_TABLE_FIRE_C),
+        0x855A => Some(COLOR_TABLE_RINGLASER_C),
+        0x855C => Some(COLOR_TABLE_IRONBALL_C),
+        0x855E => Some(COLOR_TABLE_AMOEBA_C),
+        0x8560 => Some(COLOR_TABLE_FIREBALL_C),
+        0x8562 => Some(COLOR_TABLE_BLACKHOLE_C),
+        0x8566 => Some(COLOR_TABLE_OVALBEAM_C),
+        0x8568 => Some(COLOR_TABLE_BOOST_C),
+        0x856A => Some(COLOR_TABLE_GAME_C),
+        0x856E => Some(COLOR_TABLE_OVER_C),
+        0x8572 => Some(COLOR_TABLE_TELEPORT_C),
+        0x8574 => Some(COLOR_TABLE_BONFIRE_C),
+        0x857D => Some(COLOR_TABLE_BIG_METEOR_C),
+        0x8583 => Some(COLOR_TABLE_ROCKBEAM_C),
+        0x8585 => Some(COLOR_TABLE_ANDROSSL3_C),
+        0x8590 => Some(COLOR_TABLE_ANDROSS_C),
+        0x8594 => Some(COLOR_TABLE_FINALBOSS_C),
+        0x85A4 => Some(COLOR_TABLE_FRUITMACHINE_C),
+        0x85AF => Some(COLOR_TABLE_ANDROSSHOLE_C),
+        0x85BD => Some(COLOR_TABLE_PLAYERBEAM_C),
+        0x8873 => Some(COLOR_TABLE_NORMAL_C),
+        0x8899 => Some(COLOR_TABLE_BRITENORMAL_C),
+        0x88D0 => Some(COLOR_TABLE_FLASH_C),
         _ => None,
     }
 }

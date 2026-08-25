@@ -54,6 +54,10 @@ const TILE_H: usize = 8;
 const ATLAS_W: usize = ATLAS_COLS * TILE_W; // 128
 const ATLAS_H: usize = ATLAS_ROWS * TILE_H; // 72
 const MAX_TILES: usize = ATLAS_COLS * ATLAS_ROWS; // 144
+/// The source stages its 4 KiB sprite sheet in either half of the object-tile
+/// name space. Both tile-name banks therefore address the same 128 decoded
+/// assets in the flat native atlas.
+const SOURCE_SPRITE_TILE_BANK_SIZE: i32 = 128;
 const NUM_PALETTES: usize = 8;
 const COLORS_PER_PAL: usize = 16;
 
@@ -237,7 +241,11 @@ impl Sprites {
         if self.queue.len() >= MAX_SPRITE_QUEUE {
             return;
         }
-        if tile < 0 || tile as usize >= self.num_tiles {
+        if tile < 0 {
+            return;
+        }
+        let tile = tile % SOURCE_SPRITE_TILE_BANK_SIZE;
+        if tile as usize >= self.num_tiles {
             return;
         }
         self.queue.push(SpriteCmd {

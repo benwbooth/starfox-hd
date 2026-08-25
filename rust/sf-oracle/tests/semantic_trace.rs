@@ -924,8 +924,12 @@ fn native_corneria_startup_retains_certified_checkpoints() {
 
 #[test]
 fn native_corneria_initializes_both_authored_kamikazes() {
+    // The certified front-end and launch presentation now reaches this map
+    // pair at tick 1686; keep a small deterministic margin around that birth.
+    const KAMIKAZE_PROBE_TICKS: u32 = 1_700;
+
     let mut native = configured_native_shell();
-    for tick in 0..FRONT_END_TICKS {
+    for tick in 0..KAMIKAZE_PROBE_TICKS {
         native.tick(front_end_input(tick));
         let kamikazes: Vec<_> = native
             .game

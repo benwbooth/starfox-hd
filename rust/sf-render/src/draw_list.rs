@@ -9,6 +9,7 @@ use crate::shapes_gl::ShapeStore;
 use crate::source_projection::SourcePose;
 use crate::source_raster::{SourceBitmapRect, SourceRaster};
 use crate::transform::Transform;
+use sf_core::point_field::PointPixel;
 
 pub const MAX_OBJECTS: usize = 128;
 pub const MAX_DRAW_LIST: usize = 128;
@@ -18,6 +19,42 @@ pub const DL_FLAG_SHADOW: u8 = 0x02;
 pub const DL_FLAG_HIGHLIGHT: u8 = 0x04;
 pub const DL_FLAG_TEXT: u8 = 0x10;
 pub const DL_FLAG_SCALED_SPRITE: u8 = 0x20;
+
+const STRATEGY_COLOR_SPECIAL: u8 = 0x01;
+const STRATEGY_COLOR_HIT_FLASH: u8 = 0x02;
+
+/// The authored draw-list material override selected by an object's semantic
+/// presentation flags. It is resolved before either raster path so the exact
+/// and HD presentations describe the same game state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ObjectColorPolicy {
+    Inherited,
+    Special,
+    HitFlash,
+    SpecialHitFlash,
+}
+
+impl ObjectColorPolicy {
+    fn from_strategy_flags(strategy_flags: u8, scaled_sprite: bool) -> Self {
+        let special = strategy_flags & STRATEGY_COLOR_SPECIAL != 0;
+        let hit_flash = strategy_flags & STRATEGY_COLOR_HIT_FLASH != 0;
+        match (special, hit_flash, scaled_sprite) {
+            (_, true, true) | (false, false, _) => Self::Inherited,
+            (true, false, _) => Self::Special,
+            (false, true, false) => Self::HitFlash,
+            (true, true, false) => Self::SpecialHitFlash,
+        }
+    }
+
+    fn resolve(self, inherited: u16) -> u16 {
+        match self {
+            Self::Inherited => inherited,
+            Self::Special => crate::color_data::COLOR_TABLE_ID_1_C,
+            Self::HitFlash => crate::color_data::COLOR_TABLE_WHITE_C,
+            Self::SpecialHitFlash => crate::color_data::COLOR_TABLE_RED_C,
+        }
+    }
+}
 
 /// Typed camera used to project a completed source-resolution scene when its
 /// bitmap is presented under a later display state. The normal application
@@ -130,20 +167,14 @@ fn source_sort_depth(entry: &DrawListEntry, camera: SourceSceneCamera) -> i16 {
         (entry.y >> 16) as i16,
         (entry.z >> 16) as i16,
     ];
-    let camera_position = camera
-        .position
-        .map(|coordinate| (coordinate >> 16) as i16);
+    let camera_position = camera.position.map(|coordinate| (coordinate >> 16) as i16);
     let relative = [
         world_position[0].wrapping_sub(camera_position[0]),
         world_position[1].wrapping_sub(camera_position[1]),
         world_position[2].wrapping_sub(camera_position[2]),
     ];
-    let view_position = sf_core::snes_trig::matrix_rotate_q15(
-        view_matrix,
-        relative[0],
-        relative[1],
-        relative[2],
-    );
+    let view_position =
+        sf_core::snes_trig::matrix_rotate_q15(view_matrix, relative[0], relative[1], relative[2]);
     let shape_sort_depth = sf_core::sf1_shape_metrics::sf1_shape_metrics(entry.shape_id)
         .map_or(0, |metrics| metrics.sort_depth);
     view_position
@@ -152,10 +183,7 @@ fn source_sort_depth(entry: &DrawListEntry, camera: SourceSceneCamera) -> i16 {
         .wrapping_add(shape_sort_depth)
 }
 
-fn source_painter_order(
-    entries: &[DrawListEntry],
-    camera: SourceSceneCamera,
-) -> Vec<usize> {
+fn source_painter_order(entries: &[DrawListEntry], camera: SourceSceneCamera) -> Vec<usize> {
     let mut order: Vec<_> = (0..entries.len()).collect();
     // MDRAWLIS.MC `mallrotzsort` links the farthest object first. Its compare
     // decrements the existing depth before testing, so a later entry with the
@@ -167,6 +195,10 @@ fn source_painter_order(
         )
     });
     order
+}
+
+fn has_source_shadow(entry: &DrawListEntry) -> bool {
+    entry.flags & (DL_FLAG_VISIBLE | DL_FLAG_SHADOW) == (DL_FLAG_VISIBLE | DL_FLAG_SHADOW)
 }
 
 fn lerp_angle8(from: i16, to: i16, t: f32) -> i16 {
@@ -260,7 +292,10 @@ impl DrawListRenderer {
     pub fn new() -> Self {
         DrawListRenderer {
             source_texture: None,
-            last_source_indices: vec![0; crate::source_raster::WIDTH * crate::source_raster::HEIGHT],
+            last_source_indices: vec![
+                0;
+                crate::source_raster::WIDTH * crate::source_raster::HEIGHT
+            ],
             last_source_rgba: vec![
                 0;
                 crate::source_raster::WIDTH * crate::source_raster::HEIGHT * 4
@@ -349,6 +384,7 @@ impl DrawListRenderer {
         source_presentation_offset: Option<[i16; 2]>,
         source_bitmap_clear: Option<SourceBitmapRect>,
         source_scene_camera: Option<SourceSceneCamera>,
+        source_point_pixels: &[PointPixel],
     ) {
         // At the exact fixed-update boundary the source still presents the
         // preceding complete draw snapshot. Iterating `curr` here made newly
@@ -374,6 +410,9 @@ impl DrawListRenderer {
         // main pass, drawn afterwards as a translucent overlay).
         let mut shadow_list: Vec<DrawListEntry> = Vec::new();
         let mut source_raster = SourceRaster::new();
+        if source_presentation_offset.is_some() {
+            source_raster.draw_point_field(source_point_pixels, shape_palette);
+        }
 
         // Pair current entries with the previous frame's entries by stable
         // object id (alien index), not by list position.
@@ -404,13 +443,11 @@ impl DrawListRenderer {
         if let Some(camera) = source_camera.filter(|_| matches!(alpha, 0.0 | 1.0)) {
             for &entry_index in &presented_order {
                 let entry = &presented[entry_index];
-                if entry.flags & (DL_FLAG_VISIBLE | DL_FLAG_SHADOW)
-                    != (DL_FLAG_VISIBLE | DL_FLAG_SHADOW)
-                    || entry.explosion_cnt != 0
-                {
+                if !has_source_shadow(entry) {
                     continue;
                 }
-                let previous_index = if entry.obj_id != 0 && (entry.obj_id as usize) <= MAX_OBJECTS {
+                let previous_index = if entry.obj_id != 0 && (entry.obj_id as usize) <= MAX_OBJECTS
+                {
                     prev_by_id[entry.obj_id as usize]
                 } else {
                     -1
@@ -431,12 +468,11 @@ impl DrawListRenderer {
                     &mut source_raster,
                     shadow.shape_id,
                     shadow.anim_frame,
+                    shadow.explosion_cnt,
                     SourcePose {
                         world_position: [(shadow.x >> 16) as i16, ground, (shadow.z >> 16) as i16],
                         rotation: [shadow.rx as u8, shadow.ry as u8, shadow.rz as u8],
-                        view_position: camera
-                            .position
-                            .map(|coordinate| (coordinate >> 16) as i16),
+                        view_position: camera.position.map(|coordinate| (coordinate >> 16) as i16),
                         view_rotation: camera.rotation,
                     },
                     shape_palette,
@@ -513,6 +549,10 @@ impl DrawListRenderer {
                 continue;
             }
 
+            let scaled_sprite = interp.flags & DL_FLAG_SCALED_SPRITE != 0;
+            let color_table = ObjectColorPolicy::from_strategy_flags(interp.sflags, scaled_sprite)
+                .resolve(interp.color_table);
+
             // Retail wireframe objects are dedicated Face2-only shapes, so
             // they take the same exact material-aware shape path as every
             // other object.
@@ -520,19 +560,15 @@ impl DrawListRenderer {
                 && matches!(alpha, 0.0 | 1.0))
             .then(|| source_camera)
             .flatten()
-            .map(|camera| {
-                SourcePose {
-                    world_position: [
-                        (interp.x >> 16) as i16,
-                        (interp.y >> 16) as i16,
-                        (interp.z >> 16) as i16,
-                    ],
-                    rotation: [interp.rx as u8, interp.ry as u8, interp.rz as u8],
-                    view_position: camera
-                        .position
-                        .map(|coordinate| (coordinate >> 16) as i16),
-                    view_rotation: camera.rotation,
-                }
+            .map(|camera| SourcePose {
+                world_position: [
+                    (interp.x >> 16) as i16,
+                    (interp.y >> 16) as i16,
+                    (interp.z >> 16) as i16,
+                ],
+                rotation: [interp.rx as u8, interp.ry as u8, interp.rz as u8],
+                view_position: camera.position.map(|coordinate| (coordinate >> 16) as i16),
+                view_rotation: camera.rotation,
             });
             source_raster.set_owner(interp.obj_id);
             if interp.flags & DL_FLAG_SCALED_SPRITE != 0 {
@@ -544,16 +580,14 @@ impl DrawListRenderer {
                             (interp.z >> 16) as i16,
                         ],
                         rotation: [0; 3],
-                        view_position: camera
-                            .position
-                            .map(|coordinate| (coordinate >> 16) as i16),
+                        view_position: camera.position.map(|coordinate| (coordinate >> 16) as i16),
                         view_rotation: camera.rotation,
                     };
                     shapes.render_source_scaled_sprite(
                         &mut source_raster,
                         interp.shape_id,
                         interp.col_frame,
-                        interp.color_table,
+                        color_table,
                         interp.depth_offset,
                         interp.tscroll_x,
                         pose,
@@ -568,7 +602,8 @@ impl DrawListRenderer {
                 interp.shape_id,
                 interp.anim_frame,
                 interp.col_frame,
-                interp.color_table,
+                color_table,
+                [interp.tscroll_x, interp.tscroll_y],
                 interp.explosion_cnt,
                 &model,
                 source_pose,
@@ -638,6 +673,46 @@ mod projection_tests {
     const DESTROYED_Z: i32 = 500 << 16;
     const EXPECTED_PLAYER_SPRITE_SCALE: f32 = 0.25;
     const MATRIX_EPSILON: f32 = 0.000_01;
+
+    #[test]
+    fn object_color_policy_matches_semantic_draw_flags() {
+        const AUTHORED_TABLE: u16 = crate::color_data::COLOR_TABLE_DEFAULT_C;
+
+        let resolved = |strategy_flags, scaled_sprite| {
+            ObjectColorPolicy::from_strategy_flags(strategy_flags, scaled_sprite)
+                .resolve(AUTHORED_TABLE)
+        };
+
+        assert_eq!(resolved(0, false), AUTHORED_TABLE);
+        assert_eq!(
+            resolved(STRATEGY_COLOR_SPECIAL, false),
+            crate::color_data::COLOR_TABLE_ID_1_C
+        );
+        assert_eq!(
+            resolved(STRATEGY_COLOR_HIT_FLASH, false),
+            crate::color_data::COLOR_TABLE_WHITE_C
+        );
+        assert_eq!(
+            resolved(STRATEGY_COLOR_SPECIAL | STRATEGY_COLOR_HIT_FLASH, false),
+            crate::color_data::COLOR_TABLE_RED_C
+        );
+        assert_eq!(resolved(STRATEGY_COLOR_HIT_FLASH, true), AUTHORED_TABLE);
+        assert_eq!(
+            resolved(STRATEGY_COLOR_SPECIAL | STRATEGY_COLOR_HIT_FLASH, true),
+            AUTHORED_TABLE
+        );
+    }
+
+    #[test]
+    fn source_shadow_remains_visible_during_polygon_debris() {
+        let debris = DrawListEntry {
+            flags: DL_FLAG_VISIBLE | DL_FLAG_SHADOW,
+            explosion_cnt: 7,
+            ..DrawListEntry::default()
+        };
+
+        assert!(has_source_shadow(&debris));
+    }
 
     #[test]
     fn source_painter_orders_far_to_near_and_reverses_equal_depths() {

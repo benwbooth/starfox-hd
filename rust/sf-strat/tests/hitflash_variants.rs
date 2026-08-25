@@ -140,7 +140,7 @@ fn misscol_kills_non_missile_partner() {
     misscol_istrat(&mut g, m);
     assert_eq!(g.objs.aliens[m as usize].hp, 0);
     assert_ne!(
-        g.objs.aliens[m as usize].sflags & sf_game::alien::ASF_COLLDISABLE,
+        g.objs.aliens[m as usize].sflags2 & sf_game::alien::ASF2_COLLDISABLE,
         0
     );
 }

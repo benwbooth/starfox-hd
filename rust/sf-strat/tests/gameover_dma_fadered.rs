@@ -3,13 +3,16 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use sf_game::alien::ASF_INVISIBLE;
+use sf_game::alien::ASF4_INVISIBLE;
 use sf_game::dma::{DmaFlush, DmaKind};
 use sf_game::vars::GF_PLAYERDYING;
 use sf_game::windows::{fade_red_palette, Windows, WINDOW_MODE_WHITE2NORM};
 use sf_game::Game;
 use sf_path::ids::PATH_ID_GAMEOVER;
 use sf_strat::gameover::{fade_to_norm_l, gameover_init_l, SH_GAMESH, SH_OVERSH};
+
+const INITIAL_PLAYER_FORWARD_STEP: i16 = 63;
+const LETTER_DEPTH_FROM_PLAYER: i16 = 3400;
 
 struct FadeHooks {
     armed: Rc<Cell<bool>>,
@@ -58,16 +61,22 @@ fn gameoverinit_spawns_letters_and_clears_dying() {
     // set_player_cred zeros player pos before letter spawn.
     assert_eq!(g.vars.gameflags & GF_PLAYERDYING, 0);
     assert_eq!(g.vars.dotsflag, -1);
-    assert_ne!(g.objs.aliens[p as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[p as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.objs.aliens[p as usize].worldx, 0);
     assert_eq!(g.objs.aliens[p as usize].worldy, 0);
-    assert_eq!(g.objs.aliens[p as usize].worldz, 0);
+    assert_eq!(
+        g.objs.aliens[p as usize].worldz,
+        INITIAL_PLAYER_FORWARD_STEP
+    );
 
     let ga = &g.objs.aliens[game as usize];
     assert_eq!(ga.shape, SH_GAMESH);
     assert_eq!(ga.worldx, -270);
     assert_eq!(ga.worldy, 120);
-    assert_eq!(ga.worldz, 3400);
+    assert_eq!(
+        ga.worldz,
+        INITIAL_PLAYER_FORWARD_STEP + LETTER_DEPTH_FROM_PLAYER
+    );
     assert_eq!(ga.hp, 255);
     assert_eq!(ga.sword2, PATH_ID_GAMEOVER as i16);
 
@@ -75,7 +84,10 @@ fn gameoverinit_spawns_letters_and_clears_dying() {
     assert_eq!(oa.shape, SH_OVERSH);
     assert_eq!(oa.worldx, 270);
     assert_eq!(oa.worldy, 120);
-    assert_eq!(oa.worldz, 3400);
+    assert_eq!(
+        oa.worldz,
+        INITIAL_PLAYER_FORWARD_STEP + LETTER_DEPTH_FROM_PLAYER
+    );
 }
 
 #[test]

@@ -16,7 +16,7 @@
 
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_FIRSTFRAME, ACF_WEAPON, AFONFIRE, ASF2_COLLDISABLE,
-    ASF3_REALOBJ, ASF_COLLDISABLE, ASF_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
+    ASF3_REALOBJ, ASF_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
 };
 // NUMBER_AL used by updateengine_srou bounds check.
 use sf_game::vars::GameVars;
@@ -649,7 +649,7 @@ pub fn strat_remove_obj(g: &mut Game) {
 
 /// ROM `childremove_Istrat` (GSTRATS.ASM): detach from mother, then remove self.
 pub fn child_remove_istrat(g: &mut Game, idx: u16) {
-    // divorce_family handles mother unlink when ASF3_CHILDOBJ is set.
+    // divorce_family handles mother unlink when ASF4_CHILDOBJ is set.
     g.objs.divorce_family(idx);
     g.objs.aldead = 1;
 }
@@ -703,7 +703,7 @@ pub fn flash_strat(g: &mut Game, idx: u16) {
 /// ROM `s_kill_obj` (STRATMAC.INC): hp=0 + colldisable — death sweep runs expstrat.
 pub fn kill_obj(al: &mut Alien) {
     al.hp = 0;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// ROM `kill_Istrat` / `kill_strat` (GSTRATS.ASM:1164) — one-shot kill.
@@ -783,7 +783,7 @@ pub fn makefire_srou(g: &mut Game, parent: u16) -> Option<u16> {
         al.collstratptr = None;
         al.expstratptr = None;
         al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.type_ |= ATZREMOVE;
         // s_rots_flat is cosmetic billboard; HD leaves orientation as-is.
     }
@@ -813,7 +813,7 @@ pub fn makesmoke_srou(g: &mut Game, parent: u16) -> Option<u16> {
     {
         let al = &mut g.objs.aliens[smoke as usize];
         al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.type_ |= ATZREMOVE;
         al.stratptr = Some(smoke_i);
         al.collstratptr = None;
@@ -877,7 +877,7 @@ fn domakesplash(g: &mut Game, parent: u16, shape: u16) -> Option<u16> {
     {
         let al = &mut g.objs.aliens[splash as usize];
         al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.stratptr = Some(splash_i);
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
@@ -909,7 +909,7 @@ pub fn splash_istrat(g: &mut Game, idx: u16) {
     let (_, tick) = splash_strat_ids(g);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         init_colanim(al, 0);
         al.stratptr = Some(tick);
     }
@@ -947,7 +947,8 @@ pub fn makeengine_srou_with_extents(
     let sprite_y = sh_ymax.wrapping_sub(24);
     {
         let al = &mut g.objs.aliens[engine as usize];
-        al.sflags |= ASF_COLLDISABLE | ASF_INVISIBLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.sflags |= ASF_INVISIBLE;
         al.relposz = rel_z;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
@@ -1170,7 +1171,7 @@ pub fn puff_istrat(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick);
         al.collstratptr = None;
         al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         init_colanim(al, 0);
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
@@ -1195,7 +1196,7 @@ const SH_PEXPLOD: u16 = 361;
 pub fn rotsflatstay_istrat(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
     // s_rots_flat — cosmetic.
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.stratptr = None;
     al.collstratptr = None;
     al.expstratptr = None;
@@ -1213,7 +1214,7 @@ pub fn sparky_istrat(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
     al.sbyte1 = 2;
     al.shape = SH_PEXPLOD;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.stratptr = Some(sid);
     al.expstratptr = Some(sid);
     al.collstratptr = Some(sid);

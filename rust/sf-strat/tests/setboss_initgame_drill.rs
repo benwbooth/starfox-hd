@@ -33,7 +33,7 @@ fn initgame_strats_clears_view_and_boss() {
     g.vars.bosshp = 12;
     g.vars.gameflags = 0xFF;
     g.vars.write_ext8(wm::BOSSFLAGS, 0x55);
-    g.vars.write_ext8(wm::STRATFLAGS, 0xAA);
+    g.vars.shared.strategy_flags = 0xAA;
 
     initgame_strats_l(&mut g);
     assert_eq!(g.vars.sv_i16(sv::OUTVX), 0);
@@ -43,7 +43,7 @@ fn initgame_strats_clears_view_and_boss() {
     assert_eq!(g.vars.bosshp, 0);
     assert_eq!(g.vars.gameflags, 0);
     assert_eq!(bossflags(&g), 0);
-    assert_eq!(g.vars.read_ext8(wm::STRATFLAGS), 0);
+    assert_eq!(g.vars.shared.strategy_flags, 0);
     assert_eq!(g.vars.read_ext8(0x155C), 1); // gf2_ingame
 }
 

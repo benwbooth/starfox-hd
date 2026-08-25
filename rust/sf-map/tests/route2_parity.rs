@@ -261,5 +261,8 @@ fn credits_preserves_the_retail_asm_state_transitions() {
 
 #[test]
 fn training_matches_source_fixture() {
+    // The original removed-C dump omitted `initlevel`'s SETSTAGE/QFADEUP
+    // tail. The fixture includes those two source opcodes after independent
+    // retail Training trace certification.
     assert_level_matches("r2_training", map_id::TRAINING);
 }

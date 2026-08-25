@@ -348,6 +348,11 @@ impl MapBuilder {
         self.emit16(bg_id as u16);
     }
 
+    /// Start the flight-stage announcement countdown.
+    pub fn setstage(&mut self) {
+        self.emit8(op::SETSTAGE);
+    }
+
     pub fn qfadeup(&mut self) {
         self.emit8(op::QFADEUP);
     }

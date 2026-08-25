@@ -1,6 +1,6 @@
 //! ROM bossBrob morph / split / demo / undead / die (GB3STRAT.ASM).
 
-use sf_game::alien::{ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ASF3_NOHITAFFECT, ASF_SHADOW};
 use sf_game::vars::GF_BOSSDEAD;
 use sf_game::Game;
 use sf_strat::bossb::{
@@ -49,7 +49,7 @@ fn chg_istrat_latches_walking_and_counts_down() {
     bossbrobchg_istrat(&mut g, idx);
     assert_ne!(g.objs.aliens[idx as usize].sflags3 & 0x01, 0);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 39); // 40 then tick
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     // Force into chg2.
     g.objs.aliens[idx as usize].sbyte1 = 0;
     bossbrobchg_strat(&mut g, idx);
@@ -154,7 +154,7 @@ fn col_and_sepcol_zone_routing() {
     assert_eq!(g.objs.aliens[idx as usize].sbyte3, 16);
     // sepcol ignores another hit while the ROM sflag5 ouch latch is active.
     g.objs.aliens[idx as usize].sbyte2 = 1;
-    g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[idx as usize].sflags2 &= !0x10;
     g.objs.aliens[idx as usize].hitflags = 2;
     bossbrobsepcol_istrat(&mut g, idx);

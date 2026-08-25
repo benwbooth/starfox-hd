@@ -21,6 +21,67 @@ use crate::source_raster::SourceBitmapRect;
 use crate::sprites::{
     Sprites, FACE_H, FACE_W, SPR_HFLIP, SPR_PAL_CROSS, SPR_PAL_DEFAULT, SPR_VFLIP,
 };
+use sf_core::stage_banner::{StageBannerKind, StageBannerState};
+
+const STAGE_BANNER_Y: i32 = 72;
+const STAGE_BANNER_STAGE_X: i32 = 80;
+const STAGE_BANNER_TRAINING_X: i32 = 72;
+const STAGE_BANNER_PALETTE: u8 = SPR_PAL_DEFAULT;
+const MESSAGE_GLYPH_COLUMN_WIDTH: i32 = 8;
+const MESSAGE_GLYPH_ROW_HEIGHT: i32 = 8;
+const SOURCE_MESSAGE_TILE_BANK: i32 = 128;
+
+#[derive(Clone, Copy)]
+enum MessageGlyph {
+    Full([i32; 4]),
+    Narrow([i32; 2]),
+}
+
+const fn full_glyph(a: i32, b: i32, c: i32, d: i32) -> MessageGlyph {
+    MessageGlyph::Full([
+        SOURCE_MESSAGE_TILE_BANK + a,
+        SOURCE_MESSAGE_TILE_BANK + b,
+        SOURCE_MESSAGE_TILE_BANK + c,
+        SOURCE_MESSAGE_TILE_BANK + d,
+    ])
+}
+
+const fn narrow_glyph(a: i32, b: i32) -> MessageGlyph {
+    MessageGlyph::Narrow([SOURCE_MESSAGE_TILE_BANK + a, SOURCE_MESSAGE_TILE_BANK + b])
+}
+
+const MESSAGE_A: MessageGlyph = full_glyph(8, 9, 10, 11);
+const MESSAGE_E: MessageGlyph = full_glyph(16, 17, 18, 19);
+const MESSAGE_G: MessageGlyph = full_glyph(12, 13, 14, 15);
+const MESSAGE_I: MessageGlyph = narrow_glyph(22, 23);
+const MESSAGE_N: MessageGlyph = full_glyph(66, 67, 68, 69);
+const MESSAGE_R: MessageGlyph = full_glyph(87, 88, 89, 90);
+const MESSAGE_S: MessageGlyph = full_glyph(0, 1, 2, 3);
+const MESSAGE_T: MessageGlyph = full_glyph(4, 5, 6, 7);
+const MESSAGE_DASH: MessageGlyph = narrow_glyph(20, 21);
+const TRAINING_MESSAGE: [MessageGlyph; 8] = [
+    MESSAGE_T, MESSAGE_R, MESSAGE_A, MESSAGE_I, MESSAGE_N, MESSAGE_I, MESSAGE_N, MESSAGE_G,
+];
+const STAGE_MESSAGE: [MessageGlyph; 6] = [
+    MESSAGE_S,
+    MESSAGE_T,
+    MESSAGE_A,
+    MESSAGE_G,
+    MESSAGE_E,
+    MESSAGE_DASH,
+];
+const DIGIT_MESSAGES: [MessageGlyph; 10] = [
+    full_glyph(56, 57, 58, 59),
+    full_glyph(79, 22, 79, 23),
+    full_glyph(24, 25, 26, 27),
+    full_glyph(28, 29, 30, 31),
+    full_glyph(32, 33, 34, 35),
+    full_glyph(36, 37, 38, 39),
+    full_glyph(40, 41, 42, 43),
+    full_glyph(44, 45, 46, 47),
+    full_glyph(48, 49, 50, 51),
+    full_glyph(52, 53, 54, 55),
+];
 
 #[inline]
 fn ortho(w: f32, h: f32) -> [f32; 16] {
@@ -259,6 +320,83 @@ impl Default for Hud {
 }
 
 impl Hud {
+    fn draw_message_glyph(sprites: &mut Sprites, glyph: MessageGlyph, x: i32, y: i32) -> i32 {
+        match glyph {
+            MessageGlyph::Full(tiles) => {
+                sprites.draw8(tiles[0], x, y, STAGE_BANNER_PALETTE, 0);
+                sprites.draw8(
+                    tiles[1],
+                    x + MESSAGE_GLYPH_COLUMN_WIDTH,
+                    y,
+                    STAGE_BANNER_PALETTE,
+                    0,
+                );
+                sprites.draw8(
+                    tiles[2],
+                    x,
+                    y + MESSAGE_GLYPH_ROW_HEIGHT,
+                    STAGE_BANNER_PALETTE,
+                    0,
+                );
+                sprites.draw8(
+                    tiles[3],
+                    x + MESSAGE_GLYPH_COLUMN_WIDTH,
+                    y + MESSAGE_GLYPH_ROW_HEIGHT,
+                    STAGE_BANNER_PALETTE,
+                    0,
+                );
+                x + MESSAGE_GLYPH_COLUMN_WIDTH * 2
+            }
+            MessageGlyph::Narrow(tiles) => {
+                sprites.draw8(tiles[0], x, y, STAGE_BANNER_PALETTE, 0);
+                sprites.draw8(
+                    tiles[1],
+                    x,
+                    y + MESSAGE_GLYPH_ROW_HEIGHT,
+                    STAGE_BANNER_PALETTE,
+                    0,
+                );
+                x + MESSAGE_GLYPH_COLUMN_WIDTH
+            }
+        }
+    }
+
+    fn draw_message(sprites: &mut Sprites, glyphs: &[MessageGlyph], mut x: i32) -> i32 {
+        for glyph in glyphs {
+            x = Self::draw_message_glyph(sprites, *glyph, x, STAGE_BANNER_Y);
+        }
+        x
+    }
+
+    fn draw_stage_banner(sprites: &mut Sprites, banner: StageBannerState) {
+        if !banner.is_visible() {
+            return;
+        }
+        match banner.kind {
+            StageBannerKind::Training => {
+                Self::draw_message(sprites, &TRAINING_MESSAGE, STAGE_BANNER_TRAINING_X);
+            }
+            StageBannerKind::Stage(stage) => {
+                let mut x = Self::draw_message(sprites, &STAGE_MESSAGE, STAGE_BANNER_STAGE_X);
+                let displayed_stage = stage.saturating_add(1);
+                if displayed_stage >= 10 {
+                    x = Self::draw_message_glyph(
+                        sprites,
+                        DIGIT_MESSAGES[usize::from(displayed_stage / 10)],
+                        x,
+                        STAGE_BANNER_Y,
+                    );
+                }
+                Self::draw_message_glyph(
+                    sprites,
+                    DIGIT_MESSAGES[usize::from(displayed_stage % 10)],
+                    x,
+                    STAGE_BANNER_Y,
+                );
+            }
+        }
+    }
+
     /// The source face-copy replaces its complete bitmap block, including
     /// zero pixels. The decoded GPU portrait is drawn later over this cleared
     /// 3D region.
@@ -721,6 +859,10 @@ impl Hud {
             }
         }
 
+        if let Some(stage_banner) = inputs.stage_banner {
+            Self::draw_stage_banner(sprites, stage_banner);
+        }
+
         sprites.render_hud(
             gpu,
             if inputs.source_resolution {
@@ -756,8 +898,8 @@ pub fn bomb_icon_draw_count(bombs: i32, specflash: u8, gameframe: u16) -> (i32, 
 #[cfg(test)]
 mod tests {
     use super::{
-        bomb_icon_draw_count, shield_meter_fill_color, Hud, RADIO_PORTRAIT_BITMAP_X,
-        RADIO_PORTRAIT_BITMAP_Y, FACE_H, FACE_W, SPRAR_UP,
+        bomb_icon_draw_count, shield_meter_fill_color, Hud, FACE_H, FACE_W,
+        RADIO_PORTRAIT_BITMAP_X, RADIO_PORTRAIT_BITMAP_Y, SPRAR_UP,
     };
     use crate::renderer::{FrameInputs, GameState};
     use crate::source_raster::SourceBitmapRect;

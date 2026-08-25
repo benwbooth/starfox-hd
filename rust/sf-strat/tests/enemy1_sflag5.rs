@@ -2,7 +2,7 @@
 //! flingboss mothers + weapons; bossB scream/ouch `sflag5` = sflags3 bit0
 //! (was wrongly ASF2_SFLAG1 / image bit).
 
-use sf_game::alien::{ACF_COLLTYPE2, ASF3_REALOBJ, ASF_NOHITAFFECT};
+use sf_game::alien::{ACF_COLLTYPE2, ASF3_NOHITAFFECT, ASF3_REALOBJ};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_game::vars::COLLTYPE_ENEMY1;
@@ -66,7 +66,7 @@ fn scream_sets_sflag5_not_image_sflag1() {
     let al = &g.objs.aliens[idx as usize];
     assert_ne!(al.sflags3 & ASF3_SFLAG5, 0);
     assert_eq!(al.sflags2 & ASF2_SFLAG1, 0);
-    assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(al.sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn ouch_latches_sflag5_and_blocks_rehit() {
     bossbrob_init(&mut g, idx);
     // Image sflag1 stays set from init; ouch must use sflags3.
     assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1, 0);
-    g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[idx as usize].hitflags = HF1;
     bossbrobcol_istrat(&mut g, idx);
     let al = &g.objs.aliens[idx as usize];
@@ -112,7 +112,7 @@ fn sepcol_gates_on_sflag5_sets_sflag1_on_pounce() {
     spawn_player(&mut g);
     let idx = spawn_obj(&mut g);
     bossbrob_init(&mut g, idx);
-    g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[idx as usize].sflags2 &= !ASF2_SFLAG1;
     g.objs.aliens[idx as usize].sflags3 |= ASF3_SFLAG5;
     g.objs.aliens[idx as usize].sbyte2 = 1;

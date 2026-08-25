@@ -1,6 +1,6 @@
 //! Tick 141: AUDIT_BOSS_TICKS (boss2/bossg) verify + bossg splash + kami speed.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ};
 use sf_game::Game;
 use sf_strat::bosses::{
     b8_fire_kamimissile, boss2_strat, boss2petal_strat, boss2top_strat, bossg_move2,
@@ -222,7 +222,7 @@ fn boss2petal_death_sets_colldisable() {
         .expect("petal") as u16;
     boss2petal_strat(&mut g, petal);
     assert_ne!(
-        g.objs.aliens[petal as usize].sflags & ASF_COLLDISABLE,
+        g.objs.aliens[petal as usize].sflags2 & ASF2_COLLDISABLE,
         0,
         "s_kill_obj sets colldisable"
     );

@@ -7,7 +7,7 @@
 use sf_game::alien::ASF3_REALOBJ;
 use sf_game::vars::{GameVars, PSTF_NOTDIE};
 use sf_game::{Game, Hooks};
-use sf_strat::enemy_a::{boss1exp_init, bossflags, strat_boss1_init, wm, BF_DYING, SF_NOFIRING};
+use sf_strat::enemy_a::{boss1exp_init, bossflags, strat_boss1_init, BF_DYING, SF_NOFIRING};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -55,7 +55,7 @@ fn boss1_death_plays_dying_se_and_bgm() {
     );
     assert_ne!(bossflags(&g) & BF_DYING, 0);
     assert_ne!(g.vars.pstratflags & PSTF_NOTDIE, 0);
-    assert_ne!(g.vars.read_ext8(wm::STRATFLAGS) & SF_NOFIRING, 0);
+    assert_ne!(g.vars.shared.strategy_flags & SF_NOFIRING, 0);
 }
 
 #[test]

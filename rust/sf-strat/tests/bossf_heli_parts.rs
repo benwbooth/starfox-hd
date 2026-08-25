@@ -1,7 +1,7 @@
 //! Tick 102: BossF airship heli parts — body / feet / arm / head (DSTRATS.ASM).
 //! Tick 217: ENEMY1 colltype = ACF_COLLTYPE2 (0x10).
 
-use sf_game::alien::{ACF_COLLTYPE2, ASF3_CHILDOBJ, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ACF_COLLTYPE2, ASF4_CHILDOBJ, ASF_NOHITAFFECT, ASF_SHADOW};
 use sf_game::vars::{COLLTYPE_ENEMY1, HARD_AP, HARD_HP};
 use sf_game::Game;
 use sf_strat::bossf_heli::{
@@ -134,7 +134,7 @@ fn feet_explode_switches_mother_to_heli() {
     let mother = spawn(&mut g);
     let feet = spawn(&mut g);
     assert!(boss_attach_child_to_mother(&mut g, mother, feet, 3));
-    assert_ne!(g.objs.aliens[feet as usize].sflags3 & ASF3_CHILDOBJ, 0);
+    assert_ne!(g.objs.aliens[feet as usize].sflags4 & ASF4_CHILDOBJ, 0);
     bossffeet_istrat(&mut g, feet);
     // Drive explode path directly.
     let exp = g.objs.aliens[feet as usize].expstratptr.expect("exp");

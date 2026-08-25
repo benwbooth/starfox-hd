@@ -11,8 +11,8 @@ use std::collections::BTreeSet;
 use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::alien::{
     StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
-    ACF_COLLTYPE6, ASF3_CHILDOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_INVISIBLE,
-    ASF_NOHITAFFECT,
+    ACF_COLLTYPE6, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF4_CHILDOBJ, ASF4_INVISIBLE,
+    ASF4_PLAYEROBJ, ASF_COLLIDE,
 };
 use sf_game::shell::{
     GameState, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS,
@@ -213,11 +213,12 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
         al.active
             && al.shape == SH_MADBIKER
             && al.collflags & enemy_types != 0
-            && al.sflags & (ASF_COLLDISABLE | ASF_INVISIBLE) == 0
+            && al.sflags2 & ASF2_COLLDISABLE == 0
+            && al.sflags4 & ASF4_INVISIBLE == 0
             && al.hp != 0
             && al.hp != HARD_HP
     }) {
-        bike.sflags &= !ASF_NOHITAFFECT;
+        bike.sflags3 &= !ASF3_NOHITAFFECT;
         bike.hp = 0;
         return;
     }
@@ -229,7 +230,7 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
     if let Some(feet) = shell.game.objs.aliens.iter_mut().find(|al| {
         al.active
             && al.shape == sf_strat::bossf_heli::SH_AIRSHIP_FEET
-            && al.sflags3 & ASF3_CHILDOBJ != 0
+            && al.sflags4 & ASF4_CHILDOBJ != 0
             && al.hp != 0
             && al.hp != HARD_HP
     }) {
@@ -248,7 +249,9 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
         al.active
             && al.shape == SH_CHICKEN_BODY
             && al.collflags & enemy_types != 0
-            && al.sflags & (ASF_NOHITAFFECT | ASF_COLLDISABLE | ASF_INVISIBLE) == 0
+            && al.sflags3 & ASF3_NOHITAFFECT == 0
+            && al.sflags2 & ASF2_COLLDISABLE == 0
+            && al.sflags4 & ASF4_INVISIBLE == 0
             && al.hp != 0
             && al.hp != HARD_HP
     }) {
@@ -295,7 +298,7 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
         al.active
             && al.shape == SH_FLINGBOSS
             && al.hp == HARD_HP
-            && al.sflags & ASF_NOHITAFFECT != 0
+            && al.sflags3 & ASF3_NOHITAFFECT != 0
     });
     if fling_phase1 {
         let grabbers: Vec<u16> = shell
@@ -330,7 +333,7 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
                 && al.hp == HARD_HP
                 && al.collstratptr.is_some()
                 && al.sflags2 & 0x10 == 0 // boss8 sflag1
-                && al.sflags & ASF_COLLDISABLE == 0
+                && al.sflags2 & ASF2_COLLDISABLE == 0
         }) {
             let al = &mut shell.game.objs.aliens[beam as usize];
             al.sflags |= ASF_COLLIDE;
@@ -353,7 +356,9 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
             // disable its collisions and run the proximity export.
             && !(al.shape == SH_TENKI_MARKER && al.hp == 10 && al.ap == 10)
             && al.collflags & enemy_types != 0
-            && al.sflags & (ASF_NOHITAFFECT | ASF_COLLDISABLE | ASF_INVISIBLE) == 0
+            && al.sflags3 & ASF3_NOHITAFFECT == 0
+            && al.sflags2 & ASF2_COLLDISABLE == 0
+            && al.sflags4 & ASF4_INVISIBLE == 0
             && al.hp != 0
             && al.hp != HARD_HP
     });
@@ -382,7 +387,8 @@ fn defeat_vulnerable_hostiles(shell: &mut Shell) {
             && al.collflags & enemy_types != 0
             // monolithcol_Istrat deliberately accepts eye hits while the
             // parent retains nohitaffect; only its fire states expose them.
-            && al.sflags & (ASF_COLLDISABLE | ASF_INVISIBLE) == 0
+            && al.sflags2 & ASF2_COLLDISABLE == 0
+            && al.sflags4 & ASF4_INVISIBLE == 0
             && (al.stratstate == 5 || al.stratstate == 21)
             && (al.sbyte1 != 0 || al.sbyte2 != 0)
     }) {

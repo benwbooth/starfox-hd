@@ -721,6 +721,16 @@ class ShapeHeader:
     visual_extent: int      # assembled ShapeHdr sh_size
     half_extents: Tuple[int, int, int]  # assembled sh_xmax/ymax/zmax
     color_table: str        # color table name
+    simple_shapes: Tuple[str, str, str]  # authored distance-LOD headers
+
+
+@dataclass
+class SourceLodData:
+    vertices: List[Vertex]
+    animation_frames: List[List[Vertex]]
+    reflected_pair_starts: List[int]
+    faces: List[Face]
+    painter_nodes: List[PainterNode]
 
 
 @dataclass
@@ -732,6 +742,11 @@ class ShapeData:
     # each animation frame. Static shapes leave this empty; animated shapes
     # include frame zero as the first entry.
     animation_frames: List[List[Vertex]]
+    # Start index of each adjacent vertex pair authored with PointsXb/PointsXw.
+    # The source transform computes the second point by reflecting the first
+    # point's X contribution, which is not always equal to independently
+    # transforming a negated coordinate at fixed-point boundaries.
+    reflected_pair_starts: List[int]
     faces: List[Face]
     painter_nodes: List[PainterNode]
     # ShapeHdr sh_col_ptr.  Zero in a live object's al_coltab means "use
@@ -742,6 +757,7 @@ class ShapeData:
     visual_extent: int
     coordinate_shift: int
     half_extents: Tuple[int, int, int]
+    source_lods: List[Optional[SourceLodData]]
 
 
 # ---------------------------------------------------------------------------
@@ -807,9 +823,10 @@ def vertex_section_bounds(af: AsmFile, points_label: str) -> Tuple[int, int]:
 def animation_period(af: AsmFile, points_label: str) -> int:
     """Return the complete period of all ``Frames`` tables in a shape.
 
-    The GSU applies the same object animation counter independently at every
-    Frames opcode and wraps it by that table's row count. Their least common
-    multiple therefore describes the complete vertex-stream period.
+    The source renderer first keeps the low six animation-counter bits, then
+    applies that value independently at every Frames opcode and reduces it by
+    the table's row count. Their least common multiple therefore describes the
+    complete generated vertex-stream period.
     """
     start, end = vertex_section_bounds(af, points_label)
     if start < 0:
@@ -842,13 +859,14 @@ def parse_vertices(
         points_label: str,
         shift: int,
         animation_frame: int = 0,
-) -> List[Vertex]:
+) -> Tuple[List[Vertex], List[int]]:
     """Parse one complete vertex stream starting from ``points_label``."""
     start, end = vertex_section_bounds(af, points_label)
     if start < 0:
-        return []
+        return [], []
 
     vertices: List[Vertex] = []
+    reflected_pair_starts: List[int] = []
     pc = start
     pending_count = 0
     pending_mirror = False
@@ -905,6 +923,7 @@ def parse_vertices(
 
                     vertices.append(Vertex(float(x), float(y), float(z)))
                     if pending_mirror:
+                        reflected_pair_starts.append(len(vertices) - 1)
                         vertices.append(Vertex(float(-x), float(y), float(z)))
 
                 pending_count -= 1
@@ -931,8 +950,9 @@ def parse_vertices(
             break
 
         if line.op == 'frames':
-            # The GSU repeatedly subtracts the table size, i.e. selects the
-            # object animation counter modulo this Frames table's row count.
+            # The generated stream covers the table period. Runtime selection
+            # masks the live object animation counter to six bits before
+            # indexing this compiled period.
             table: List[AsmLine] = []
             scan = pc + 1
             while scan <= end and af.lines[scan].op == 'jumptab':
@@ -972,21 +992,26 @@ def parse_vertices(
             v.y *= scale
             v.z *= scale
 
-    return vertices
+    return vertices, reflected_pair_starts
 
 
 def parse_vertex_frames(
         af: AsmFile,
         points_label: str,
         shift: int,
-) -> List[List[Vertex]]:
+) -> Tuple[List[List[Vertex]], List[int]]:
     """Parse every distinct animation frame, or one stream for static data."""
     period = animation_period(af, points_label)
     count = period if period > 0 else 1
-    return [
+    parsed_frames = [
         parse_vertices(af, points_label, shift, frame)
         for frame in range(count)
     ]
+    reflected_pair_starts = parsed_frames[0][1]
+    if any(pairs != reflected_pair_starts for _, pairs in parsed_frames[1:]):
+        raise ValueError(
+            f"animated point reflection layout changes in {points_label}")
+    return [vertices for vertices, _ in parsed_frames], reflected_pair_starts
 
 
 def validate_shape_geometry(
@@ -1347,6 +1372,11 @@ def parse_shape_headers(af: AsmFile) -> List[ShapeHeader]:
         # Color table name (args[13]) -- strip angle brackets if present
         # But first strip any trailing <display_name> from the entire args
         color_table = args[13].strip() if len(args) > 13 else "0"
+        simple_shapes = tuple(
+            args[index].strip().strip('<>').lower()
+            if len(args) > index else "0"
+            for index in range(15, 18)
+        )
 
         for lbl in shape_labels:
             headers.append(ShapeHeader(
@@ -1358,6 +1388,7 @@ def parse_shape_headers(af: AsmFile) -> List[ShapeHeader]:
                 visual_extent=visual_extent,
                 half_extents=half_extents,
                 color_table=color_table,
+                simple_shapes=simple_shapes,
             ))
 
     return headers
@@ -1425,14 +1456,26 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
     out.append("    Leaf { face_start: u16, face_count: u16 },")
     out.append("}")
     out.append("")
+    out.append("/// Typed geometry selected by the authored source-distance LOD policy.")
+    out.append("#[derive(Debug, Clone, Copy)]")
+    out.append("pub struct SourceShapeData {")
+    out.append("    pub vertices: &'static [ShapeVertex],")
+    out.append("    pub animation_frames: &'static [&'static [ShapeVertex]],")
+    out.append("    pub reflected_pair_starts: &'static [u16],")
+    out.append("    pub faces: &'static [ShapeFace],")
+    out.append("    pub painter_nodes: &'static [ShapePainterNode],")
+    out.append("}")
+    out.append("")
     out.append("/// One compiled shape, matching C `ShapeDataEntry` (shape_data.h).")
     out.append("#[derive(Debug, Clone, Copy)]")
     out.append("pub struct ShapeDataEntry {")
     out.append("    pub shape_id: u16,")
     out.append("    pub vertices: &'static [ShapeVertex],")
     out.append("    pub animation_frames: &'static [&'static [ShapeVertex]],")
+    out.append("    pub reflected_pair_starts: &'static [u16],")
     out.append("    pub faces: &'static [ShapeFace],")
     out.append("    pub painter_nodes: &'static [ShapePainterNode],")
+    out.append("    pub source_lods: [Option<SourceShapeData>; 3],")
     out.append("    pub default_color_table: &'static str,")
     out.append("    pub name: &'static str,")
     out.append("}")
@@ -1454,6 +1497,13 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
 
     for shape in sorted_shapes:
         out.append(f"// Shape {shape.shape_id}: {shape.name}")
+
+        reflected_pair_starts = ", ".join(
+            str(index) for index in shape.reflected_pair_starts)
+        out.append(
+            f"static SHAPE_{shape.shape_id}_REFLECTED_PAIR_STARTS: "
+            f"[u16; {len(shape.reflected_pair_starts)}] = "
+            f"[{reflected_pair_starts}];")
 
         # Vertices -- same Y-negation / -0.0 avoidance as the C emitter.
         # Animated entries contain complete streams, not sparse overlays, so
@@ -1503,6 +1553,77 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
         out.append("];")
         out.append("")
 
+        for lod_index, lod in enumerate(shape.source_lods):
+            if lod is None:
+                continue
+            prefix = f"SHAPE_{shape.shape_id}_LOD_{lod_index}"
+            reflected_pair_starts = ", ".join(
+                str(index) for index in lod.reflected_pair_starts)
+            out.append(
+                f"static {prefix}_REFLECTED_PAIR_STARTS: "
+                f"[u16; {len(lod.reflected_pair_starts)}] = "
+                f"[{reflected_pair_starts}];")
+            frames = lod.animation_frames or [lod.vertices]
+            for frame_index, vertices in enumerate(frames):
+                suffix = "" if frame_index == 0 else f"_FRAME_{frame_index}"
+                out.append(
+                    f"static {prefix}{suffix}_VERTS: "
+                    f"[ShapeVertex; {len(vertices)}] = [")
+                for vert in vertices:
+                    neg_y = -vert.y if vert.y != 0.0 else 0.0
+                    vx = vert.x if vert.x != 0.0 else 0.0
+                    vz = vert.z if vert.z != 0.0 else 0.0
+                    out.append(f"    v({vx:.1f}, {neg_y:.1f}, {vz:.1f}),")
+                out.append("];")
+            if lod.animation_frames:
+                out.append(
+                    f"static {prefix}_ANIMATION_FRAMES: "
+                    f"[&[ShapeVertex]; {len(lod.animation_frames)}] = [")
+                for frame_index in range(len(lod.animation_frames)):
+                    suffix = "" if frame_index == 0 else f"_FRAME_{frame_index}"
+                    out.append(f"    &{prefix}{suffix}_VERTS,")
+                out.append("];")
+            out.append(
+                f"static {prefix}_FACES: "
+                f"[ShapeFace; {len(lod.faces)}] = [")
+            for face in lod.faces:
+                padded = list(face.vertex_indices) + [0] * (12 - len(face.vertex_indices))
+                indices_str = ", ".join(str(index) for index in padded)
+                visibility = (
+                    f"Some([{', '.join(str(index) for index in face.visibility_vertices)}])"
+                    if face.visibility_vertices is not None else "None")
+                normal = [face.normal[0], -face.normal[1], -face.normal[2]]
+                normal_str = ", ".join(str(component) for component in normal)
+                out.append(
+                    f"    f([{indices_str}], {len(face.vertex_indices)}, "
+                    f"{face.color_index}, [{normal_str}], {visibility}),")
+            out.append("];")
+            out.append(
+                f"static {prefix}_PAINTER: "
+                f"[ShapePainterNode; {len(lod.painter_nodes)}] = [")
+            for node in lod.painter_nodes:
+                if node.is_leaf:
+                    out.append(
+                        "    ShapePainterNode::Leaf { "
+                        f"face_start: {node.face_start}, "
+                        f"face_count: {node.face_count} }},")
+                    continue
+                visibility = (
+                    "Some([" + ", ".join(
+                        str(index) for index in node.visibility_vertices) + "])"
+                    if node.visibility_vertices is not None else "None")
+                left = f"Some({node.left})" if node.left is not None else "None"
+                right = f"Some({node.right})" if node.right is not None else "None"
+                out.append("    ShapePainterNode::Partition {")
+                out.append(f"        visibility_vertices: {visibility},")
+                out.append(f"        face_start: {node.face_start},")
+                out.append(f"        face_count: {node.face_count},")
+                out.append(f"        left: {left},")
+                out.append(f"        right: {right},")
+                out.append("    },")
+            out.append("];")
+            out.append("")
+
         out.append(
             f"static SHAPE_{shape.shape_id}_PAINTER: "
             f"[ShapePainterNode; {len(shape.painter_nodes)}] = [")
@@ -1536,12 +1657,30 @@ def emit_rust(sorted_shapes: List[ShapeData], ext_compiled: Dict[str, int]) -> N
         animation_frames = (
             f"&SHAPE_{shape.shape_id}_ANIMATION_FRAMES"
             if shape.animation_frames else "&[]")
+        source_lods = []
+        for lod_index, lod in enumerate(shape.source_lods):
+            if lod is None:
+                source_lods.append("None")
+                continue
+            prefix = f"SHAPE_{shape.shape_id}_LOD_{lod_index}"
+            lod_animation_frames = (
+                f"&{prefix}_ANIMATION_FRAMES"
+                if lod.animation_frames else "&[]")
+            source_lods.append(
+                "Some(SourceShapeData { "
+                f"vertices: &{prefix}_VERTS, "
+                f"animation_frames: {lod_animation_frames}, "
+                f"reflected_pair_starts: &{prefix}_REFLECTED_PAIR_STARTS, "
+                f"faces: &{prefix}_FACES, "
+                f"painter_nodes: &{prefix}_PAINTER }})")
         out.append(
             f"    ShapeDataEntry {{ shape_id: {shape.shape_id}, "
             f"vertices: &SHAPE_{shape.shape_id}_VERTS, "
             f"animation_frames: {animation_frames}, "
+            f"reflected_pair_starts: &SHAPE_{shape.shape_id}_REFLECTED_PAIR_STARTS, "
             f"faces: &SHAPE_{shape.shape_id}_FACES, "
             f"painter_nodes: &SHAPE_{shape.shape_id}_PAINTER, "
+            f"source_lods: [{', '.join(source_lods)}], "
             f'default_color_table: "{shape.color_table.lower()}", '
             f'name: "{shape.name}" }},')
     out.append("];")
@@ -1657,6 +1796,63 @@ def main() -> int:
 
     print(f"  Found {len(all_headers)} shape headers", file=sys.stderr)
 
+    def compile_source_lods(parent: ShapeHeader) -> List[Optional[SourceLodData]]:
+        lods: List[Optional[SourceLodData]] = []
+        for simple_name in parent.simple_shapes:
+            if simple_name == "0" or simple_name == parent.label:
+                lods.append(None)
+                continue
+            candidates = [
+                (candidate, candidate_file)
+                for candidate, candidate_file in all_headers
+                if candidate.label == simple_name
+            ]
+            if not candidates:
+                raise ValueError(
+                    f"shape {parent.label} references missing LOD {simple_name}")
+            preferred_file = PREFERRED_HEADER_FILES.get(simple_name)
+            if preferred_file is not None:
+                candidates = [
+                    pair for pair in candidates
+                    if os.path.basename(pair[1].path) == preferred_file
+                ] or candidates
+            lod_header, lod_file = candidates[0]
+            vertex_frames, reflected_pair_starts = parse_vertex_frames(
+                lod_file, lod_header.points_label, lod_header.shift)
+            vertices = vertex_frames[0] if vertex_frames else []
+            faces, painter_nodes = parse_faces(lod_file, lod_header.faces_label)
+            if not vertices:
+                for other_file in asm_files:
+                    vertex_frames, reflected_pair_starts = parse_vertex_frames(
+                        other_file, lod_header.points_label, lod_header.shift)
+                    vertices = vertex_frames[0] if vertex_frames else []
+                    if vertices:
+                        break
+            if not faces:
+                for other_file in asm_files:
+                    faces, painter_nodes = parse_faces(
+                        other_file, lod_header.faces_label)
+                    if faces:
+                        break
+            if not vertices or not faces:
+                raise ValueError(
+                    f"shape {parent.label} LOD {simple_name} has no geometry")
+            if any(len(frame) != len(vertices) for frame in vertex_frames):
+                lengths = sorted({len(frame) for frame in vertex_frames})
+                raise ValueError(
+                    f"shape {parent.label} LOD {simple_name} has inconsistent "
+                    f"vertex counts: {lengths}")
+            validate_shape_geometry(simple_name, vertex_frames, faces)
+            lods.append(SourceLodData(
+                vertices=vertices,
+                animation_frames=(
+                    vertex_frames if len(vertex_frames) > 1 else []),
+                reflected_pair_starts=reflected_pair_starts,
+                faces=faces,
+                painter_nodes=painter_nodes,
+            ))
+        return lods
+
     # 4. Build shape data: match headers to def_shape IDs
     # Track which geometry (points_label, faces_label) we've already processed
     # to handle multiple shapehdr entries sharing the same geometry.
@@ -1686,14 +1882,15 @@ def main() -> int:
 
         # Parse vertices and faces -- try the shape's own file first,
         # then fall back to searching all loaded files (cross-file refs).
-        vertex_frames = parse_vertex_frames(af, hdr.points_label, hdr.shift)
+        vertex_frames, reflected_pair_starts = parse_vertex_frames(
+            af, hdr.points_label, hdr.shift)
         vertices = vertex_frames[0] if vertex_frames else []
         faces, painter_nodes = parse_faces(af, hdr.faces_label)
 
         if not vertices:
             for other_af in asm_files:
                 if other_af is not af:
-                    vertex_frames = parse_vertex_frames(
+                    vertex_frames, reflected_pair_starts = parse_vertex_frames(
                         other_af, hdr.points_label, hdr.shift)
                     vertices = vertex_frames[0] if vertex_frames else []
                     if vertices:
@@ -1721,6 +1918,7 @@ def main() -> int:
             name=hdr.label,
             vertices=vertices,
             animation_frames=vertex_frames if len(vertex_frames) > 1 else [],
+            reflected_pair_starts=reflected_pair_starts,
             faces=faces,
             painter_nodes=painter_nodes,
             color_table=hdr.color_table,
@@ -1728,6 +1926,7 @@ def main() -> int:
             visual_extent=hdr.visual_extent,
             coordinate_shift=hdr.shift,
             half_extents=hdr.half_extents,
+            source_lods=compile_source_lods(hdr),
         )
         processed_geometry.add(geom_key)
 
@@ -1748,14 +1947,15 @@ def main() -> int:
         if hdr.points_label == '0' or hdr.faces_label == '0':
             continue  # header-only shape (no geometry)
 
-        vertex_frames = parse_vertex_frames(af, hdr.points_label, hdr.shift)
+        vertex_frames, reflected_pair_starts = parse_vertex_frames(
+            af, hdr.points_label, hdr.shift)
         vertices = vertex_frames[0] if vertex_frames else []
         faces, painter_nodes = parse_faces(af, hdr.faces_label)
 
         if not vertices:
             for other_af in asm_files:
                 if other_af is not af:
-                    vertex_frames = parse_vertex_frames(
+                    vertex_frames, reflected_pair_starts = parse_vertex_frames(
                         other_af, hdr.points_label, hdr.shift)
                     vertices = vertex_frames[0] if vertex_frames else []
                     if vertices:
@@ -1786,6 +1986,7 @@ def main() -> int:
             name=hdr.label,
             vertices=vertices,
             animation_frames=vertex_frames if len(vertex_frames) > 1 else [],
+            reflected_pair_starts=reflected_pair_starts,
             faces=faces,
             painter_nodes=painter_nodes,
             color_table=hdr.color_table,
@@ -1793,6 +1994,7 @@ def main() -> int:
             visual_extent=hdr.visual_extent,
             coordinate_shift=hdr.shift,
             half_extents=hdr.half_extents,
+            source_lods=compile_source_lods(hdr),
         )
         ext_compiled[hdr.label] = ext_id
 

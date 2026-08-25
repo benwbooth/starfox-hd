@@ -1,7 +1,7 @@
 //! ROM `kill_Istrat` / `makefire_srou_l` / `fire_*` / `smokeP_*` / `puff_*`
 //! (GSTRATS.ASM).
 
-use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF3_REALOBJ, ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF2_COLLDISABLE, ASF3_REALOBJ, ATZREMOVE};
 use sf_game::Game;
 use sf_strat::common::{
     fire_istrat, fire_strat, kill_istrat, makefire_srou, makesmoke_srou, puff_istrat, puff_strat,
@@ -13,11 +13,11 @@ fn kill_istrat_zeros_hp_and_disables_collision() {
     let mut g = Game::new();
     let idx = g.objs.alloc().expect("slot");
     g.objs.aliens[idx as usize].hp = 40;
-    g.objs.aliens[idx as usize].sflags = 0;
+    g.objs.aliens[idx as usize].sflags2 = 0;
 
     kill_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].hp, 0);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn makefire_attaches_child_and_sets_onfire() {
     assert_eq!(g.objs.aliens[fire as usize].worldx, 100);
     assert_eq!(g.objs.aliens[fire as usize].worldz, 2000);
     assert_eq!(g.objs.aliens[fire as usize].sflags3 & ASF3_REALOBJ, 0);
-    assert_ne!(g.objs.aliens[fire as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[fire as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(g.objs.aliens[fire as usize].type_ & ATZREMOVE, 0);
 
     fire_istrat(&mut g, fire);
@@ -133,7 +133,7 @@ fn puff_animates_then_removes() {
     g.vars.pviewvelz = 5;
     g.objs.aliens[idx as usize].worldz = 100;
     puff_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(
         g.objs.aliens[idx as usize].visual_kind,
         ObjectVisualKind::ScaledSprite

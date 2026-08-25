@@ -1,6 +1,6 @@
 //! ROM `rotsflatstay_Istrat` / `sparky_Istrat` / `sparky_strat` (GSTRATS.ASM).
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::Game;
 use sf_strat::common::{rotsflatstay_istrat, sparky_istrat, sparky_strat};
 
@@ -14,7 +14,7 @@ fn rotsflatstay_disables_collision_and_clears_strats() {
     g.objs.aliens[idx as usize].expstratptr = Some(dummy);
 
     rotsflatstay_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.aliens[idx as usize].stratptr.is_none());
     assert!(g.objs.aliens[idx as usize].collstratptr.is_none());
     assert!(g.objs.aliens[idx as usize].expstratptr.is_none());
@@ -27,7 +27,7 @@ fn sparky_lives_two_ticks_then_removes() {
     sparky_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 2);
     assert_eq!(g.objs.aliens[idx as usize].shape, 361);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.aliens[idx as usize].stratptr.is_some());
 
     sparky_strat(&mut g, idx); // 2→1, stay

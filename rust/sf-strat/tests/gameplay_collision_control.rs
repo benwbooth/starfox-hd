@@ -14,7 +14,7 @@
 //! control back. Fixed by registering those callbacks at level load.
 
 use sf_core::{pad, sf1_planets::PlanetSequencePhase};
-use sf_game::alien::{ACF_FIRSTFRAME, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE};
+use sf_game::alien::{ACF_FIRSTFRAME, ASF2_COLLDISABLE, ASF4_PLAYEROBJ, ASF_COLLIDE};
 use sf_game::shell::{
     GameState, GameplayEntryPhase, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS,
     TITLE_INPUT_DELAY_TICKS, TITLE_PRESENTATION_INPUT_READY_TICKS,
@@ -24,6 +24,7 @@ use sf_strat::common::StratRam;
 use sf_strat::player::player_sv as sv;
 
 const SHAPE_ELASER2: u16 = 511;
+const ROUTE_OPENING_TIMEOUT_TICKS: u32 = 2_000;
 
 fn make_shell() -> Shell {
     let mut shell = Shell::new();
@@ -95,6 +96,9 @@ fn drive_to_controllable(route_downs: u32, max: u32) -> Shell {
         if sh.state() == GameState::Playing
             && sh.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
             && sh.game.vars.pshipflags & PSF_NOCTRL == 0
+            && sh.game.vars.sv_i8(sv::STAYBLACK) == -1
+            && sh.game.vars.sv_u8(sv::DOINGWIPE) == 0
+            && sh.game.vars.sv_u8(sv::PLAYER_NOCTRLCNT) == 0
         {
             break;
         }
@@ -141,7 +145,7 @@ fn ignored_player_collision_still_runs_flight_strategy_same_frame() {
 #[test]
 fn every_route_regains_control_and_responds_to_steering() {
     for route in 0..3u32 {
-        let mut sh = drive_to_controllable(route, 700);
+        let mut sh = drive_to_controllable(route, ROUTE_OPENING_TIMEOUT_TICKS);
         assert_eq!(
             sh.state(),
             GameState::Playing,
@@ -151,6 +155,11 @@ fn every_route_regains_control_and_responds_to_steering() {
             sh.game.vars.pshipflags & PSF_NOCTRL,
             0,
             "route {route}: player never regained control after the opening (BUG B)"
+        );
+        assert_eq!(
+            sh.game.vars.sv_i8(sv::STAYBLACK),
+            -1,
+            "route {route}: opening never released the black-screen control gate"
         );
         // Hold LEFT: +worldx projects screen-right, so LEFT must DECREASE worldx.
         let x0 = player_worldx(&sh);
@@ -180,7 +189,7 @@ fn gameplay_start_attaches_pcbox_and_enemy_shot_damages_player() {
         "pcbox not attached in the real gameplay path (BUG A)"
     );
     assert!(
-        sh.game.objs.aliens[p as usize].sflags & ASF_COLLDISABLE == 0,
+        sh.game.objs.aliens[p as usize].sflags2 & ASF2_COLLDISABLE == 0,
         "ship must own the live playerB_col collider"
     );
 
@@ -261,7 +270,7 @@ fn player_laser_damages_a_seeded_enemy() {
     // Freeze the bolt's fast forward motion so the seeded overlap is stable
     // across the coldet tick (its own strat would otherwise fly it ~264/frame).
     sh.game.objs.aliens[laser as usize].stratptr = None;
-    sh.game.objs.aliens[laser as usize].sflags &= !ASF_COLLDISABLE;
+    sh.game.objs.aliens[laser as usize].sflags2 &= !ASF2_COLLDISABLE;
 
     // Park a fresh enemy exactly on the bolt and freeze the bolt there so the
     // next coldet tick tests them overlapping (isolates the wiring: colltype

@@ -9,10 +9,14 @@ use super::rc::*;
 use super::submaps;
 use super::Route2Level;
 use crate::builder::MapBuilder;
-use crate::consts::{op, SCRAMBLE_WIPE_DISTANCE};
+use crate::consts::{cb, op, wm, SCRAMBLE_WIPE_DISTANCE};
 
 /// C `build_level2_1_wrapper_slice()`.
 pub fn build() -> Route2Level {
+    const SCRAMBLE_BLACK_HOLD: i32 = 30;
+    const SCRAMBLE_CIRCULAR_WIPE: i32 = 1;
+    const RELEASE_BLACK_HOLD: i32 = -1;
+
     let mut b = MapBuilder::new();
 
     b.mapwait(100);
@@ -21,13 +25,18 @@ pub fn build() -> Route2Level {
     b.waitfade();
     b.mapcodejsl_builtin(MAP_CB_INITBLACK_L);
     b.mapwait(1);
+    b.setvarb24(wm::M_METERS, 1);
+    b.mapcodejsl_builtin(cb::SETCHARMAPFROMMAP_L);
+    let level2_1_keep_player_strat_ptr = b.mapcode65816_inline();
     b.setbg(BG_1_1C);
     b.initbg();
     b.mapcodejsl_builtin(MAP_CB_INITBLACK_L);
+    b.setvarb(wm::STAYBLACK, SCRAMBLE_BLACK_HOLD);
     b.mapwait(SCRAMBLE_WIPE_DISTANCE);
+    b.setvarw(wm::CIRCULAR_WIPE, SCRAMBLE_CIRCULAR_WIPE);
+    b.setvarb(wm::STAYBLACK, RELEASE_BLACK_HOLD);
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
-    let level2_1_keep_player_strat_ptr = b.mapcode65816_inline();
     b.mapcodejsl_builtin(MAP_CB_SET_PLAYER_EXITBASE_L);
 
     b.mapobj(0, 0, 0, 0, SH_MYBASE_1, IS_NOCOLL);

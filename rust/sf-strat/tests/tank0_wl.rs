@@ -1,6 +1,6 @@
 //! ROM tank0/tank1 + public tank1a2/tank2/tank3 + leftwall/wl/spacetest/bomwingdie.
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
@@ -120,7 +120,7 @@ fn leftwall_wl_spacetest_bomwingdie() {
     let lw = spawn_obj(&mut g);
     leftwall_istrat(&mut g, lw);
     assert_eq!(g.objs.aliens[lw as usize].roty, DEG180);
-    assert_ne!(g.objs.aliens[lw as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[lw as usize].sflags2 & ASF2_COLLDISABLE, 0);
 
     let w = spawn_obj(&mut g);
     wl_istrat(&mut g, w);

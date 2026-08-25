@@ -17,7 +17,7 @@
 //!    means NO death/explode path — the only removal is drift-off (ATZREMOVE)
 //!    or a barrel-roll fling.
 
-use sf_game::alien::ObjectVisualKind;
+use sf_game::alien::{ObjectVisualKind, ASF2_COLLDISABLE, ASF_COLLIDE};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::common::{sv, StratRam};
@@ -29,8 +29,6 @@ use sf_strat::{bosses, table};
 const WM_RNDVAL: u16 = 0x1F00;
 const AMOEBA_SLIMECOUNT: u16 = 0x162b; // GILESALC.INC:296
 const SH_AMOEBA1: u16 = 438;
-const ASF_COLLDISABLE: u8 = 0x10;
-const ASF_COLLIDE: u8 = 0x20;
 const PSF_NOFIRE: u8 = 64;
 const DEG180: u8 = 128;
 const HARD_HP: u8 = 0xFF;
@@ -127,7 +125,7 @@ fn amoeba_shot_enters_home_and_chases_player() {
     // s_jmp_alvarNE collobjptr,playpt,.end -> amoebahome (no stick).
     assert_eq!(wm8(&g, AMOEBA_SLIMECOUNT), 0, "not stuck");
     assert!(
-        g.objs.aliens[a as usize].sflags & ASF_COLLDISABLE == 0,
+        g.objs.aliens[a as usize].sflags2 & ASF2_COLLDISABLE == 0,
         "home mode keeps collisions enabled"
     );
     // amoebahome_strat chased worldx toward the player (achase rate 4, toward
@@ -165,7 +163,7 @@ fn amoeba_sticks_to_player_on_contact() {
     assert_eq!(wm8(&g, AMOEBA_SLIMECOUNT), 1);
     // s_playerfire off / s_set_alsflag colldisable / shape -> amoeba1.
     assert!(g.vars.pshipflags & PSF_NOFIRE != 0, "player fire disabled");
-    assert!(al.sflags & ASF_COLLDISABLE != 0, "colldisable set");
+    assert!(al.sflags2 & ASF2_COLLDISABLE != 0, "colldisable set");
     assert_eq!(al.shape, SH_AMOEBA1);
     // sword1/2 = (world - player_pos) asra asra = >>2 (arithmetic).
     assert_eq!(al.sword1, (320i16 - px) >> 2);
@@ -312,7 +310,7 @@ fn amoeba_does_not_stick_when_three_already_clinging() {
 
     assert_eq!(wm8(&g, AMOEBA_SLIMECOUNT), 3, "count unchanged");
     assert!(
-        g.objs.aliens[a as usize].sflags & ASF_COLLDISABLE == 0,
+        g.objs.aliens[a as usize].sflags2 & ASF2_COLLDISABLE == 0,
         "went home, not stuck"
     );
     assert!(

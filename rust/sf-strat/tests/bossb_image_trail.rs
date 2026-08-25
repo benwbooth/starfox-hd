@@ -1,7 +1,7 @@
 //! Tick 215: bossB `bossB_cont` image trail (GB3STRAT.ASM:1283-1301) —
 //! every-other-frame `bossBent` / `bossBspinend` spawn; sword1 hi slot.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bossb::{bossb_cont, bossbent_istrat, bossbent_strat, bossbspinend_istrat};
@@ -59,7 +59,7 @@ fn bossb_cont_spawns_bent_every_other_frame() {
         .find(|&i| i != 0 && i != boss as usize && g.objs.aliens[i].active)
         .expect("trail");
     assert_eq!(g.objs.aliens[trail].ptr, boss);
-    assert_ne!(g.objs.aliens[trail].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[trail].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[trail].worldx, 10);
     assert_eq!(g.objs.aliens[trail].roty, 32);
     assert_eq!(g.objs.aliens[trail].count, 7); // istrat count=8, first strat −1

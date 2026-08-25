@@ -401,6 +401,9 @@ pub fn resolve_color_table_id(shape_id: u16, color_table: u16) -> u16 {
     if (color_table as usize) < crate::color_data::COLOR_TABLES.len() {
         return color_table;
     }
+    if let Some(table_id) = crate::color_data::table_id_by_source_word(color_table) {
+        return table_id;
+    }
     SHAPE_COLTAB_ID_INVALID as u16
 }
 
@@ -711,8 +714,10 @@ pub fn resolve_face_material_from_table(
 ) -> Option<u16> {
     let id = if color_table == 0 {
         default_table_id
-    } else {
+    } else if (color_table as usize) < crate::color_data::COLOR_TABLES.len() {
         color_table
+    } else {
+        crate::color_data::table_id_by_source_word(color_table)?
     };
     let table = crate::color_data::COLOR_TABLES.get(id as usize)?;
     resolve_animated_material(*table.entries.get(face_color_index as usize)?, col_frame)

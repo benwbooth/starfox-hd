@@ -21,9 +21,9 @@
 use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
-    ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE,
-    ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT,
-    ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF2_COLLDISABLE, ASF3_NOHITAFFECT,
+    ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
+    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
@@ -447,7 +447,7 @@ fn b2_make_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     {
         let al = &mut g.objs.aliens[child as usize];
         al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sflags2 |= ASF2_NOEXPSND | ASF2_RELEXPLODE;
         al.hp = HARD_HP;
         al.ap = HARD_AP;
@@ -523,7 +523,7 @@ fn boss2_make_smoke(g: &mut Game, parent: u16) -> Option<u16> {
     {
         let al = &mut g.objs.aliens[smoke as usize];
         al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.type_ |= ATZREMOVE;
         al.stratptr = Some(s);
         al.collstratptr = None;
@@ -1030,7 +1030,7 @@ pub fn boss2petal_strat(g: &mut Game, idx: u16) {
     // STRATMAC.INC:2643) sets colldisable AND hp=0.
     if m.sflags2 & BOSS2_SFLAG2 != 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sflags2 |= BOSS2_SFLAG2;
         al.hp = 0;
         return;
@@ -2317,7 +2317,7 @@ pub fn seamon_strat(g: &mut Game, idx: u16) {
     sea_enemy_up_sea(g, idx);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags &= !ASF_COLLDISABLE;
+        al.sflags2 &= !ASF2_COLLDISABLE;
         al.vx = 0;
         al.sflags2 &= !SEA_SFLAG1;
     }
@@ -2898,7 +2898,7 @@ pub fn b8_make_exp_obj(g: &mut Game, parent: u16, size_shape: u16) -> Option<u16
     {
         let al = &mut g.objs.aliens[child as usize];
         al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sflags2 |= ASF2_NOEXPSND | ASF2_RELEXPLODE;
         al.hp = HARD_HP;
         al.ap = HARD_AP;
@@ -3065,7 +3065,7 @@ fn boss8_homing_shot_strat(g: &mut Game, idx: u16) {
     }
     if g.vars.gameflags & GF_BOSSDEAD != 0 || bossflags(g) & BF_DYING != 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.hp = 0;
         g.objs.aldead = 1;
     }
@@ -3216,7 +3216,7 @@ pub fn strat_boss8_init(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.animframe = 0;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
     }
 
     boss8_cont(g, idx);
@@ -3299,7 +3299,7 @@ pub fn boss8a_init(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(s);
         al.collstratptr = Some(s_coll);
-        al.sflags &= !ASF_COLLDISABLE;
+        al.sflags2 &= !ASF2_COLLDISABLE;
         al.sbyte2 = 100;
         al.animframe = 0;
     }
@@ -3359,7 +3359,7 @@ pub fn boss8b_init(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.collstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.stratptr = Some(s);
         al.sbyte2 = 15;
     }
@@ -3442,7 +3442,7 @@ pub fn boss8die_strat(g: &mut Game, idx: u16) {
             let rz = sfrtl_random(g) as u8;
             {
                 let al = &mut g.objs.aliens[e as usize];
-                al.sflags |= ASF_COLLDISABLE;
+                al.sflags2 |= ASF2_COLLDISABLE;
                 al.stratptr = Some(s);
                 al.vel = 40;
             }
@@ -3561,16 +3561,16 @@ fn nucleusbeaml_istrat(g: &mut Game, idx: u16) {
     al.type_ &= !ATZREMOVE;
     al.collflags |= COLLTYPE_ENEMYWEAP;
     al.sbyte3 = 50;
-    al.sflags |= ASF_NOHITAFFECT;
+    al.sflags3 |= ASF3_NOHITAFFECT;
 }
 
 fn nucleusbeaml_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].sbyte4 == 0 {
-        g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+        g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
     } else {
         let al = &mut g.objs.aliens[idx as usize];
         al.sbyte4 -= 1;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
     }
 
     if g.objs.aliens[idx as usize].sbyte3 == 2 {
@@ -3584,7 +3584,7 @@ fn nucleusbeaml_strat(g: &mut Game, idx: u16) {
         {
             let al = &mut g.objs.aliens[idx as usize];
             al.sbyte3 = 1;
-            al.sflags &= !ASF_NOHITAFFECT;
+            al.sflags3 &= !ASF3_NOHITAFFECT;
         }
 
         if g.vars.gameflags & GF_BOSSDEAD != 0 {
@@ -3679,7 +3679,7 @@ fn boss8shrap_istrat(g: &mut Game, idx: u16) {
     al.expstratptr = None;
     al.hp = HARD_HP;
     al.ap = HARD_AP;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.type_ &= !ATZREMOVE;
     al.sbyte1 = 50;
 }
@@ -4517,7 +4517,7 @@ fn flingboss_andagainif(g: &mut Game, idx: u16) {
         al.stratptr = Some(s_body);
         al.collstratptr = Some(s_col);
         al.expstratptr = Some(s_exp);
-        al.sflags &= !ASF_NOHITAFFECT; // now directly damageable
+        al.sflags3 &= !ASF3_NOHITAFFECT; // now directly damageable
         al.hp = FLINGBOSS2HP;
         al.ap = FLINGBOSS_AP;
         al.sword1 = 80;
@@ -4621,7 +4621,7 @@ fn flingboss_deadflingboss_strat(g: &mut Game, idx: u16) {
         // s_kill_obj -> hp0 + colldisable -> engine fires bossexplode expstrat.
         {
             let al = &mut g.objs.aliens[idx as usize];
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.hp = 0;
         }
         if let Some(exp) = g.objs.aliens[idx as usize].expstratptr {
@@ -4653,7 +4653,7 @@ pub fn strat_flingboss_init(g: &mut Game, idx: u16) {
         al.stratptr = Some(s_strat);
         al.collstratptr = Some(s_col);
         al.expstratptr = Some(s_exp);
-        al.sflags |= ASF_NOHITAFFECT; // body invulnerable in phase 1
+        al.sflags3 |= ASF3_NOHITAFFECT; // body invulnerable in phase 1
         al.hp = HARD_HP;
         al.ap = FLINGBOSS_AP;
         al.sbyte4 = FLINGBOSS1HP; // 24 — phase-1 hit reserve
@@ -10620,7 +10620,7 @@ fn amoebastick_init(g: &mut Game, idx: u16) {
     g.vars.pshipflags |= PSF_NOFIRE;
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.sflags2 |= ASF2_COLLDISABLE; // s_set_alsflag x,colldisable
         al.shape = SH_AMOEBA1; // s_set_alvar W,x,al_shape,#amoeba1
         al.stratptr = Some(tick); // s_set_strat x,amoebastick_strat
     }
@@ -10970,7 +10970,7 @@ fn blackhole_exp_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.shape = SH_BLACKHOLE; // s_set_alvar W,x,al_shape,#blackhole
-        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.sflags2 |= ASF2_COLLDISABLE; // s_set_alsflag x,colldisable
         al.stratptr = Some(s2); // s_set_strat x,.blackhole2_strat
     }
     blackhole2_strat(g, idx); // s_jmpto_strat
@@ -11143,7 +11143,7 @@ fn bholecoll_init(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(s); // s_set_strat x,bholecoll_strat
-        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.sflags2 |= ASF2_COLLDISABLE; // s_set_alsflag x,colldisable
         al.colframe = 4 | 0x80; // s_init_colanim x,#4 (colframe = frame | 0x80, STRATLIB.INC:89-91)
     }
     bholecoll_strat(g, idx);

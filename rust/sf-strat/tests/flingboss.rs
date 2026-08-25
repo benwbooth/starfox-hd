@@ -22,7 +22,7 @@ const WM_BOSSFLAGS: u16 = 0x1F02;
 const SH_FLINGARM_PROXY: u16 = 327;
 const SH_GRABBER: u16 = 384;
 const FB_SFLAG5_SFLAGS3: u8 = 0x01; // sflags3 mother damage latch
-const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
+const ASF3_NOHITAFFECT: u8 = 0x20; // alien.rs
 const ATMISSILE: u8 = 2; // alien.rs al_type
 const BF_DYING: u8 = 16; // bossflags (bosses.rs)
 const HARD_HP: u8 = 0xFF;
@@ -112,7 +112,11 @@ fn init_sets_bossmaxhp_and_spawns_arms() {
     assert_eq!(b.sbyte4, 24, "phase-1 hit reserve = flingboss1HP");
     assert_eq!(b.roty, 128, "roty = deg180");
     assert_eq!(b.hp, HARD_HP, "phase-1 body is hard/invulnerable");
-    assert_ne!(b.sflags & ASF_NOHITAFFECT, 0, "nohitaffect set in phase 1");
+    assert_ne!(
+        b.sflags3 & ASF3_NOHITAFFECT,
+        0,
+        "nohitaffect set in phase 1"
+    );
     assert_ne!(b.ptr, 0, "left arm linked via al_ptr");
     assert_ne!(b.sword1, 0, "right arm linked via al_sword1");
     assert_eq!(count_arms(&g), 2, "two arm children spawned");
@@ -252,7 +256,7 @@ fn phase2_transition_makes_body_damageable() {
     assert!(reached_phase2, "phase 2 reached (hp = flingboss2HP = 80)");
     let b = &g.objs.aliens[boss as usize];
     assert_eq!(b.hp, 80, "phase-2 hp = flingboss2HP");
-    assert_eq!(b.sflags & ASF_NOHITAFFECT, 0, "phase-2 body damageable");
+    assert_eq!(b.sflags3 & ASF3_NOHITAFFECT, 0, "phase-2 body damageable");
 }
 
 // ------------------------------------------------------------

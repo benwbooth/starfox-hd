@@ -1,7 +1,7 @@
 //! Tick 119: SETOBJTOBECHILD* + SET_RESTART_POSITION + title/planets/fade
 //! + sprouty.withdraw_i + Mario show/dot stand-ins.
 
-use sf_game::alien::{ASF3_CHILDOBJ, ASF3_MOTHEROBJ};
+use sf_game::alien::{ASF4_CHILDOBJ, ASF4_MOTHEROBJ};
 use sf_game::debug_draw::{BootInit, DisplayFx, HdmaRegion, MarioDraw};
 use sf_game::windows::Windows;
 use sf_game::Game;
@@ -16,19 +16,19 @@ fn set_obj_to_be_child_walks_sword1_chain() {
     let c2 = g.objs.alloc().expect("c2");
     {
         let m = &mut g.objs.aliens[mother as usize];
-        m.sflags3 |= ASF3_MOTHEROBJ;
+        m.sflags4 |= ASF4_MOTHEROBJ;
         m.sword1 = (c1 as i16).wrapping_add(1);
     }
     {
         let a = &mut g.objs.aliens[c1 as usize];
-        a.sflags3 |= ASF3_CHILDOBJ;
+        a.sflags4 |= ASF4_CHILDOBJ;
         a.sbyte1 = 1;
         a.sword1 = (c2 as i16).wrapping_add(1);
         a.ptr = (mother as u16).wrapping_add(1);
     }
     {
         let a = &mut g.objs.aliens[c2 as usize];
-        a.sflags3 |= ASF3_CHILDOBJ;
+        a.sflags4 |= ASF4_CHILDOBJ;
         a.sbyte1 = 3;
         a.sword1 = 0;
         a.ptr = (mother as u16).wrapping_add(1);

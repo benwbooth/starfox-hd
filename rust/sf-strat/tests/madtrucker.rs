@@ -16,7 +16,9 @@ use sf_core::screen_fill_circle::{
     ScreenFillCircleCenter, ScreenFillCirclePhase, COLOR_LEVEL_STEP,
     EXPANDING_INITIAL_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
 };
-use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF_COLLIDE, ASF_INVISIBLE, NUMBER_AL};
+use sf_game::alien::{
+    ObjectVisualKind, AFONFIRE, ASF_COLLIDE, ASF_INVISIBLE, ASF_SHADOW, NUMBER_AL,
+};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_map::consts::sh;
@@ -34,7 +36,6 @@ const NEGATIVE_TEN_AS_BYTE: u8 = MADBIKER_ENGINE_Z_OFFSET as u8;
 const MT_HF1: u8 = 0x01;
 const MT_HF2: u8 = 0x02;
 const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
-const ASF_SHADOW: u8 = 0x04; // alien.rs (s_set_alsflag shadow)
 const ATZREMOVE: u8 = 0x08; // alien.rs type_ zremove
 const ACF_COLLTYPE2: u8 = 0x10; // ROM ENEMY1 (not vars COLLTYPE_ENEMY1=0x01)
 const COLLTYPE_ENEMY2: u8 = 0x20; // ROM ENEMY2 (acf_colltype3)

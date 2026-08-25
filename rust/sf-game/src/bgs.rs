@@ -33,24 +33,24 @@ const GROUND_FADE_LAST_COLOR_OFFSET: u16 = 62;
 const BG2_VERTICAL_OFFSET_TABLES: [[i16; BG2_VERTICAL_OFFSET_COLUMNS]; 6] = [
     [16; BG2_VERTICAL_OFFSET_COLUMNS],
     [
-        20, 19, 19, 19, 18, 18, 18, 18, 18, 17, 17, 17, 17, 16, 16, 16, 16, 16, 15, 15, 15,
-        15, 14, 14, 14, 14, 14, 13, 13, 13, 12, 12,
+        20, 19, 19, 19, 18, 18, 18, 18, 18, 17, 17, 17, 17, 16, 16, 16, 16, 16, 15, 15, 15, 15, 14,
+        14, 14, 14, 14, 13, 13, 13, 12, 12,
     ],
     [
-        23, 22, 21, 21, 20, 20, 20, 19, 19, 18, 18, 18, 17, 17, 16, 16, 16, 15, 15, 14, 14,
-        14, 13, 13, 12, 12, 12, 11, 11, 10, 9, 9,
+        23, 22, 21, 21, 20, 20, 20, 19, 19, 18, 18, 18, 17, 17, 16, 16, 16, 15, 15, 14, 14, 14, 13,
+        13, 12, 12, 12, 11, 11, 10, 9, 9,
     ],
     [
-        25, 24, 24, 23, 23, 22, 21, 21, 20, 20, 19, 18, 18, 17, 17, 16, 15, 15, 14, 14, 13,
-        12, 12, 11, 11, 10, 9, 9, 8, 8, 7, 7,
+        25, 24, 24, 23, 23, 22, 21, 21, 20, 20, 19, 18, 18, 17, 17, 16, 15, 15, 14, 14, 13, 12, 12,
+        11, 11, 10, 9, 9, 8, 8, 7, 7,
     ],
     [
-        28, 27, 26, 25, 24, 24, 23, 22, 21, 21, 20, 19, 18, 18, 17, 16, 15, 14, 14, 13, 12,
-        11, 11, 10, 9, 8, 7, 7, 6, 5, 4, 4,
+        28, 27, 26, 25, 24, 24, 23, 22, 21, 21, 20, 19, 18, 18, 17, 16, 15, 14, 14, 13, 12, 11, 11,
+        10, 9, 8, 7, 7, 6, 5, 4, 4,
     ],
     [
-        32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12,
-        11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+        32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10,
+        9, 8, 7, 6, 5, 4, 3, 2, 1,
     ],
 ];
 
@@ -114,10 +114,8 @@ pub fn background_horizontal_offsets(
         whole_accumulator = whole_accumulator
             .wrapping_add(whole_step)
             .wrapping_add(i16::from(carry));
-        offsets[HORIZONTAL_OFFSET_HALF_ROWS - 1 - distance] =
-            base.wrapping_add(whole_accumulator);
-        offsets[HORIZONTAL_OFFSET_HALF_ROWS + distance] =
-            base.wrapping_add(!whole_accumulator);
+        offsets[HORIZONTAL_OFFSET_HALF_ROWS - 1 - distance] = base.wrapping_add(whole_accumulator);
+        offsets[HORIZONTAL_OFFSET_HALF_ROWS + distance] = base.wrapping_add(!whole_accumulator);
     }
 
     offsets
@@ -160,6 +158,23 @@ pub fn set_bg(vars: &mut GameVars, bg_id: u16) {
 /// ROM `setbginforeq_l` / `setbginfo_l` request path — arm `BGF_INFO`.
 pub fn set_bg_info_req(vars: &mut GameVars) {
     vars.bgflags |= BGF_INFO;
+}
+
+/// Apply one complete typed BGS `info` declaration. This is shared by the
+/// ordinary request lane and the level-loader path for builders that omit the
+/// common `initlevel` bytes while retaining their flat background identity.
+pub fn apply_background_info(vars: &mut GameVars, info: sf_map::catalog::BackgroundInfo) {
+    vars.point_field_mode = info.point_field;
+    vars.dotsflag = info.point_field.source_flag();
+    if info.vertical_offsets {
+        vars.vofs_on_please();
+    } else {
+        vars.vofs_off_please();
+    }
+    vars.background_horizontal_mode = info.horizontal_mode;
+    vars.dohofs = u8::from(info.horizontal_mode != BackgroundHorizontalMode::Disabled);
+    vars.shared.do_depth_rotation = u8::from(info.depth_rotation);
+    vars.preserve_player_strategy = false;
 }
 
 /// ROM `setrestartfade_l` (WORLD.ASM:396) — restore the saved source-row
@@ -266,18 +281,8 @@ pub fn update(vars: &mut GameVars) {
     }
     if vars.bgflags & BGF_INFO != 0 {
         if let Some(info) = sf_map::catalog::background_info(vars.currentbg) {
-            vars.point_field_mode = info.point_field;
-            vars.dotsflag = info.point_field.source_flag();
-            if info.vertical_offsets {
-                vars.vofs_on_please();
-            } else {
-                vars.vofs_off_please();
-            }
-            vars.background_horizontal_mode = info.horizontal_mode;
-            vars.dohofs = u8::from(info.horizontal_mode != BackgroundHorizontalMode::Disabled);
-            vars.shared.do_depth_rotation = u8::from(info.depth_rotation);
+            apply_background_info(vars, info);
         }
-        vars.preserve_player_strategy = false;
         vars.bgflags &= !BGF_INFO;
     }
 }
@@ -413,10 +418,7 @@ mod tests {
         let rotated_result = calc_bg2_voffsets(&mut vars, 0x0500); // hi=5 → key=(5&7)<<1=10
         assert!(rotated_result.needs_dma);
         assert_eq!(rotated_result.table_key, 10);
-        assert_eq!(
-            vars.bg2_vertical_offsets,
-            BG2_VERTICAL_OFFSET_TABLES[5]
-        );
+        assert_eq!(vars.bg2_vertical_offsets, BG2_VERTICAL_OFFSET_TABLES[5]);
     }
 
     #[test]
@@ -472,15 +474,13 @@ mod tests {
         const PLAYER_TURN: i16 = 64;
         const EXPECTED_BASE: i16 = 36;
 
-        let offsets = background_horizontal_offsets(
-            0,
-            PLAYER_WORLD_X,
-            VIEW_YAW,
-            PLAYER_TURN,
-            BASE_SCROLL,
-        );
+        let offsets =
+            background_horizontal_offsets(0, PLAYER_WORLD_X, VIEW_YAW, PLAYER_TURN, BASE_SCROLL);
 
-        assert_eq!(offsets[..HORIZONTAL_OFFSET_HALF_ROWS], [EXPECTED_BASE - 1; 112]);
+        assert_eq!(
+            offsets[..HORIZONTAL_OFFSET_HALF_ROWS],
+            [EXPECTED_BASE - 1; 112]
+        );
         assert_eq!(offsets[HORIZONTAL_OFFSET_HALF_ROWS..], [EXPECTED_BASE; 112]);
     }
 

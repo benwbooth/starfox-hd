@@ -35,8 +35,8 @@
 
 use crate::alien::{
     Alien, ObjectVisualKind, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE4, ACF_COLLTYPE5,
-    AFEXP, ASF2_COLLDISABLE, ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF3_NOHITAFFECT, ASF3_SFLAG5,
-    ASF3_SFLAG7, ASF4_INVISIBLE, ASF4_SFLAG8, ASF_PARTOBJ, ASF_SHADOW, ASF_TEXTOBJ, ATZREMOVE,
+    AFEXP, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_SFLAG5, ASF3_SFLAG7, ASF4_CHILDOBJ,
+    ASF4_INVISIBLE, ASF4_MOTHEROBJ, ASF4_SFLAG8, ASF_PARTOBJ, ASF_SHADOW, ASF_TEXTOBJ, ATZREMOVE,
     NUMBER_AL,
 };
 use crate::alien_compat;
@@ -888,17 +888,17 @@ fn path_obj_from_index(world: &PathWorld, idx: u16) -> Option<usize> {
 /// C `path_clear_child_link`.
 fn path_clear_child_link(world: &mut PathWorld, child: usize) {
     let c = &mut world.aliens[child];
-    c.sflags3 &= !ASF3_CHILDOBJ;
+    c.sflags4 &= !ASF4_CHILDOBJ;
     c.ptr = PATH_NULL_OBJ;
     c.sword1 = 0;
 }
 
 /// C `path_get_mother_obj`.
 fn path_get_mother_obj(world: &mut PathWorld, self_idx: usize) -> Option<usize> {
-    if world.aliens[self_idx].sflags3 & ASF3_MOTHEROBJ != 0 {
+    if world.aliens[self_idx].sflags4 & ASF4_MOTHEROBJ != 0 {
         return Some(self_idx);
     }
-    if world.aliens[self_idx].sflags3 & ASF3_CHILDOBJ == 0 {
+    if world.aliens[self_idx].sflags4 & ASF4_CHILDOBJ == 0 {
         return None;
     }
     let ptr = world.aliens[self_idx].ptr;
@@ -919,7 +919,7 @@ fn path_find_child_obj(world: &PathWorld, mother: usize, child_num: u8) -> Optio
         guard -= 1;
         let child = path_obj_from_index(world, idx)?;
         let c = &world.aliens[child];
-        if c.sflags3 & ASF3_CHILDOBJ != 0
+        if c.sflags4 & ASF4_CHILDOBJ != 0
             && c.ptr == path_obj_index_or_null(mother)
             && c.sbyte1 == child_num
         {
@@ -932,11 +932,11 @@ fn path_find_child_obj(world: &PathWorld, mother: usize, child_num: u8) -> Optio
 
 /// C `path_prune_family_links`.
 fn path_prune_family_links(world: &mut PathWorld, self_idx: usize) {
-    if world.aliens[self_idx].sflags3 & ASF3_CHILDOBJ != 0 {
+    if world.aliens[self_idx].sflags4 & ASF4_CHILDOBJ != 0 {
         let ptr = world.aliens[self_idx].ptr;
         let mother = path_obj_from_index(world, ptr);
         let mother_ok = match mother {
-            Some(m) => world.aliens[m].sflags3 & ASF3_MOTHEROBJ != 0,
+            Some(m) => world.aliens[m].sflags4 & ASF4_MOTHEROBJ != 0,
             None => false,
         };
         if !mother_ok {
@@ -944,7 +944,7 @@ fn path_prune_family_links(world: &mut PathWorld, self_idx: usize) {
         }
     }
 
-    if world.aliens[self_idx].sflags3 & ASF3_MOTHEROBJ == 0 {
+    if world.aliens[self_idx].sflags4 & ASF4_MOTHEROBJ == 0 {
         return;
     }
 
@@ -960,7 +960,7 @@ fn path_prune_family_links(world: &mut PathWorld, self_idx: usize) {
         };
         let next_idx = world.aliens[raw].sword1 as u16;
         let valid = world.aliens[raw].active
-            && world.aliens[raw].sflags3 & ASF3_CHILDOBJ != 0
+            && world.aliens[raw].sflags4 & ASF4_CHILDOBJ != 0
             && world.aliens[raw].ptr == mother_idx;
 
         if !valid {
@@ -981,13 +981,13 @@ fn path_prune_family_links(world: &mut PathWorld, self_idx: usize) {
     }
 
     if world.aliens[self_idx].sword1 as u16 == PATH_NULL_OBJ {
-        world.aliens[self_idx].sflags3 &= !ASF3_MOTHEROBJ;
+        world.aliens[self_idx].sflags4 &= !ASF4_MOTHEROBJ;
     }
 }
 
 /// C `path_detach_child_from_mother`.
 fn path_detach_child_from_mother(world: &mut PathWorld, child: usize) {
-    if world.aliens[child].sflags3 & ASF3_CHILDOBJ == 0 {
+    if world.aliens[child].sflags4 & ASF4_CHILDOBJ == 0 {
         return;
     }
     let ptr = world.aliens[child].ptr;
@@ -1024,7 +1024,7 @@ fn path_detach_child_from_mother(world: &mut PathWorld, child: usize) {
 
     path_clear_child_link(world, child);
     if world.aliens[mother].sword1 as u16 == PATH_NULL_OBJ {
-        world.aliens[mother].sflags3 &= !ASF3_MOTHEROBJ;
+        world.aliens[mother].sflags4 &= !ASF4_MOTHEROBJ;
     }
 }
 
@@ -1040,8 +1040,8 @@ fn path_attach_child_to_mother(
     }
 
     path_detach_child_from_mother(world, child);
-    world.aliens[mother].sflags3 |= ASF3_MOTHEROBJ;
-    world.aliens[child].sflags3 |= ASF3_CHILDOBJ;
+    world.aliens[mother].sflags4 |= ASF4_MOTHEROBJ;
+    world.aliens[child].sflags4 |= ASF4_CHILDOBJ;
     world.aliens[child].sbyte1 = child_num;
     world.aliens[child].ptr = path_obj_index_or_null(mother);
     world.aliens[child].sword1 = 0;
@@ -1082,7 +1082,7 @@ fn path_attach_child_to_mother(
 fn path_remove_all_children<H: PathHost>(world: &mut PathWorld, host: &mut H, mother: usize) {
     let mut idx = world.aliens[mother].sword1 as u16;
     world.aliens[mother].sword1 = 0;
-    world.aliens[mother].sflags3 &= !ASF3_MOTHEROBJ;
+    world.aliens[mother].sflags4 &= !ASF4_MOTHEROBJ;
 
     let mut guard = NUMBER_AL as i32 + 1;
     while idx != PATH_NULL_OBJ && guard > 0 {
@@ -1725,10 +1725,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_REMOVE => {
-                if world.aliens[si].sflags3 & ASF3_CHILDOBJ != 0 {
+                if world.aliens[si].sflags4 & ASF4_CHILDOBJ != 0 {
                     path_detach_child_from_mother(world, si);
                 }
-                if world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
+                if world.aliens[si].sflags4 & ASF4_MOTHEROBJ != 0 {
                     path_remove_all_children(world, host, si);
                 }
                 world.aldead = 1;
@@ -1751,10 +1751,10 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             P_EXPLODE => {
                 let friend_id = world.aliens[si].sbyte4;
                 path_friend_hp_set(world, friend_id, 0);
-                if world.aliens[si].sflags3 & ASF3_CHILDOBJ != 0 {
+                if world.aliens[si].sflags4 & ASF4_CHILDOBJ != 0 {
                     path_detach_child_from_mother(world, si);
                 }
-                if world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
+                if world.aliens[si].sflags4 & ASF4_MOTHEROBJ != 0 {
                     path_remove_all_children(world, host, si);
                 }
                 host.explode(world, si as u16);
@@ -2185,7 +2185,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_UNLINKSELF => {
-                if world.aliens[si].sflags3 & ASF3_CHILDOBJ != 0 {
+                if world.aliens[si].sflags4 & ASF4_CHILDOBJ != 0 {
                     path_detach_child_from_mother(world, si);
                 }
                 advance = 1;
@@ -3215,7 +3215,6 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let index_abs = world.pread16(ip, 4);
                 let dest_abs = world.pread16(ip, 6);
 
-
                 if world.gameframe >= 851 && world.gameframe <= 853 && si == 31 {
                     eprintln!(
                         "[idxb] gf={} si={} tbl={:04x} idx_abs={:04x} dst={:04x}",
@@ -3430,7 +3429,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
     // mother's POST-movement position and reapplies the rotated offset at
     // ASL x3 each frame (carriedlog mutates CHILDY per frame via a sintab
     // weave; X drift emerges from the moving mother itself).
-    if world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
+    if world.aliens[si].sflags4 & ASF4_MOTHEROBJ != 0 {
         path_prune_family_links(world, si);
         let mut idx = world.aliens[si].sword1 as u16;
         let mut guard = NUMBER_AL as i32 + 1;
@@ -3442,7 +3441,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             };
             let next_idx = world.aliens[child].sword1 as u16;
             if world.aliens[child].active
-                && world.aliens[child].sflags3 & ASF3_CHILDOBJ != 0
+                && world.aliens[child].sflags4 & ASF4_CHILDOBJ != 0
                 && world.aliens[child].ptr == path_obj_index_or_null(si)
             {
                 {
@@ -3479,7 +3478,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
 
     // Rigid child translation DISABLED: retail children move under their own
     // inherited velocity (pillar weaves Y independently), not a mother-delta.
-    if false && world.aliens[si].sflags3 & ASF3_MOTHEROBJ != 0 {
+    if false && world.aliens[si].sflags4 & ASF4_MOTHEROBJ != 0 {
         let vm = &world.vm[si];
         if vm.delta_valid {
             let dx = world.aliens[si].worldx.wrapping_sub(vm.prev_x);
@@ -3497,7 +3496,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                     };
                     let next_idx = world.aliens[child].sword1 as u16;
                     if world.aliens[child].active
-                        && world.aliens[child].sflags3 & ASF3_CHILDOBJ != 0
+                        && world.aliens[child].sflags4 & ASF4_CHILDOBJ != 0
                     {
                         let c = &mut world.aliens[child];
                         c.worldx = c.worldx.wrapping_add(dx);

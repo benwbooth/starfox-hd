@@ -152,8 +152,8 @@ fn rust_pass(gameflags: u8, objs: &[Obj]) -> (Vec<u8>, Vec<bool>) {
         al.flags = spec.flags;
         al.type_ = spec.type_;
         al.collflags = spec.collflags;
-        al.sflags = if spec.sflags4 & ASF4_INVISIBLE != 0 {
-            sf_game::alien::ASF_INVISIBLE
+        al.sflags4 = if spec.sflags4 & ASF4_INVISIBLE != 0 {
+            sf_game::alien::ASF4_INVISIBLE
         } else {
             0
         };
@@ -358,7 +358,7 @@ fn invisible_objects_skip_cull_and_keep_flags() {
         al.flags = AFFRONTPL;
         al.type_ = ATZREMOVE;
         al.collflags = 0; // clear the alloc-time firstframe protection
-        al.sflags = sf_game::alien::ASF_INVISIBLE;
+        al.sflags4 = sf_game::alien::ASF4_INVISIBLE;
         al.worldz = -2000;
     }
     let mut out = Vec::new();

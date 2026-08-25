@@ -143,12 +143,10 @@ pub fn build_list(
         {
             let al = &objs.aliens[idx];
             let zmax = shape_extents(al.shape).map_or(0, |(_, _, z)| z);
-            // ROM MAIN.ASM:2030-2032 evaluates the behind test with
-            // `lda.l sh_zmax,x; adc.l dl_z,x; bpl` — an ADC WITHOUT a prior
-            // CLC, so the carry from the previous drawlist iteration's ADC
-            // participates. Emulate the 16-bit ADC chain bit-exactly: the
-            // branch tests bit 15 of the wrapped sum, and carry-out feeds
-            // the next iteration.
+            // ROM MAIN.ASM:2030-2032 evaluates the behind test as a chained
+            // 16-bit addition: carry from the previous draw-list iteration
+            // participates in the next wrapped sum. The sign bit selects the
+            // behind result, and overflow past the word feeds the next item.
             let sum = (zmax as u16 as u32)
                 .wrapping_add(rel_z as u16 as u32)
                 .wrapping_add(cull_carry as u32);

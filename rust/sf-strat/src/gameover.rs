@@ -1,6 +1,6 @@
 //! Game-over screen init (ROM GSTRATS.ASM `gameoverinit_l`).
 
-use sf_game::alien::ASF_INVISIBLE;
+use sf_game::alien::ASF4_INVISIBLE;
 use sf_game::vars::GF_PLAYERDYING;
 use sf_game::Game;
 use sf_path::ids::PATH_ID_GAMEOVER;
@@ -63,7 +63,7 @@ pub fn gameover_init_l(g: &mut Game, player_idx: u16) -> (Option<u16>, Option<u1
     let game = spawn_gameover_letter(g, SH_GAMESH, GAME_WORLD_X);
     let over = spawn_gameover_letter(g, SH_OVERSH, OVER_WORLD_X);
     if (player_idx as usize) < g.objs.aliens.len() {
-        g.objs.aliens[player_idx as usize].sflags |= ASF_INVISIBLE;
+        g.objs.aliens[player_idx as usize].sflags4 |= ASF4_INVISIBLE;
     }
     (game, over)
 }

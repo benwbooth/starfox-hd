@@ -1171,7 +1171,7 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     // authored cockpit ejection and returns; that transition re-enters this
     // initializer after its final frame.
     if g.vars.player_view_mode == PlayerViewMode::Cockpit {
-        g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
         g.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
         set_player_out_of_cock(g, idx);
         return;
@@ -1183,7 +1183,7 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     {
         let player = &mut g.objs.aliens[idx as usize];
         player.sbyte1 = 0;
-        player.sflags &= !ASF_COLLDISABLE;
+        player.sflags2 &= !ASF2_COLLDISABLE;
         player.stratptr = Some(dead);
         player.collstratptr = Some(coll);
         player.expstratptr = Some(exp);
@@ -3145,7 +3145,7 @@ pub fn initialize_player_for_map(g: &mut Game, map_id: u32, idx: u16) {
             // transfer, then executes the first movement body at the first
             // gameplay update. Other planet-map callbacks enter through the
             // source routine that falls through immediately.
-            playeronplanet_init(g, idx);
+            initialize_planet_flight(g, idx);
             player_move_init(g, idx);
             g.vars
                 .set_sv_i16(sv::PVIEWPOSZ, g.objs.aliens[idx as usize].worldz);
@@ -3349,7 +3349,7 @@ fn player_exitbase_follow_init(g: &mut Game, idx: u16) {
 /// C `playeronplanet_init` (playeronplanet_Istrat, PSTRATS.ASM:751-760) —
 /// resume normal flight.
 pub fn set_player_on_planet(g: &mut Game, idx: u16) {
-    playeronplanet_init(g, idx);
+    initialize_planet_flight(g, idx);
     // The source initializer is immediately followed by the normal-flight
     // body. Map callbacks therefore advance the ship once before the regular
     // object-strategy pass reaches it later in the same level update.
@@ -3377,7 +3377,9 @@ mod player_on_planet_tests {
     }
 }
 
-fn playeronplanet_init(g: &mut Game, idx: u16) {
+/// Install the authored planet-flight limits and player behavior without
+/// advancing the first normal-flight update.
+pub fn initialize_planet_flight(g: &mut Game, idx: u16) {
     // s_playerctrl on
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
 
@@ -3491,7 +3493,7 @@ fn player_exitbase_follow_strat(g: &mut Game, idx: u16) {
     g.vars.set_sv_u8(sv::NOMAXBG2YSCROLL, 0);
 
     // s_jmp playeronplanet_Istrat
-    playeronplanet_init(g, idx);
+    initialize_planet_flight(g, idx);
     strat_player(g, idx);
 }
 
@@ -5826,13 +5828,13 @@ pub fn set_player_out_of_lb2(g: &mut Game, idx: u16) {
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
     g.vars.playerflymode &= !PFM_WOBBLE;
     g.vars.pstratflags |= PSTF_INSEQ;
-    playeronplanet_init(g, idx);
+    initialize_planet_flight(g, idx);
     // Re-apply sequence flags after planet init cleared them.
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
     g.vars.pstratflags |= PSTF_INSEQ;
     g.vars.playerflymode &= !PFM_WOBBLE;
     g.vars.gameflags |= GF_NOZREMOVE;
-    g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
     g.vars.set_sv_i16(sv::OUTVX, -DEG90_256);
     g.vars.set_sv_i16(sv::BG2YSCROLL, 232 - 32);
     g.vars.gameflags &= !GF_STRATDONE1;
@@ -5852,7 +5854,7 @@ pub fn set_player_out_of_lb3(g: &mut Game, idx: u16) {
     g.vars.pstratflags |= PSTF_INSEQ;
     g.vars.playerflymode &= !PFM_WOBBLE;
     g.vars.gameflags |= GF_NOZREMOVE;
-    g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
     g.vars.gameflags &= !GF_STRATDONE1;
     g.vars.set_sv_i16(sv::BG2YSCROLL, 232 + 60);
 }
@@ -6712,7 +6714,7 @@ pub fn pshipdivegnd_strat(g: &mut Game, idx: u16) {
             let p = g.vars.internal_playpt;
             if p >= 0 && (p as usize) < NUMBER_AL {
                 let pidx = p as u16;
-                playeronplanet_init(g, pidx);
+                initialize_planet_flight(g, pidx);
                 {
                     let src = g.objs.aliens[idx as usize];
                     let pl = &mut g.objs.aliens[pidx as usize];
@@ -6838,7 +6840,7 @@ fn viewdivegnd_fin(g: &mut Game, idx: u16) {
 /// ROM `set_playerTunneltoOnPlanet_l` / init.
 pub fn set_player_tunnel_to_on_planet(g: &mut Game, idx: u16) {
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
-    playeronplanet_init(g, idx);
+    initialize_planet_flight(g, idx);
     g.vars.set_sv_i16(sv::VIEWCY, -60); // LTexit_viewCY
 }
 
@@ -6848,7 +6850,7 @@ pub fn player_tunnel_to_on_planet_strat(g: &mut Game, idx: u16) -> bool {
     let next = strat_chase_proportional(cy, -50, 4); // planet_viewCY
     g.vars.set_sv_i16(sv::VIEWCY, next);
     if next == -50 {
-        playeronplanet_init(g, idx);
+        initialize_planet_flight(g, idx);
         return true;
     }
     // Continue as on-planet flight while viewCY eases.
@@ -6860,11 +6862,11 @@ pub fn player_tunnel_to_on_planet_strat(g: &mut Game, idx: u16) -> bool {
 pub fn set_player_dive_gnd(g: &mut Game, idx: u16) {
     let stay = g.vars.sv_i8(sv::STAYBLACK);
     if stay > 11 {
-        playeronplanet_init(g, idx);
+        initialize_planet_flight(g, idx);
         return;
     }
     g.vars.gameflags |= GF_NOZREMOVE;
-    playeronplanet_init(g, idx);
+    initialize_planet_flight(g, idx);
     g.vars.gameflags &= !GF_VIEWROT;
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
     let player_tick = ea_sid(g, player_divegnd_strat);

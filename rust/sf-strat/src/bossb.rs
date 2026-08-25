@@ -35,8 +35,8 @@
 #![allow(dead_code)]
 
 use sf_game::alien::{
-    Alien, StratId, ACF_COLLTYPE3, ACF_COLLTYPE4, AFONFIRE, ASF_COLLDISABLE, ASF_COLLIDE,
-    ASF_HITFLASH, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATZREMOVE, NUMBER_AL,
+    Alien, StratId, ACF_COLLTYPE3, ACF_COLLTYPE4, AFONFIRE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT,
+    ASF_COLLIDE, ASF_HITFLASH, ASF_SHADOW, ATGND, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, StrategyFn};
 use sf_game::vars::GF_BOSSDEAD;
@@ -463,7 +463,7 @@ pub fn bossb_init(g: &mut Game, idx: u16) {
         al.vel = 40; // s_set_speed #40
         al.sflags2 |= ASF2_SFLAG1; // image 1
         al.sflags2 &= !ASF2_SFLAG2; // image 2 off
-        al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag nohitaffect
+        al.sflags3 |= ASF3_NOHITAFFECT; // s_set_alsflag nohitaffect
     }
     set_bossmaxhp(g, BOSSB_AIR_HP as u16); // s_set_bossmaxHP #bossBairHP
     bossb_strat(g, idx);
@@ -557,7 +557,7 @@ pub fn bossbdodge_init(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick);
         al.sbyte3 = 1; // s_set_alvar al_sbyte3,#1
         al.collstratptr = Some(coll);
-        al.sflags &= !ASF_NOHITAFFECT; // s_clr_alsflag nohitaffect (now damageable)
+        al.sflags3 &= !ASF3_NOHITAFFECT; // s_clr_alsflag nohitaffect (now damageable)
     }
     bossbdodge_strat(g, idx);
 }
@@ -687,7 +687,7 @@ pub fn bossbspin2_init(g: &mut Game, idx: u16) {
     al.sbyte3 = 0;
     al.roty = DEG90;
     al.rotx = 0;
-    al.sflags |= ASF_NOHITAFFECT;
+    al.sflags3 |= ASF3_NOHITAFFECT;
     al.sflags2 &= !ASF2_SFLAG4;
     bossbspin2_strat(g, idx);
 }
@@ -723,7 +723,7 @@ pub fn bossbspinend2_init(g: &mut Game, idx: u16) {
         al.hp = BOSSB_SPIN_HP;
         al.stratptr = Some(tick);
         al.collstratptr = Some(coll);
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
         al.sbyte4 = 0;
         al.sword2 = al.hp as i16;
         al.vx = 0;
@@ -907,7 +907,7 @@ pub fn bossbscream_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
         al.sbyte1 = 30;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.sflags3 |= ASF3_SFLAG5; // ROM sflag5 (not image sflag1)
     }
     bossbscream_strat(g, idx);
@@ -970,7 +970,7 @@ pub fn bossbscreamend_init(g: &mut Game, idx: u16) {
         al.sbyte4 = 14;
         al.sbyte3 = 1;
         al.sflags2 &= !ASF2_SFLAG4;
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
     }
     bossbspinend2_strat(g, idx);
 }
@@ -1039,7 +1039,8 @@ pub fn bossbrob_init(g: &mut Game, idx: u16) {
         al.vel = 40; // s_set_speed #40
         al.sflags2 |= ASF2_SFLAG1;
         al.sflags2 &= !ASF2_SFLAG2;
-        al.sflags |= ASF_NOHITAFFECT | ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
+        al.sflags |= ASF_SHADOW;
         al.roty = DEG180.wrapping_sub(DEG45); // face away-left
         al.rotx = DEG11;
         al.sbyte1 = DEG180.wrapping_sub(DEG45); // turn latch
@@ -1262,7 +1263,7 @@ pub fn bossbentsplit2_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, bossbentsplit2_strat);
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(tick);
-    al.sflags &= !ASF_NOHITAFFECT;
+    al.sflags3 &= !ASF3_NOHITAFFECT;
     bossbentsplit_icont(g, idx);
     // Icont sets sbyte1=1 then cont underflows→100 (GB3STRAT.ASM:2126).
     g.objs.aliens[idx as usize].sbyte1 = 100;
@@ -1351,7 +1352,7 @@ fn bossbrob_collision_reaction(g: &mut Game, idx: u16) {
 /// bossBrob_col — shared body for col / sepcol zone routing.
 fn bossbrob_col(g: &mut Game, idx: u16) {
     let al = &g.objs.aliens[idx as usize];
-    if al.sflags3 & ASF3_SFLAG5 != 0 || al.sflags & ASF_NOHITAFFECT != 0 {
+    if al.sflags3 & (ASF3_SFLAG5 | ASF3_NOHITAFFECT) != 0 {
         resume_after_bossbrob_collision(g, idx, BOSSBROB_HIT_SOUND);
         return;
     }
@@ -1361,7 +1362,7 @@ fn bossbrob_col(g: &mut Game, idx: u16) {
 /// ROM `bossBrobsepcol_Istrat` (GB3STRAT.ASM:2821) — hits until pounce, else Ouch.
 pub fn bossbrobsepcol_istrat(g: &mut Game, idx: u16) {
     let al = &g.objs.aliens[idx as usize];
-    if al.sflags3 & ASF3_SFLAG5 != 0 || al.sflags & ASF_NOHITAFFECT != 0 {
+    if al.sflags3 & (ASF3_SFLAG5 | ASF3_NOHITAFFECT) != 0 {
         resume_after_bossbrob_collision(g, idx, BOSSBROB_HIT_SOUND);
         return;
     }
@@ -1550,7 +1551,7 @@ pub fn bossbrobstart_init(g: &mut Game, idx: u16) {
         al.vy = 0;
         al.vz = 0;
         al.sflags3 &= !ASF3_SFLAG5; // ROM clr sflag5 (ouch latch)
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
     }
     bossbrobstart_strat(g, idx);
 }
@@ -1680,7 +1681,7 @@ pub fn bossbrobfarjump1_init(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick);
         al.shape = SH_BOSS_B_0;
         init_animation(al, BOSSBROB_CROUCH_FRAME);
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
     bossbrobfarjump1_strat(g, idx);
 }
@@ -1742,7 +1743,7 @@ pub fn bossbrobfarland_init(g: &mut Game, idx: u16) {
         al.vx = 0;
         al.vy = 0;
         al.vz = 0;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
     bossbrobfarland_strat(g, idx);
 }
@@ -1756,7 +1757,7 @@ pub fn bossbrobfarland_strat(g: &mut Game, idx: u16) {
         );
     }
     if zdist_less(g, idx, 2000) {
-        g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+        g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
         bossbrob_nextstate(g, idx);
         return;
     }
@@ -1839,7 +1840,7 @@ pub fn bossbentlong_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.count = 20;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.stratptr = Some(tick);
         al.depthoffset = 1;
     }
@@ -1850,7 +1851,7 @@ pub fn bossbentlong_istrat(g: &mut Game, idx: u16) {
 pub fn bossbent_icont(g: &mut Game, idx: u16) {
     let tick = sid(g, bossbent_strat);
     let al = &mut g.objs.aliens[idx as usize];
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.stratptr = Some(tick);
     al.depthoffset = 1;
     bossbent_strat(g, idx);
@@ -2077,7 +2078,7 @@ fn bossbrobrndpos_icont(g: &mut Game, idx: u16, tick: StratId) {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
         al.sbyte1 = 1;
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
         al.sflags2 &= !ASF2_SFLAG1;
     }
     if let Some(s) = g.objs.aliens[idx as usize].stratptr {
@@ -2159,7 +2160,7 @@ pub fn bossbrobsep_init(g: &mut Game, idx: u16) {
         al.sbyte1 = 2;
         al.sbyte2 = 2;
         al.sflags2 &= !ASF2_SFLAG1;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
     g.hooks.play_se(BOSSBROB_MOVE_SOUND);
     bossbrobsep_strat(g, idx);
@@ -2188,7 +2189,7 @@ pub fn bossbrobsep_strat(g: &mut Game, idx: u16) {
         }
         g.objs.aliens[idx as usize].sbyte1 -= 1;
         if let Some(child) = bossbrobment2_srou(g, idx) {
-            g.objs.aliens[child as usize].sflags |= ASF_COLLDISABLE;
+            g.objs.aliens[child as usize].sflags2 |= ASF2_COLLDISABLE;
             let init = sid(g, bossbrobrndpos_istrat);
             g.objs.aliens[child as usize].stratptr = Some(init);
         }
@@ -2354,7 +2355,7 @@ pub fn bossbrobchg_istrat(g: &mut Game, idx: u16) {
         al.expstratptr = None;
         al.sbyte1 = 40;
         al.sflags2 |= ASF2_SFLAG3; // remove images
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.sflags3 |= BOSSBROB_WALKING; // latch so a second death → sepexp
     }
     g.hooks.play_music(BOSSBROB_TRANSFORM_MUSIC);
@@ -2598,7 +2599,7 @@ pub fn bossbrobundead_istrat(g: &mut Game, idx: u16) {
         al.vx = 0;
         al.vy = -40;
         al.vz = 40;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
     bossbrobundead_strat(g, idx);
 }
@@ -2656,7 +2657,7 @@ pub fn bossbrobsepexp_istrat(g: &mut Game, idx: u16) {
         al.sbyte1 = 40;
         al.sflags2 |= ASF2_SFLAG1;
         al.hp = 2;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
     }
     g.hooks.play_se(BOSSB_TRANSFORM_SOUND);
     g.hooks.play_music(BOSSBROB_DEATH_MUSIC);

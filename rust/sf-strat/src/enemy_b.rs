@@ -62,9 +62,9 @@ pub(crate) mod eb_compat {
     pub use sf_game::alien::{
         Alien, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4, ACF_COLLTYPE5,
         ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ, ASF4_CSPECIAL,
-        ASF4_PLAYEROBJ, ASF4_SFLAG8, ASF4_SPECIAL, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-        ASF_INVISIBLE, ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER,
-        ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
+        ASF4_PLAYEROBJ, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE,
+        ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED,
+        ATZREMOVE, NUMBER_AL,
     };
     pub use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
     pub use sf_game::vars::{
@@ -140,12 +140,12 @@ pub(crate) mod eb_compat {
     // al_sflags3 bits (obj.h:109-114)
     pub const ASF3_SFLAG5: u8 = 0x01;
     pub const ASF3_SFLAG7: u8 = 0x04;
-    pub const ASF3_CHILDOBJ: u8 = 0x10;
-    pub const ASF3_MOTHEROBJ: u8 = 0x20;
     pub const ASF3_TEXTOBJ: u8 = 0x40;
     // al_sflags4 bits (obj.h:116-117)
     pub const ASF4_DONESND: u8 = 0x02;
     pub const ASF4_NOPOLYEXP: u8 = 0x04;
+    pub const ASF4_CHILDOBJ: u8 = 0x10;
+    pub const ASF4_MOTHEROBJ: u8 = 0x40;
 
     // stratflags (variables.h:109)
     pub const SF_NOFIRING: u8 = 1;

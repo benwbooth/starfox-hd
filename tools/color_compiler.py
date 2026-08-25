@@ -75,12 +75,12 @@ def discover_table_lengths(sc) -> Dict[str, int]:
             table = hdr.color_table.strip().lower()
             if table == "0" or hdr.faces_label == "0":
                 continue
-            faces = sc.parse_faces(af, hdr.faces_label)
+            faces, _ = sc.parse_faces(af, hdr.faces_label)
             if not faces:
                 for other in asm_files:
                     if other is af:
                         continue
-                    faces = sc.parse_faces(other, hdr.faces_label)
+                    faces, _ = sc.parse_faces(other, hdr.faces_label)
                     if faces:
                         break
             if faces:
@@ -98,6 +98,7 @@ def discover_table_lengths(sc) -> Dict[str, int]:
             "id_3_c": 48,
             "id_5_c": 48,
             "black_c": 64,
+            "red_c": 110,
             "white_c": 56,
         }
     )
@@ -207,13 +208,39 @@ def main() -> int:
         )
     out.append("];")
     out.append("")
+    # Keep runtime material policies symbolic even when inserting another
+    # extracted table changes the generated numeric IDs.
+    for name in sorted(set(ordered)):
+        idx = 5 if name == "id_5_c" else ordered.index(name)
+        out.append(f"pub const COLOR_TABLE_{rust_ident(name)}: u16 = {idx};")
+    out.append("")
     out.append("pub fn table_id_by_name(name: &str) -> Option<u16> {")
     out.append("    match name.to_ascii_lowercase().as_str() {")
-    out.append('        "id_4_c" => Some(4),')
+    out.append('        "id_4_c" => Some(COLOR_TABLE_ID_5_C - 1),')
     # Emit one arm per unique name; duplicate id_5_c deliberately maps to 5.
     for name in sorted(set(ordered)):
         idx = 5 if name == "id_5_c" else ordered.index(name)
-        out.append(f'        "{name}" => Some({idx}),')
+        out.append(f'        "{name}" => Some(COLOR_TABLE_{rust_ident(name)}),')
+    out += ["        _ => None,", "    }", "}", ""]
+
+    source_word_ids: Dict[int, int] = {}
+    for name in sorted(set(ordered)):
+        idx = 5 if name == "id_5_c" else ordered.index(name)
+        source_word = symbols[name] & 0xFFFF
+        previous = source_word_ids.setdefault(source_word, idx)
+        if previous != idx:
+            raise RuntimeError(
+                f"color tables share source word ${source_word:04x} "
+                f"but have distinct ids {previous} and {idx}"
+            )
+    out.append("pub fn table_id_by_source_word(source_word: u16) -> Option<u16> {")
+    out.append("    match source_word {")
+    for source_word, idx in sorted(source_word_ids.items()):
+        name = ordered[idx]
+        out.append(
+            f"        0x{source_word:04X} => "
+            f"Some(COLOR_TABLE_{rust_ident(name)}),"
+        )
     out += ["        _ => None,", "    }", "}", ""]
 
     for pointer, frames in sorted(animations.items()):

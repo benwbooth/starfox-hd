@@ -13,6 +13,7 @@ pub mod op {
     pub const LOOP: u8 = 4;
     pub const MOTHER: u8 = 10;
     pub const REMOVE: u8 = 12;
+    pub const SETSTAGE: u8 = 14;
     pub const SETBG: u8 = 16;
     pub const WAIT: u8 = 18;
     pub const SETBGM: u8 = 20;

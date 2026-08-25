@@ -3,7 +3,7 @@
 use sf_core::screen_fill_circle::{
     ScreenFillCircleCenter, ScreenFillCirclePhase, BOSS_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
 };
-use sf_game::alien::{ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{ASF2_COLLDISABLE, ATZREMOVE};
 use sf_game::vars::GF_BOSSDEAD;
 use sf_game::Game;
 use sf_strat::bossb::{
@@ -93,7 +93,7 @@ fn sepexp_falls_then_splits_into_debris() {
         al.sflags3 |= 0x01; // already walking so transform goes to sepexp
     }
     bossbrob_transform_init(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 39); // fall-through
 
     // Force countdown done → bossbrobexp_init.

@@ -852,9 +852,8 @@ fn small_state_ops_match_rom() {
     assert_eq!(g.vars.bgflags & 0x04, 0x04);
 
     // mapspecial (90): ROM stores asf_special(1) INTO al_sflags ($1D) and
-    // increments specialobjtotal (WORLD.ASM:654-663). The Rust port keeps
-    // the marker in its own sflags4 bit (ASF4_SPECIAL=0x40, port-wide
-    // relocation; consistent because every Rust reader checks sflags4).
+    // increments specialobjtotal (WORLD.ASM:654-663). The Rust port retains
+    // that exact flat-struct field and bit.
     let m = [90u8, 2];
     let bus = rom_exec(&rom, ne, &m, 0, seed_obj);
     assert_eq!(bus.read8(BLOCK + AL_SFLAGS), 0x01, "ROM sflags overwrite");
@@ -862,7 +861,7 @@ fn small_state_ops_match_rom() {
     assert_eq!(bus.read16(MAPPTR), 1);
     let g = rust_exec(&m, rust_obj);
     let idx = g.world.last_obj.unwrap() as usize;
-    assert_eq!(g.objs.aliens[idx].sflags4 & 0x40, 0x40, "rust ASF4_SPECIAL");
+    assert_eq!(g.objs.aliens[idx].sflags & 1, 1, "rust ASF_SPECIAL");
     assert_eq!(g.world.specialobjtotal, 1);
     assert_eq!(g.vars.mapptr, 1);
 

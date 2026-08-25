@@ -8,9 +8,13 @@ use super::common::*;
 use super::finish_level;
 use super::Route3Level;
 use crate::builder::MapBuilder;
-use crate::consts::SCRAMBLE_WIPE_DISTANCE;
+use crate::consts::{cb, wm, SCRAMBLE_WIPE_DISTANCE};
 
 pub(crate) fn build() -> Route3Level {
+    const SCRAMBLE_BLACK_HOLD: i32 = 30;
+    const SCRAMBLE_CIRCULAR_WIPE: i32 = 1;
+    const RELEASE_BLACK_HOLD: i32 = -1;
+
     let mut b = MapBuilder::new();
 
     // LEVEL3_1.ASM through the first handoff into MAP3_1B.
@@ -20,13 +24,18 @@ pub(crate) fn build() -> Route3Level {
     b.waitfade();
     b.mapcodejsl_builtin(MAP_CB_INITBLACK_L);
     b.mapwait(1);
+    b.setvarb24(wm::M_METERS, 1);
+    b.mapcodejsl_builtin(cb::SETCHARMAPFROMMAP_L);
+    let keep_player_strat_ptr = b.mapcode65816_inline();
     b.setbg(BG_3_1C);
     b.initbg();
     b.mapcodejsl_builtin(MAP_CB_INITBLACK_L);
+    b.setvarb(wm::STAYBLACK, SCRAMBLE_BLACK_HOLD);
     b.mapwait(SCRAMBLE_WIPE_DISTANCE);
+    b.setvarw(wm::CIRCULAR_WIPE, SCRAMBLE_CIRCULAR_WIPE);
+    b.setvarb(wm::STAYBLACK, RELEASE_BLACK_HOLD);
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
-    let keep_player_strat_ptr = b.mapcode65816_inline();
     b.mapcodejsl_builtin(MAP_CB_SET_PLAYER_EXITBASE_L);
 
     b.mapobj(0, 0, 0, 0, SH_MYBASE_1, IS_NOCOLL);

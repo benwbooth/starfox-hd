@@ -28,8 +28,8 @@ use sf_core::sf1_shape_metrics::sf1_shape_metrics;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
     ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT,
-    ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_SFLAG8, ASF4_SPECIAL, ASF_COLLDISABLE, ASF_COLLIDE,
-    ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SSPRITE, ATGND,
+    ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
+    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL, ASF_SSPRITE, ATGND,
     ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::PCBOX_WING_HP;
@@ -75,7 +75,7 @@ pub const ASF3_SFLAG7: u8 = 0x04;
 pub const ASF2_SMFLAG1: u8 = 0x04;
 
 // al_sflags3 bits — re-export from sf-game (single source of truth).
-pub use sf_game::alien::{ASF3_CHILDOBJ, ASF3_MOTHEROBJ};
+pub use sf_game::alien::{ASF4_CHILDOBJ, ASF4_MOTHEROBJ};
 
 // al_sflags4 bit read by the renderer (sf-game draw.rs `ASF4_NOPOLYEXP`) to
 // suppress the face/poly explosion count.
@@ -1138,12 +1138,12 @@ fn play_se_by_range(g: &mut Game, idx: u16, near: u8, mid: u8, far: u8) {
 /// C `Strat_Explode` (strat_enemy.c:5931, explode_Istrat).
 pub fn strat_explode(g: &mut Game, idx: u16) {
     // ROM explode_Istrat (EXPSTRAT.ASM:685): divorce family before the rest.
-    if g.objs.aliens[idx as usize].sflags3 & (ASF3_CHILDOBJ | ASF3_MOTHEROBJ) != 0 {
+    if g.objs.aliens[idx as usize].sflags4 & (ASF4_CHILDOBJ | ASF4_MOTHEROBJ) != 0 {
         divorce_family(g, idx);
     }
     // ROM: s_jmpNOT_alsflag special → skip; else spawn gate_2 + gate2_Istrat.
     // (Audit A Minor 14)
-    if g.objs.aliens[idx as usize].sflags4 & ASF4_SPECIAL != 0 {
+    if g.objs.aliens[idx as usize].sflags & ASF_SPECIAL != 0 {
         let _ = spawn_gate2(g, idx);
     }
     // ROM: s_jmp_alvarNOTZERO W,x,al_debrisshape,explodedebris_Istrat
@@ -1328,8 +1328,8 @@ fn remove_attached_fire(g: &mut Game, idx: u16) {
 /// ROM `explode_Icont` — special score, exact size-selected mesh/sprite
 /// handoff, sound, and the two independently timed explosion lifecycles.
 fn explode_icont(g: &mut Game, idx: u16) {
-    let sflags4 = g.objs.aliens[idx as usize].sflags4;
-    if sflags4 & (ASF4_SPECIAL | ASF4_CSPECIAL) != 0 {
+    let object = g.objs.aliens[idx as usize];
+    if object.sflags & ASF_SPECIAL != 0 || object.sflags4 & ASF4_CSPECIAL != 0 {
         // ROM `s_test_special` (STRATMAC.INC:236-245, run from explode_Icont):
         // increments specials_dead when the object is `special` OR `Cspecial`
         // — the hit-% score numerator (sf-game score.rs).
@@ -1391,10 +1391,10 @@ fn explode_icont(g: &mut Game, idx: u16) {
     }
     {
         let object = &mut g.objs.aliens[sprite as usize];
-        object.sflags = source.sflags & !(ASF_HITFLASH | ASF_SHADOW);
+        object.sflags = source.sflags & !(ASF_HITFLASH | ASF_SHADOW | ASF_SPECIAL);
         object.sflags2 = source.sflags2;
         object.sflags3 = source.sflags3 & !ASF3_REALOBJ;
-        object.sflags4 = source.sflags4 & !(ASF4_SPECIAL | ASF4_CSPECIAL);
+        object.sflags4 = source.sflags4 & !ASF4_CSPECIAL;
         object.visual_kind = ObjectVisualKind::ScaledSprite;
         object.shape = presentation.sprite_shape;
         object.tx = presentation.sprite_scale_adjustment;
@@ -1573,7 +1573,7 @@ fn particle_explode_init(g: &mut Game, idx: u16, tick: StrategyFn, typ: u8, amou
     let s = sid(g, tick);
     let al = &mut g.objs.aliens[idx as usize];
     al.expstratptr = Some(s);
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.flags |= AFEXP;
     particle_data(al, typ, amount, life);
 }
@@ -1729,7 +1729,7 @@ pub fn implode_istrat(g: &mut Game, idx: u16) {
     al.expstratptr = Some(s);
     al.flags |= AFEXP;
     al.hp = 0;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// ROM `implode_strat` (EXPSTRAT.ASM:407).
@@ -1741,7 +1741,7 @@ pub fn implode_strat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.flags &= !AFEXP;
         al.hp = HARD_HP;
-        al.sflags &= !ASF_COLLDISABLE;
+        al.sflags2 &= !ASF2_COLLDISABLE;
         al.count = 0;
     }
     g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(4);
@@ -4261,7 +4261,8 @@ pub fn exppiece_strat(g: &mut Game, idx: u16) {
 pub fn exppieceexp_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags4 &= !(ASF4_SPECIAL | ASF4_CSPECIAL);
+        al.sflags &= !ASF_SPECIAL;
+        al.sflags4 &= !ASF4_CSPECIAL;
     }
     strat_explode(g, idx);
 }
@@ -7639,7 +7640,7 @@ pub(crate) fn boss_child_from_index_raw(index: u16) -> Option<u16> {
 /// C `boss_clear_child_link` (strat_enemy.c:844).
 pub(crate) fn boss_clear_child_link(g: &mut Game, child: u16) {
     let al = &mut g.objs.aliens[child as usize];
-    al.sflags3 &= !ASF3_CHILDOBJ;
+    al.sflags4 &= !ASF4_CHILDOBJ;
     al.ptr = 0;
     al.sword1 = 0;
 }
@@ -7652,7 +7653,7 @@ pub fn divorce_family(g: &mut Game, idx: u16) {
 
 /// C `boss_prune_family_links` (strat_enemy.c:851).
 pub(crate) fn boss_prune_family_links(g: &mut Game, mother: u16) {
-    if g.objs.aliens[mother as usize].sflags3 & ASF3_MOTHEROBJ == 0 {
+    if g.objs.aliens[mother as usize].sflags4 & ASF4_MOTHEROBJ == 0 {
         return;
     }
     let mother_idx = boss_obj_index_or_null(mother);
@@ -7667,7 +7668,7 @@ pub(crate) fn boss_prune_family_links(g: &mut Game, mother: u16) {
         let raw_al = g.objs.aliens[raw as usize];
         let next_idx = raw_al.sword1 as u16;
         let valid =
-            raw_al.active && raw_al.sflags3 & ASF3_CHILDOBJ != 0 && raw_al.ptr == mother_idx;
+            raw_al.active && raw_al.sflags4 & ASF4_CHILDOBJ != 0 && raw_al.ptr == mother_idx;
         if !valid {
             if prev_idx == 0 {
                 g.objs.aliens[mother as usize].sword1 = next_idx as i16;
@@ -7684,13 +7685,13 @@ pub(crate) fn boss_prune_family_links(g: &mut Game, mother: u16) {
         idx = next_idx;
     }
     if g.objs.aliens[mother as usize].sword1 as u16 == 0 {
-        g.objs.aliens[mother as usize].sflags3 &= !ASF3_MOTHEROBJ;
+        g.objs.aliens[mother as usize].sflags4 &= !ASF4_MOTHEROBJ;
     }
 }
 
 /// C `boss_get_mother_obj` (strat_enemy.c:904).
 pub(crate) fn boss_get_mother_obj(g: &mut Game, child: u16) -> Option<u16> {
-    if g.objs.aliens[child as usize].sflags3 & ASF3_CHILDOBJ == 0 {
+    if g.objs.aliens[child as usize].sflags4 & ASF4_CHILDOBJ == 0 {
         return None;
     }
     let ptr = g.objs.aliens[child as usize].ptr;
@@ -7713,7 +7714,7 @@ pub(crate) fn boss_find_child_obj(g: &mut Game, mother: u16, child_num: u8) -> O
         let child = boss_child_from_index_raw(idx)?;
         let al = g.objs.aliens[child as usize];
         if al.active
-            && al.sflags3 & ASF3_CHILDOBJ != 0
+            && al.sflags4 & ASF4_CHILDOBJ != 0
             && al.ptr == boss_obj_index_or_null(mother)
             && al.sbyte1 == child_num
         {
@@ -7749,10 +7750,10 @@ pub fn boss_attach_child_to_mother(g: &mut Game, mother: u16, child: u16, child_
     {
         return false;
     }
-    g.objs.aliens[mother as usize].sflags3 |= ASF3_MOTHEROBJ;
+    g.objs.aliens[mother as usize].sflags4 |= ASF4_MOTHEROBJ;
     {
         let al = &mut g.objs.aliens[child as usize];
-        al.sflags3 |= ASF3_CHILDOBJ;
+        al.sflags4 |= ASF4_CHILDOBJ;
         al.sbyte1 = child_num;
         al.ptr = boss_obj_index_or_null(mother);
         al.sword1 = 0;
@@ -8119,7 +8120,7 @@ fn boss1_release_children(g: &mut Game, self_idx: u16) {
     }
     let al = &mut g.objs.aliens[self_idx as usize];
     al.sword1 = 0;
-    al.sflags3 &= !ASF3_MOTHEROBJ;
+    al.sflags4 &= !ASF4_MOTHEROBJ;
 }
 
 /// C `boss1_cover_obj` (strat_enemy.c:2059).

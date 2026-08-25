@@ -1116,11 +1116,16 @@ fn main() {
                 // Camera for the render pass (nmi.c GameCamera_Update ->
                 // Transform_SetCamera / Transform_SnapCamera).
                 let cam = frame.camera;
+                renderer.advance_background_offset_tables(
+                    frame.bg2_vertical_offsets,
+                    frame.bg2_horizontal_offsets,
+                );
                 renderer
                     .transform
                     .set_camera_fine(cam.x, cam.y, cam.z, cam.rotation);
                 if cam.snap {
                     renderer.transform.snap_camera();
+                    renderer.snap_background_offset_tables();
                 }
             }
 
@@ -1196,6 +1201,7 @@ fn main() {
                 arrows: frame.arrows,
                 player_view_mode: frame.player_view_mode,
                 stage: frame.stage,
+                stage_banner: frame.stage_banner,
                 shield_cur: frame.shield_cur,
                 shield_max: frame.shield_max,
                 boss_hp_cur: frame.boss_hp_cur,

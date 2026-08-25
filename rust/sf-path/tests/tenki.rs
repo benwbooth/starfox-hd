@@ -1,6 +1,6 @@
 //! Titania weather paths, transcribed from PATHDATA.ASM:198-226.
 
-use sf_path::alien::{Alien, ObjectVisualKind, StratRef, ASF_COLLDISABLE, ATZREMOVE};
+use sf_path::alien::{Alien, ObjectVisualKind, StratRef, ASF2_COLLDISABLE, ATZREMOVE};
 use sf_path::ids::{PATH_ID_TENKI_DM, PATH_ID_TENKI_ON};
 use sf_path::interp::{strat_path_init, strat_path_tick, PathHost, PathWorld};
 use sf_path::literals;
@@ -90,12 +90,13 @@ fn tenki_on_raises_fog_latch_only_when_player_is_inside_radius() {
 
     strat_path_tick(&mut world, &mut host, 1);
     assert_eq!(world.ebyte3, 0);
-    assert!(world.aliens[1].sflags & ASF_COLLDISABLE != 0);
+    assert!(world.aliens[1].sflags2 & ASF2_COLLDISABLE != 0);
     assert!(world.aliens[1].type_ & ATZREMOVE != 0);
     assert_eq!(world.aliens[1].roty, 128);
     assert!(host.sounds.is_empty());
 
-    world.aliens[0].worldx = 100;
+    // The source range macro excludes the exact upper bound.
+    world.aliens[0].worldx = 99;
     strat_path_tick(&mut world, &mut host, 1);
     assert_eq!(world.ebyte3, 1);
     assert_eq!(world.aliens[1].pbyte1, 1);
@@ -116,7 +117,7 @@ fn tenki_dm_is_inert_collisionless_and_turns_away() {
 
     strat_path_tick(&mut world, &mut host, 1);
 
-    assert!(world.aliens[1].sflags & ASF_COLLDISABLE != 0);
+    assert!(world.aliens[1].sflags2 & ASF2_COLLDISABLE != 0);
     assert_eq!(world.aliens[1].roty, 128);
     assert!(world.aliens[1].type_ & ATZREMOVE != 0);
     assert!(host.sounds.is_empty());

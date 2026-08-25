@@ -1,6 +1,6 @@
 //! ROM LB-out / dive / cred / tunnel→planet SET_PLAYER* leaves.
 
-use sf_game::alien::ASF_INVISIBLE;
+use sf_game::alien::ASF4_INVISIBLE;
 use sf_game::vars::{
     GF_NOZREMOVE, GF_STRATDONE1, OUTVIEWDIST, PFM_WOBBLE, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ,
 };
@@ -35,7 +35,7 @@ fn out_of_lb2_and_lb3() {
 
     set_player_out_of_lb2(&mut g, p);
     assert_eq!(g.vars.sv_i16(sv::OUTVX), -(64 * 256));
-    assert!(g.objs.aliens[p as usize].sflags & ASF_INVISIBLE != 0);
+    assert!(g.objs.aliens[p as usize].sflags4 & ASF4_INVISIBLE != 0);
     assert!(g.vars.gameflags & GF_NOZREMOVE != 0);
     assert_eq!(g.vars.sv_i16(sv::BG2YSCROLL), 200);
 
@@ -63,7 +63,7 @@ fn lb2a_boost_and_cred_and_tunnel() {
 
     set_player_cred(&mut g, p);
     assert_eq!(g.vars.viewdist, OUTVIEWDIST);
-    assert!(g.objs.aliens[p as usize].sflags & ASF_INVISIBLE != 0);
+    assert!(g.objs.aliens[p as usize].sflags4 & ASF4_INVISIBLE != 0);
     assert_eq!(g.world.lastplayz, 0);
 
     set_player_tunnel_to_on_planet(&mut g, p);

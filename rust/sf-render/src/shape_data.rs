@@ -275,14 +275,26 @@ pub enum ShapePainterNode {
     },
 }
 
+/// Typed geometry selected by the authored source-distance LOD policy.
+#[derive(Debug, Clone, Copy)]
+pub struct SourceShapeData {
+    pub vertices: &'static [ShapeVertex],
+    pub animation_frames: &'static [&'static [ShapeVertex]],
+    pub reflected_pair_starts: &'static [u16],
+    pub faces: &'static [ShapeFace],
+    pub painter_nodes: &'static [ShapePainterNode],
+}
+
 /// One compiled shape, matching C `ShapeDataEntry` (shape_data.h).
 #[derive(Debug, Clone, Copy)]
 pub struct ShapeDataEntry {
     pub shape_id: u16,
     pub vertices: &'static [ShapeVertex],
     pub animation_frames: &'static [&'static [ShapeVertex]],
+    pub reflected_pair_starts: &'static [u16],
     pub faces: &'static [ShapeFace],
     pub painter_nodes: &'static [ShapePainterNode],
+    pub source_lods: [Option<SourceShapeData>; 3],
     pub default_color_table: &'static str,
     pub name: &'static str,
 }
@@ -308,6 +320,7 @@ const fn f(
 }
 
 // Shape 1: exitlight
+static SHAPE_1_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_1_VERTS: [ShapeVertex; 4] = [
     v(-5.0, 0.0, 20.0),
     v(-5.0, 0.0, -20.0),
@@ -325,6 +338,7 @@ static SHAPE_1_FACES: [ShapeFace; 1] = [f(
 static SHAPE_1_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 2: myship_4
+static SHAPE_2_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_2_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -10.0),
     v(0.0, -1.0, 0.0),
@@ -527,6 +541,7 @@ static SHAPE_2_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 3: iris
+static SHAPE_3_REFLECTED_PAIR_STARTS: [u16; 7] = [2, 4, 6, 8, 10, 12, 14];
 static SHAPE_3_VERTS: [ShapeVertex; 28] = [
     v(0.0, -60.0, 0.0),
     v(0.0, 60.0, 0.0),
@@ -1227,6 +1242,7 @@ static SHAPE_3_FACES: [ShapeFace; 28] = [
 static SHAPE_3_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 4: truck
+static SHAPE_4_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 5, 7, 16];
 static SHAPE_4_VERTS: [ShapeVertex; 20] = [
     v(-20.0, 20.0, 20.0),
     v(20.0, 20.0, 20.0),
@@ -1426,6 +1442,7 @@ static SHAPE_4_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 5: rail_4
+static SHAPE_5_REFLECTED_PAIR_STARTS: [u16; 3] = [4, 6, 8];
 static SHAPE_5_VERTS: [ShapeVertex; 10] = [
     v(-24.0, 0.0, -20.0),
     v(-40.0, 0.0, -20.0),
@@ -1465,6 +1482,7 @@ static SHAPE_5_FACES: [ShapeFace; 3] = [
 static SHAPE_5_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 6: m_tank
+static SHAPE_6_REFLECTED_PAIR_STARTS: [u16; 8] = [1, 3, 5, 7, 9, 11, 13, 15];
 static SHAPE_6_VERTS: [ShapeVertex; 17] = [
     v(0.0, 5.0, 50.0),
     v(-20.0, 65.0, -55.0),
@@ -1643,6 +1661,7 @@ static SHAPE_6_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 7: gate_0
+static SHAPE_7_REFLECTED_PAIR_STARTS: [u16; 10] = [4, 6, 8, 10, 12, 14, 16, 18, 20, 22];
 static SHAPE_7_VERTS: [ShapeVertex; 24] = [
     v(0.0, -100.0, -20.0),
     v(0.0, 100.0, -20.0),
@@ -1843,6 +1862,7 @@ static SHAPE_7_FACES: [ShapeFace; 24] = [
 static SHAPE_7_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 8: miss_1_2
+static SHAPE_8_REFLECTED_PAIR_STARTS: [u16; 3] = [0, 3, 5];
 static SHAPE_8_VERTS: [ShapeVertex; 7] = [
     v(10.0, 18.0, -2.0),
     v(-10.0, 18.0, -2.0),
@@ -1907,6 +1927,7 @@ static SHAPE_8_FACES: [ShapeFace; 7] = [
 static SHAPE_8_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 9: kamikaze
+static SHAPE_9_REFLECTED_PAIR_STARTS: [u16; 1] = [8];
 static SHAPE_9_VERTS: [ShapeVertex; 13] = [
     v(0.0, -10.0, 50.0),
     v(0.0, -25.0, -20.0),
@@ -2052,6 +2073,146 @@ static SHAPE_9_FACES: [ShapeFace; 19] = [
     ),
 ];
 
+static SHAPE_9_LOD_2_REFLECTED_PAIR_STARTS: [u16; 1] = [8];
+static SHAPE_9_LOD_2_VERTS: [ShapeVertex; 15] = [
+    v(0.0, -10.0, -10.0),
+    v(0.0, -25.0, -20.0),
+    v(0.0, 0.0, 30.0),
+    v(0.0, 10.0, 50.0),
+    v(0.0, 40.0, -40.0),
+    v(0.0, 25.0, -20.0),
+    v(10.0, 10.0, -10.0),
+    v(0.0, 0.0, 0.0),
+    v(-10.0, -10.0, -10.0),
+    v(10.0, -10.0, -10.0),
+    v(0.0, 0.0, -40.0),
+    v(0.0, -10.0, 50.0),
+    v(-10.0, 10.0, -10.0),
+    v(0.0, 10.0, -10.0),
+    v(0.0, -40.0, -40.0),
+];
+static SHAPE_9_LOD_2_FACES: [ShapeFace; 13] = [
+    f(
+        [1, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        2,
+        44,
+        [90, 0, -90],
+        None,
+    ),
+    f(
+        [5, 6, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [0, -70, -106],
+        Some([5, 6, 12]),
+    ),
+    f(
+        [6, 9, 8, 12, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        16,
+        [0, 0, -127],
+        Some([6, 9, 8]),
+    ),
+    f(
+        [9, 6, 12, 8, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        16,
+        [0, 0, 127],
+        Some([9, 6, 12]),
+    ),
+    f(
+        [10, 13, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        16,
+        [127, 0, 0],
+        Some([10, 13, 7]),
+    ),
+    f(
+        [13, 10, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        16,
+        [-127, 0, 0],
+        Some([13, 10, 0]),
+    ),
+    f(
+        [2, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        2,
+        42,
+        [120, 0, 40],
+        None,
+    ),
+    f(
+        [12, 6, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        45,
+        [0, 70, 106],
+        Some([12, 6, 5]),
+    ),
+    f(
+        [0, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [127, 0, 0],
+        Some([0, 11, 1]),
+    ),
+    f(
+        [1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [-127, 0, 0],
+        Some([1, 11, 0]),
+    ),
+    f(
+        [4, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        2,
+        44,
+        [-90, 0, -90],
+        None,
+    ),
+    f(
+        [5, 3, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [127, 0, 0],
+        Some([5, 3, 13]),
+    ),
+    f(
+        [13, 3, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [-127, 0, 0],
+        Some([13, 3, 5]),
+    ),
+];
+static SHAPE_9_LOD_2_PAINTER: [ShapePainterNode; 5] = [
+    ShapePainterNode::Partition {
+        visibility_vertices: None,
+        face_start: 0,
+        face_count: 1,
+        left: Some(1),
+        right: Some(4),
+    },
+    ShapePainterNode::Partition {
+        visibility_vertices: Some([5, 6, 12]),
+        face_start: 1,
+        face_count: 1,
+        left: Some(2),
+        right: Some(3),
+    },
+    ShapePainterNode::Leaf {
+        face_start: 2,
+        face_count: 5,
+    },
+    ShapePainterNode::Leaf {
+        face_start: 7,
+        face_count: 1,
+    },
+    ShapePainterNode::Leaf {
+        face_start: 8,
+        face_count: 5,
+    },
+];
+
 static SHAPE_9_PAINTER: [ShapePainterNode; 5] = [
     ShapePainterNode::Partition {
         visibility_vertices: Some([0, 8, 9]),
@@ -2082,6 +2243,7 @@ static SHAPE_9_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 10: largeplasma
+static SHAPE_10_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_10_VERTS: [ShapeVertex; 4] = [
     v(64.0, -64.0, 0.0),
     v(-64.0, -64.0, 0.0),
@@ -2099,6 +2261,7 @@ static SHAPE_10_FACES: [ShapeFace; 1] = [f(
 static SHAPE_10_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 11: flingboss
+static SHAPE_11_REFLECTED_PAIR_STARTS: [u16; 10] = [4, 6, 8, 10, 12, 14, 16, 18, 20, 24];
 static SHAPE_11_VERTS: [ShapeVertex; 26] = [
     v(0.0, 0.0, -80.0),
     v(0.0, 160.0, -40.0),
@@ -2670,6 +2833,7 @@ static SHAPE_11_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 12: shark
+static SHAPE_12_REFLECTED_PAIR_STARTS: [u16; 8] = [5, 7, 9, 11, 13, 15, 17, 19];
 static SHAPE_12_VERTS: [ShapeVertex; 21] = [
     v(0.0, 80.0, -180.0),
     v(0.0, 0.0, -40.0),
@@ -2912,6 +3076,7 @@ static SHAPE_12_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 13: d_head_0
+static SHAPE_13_REFLECTED_PAIR_STARTS: [u16; 4] = [3, 5, 7, 9];
 static SHAPE_13_VERTS: [ShapeVertex; 11] = [
     v(0.0, 30.0, -60.0),
     v(0.0, -30.0, -20.0),
@@ -3059,6 +3224,7 @@ static SHAPE_13_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 14: d_body_0
+static SHAPE_14_REFLECTED_PAIR_STARTS: [u16; 2] = [3, 5];
 static SHAPE_14_VERTS: [ShapeVertex; 7] = [
     v(0.0, 0.0, -30.0),
     v(0.0, 16.0, 0.0),
@@ -3146,6 +3312,7 @@ static SHAPE_14_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 15: cameleon
+static SHAPE_15_REFLECTED_PAIR_STARTS: [u16; 11] = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22];
 static SHAPE_15_VERTS: [ShapeVertex; 24] = [
     v(0.0, -40.0, -10.0),
     v(0.0, 25.0, -10.0),
@@ -3359,6 +3526,7 @@ static SHAPE_15_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 16: beeanim
+static SHAPE_16_REFLECTED_PAIR_STARTS: [u16; 5] = [6, 8, 10, 12, 14];
 static SHAPE_16_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, 0.0),
     v(0.0, -16.0, 10.0),
@@ -3575,6 +3743,8 @@ static SHAPE_16_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 17: round_0
+static SHAPE_17_REFLECTED_PAIR_STARTS: [u16; 13] =
+    [7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31];
 static SHAPE_17_VERTS: [ShapeVertex; 33] = [
     v(0.0, -200.0, -220.0),
     v(0.0, 200.0, -220.0),
@@ -3890,6 +4060,7 @@ static SHAPE_17_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 18: big_m
+static SHAPE_18_REFLECTED_PAIR_STARTS: [u16; 8] = [1, 3, 5, 7, 9, 11, 13, 15];
 static SHAPE_18_VERTS: [ShapeVertex; 17] = [
     v(0.0, 0.0, 44.0),
     v(-40.0, -60.0, -46.0),
@@ -4104,6 +4275,9 @@ static SHAPE_18_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 19: boss_1_2
+static SHAPE_19_REFLECTED_PAIR_STARTS: [u16; 17] = [
+    4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36,
+];
 static SHAPE_19_VERTS: [ShapeVertex; 38] = [
     v(0.0, -80.0, -40.0),
     v(0.0, 80.0, -40.0),
@@ -4373,6 +4547,7 @@ static SHAPE_19_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 20: ship_1
+static SHAPE_20_REFLECTED_PAIR_STARTS: [u16; 13] = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25];
 static SHAPE_20_VERTS: [ShapeVertex; 27] = [
     v(0.0, -240.0, 912.0),
     v(-24.0, -80.0, -80.0),
@@ -4619,6 +4794,10 @@ static SHAPE_20_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 21: ship_3
+static SHAPE_21_REFLECTED_PAIR_STARTS: [u16; 28] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
+    50, 52, 54,
+];
 static SHAPE_21_VERTS: [ShapeVertex; 56] = [
     v(-112.0, -192.0, -400.0),
     v(112.0, -192.0, -400.0),
@@ -4990,6 +5169,7 @@ static SHAPE_21_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 22: ship_0_c
+static SHAPE_22_REFLECTED_PAIR_STARTS: [u16; 6] = [3, 9, 15, 18, 21, 45];
 static SHAPE_22_VERTS: [ShapeVertex; 50] = [
     v(-368.0, -240.0, 1120.0),
     v(-368.0, 240.0, 1120.0),
@@ -5316,6 +5496,7 @@ static SHAPE_22_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 23: sship_0_c
+static SHAPE_23_REFLECTED_PAIR_STARTS: [u16; 6] = [3, 9, 15, 18, 21, 45];
 static SHAPE_23_VERTS: [ShapeVertex; 50] = [
     v(-92.0, -60.0, 280.0),
     v(-92.0, 60.0, 280.0),
@@ -5642,6 +5823,7 @@ static SHAPE_23_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 24: wall1
+static SHAPE_24_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_24_VERTS: [ShapeVertex; 11] = [
     v(80.0, 0.0, -880.0),
     v(-80.0, 0.0, -880.0),
@@ -5728,9 +5910,49 @@ static SHAPE_24_FACES: [ShapeFace; 8] = [
     ),
 ];
 
+static SHAPE_24_LOD_2_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
+static SHAPE_24_LOD_2_VERTS: [ShapeVertex; 7] = [
+    v(80.0, 0.0, 0.0),
+    v(-80.0, 0.0, 0.0),
+    v(80.0, 320.0, 0.0),
+    v(-80.0, 320.0, 0.0),
+    v(64.0, 40.0, 16.0),
+    v(-72.0, 160.0, 16.0),
+    v(64.0, 280.0, 16.0),
+];
+static SHAPE_24_LOD_2_FRAME_1_VERTS: [ShapeVertex; 7] = [
+    v(80.0, 0.0, 0.0),
+    v(-80.0, 0.0, 0.0),
+    v(80.0, 320.0, 0.0),
+    v(-80.0, 320.0, 0.0),
+    v(64.0, 160.0, 16.0),
+    v(-72.0, 40.0, 16.0),
+    v(-72.0, 280.0, 16.0),
+];
+static SHAPE_24_LOD_2_ANIMATION_FRAMES: [&[ShapeVertex]; 2] =
+    [&SHAPE_24_LOD_2_VERTS, &SHAPE_24_LOD_2_FRAME_1_VERTS];
+static SHAPE_24_LOD_2_FACES: [ShapeFace; 2] = [
+    f(
+        [1, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        9,
+        [0, 0, -127],
+        Some([1, 3, 2]),
+    ),
+    f(
+        [6, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        16,
+        [0, 0, -127],
+        Some([6, 4, 5]),
+    ),
+];
+static SHAPE_24_LOD_2_PAINTER: [ShapePainterNode; 0] = [];
+
 static SHAPE_24_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 25: wall2
+static SHAPE_25_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_25_VERTS: [ShapeVertex; 11] = [
     v(80.0, 0.0, -880.0),
     v(-80.0, 0.0, -880.0),
@@ -5817,9 +6039,49 @@ static SHAPE_25_FACES: [ShapeFace; 8] = [
     ),
 ];
 
+static SHAPE_25_LOD_2_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
+static SHAPE_25_LOD_2_VERTS: [ShapeVertex; 7] = [
+    v(80.0, 0.0, 0.0),
+    v(-80.0, 0.0, 0.0),
+    v(80.0, 320.0, 0.0),
+    v(-80.0, 320.0, 0.0),
+    v(64.0, 40.0, 16.0),
+    v(-72.0, 160.0, 16.0),
+    v(64.0, 280.0, 16.0),
+];
+static SHAPE_25_LOD_2_FRAME_1_VERTS: [ShapeVertex; 7] = [
+    v(80.0, 0.0, 0.0),
+    v(-80.0, 0.0, 0.0),
+    v(80.0, 320.0, 0.0),
+    v(-80.0, 320.0, 0.0),
+    v(64.0, 160.0, 16.0),
+    v(-72.0, 40.0, 16.0),
+    v(-72.0, 280.0, 16.0),
+];
+static SHAPE_25_LOD_2_ANIMATION_FRAMES: [&[ShapeVertex]; 2] =
+    [&SHAPE_25_LOD_2_VERTS, &SHAPE_25_LOD_2_FRAME_1_VERTS];
+static SHAPE_25_LOD_2_FACES: [ShapeFace; 2] = [
+    f(
+        [1, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        9,
+        [0, 0, -127],
+        Some([1, 3, 2]),
+    ),
+    f(
+        [6, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        16,
+        [0, 0, -127],
+        Some([6, 4, 5]),
+    ),
+];
+static SHAPE_25_LOD_2_PAINTER: [ShapePainterNode; 0] = [];
+
 static SHAPE_25_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 26: walker_0
+static SHAPE_26_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_26_VERTS: [ShapeVertex; 16] = [
     v(80.0, 0.0, 20.0),
     v(-68.0, 360.0, -76.0),
@@ -6323,6 +6585,7 @@ static SHAPE_26_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 27: pillar3
+static SHAPE_27_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_27_VERTS: [ShapeVertex; 9] = [
     v(24.0, 340.0, -24.0),
     v(24.0, 340.0, 24.0),
@@ -6407,9 +6670,88 @@ static SHAPE_27_FACES: [ShapeFace; 10] = [
     ),
 ];
 
+static SHAPE_27_LOD_0_REFLECTED_PAIR_STARTS: [u16; 0] = [];
+static SHAPE_27_LOD_0_VERTS: [ShapeVertex; 5] = [
+    v(24.0, 340.0, -24.0),
+    v(24.0, 0.0, -24.0),
+    v(-24.0, 340.0, -24.0),
+    v(-24.0, 0.0, -24.0),
+    v(0.0, 360.0, 0.0),
+];
+static SHAPE_27_LOD_0_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        7,
+        [0, 0, 127],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [0, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        43,
+        [0, -102, 76],
+        Some([0, 4, 2]),
+    ),
+];
+static SHAPE_27_LOD_0_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_27_LOD_1_REFLECTED_PAIR_STARTS: [u16; 0] = [];
+static SHAPE_27_LOD_1_VERTS: [ShapeVertex; 5] = [
+    v(24.0, 340.0, -24.0),
+    v(24.0, 0.0, -24.0),
+    v(-24.0, 340.0, -24.0),
+    v(-24.0, 0.0, -24.0),
+    v(0.0, 360.0, 0.0),
+];
+static SHAPE_27_LOD_1_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        7,
+        [0, 0, 127],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [0, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        43,
+        [0, -102, 76],
+        Some([0, 4, 2]),
+    ),
+];
+static SHAPE_27_LOD_1_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_27_LOD_2_REFLECTED_PAIR_STARTS: [u16; 0] = [];
+static SHAPE_27_LOD_2_VERTS: [ShapeVertex; 5] = [
+    v(24.0, 340.0, -24.0),
+    v(24.0, 0.0, -24.0),
+    v(-24.0, 340.0, -24.0),
+    v(-24.0, 0.0, -24.0),
+    v(0.0, 360.0, 0.0),
+];
+static SHAPE_27_LOD_2_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        7,
+        [0, 0, 127],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [0, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        43,
+        [0, -102, 76],
+        Some([0, 4, 2]),
+    ),
+];
+static SHAPE_27_LOD_2_PAINTER: [ShapePainterNode; 0] = [];
+
 static SHAPE_27_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 28: mwireexit
+static SHAPE_28_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_28_VERTS: [ShapeVertex; 4] = [
     v(-50.0, 95.0, 0.0),
     v(-50.0, 25.0, 0.0),
@@ -6426,6 +6768,7 @@ static SHAPE_28_FACES: [ShapeFace; 4] = [
 static SHAPE_28_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 29: lwireexit
+static SHAPE_29_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_29_VERTS: [ShapeVertex; 4] = [
     v(-70.0, 100.0, 0.0),
     v(-70.0, 25.0, 0.0),
@@ -6442,6 +6785,7 @@ static SHAPE_29_FACES: [ShapeFace; 4] = [
 static SHAPE_29_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 30: bltunnelface
+static SHAPE_30_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_30_VERTS: [ShapeVertex; 4] = [
     v(-70.0, 160.0, 0.0),
     v(-70.0, 85.0, 0.0),
@@ -6459,6 +6803,7 @@ static SHAPE_30_FACES: [ShapeFace; 1] = [f(
 static SHAPE_30_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 31: sea_0_0
+static SHAPE_31_REFLECTED_PAIR_STARTS: [u16; 2] = [2, 4];
 static SHAPE_31_VERTS: [ShapeVertex; 6] = [
     v(0.0, 10.0, -10.0),
     v(0.0, 0.0, 3.0),
@@ -6489,6 +6834,7 @@ static SHAPE_31_FACES: [ShapeFace; 4] = [
 static SHAPE_31_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 32: exit_1
+static SHAPE_32_REFLECTED_PAIR_STARTS: [u16; 9] = [0, 2, 4, 6, 8, 10, 12, 14, 16];
 static SHAPE_32_VERTS: [ShapeVertex; 18] = [
     v(120.0, 0.0, 0.0),
     v(-120.0, 0.0, 0.0),
@@ -6637,6 +6983,7 @@ static SHAPE_32_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 33: lblackface
+static SHAPE_33_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_33_VERTS: [ShapeVertex; 8] = [
     v(-70.0, 100.0, 0.0),
     v(-70.0, 25.0, 0.0),
@@ -6681,6 +7028,7 @@ static SHAPE_33_FACES: [ShapeFace; 4] = [
 static SHAPE_33_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 34: lcube
+static SHAPE_34_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_34_VERTS: [ShapeVertex; 8] = [
     v(5.0, -60.0, -5.0),
     v(-5.0, -60.0, -5.0),
@@ -6746,6 +7094,7 @@ static SHAPE_34_FACES: [ShapeFace; 7] = [
 static SHAPE_34_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 35: rail_0
+static SHAPE_35_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_35_VERTS: [ShapeVertex; 8] = [
     v(200.0, 0.0, -40.0),
     v(-200.0, 0.0, -40.0),
@@ -6773,9 +7122,49 @@ static SHAPE_35_FACES: [ShapeFace; 2] = [
     ),
 ];
 
+static SHAPE_35_LOD_0_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
+static SHAPE_35_LOD_0_VERTS: [ShapeVertex; 4] = [
+    v(200.0, 0.0, -9.0),
+    v(-200.0, 0.0, -9.0),
+    v(200.0, 0.0, 9.0),
+    v(-200.0, 0.0, 9.0),
+];
+static SHAPE_35_LOD_0_FACES: [ShapeFace; 2] = [
+    f([2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 9, [0, 0, 0], None),
+    f([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 9, [0, 0, 0], None),
+];
+static SHAPE_35_LOD_0_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_35_LOD_1_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
+static SHAPE_35_LOD_1_VERTS: [ShapeVertex; 4] = [
+    v(200.0, 0.0, -9.0),
+    v(-200.0, 0.0, -9.0),
+    v(200.0, 0.0, 9.0),
+    v(-200.0, 0.0, 9.0),
+];
+static SHAPE_35_LOD_1_FACES: [ShapeFace; 2] = [
+    f([2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 9, [0, 0, 0], None),
+    f([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 9, [0, 0, 0], None),
+];
+static SHAPE_35_LOD_1_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_35_LOD_2_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
+static SHAPE_35_LOD_2_VERTS: [ShapeVertex; 4] = [
+    v(200.0, 0.0, -9.0),
+    v(-200.0, 0.0, -9.0),
+    v(200.0, 0.0, 9.0),
+    v(-200.0, 0.0, 9.0),
+];
+static SHAPE_35_LOD_2_FACES: [ShapeFace; 2] = [
+    f([2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 9, [0, 0, 0], None),
+    f([0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 9, [0, 0, 0], None),
+];
+static SHAPE_35_LOD_2_PAINTER: [ShapePainterNode; 0] = [];
+
 static SHAPE_35_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 36: miss_1_1
+static SHAPE_36_REFLECTED_PAIR_STARTS: [u16; 5] = [0, 2, 4, 7, 10];
 static SHAPE_36_VERTS: [ShapeVertex; 12] = [
     v(-20.0, 0.0, 40.0),
     v(20.0, 0.0, 40.0),
@@ -6845,6 +7234,7 @@ static SHAPE_36_FACES: [ShapeFace; 7] = [
 static SHAPE_36_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 37: exitface
+static SHAPE_37_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_37_VERTS: [ShapeVertex; 4] = [
     v(-200.0, 70.0, 0.0),
     v(-200.0, -70.0, 0.0),
@@ -6862,6 +7252,7 @@ static SHAPE_37_FACES: [ShapeFace; 1] = [f(
 static SHAPE_37_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 38: mexitface
+static SHAPE_38_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_38_VERTS: [ShapeVertex; 4] = [
     v(-70.0, 65.0, 0.0),
     v(-70.0, -65.0, 0.0),
@@ -6879,6 +7270,7 @@ static SHAPE_38_FACES: [ShapeFace; 1] = [f(
 static SHAPE_38_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 39: bshipexitface
+static SHAPE_39_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_39_VERTS: [ShapeVertex; 4] = [
     v(-360.0, 160.0, 0.0),
     v(-360.0, -160.0, 0.0),
@@ -6896,6 +7288,7 @@ static SHAPE_39_FACES: [ShapeFace; 1] = [f(
 static SHAPE_39_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 40: ship3exitface
+static SHAPE_40_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_40_VERTS: [ShapeVertex; 4] = [
     v(-40.0, 30.0, 0.0),
     v(-40.0, -30.0, 0.0),
@@ -6913,6 +7306,7 @@ static SHAPE_40_FACES: [ShapeFace; 1] = [f(
 static SHAPE_40_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 41: pillar2
+static SHAPE_41_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_41_VERTS: [ShapeVertex; 8] = [
     v(28.0, 0.0, -40.0),
     v(-28.0, 0.0, -40.0),
@@ -7308,6 +7702,7 @@ static SHAPE_41_FACES: [ShapeFace; 5] = [
 static SHAPE_41_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 42: spillar2
+static SHAPE_42_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_42_VERTS: [ShapeVertex; 8] = [
     v(7.0, 0.0, -10.0),
     v(-7.0, 0.0, -10.0),
@@ -7703,6 +8098,7 @@ static SHAPE_42_FACES: [ShapeFace; 5] = [
 static SHAPE_42_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 43: boss_8_5
+static SHAPE_43_REFLECTED_PAIR_STARTS: [u16; 3] = [3, 5, 7];
 static SHAPE_43_VERTS: [ShapeVertex; 9] = [
     v(0.0, 120.0, 0.0),
     v(0.0, 240.0, 108.0),
@@ -7767,6 +8163,7 @@ static SHAPE_43_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 44: hou_4
+static SHAPE_44_REFLECTED_PAIR_STARTS: [u16; 1] = [2];
 static SHAPE_44_VERTS: [ShapeVertex; 6] = [
     v(0.0, -120.0, 0.0),
     v(0.0, 120.0, 0.0),
@@ -7853,6 +8250,7 @@ static SHAPE_44_FACES: [ShapeFace; 6] = [
 static SHAPE_44_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 45: boss_8_4
+static SHAPE_45_REFLECTED_PAIR_STARTS: [u16; 1] = [3];
 static SHAPE_45_VERTS: [ShapeVertex; 8] = [
     v(80.0, 720.0, 0.0),
     v(80.0, 720.0, -40.0),
@@ -7890,6 +8288,7 @@ static SHAPE_45_FACES: [ShapeFace; 3] = [
 static SHAPE_45_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 46: boss_8_0
+static SHAPE_46_REFLECTED_PAIR_STARTS: [u16; 3] = [0, 2, 13];
 static SHAPE_46_VERTS: [ShapeVertex; 16] = [
     v(8.0, 48.0, 0.0),
     v(-8.0, 48.0, 0.0),
@@ -8268,6 +8667,7 @@ static SHAPE_46_FACES: [ShapeFace; 13] = [
 static SHAPE_46_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 47: wire_man
+static SHAPE_47_REFLECTED_PAIR_STARTS: [u16; 1] = [11];
 static SHAPE_47_VERTS: [ShapeVertex; 13] = [
     v(0.0, 0.0, 40.0),
     v(-10.0, 30.0, 10.0),
@@ -8442,6 +8842,7 @@ static SHAPE_47_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 48: bom_wing
+static SHAPE_48_REFLECTED_PAIR_STARTS: [u16; 3] = [8, 13, 16];
 static SHAPE_48_VERTS: [ShapeVertex; 22] = [
     v(20.0, -15.0, 40.0),
     v(40.0, -15.0, 0.0),
@@ -8605,6 +9006,7 @@ static SHAPE_48_FACES: [ShapeFace; 19] = [
 static SHAPE_48_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 49: w_l
+static SHAPE_49_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_49_VERTS: [ShapeVertex; 16] = [
     v(0.0, 50.0, -40.0),
     v(0.0, -60.0, -10.0),
@@ -8762,6 +9164,7 @@ static SHAPE_49_FACES: [ShapeFace; 19] = [
 static SHAPE_49_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 50: rader_0
+static SHAPE_50_REFLECTED_PAIR_STARTS: [u16; 2] = [3, 6];
 static SHAPE_50_VERTS: [ShapeVertex; 8] = [
     v(0.0, 60.0, -60.0),
     v(0.0, 4.0, 0.0),
@@ -8863,6 +9266,7 @@ static SHAPE_50_FACES: [ShapeFace; 13] = [
 static SHAPE_50_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 51: rader_1
+static SHAPE_51_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_51_VERTS: [ShapeVertex; 9] = [
     v(60.0, 40.0, 0.0),
     v(0.0, 40.0, 60.0),
@@ -8929,6 +9333,7 @@ static SHAPE_51_FACES: [ShapeFace; 7] = [
 static SHAPE_51_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 52: zaco_6
+static SHAPE_52_REFLECTED_PAIR_STARTS: [u16; 3] = [4, 6, 8];
 static SHAPE_52_VERTS: [ShapeVertex; 10] = [
     v(0.0, 0.0, -60.0),
     v(0.0, -14.0, 20.0),
@@ -9052,6 +9457,7 @@ static SHAPE_52_FACES: [ShapeFace; 15] = [
 static SHAPE_52_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 53: zaco_5
+static SHAPE_53_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 10, 12, 14, 16];
 static SHAPE_53_VERTS: [ShapeVertex; 18] = [
     v(0.0, -16.0, -28.0),
     v(0.0, 32.0, -4.0),
@@ -9601,6 +10007,7 @@ static SHAPE_53_PAINTER: [ShapePainterNode; 17] = [
 ];
 
 // Shape 54: houdai_0
+static SHAPE_54_REFLECTED_PAIR_STARTS: [u16; 5] = [0, 2, 4, 6, 10];
 static SHAPE_54_VERTS: [ShapeVertex; 12] = [
     v(20.0, 80.0, -20.0),
     v(-20.0, 80.0, -20.0),
@@ -9721,6 +10128,9 @@ static SHAPE_54_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 55: boss_7_1
+static SHAPE_55_REFLECTED_PAIR_STARTS: [u16; 22] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42,
+];
 static SHAPE_55_VERTS: [ShapeVertex; 44] = [
     v(-40.0, 0.0, -440.0),
     v(40.0, 0.0, -440.0),
@@ -10163,6 +10573,7 @@ static SHAPE_55_PAINTER: [ShapePainterNode; 15] = [
 ];
 
 // Shape 56: boss_a_1
+static SHAPE_56_REFLECTED_PAIR_STARTS: [u16; 8] = [2, 4, 6, 8, 10, 12, 14, 16];
 static SHAPE_56_VERTS: [ShapeVertex; 18] = [
     v(0.0, 32.0, -44.0),
     v(0.0, 64.0, -44.0),
@@ -10296,6 +10707,10 @@ static SHAPE_56_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 57: boss_a_2
+static SHAPE_57_REFLECTED_PAIR_STARTS: [u16; 31] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
+    50, 52, 54, 56, 58, 60,
+];
 static SHAPE_57_VERTS: [ShapeVertex; 62] = [
     v(200.0, 64.0, -200.0),
     v(-200.0, 64.0, -200.0),
@@ -10757,6 +11172,7 @@ static SHAPE_57_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 58: tower_2
+static SHAPE_58_REFLECTED_PAIR_STARTS: [u16; 1] = [6];
 static SHAPE_58_VERTS: [ShapeVertex; 15] = [
     v(80.0, 80.0, -80.0),
     v(0.0, 440.0, 0.0),
@@ -10827,6 +11243,7 @@ static SHAPE_58_FACES: [ShapeFace; 17] = [
 static SHAPE_58_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 59: para_0
+static SHAPE_59_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_59_VERTS: [ShapeVertex; 16] = [
     v(0.0, -66.0, 0.0),
     v(0.0, -46.0, 0.0),
@@ -10969,6 +11386,7 @@ static SHAPE_59_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 60: bu_0
+static SHAPE_60_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_60_VERTS: [ShapeVertex; 12] = [
     v(-160.0, 0.0, -160.0),
     v(160.0, 0.0, -160.0),
@@ -11031,6 +11449,7 @@ static SHAPE_60_FACES: [ShapeFace; 6] = [
 static SHAPE_60_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 61: bu_1
+static SHAPE_61_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_61_VERTS: [ShapeVertex; 12] = [
     v(-80.0, 0.0, -80.0),
     v(80.0, 0.0, -80.0),
@@ -11093,6 +11512,7 @@ static SHAPE_61_FACES: [ShapeFace; 6] = [
 static SHAPE_61_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 62: bu_2
+static SHAPE_62_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_62_VERTS: [ShapeVertex; 10] = [
     v(80.0, 560.0, 0.0),
     v(-80.0, 0.0, 0.0),
@@ -11146,6 +11566,7 @@ static SHAPE_62_FACES: [ShapeFace; 5] = [
 static SHAPE_62_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 63: bu_3
+static SHAPE_63_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_63_VERTS: [ShapeVertex; 8] = [
     v(-80.0, 0.0, 0.0),
     v(80.0, 0.0, 0.0),
@@ -11190,6 +11611,7 @@ static SHAPE_63_FACES: [ShapeFace; 4] = [
 static SHAPE_63_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 64: bu_4
+static SHAPE_64_REFLECTED_PAIR_STARTS: [u16; 11] = [12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32];
 static SHAPE_64_VERTS: [ShapeVertex; 34] = [
     v(-40.0, 180.0, -200.0),
     v(-200.0, 180.0, -200.0),
@@ -11406,6 +11828,7 @@ static SHAPE_64_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 65: bu_5
+static SHAPE_65_REFLECTED_PAIR_STARTS: [u16; 4] = [16, 18, 20, 22];
 static SHAPE_65_VERTS: [ShapeVertex; 24] = [
     v(-40.0, 180.0, -200.0),
     v(-200.0, 180.0, -200.0),
@@ -11559,6 +11982,8 @@ static SHAPE_65_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 66: bu_6
+static SHAPE_66_REFLECTED_PAIR_STARTS: [u16; 15] =
+    [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32];
 static SHAPE_66_VERTS: [ShapeVertex; 34] = [
     v(-200.0, 400.0, -80.0),
     v(-200.0, 360.0, -40.0),
@@ -11747,6 +12172,7 @@ static SHAPE_66_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 67: bu_7
+static SHAPE_67_REFLECTED_PAIR_STARTS: [u16; 9] = [0, 2, 4, 6, 8, 10, 12, 14, 16];
 static SHAPE_67_VERTS: [ShapeVertex; 18] = [
     v(120.0, 0.0, -180.0),
     v(-120.0, 0.0, -180.0),
@@ -11836,6 +12262,7 @@ static SHAPE_67_FACES: [ShapeFace; 9] = [
 static SHAPE_67_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 68: bu_8
+static SHAPE_68_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_68_VERTS: [ShapeVertex; 12] = [
     v(-80.0, 0.0, -80.0),
     v(80.0, 0.0, -80.0),
@@ -11898,6 +12325,7 @@ static SHAPE_68_FACES: [ShapeFace; 6] = [
 static SHAPE_68_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 69: boss_2_2
+static SHAPE_69_REFLECTED_PAIR_STARTS: [u16; 3] = [2, 6, 8];
 static SHAPE_69_VERTS: [ShapeVertex; 17] = [
     v(160.0, 240.0, -64.0),
     v(160.0, 240.0, 64.0),
@@ -12042,6 +12470,9 @@ static SHAPE_69_FACES: [ShapeFace; 17] = [
 static SHAPE_69_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 70: core_1_0
+static SHAPE_70_REFLECTED_PAIR_STARTS: [u16; 18] = [
+    9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43,
+];
 static SHAPE_70_VERTS: [ShapeVertex; 45] = [
     v(0.0, 30.0, -28.0),
     v(0.0, 38.0, -28.0),
@@ -12425,6 +12856,7 @@ static SHAPE_70_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 71: core_1_1
+static SHAPE_71_REFLECTED_PAIR_STARTS: [u16; 1] = [4];
 static SHAPE_71_VERTS: [ShapeVertex; 6] = [
     v(0.0, 60.0, -26.0),
     v(0.0, 34.0, 0.0),
@@ -12495,6 +12927,7 @@ static SHAPE_71_FACES: [ShapeFace; 8] = [
 static SHAPE_71_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 72: exit_2
+static SHAPE_72_REFLECTED_PAIR_STARTS: [u16; 7] = [0, 2, 10, 18, 20, 22, 25];
 static SHAPE_72_VERTS: [ShapeVertex; 28] = [
     v(90.0, 0.0, 0.0),
     v(-90.0, 0.0, 0.0),
@@ -12755,6 +13188,7 @@ static SHAPE_72_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 73: bmtunnelface
+static SHAPE_73_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_73_VERTS: [ShapeVertex; 4] = [
     v(-50.0, 155.0, 0.0),
     v(-50.0, 85.0, 0.0),
@@ -12772,6 +13206,7 @@ static SHAPE_73_FACES: [ShapeFace; 1] = [f(
 static SHAPE_73_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 74: mblackface
+static SHAPE_74_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_74_VERTS: [ShapeVertex; 8] = [
     v(-50.0, 95.0, 0.0),
     v(-50.0, 25.0, 0.0),
@@ -12816,6 +13251,7 @@ static SHAPE_74_FACES: [ShapeFace; 4] = [
 static SHAPE_74_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 75: boss_b_0
+static SHAPE_75_REFLECTED_PAIR_STARTS: [u16; 3] = [4, 8, 14];
 static SHAPE_75_VERTS: [ShapeVertex; 23] = [
     v(60.0, -20.0, 40.0),
     v(80.0, 0.0, 80.0),
@@ -13657,6 +14093,7 @@ static SHAPE_75_PAINTER: [ShapePainterNode; 15] = [
 ];
 
 // Shape 76: boss_b_1
+static SHAPE_76_REFLECTED_PAIR_STARTS: [u16; 2] = [4, 9];
 static SHAPE_76_VERTS: [ShapeVertex; 17] = [
     v(-60.0, -20.0, 40.0),
     v(-80.0, 0.0, 80.0),
@@ -13945,6 +14382,7 @@ static SHAPE_76_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 77: boss_d_1
+static SHAPE_77_REFLECTED_PAIR_STARTS: [u16; 6] = [14, 16, 18, 20, 22, 24];
 static SHAPE_77_VERTS: [ShapeVertex; 26] = [
     v(-140.0, 0.0, -116.0),
     v(140.0, 0.0, -116.0),
@@ -14626,6 +15064,10 @@ static SHAPE_77_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 78: boss_9_5
+static SHAPE_78_REFLECTED_PAIR_STARTS: [u16; 29] = [
+    16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62,
+    64, 66, 68, 70, 72,
+];
 static SHAPE_78_VERTS: [ShapeVertex; 74] = [
     v(0.0, -50.0, -70.0),
     v(0.0, -30.0, 26.0),
@@ -15288,6 +15730,7 @@ static SHAPE_78_PAINTER: [ShapePainterNode; 19] = [
 ];
 
 // Shape 79: air_1
+static SHAPE_79_REFLECTED_PAIR_STARTS: [u16; 8] = [5, 7, 9, 11, 13, 15, 17, 19];
 static SHAPE_79_VERTS: [ShapeVertex; 21] = [
     v(0.0, 15.0, -25.0),
     v(0.0, 28.0, -20.0),
@@ -15477,6 +15920,7 @@ static SHAPE_79_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 80: line_2
+static SHAPE_80_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_80_VERTS: [ShapeVertex; 7] = [
     v(46.0, 0.0, -89.0),
     v(54.0, 0.0, -84.0),
@@ -15506,6 +15950,9 @@ static SHAPE_80_FACES: [ShapeFace; 2] = [
 static SHAPE_80_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 81: boss_f_3
+static SHAPE_81_REFLECTED_PAIR_STARTS: [u16; 17] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
+];
 static SHAPE_81_VERTS: [ShapeVertex; 34] = [
     v(-80.0, -40.0, -488.0),
     v(80.0, -40.0, -488.0),
@@ -16196,6 +16643,7 @@ static SHAPE_81_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 82: tunnel_8
+static SHAPE_82_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
 static SHAPE_82_VERTS: [ShapeVertex; 20] = [
     v(-20.0, 0.0, -10.0),
     v(20.0, 0.0, -10.0),
@@ -16322,6 +16770,7 @@ static SHAPE_82_FACES: [ShapeFace; 14] = [
 static SHAPE_82_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 83: tunnel_6
+static SHAPE_83_REFLECTED_PAIR_STARTS: [u16; 6] = [32, 34, 36, 44, 46, 50];
 static SHAPE_83_VERTS: [ShapeVertex; 54] = [
     v(-8.0, 5.0, -40.0),
     v(-8.0, 0.0, -40.0),
@@ -17273,6 +17722,7 @@ static SHAPE_83_PAINTER: [ShapePainterNode; 17] = [
 ];
 
 // Shape 84: boss_0_1
+static SHAPE_84_REFLECTED_PAIR_STARTS: [u16; 4] = [4, 6, 8, 10];
 static SHAPE_84_VERTS: [ShapeVertex; 12] = [
     v(0.0, -80.0, 8.0),
     v(0.0, 80.0, 8.0),
@@ -17342,6 +17792,7 @@ static SHAPE_84_FACES: [ShapeFace; 7] = [
 static SHAPE_84_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 85: door_1
+static SHAPE_85_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 9, 30];
 static SHAPE_85_VERTS: [ShapeVertex; 46] = [
     v(110.0, 50.0, 0.0),
     v(-110.0, 50.0, 0.0),
@@ -18049,6 +18500,7 @@ static SHAPE_85_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 86: wall_0
+static SHAPE_86_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_86_VERTS: [ShapeVertex; 12] = [
     v(-90.0, -20.0, 0.0),
     v(90.0, -20.0, 0.0),
@@ -18104,6 +18556,7 @@ static SHAPE_86_FACES: [ShapeFace; 5] = [
 static SHAPE_86_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 87: wall_1
+static SHAPE_87_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_87_VERTS: [ShapeVertex; 12] = [
     v(90.0, -40.0, 0.0),
     v(-90.0, -40.0, 0.0),
@@ -18159,6 +18612,7 @@ static SHAPE_87_FACES: [ShapeFace; 5] = [
 static SHAPE_87_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 88: wall_2
+static SHAPE_88_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_88_VERTS: [ShapeVertex; 12] = [
     v(-30.0, -60.0, 0.0),
     v(30.0, -60.0, 0.0),
@@ -18242,6 +18696,7 @@ static SHAPE_88_FACES: [ShapeFace; 9] = [
 static SHAPE_88_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 89: wall_3
+static SHAPE_89_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_89_VERTS: [ShapeVertex; 12] = [
     v(50.0, -60.0, 0.0),
     v(-50.0, -60.0, 0.0),
@@ -18325,6 +18780,7 @@ static SHAPE_89_FACES: [ShapeFace; 9] = [
 static SHAPE_89_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 90: wall_4
+static SHAPE_90_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_90_VERTS: [ShapeVertex; 12] = [
     v(10.0, -60.0, 0.0),
     v(-10.0, -60.0, 0.0),
@@ -18408,6 +18864,7 @@ static SHAPE_90_FACES: [ShapeFace; 9] = [
 static SHAPE_90_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 91: wall_5
+static SHAPE_91_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_91_VERTS: [ShapeVertex; 12] = [
     v(90.0, -10.0, 0.0),
     v(-90.0, -10.0, 0.0),
@@ -18491,6 +18948,7 @@ static SHAPE_91_FACES: [ShapeFace; 9] = [
 static SHAPE_91_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 92: wall_6
+static SHAPE_92_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_92_VERTS: [ShapeVertex; 12] = [
     v(30.0, -30.0, 0.0),
     v(-30.0, -30.0, 0.0),
@@ -18574,6 +19032,7 @@ static SHAPE_92_FACES: [ShapeFace; 9] = [
 static SHAPE_92_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 93: wall_7
+static SHAPE_93_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_93_VERTS: [ShapeVertex; 12] = [
     v(10.0, -40.0, 0.0),
     v(-10.0, -40.0, 0.0),
@@ -18657,6 +19116,7 @@ static SHAPE_93_FACES: [ShapeFace; 9] = [
 static SHAPE_93_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 94: boss_f_4
+static SHAPE_94_REFLECTED_PAIR_STARTS: [u16; 3] = [0, 44, 52];
 static SHAPE_94_VERTS: [ShapeVertex; 56] = [
     v(-80.0, 40.0, 480.0),
     v(80.0, 40.0, 480.0),
@@ -19208,6 +19668,7 @@ static SHAPE_94_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 95: r_bu_0
+static SHAPE_95_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_95_VERTS: [ShapeVertex; 22] = [
     v(40.0, 0.0, -40.0),
     v(-40.0, 0.0, -40.0),
@@ -19651,6 +20112,7 @@ static SHAPE_95_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 96: r_bu_1
+static SHAPE_96_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_96_VERTS: [ShapeVertex; 12] = [
     v(-55.0, 0.0, -55.0),
     v(55.0, 0.0, -55.0),
@@ -19727,6 +20189,7 @@ static SHAPE_96_FACES: [ShapeFace; 8] = [
 static SHAPE_96_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 97: r_bu_2
+static SHAPE_97_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_97_VERTS: [ShapeVertex; 12] = [
     v(105.0, 0.0, -105.0),
     v(-115.0, 0.0, -105.0),
@@ -19803,6 +20266,7 @@ static SHAPE_97_FACES: [ShapeFace; 8] = [
 static SHAPE_97_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 98: r_bu_3
+static SHAPE_98_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_98_VERTS: [ShapeVertex; 12] = [
     v(-30.0, 0.0, -30.0),
     v(30.0, 0.0, -30.0),
@@ -19879,6 +20343,7 @@ static SHAPE_98_FACES: [ShapeFace; 8] = [
 static SHAPE_98_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 99: r_bu_4
+static SHAPE_99_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_99_VERTS: [ShapeVertex; 12] = [
     v(-80.0, 0.0, -80.0),
     v(80.0, 0.0, -80.0),
@@ -19955,6 +20420,7 @@ static SHAPE_99_FACES: [ShapeFace; 8] = [
 static SHAPE_99_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 100: r_bu_5
+static SHAPE_100_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_100_VERTS: [ShapeVertex; 12] = [
     v(40.0, -80.0, -200.0),
     v(-40.0, -80.0, -200.0),
@@ -20024,6 +20490,7 @@ static SHAPE_100_FACES: [ShapeFace; 7] = [
 static SHAPE_100_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 101: r_bu_6
+static SHAPE_101_REFLECTED_PAIR_STARTS: [u16; 8] = [0, 2, 4, 6, 8, 10, 12, 14];
 static SHAPE_101_VERTS: [ShapeVertex; 16] = [
     v(-20.0, -30.0, -150.0),
     v(20.0, -30.0, -150.0),
@@ -20118,6 +20585,7 @@ static SHAPE_101_FACES: [ShapeFace; 10] = [
 static SHAPE_101_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 102: r_bu_7
+static SHAPE_102_REFLECTED_PAIR_STARTS: [u16; 8] = [0, 2, 4, 6, 8, 10, 12, 14];
 static SHAPE_102_VERTS: [ShapeVertex; 16] = [
     v(-15.0, -125.0, -25.0),
     v(15.0, -125.0, -25.0),
@@ -20212,6 +20680,7 @@ static SHAPE_102_FACES: [ShapeFace; 10] = [
 static SHAPE_102_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 103: amoeba2
+static SHAPE_103_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_103_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -20229,6 +20698,7 @@ static SHAPE_103_FACES: [ShapeFace; 1] = [f(
 static SHAPE_103_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 104: zaco_8
+static SHAPE_104_REFLECTED_PAIR_STARTS: [u16; 5] = [4, 6, 8, 10, 12];
 static SHAPE_104_VERTS: [ShapeVertex; 14] = [
     v(0.0, 60.0, -60.0),
     v(0.0, 20.0, 20.0),
@@ -20383,6 +20853,7 @@ static SHAPE_104_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 105: zaco_4
+static SHAPE_105_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_105_VERTS: [ShapeVertex; 12] = [
     v(-40.0, 20.0, -120.0),
     v(40.0, 20.0, -120.0),
@@ -20523,6 +20994,8 @@ static SHAPE_105_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 106: ship_5
+static SHAPE_106_REFLECTED_PAIR_STARTS: [u16; 14] =
+    [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
 static SHAPE_106_VERTS: [ShapeVertex; 32] = [
     v(0.0, -160.0, -960.0),
     v(0.0, -320.0, -480.0),
@@ -20724,6 +21197,8 @@ static SHAPE_106_FACES: [ShapeFace; 23] = [
 static SHAPE_106_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 107: ship_5l
+static SHAPE_107_REFLECTED_PAIR_STARTS: [u16; 14] =
+    [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
 static SHAPE_107_VERTS: [ShapeVertex; 32] = [
     v(0.0, -80.0, -480.0),
     v(0.0, -160.0, -240.0),
@@ -20925,6 +21400,8 @@ static SHAPE_107_FACES: [ShapeFace; 23] = [
 static SHAPE_107_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 108: ship_5m
+static SHAPE_108_REFLECTED_PAIR_STARTS: [u16; 14] =
+    [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
 static SHAPE_108_VERTS: [ShapeVertex; 32] = [
     v(0.0, -40.0, -240.0),
     v(0.0, -80.0, -120.0),
@@ -21126,6 +21603,7 @@ static SHAPE_108_FACES: [ShapeFace; 23] = [
 static SHAPE_108_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 109: ship_5s
+static SHAPE_109_REFLECTED_PAIR_STARTS: [u16; 10] = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20];
 static SHAPE_109_VERTS: [ShapeVertex; 22] = [
     v(0.0, -20.0, 0.0),
     v(0.0, -13.0, 120.0),
@@ -21235,6 +21713,7 @@ static SHAPE_109_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 110: ships
+static SHAPE_110_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_110_VERTS: [ShapeVertex; 34] = [
     v(-168.0, -296.0, 0.0),
     v(312.0, -280.0, 0.0),
@@ -21471,6 +21950,7 @@ static SHAPE_110_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 111: s_door_1
+static SHAPE_111_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
 static SHAPE_111_VERTS: [ShapeVertex; 32] = [
     v(92.0, -60.0, -10.0),
     v(-92.0, -60.0, -10.0),
@@ -21955,6 +22435,7 @@ static SHAPE_111_FACES: [ShapeFace; 18] = [
 static SHAPE_111_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 112: s_door_2
+static SHAPE_112_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_112_VERTS: [ShapeVertex; 30] = [
     v(92.0, 60.0, -10.0),
     v(92.0, -60.0, -10.0),
@@ -22419,6 +22900,9 @@ static SHAPE_112_FACES: [ShapeFace; 18] = [
 static SHAPE_112_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 113: leng_0
+static SHAPE_113_REFLECTED_PAIR_STARTS: [u16; 18] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34,
+];
 static SHAPE_113_VERTS: [ShapeVertex; 36] = [
     v(70.0, 0.0, -60.0),
     v(-70.0, 0.0, -60.0),
@@ -23046,6 +23530,7 @@ static SHAPE_113_FACES: [ShapeFace; 16] = [
 static SHAPE_113_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 114: carrier
+static SHAPE_114_REFLECTED_PAIR_STARTS: [u16; 12] = [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28];
 static SHAPE_114_VERTS: [ShapeVertex; 30] = [
     v(-132.0, -120.0, -292.0),
     v(-80.0, -76.0, -188.0),
@@ -23266,6 +23751,9 @@ static SHAPE_114_FACES: [ShapeFace; 26] = [
 static SHAPE_114_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 115: base_0
+static SHAPE_115_REFLECTED_PAIR_STARTS: [u16; 19] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36,
+];
 static SHAPE_115_VERTS: [ShapeVertex; 38] = [
     v(160.0, 0.0, 0.0),
     v(-160.0, 0.0, 0.0),
@@ -23797,6 +24285,7 @@ static SHAPE_115_FACES: [ShapeFace; 22] = [
 static SHAPE_115_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 116: kellogs
+static SHAPE_116_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_116_VERTS: [ShapeVertex; 4] = [
     v(50.0, 0.0, 50.0),
     v(-50.0, 0.0, 50.0),
@@ -23814,6 +24303,9 @@ static SHAPE_116_FACES: [ShapeFace; 1] = [f(
 static SHAPE_116_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 117: k_door
+static SHAPE_117_REFLECTED_PAIR_STARTS: [u16; 22] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42,
+];
 static SHAPE_117_VERTS: [ShapeVertex; 44] = [
     v(64.0, 0.0, -10.0),
     v(-64.0, 0.0, -10.0),
@@ -24513,6 +25005,7 @@ static SHAPE_117_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 118: kichi_3
+static SHAPE_118_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_118_VERTS: [ShapeVertex; 12] = [
     v(-64.0, 0.0, -200.0),
     v(64.0, 0.0, -200.0),
@@ -24603,6 +25096,9 @@ static SHAPE_118_FACES: [ShapeFace; 10] = [
 static SHAPE_118_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 119: kichi_0
+static SHAPE_119_REFLECTED_PAIR_STARTS: [u16; 22] = [
+    3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45,
+];
 static SHAPE_119_VERTS: [ShapeVertex; 47] = [
     v(1152.0, 960.0, -960.0),
     v(0.0, 2240.0, -960.0),
@@ -25096,6 +25592,10 @@ static SHAPE_119_PAINTER: [ShapePainterNode; 23] = [
 ];
 
 // Shape 120: boss_g_0
+static SHAPE_120_REFLECTED_PAIR_STARTS: [u16; 31] = [
+    7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51, 53,
+    55, 57, 59, 61, 63, 65, 67,
+];
 static SHAPE_120_VERTS: [ShapeVertex; 69] = [
     v(0.0, 60.0, -30.0),
     v(0.0, -15.0, 0.0),
@@ -26795,6 +27295,7 @@ static SHAPE_120_PAINTER: [ShapePainterNode; 23] = [
 ];
 
 // Shape 121: tunnel_0
+static SHAPE_121_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_121_VERTS: [ShapeVertex; 5] = [
     v(-20.0, 0.0, -30.0),
     v(0.0, 20.0, -30.0),
@@ -26822,6 +27323,7 @@ static SHAPE_121_FACES: [ShapeFace; 2] = [
 static SHAPE_121_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 122: tunnel_4
+static SHAPE_122_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_122_VERTS: [ShapeVertex; 20] = [
     v(0.0, 0.0, -20.0),
     v(-28.0, 0.0, -20.0),
@@ -26927,6 +27429,7 @@ static SHAPE_122_FACES: [ShapeFace; 11] = [
 static SHAPE_122_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 123: tunnel_7
+static SHAPE_123_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_123_VERTS: [ShapeVertex; 12] = [
     v(8.0, 0.0, -15.0),
     v(-8.0, 0.0, -15.0),
@@ -26971,6 +27474,7 @@ static SHAPE_123_FACES: [ShapeFace; 6] = [
 static SHAPE_123_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 124: mybase_1
+static SHAPE_124_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_124_VERTS: [ShapeVertex; 4] = [
     v(-344.0, 288.0, -440.0),
     v(-344.0, 352.0, -440.0),
@@ -26988,6 +27492,7 @@ static SHAPE_124_FACES: [ShapeFace; 1] = [f(
 static SHAPE_124_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 125: ship_s_0
+static SHAPE_125_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_125_VERTS: [ShapeVertex; 10] = [
     v(16.0, 120.0, -24.0),
     v(-8.0, 128.0, -24.0),
@@ -27020,6 +27525,7 @@ static SHAPE_125_FACES: [ShapeFace; 2] = [
 static SHAPE_125_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 126: ship_s_1
+static SHAPE_126_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_126_VERTS: [ShapeVertex; 10] = [
     v(16.0, 96.0, -40.0),
     v(40.0, 48.0, -40.0),
@@ -27052,6 +27558,7 @@ static SHAPE_126_FACES: [ShapeFace; 2] = [
 static SHAPE_126_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 127: ship_4
+static SHAPE_127_REFLECTED_PAIR_STARTS: [u16; 3] = [7, 14, 36];
 static SHAPE_127_VERTS: [ShapeVertex; 38] = [
     v(-60.0, 20.0, -80.0),
     v(-60.0, -20.0, -80.0),
@@ -27368,6 +27875,184 @@ static SHAPE_127_FACES: [ShapeFace; 39] = [
     ),
 ];
 
+static SHAPE_127_LOD_1_REFLECTED_PAIR_STARTS: [u16; 5] = [2, 4, 6, 8, 10];
+static SHAPE_127_LOD_1_VERTS: [ShapeVertex; 12] = [
+    v(0.0, -10.0, -30.0),
+    v(0.0, 10.0, -30.0),
+    v(-40.0, -25.0, 30.0),
+    v(40.0, -25.0, 30.0),
+    v(-40.0, 25.0, 30.0),
+    v(40.0, 25.0, 30.0),
+    v(-40.0, -25.0, 50.0),
+    v(40.0, -25.0, 50.0),
+    v(-40.0, 25.0, 50.0),
+    v(40.0, 25.0, 50.0),
+    v(10.0, 0.0, 110.0),
+    v(-10.0, 0.0, 110.0),
+];
+static SHAPE_127_LOD_1_FACES: [ShapeFace; 10] = [
+    f(
+        [1, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        21,
+        [-106, 0, 70],
+        Some([1, 0, 3]),
+    ),
+    f(
+        [4, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        21,
+        [106, 0, 70],
+        Some([4, 2, 0]),
+    ),
+    f(
+        [8, 4, 5, 9, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        20,
+        [0, -127, 0],
+        Some([8, 4, 5]),
+    ),
+    f(
+        [10, 11, 8, 9, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        18,
+        [0, -117, -49],
+        Some([10, 11, 8]),
+    ),
+    f(
+        [7, 6, 11, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        14,
+        [0, 117, -49],
+        Some([7, 6, 11]),
+    ),
+    f(
+        [7, 3, 2, 6, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        12,
+        [0, 127, 0],
+        Some([7, 3, 2]),
+    ),
+    f(
+        [10, 9, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        23,
+        [-114, 0, -57],
+        Some([10, 9, 7]),
+    ),
+    f(
+        [6, 8, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        23,
+        [114, 0, -57],
+        Some([6, 8, 11]),
+    ),
+    f(
+        [6, 2, 4, 8, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        10,
+        [127, 0, 0],
+        Some([6, 2, 4]),
+    ),
+    f(
+        [9, 5, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        10,
+        [-127, 0, 0],
+        Some([9, 5, 3]),
+    ),
+];
+static SHAPE_127_LOD_1_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_127_LOD_2_REFLECTED_PAIR_STARTS: [u16; 5] = [2, 4, 6, 8, 10];
+static SHAPE_127_LOD_2_VERTS: [ShapeVertex; 12] = [
+    v(0.0, -10.0, -30.0),
+    v(0.0, 10.0, -30.0),
+    v(-40.0, -25.0, 30.0),
+    v(40.0, -25.0, 30.0),
+    v(-40.0, 25.0, 30.0),
+    v(40.0, 25.0, 30.0),
+    v(-40.0, -25.0, 50.0),
+    v(40.0, -25.0, 50.0),
+    v(-40.0, 25.0, 50.0),
+    v(40.0, 25.0, 50.0),
+    v(10.0, 0.0, 110.0),
+    v(-10.0, 0.0, 110.0),
+];
+static SHAPE_127_LOD_2_FACES: [ShapeFace; 10] = [
+    f(
+        [1, 0, 3, 5, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        21,
+        [-106, 0, 70],
+        Some([1, 0, 3]),
+    ),
+    f(
+        [4, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        21,
+        [106, 0, 70],
+        Some([4, 2, 0]),
+    ),
+    f(
+        [8, 4, 5, 9, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        20,
+        [0, -127, 0],
+        Some([8, 4, 5]),
+    ),
+    f(
+        [10, 11, 8, 9, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        18,
+        [0, -117, -49],
+        Some([10, 11, 8]),
+    ),
+    f(
+        [7, 6, 11, 10, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        14,
+        [0, 117, -49],
+        Some([7, 6, 11]),
+    ),
+    f(
+        [7, 3, 2, 6, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        12,
+        [0, 127, 0],
+        Some([7, 3, 2]),
+    ),
+    f(
+        [10, 9, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        23,
+        [-114, 0, -57],
+        Some([10, 9, 7]),
+    ),
+    f(
+        [6, 8, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        23,
+        [114, 0, -57],
+        Some([6, 8, 11]),
+    ),
+    f(
+        [6, 2, 4, 8, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        10,
+        [127, 0, 0],
+        Some([6, 2, 4]),
+    ),
+    f(
+        [9, 5, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        10,
+        [-127, 0, 0],
+        Some([9, 5, 3]),
+    ),
+];
+static SHAPE_127_LOD_2_PAINTER: [ShapePainterNode; 0] = [];
+
 static SHAPE_127_PAINTER: [ShapePainterNode; 9] = [
     ShapePainterNode::Partition {
         visibility_vertices: Some([4, 6, 14]),
@@ -27420,6 +28105,7 @@ static SHAPE_127_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 128: zaco_7
+static SHAPE_128_REFLECTED_PAIR_STARTS: [u16; 5] = [4, 7, 9, 11, 13];
 static SHAPE_128_VERTS: [ShapeVertex; 15] = [
     v(0.0, -15.0, -15.0),
     v(0.0, 15.0, -15.0),
@@ -27776,6 +28462,7 @@ static SHAPE_128_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 129: warker_3
+static SHAPE_129_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_129_VERTS: [ShapeVertex; 9] = [
     v(-20.0, 0.0, -2.0),
     v(25.0, 28.0, -12.0),
@@ -27988,6 +28675,7 @@ static SHAPE_129_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 130: heli
+static SHAPE_130_REFLECTED_PAIR_STARTS: [u16; 4] = [4, 6, 8, 10];
 static SHAPE_130_VERTS: [ShapeVertex; 21] = [
     v(0.0, 10.0, -50.0),
     v(0.0, 15.0, -10.0),
@@ -28278,6 +28966,7 @@ static SHAPE_130_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 131: bazooka
+static SHAPE_131_REFLECTED_PAIR_STARTS: [u16; 1] = [20];
 static SHAPE_131_VERTS: [ShapeVertex; 22] = [
     v(120.0, 100.0, -100.0),
     v(80.0, 20.0, -124.0),
@@ -28585,6 +29274,7 @@ static SHAPE_131_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 132: uper_m
+static SHAPE_132_REFLECTED_PAIR_STARTS: [u16; 7] = [7, 9, 11, 13, 15, 17, 19];
 static SHAPE_132_VERTS: [ShapeVertex; 21] = [
     v(0.0, 14.0, -90.0),
     v(0.0, 24.0, -50.0),
@@ -28790,6 +29480,7 @@ static SHAPE_132_FACES: [ShapeFace; 26] = [
 static SHAPE_132_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 133: warp
+static SHAPE_133_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_133_VERTS: [ShapeVertex; 15] = [
     v(20.0, 0.0, 0.0),
     v(0.0, 0.0, 80.0),
@@ -28959,6 +29650,9 @@ static SHAPE_133_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 134: tank_2
+static SHAPE_134_REFLECTED_PAIR_STARTS: [u16; 19] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36,
+];
 static SHAPE_134_VERTS: [ShapeVertex; 38] = [
     v(-60.0, 70.0, -150.0),
     v(60.0, 70.0, -150.0),
@@ -29214,6 +29908,7 @@ static SHAPE_134_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 135: f_dragon
+static SHAPE_135_REFLECTED_PAIR_STARTS: [u16; 9] = [4, 6, 8, 10, 12, 18, 20, 22, 24];
 static SHAPE_135_VERTS: [ShapeVertex; 26] = [
     v(0.0, -40.0, -160.0),
     v(0.0, -8.0, -120.0),
@@ -29763,6 +30458,7 @@ static SHAPE_135_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 136: xwirespacebar
+static SHAPE_136_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_136_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -29791,6 +30487,7 @@ static SHAPE_136_FACES: [ShapeFace; 12] = [
 static SHAPE_136_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 137: xpwirespacebar
+static SHAPE_137_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_137_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -29819,6 +30516,7 @@ static SHAPE_137_FACES: [ShapeFace; 12] = [
 static SHAPE_137_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 138: sxpwirespacebar
+static SHAPE_138_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_138_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -29847,6 +30545,7 @@ static SHAPE_138_FACES: [ShapeFace; 12] = [
 static SHAPE_138_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 139: ywirespacebar
+static SHAPE_139_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_139_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -29875,6 +30574,7 @@ static SHAPE_139_FACES: [ShapeFace; 12] = [
 static SHAPE_139_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 140: zwirespacebar
+static SHAPE_140_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_140_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -29903,6 +30603,7 @@ static SHAPE_140_FACES: [ShapeFace; 12] = [
 static SHAPE_140_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 141: sxwirespacebar
+static SHAPE_141_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_141_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -29931,6 +30632,7 @@ static SHAPE_141_FACES: [ShapeFace; 12] = [
 static SHAPE_141_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 142: sywirespacebar
+static SHAPE_142_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_142_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -29959,6 +30661,7 @@ static SHAPE_142_FACES: [ShapeFace; 12] = [
 static SHAPE_142_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 143: szwirespacebar
+static SHAPE_143_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_143_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -29987,6 +30690,7 @@ static SHAPE_143_FACES: [ShapeFace; 12] = [
 static SHAPE_143_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 144: xsolidspacebar
+static SHAPE_144_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_144_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -30045,6 +30749,7 @@ static SHAPE_144_FACES: [ShapeFace; 6] = [
 static SHAPE_144_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 145: xpsolidspacebar
+static SHAPE_145_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_145_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -30103,6 +30808,7 @@ static SHAPE_145_FACES: [ShapeFace; 6] = [
 static SHAPE_145_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 146: sxpsolidspacebar
+static SHAPE_146_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_146_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -30161,6 +30867,7 @@ static SHAPE_146_FACES: [ShapeFace; 6] = [
 static SHAPE_146_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 147: ysolidspacebar
+static SHAPE_147_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_147_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -30219,6 +30926,7 @@ static SHAPE_147_FACES: [ShapeFace; 6] = [
 static SHAPE_147_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 148: zsolidspacebar
+static SHAPE_148_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_148_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -30277,6 +30985,7 @@ static SHAPE_148_FACES: [ShapeFace; 6] = [
 static SHAPE_148_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 149: sxsolidspacebar
+static SHAPE_149_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_149_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -30335,6 +31044,7 @@ static SHAPE_149_FACES: [ShapeFace; 6] = [
 static SHAPE_149_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 150: sysolidspacebar
+static SHAPE_150_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_150_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -30393,6 +31103,7 @@ static SHAPE_150_FACES: [ShapeFace; 6] = [
 static SHAPE_150_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 151: szsolidspacebar
+static SHAPE_151_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_151_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -30451,6 +31162,9 @@ static SHAPE_151_FACES: [ShapeFace; 6] = [
 static SHAPE_151_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 152: colony_0
+static SHAPE_152_REFLECTED_PAIR_STARTS: [u16; 22] = [
+    34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76,
+];
 static SHAPE_152_VERTS: [ShapeVertex; 78] = [
     v(-192.0, -360.0, 72.0),
     v(-120.0, 360.0, 112.0),
@@ -30870,6 +31584,7 @@ static SHAPE_152_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 153: colony_1
+static SHAPE_153_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_153_VERTS: [ShapeVertex; 28] = [
     v(0.0, -16.0, 200.0),
     v(80.0, -16.0, 200.0),
@@ -30992,6 +31707,9 @@ static SHAPE_153_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 154: colony_2
+static SHAPE_154_REFLECTED_PAIR_STARTS: [u16; 20] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38,
+];
 static SHAPE_154_VERTS: [ShapeVertex; 40] = [
     v(92.0, -20.0, -40.0),
     v(-92.0, -20.0, -40.0),
@@ -31636,6 +32354,7 @@ static SHAPE_154_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 155: colony3l
+static SHAPE_155_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_155_VERTS: [ShapeVertex; 25] = [
     v(352.0, 480.0, -800.0),
     v(272.0, 320.0, -560.0),
@@ -31815,6 +32534,7 @@ static SHAPE_155_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 156: colony3r
+static SHAPE_156_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_156_VERTS: [ShapeVertex; 25] = [
     v(-368.0, 480.0, -800.0),
     v(-288.0, 320.0, -560.0),
@@ -31990,6 +32710,7 @@ static SHAPE_156_PAINTER: [ShapePainterNode; 10] = [
 ];
 
 // Shape 157: bwarker_3
+static SHAPE_157_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_157_VERTS: [ShapeVertex; 9] = [
     v(-40.0, 0.0, -4.0),
     v(50.0, 56.0, -24.0),
@@ -32202,6 +32923,7 @@ static SHAPE_157_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 158: item_5
+static SHAPE_158_REFLECTED_PAIR_STARTS: [u16; 2] = [6, 9];
 static SHAPE_158_VERTS: [ShapeVertex; 12] = [
     v(20.0, 40.0, 0.0),
     v(-20.0, 40.0, 0.0),
@@ -32365,6 +33087,7 @@ static SHAPE_158_FACES: [ShapeFace; 8] = [
 static SHAPE_158_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 159: item_6
+static SHAPE_159_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_159_VERTS: [ShapeVertex; 16] = [
     v(20.0, 20.0, 20.0),
     v(-20.0, 20.0, 20.0),
@@ -32479,6 +33202,7 @@ static SHAPE_159_FACES: [ShapeFace; 24] = [
 static SHAPE_159_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 160: item_7
+static SHAPE_160_REFLECTED_PAIR_STARTS: [u16; 9] = [2, 4, 6, 8, 10, 12, 14, 16, 18];
 static SHAPE_160_VERTS: [ShapeVertex; 20] = [
     v(0.0, -40.0, 0.0),
     v(0.0, 40.0, 0.0),
@@ -32633,6 +33357,7 @@ static SHAPE_160_FACES: [ShapeFace; 18] = [
 static SHAPE_160_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 161: r_hou_0
+static SHAPE_161_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_161_VERTS: [ShapeVertex; 16] = [
     v(0.0, -32.0, -36.0),
     v(0.0, -58.0, -18.0),
@@ -32769,6 +33494,7 @@ static SHAPE_161_FACES: [ShapeFace; 16] = [
 static SHAPE_161_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 162: s_hou_0
+static SHAPE_162_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_162_VERTS: [ShapeVertex; 16] = [
     v(0.0, -32.0, -36.0),
     v(0.0, -58.0, -18.0),
@@ -32905,6 +33631,7 @@ static SHAPE_162_FACES: [ShapeFace; 16] = [
 static SHAPE_162_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 163: b_hou_0
+static SHAPE_163_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_163_VERTS: [ShapeVertex; 16] = [
     v(0.0, -32.0, -36.0),
     v(0.0, -58.0, -18.0),
@@ -33041,6 +33768,7 @@ static SHAPE_163_FACES: [ShapeFace; 16] = [
 static SHAPE_163_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 164: walker_2
+static SHAPE_164_REFLECTED_PAIR_STARTS: [u16; 10] = [8, 10, 12, 14, 16, 18, 20, 22, 24, 26];
 static SHAPE_164_VERTS: [ShapeVertex; 28] = [
     v(20.0, 0.0, -41.0),
     v(20.0, 25.0, -21.0),
@@ -33634,6 +34362,7 @@ static SHAPE_164_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 165: base_0_0
+static SHAPE_165_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_165_VERTS: [ShapeVertex; 24] = [
     v(320.0, 0.0, 0.0),
     v(480.0, 0.0, 0.0),
@@ -33976,6 +34705,7 @@ static SHAPE_165_FACES: [ShapeFace; 13] = [
 static SHAPE_165_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 166: base_0_1
+static SHAPE_166_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_166_VERTS: [ShapeVertex; 24] = [
     v(-320.0, 0.0, 0.0),
     v(-480.0, 0.0, 0.0),
@@ -34318,6 +35048,7 @@ static SHAPE_166_FACES: [ShapeFace; 13] = [
 static SHAPE_166_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 167: tank_1
+static SHAPE_167_REFLECTED_PAIR_STARTS: [u16; 5] = [4, 8, 10, 12, 16];
 static SHAPE_167_VERTS: [ShapeVertex; 18] = [
     v(-60.0, 50.0, 80.0),
     v(-60.0, 0.0, -40.0),
@@ -34476,6 +35207,7 @@ static SHAPE_167_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 168: hou_5
+static SHAPE_168_REFLECTED_PAIR_STARTS: [u16; 2] = [2, 4];
 static SHAPE_168_VERTS: [ShapeVertex; 11] = [
     v(0.0, 36.0, 40.0),
     v(0.0, 0.0, 80.0),
@@ -34745,6 +35477,7 @@ static SHAPE_168_FACES: [ShapeFace; 15] = [
 static SHAPE_168_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 169: ro_0
+static SHAPE_169_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_169_VERTS: [ShapeVertex; 17] = [
     v(-120.0, 240.0, -480.0),
     v(-56.0, 0.0, -400.0),
@@ -34861,6 +35594,7 @@ static SHAPE_169_FACES: [ShapeFace; 13] = [
 static SHAPE_169_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 170: ro_1
+static SHAPE_170_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_170_VERTS: [ShapeVertex; 17] = [
     v(120.0, 240.0, -480.0),
     v(56.0, 0.0, -400.0),
@@ -34977,6 +35711,7 @@ static SHAPE_170_FACES: [ShapeFace; 13] = [
 static SHAPE_170_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 171: ro_2
+static SHAPE_171_REFLECTED_PAIR_STARTS: [u16; 2] = [13, 15];
 static SHAPE_171_VERTS: [ShapeVertex; 17] = [
     v(-184.0, 240.0, -480.0),
     v(-120.0, 0.0, -400.0),
@@ -35093,6 +35828,7 @@ static SHAPE_171_FACES: [ShapeFace; 13] = [
 static SHAPE_171_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 172: ro_3
+static SHAPE_172_REFLECTED_PAIR_STARTS: [u16; 2] = [13, 15];
 static SHAPE_172_VERTS: [ShapeVertex; 17] = [
     v(184.0, 240.0, -480.0),
     v(120.0, 0.0, -400.0),
@@ -35209,6 +35945,7 @@ static SHAPE_172_FACES: [ShapeFace; 13] = [
 static SHAPE_172_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 173: ro_4
+static SHAPE_173_REFLECTED_PAIR_STARTS: [u16; 1] = [15];
 static SHAPE_173_VERTS: [ShapeVertex; 17] = [
     v(-240.0, 240.0, -480.0),
     v(-176.0, 0.0, -400.0),
@@ -35325,6 +36062,7 @@ static SHAPE_173_FACES: [ShapeFace; 13] = [
 static SHAPE_173_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 174: ro_5
+static SHAPE_174_REFLECTED_PAIR_STARTS: [u16; 1] = [15];
 static SHAPE_174_VERTS: [ShapeVertex; 17] = [
     v(240.0, 240.0, -480.0),
     v(176.0, 0.0, -400.0),
@@ -35441,6 +36179,7 @@ static SHAPE_174_FACES: [ShapeFace; 13] = [
 static SHAPE_174_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 175: ro_6
+static SHAPE_175_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_175_VERTS: [ShapeVertex; 13] = [
     v(80.0, 0.0, -200.0),
     v(-120.0, 200.0, -200.0),
@@ -35560,6 +36299,7 @@ static SHAPE_175_FACES: [ShapeFace; 14] = [
 static SHAPE_175_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 176: bro_0
+static SHAPE_176_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_176_VERTS: [ShapeVertex; 17] = [
     v(-120.0, 240.0, -480.0),
     v(-56.0, 0.0, -400.0),
@@ -35676,6 +36416,7 @@ static SHAPE_176_FACES: [ShapeFace; 13] = [
 static SHAPE_176_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 177: bro_1
+static SHAPE_177_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_177_VERTS: [ShapeVertex; 17] = [
     v(120.0, 240.0, -480.0),
     v(56.0, 0.0, -400.0),
@@ -35792,6 +36533,7 @@ static SHAPE_177_FACES: [ShapeFace; 13] = [
 static SHAPE_177_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 178: bro_2
+static SHAPE_178_REFLECTED_PAIR_STARTS: [u16; 2] = [13, 15];
 static SHAPE_178_VERTS: [ShapeVertex; 17] = [
     v(-184.0, 240.0, -480.0),
     v(-120.0, 0.0, -400.0),
@@ -35908,6 +36650,7 @@ static SHAPE_178_FACES: [ShapeFace; 13] = [
 static SHAPE_178_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 179: bro_3
+static SHAPE_179_REFLECTED_PAIR_STARTS: [u16; 2] = [13, 15];
 static SHAPE_179_VERTS: [ShapeVertex; 17] = [
     v(184.0, 240.0, -480.0),
     v(120.0, 0.0, -400.0),
@@ -36024,6 +36767,7 @@ static SHAPE_179_FACES: [ShapeFace; 13] = [
 static SHAPE_179_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 180: bro_4
+static SHAPE_180_REFLECTED_PAIR_STARTS: [u16; 1] = [15];
 static SHAPE_180_VERTS: [ShapeVertex; 17] = [
     v(-240.0, 240.0, -480.0),
     v(-176.0, 0.0, -400.0),
@@ -36140,6 +36884,7 @@ static SHAPE_180_FACES: [ShapeFace; 13] = [
 static SHAPE_180_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 181: bro_5
+static SHAPE_181_REFLECTED_PAIR_STARTS: [u16; 1] = [15];
 static SHAPE_181_VERTS: [ShapeVertex; 17] = [
     v(240.0, 240.0, -480.0),
     v(176.0, 0.0, -400.0),
@@ -36256,6 +37001,7 @@ static SHAPE_181_FACES: [ShapeFace; 13] = [
 static SHAPE_181_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 182: bro_6
+static SHAPE_182_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_182_VERTS: [ShapeVertex; 13] = [
     v(80.0, 0.0, -200.0),
     v(-120.0, 200.0, -200.0),
@@ -36375,6 +37121,7 @@ static SHAPE_182_FACES: [ShapeFace; 14] = [
 static SHAPE_182_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 183: gro_0
+static SHAPE_183_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_183_VERTS: [ShapeVertex; 17] = [
     v(-120.0, 240.0, -480.0),
     v(-56.0, 0.0, -400.0),
@@ -36491,6 +37238,7 @@ static SHAPE_183_FACES: [ShapeFace; 13] = [
 static SHAPE_183_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 184: gro_1
+static SHAPE_184_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_184_VERTS: [ShapeVertex; 17] = [
     v(120.0, 240.0, -480.0),
     v(56.0, 0.0, -400.0),
@@ -36607,6 +37355,7 @@ static SHAPE_184_FACES: [ShapeFace; 13] = [
 static SHAPE_184_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 185: gro_2
+static SHAPE_185_REFLECTED_PAIR_STARTS: [u16; 2] = [13, 15];
 static SHAPE_185_VERTS: [ShapeVertex; 17] = [
     v(-184.0, 240.0, -480.0),
     v(-120.0, 0.0, -400.0),
@@ -36723,6 +37472,7 @@ static SHAPE_185_FACES: [ShapeFace; 13] = [
 static SHAPE_185_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 186: gro_3
+static SHAPE_186_REFLECTED_PAIR_STARTS: [u16; 2] = [13, 15];
 static SHAPE_186_VERTS: [ShapeVertex; 17] = [
     v(184.0, 240.0, -480.0),
     v(120.0, 0.0, -400.0),
@@ -36839,6 +37589,7 @@ static SHAPE_186_FACES: [ShapeFace; 13] = [
 static SHAPE_186_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 187: gro_4
+static SHAPE_187_REFLECTED_PAIR_STARTS: [u16; 1] = [15];
 static SHAPE_187_VERTS: [ShapeVertex; 17] = [
     v(-240.0, 240.0, -480.0),
     v(-176.0, 0.0, -400.0),
@@ -36955,6 +37706,7 @@ static SHAPE_187_FACES: [ShapeFace; 13] = [
 static SHAPE_187_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 188: gro_5
+static SHAPE_188_REFLECTED_PAIR_STARTS: [u16; 1] = [15];
 static SHAPE_188_VERTS: [ShapeVertex; 17] = [
     v(240.0, 240.0, -480.0),
     v(176.0, 0.0, -400.0),
@@ -37071,6 +37823,7 @@ static SHAPE_188_FACES: [ShapeFace; 13] = [
 static SHAPE_188_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 189: gro_6
+static SHAPE_189_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_189_VERTS: [ShapeVertex; 13] = [
     v(80.0, 0.0, -200.0),
     v(-120.0, 200.0, -200.0),
@@ -37190,6 +37943,7 @@ static SHAPE_189_FACES: [ShapeFace; 14] = [
 static SHAPE_189_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 190: volcano
+static SHAPE_190_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_190_VERTS: [ShapeVertex; 12] = [
     v(-200.0, 0.0, 0.0),
     v(200.0, 0.0, 0.0),
@@ -37252,6 +38006,7 @@ static SHAPE_190_FACES: [ShapeFace; 6] = [
 static SHAPE_190_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 191: svolcano
+static SHAPE_191_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_191_VERTS: [ShapeVertex; 12] = [
     v(-100.0, 0.0, 0.0),
     v(100.0, 0.0, 0.0),
@@ -37314,6 +38069,7 @@ static SHAPE_191_FACES: [ShapeFace; 6] = [
 static SHAPE_191_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 192: meteo_0
+static SHAPE_192_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
 static SHAPE_192_VERTS: [ShapeVertex; 24] = [
     v(-64.0, -64.0, 0.0),
     v(64.0, -64.0, 0.0),
@@ -37806,6 +38562,7 @@ static SHAPE_192_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 193: blackhole
+static SHAPE_193_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_193_VERTS: [ShapeVertex; 4] = [
     v(64.0, -64.0, 0.0),
     v(-64.0, -64.0, 0.0),
@@ -37823,6 +38580,7 @@ static SHAPE_193_FACES: [ShapeFace; 1] = [f(
 static SHAPE_193_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 194: asteroid2
+static SHAPE_194_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_194_VERTS: [ShapeVertex; 4] = [
     v(64.0, -64.0, 0.0),
     v(-64.0, -64.0, 0.0),
@@ -37840,6 +38598,7 @@ static SHAPE_194_FACES: [ShapeFace; 1] = [f(
 static SHAPE_194_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 195: b_holl
+static SHAPE_195_REFLECTED_PAIR_STARTS: [u16; 3] = [2, 4, 6];
 static SHAPE_195_VERTS: [ShapeVertex; 8] = [
     v(0.0, -160.0, 0.0),
     v(0.0, 160.0, 0.0),
@@ -37861,6 +38620,8 @@ static SHAPE_195_FACES: [ShapeFace; 1] = [f(
 static SHAPE_195_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 196: car_0
+static SHAPE_196_REFLECTED_PAIR_STARTS: [u16; 14] =
+    [3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29];
 static SHAPE_196_VERTS: [ShapeVertex; 31] = [
     v(0.0, 12.0, -100.0),
     v(0.0, -6.0, 100.0),
@@ -38176,6 +38937,7 @@ static SHAPE_196_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 197: clisla_m
+static SHAPE_197_REFLECTED_PAIR_STARTS: [u16; 6] = [1, 3, 5, 7, 9, 11];
 static SHAPE_197_VERTS: [ShapeVertex; 13] = [
     v(0.0, 75.0, 0.0),
     v(15.0, 30.0, -30.0),
@@ -38281,6 +39043,7 @@ static SHAPE_197_FACES: [ShapeFace; 12] = [
 static SHAPE_197_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 198: clisla_s
+static SHAPE_198_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_198_VERTS: [ShapeVertex; 8] = [
     v(-10.0, 0.0, -20.0),
     v(10.0, 5.0, -20.0),
@@ -38381,6 +39144,7 @@ static SHAPE_198_FACES: [ShapeFace; 12] = [
 static SHAPE_198_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 199: clisla_l
+static SHAPE_199_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_199_VERTS: [ShapeVertex; 9] = [
     v(-152.0, 0.0, -60.0),
     v(184.0, 0.0, -60.0),
@@ -38440,6 +39204,7 @@ static SHAPE_199_FACES: [ShapeFace; 6] = [
 static SHAPE_199_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 200: snake_1
+static SHAPE_200_REFLECTED_PAIR_STARTS: [u16; 4] = [3, 5, 7, 9];
 static SHAPE_200_VERTS: [ShapeVertex; 11] = [
     v(0.0, -30.0, 0.0),
     v(0.0, -40.0, 15.0),
@@ -38665,6 +39430,7 @@ static SHAPE_200_FACES: [ShapeFace; 11] = [
 static SHAPE_200_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 201: zaco_b
+static SHAPE_201_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_201_VERTS: [ShapeVertex; 16] = [
     v(0.0, 30.0, -10.0),
     v(0.0, 5.0, 15.0),
@@ -38928,6 +39694,7 @@ static SHAPE_201_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 202: shieldr
+static SHAPE_202_REFLECTED_PAIR_STARTS: [u16; 8] = [0, 2, 4, 6, 8, 10, 12, 14];
 static SHAPE_202_VERTS: [ShapeVertex; 16] = [
     v(15.0, -5.0, -10.0),
     v(-15.0, -5.0, -10.0),
@@ -39078,6 +39845,7 @@ static SHAPE_202_FACES: [ShapeFace; 18] = [
 static SHAPE_202_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 203: ray_0
+static SHAPE_203_REFLECTED_PAIR_STARTS: [u16; 3] = [4, 12, 14];
 static SHAPE_203_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -20.0),
     v(0.0, -5.0, 0.0),
@@ -39606,6 +40374,7 @@ static SHAPE_203_PAINTER: [ShapePainterNode; 15] = [
 ];
 
 // Shape 204: ray_1
+static SHAPE_204_REFLECTED_PAIR_STARTS: [u16; 9] = [6, 8, 10, 12, 14, 20, 22, 24, 26];
 static SHAPE_204_VERTS: [ShapeVertex; 28] = [
     v(0.0, 0.0, -102.0),
     v(0.0, 0.0, -50.0),
@@ -40573,6 +41342,7 @@ static SHAPE_204_PAINTER: [ShapePainterNode; 23] = [
 ];
 
 // Shape 205: boss_e_4
+static SHAPE_205_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_205_VERTS: [ShapeVertex; 16] = [
     v(34.0, 0.0, -10.0),
     v(34.0, -10.0, 0.0),
@@ -40722,6 +41492,7 @@ static SHAPE_205_FACES: [ShapeFace; 12] = [
 static SHAPE_205_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 206: flower_1
+static SHAPE_206_REFLECTED_PAIR_STARTS: [u16; 5] = [22, 24, 26, 28, 30];
 static SHAPE_206_VERTS: [ShapeVertex; 32] = [
     v(0.0, 116.0, -18.0),
     v(4.0, 40.0, -4.0),
@@ -41261,6 +42032,7 @@ static SHAPE_206_PAINTER: [ShapePainterNode; 27] = [
 ];
 
 // Shape 207: flower_2
+static SHAPE_207_REFLECTED_PAIR_STARTS: [u16; 5] = [27, 29, 31, 33, 35];
 static SHAPE_207_VERTS: [ShapeVertex; 37] = [
     v(0.0, 156.0, -18.0),
     v(4.0, 0.0, -4.0),
@@ -41861,6 +42633,7 @@ static SHAPE_207_PAINTER: [ShapePainterNode; 31] = [
 ];
 
 // Shape 208: stalk
+static SHAPE_208_REFLECTED_PAIR_STARTS: [u16; 6] = [1, 3, 5, 7, 9, 11];
 static SHAPE_208_VERTS: [ShapeVertex; 13] = [
     v(0.0, -30.0, 0.0),
     v(-10.0, -40.0, -20.0),
@@ -42120,6 +42893,7 @@ static SHAPE_208_FACES: [ShapeFace; 13] = [
 static SHAPE_208_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 209: mine_2
+static SHAPE_209_REFLECTED_PAIR_STARTS: [u16; 3] = [8, 10, 12];
 static SHAPE_209_VERTS: [ShapeVertex; 14] = [
     v(0.0, 28.0, -60.0),
     v(0.0, 28.0, -40.0),
@@ -42280,6 +43054,7 @@ static SHAPE_209_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 210: gate_2
+static SHAPE_210_REFLECTED_PAIR_STARTS: [u16; 10] = [4, 6, 8, 10, 12, 14, 16, 18, 20, 22];
 static SHAPE_210_VERTS: [ShapeVertex; 24] = [
     v(0.0, 50.0, -14.0),
     v(0.0, -50.0, -4.0),
@@ -42438,6 +43213,7 @@ static SHAPE_210_FACES: [ShapeFace; 18] = [
 static SHAPE_210_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 211: s_fish
+static SHAPE_211_REFLECTED_PAIR_STARTS: [u16; 1] = [1];
 static SHAPE_211_VERTS: [ShapeVertex; 6] = [
     v(0.0, 5.0, 20.0),
     v(-5.0, -5.0, 0.0),
@@ -42560,6 +43336,10 @@ static SHAPE_211_FACES: [ShapeFace; 6] = [
 static SHAPE_211_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 212: last_b_0
+static SHAPE_212_REFLECTED_PAIR_STARTS: [u16; 38] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
+    50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70, 72, 74,
+];
 static SHAPE_212_VERTS: [ShapeVertex; 76] = [
     v(1248.0, 0.0, -1504.0),
     v(-1248.0, 0.0, -1504.0),
@@ -43288,6 +44068,7 @@ static SHAPE_212_PAINTER: [ShapePainterNode; 37] = [
 ];
 
 // Shape 213: last_b_2
+static SHAPE_213_REFLECTED_PAIR_STARTS: [u16; 11] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20];
 static SHAPE_213_VERTS: [ShapeVertex; 22] = [
     v(48.0, -1120.0, -96.0),
     v(-48.0, -1120.0, -96.0),
@@ -43485,6 +44266,7 @@ static SHAPE_213_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 214: last_b_3
+static SHAPE_214_REFLECTED_PAIR_STARTS: [u16; 3] = [0, 2, 4];
 static SHAPE_214_VERTS: [ShapeVertex; 12] = [
     v(48.0, 0.0, -96.0),
     v(-48.0, 0.0, -96.0),
@@ -43700,6 +44482,8 @@ static SHAPE_214_FACES: [ShapeFace; 6] = [
 static SHAPE_214_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 215: door_l
+static SHAPE_215_REFLECTED_PAIR_STARTS: [u16; 15] =
+    [0, 2, 4, 6, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34];
 static SHAPE_215_VERTS: [ShapeVertex; 36] = [
     v(-16.0, 126.0, -20.0),
     v(16.0, 126.0, -20.0),
@@ -44290,6 +45074,9 @@ static SHAPE_215_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 216: car_1
+static SHAPE_216_REFLECTED_PAIR_STARTS: [u16; 17] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
+];
 static SHAPE_216_VERTS: [ShapeVertex; 34] = [
     v(20.0, -40.0, -100.0),
     v(-20.0, -40.0, -100.0),
@@ -44573,6 +45360,7 @@ static SHAPE_216_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 217: zaco_a
+static SHAPE_217_REFLECTED_PAIR_STARTS: [u16; 10] = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20];
 static SHAPE_217_VERTS: [ShapeVertex; 22] = [
     v(0.0, 40.0, 20.0),
     v(0.0, -32.0, 30.0),
@@ -44852,6 +45640,7 @@ static SHAPE_217_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 218: friendship_4
+static SHAPE_218_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_218_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -10.0),
     v(0.0, -1.0, 0.0),
@@ -45054,6 +45843,7 @@ static SHAPE_218_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 219: s_wark_0
+static SHAPE_219_REFLECTED_PAIR_STARTS: [u16; 3] = [8, 10, 12];
 static SHAPE_219_VERTS: [ShapeVertex; 14] = [
     v(50.0, 66.0, -30.0),
     v(-50.0, 66.0, -30.0),
@@ -45371,6 +46161,7 @@ static SHAPE_219_FACES: [ShapeFace; 15] = [
 static SHAPE_219_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 220: ika
+static SHAPE_220_REFLECTED_PAIR_STARTS: [u16; 7] = [5, 7, 9, 16, 18, 20, 22];
 static SHAPE_220_VERTS: [ShapeVertex; 24] = [
     v(0.0, -10.0, 0.0),
     v(0.0, 10.0, 0.0),
@@ -46335,6 +47126,7 @@ static SHAPE_220_PAINTER: [ShapePainterNode; 19] = [
 ];
 
 // Shape 221: s_zaco_0
+static SHAPE_221_REFLECTED_PAIR_STARTS: [u16; 5] = [6, 8, 10, 12, 14];
 static SHAPE_221_VERTS: [ShapeVertex; 16] = [
     v(0.0, 30.0, -10.0),
     v(0.0, 10.0, 10.0),
@@ -46580,6 +47372,7 @@ static SHAPE_221_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 222: bazz_1
+static SHAPE_222_REFLECTED_PAIR_STARTS: [u16; 2] = [5, 7];
 static SHAPE_222_VERTS: [ShapeVertex; 23] = [
     v(0.0, 96.0, -112.0),
     v(0.0, 68.0, -56.0),
@@ -47031,6 +47824,7 @@ static SHAPE_222_PAINTER: [ShapePainterNode; 21] = [
 ];
 
 // Shape 223: face_b
+static SHAPE_223_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_223_VERTS: [ShapeVertex; 8] = [
     v(480.0, -800.0, -80.0),
     v(-480.0, -800.0, -80.0),
@@ -47089,6 +47883,8 @@ static SHAPE_223_FACES: [ShapeFace; 6] = [
 static SHAPE_223_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 224: my_demos
+static SHAPE_224_REFLECTED_PAIR_STARTS: [u16; 16] =
+    [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34];
 static SHAPE_224_VERTS: [ShapeVertex; 36] = [
     v(0.0, 2.0, -20.0),
     v(0.0, 1.0, -16.0),
@@ -47540,6 +48336,8 @@ static SHAPE_224_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 225: my_demo
+static SHAPE_225_REFLECTED_PAIR_STARTS: [u16; 16] =
+    [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34];
 static SHAPE_225_VERTS: [ShapeVertex; 36] = [
     v(0.0, 4.0, -40.0),
     v(0.0, 2.0, -32.0),
@@ -47991,6 +48789,7 @@ static SHAPE_225_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 226: helpball
+static SHAPE_226_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_226_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -48008,6 +48807,7 @@ static SHAPE_226_FACES: [ShapeFace; 1] = [f(
 static SHAPE_226_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 227: tadpole
+static SHAPE_227_REFLECTED_PAIR_STARTS: [u16; 7] = [2, 4, 6, 8, 10, 12, 14];
 static SHAPE_227_VERTS: [ShapeVertex; 24] = [
     v(0.0, 20.0, 0.0),
     v(0.0, -8.0, 20.0),
@@ -48596,6 +49396,7 @@ static SHAPE_227_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 228: arch_0
+static SHAPE_228_REFLECTED_PAIR_STARTS: [u16; 12] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22];
 static SHAPE_228_VERTS: [ShapeVertex; 24] = [
     v(-92.0, 0.0, -40.0),
     v(92.0, 0.0, -40.0),
@@ -48733,6 +49534,7 @@ static SHAPE_228_FACES: [ShapeFace; 15] = [
 static SHAPE_228_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 229: s_tank_0
+static SHAPE_229_REFLECTED_PAIR_STARTS: [u16; 7] = [9, 11, 13, 15, 17, 19, 21];
 static SHAPE_229_VERTS: [ShapeVertex; 23] = [
     v(-56.0, 120.0, -200.0),
     v(-64.0, 120.0, -200.0),
@@ -48967,6 +49769,7 @@ static SHAPE_229_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 230: zaco_1
+static SHAPE_230_REFLECTED_PAIR_STARTS: [u16; 8] = [6, 8, 10, 12, 14, 16, 18, 20];
 static SHAPE_230_VERTS: [ShapeVertex; 22] = [
     v(0.0, -10.0, -15.0),
     v(0.0, 10.0, -15.0),
@@ -49429,6 +50232,7 @@ static SHAPE_230_FACES: [ShapeFace; 22] = [
 static SHAPE_230_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 231: bzaco_8
+static SHAPE_231_REFLECTED_PAIR_STARTS: [u16; 5] = [4, 6, 8, 10, 12];
 static SHAPE_231_VERTS: [ShapeVertex; 14] = [
     v(0.0, 60.0, -60.0),
     v(0.0, 20.0, 20.0),
@@ -49583,6 +50387,9 @@ static SHAPE_231_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 232: base_1
+static SHAPE_232_REFLECTED_PAIR_STARTS: [u16; 22] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42,
+];
 static SHAPE_232_VERTS: [ShapeVertex; 44] = [
     v(-240.0, 360.0, -360.0),
     v(240.0, 360.0, -360.0),
@@ -50266,6 +51073,9 @@ static SHAPE_232_PAINTER: [ShapePainterNode; 15] = [
 ];
 
 // Shape 233: big_gate
+static SHAPE_233_REFLECTED_PAIR_STARTS: [u16; 21] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40,
+];
 static SHAPE_233_VERTS: [ShapeVertex; 42] = [
     v(160.0, 188.0, -300.0),
     v(-160.0, 188.0, -300.0),
@@ -50561,6 +51371,7 @@ static SHAPE_233_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 234: r_hou
+static SHAPE_234_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_234_VERTS: [ShapeVertex; 16] = [
     v(0.0, -32.0, -36.0),
     v(0.0, -58.0, -18.0),
@@ -50697,6 +51508,7 @@ static SHAPE_234_FACES: [ShapeFace; 16] = [
 static SHAPE_234_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 235: open_l
+static SHAPE_235_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_235_VERTS: [ShapeVertex; 28] = [
     v(-45.0, -60.0, -20.0),
     v(-45.0, -50.0, -20.0),
@@ -51141,6 +51953,7 @@ static SHAPE_235_FACES: [ShapeFace; 18] = [
 static SHAPE_235_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 236: up_door
+static SHAPE_236_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 3, 6, 11, 16, 20];
 static SHAPE_236_VERTS: [ShapeVertex; 26] = [
     v(90.0, 60.0, -20.0),
     v(-90.0, 60.0, -20.0),
@@ -51558,6 +52371,7 @@ static SHAPE_236_FACES: [ShapeFace; 17] = [
 static SHAPE_236_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 237: big_meteor
+static SHAPE_237_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_237_VERTS: [ShapeVertex; 4] = [
     v(256.0, -256.0, 0.0),
     v(-256.0, -256.0, 0.0),
@@ -51575,6 +52389,7 @@ static SHAPE_237_FACES: [ShapeFace; 1] = [f(
 static SHAPE_237_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 238: boss_d_4
+static SHAPE_238_REFLECTED_PAIR_STARTS: [u16; 4] = [2, 10, 12, 14];
 static SHAPE_238_VERTS: [ShapeVertex; 16] = [
     v(0.0, -10.0, 10.0),
     v(0.0, 0.0, 50.0),
@@ -51913,6 +52728,7 @@ static SHAPE_238_FACES: [ShapeFace; 20] = [
 static SHAPE_238_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 239: btank_1
+static SHAPE_239_REFLECTED_PAIR_STARTS: [u16; 5] = [4, 8, 10, 12, 16];
 static SHAPE_239_VERTS: [ShapeVertex; 18] = [
     v(-60.0, 50.0, 80.0),
     v(-60.0, 0.0, -40.0),
@@ -52071,6 +52887,7 @@ static SHAPE_239_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 240: font_t
+static SHAPE_240_REFLECTED_PAIR_STARTS: [u16; 8] = [0, 2, 4, 6, 8, 10, 12, 14];
 static SHAPE_240_VERTS: [ShapeVertex; 16] = [
     v(20.0, 25.0, -10.0),
     v(-20.0, 25.0, -10.0),
@@ -52179,6 +52996,7 @@ static SHAPE_240_FACES: [ShapeFace; 12] = [
 static SHAPE_240_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 241: font_h
+static SHAPE_241_REFLECTED_PAIR_STARTS: [u16; 6] = [3, 8, 10, 15, 20, 22];
 static SHAPE_241_VERTS: [ShapeVertex; 24] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 25.0, -10.0),
@@ -52337,6 +53155,7 @@ static SHAPE_241_FACES: [ShapeFace; 18] = [
 static SHAPE_241_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 242: font_e
+static SHAPE_242_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_242_VERTS: [ShapeVertex; 24] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 15.0, -10.0),
@@ -52509,6 +53328,7 @@ static SHAPE_242_FACES: [ShapeFace; 20] = [
 static SHAPE_242_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 243: font_n
+static SHAPE_243_REFLECTED_PAIR_STARTS: [u16; 2] = [3, 13];
 static SHAPE_243_VERTS: [ShapeVertex; 20] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 25.0, -10.0),
@@ -52649,6 +53469,7 @@ static SHAPE_243_FACES: [ShapeFace; 16] = [
 static SHAPE_243_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 244: font_d
+static SHAPE_244_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_244_VERTS: [ShapeVertex; 24] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 15.0, -10.0),
@@ -52849,6 +53670,7 @@ static SHAPE_244_FACES: [ShapeFace; 24] = [
 static SHAPE_244_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 245: gamesh
+static SHAPE_245_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_245_VERTS: [ShapeVertex; 4] = [
     v(256.0, -64.0, 0.0),
     v(-256.0, -64.0, 0.0),
@@ -52875,6 +53697,7 @@ static SHAPE_245_FACES: [ShapeFace; 2] = [
 static SHAPE_245_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 246: oversh
+static SHAPE_246_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_246_VERTS: [ShapeVertex; 4] = [
     v(256.0, -64.0, 0.0),
     v(-256.0, -64.0, 0.0),
@@ -52901,6 +53724,7 @@ static SHAPE_246_FACES: [ShapeFace; 2] = [
 static SHAPE_246_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 247: tow_0
+static SHAPE_247_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_247_VERTS: [ShapeVertex; 12] = [
     v(-14.0, -160.0, -28.0),
     v(14.0, -160.0, -28.0),
@@ -52970,6 +53794,7 @@ static SHAPE_247_FACES: [ShapeFace; 7] = [
 static SHAPE_247_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 248: bou_0
+static SHAPE_248_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_248_VERTS: [ShapeVertex; 8] = [
     v(90.0, -20.0, -20.0),
     v(-90.0, -20.0, -20.0),
@@ -53007,6 +53832,9 @@ static SHAPE_248_FACES: [ShapeFace; 3] = [
 static SHAPE_248_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 256: mybase_0
+static SHAPE_256_REFLECTED_PAIR_STARTS: [u16; 23] = [
+    26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 70,
+];
 static SHAPE_256_VERTS: [ShapeVertex; 72] = [
     v(-80.0, 240.0, -752.0),
     v(-32.0, 592.0, -752.0),
@@ -53451,6 +54279,7 @@ static SHAPE_256_FACES: [ShapeFace; 52] = [
 static SHAPE_256_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 257: sea_0
+static SHAPE_257_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_257_VERTS: [ShapeVertex; 16] = [
     v(0.0, -33.0, -15.0),
     v(0.0, 32.0, -10.0),
@@ -53584,6 +54413,92 @@ static SHAPE_257_FACES: [ShapeFace; 16] = [
     ),
 ];
 
+static SHAPE_257_LOD_1_REFLECTED_PAIR_STARTS: [u16; 3] = [2, 4, 6];
+static SHAPE_257_LOD_1_VERTS: [ShapeVertex; 8] = [
+    v(0.0, -33.0, 0.0),
+    v(0.0, 32.0, 0.0),
+    v(35.0, -23.0, -20.0),
+    v(-35.0, -23.0, -20.0),
+    v(15.0, -3.0, 0.0),
+    v(-15.0, -3.0, 0.0),
+    v(25.0, 2.0, 0.0),
+    v(-25.0, 2.0, 0.0),
+];
+static SHAPE_257_LOD_1_FACES: [ShapeFace; 4] = [
+    f(
+        [4, 6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [-34, 68, -102],
+        Some([4, 6, 2]),
+    ),
+    f(
+        [3, 7, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [34, 68, -102],
+        Some([3, 7, 5]),
+    ),
+    f(
+        [1, 6, 4, 5, 7, 0, 0, 0, 0, 0, 0, 0],
+        5,
+        0,
+        [0, 0, -127],
+        Some([1, 6, 4]),
+    ),
+    f(
+        [5, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [0, 0, -127],
+        Some([5, 4, 0]),
+    ),
+];
+static SHAPE_257_LOD_1_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_257_LOD_2_REFLECTED_PAIR_STARTS: [u16; 3] = [2, 4, 6];
+static SHAPE_257_LOD_2_VERTS: [ShapeVertex; 8] = [
+    v(0.0, -33.0, 0.0),
+    v(0.0, 32.0, 0.0),
+    v(35.0, -23.0, -20.0),
+    v(-35.0, -23.0, -20.0),
+    v(15.0, -3.0, 0.0),
+    v(-15.0, -3.0, 0.0),
+    v(25.0, 2.0, 0.0),
+    v(-25.0, 2.0, 0.0),
+];
+static SHAPE_257_LOD_2_FACES: [ShapeFace; 4] = [
+    f(
+        [4, 6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [-34, 68, -102],
+        Some([4, 6, 2]),
+    ),
+    f(
+        [3, 7, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        30,
+        [34, 68, -102],
+        Some([3, 7, 5]),
+    ),
+    f(
+        [1, 6, 4, 5, 7, 0, 0, 0, 0, 0, 0, 0],
+        5,
+        0,
+        [0, 0, -127],
+        Some([1, 6, 4]),
+    ),
+    f(
+        [5, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [0, 0, -127],
+        Some([5, 4, 0]),
+    ),
+];
+static SHAPE_257_LOD_2_PAINTER: [ShapePainterNode; 0] = [];
+
 static SHAPE_257_PAINTER: [ShapePainterNode; 5] = [
     ShapePainterNode::Partition {
         visibility_vertices: Some([11, 15, 9]),
@@ -53614,6 +54529,7 @@ static SHAPE_257_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 258: sea_0_1
+static SHAPE_258_REFLECTED_PAIR_STARTS: [u16; 4] = [2, 4, 6, 8];
 static SHAPE_258_VERTS: [ShapeVertex; 10] = [
     v(0.0, 25.0, -10.0),
     v(0.0, 5.0, 15.0),
@@ -53685,6 +54601,7 @@ static SHAPE_258_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 259: boss_2_0
+static SHAPE_259_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_259_VERTS: [ShapeVertex; 8] = [
     v(-80.0, 200.0, 184.0),
     v(80.0, 200.0, 184.0),
@@ -53736,6 +54653,7 @@ static SHAPE_259_FACES: [ShapeFace; 5] = [
 static SHAPE_259_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 260: boss_2_1
+static SHAPE_260_REFLECTED_PAIR_STARTS: [u16; 2] = [9, 11];
 static SHAPE_260_VERTS: [ShapeVertex; 13] = [
     v(0.0, 240.0, -160.0),
     v(0.0, 440.0, -80.0),
@@ -53824,6 +54742,7 @@ static SHAPE_260_FACES: [ShapeFace; 13] = [
 static SHAPE_260_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 261: boss_2_3
+static SHAPE_261_REFLECTED_PAIR_STARTS: [u16; 1] = [6];
 static SHAPE_261_VERTS: [ShapeVertex; 9] = [
     v(-160.0, 240.0, 64.0),
     v(-256.0, 184.0, 144.0),
@@ -53897,6 +54816,7 @@ static SHAPE_261_FACES: [ShapeFace; 8] = [
 static SHAPE_261_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 262: boss_2_4
+static SHAPE_262_REFLECTED_PAIR_STARTS: [u16; 1] = [6];
 static SHAPE_262_VERTS: [ShapeVertex; 9] = [
     v(-168.0, 528.0, 168.0),
     v(-64.0, 240.0, 160.0),
@@ -53970,6 +54890,7 @@ static SHAPE_262_FACES: [ShapeFace; 8] = [
 static SHAPE_262_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 263: boss_2_5
+static SHAPE_263_REFLECTED_PAIR_STARTS: [u16; 2] = [1, 4];
 static SHAPE_263_VERTS: [ShapeVertex; 7] = [
     v(0.0, 480.0, 0.0),
     v(64.0, 240.0, 160.0),
@@ -54041,6 +54962,8 @@ static SHAPE_263_FACES: [ShapeFace; 8] = [
 static SHAPE_263_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 264: boss_8_1
+static SHAPE_264_REFLECTED_PAIR_STARTS: [u16; 15] =
+    [3, 9, 12, 14, 16, 18, 20, 22, 25, 28, 30, 32, 35, 38, 40];
 static SHAPE_264_VERTS: [ShapeVertex; 42] = [
     v(-120.0, 488.0, -240.0),
     v(-240.0, 488.0, 0.0),
@@ -55141,6 +56064,8 @@ static SHAPE_264_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 265: boss_8_1c
+static SHAPE_265_REFLECTED_PAIR_STARTS: [u16; 15] =
+    [3, 9, 12, 14, 16, 18, 20, 22, 25, 28, 30, 32, 35, 38, 40];
 static SHAPE_265_VERTS: [ShapeVertex; 42] = [
     v(-120.0, 488.0, -240.0),
     v(-240.0, 488.0, 0.0),
@@ -56241,6 +57166,7 @@ static SHAPE_265_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 266: sparklas
+static SHAPE_266_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_266_VERTS: [ShapeVertex; 6] = [
     v(0.0, 0.0, 0.0),
     v(-40.0, 40.0, 320.0),
@@ -56327,6 +57253,7 @@ static SHAPE_266_FACES: [ShapeFace; 6] = [
 static SHAPE_266_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 267: shrap1
+static SHAPE_267_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_267_VERTS: [ShapeVertex; 12] = [
     v(10.0, 15.0, -70.0),
     v(-50.0, 70.0, -40.0),
@@ -56430,6 +57357,7 @@ static SHAPE_267_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 268: shyper
+static SHAPE_268_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_268_VERTS: [ShapeVertex; 14] = [
     v(0.0, -50.0, 0.0),
     v(0.0, -50.0, 50.0),
@@ -56471,6 +57399,7 @@ static SHAPE_268_FACES: [ShapeFace; 7] = [
 static SHAPE_268_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 269: zaco_9
+static SHAPE_269_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_269_VERTS: [ShapeVertex; 16] = [
     v(-20.0, -40.0, 60.0),
     v(20.0, -30.0, -30.0),
@@ -56634,6 +57563,8 @@ static SHAPE_269_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 270: boss_g_s
+static SHAPE_270_REFLECTED_PAIR_STARTS: [u16; 16] =
+    [5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35];
 static SHAPE_270_VERTS: [ShapeVertex; 37] = [
     v(0.0, 60.0, -60.0),
     v(0.0, -25.0, -30.0),
@@ -56821,6 +57752,7 @@ static SHAPE_270_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 271: f_fish
+static SHAPE_271_REFLECTED_PAIR_STARTS: [u16; 2] = [8, 12];
 static SHAPE_271_VERTS: [ShapeVertex; 14] = [
     v(0.0, -20.0, -60.0),
     v(0.0, 20.0, -60.0),
@@ -57264,6 +58196,7 @@ static SHAPE_271_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 272: rockbeam
+static SHAPE_272_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_272_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -57281,6 +58214,7 @@ static SHAPE_272_FACES: [ShapeFace; 1] = [f(
 static SHAPE_272_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 273: l2smoke
+static SHAPE_273_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_273_VERTS: [ShapeVertex; 4] = [
     v(64.0, -64.0, 0.0),
     v(-64.0, -64.0, 0.0),
@@ -57298,6 +58232,7 @@ static SHAPE_273_FACES: [ShapeFace; 1] = [f(
 static SHAPE_273_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 274: explosion5
+static SHAPE_274_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_274_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -57315,6 +58250,7 @@ static SHAPE_274_FACES: [ShapeFace; 1] = [f(
 static SHAPE_274_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 275: asteroid1
+static SHAPE_275_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_275_VERTS: [ShapeVertex; 4] = [
     v(64.0, -64.0, 0.0),
     v(-64.0, -64.0, 0.0),
@@ -57332,6 +58268,7 @@ static SHAPE_275_FACES: [ShapeFace; 1] = [f(
 static SHAPE_275_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 276: asteroid3
+static SHAPE_276_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_276_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -57349,6 +58286,7 @@ static SHAPE_276_FACES: [ShapeFace; 1] = [f(
 static SHAPE_276_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 277: asteroid4
+static SHAPE_277_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_277_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -57366,6 +58304,7 @@ static SHAPE_277_FACES: [ShapeFace; 1] = [f(
 static SHAPE_277_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 279: big_meteor
+static SHAPE_279_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_279_VERTS: [ShapeVertex; 4] = [
     v(256.0, -256.0, 0.0),
     v(-256.0, -256.0, 0.0),
@@ -57383,6 +58322,7 @@ static SHAPE_279_FACES: [ShapeFace; 1] = [f(
 static SHAPE_279_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 280: clasteroid
+static SHAPE_280_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_280_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -57400,6 +58340,7 @@ static SHAPE_280_FACES: [ShapeFace; 1] = [f(
 static SHAPE_280_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 281: whale
+static SHAPE_281_REFLECTED_PAIR_STARTS: [u16; 8] = [0, 7, 9, 11, 13, 15, 17, 19];
 static SHAPE_281_VERTS: [ShapeVertex; 21] = [
     v(-200.0, -80.0, 120.0),
     v(200.0, -80.0, 120.0),
@@ -57936,6 +58877,7 @@ static SHAPE_281_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 282: my_bird
+static SHAPE_282_REFLECTED_PAIR_STARTS: [u16; 4] = [4, 6, 14, 16];
 static SHAPE_282_VERTS: [ShapeVertex; 18] = [
     v(0.0, 16.0, -64.0),
     v(0.0, -18.0, 32.0),
@@ -58546,6 +59488,7 @@ static SHAPE_282_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 283: zaco_8p
+static SHAPE_283_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_283_VERTS: [ShapeVertex; 4] = [
     v(-24.0, 0.0, -30.0),
     v(-18.0, 18.0, -30.0),
@@ -58586,6 +59529,7 @@ static SHAPE_283_FACES: [ShapeFace; 4] = [
 static SHAPE_283_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 284: bou_1
+static SHAPE_284_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_284_VERTS: [ShapeVertex; 8] = [
     v(-20.0, -60.0, -20.0),
     v(20.0, -60.0, -20.0),
@@ -58623,6 +59567,7 @@ static SHAPE_284_FACES: [ShapeFace; 3] = [
 static SHAPE_284_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 285: pipe_8_0
+static SHAPE_285_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_285_VERTS: [ShapeVertex; 8] = [
     v(-136.0, -56.0, -256.0),
     v(136.0, -56.0, -256.0),
@@ -58667,6 +59612,8 @@ static SHAPE_285_FACES: [ShapeFace; 4] = [
 static SHAPE_285_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 286: pipe_8
+static SHAPE_286_REFLECTED_PAIR_STARTS: [u16; 16] =
+    [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
 static SHAPE_286_VERTS: [ShapeVertex; 32] = [
     v(-136.0, -56.0, -600.0),
     v(136.0, -56.0, -600.0),
@@ -59244,6 +60191,7 @@ static SHAPE_286_PAINTER: [ShapePainterNode; 17] = [
 ];
 
 // Shape 287: bou_1b
+static SHAPE_287_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_287_VERTS: [ShapeVertex; 8] = [
     v(-20.0, -60.0, -20.0),
     v(20.0, -60.0, -20.0),
@@ -59281,6 +60229,7 @@ static SHAPE_287_FACES: [ShapeFace; 3] = [
 static SHAPE_287_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 288: paper_1
+static SHAPE_288_REFLECTED_PAIR_STARTS: [u16; 2] = [10, 12];
 static SHAPE_288_VERTS: [ShapeVertex; 14] = [
     v(0.0, 0.0, -80.0),
     v(0.0, 0.0, 80.0),
@@ -59741,6 +60690,7 @@ static SHAPE_288_FACES: [ShapeFace; 16] = [
 static SHAPE_288_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 289: paper_3
+static SHAPE_289_REFLECTED_PAIR_STARTS: [u16; 1] = [7];
 static SHAPE_289_VERTS: [ShapeVertex; 9] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, -160.0),
@@ -60150,6 +61100,7 @@ static SHAPE_289_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 290: pole_0
+static SHAPE_290_REFLECTED_PAIR_STARTS: [u16; 8] = [2, 4, 6, 8, 10, 12, 14, 16];
 static SHAPE_290_VERTS: [ShapeVertex; 18] = [
     v(20.0, -180.0, -20.0),
     v(20.0, 180.0, -20.0),
@@ -60281,6 +61232,10 @@ static SHAPE_290_FACES: [ShapeFace; 15] = [
 static SHAPE_290_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 291: slot_0
+static SHAPE_291_REFLECTED_PAIR_STARTS: [u16; 29] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
+    50, 52, 54, 56,
+];
 static SHAPE_291_VERTS: [ShapeVertex; 58] = [
     v(-160.0, -280.0, -120.0),
     v(160.0, -280.0, -120.0),
@@ -60671,6 +61626,7 @@ static SHAPE_291_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 292: font_t2
+static SHAPE_292_REFLECTED_PAIR_STARTS: [u16; 8] = [0, 2, 4, 6, 8, 10, 12, 14];
 static SHAPE_292_VERTS: [ShapeVertex; 16] = [
     v(20.0, 25.0, -10.0),
     v(-20.0, 25.0, -10.0),
@@ -60779,6 +61735,7 @@ static SHAPE_292_FACES: [ShapeFace; 12] = [
 static SHAPE_292_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 293: font_h2
+static SHAPE_293_REFLECTED_PAIR_STARTS: [u16; 6] = [3, 8, 10, 15, 20, 22];
 static SHAPE_293_VERTS: [ShapeVertex; 24] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 25.0, -10.0),
@@ -60937,6 +61894,7 @@ static SHAPE_293_FACES: [ShapeFace; 18] = [
 static SHAPE_293_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 294: font_e2
+static SHAPE_294_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_294_VERTS: [ShapeVertex; 24] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 15.0, -10.0),
@@ -61109,6 +62067,7 @@ static SHAPE_294_FACES: [ShapeFace; 20] = [
 static SHAPE_294_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 295: font_e3
+static SHAPE_295_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_295_VERTS: [ShapeVertex; 24] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 15.0, -10.0),
@@ -61281,6 +62240,7 @@ static SHAPE_295_FACES: [ShapeFace; 20] = [
 static SHAPE_295_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 296: font_n2
+static SHAPE_296_REFLECTED_PAIR_STARTS: [u16; 2] = [3, 13];
 static SHAPE_296_VERTS: [ShapeVertex; 20] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 25.0, -10.0),
@@ -61421,6 +62381,7 @@ static SHAPE_296_FACES: [ShapeFace; 16] = [
 static SHAPE_296_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 297: font_d2
+static SHAPE_297_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_297_VERTS: [ShapeVertex; 24] = [
     v(20.0, 25.0, -10.0),
     v(10.0, 15.0, -10.0),
@@ -61621,6 +62582,7 @@ static SHAPE_297_FACES: [ShapeFace; 24] = [
 static SHAPE_297_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 298: pilon
+static SHAPE_298_REFLECTED_PAIR_STARTS: [u16; 3] = [1, 3, 5];
 static SHAPE_298_VERTS: [ShapeVertex; 7] = [
     v(0.0, 60.0, 0.0),
     v(20.0, -20.0, -40.0),
@@ -61685,6 +62647,7 @@ static SHAPE_298_FACES: [ShapeFace; 7] = [
 static SHAPE_298_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 299: mine_0
+static SHAPE_299_REFLECTED_PAIR_STARTS: [u16; 1] = [2];
 static SHAPE_299_VERTS: [ShapeVertex; 4] = [
     v(0.0, -30.0, -4.0),
     v(0.0, 30.0, -4.0),
@@ -61726,6 +62689,7 @@ static SHAPE_299_FACES: [ShapeFace; 5] = [
 static SHAPE_299_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 300: boss_h_0
+static SHAPE_300_REFLECTED_PAIR_STARTS: [u16; 6] = [3, 5, 7, 9, 11, 13];
 static SHAPE_300_VERTS: [ShapeVertex; 15] = [
     v(0.0, 0.0, -192.0),
     v(0.0, 80.0, -96.0),
@@ -61840,6 +62804,7 @@ static SHAPE_300_FACES: [ShapeFace; 13] = [
 static SHAPE_300_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 301: boss_h_1
+static SHAPE_301_REFLECTED_PAIR_STARTS: [u16; 1] = [5];
 static SHAPE_301_VERTS: [ShapeVertex; 7] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 32.0, -200.0),
@@ -62041,6 +63006,7 @@ static SHAPE_301_FACES: [ShapeFace; 7] = [
 static SHAPE_301_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 302: boss_h_1a
+static SHAPE_302_REFLECTED_PAIR_STARTS: [u16; 1] = [5];
 static SHAPE_302_VERTS: [ShapeVertex; 7] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 32.0, -200.0),
@@ -62242,6 +63208,7 @@ static SHAPE_302_FACES: [ShapeFace; 7] = [
 static SHAPE_302_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 303: boss_h_2
+static SHAPE_303_REFLECTED_PAIR_STARTS: [u16; 10] = [3, 5, 7, 9, 11, 13, 15, 17, 19, 21];
 static SHAPE_303_VERTS: [ShapeVertex; 23] = [
     v(0.0, 200.0, -40.0),
     v(0.0, 240.0, 0.0),
@@ -62454,6 +63421,7 @@ static SHAPE_303_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 304: boss_h_3
+static SHAPE_304_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
 static SHAPE_304_VERTS: [ShapeVertex; 4] = [
     v(-4.0, -40.0, 0.0),
     v(4.0, -40.0, 0.0),
@@ -62607,6 +63575,7 @@ static SHAPE_304_FACES: [ShapeFace; 1] = [f(
 static SHAPE_304_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 305: boss_f_1
+static SHAPE_305_REFLECTED_PAIR_STARTS: [u16; 1] = [5];
 static SHAPE_305_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, 0.0),
     v(-136.0, 0.0, -40.0),
@@ -62826,6 +63795,7 @@ static SHAPE_305_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 306: boss_f_2
+static SHAPE_306_REFLECTED_PAIR_STARTS: [u16; 11] = [0, 2, 4, 6, 8, 10, 12, 30, 32, 34, 36];
 static SHAPE_306_VERTS: [ShapeVertex; 38] = [
     v(-232.0, -32.0, -80.0),
     v(232.0, -32.0, -80.0),
@@ -63689,6 +64659,7 @@ static SHAPE_306_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 307: boss_f_5
+static SHAPE_307_REFLECTED_PAIR_STARTS: [u16; 11] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20];
 static SHAPE_307_VERTS: [ShapeVertex; 22] = [
     v(-64.0, -200.0, -160.0),
     v(64.0, -200.0, -160.0),
@@ -63852,6 +64823,7 @@ static SHAPE_307_FACES: [ShapeFace; 19] = [
 static SHAPE_307_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 308: boss_f_6
+static SHAPE_308_REFLECTED_PAIR_STARTS: [u16; 2] = [3, 6];
 static SHAPE_308_VERTS: [ShapeVertex; 8] = [
     v(0.0, -168.0, 240.0),
     v(-48.0, 72.0, 384.0),
@@ -63938,6 +64910,7 @@ static SHAPE_308_FACES: [ShapeFace; 10] = [
 static SHAPE_308_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 309: boss_f_7
+static SHAPE_309_REFLECTED_PAIR_STARTS: [u16; 2] = [2, 6];
 static SHAPE_309_VERTS: [ShapeVertex; 8] = [
     v(0.0, -88.0, 464.0),
     v(32.0, 72.0, 560.0),
@@ -64024,6 +64997,7 @@ static SHAPE_309_FACES: [ShapeFace; 10] = [
 static SHAPE_309_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 310: pipe_9_0
+static SHAPE_310_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_310_VERTS: [ShapeVertex; 8] = [
     v(-96.0, -56.0, -256.0),
     v(96.0, -56.0, -256.0),
@@ -64068,6 +65042,8 @@ static SHAPE_310_FACES: [ShapeFace; 4] = [
 static SHAPE_310_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 311: pipe_9
+static SHAPE_311_REFLECTED_PAIR_STARTS: [u16; 16] =
+    [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
 static SHAPE_311_VERTS: [ShapeVertex; 32] = [
     v(-96.0, -56.0, -600.0),
     v(96.0, -56.0, -600.0),
@@ -64645,6 +65621,10 @@ static SHAPE_311_PAINTER: [ShapePainterNode; 17] = [
 ];
 
 // Shape 312: deboss_1
+static SHAPE_312_REFLECTED_PAIR_STARTS: [u16; 32] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48,
+    50, 52, 54, 56, 58, 60, 62,
+];
 static SHAPE_312_VERTS: [ShapeVertex; 64] = [
     v(-80.0, 80.0, -1760.0),
     v(80.0, 80.0, -1760.0),
@@ -65193,6 +66173,7 @@ static SHAPE_312_PAINTER: [ShapePainterNode; 23] = [
 ];
 
 // Shape 313: pipe_0
+static SHAPE_313_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 5];
 static SHAPE_313_VERTS: [ShapeVertex; 10] = [
     v(-208.0, -128.0, 512.0),
     v(208.0, -128.0, 512.0),
@@ -65260,6 +66241,7 @@ static SHAPE_313_FACES: [ShapeFace; 7] = [
 static SHAPE_313_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 314: pipe_1
+static SHAPE_314_REFLECTED_PAIR_STARTS: [u16; 5] = [0, 2, 4, 6, 8];
 static SHAPE_314_VERTS: [ShapeVertex; 10] = [
     v(208.0, -192.0, -400.0),
     v(-208.0, -192.0, -400.0),
@@ -65327,6 +66309,7 @@ static SHAPE_314_FACES: [ShapeFace; 7] = [
 static SHAPE_314_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 315: pipe_2
+static SHAPE_315_REFLECTED_PAIR_STARTS: [u16; 5] = [0, 2, 4, 6, 8];
 static SHAPE_315_VERTS: [ShapeVertex; 10] = [
     v(208.0, -192.0, -400.0),
     v(-208.0, -192.0, -400.0),
@@ -65394,6 +66377,7 @@ static SHAPE_315_FACES: [ShapeFace; 7] = [
 static SHAPE_315_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 316: pipe_3
+static SHAPE_316_REFLECTED_PAIR_STARTS: [u16; 5] = [0, 2, 4, 6, 8];
 static SHAPE_316_VERTS: [ShapeVertex; 10] = [
     v(-208.0, -192.0, -400.0),
     v(208.0, -192.0, -400.0),
@@ -65461,6 +66445,7 @@ static SHAPE_316_FACES: [ShapeFace; 7] = [
 static SHAPE_316_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 317: pipe_4
+static SHAPE_317_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_317_VERTS: [ShapeVertex; 8] = [
     v(208.0, -192.0, -400.0),
     v(-208.0, -192.0, -400.0),
@@ -65505,6 +66490,7 @@ static SHAPE_317_FACES: [ShapeFace; 4] = [
 static SHAPE_317_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 318: pipe_5
+static SHAPE_318_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_318_VERTS: [ShapeVertex; 8] = [
     v(-208.0, -192.0, -400.0),
     v(208.0, -192.0, -400.0),
@@ -65549,6 +66535,7 @@ static SHAPE_318_FACES: [ShapeFace; 4] = [
 static SHAPE_318_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 319: pipe_6
+static SHAPE_319_REFLECTED_PAIR_STARTS: [u16; 4] = [4, 6, 8, 10];
 static SHAPE_319_VERTS: [ShapeVertex; 12] = [
     v(160.0, -320.0, 992.0),
     v(-224.0, -32.0, 992.0),
@@ -65653,6 +66640,7 @@ static SHAPE_319_FACES: [ShapeFace; 12] = [
 static SHAPE_319_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 320: d_pilar
+static SHAPE_320_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_320_VERTS: [ShapeVertex; 12] = [
     v(60.0, -10.0, -20.0),
     v(60.0, 10.0, -20.0),
@@ -65853,6 +66841,7 @@ static SHAPE_320_FACES: [ShapeFace; 6] = [
 static SHAPE_320_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 321: half_d
+static SHAPE_321_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_321_VERTS: [ShapeVertex; 16] = [
     v(60.0, -60.0, -20.0),
     v(60.0, -30.0, -20.0),
@@ -66107,6 +67096,9 @@ static SHAPE_321_FACES: [ShapeFace; 8] = [
 static SHAPE_321_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 322: cockpit
+static SHAPE_322_REFLECTED_PAIR_STARTS: [u16; 23] = [
+    20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58, 60, 62, 64,
+];
 static SHAPE_322_VERTS: [ShapeVertex; 66] = [
     v(-22.0, -10.0, -33.0),
     v(23.0, -10.0, -33.0),
@@ -66565,6 +67557,8 @@ static SHAPE_322_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 323: old_type
+static SHAPE_323_REFLECTED_PAIR_STARTS: [u16; 13] =
+    [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
 static SHAPE_323_VERTS: [ShapeVertex; 32] = [
     v(0.0, 40.0, -104.0),
     v(0.0, 68.0, -100.0),
@@ -67017,6 +68011,7 @@ static SHAPE_323_PAINTER: [ShapePainterNode; 19] = [
 ];
 
 // Shape 324: item_0
+static SHAPE_324_REFLECTED_PAIR_STARTS: [u16; 1] = [8];
 static SHAPE_324_VERTS: [ShapeVertex; 13] = [
     v(-20.0, 11.0, -20.0),
     v(20.0, -4.0, 0.0),
@@ -67181,6 +68176,7 @@ static SHAPE_324_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 325: r_but_2
+static SHAPE_325_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_325_VERTS: [ShapeVertex; 12] = [
     v(105.0, 0.0, -105.0),
     v(-115.0, 0.0, -105.0),
@@ -67257,6 +68253,8 @@ static SHAPE_325_FACES: [ShapeFace; 8] = [
 static SHAPE_325_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 326: walk_4_0
+static SHAPE_326_REFLECTED_PAIR_STARTS: [u16; 14] =
+    [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26];
 static SHAPE_326_VERTS: [ShapeVertex; 28] = [
     v(28.0, 40.0, -200.0),
     v(-28.0, 40.0, -200.0),
@@ -67540,6 +68538,7 @@ static SHAPE_326_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 327: arm
+static SHAPE_327_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_327_VERTS: [ShapeVertex; 8] = [
     v(-10.0, -10.0, 0.0),
     v(10.0, -10.0, 0.0),
@@ -67598,6 +68597,7 @@ static SHAPE_327_FACES: [ShapeFace; 6] = [
 static SHAPE_327_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 328: bulge
+static SHAPE_328_REFLECTED_PAIR_STARTS: [u16; 10] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18];
 static SHAPE_328_VERTS: [ShapeVertex; 20] = [
     v(-10.0, -10.0, 0.0),
     v(10.0, -10.0, 0.0),
@@ -67824,6 +68824,7 @@ static SHAPE_328_FACES: [ShapeFace; 18] = [
 static SHAPE_328_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 329: boss_e_0
+static SHAPE_329_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_329_VERTS: [ShapeVertex; 42] = [
     v(64.0, -40.0, -220.0),
     v(64.0, 40.0, -220.0),
@@ -68563,6 +69564,7 @@ static SHAPE_329_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 330: boss_e_1
+static SHAPE_330_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_330_VERTS: [ShapeVertex; 42] = [
     v(64.0, -40.0, -220.0),
     v(64.0, 40.0, -220.0),
@@ -69302,6 +70304,7 @@ static SHAPE_330_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 331: boss_e_1a
+static SHAPE_331_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_331_VERTS: [ShapeVertex; 42] = [
     v(64.0, -40.0, -220.0),
     v(64.0, 40.0, -220.0),
@@ -70041,6 +71044,7 @@ static SHAPE_331_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 332: boss_e_3
+static SHAPE_332_REFLECTED_PAIR_STARTS: [u16; 8] = [12, 14, 16, 18, 20, 22, 24, 26];
 static SHAPE_332_VERTS: [ShapeVertex; 28] = [
     v(-20.0, -20.0, -72.0),
     v(24.0, -20.0, -72.0),
@@ -70251,6 +71255,7 @@ static SHAPE_332_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 333: boss_e_4
+static SHAPE_333_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_333_VERTS: [ShapeVertex; 16] = [
     v(34.0, 0.0, -10.0),
     v(34.0, -10.0, 0.0),
@@ -70400,6 +71405,7 @@ static SHAPE_333_FACES: [ShapeFace; 12] = [
 static SHAPE_333_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 334: ringlaser
+static SHAPE_334_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_334_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -70417,6 +71423,7 @@ static SHAPE_334_FACES: [ShapeFace; 1] = [f(
 static SHAPE_334_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 335: snake_0
+static SHAPE_335_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_335_VERTS: [ShapeVertex; 20] = [
     v(-2.0, 70.0, -60.0),
     v(28.0, 0.0, 0.0),
@@ -71028,6 +72035,7 @@ static SHAPE_335_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 336: snake_3
+static SHAPE_336_REFLECTED_PAIR_STARTS: [u16; 4] = [1, 3, 8, 10];
 static SHAPE_336_VERTS: [ShapeVertex; 12] = [
     v(0.0, 40.0, 15.0),
     v(5.0, 40.0, -10.0),
@@ -71254,6 +72262,7 @@ static SHAPE_336_FACES: [ShapeFace; 14] = [
 static SHAPE_336_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 337: snake_4
+static SHAPE_337_REFLECTED_PAIR_STARTS: [u16; 4] = [3, 5, 7, 9];
 static SHAPE_337_VERTS: [ShapeVertex; 11] = [
     v(0.0, 50.0, 0.0),
     v(0.0, -40.0, 15.0),
@@ -71343,6 +72352,7 @@ static SHAPE_337_FACES: [ShapeFace; 10] = [
 static SHAPE_337_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 338: smark
+static SHAPE_338_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_338_VERTS: [ShapeVertex; 4] = [
     v(50.0, 0.0, 50.0),
     v(-50.0, 0.0, 50.0),
@@ -71360,6 +72370,7 @@ static SHAPE_338_FACES: [ShapeFace; 1] = [f(
 static SHAPE_338_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 339: mmark
+static SHAPE_339_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_339_VERTS: [ShapeVertex; 4] = [
     v(100.0, 0.0, 100.0),
     v(-100.0, 0.0, 100.0),
@@ -71377,6 +72388,7 @@ static SHAPE_339_FACES: [ShapeFace; 1] = [f(
 static SHAPE_339_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 340: lmark
+static SHAPE_340_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_340_VERTS: [ShapeVertex; 4] = [
     v(200.0, 0.0, 200.0),
     v(-200.0, 0.0, 200.0),
@@ -71394,6 +72406,7 @@ static SHAPE_340_FACES: [ShapeFace; 1] = [f(
 static SHAPE_340_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 341: escapee
+static SHAPE_341_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_341_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -71420,6 +72433,7 @@ static SHAPE_341_FACES: [ShapeFace; 2] = [
 static SHAPE_341_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 342: lfdie
+static SHAPE_342_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_342_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -71437,6 +72451,7 @@ static SHAPE_342_FACES: [ShapeFace; 1] = [f(
 static SHAPE_342_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 343: andross
+static SHAPE_343_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
 static SHAPE_343_VERTS: [ShapeVertex; 4] = [
     v(200.0, -200.0, 0.0),
     v(-200.0, -200.0, 0.0),
@@ -71463,6 +72478,7 @@ static SHAPE_343_FACES: [ShapeFace; 2] = [
 static SHAPE_343_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 344: androsscube
+static SHAPE_344_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_344_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(0.0, 0.0, 0.0),
@@ -71521,6 +72537,8 @@ static SHAPE_344_FACES: [ShapeFace; 6] = [
 static SHAPE_344_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 345: face_0_1
+static SHAPE_345_REFLECTED_PAIR_STARTS: [u16; 15] =
+    [5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33];
 static SHAPE_345_VERTS: [ShapeVertex; 35] = [
     v(0.0, -16.0, -80.0),
     v(0.0, 64.0, -96.0),
@@ -72647,6 +73665,8 @@ static SHAPE_345_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 346: face_1
+static SHAPE_346_REFLECTED_PAIR_STARTS: [u16; 15] =
+    [0, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44];
 static SHAPE_346_VERTS: [ShapeVertex; 46] = [
     v(160.0, 416.0, 320.0),
     v(-160.0, 416.0, 320.0),
@@ -74250,6 +75270,7 @@ static SHAPE_346_PAINTER: [ShapePainterNode; 19] = [
 ];
 
 // Shape 347: face_box
+static SHAPE_347_REFLECTED_PAIR_STARTS: [u16; 4] = [2, 4, 6, 8];
 static SHAPE_347_VERTS: [ShapeVertex; 10] = [
     v(0.0, -280.0, 0.0),
     v(0.0, 280.0, 0.0),
@@ -74352,6 +75373,7 @@ static SHAPE_347_FACES: [ShapeFace; 12] = [
 static SHAPE_347_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 348: sface_b
+static SHAPE_348_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_348_VERTS: [ShapeVertex; 8] = [
     v(128.0, -208.0, -20.0),
     v(-128.0, -208.0, -20.0),
@@ -74410,6 +75432,7 @@ static SHAPE_348_FACES: [ShapeFace; 6] = [
 static SHAPE_348_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 349: sface2_b
+static SHAPE_349_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_349_VERTS: [ShapeVertex; 8] = [
     v(128.0, -208.0, -20.0),
     v(-128.0, -208.0, -20.0),
@@ -74468,6 +75491,7 @@ static SHAPE_349_FACES: [ShapeFace; 6] = [
 static SHAPE_349_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 350: para_1
+static SHAPE_350_REFLECTED_PAIR_STARTS: [u16; 2] = [4, 6];
 static SHAPE_350_VERTS: [ShapeVertex; 8] = [
     v(0.0, 8.0, 0.0),
     v(0.0, 28.0, 0.0),
@@ -74526,6 +75550,126 @@ static SHAPE_350_FACES: [ShapeFace; 9] = [
     f([5, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 16, [0, 0, 0], None),
 ];
 
+static SHAPE_350_LOD_0_REFLECTED_PAIR_STARTS: [u16; 2] = [3, 5];
+static SHAPE_350_LOD_0_VERTS: [ShapeVertex; 7] = [
+    v(0.0, 8.0, 0.0),
+    v(0.0, 28.0, 0.0),
+    v(0.0, 0.0, 10.0),
+    v(20.0, 0.0, -10.0),
+    v(-20.0, 0.0, -10.0),
+    v(10.0, 18.0, 0.0),
+    v(-10.0, 18.0, 0.0),
+];
+static SHAPE_350_LOD_0_FACES: [ShapeFace; 4] = [
+    f(
+        [1, 5, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [0, 0, -127],
+        Some([1, 5, 0]),
+    ),
+    f([3, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+    f([6, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+    f([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+];
+static SHAPE_350_LOD_0_PAINTER: [ShapePainterNode; 3] = [
+    ShapePainterNode::Partition {
+        visibility_vertices: Some([1, 5, 0]),
+        face_start: 0,
+        face_count: 1,
+        left: Some(1),
+        right: Some(2),
+    },
+    ShapePainterNode::Leaf {
+        face_start: 1,
+        face_count: 2,
+    },
+    ShapePainterNode::Leaf {
+        face_start: 3,
+        face_count: 1,
+    },
+];
+
+static SHAPE_350_LOD_1_REFLECTED_PAIR_STARTS: [u16; 2] = [3, 5];
+static SHAPE_350_LOD_1_VERTS: [ShapeVertex; 7] = [
+    v(0.0, 8.0, 0.0),
+    v(0.0, 28.0, 0.0),
+    v(0.0, 0.0, 10.0),
+    v(20.0, 0.0, -10.0),
+    v(-20.0, 0.0, -10.0),
+    v(10.0, 18.0, 0.0),
+    v(-10.0, 18.0, 0.0),
+];
+static SHAPE_350_LOD_1_FACES: [ShapeFace; 4] = [
+    f(
+        [1, 5, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [0, 0, -127],
+        Some([1, 5, 0]),
+    ),
+    f([3, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+    f([6, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+    f([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+];
+static SHAPE_350_LOD_1_PAINTER: [ShapePainterNode; 3] = [
+    ShapePainterNode::Partition {
+        visibility_vertices: Some([1, 5, 0]),
+        face_start: 0,
+        face_count: 1,
+        left: Some(1),
+        right: Some(2),
+    },
+    ShapePainterNode::Leaf {
+        face_start: 1,
+        face_count: 2,
+    },
+    ShapePainterNode::Leaf {
+        face_start: 3,
+        face_count: 1,
+    },
+];
+
+static SHAPE_350_LOD_2_REFLECTED_PAIR_STARTS: [u16; 2] = [3, 5];
+static SHAPE_350_LOD_2_VERTS: [ShapeVertex; 7] = [
+    v(0.0, 8.0, 0.0),
+    v(0.0, 28.0, 0.0),
+    v(0.0, 0.0, 10.0),
+    v(20.0, 0.0, -10.0),
+    v(-20.0, 0.0, -10.0),
+    v(10.0, 18.0, 0.0),
+    v(-10.0, 18.0, 0.0),
+];
+static SHAPE_350_LOD_2_FACES: [ShapeFace; 4] = [
+    f(
+        [1, 5, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [0, 0, -127],
+        Some([1, 5, 0]),
+    ),
+    f([3, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+    f([6, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+    f([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 2, 15, [0, 0, 0], None),
+];
+static SHAPE_350_LOD_2_PAINTER: [ShapePainterNode; 3] = [
+    ShapePainterNode::Partition {
+        visibility_vertices: Some([1, 5, 0]),
+        face_start: 0,
+        face_count: 1,
+        left: Some(1),
+        right: Some(2),
+    },
+    ShapePainterNode::Leaf {
+        face_start: 1,
+        face_count: 2,
+    },
+    ShapePainterNode::Leaf {
+        face_start: 3,
+        face_count: 1,
+    },
+];
+
 static SHAPE_350_PAINTER: [ShapePainterNode; 3] = [
     ShapePainterNode::Partition {
         visibility_vertices: Some([0, 7, 6]),
@@ -74545,6 +75689,7 @@ static SHAPE_350_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 351: my_w
+static SHAPE_351_REFLECTED_PAIR_STARTS: [u16; 5] = [3, 5, 7, 9, 11];
 static SHAPE_351_VERTS: [ShapeVertex; 13] = [
     v(0.0, 0.0, -10.0),
     v(0.0, 4.0, 0.0),
@@ -74623,6 +75768,7 @@ static SHAPE_351_FACES: [ShapeFace; 21] = [
 static SHAPE_351_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 352: my_r_w
+static SHAPE_352_REFLECTED_PAIR_STARTS: [u16; 4] = [5, 7, 9, 11];
 static SHAPE_352_VERTS: [ShapeVertex; 13] = [
     v(34.0, -14.0, -40.0),
     v(-25.0, -10.0, -20.0),
@@ -74791,6 +75937,7 @@ static SHAPE_352_FACES: [ShapeFace; 21] = [
 static SHAPE_352_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 353: my_l_w
+static SHAPE_353_REFLECTED_PAIR_STARTS: [u16; 4] = [5, 7, 9, 11];
 static SHAPE_353_VERTS: [ShapeVertex; 13] = [
     v(-34.0, -14.0, -40.0),
     v(25.0, -10.0, -20.0),
@@ -74959,6 +76106,7 @@ static SHAPE_353_FACES: [ShapeFace; 21] = [
 static SHAPE_353_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 354: my_b_w
+static SHAPE_354_REFLECTED_PAIR_STARTS: [u16; 5] = [3, 5, 7, 9, 11];
 static SHAPE_354_VERTS: [ShapeVertex; 13] = [
     v(0.0, 0.0, -10.0),
     v(0.0, 4.0, 0.0),
@@ -75127,6 +76275,7 @@ static SHAPE_354_FACES: [ShapeFace; 21] = [
 static SHAPE_354_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 355: up1_man
+static SHAPE_355_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 3];
 static SHAPE_355_VERTS: [ShapeVertex; 11] = [
     v(-10.0, 10.0, -10.0),
     v(10.0, 10.0, -10.0),
@@ -75230,6 +76379,7 @@ static SHAPE_355_FACES: [ShapeFace; 12] = [
 static SHAPE_355_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 356: f_dra_1
+static SHAPE_356_REFLECTED_PAIR_STARTS: [u16; 7] = [1, 6, 8, 10, 12, 14, 16];
 static SHAPE_356_VERTS: [ShapeVertex; 18] = [
     v(0.0, 0.0, 15.0),
     v(3.0, -5.0, 20.0),
@@ -75542,6 +76692,7 @@ static SHAPE_356_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 357: fire
+static SHAPE_357_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_357_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -75559,6 +76710,7 @@ static SHAPE_357_FACES: [ShapeFace; 1] = [f(
 static SHAPE_357_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 358: smoke
+static SHAPE_358_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_358_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -75576,6 +76728,7 @@ static SHAPE_358_FACES: [ShapeFace; 1] = [f(
 static SHAPE_358_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 359: ssplash
+static SHAPE_359_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_359_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -75593,6 +76746,7 @@ static SHAPE_359_FACES: [ShapeFace; 1] = [f(
 static SHAPE_359_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 360: splash
+static SHAPE_360_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_360_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -75610,6 +76764,7 @@ static SHAPE_360_FACES: [ShapeFace; 1] = [f(
 static SHAPE_360_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 361: pexplod
+static SHAPE_361_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_361_VERTS: [ShapeVertex; 4] = [
     v(8.0, -8.0, 0.0),
     v(-8.0, -8.0, 0.0),
@@ -75627,6 +76782,7 @@ static SHAPE_361_FACES: [ShapeFace; 1] = [f(
 static SHAPE_361_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 362: boostshape
+static SHAPE_362_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_362_VERTS: [ShapeVertex; 4] = [
     v(8.0, -8.0, 0.0),
     v(-8.0, -8.0, 0.0),
@@ -75644,6 +76800,7 @@ static SHAPE_362_FACES: [ShapeFace; 1] = [f(
 static SHAPE_362_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 363: firebreath
+static SHAPE_363_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_363_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -75661,6 +76818,7 @@ static SHAPE_363_FACES: [ShapeFace; 1] = [f(
 static SHAPE_363_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 364: lsmoke
+static SHAPE_364_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_364_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -75678,6 +76836,7 @@ static SHAPE_364_FACES: [ShapeFace; 1] = [f(
 static SHAPE_364_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 365: folsmoke
+static SHAPE_365_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_365_VERTS: [ShapeVertex; 4] = [
     v(128.0, -128.0, 0.0),
     v(-128.0, -128.0, 0.0),
@@ -75695,6 +76854,7 @@ static SHAPE_365_FACES: [ShapeFace; 1] = [f(
 static SHAPE_365_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 366: androsshole
+static SHAPE_366_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
 static SHAPE_366_VERTS: [ShapeVertex; 4] = [
     v(400.0, -400.0, 0.0),
     v(-400.0, -400.0, 0.0),
@@ -75721,6 +76881,7 @@ static SHAPE_366_FACES: [ShapeFace; 2] = [
 static SHAPE_366_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 367: spexplod
+static SHAPE_367_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_367_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -75738,6 +76899,7 @@ static SHAPE_367_FACES: [ShapeFace; 1] = [f(
 static SHAPE_367_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 368: myship_r
+static SHAPE_368_REFLECTED_PAIR_STARTS: [u16; 5] = [6, 8, 10, 12, 14];
 static SHAPE_368_VERTS: [ShapeVertex; 16] = [
     v(36.0, -14.0, -40.0),
     v(-25.0, -10.0, -20.0),
@@ -75940,6 +77102,7 @@ static SHAPE_368_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 369: myship_l
+static SHAPE_369_REFLECTED_PAIR_STARTS: [u16; 5] = [6, 8, 10, 12, 14];
 static SHAPE_369_VERTS: [ShapeVertex; 16] = [
     v(-36.0, -14.0, -40.0),
     v(25.0, -10.0, -20.0),
@@ -76142,6 +77305,7 @@ static SHAPE_369_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 370: myship_b
+static SHAPE_370_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_370_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -10.0),
     v(0.0, -1.0, 0.0),
@@ -76344,6 +77508,7 @@ static SHAPE_370_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 371: my_up
+static SHAPE_371_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_371_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -320.0),
     v(0.0, -32.0, 0.0),
@@ -76546,6 +77711,7 @@ static SHAPE_371_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 372: bmyship_4
+static SHAPE_372_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_372_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -10.0),
     v(0.0, -1.0, 0.0),
@@ -76748,6 +77914,7 @@ static SHAPE_372_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 373: bmyship_r
+static SHAPE_373_REFLECTED_PAIR_STARTS: [u16; 5] = [6, 8, 10, 12, 14];
 static SHAPE_373_VERTS: [ShapeVertex; 16] = [
     v(36.0, -14.0, -40.0),
     v(-25.0, -10.0, -20.0),
@@ -76950,6 +78117,7 @@ static SHAPE_373_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 374: bmyship_l
+static SHAPE_374_REFLECTED_PAIR_STARTS: [u16; 5] = [6, 8, 10, 12, 14];
 static SHAPE_374_VERTS: [ShapeVertex; 16] = [
     v(-36.0, -14.0, -40.0),
     v(25.0, -10.0, -20.0),
@@ -77152,6 +78320,7 @@ static SHAPE_374_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 375: bmyship_b
+static SHAPE_375_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_375_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -10.0),
     v(0.0, -1.0, 0.0),
@@ -77354,6 +78523,7 @@ static SHAPE_375_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 376: myzoom_4
+static SHAPE_376_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_376_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -32.0),
     v(0.0, -16.0, 0.0),
@@ -77567,6 +78737,7 @@ static SHAPE_376_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 377: myzoom_r
+static SHAPE_377_REFLECTED_PAIR_STARTS: [u16; 5] = [6, 8, 10, 12, 14];
 static SHAPE_377_VERTS: [ShapeVertex; 16] = [
     v(576.0, -224.0, -640.0),
     v(-400.0, -160.0, -320.0),
@@ -77780,6 +78951,7 @@ static SHAPE_377_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 378: myzoom_l
+static SHAPE_378_REFLECTED_PAIR_STARTS: [u16; 5] = [6, 8, 10, 12, 14];
 static SHAPE_378_VERTS: [ShapeVertex; 16] = [
     v(-576.0, -224.0, -640.0),
     v(400.0, -160.0, -320.0),
@@ -77993,6 +79165,7 @@ static SHAPE_378_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 379: myzoom_b
+static SHAPE_379_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_379_VERTS: [ShapeVertex; 16] = [
     v(0.0, 0.0, -32.0),
     v(0.0, -16.0, 0.0),
@@ -78206,6 +79379,7 @@ static SHAPE_379_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 380: line
+static SHAPE_380_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_380_VERTS: [ShapeVertex; 3] =
     [v(0.0, 0.0, 0.0), v(0.0, -10.0, 0.0), v(-10.0, -10.0, 0.0)];
 static SHAPE_380_FACES: [ShapeFace; 2] = [
@@ -78216,6 +79390,7 @@ static SHAPE_380_FACES: [ShapeFace; 2] = [
 static SHAPE_380_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 381: boss_d_0
+static SHAPE_381_REFLECTED_PAIR_STARTS: [u16; 6] = [2, 4, 6, 8, 16, 18];
 static SHAPE_381_VERTS: [ShapeVertex; 20] = [
     v(0.0, 50.0, -32.0),
     v(0.0, -40.0, 28.0),
@@ -78709,6 +79884,7 @@ static SHAPE_381_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 382: boss_d_2
+static SHAPE_382_REFLECTED_PAIR_STARTS: [u16; 2] = [2, 4];
 static SHAPE_382_VERTS: [ShapeVertex; 6] = [
     v(0.0, 20.0, 0.0),
     v(0.0, 40.0, 60.0),
@@ -78751,6 +79927,7 @@ static SHAPE_382_FACES: [ShapeFace; 4] = [
 static SHAPE_382_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 383: neck
+static SHAPE_383_REFLECTED_PAIR_STARTS: [u16; 2] = [2, 4];
 static SHAPE_383_VERTS: [ShapeVertex; 6] = [
     v(0.0, 10.0, 0.0),
     v(0.0, 10.0, 160.0),
@@ -78783,9 +79960,85 @@ static SHAPE_383_FACES: [ShapeFace; 3] = [
     ),
 ];
 
+static SHAPE_383_LOD_0_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
+static SHAPE_383_LOD_0_VERTS: [ShapeVertex; 4] = [
+    v(-5.0, 0.0, 0.0),
+    v(5.0, 0.0, 0.0),
+    v(-5.0, 0.0, 80.0),
+    v(5.0, 0.0, 80.0),
+];
+static SHAPE_383_LOD_0_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [0, 127, 0],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [3, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        3,
+        [0, -127, 0],
+        Some([3, 2, 0]),
+    ),
+];
+static SHAPE_383_LOD_0_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_383_LOD_1_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
+static SHAPE_383_LOD_1_VERTS: [ShapeVertex; 4] = [
+    v(-5.0, 0.0, 0.0),
+    v(5.0, 0.0, 0.0),
+    v(-5.0, 0.0, 80.0),
+    v(5.0, 0.0, 80.0),
+];
+static SHAPE_383_LOD_1_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [0, 127, 0],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [3, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        3,
+        [0, -127, 0],
+        Some([3, 2, 0]),
+    ),
+];
+static SHAPE_383_LOD_1_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_383_LOD_2_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
+static SHAPE_383_LOD_2_VERTS: [ShapeVertex; 4] = [
+    v(-5.0, 0.0, 0.0),
+    v(5.0, 0.0, 0.0),
+    v(-5.0, 0.0, 80.0),
+    v(5.0, 0.0, 80.0),
+];
+static SHAPE_383_LOD_2_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        0,
+        [0, 127, 0],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [3, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        3,
+        [0, -127, 0],
+        Some([3, 2, 0]),
+    ),
+];
+static SHAPE_383_LOD_2_PAINTER: [ShapePainterNode; 0] = [];
+
 static SHAPE_383_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 384: grabber
+static SHAPE_384_REFLECTED_PAIR_STARTS: [u16; 5] = [0, 2, 4, 6, 18];
 static SHAPE_384_VERTS: [ShapeVertex; 20] = [
     v(-6.0, -14.0, 0.0),
     v(6.0, -14.0, 0.0),
@@ -79754,6 +81007,7 @@ static SHAPE_384_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 385: grabber2
+static SHAPE_385_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_385_VERTS: [ShapeVertex; 4] = [
     v(64.0, -64.0, 0.0),
     v(-64.0, -64.0, 0.0),
@@ -79771,6 +81025,7 @@ static SHAPE_385_FACES: [ShapeFace; 1] = [f(
 static SHAPE_385_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 386: egg
+static SHAPE_386_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_386_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -79788,6 +81043,7 @@ static SHAPE_386_FACES: [ShapeFace; 1] = [f(
 static SHAPE_386_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 387: boss_d_8
+static SHAPE_387_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_387_VERTS: [ShapeVertex; 7] = [
     v(-40.0, 200.0, -80.0),
     v(-28.0, 204.0, -80.0),
@@ -80022,6 +81278,7 @@ static SHAPE_387_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 388: boss_d_9
+static SHAPE_388_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_388_VERTS: [ShapeVertex; 7] = [
     v(40.0, 200.0, -80.0),
     v(28.0, 204.0, -80.0),
@@ -80256,6 +81513,7 @@ static SHAPE_388_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 389: boss_d_6
+static SHAPE_389_REFLECTED_PAIR_STARTS: [u16; 3] = [3, 5, 7];
 static SHAPE_389_VERTS: [ShapeVertex; 9] = [
     v(0.0, -20.0, -30.0),
     v(0.0, 40.0, 0.0),
@@ -80329,6 +81587,7 @@ static SHAPE_389_FACES: [ShapeFace; 8] = [
 static SHAPE_389_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 390: boss_d_7
+static SHAPE_390_REFLECTED_PAIR_STARTS: [u16; 5] = [2, 4, 6, 8, 10];
 static SHAPE_390_VERTS: [ShapeVertex; 12] = [
     v(0.0, -20.0, -30.0),
     v(0.0, -20.0, 30.0),
@@ -80475,6 +81734,7 @@ static SHAPE_390_FACES: [ShapeFace; 18] = [
 static SHAPE_390_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 391: boss_9_0
+static SHAPE_391_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_391_VERTS: [ShapeVertex; 8] = [
     v(-40.0, -40.0, -50.0),
     v(40.0, -40.0, -50.0),
@@ -80674,6 +81934,7 @@ static SHAPE_391_FACES: [ShapeFace; 7] = [
 static SHAPE_391_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 392: barrier
+static SHAPE_392_REFLECTED_PAIR_STARTS: [u16; 8] = [1, 3, 5, 7, 9, 11, 29, 31];
 static SHAPE_392_VERTS: [ShapeVertex; 33] = [
     v(0.0, 14.0, 0.0),
     v(10.0, 0.0, -18.0),
@@ -81411,6 +82672,7 @@ static SHAPE_392_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 393: fireface_b
+static SHAPE_393_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_393_VERTS: [ShapeVertex; 8] = [
     v(32.0, -52.0, -5.0),
     v(-32.0, -52.0, -5.0),
@@ -81469,6 +82731,7 @@ static SHAPE_393_FACES: [ShapeFace; 6] = [
 static SHAPE_393_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 394: boss_a_3
+static SHAPE_394_REFLECTED_PAIR_STARTS: [u16; 10] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18];
 static SHAPE_394_VERTS: [ShapeVertex; 20] = [
     v(200.0, 60.0, -200.0),
     v(-200.0, 60.0, -200.0),
@@ -81588,6 +82851,7 @@ static SHAPE_394_FACES: [ShapeFace; 13] = [
 static SHAPE_394_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 395: boss_a_4
+static SHAPE_395_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_395_VERTS: [ShapeVertex; 26] = [
     v(-200.0, 64.0, -200.0),
     v(-488.0, 64.0, -200.0),
@@ -81767,6 +83031,7 @@ static SHAPE_395_FACES: [ShapeFace; 12] = [
 static SHAPE_395_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 396: boss_a_5
+static SHAPE_396_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_396_VERTS: [ShapeVertex; 26] = [
     v(200.0, 64.0, -200.0),
     v(480.0, 64.0, -200.0),
@@ -81946,6 +83211,7 @@ static SHAPE_396_FACES: [ShapeFace; 12] = [
 static SHAPE_396_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 397: boss_b_l
+static SHAPE_397_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_397_VERTS: [ShapeVertex; 6] = [
     v(72.0, 176.0, 40.0),
     v(-80.0, -8.0, -40.0),
@@ -82032,6 +83298,7 @@ static SHAPE_397_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 398: boss_b_r
+static SHAPE_398_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_398_VERTS: [ShapeVertex; 6] = [
     v(88.0, -140.0, 120.0),
     v(-28.0, 0.0, 52.0),
@@ -82118,6 +83385,7 @@ static SHAPE_398_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 399: boss_b_h
+static SHAPE_399_REFLECTED_PAIR_STARTS: [u16; 2] = [6, 11];
 static SHAPE_399_VERTS: [ShapeVertex; 13] = [
     v(-20.0, 0.0, 80.0),
     v(-180.0, 136.0, 144.0),
@@ -82285,6 +83553,7 @@ static SHAPE_399_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 400: round0p
+static SHAPE_400_REFLECTED_PAIR_STARTS: [u16; 3] = [4, 6, 8];
 static SHAPE_400_VERTS: [ShapeVertex; 10] = [
     v(0.0, -80.0, -220.0),
     v(0.0, -80.0, -140.0),
@@ -82360,6 +83629,7 @@ static SHAPE_400_FACES: [ShapeFace; 9] = [
 static SHAPE_400_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 401: ripair_w
+static SHAPE_401_REFLECTED_PAIR_STARTS: [u16; 7] = [3, 5, 7, 9, 11, 13, 15];
 static SHAPE_401_VERTS: [ShapeVertex; 17] = [
     v(0.0, -9.0, 20.0),
     v(0.0, 1.0, 20.0),
@@ -82568,6 +83838,7 @@ static SHAPE_401_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 402: fireball
+static SHAPE_402_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_402_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -82585,6 +83856,7 @@ static SHAPE_402_FACES: [ShapeFace; 1] = [f(
 static SHAPE_402_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 403: missile
+static SHAPE_403_REFLECTED_PAIR_STARTS: [u16; 2] = [4, 6];
 static SHAPE_403_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, -60.0),
     v(0.0, 30.0, -60.0),
@@ -82712,6 +83984,7 @@ static SHAPE_403_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 404: ironball
+static SHAPE_404_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_404_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -82729,6 +84002,7 @@ static SHAPE_404_FACES: [ShapeFace; 1] = [f(
 static SHAPE_404_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 405: bouncyball
+static SHAPE_405_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_405_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -82746,6 +84020,7 @@ static SHAPE_405_FACES: [ShapeFace; 1] = [f(
 static SHAPE_405_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 406: shelpball
+static SHAPE_406_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_406_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -82763,6 +84038,7 @@ static SHAPE_406_FACES: [ShapeFace; 1] = [f(
 static SHAPE_406_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 407: nuke
+static SHAPE_407_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_407_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -82780,6 +84056,7 @@ static SHAPE_407_FACES: [ShapeFace; 1] = [f(
 static SHAPE_407_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 408: hyper
+static SHAPE_408_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_408_VERTS: [ShapeVertex; 14] = [
     v(0.0, -400.0, 0.0),
     v(0.0, -400.0, 400.0),
@@ -82821,6 +84098,7 @@ static SHAPE_408_FACES: [ShapeFace; 7] = [
 static SHAPE_408_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 409: hou_3
+static SHAPE_409_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_409_VERTS: [ShapeVertex; 6] = [
     v(40.0, -40.0, 20.0),
     v(80.0, -80.0, -20.0),
@@ -82863,6 +84141,8 @@ static SHAPE_409_FACES: [ShapeFace; 4] = [
 static SHAPE_409_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 410: my_demobs
+static SHAPE_410_REFLECTED_PAIR_STARTS: [u16; 16] =
+    [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34];
 static SHAPE_410_VERTS: [ShapeVertex; 36] = [
     v(0.0, 2.0, -20.0),
     v(0.0, 1.0, -16.0),
@@ -83314,6 +84594,8 @@ static SHAPE_410_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 411: my_demos
+static SHAPE_411_REFLECTED_PAIR_STARTS: [u16; 16] =
+    [4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34];
 static SHAPE_411_VERTS: [ShapeVertex; 36] = [
     v(0.0, 2.0, -20.0),
     v(0.0, 1.0, -16.0),
@@ -83765,6 +85047,7 @@ static SHAPE_411_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 412: big_m
+static SHAPE_412_REFLECTED_PAIR_STARTS: [u16; 8] = [1, 3, 5, 7, 9, 11, 13, 15];
 static SHAPE_412_VERTS: [ShapeVertex; 17] = [
     v(0.0, 0.0, 44.0),
     v(-40.0, -60.0, -46.0),
@@ -83979,6 +85262,7 @@ static SHAPE_412_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 413: boss_f_b
+static SHAPE_413_REFLECTED_PAIR_STARTS: [u16; 8] = [4, 6, 8, 10, 12, 14, 16, 18];
 static SHAPE_413_VERTS: [ShapeVertex; 20] = [
     v(0.0, -20.0, -80.0),
     v(0.0, 40.0, -20.0),
@@ -84153,6 +85437,7 @@ static SHAPE_413_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 414: walker_r
+static SHAPE_414_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_414_VERTS: [ShapeVertex; 17] = [
     v(4.0, 360.0, -100.0),
     v(-80.0, 308.0, -68.0),
@@ -84374,6 +85659,7 @@ static SHAPE_414_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 415: playerbeam
+static SHAPE_415_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_415_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -84391,6 +85677,7 @@ static SHAPE_415_FACES: [ShapeFace; 1] = [f(
 static SHAPE_415_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 416: ovalbeam
+static SHAPE_416_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_416_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -84408,6 +85695,7 @@ static SHAPE_416_FACES: [ShapeFace; 1] = [f(
 static SHAPE_416_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 417: c_miss
+static SHAPE_417_REFLECTED_PAIR_STARTS: [u16; 7] = [6, 8, 10, 12, 14, 16, 18];
 static SHAPE_417_VERTS: [ShapeVertex; 20] = [
     v(0.0, 0.0, -110.0),
     v(0.0, 100.0, -10.0),
@@ -84710,6 +85998,7 @@ static SHAPE_417_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 418: zaco_0
+static SHAPE_418_REFLECTED_PAIR_STARTS: [u16; 9] = [5, 7, 9, 11, 13, 15, 17, 19, 21];
 static SHAPE_418_VERTS: [ShapeVertex; 23] = [
     v(4.0, 0.0, -7.0),
     v(0.0, -25.0, 0.0),
@@ -84909,6 +86198,7 @@ static SHAPE_418_FACES: [ShapeFace; 24] = [
 static SHAPE_418_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 419: zaco_7p
+static SHAPE_419_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_419_VERTS: [ShapeVertex; 5] = [
     v(20.0, 11.0, -10.0),
     v(-25.0, -5.0, -5.0),
@@ -84950,6 +86240,7 @@ static SHAPE_419_FACES: [ShapeFace; 4] = [
 static SHAPE_419_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 420: robot_0
+static SHAPE_420_REFLECTED_PAIR_STARTS: [u16; 5] = [41, 43, 45, 47, 49];
 static SHAPE_420_VERTS: [ShapeVertex; 51] = [
     v(20.0, 36.0, -148.0),
     v(-20.0, 0.0, -144.0),
@@ -86088,6 +87379,7 @@ static SHAPE_420_PAINTER: [ShapePainterNode; 25] = [
 ];
 
 // Shape 421: boss_7_0
+static SHAPE_421_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_421_VERTS: [ShapeVertex; 20] = [
     v(0.0, -160.0, -320.0),
     v(-160.0, -160.0, -320.0),
@@ -86438,6 +87730,7 @@ static SHAPE_421_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 422: boss_7_1o
+static SHAPE_422_REFLECTED_PAIR_STARTS: [u16; 13] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24];
 static SHAPE_422_VERTS: [ShapeVertex; 26] = [
     v(-40.0, 0.0, -440.0),
     v(40.0, 0.0, -440.0),
@@ -86664,6 +87957,7 @@ static SHAPE_422_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 423: boss_7_2
+static SHAPE_423_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_423_VERTS: [ShapeVertex; 10] = [
     v(0.0, -160.0, -320.0),
     v(80.0, -80.0, -320.0),
@@ -86738,6 +88032,7 @@ static SHAPE_423_FACES: [ShapeFace; 8] = [
 static SHAPE_423_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 424: boss_7_3
+static SHAPE_424_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_424_VERTS: [ShapeVertex; 11] = [
     v(80.0, -40.0, -360.0),
     v(192.0, -40.0, -360.0),
@@ -86987,6 +88282,7 @@ static SHAPE_424_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 425: boss_7_4
+static SHAPE_425_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_425_VERTS: [ShapeVertex; 11] = [
     v(80.0, -72.0, -360.0),
     v(80.0, 40.0, -360.0),
@@ -87236,6 +88532,7 @@ static SHAPE_425_PAINTER: [ShapePainterNode; 3] = [
 ];
 
 // Shape 426: boss_a_6
+static SHAPE_426_REFLECTED_PAIR_STARTS: [u16; 5] = [1, 3, 5, 7, 10];
 static SHAPE_426_VERTS: [ShapeVertex; 12] = [
     v(0.0, 36.0, 60.0),
     v(40.0, -120.0, -60.0),
@@ -87474,6 +88771,7 @@ static SHAPE_426_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 427: boss_f_8
+static SHAPE_427_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_427_VERTS: [ShapeVertex; 6] = [
     v(0.0, -4.0, -20.0),
     v(-16.0, -8.0, -20.0),
@@ -87546,6 +88844,7 @@ static SHAPE_427_FACES: [ShapeFace; 4] = [
 static SHAPE_427_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 428: boss_f_9
+static SHAPE_428_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_428_VERTS: [ShapeVertex; 6] = [
     v(0.0, -4.0, -20.0),
     v(16.0, -8.0, -20.0),
@@ -87618,6 +88917,7 @@ static SHAPE_428_FACES: [ShapeFace; 4] = [
 static SHAPE_428_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 429: boss_f_8a
+static SHAPE_429_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_429_VERTS: [ShapeVertex; 5] = [
     v(-16.0, -8.0, -20.0),
     v(0.0, -4.0, -20.0),
@@ -87636,6 +88936,7 @@ static SHAPE_429_FACES: [ShapeFace; 1] = [f(
 static SHAPE_429_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 430: boss_f_9a
+static SHAPE_430_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_430_VERTS: [ShapeVertex; 6] = [
     v(0.0, -4.0, -20.0),
     v(16.0, -8.0, -20.0),
@@ -87655,6 +88956,8 @@ static SHAPE_430_FACES: [ShapeFace; 1] = [f(
 static SHAPE_430_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 431: face_0
+static SHAPE_431_REFLECTED_PAIR_STARTS: [u16; 14] =
+    [7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33];
 static SHAPE_431_VERTS: [ShapeVertex; 35] = [
     v(0.0, -80.0, 320.0),
     v(0.0, -160.0, 320.0),
@@ -88939,6 +90242,7 @@ static SHAPE_431_PAINTER: [ShapePainterNode; 17] = [
 ];
 
 // Shape 432: boss_0_0
+static SHAPE_432_REFLECTED_PAIR_STARTS: [u16; 5] = [2, 4, 6, 8, 20];
 static SHAPE_432_VERTS: [ShapeVertex; 22] = [
     v(0.0, -24.0, -40.0),
     v(0.0, 24.0, -40.0),
@@ -89492,6 +90796,7 @@ static SHAPE_432_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 433: boss_0_0a
+static SHAPE_433_REFLECTED_PAIR_STARTS: [u16; 5] = [2, 4, 6, 8, 20];
 static SHAPE_433_VERTS: [ShapeVertex; 22] = [
     v(0.0, -24.0, -40.0),
     v(0.0, 24.0, -40.0),
@@ -90045,6 +91350,7 @@ static SHAPE_433_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 434: boss_0_2
+static SHAPE_434_REFLECTED_PAIR_STARTS: [u16; 5] = [1, 3, 5, 7, 9];
 static SHAPE_434_VERTS: [ShapeVertex; 11] = [
     v(0.0, -120.0, 8.0),
     v(16.0, 0.0, 8.0),
@@ -90120,6 +91426,7 @@ static SHAPE_434_FACES: [ShapeFace; 8] = [
 static SHAPE_434_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 435: boss_0_3
+static SHAPE_435_REFLECTED_PAIR_STARTS: [u16; 6] = [6, 8, 10, 12, 14, 16];
 static SHAPE_435_VERTS: [ShapeVertex; 18] = [
     v(0.0, 36.0, 6.0),
     v(-8.0, -14.0, 18.0),
@@ -90586,6 +91893,7 @@ static SHAPE_435_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 436: boss_1_0
+static SHAPE_436_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_436_VERTS: [ShapeVertex; 28] = [
     v(60.0, 240.0, -120.0),
     v(160.0, 120.0, -24.0),
@@ -90796,6 +92104,7 @@ static SHAPE_436_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 437: boss_1_1
+static SHAPE_437_REFLECTED_PAIR_STARTS: [u16; 2] = [4, 6];
 static SHAPE_437_VERTS: [ShapeVertex; 8] = [
     v(0.0, -40.0, -20.0),
     v(0.0, 40.0, -20.0),
@@ -90847,6 +92156,7 @@ static SHAPE_437_FACES: [ShapeFace; 5] = [
 static SHAPE_437_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 438: amoeba1
+static SHAPE_438_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_438_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -90864,6 +92174,7 @@ static SHAPE_438_FACES: [ShapeFace; 1] = [f(
 static SHAPE_438_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 439: rpillar3
+static SHAPE_439_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_439_VERTS: [ShapeVertex; 9] = [
     v(24.0, 340.0, -24.0),
     v(24.0, 340.0, 24.0),
@@ -90948,9 +92259,88 @@ static SHAPE_439_FACES: [ShapeFace; 10] = [
     ),
 ];
 
+static SHAPE_439_LOD_0_REFLECTED_PAIR_STARTS: [u16; 0] = [];
+static SHAPE_439_LOD_0_VERTS: [ShapeVertex; 5] = [
+    v(24.0, 340.0, -24.0),
+    v(24.0, 0.0, -24.0),
+    v(-24.0, 340.0, -24.0),
+    v(-24.0, 0.0, -24.0),
+    v(0.0, 360.0, 0.0),
+];
+static SHAPE_439_LOD_0_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        7,
+        [0, 0, 127],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [0, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        43,
+        [0, -102, 76],
+        Some([0, 4, 2]),
+    ),
+];
+static SHAPE_439_LOD_0_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_439_LOD_1_REFLECTED_PAIR_STARTS: [u16; 0] = [];
+static SHAPE_439_LOD_1_VERTS: [ShapeVertex; 5] = [
+    v(24.0, 340.0, -24.0),
+    v(24.0, 0.0, -24.0),
+    v(-24.0, 340.0, -24.0),
+    v(-24.0, 0.0, -24.0),
+    v(0.0, 360.0, 0.0),
+];
+static SHAPE_439_LOD_1_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        7,
+        [0, 0, 127],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [0, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        43,
+        [0, -102, 76],
+        Some([0, 4, 2]),
+    ),
+];
+static SHAPE_439_LOD_1_PAINTER: [ShapePainterNode; 0] = [];
+
+static SHAPE_439_LOD_2_REFLECTED_PAIR_STARTS: [u16; 0] = [];
+static SHAPE_439_LOD_2_VERTS: [ShapeVertex; 5] = [
+    v(24.0, 340.0, -24.0),
+    v(24.0, 0.0, -24.0),
+    v(-24.0, 340.0, -24.0),
+    v(-24.0, 0.0, -24.0),
+    v(0.0, 360.0, 0.0),
+];
+static SHAPE_439_LOD_2_FACES: [ShapeFace; 2] = [
+    f(
+        [0, 2, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        4,
+        7,
+        [0, 0, 127],
+        Some([0, 2, 3]),
+    ),
+    f(
+        [0, 4, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        43,
+        [0, -102, 76],
+        Some([0, 4, 2]),
+    ),
+];
+static SHAPE_439_LOD_2_PAINTER: [ShapePainterNode; 0] = [];
+
 static SHAPE_439_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 440: deboss_0
+static SHAPE_440_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_440_VERTS: [ShapeVertex; 28] = [
     v(-736.0, -256.0, -1600.0),
     v(-928.0, -256.0, -1600.0),
@@ -91107,6 +92497,7 @@ static SHAPE_440_FACES: [ShapeFace; 18] = [
 static SHAPE_440_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 441: deboss_2
+static SHAPE_441_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_441_VERTS: [ShapeVertex; 35] = [
     v(480.0, -160.0, -1696.0),
     v(480.0, 0.0, -1696.0),
@@ -91396,6 +92787,7 @@ static SHAPE_441_PAINTER: [ShapePainterNode; 13] = [
 ];
 
 // Shape 442: flower
+static SHAPE_442_REFLECTED_PAIR_STARTS: [u16; 4] = [2, 4, 13, 15];
 static SHAPE_442_VERTS: [ShapeVertex; 17] = [
     v(0.0, -40.0, 4.0),
     v(0.0, 40.0, 4.0),
@@ -91946,6 +93338,7 @@ static SHAPE_442_PAINTER: [ShapePainterNode; 9] = [
 ];
 
 // Shape 443: big_bird
+static SHAPE_443_REFLECTED_PAIR_STARTS: [u16; 9] = [8, 10, 12, 14, 16, 18, 20, 22, 24];
 static SHAPE_443_VERTS: [ShapeVertex; 26] = [
     v(0.0, -30.0, -132.0),
     v(0.0, 30.0, -4.0),
@@ -92312,6 +93705,7 @@ static SHAPE_443_PAINTER: [ShapePainterNode; 7] = [
 ];
 
 // Shape 444: leaf
+static SHAPE_444_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_444_VERTS: [ShapeVertex; 5] = [
     v(0.0, 0.0, 0.0),
     v(-3.0, 3.0, -2.0),
@@ -92432,6 +93826,7 @@ static SHAPE_444_FACES: [ShapeFace; 8] = [
 static SHAPE_444_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 445: walk_4_l
+static SHAPE_445_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_445_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(140.0, -20.0, 28.0),
@@ -92762,6 +94157,7 @@ static SHAPE_445_FACES: [ShapeFace; 10] = [
 static SHAPE_445_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 446: walk_4_r
+static SHAPE_446_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_446_VERTS: [ShapeVertex; 8] = [
     v(0.0, 0.0, 0.0),
     v(-100.0, 0.0, 16.0),
@@ -93092,6 +94488,7 @@ static SHAPE_446_FACES: [ShapeFace; 10] = [
 static SHAPE_446_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 447: tow_1
+static SHAPE_447_REFLECTED_PAIR_STARTS: [u16; 12] = [3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25];
 static SHAPE_447_VERTS: [ShapeVertex; 27] = [
     v(20.0, 50.0, -40.0),
     v(-40.0, 50.0, 0.0),
@@ -93309,6 +94706,7 @@ static SHAPE_447_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 448: slot_1
+static SHAPE_448_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_448_VERTS: [ShapeVertex; 32] = [
     v(0.0, -12.0, -28.0),
     v(-100.0, -12.0, -28.0),
@@ -93537,6 +94935,7 @@ static SHAPE_448_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 449: slot_2
+static SHAPE_449_REFLECTED_PAIR_STARTS: [u16; 3] = [2, 4, 7];
 static SHAPE_449_VERTS: [ShapeVertex; 9] = [
     v(0.0, -40.0, 0.0),
     v(0.0, -12.0, 40.0),
@@ -93642,6 +95041,7 @@ static SHAPE_449_FACES: [ShapeFace; 7] = [
 static SHAPE_449_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 450: slot_3
+static SHAPE_450_REFLECTED_PAIR_STARTS: [u16; 8] = [0, 2, 4, 6, 8, 10, 12, 14];
 static SHAPE_450_VERTS: [ShapeVertex; 16] = [
     v(-8.0, -20.0, -4.0),
     v(8.0, -20.0, -4.0),
@@ -93736,6 +95136,7 @@ static SHAPE_450_FACES: [ShapeFace; 10] = [
 static SHAPE_450_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 451: slot_4
+static SHAPE_451_REFLECTED_PAIR_STARTS: [u16; 2] = [0, 2];
 static SHAPE_451_VERTS: [ShapeVertex; 4] = [
     v(-32.0, -32.0, -80.0),
     v(32.0, -32.0, -80.0),
@@ -93753,6 +95154,7 @@ static SHAPE_451_FACES: [ShapeFace; 1] = [f(
 static SHAPE_451_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 452: pillar3_ns
+static SHAPE_452_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_452_VERTS: [ShapeVertex; 9] = [
     v(24.0, 340.0, -24.0),
     v(24.0, 340.0, 24.0),
@@ -93840,6 +95242,7 @@ static SHAPE_452_FACES: [ShapeFace; 10] = [
 static SHAPE_452_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 453: laserline
+static SHAPE_453_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_453_VERTS: [ShapeVertex; 3] =
     [v(0.0, 0.0, 0.0), v(0.0, -20.0, 0.0), v(-20.0, -20.0, 0.0)];
 static SHAPE_453_FACES: [ShapeFace; 2] = [
@@ -93850,6 +95253,7 @@ static SHAPE_453_FACES: [ShapeFace; 2] = [
 static SHAPE_453_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 454: warp_1
+static SHAPE_454_REFLECTED_PAIR_STARTS: [u16; 5] = [5, 7, 9, 11, 13];
 static SHAPE_454_VERTS: [ShapeVertex; 15] = [
     v(0.0, 0.0, -80.0),
     v(0.0, 34.0, 10.0),
@@ -94018,6 +95422,7 @@ static SHAPE_454_FACES: [ShapeFace; 25] = [
 static SHAPE_454_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 455: warp_2
+static SHAPE_455_REFLECTED_PAIR_STARTS: [u16; 1] = [5];
 static SHAPE_455_VERTS: [ShapeVertex; 15] = [
     v(20.0, 0.0, 0.0),
     v(0.0, 0.0, 80.0),
@@ -94174,6 +95579,7 @@ static SHAPE_455_FACES: [ShapeFace; 19] = [
 static SHAPE_455_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 456: warp_3
+static SHAPE_456_REFLECTED_PAIR_STARTS: [u16; 4] = [4, 6, 8, 10];
 static SHAPE_456_VERTS: [ShapeVertex; 12] = [
     v(0.0, 0.0, -80.0),
     v(0.0, 34.0, 10.0),
@@ -94257,6 +95663,7 @@ static SHAPE_456_FACES: [ShapeFace; 9] = [
 static SHAPE_456_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 457: wall_l
+static SHAPE_457_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_457_VERTS: [ShapeVertex; 11] = [
     v(80.0, 0.0, -880.0),
     v(-80.0, 0.0, -880.0),
@@ -94347,6 +95754,7 @@ static SHAPE_457_FACES: [ShapeFace; 8] = [
 static SHAPE_457_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 458: wall_r
+static SHAPE_458_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_458_VERTS: [ShapeVertex; 11] = [
     v(80.0, 0.0, -880.0),
     v(-80.0, 0.0, -880.0),
@@ -94437,6 +95845,7 @@ static SHAPE_458_FACES: [ShapeFace; 8] = [
 static SHAPE_458_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 459: iris_1
+static SHAPE_459_REFLECTED_PAIR_STARTS: [u16; 8] = [0, 2, 4, 6, 8, 10, 12, 14];
 static SHAPE_459_VERTS: [ShapeVertex; 16] = [
     v(30.0, -50.0, -100.0),
     v(-30.0, -50.0, -100.0),
@@ -94517,6 +95926,7 @@ static SHAPE_459_FACES: [ShapeFace; 8] = [
 static SHAPE_459_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 460: stalk_1
+static SHAPE_460_REFLECTED_PAIR_STARTS: [u16; 4] = [0, 2, 4, 6];
 static SHAPE_460_VERTS: [ShapeVertex; 8] = [
     v(-10.0, -40.0, -20.0),
     v(10.0, -40.0, -20.0),
@@ -94554,6 +95964,7 @@ static SHAPE_460_FACES: [ShapeFace; 3] = [
 static SHAPE_460_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 461: explosion
+static SHAPE_461_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_461_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -94571,6 +95982,7 @@ static SHAPE_461_FACES: [ShapeFace; 1] = [f(
 static SHAPE_461_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 462: explosion2
+static SHAPE_462_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_462_VERTS: [ShapeVertex; 4] = [
     v(64.0, -64.0, 0.0),
     v(-64.0, -64.0, 0.0),
@@ -94588,6 +96000,7 @@ static SHAPE_462_FACES: [ShapeFace; 1] = [f(
 static SHAPE_462_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 463: explosion3
+static SHAPE_463_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_463_VERTS: [ShapeVertex; 4] = [
     v(128.0, -128.0, 0.0),
     v(-128.0, -128.0, 0.0),
@@ -94605,6 +96018,7 @@ static SHAPE_463_FACES: [ShapeFace; 1] = [f(
 static SHAPE_463_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 464: explosion4
+static SHAPE_464_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_464_VERTS: [ShapeVertex; 4] = [
     v(256.0, -256.0, 0.0),
     v(-256.0, -256.0, 0.0),
@@ -94622,6 +96036,7 @@ static SHAPE_464_FACES: [ShapeFace; 1] = [f(
 static SHAPE_464_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 465: expl_4
+static SHAPE_465_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_465_VERTS: [ShapeVertex; 4] = [
     v(14.0, -15.0, -20.0),
     v(-24.0, -15.0, -6.0),
@@ -94662,6 +96077,7 @@ static SHAPE_465_FACES: [ShapeFace; 4] = [
 static SHAPE_465_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 466: expl_6
+static SHAPE_466_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_466_VERTS: [ShapeVertex; 9] = [
     v(-11.0, 13.0, -22.0),
     v(9.0, 13.0, -16.0),
@@ -94721,6 +96137,7 @@ static SHAPE_466_FACES: [ShapeFace; 6] = [
 static SHAPE_466_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 467: expl_8
+static SHAPE_467_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_467_VERTS: [ShapeVertex; 12] = [
     v(-10.0, 0.0, -17.0),
     v(17.0, -8.0, -10.0),
@@ -94797,6 +96214,7 @@ static SHAPE_467_FACES: [ShapeFace; 8] = [
 static SHAPE_467_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 468: boss_b_6
+static SHAPE_468_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_468_VERTS: [ShapeVertex; 23] = [
     v(100.0, -56.0, 12.0),
     v(80.0, 0.0, 80.0),
@@ -95616,6 +97034,7 @@ static SHAPE_468_PAINTER: [ShapePainterNode; 11] = [
 ];
 
 // Shape 469: boss_b_7
+static SHAPE_469_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_469_VERTS: [ShapeVertex; 6] = [
     v(172.0, 0.0, -204.0),
     v(80.0, -12.0, -200.0),
@@ -95686,6 +97105,7 @@ static SHAPE_469_FACES: [ShapeFace; 8] = [
 static SHAPE_469_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 470: hyper2
+static SHAPE_470_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_470_VERTS: [ShapeVertex; 10] = [
     v(0.0, -400.0, 0.0),
     v(0.0, -400.0, 400.0),
@@ -95709,6 +97129,7 @@ static SHAPE_470_FACES: [ShapeFace; 5] = [
 static SHAPE_470_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 471: hyper3
+static SHAPE_471_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_471_VERTS: [ShapeVertex; 6] = [
     v(0.0, -400.0, 0.0),
     v(0.0, -400.0, 400.0),
@@ -95726,6 +97147,7 @@ static SHAPE_471_FACES: [ShapeFace; 3] = [
 static SHAPE_471_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 472: hyper4
+static SHAPE_472_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_472_VERTS: [ShapeVertex; 2] = [v(0.0, -400.0, 0.0), v(0.0, -400.0, 400.0)];
 static SHAPE_472_FACES: [ShapeFace; 1] = [f(
     [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -95738,6 +97160,7 @@ static SHAPE_472_FACES: [ShapeFace; 1] = [f(
 static SHAPE_472_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 473: bazz_1p
+static SHAPE_473_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_473_VERTS: [ShapeVertex; 7] = [
     v(-28.0, -20.0, -112.0),
     v(32.0, 0.0, -112.0),
@@ -95802,6 +97225,7 @@ static SHAPE_473_FACES: [ShapeFace; 7] = [
 static SHAPE_473_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 474: bazz_1q
+static SHAPE_474_REFLECTED_PAIR_STARTS: [u16; 2] = [5, 7];
 static SHAPE_474_VERTS: [ShapeVertex; 9] = [
     v(0.0, -100.0, -56.0),
     v(0.0, -16.0, 0.0),
@@ -95924,6 +97348,7 @@ static SHAPE_474_PAINTER: [ShapePainterNode; 5] = [
 ];
 
 // Shape 475: bazooka1
+static SHAPE_475_REFLECTED_PAIR_STARTS: [u16; 3] = [3, 5, 7];
 static SHAPE_475_VERTS: [ShapeVertex; 9] = [
     v(0.0, 100.0, -100.0),
     v(0.0, 52.0, -32.0),
@@ -95997,6 +97422,7 @@ static SHAPE_475_FACES: [ShapeFace; 8] = [
 static SHAPE_475_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 476: bazooka2
+static SHAPE_476_REFLECTED_PAIR_STARTS: [u16; 2] = [2, 4];
 static SHAPE_476_VERTS: [ShapeVertex; 6] = [
     v(0.0, -20.0, -40.0),
     v(0.0, 60.0, -40.0),
@@ -96060,6 +97486,7 @@ static SHAPE_476_FACES: [ShapeFace; 7] = [
 static SHAPE_476_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 477: walker_l
+static SHAPE_477_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_477_VERTS: [ShapeVertex; 18] = [
     v(0.0, 360.0, -100.0),
     v(80.0, 320.0, -80.0),
@@ -96235,6 +97662,7 @@ static SHAPE_477_FACES: [ShapeFace; 23] = [
 static SHAPE_477_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 478: elaser2a
+static SHAPE_478_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_478_VERTS: [ShapeVertex; 6] = [
     v(0.0, 0.0, 0.0),
     v(-4.0, 0.0, -40.0),
@@ -96366,6 +97794,7 @@ static SHAPE_478_FACES: [ShapeFace; 6] = [
 static SHAPE_478_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 479: lflash_0
+static SHAPE_479_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_479_VERTS: [ShapeVertex; 4] = [
     v(64.0, -64.0, 0.0),
     v(-64.0, -64.0, 0.0),
@@ -96383,6 +97812,7 @@ static SHAPE_479_FACES: [ShapeFace; 1] = [f(
 static SHAPE_479_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 480: mflash_0
+static SHAPE_480_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_480_VERTS: [ShapeVertex; 4] = [
     v(32.0, -32.0, 0.0),
     v(-32.0, -32.0, 0.0),
@@ -96400,6 +97830,7 @@ static SHAPE_480_FACES: [ShapeFace; 1] = [f(
 static SHAPE_480_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 481: sflash_0
+static SHAPE_481_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_481_VERTS: [ShapeVertex; 4] = [
     v(16.0, -16.0, 0.0),
     v(-16.0, -16.0, 0.0),
@@ -96417,6 +97848,8 @@ static SHAPE_481_FACES: [ShapeFace; 1] = [f(
 static SHAPE_481_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 482: training
+static SHAPE_482_REFLECTED_PAIR_STARTS: [u16; 16] =
+    [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30];
 static SHAPE_482_VERTS: [ShapeVertex; 32] = [
     v(-26.0, -68.0, -10.0),
     v(26.0, -68.0, -10.0),
@@ -96681,6 +98114,7 @@ static SHAPE_482_FACES: [ShapeFace; 32] = [
 static SHAPE_482_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 508: op_0
+static SHAPE_508_REFLECTED_PAIR_STARTS: [u16; 10] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18];
 static SHAPE_508_VERTS: [ShapeVertex; 20] = [
     v(-120.0, 0.0, -480.0),
     v(120.0, 0.0, -480.0),
@@ -96871,6 +98305,9 @@ static SHAPE_508_FACES: [ShapeFace; 24] = [
 static SHAPE_508_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 509: op_1
+static SHAPE_509_REFLECTED_PAIR_STARTS: [u16; 20] = [
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38,
+];
 static SHAPE_509_VERTS: [ShapeVertex; 40] = [
     v(320.0, 0.0, -480.0),
     v(-320.0, 0.0, -480.0),
@@ -97272,6 +98709,7 @@ static SHAPE_509_PAINTER: [ShapePainterNode; 21] = [
 ];
 
 // Shape 510: op_2
+static SHAPE_510_REFLECTED_PAIR_STARTS: [u16; 6] = [0, 2, 4, 6, 8, 10];
 static SHAPE_510_VERTS: [ShapeVertex; 12] = [
     v(-120.0, 0.0, -480.0),
     v(120.0, 0.0, -480.0),
@@ -97348,6 +98786,7 @@ static SHAPE_510_FACES: [ShapeFace; 8] = [
 static SHAPE_510_PAINTER: [ShapePainterNode; 0] = [];
 
 // Shape 511: elaser2
+static SHAPE_511_REFLECTED_PAIR_STARTS: [u16; 0] = [];
 static SHAPE_511_VERTS: [ShapeVertex; 6] = [
     v(0.0, 0.0, 0.0),
     v(-4.0, 0.0, -40.0),
@@ -97485,8 +98924,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 1,
         vertices: &SHAPE_1_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_1_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_1_FACES,
         painter_nodes: &SHAPE_1_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "exitlight_c",
         name: "exitlight",
     },
@@ -97494,8 +98935,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 2,
         vertices: &SHAPE_2_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_2_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_2_FACES,
         painter_nodes: &SHAPE_2_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "myship_4",
     },
@@ -97503,8 +98946,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 3,
         vertices: &SHAPE_3_VERTS,
         animation_frames: &SHAPE_3_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_3_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_3_FACES,
         painter_nodes: &SHAPE_3_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "iris",
     },
@@ -97512,8 +98957,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 4,
         vertices: &SHAPE_4_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_4_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_4_FACES,
         painter_nodes: &SHAPE_4_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "truck",
     },
@@ -97521,8 +98968,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 5,
         vertices: &SHAPE_5_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_5_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_5_FACES,
         painter_nodes: &SHAPE_5_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "rail_4",
     },
@@ -97530,8 +98979,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 6,
         vertices: &SHAPE_6_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_6_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_6_FACES,
         painter_nodes: &SHAPE_6_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "m_tank",
     },
@@ -97539,8 +98990,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 7,
         vertices: &SHAPE_7_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_7_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_7_FACES,
         painter_nodes: &SHAPE_7_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "gate_0",
     },
@@ -97548,8 +99001,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 8,
         vertices: &SHAPE_8_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_8_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_8_FACES,
         painter_nodes: &SHAPE_8_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "miss_1_2",
     },
@@ -97557,8 +99012,20 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 9,
         vertices: &SHAPE_9_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_9_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_9_FACES,
         painter_nodes: &SHAPE_9_PAINTER,
+        source_lods: [
+            None,
+            None,
+            Some(SourceShapeData {
+                vertices: &SHAPE_9_LOD_2_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_9_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_9_LOD_2_FACES,
+                painter_nodes: &SHAPE_9_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "id_0_c",
         name: "kamikaze",
     },
@@ -97566,8 +99033,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 10,
         vertices: &SHAPE_10_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_10_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_10_FACES,
         painter_nodes: &SHAPE_10_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "bouncyball_c",
         name: "largeplasma",
     },
@@ -97575,8 +99044,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 11,
         vertices: &SHAPE_11_VERTS,
         animation_frames: &SHAPE_11_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_11_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_11_FACES,
         painter_nodes: &SHAPE_11_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "flingboss",
     },
@@ -97584,8 +99055,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 12,
         vertices: &SHAPE_12_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_12_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_12_FACES,
         painter_nodes: &SHAPE_12_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "shark",
     },
@@ -97593,8 +99066,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 13,
         vertices: &SHAPE_13_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_13_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_13_FACES,
         painter_nodes: &SHAPE_13_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "d_head_0",
     },
@@ -97602,8 +99077,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 14,
         vertices: &SHAPE_14_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_14_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_14_FACES,
         painter_nodes: &SHAPE_14_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "d_body_0",
     },
@@ -97611,8 +99088,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 15,
         vertices: &SHAPE_15_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_15_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_15_FACES,
         painter_nodes: &SHAPE_15_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "cameleon",
     },
@@ -97620,8 +99099,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 16,
         vertices: &SHAPE_16_VERTS,
         animation_frames: &SHAPE_16_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_16_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_16_FACES,
         painter_nodes: &SHAPE_16_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_5_c",
         name: "beeanim",
     },
@@ -97629,8 +99110,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 17,
         vertices: &SHAPE_17_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_17_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_17_FACES,
         painter_nodes: &SHAPE_17_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_5_c",
         name: "round_0",
     },
@@ -97638,8 +99121,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 18,
         vertices: &SHAPE_18_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_18_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_18_FACES,
         painter_nodes: &SHAPE_18_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "big_m",
     },
@@ -97647,8 +99132,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 19,
         vertices: &SHAPE_19_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_19_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_19_FACES,
         painter_nodes: &SHAPE_19_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_1_2",
     },
@@ -97656,8 +99143,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 20,
         vertices: &SHAPE_20_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_20_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_20_FACES,
         painter_nodes: &SHAPE_20_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_1",
     },
@@ -97665,8 +99154,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 21,
         vertices: &SHAPE_21_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_21_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_21_FACES,
         painter_nodes: &SHAPE_21_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_3",
     },
@@ -97674,8 +99165,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 22,
         vertices: &SHAPE_22_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_22_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_22_FACES,
         painter_nodes: &SHAPE_22_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_0_c",
     },
@@ -97683,8 +99176,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 23,
         vertices: &SHAPE_23_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_23_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_23_FACES,
         painter_nodes: &SHAPE_23_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sship_0_c",
     },
@@ -97692,8 +99187,20 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 24,
         vertices: &SHAPE_24_VERTS,
         animation_frames: &SHAPE_24_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_24_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_24_FACES,
         painter_nodes: &SHAPE_24_PAINTER,
+        source_lods: [
+            None,
+            None,
+            Some(SourceShapeData {
+                vertices: &SHAPE_24_LOD_2_VERTS,
+                animation_frames: &SHAPE_24_LOD_2_ANIMATION_FRAMES,
+                reflected_pair_starts: &SHAPE_24_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_24_LOD_2_FACES,
+                painter_nodes: &SHAPE_24_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "normal_c",
         name: "wall1",
     },
@@ -97701,8 +99208,20 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 25,
         vertices: &SHAPE_25_VERTS,
         animation_frames: &SHAPE_25_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_25_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_25_FACES,
         painter_nodes: &SHAPE_25_PAINTER,
+        source_lods: [
+            None,
+            None,
+            Some(SourceShapeData {
+                vertices: &SHAPE_25_LOD_2_VERTS,
+                animation_frames: &SHAPE_25_LOD_2_ANIMATION_FRAMES,
+                reflected_pair_starts: &SHAPE_25_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_25_LOD_2_FACES,
+                painter_nodes: &SHAPE_25_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "normal_c",
         name: "wall2",
     },
@@ -97710,8 +99229,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 26,
         vertices: &SHAPE_26_VERTS,
         animation_frames: &SHAPE_26_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_26_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_26_FACES,
         painter_nodes: &SHAPE_26_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "walker_0",
     },
@@ -97719,8 +99240,32 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 27,
         vertices: &SHAPE_27_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_27_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_27_FACES,
         painter_nodes: &SHAPE_27_PAINTER,
+        source_lods: [
+            Some(SourceShapeData {
+                vertices: &SHAPE_27_LOD_0_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_27_LOD_0_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_27_LOD_0_FACES,
+                painter_nodes: &SHAPE_27_LOD_0_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_27_LOD_1_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_27_LOD_1_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_27_LOD_1_FACES,
+                painter_nodes: &SHAPE_27_LOD_1_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_27_LOD_2_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_27_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_27_LOD_2_FACES,
+                painter_nodes: &SHAPE_27_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "id_0_c",
         name: "pillar3",
     },
@@ -97728,8 +99273,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 28,
         vertices: &SHAPE_28_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_28_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_28_FACES,
         painter_nodes: &SHAPE_28_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "mwireexit",
     },
@@ -97737,8 +99284,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 29,
         vertices: &SHAPE_29_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_29_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_29_FACES,
         painter_nodes: &SHAPE_29_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "lwireexit",
     },
@@ -97746,8 +99295,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 30,
         vertices: &SHAPE_30_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_30_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_30_FACES,
         painter_nodes: &SHAPE_30_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "normal_c",
         name: "bltunnelface",
     },
@@ -97755,8 +99306,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 31,
         vertices: &SHAPE_31_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_31_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_31_FACES,
         painter_nodes: &SHAPE_31_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sea_0_0",
     },
@@ -97764,8 +99317,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 32,
         vertices: &SHAPE_32_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_32_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_32_FACES,
         painter_nodes: &SHAPE_32_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "exit_1",
     },
@@ -97773,8 +99328,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 33,
         vertices: &SHAPE_33_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_33_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_33_FACES,
         painter_nodes: &SHAPE_33_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "normal_c",
         name: "lblackface",
     },
@@ -97782,8 +99339,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 34,
         vertices: &SHAPE_34_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_34_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_34_FACES,
         painter_nodes: &SHAPE_34_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "lcube",
     },
@@ -97791,8 +99350,32 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 35,
         vertices: &SHAPE_35_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_35_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_35_FACES,
         painter_nodes: &SHAPE_35_PAINTER,
+        source_lods: [
+            Some(SourceShapeData {
+                vertices: &SHAPE_35_LOD_0_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_35_LOD_0_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_35_LOD_0_FACES,
+                painter_nodes: &SHAPE_35_LOD_0_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_35_LOD_1_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_35_LOD_1_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_35_LOD_1_FACES,
+                painter_nodes: &SHAPE_35_LOD_1_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_35_LOD_2_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_35_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_35_LOD_2_FACES,
+                painter_nodes: &SHAPE_35_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "normal_c",
         name: "rail_0",
     },
@@ -97800,8 +99383,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 36,
         vertices: &SHAPE_36_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_36_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_36_FACES,
         painter_nodes: &SHAPE_36_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "miss_1_1",
     },
@@ -97809,8 +99394,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 37,
         vertices: &SHAPE_37_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_37_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_37_FACES,
         painter_nodes: &SHAPE_37_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "normal_c",
         name: "exitface",
     },
@@ -97818,8 +99405,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 38,
         vertices: &SHAPE_38_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_38_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_38_FACES,
         painter_nodes: &SHAPE_38_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "britenormal_c",
         name: "mexitface",
     },
@@ -97827,8 +99416,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 39,
         vertices: &SHAPE_39_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_39_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_39_FACES,
         painter_nodes: &SHAPE_39_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "britenormal_c",
         name: "bshipexitface",
     },
@@ -97836,8 +99427,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 40,
         vertices: &SHAPE_40_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_40_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_40_FACES,
         painter_nodes: &SHAPE_40_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "britenormal_c",
         name: "ship3exitface",
     },
@@ -97845,8 +99438,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 41,
         vertices: &SHAPE_41_VERTS,
         animation_frames: &SHAPE_41_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_41_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_41_FACES,
         painter_nodes: &SHAPE_41_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pillar2",
     },
@@ -97854,8 +99449,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 42,
         vertices: &SHAPE_42_VERTS,
         animation_frames: &SHAPE_42_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_42_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_42_FACES,
         painter_nodes: &SHAPE_42_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "spillar2",
     },
@@ -97863,8 +99460,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 43,
         vertices: &SHAPE_43_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_43_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_43_FACES,
         painter_nodes: &SHAPE_43_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_8_5",
     },
@@ -97872,8 +99471,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 44,
         vertices: &SHAPE_44_VERTS,
         animation_frames: &SHAPE_44_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_44_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_44_FACES,
         painter_nodes: &SHAPE_44_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "hou_4",
     },
@@ -97881,8 +99482,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 45,
         vertices: &SHAPE_45_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_45_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_45_FACES,
         painter_nodes: &SHAPE_45_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_8_4",
     },
@@ -97890,8 +99493,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 46,
         vertices: &SHAPE_46_VERTS,
         animation_frames: &SHAPE_46_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_46_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_46_FACES,
         painter_nodes: &SHAPE_46_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_8_0",
     },
@@ -97899,8 +99504,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 47,
         vertices: &SHAPE_47_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_47_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_47_FACES,
         painter_nodes: &SHAPE_47_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wire_man",
     },
@@ -97908,8 +99515,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 48,
         vertices: &SHAPE_48_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_48_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_48_FACES,
         painter_nodes: &SHAPE_48_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bom_wing",
     },
@@ -97917,8 +99526,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 49,
         vertices: &SHAPE_49_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_49_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_49_FACES,
         painter_nodes: &SHAPE_49_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "w_l",
     },
@@ -97926,8 +99537,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 50,
         vertices: &SHAPE_50_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_50_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_50_FACES,
         painter_nodes: &SHAPE_50_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "rader_0",
     },
@@ -97935,8 +99548,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 51,
         vertices: &SHAPE_51_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_51_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_51_FACES,
         painter_nodes: &SHAPE_51_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "rader_1",
     },
@@ -97944,8 +99559,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 52,
         vertices: &SHAPE_52_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_52_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_52_FACES,
         painter_nodes: &SHAPE_52_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_6",
     },
@@ -97953,8 +99570,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 53,
         vertices: &SHAPE_53_VERTS,
         animation_frames: &SHAPE_53_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_53_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_53_FACES,
         painter_nodes: &SHAPE_53_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_5",
     },
@@ -97962,8 +99581,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 54,
         vertices: &SHAPE_54_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_54_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_54_FACES,
         painter_nodes: &SHAPE_54_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "houdai_0",
     },
@@ -97971,8 +99592,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 55,
         vertices: &SHAPE_55_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_55_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_55_FACES,
         painter_nodes: &SHAPE_55_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_7_1",
     },
@@ -97980,8 +99603,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 56,
         vertices: &SHAPE_56_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_56_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_56_FACES,
         painter_nodes: &SHAPE_56_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_a_1",
     },
@@ -97989,8 +99614,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 57,
         vertices: &SHAPE_57_VERTS,
         animation_frames: &SHAPE_57_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_57_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_57_FACES,
         painter_nodes: &SHAPE_57_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_a_2",
     },
@@ -97998,8 +99625,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 58,
         vertices: &SHAPE_58_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_58_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_58_FACES,
         painter_nodes: &SHAPE_58_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tower_2",
     },
@@ -98007,8 +99636,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 59,
         vertices: &SHAPE_59_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_59_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_59_FACES,
         painter_nodes: &SHAPE_59_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "para_0",
     },
@@ -98016,8 +99647,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 60,
         vertices: &SHAPE_60_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_60_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_60_FACES,
         painter_nodes: &SHAPE_60_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_0",
     },
@@ -98025,8 +99658,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 61,
         vertices: &SHAPE_61_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_61_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_61_FACES,
         painter_nodes: &SHAPE_61_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_1",
     },
@@ -98034,8 +99669,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 62,
         vertices: &SHAPE_62_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_62_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_62_FACES,
         painter_nodes: &SHAPE_62_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_2",
     },
@@ -98043,8 +99680,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 63,
         vertices: &SHAPE_63_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_63_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_63_FACES,
         painter_nodes: &SHAPE_63_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_3",
     },
@@ -98052,8 +99691,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 64,
         vertices: &SHAPE_64_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_64_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_64_FACES,
         painter_nodes: &SHAPE_64_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_4",
     },
@@ -98061,8 +99702,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 65,
         vertices: &SHAPE_65_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_65_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_65_FACES,
         painter_nodes: &SHAPE_65_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_5",
     },
@@ -98070,8 +99713,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 66,
         vertices: &SHAPE_66_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_66_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_66_FACES,
         painter_nodes: &SHAPE_66_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_6",
     },
@@ -98079,8 +99724,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 67,
         vertices: &SHAPE_67_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_67_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_67_FACES,
         painter_nodes: &SHAPE_67_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_7",
     },
@@ -98088,8 +99735,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 68,
         vertices: &SHAPE_68_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_68_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_68_FACES,
         painter_nodes: &SHAPE_68_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bu_8",
     },
@@ -98097,8 +99746,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 69,
         vertices: &SHAPE_69_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_69_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_69_FACES,
         painter_nodes: &SHAPE_69_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_2_2",
     },
@@ -98106,8 +99757,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 70,
         vertices: &SHAPE_70_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_70_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_70_FACES,
         painter_nodes: &SHAPE_70_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "core_1_0",
     },
@@ -98115,8 +99768,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 71,
         vertices: &SHAPE_71_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_71_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_71_FACES,
         painter_nodes: &SHAPE_71_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "core_1_1",
     },
@@ -98124,8 +99779,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 72,
         vertices: &SHAPE_72_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_72_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_72_FACES,
         painter_nodes: &SHAPE_72_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "exit_2",
     },
@@ -98133,8 +99790,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 73,
         vertices: &SHAPE_73_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_73_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_73_FACES,
         painter_nodes: &SHAPE_73_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "britenormal_c",
         name: "bmtunnelface",
     },
@@ -98142,8 +99801,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 74,
         vertices: &SHAPE_74_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_74_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_74_FACES,
         painter_nodes: &SHAPE_74_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "britenormal_c",
         name: "mblackface",
     },
@@ -98151,8 +99812,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 75,
         vertices: &SHAPE_75_VERTS,
         animation_frames: &SHAPE_75_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_75_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_75_FACES,
         painter_nodes: &SHAPE_75_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_b_0",
     },
@@ -98160,8 +99823,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 76,
         vertices: &SHAPE_76_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_76_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_76_FACES,
         painter_nodes: &SHAPE_76_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_b_1",
     },
@@ -98169,8 +99834,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 77,
         vertices: &SHAPE_77_VERTS,
         animation_frames: &SHAPE_77_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_77_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_77_FACES,
         painter_nodes: &SHAPE_77_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_d_1",
     },
@@ -98178,8 +99845,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 78,
         vertices: &SHAPE_78_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_78_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_78_FACES,
         painter_nodes: &SHAPE_78_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_9_5",
     },
@@ -98187,8 +99856,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 79,
         vertices: &SHAPE_79_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_79_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_79_FACES,
         painter_nodes: &SHAPE_79_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "air_1",
     },
@@ -98196,8 +99867,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 80,
         vertices: &SHAPE_80_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_80_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_80_FACES,
         painter_nodes: &SHAPE_80_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "line_2",
     },
@@ -98205,8 +99878,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 81,
         vertices: &SHAPE_81_VERTS,
         animation_frames: &SHAPE_81_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_81_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_81_FACES,
         painter_nodes: &SHAPE_81_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_3",
     },
@@ -98214,8 +99889,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 82,
         vertices: &SHAPE_82_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_82_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_82_FACES,
         painter_nodes: &SHAPE_82_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tunnel_8",
     },
@@ -98223,8 +99900,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 83,
         vertices: &SHAPE_83_VERTS,
         animation_frames: &SHAPE_83_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_83_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_83_FACES,
         painter_nodes: &SHAPE_83_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tunnel_6",
     },
@@ -98232,8 +99911,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 84,
         vertices: &SHAPE_84_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_84_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_84_FACES,
         painter_nodes: &SHAPE_84_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_0_1",
     },
@@ -98241,8 +99922,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 85,
         vertices: &SHAPE_85_VERTS,
         animation_frames: &SHAPE_85_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_85_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_85_FACES,
         painter_nodes: &SHAPE_85_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "door_1",
     },
@@ -98250,8 +99933,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 86,
         vertices: &SHAPE_86_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_86_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_86_FACES,
         painter_nodes: &SHAPE_86_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wall_0",
     },
@@ -98259,8 +99944,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 87,
         vertices: &SHAPE_87_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_87_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_87_FACES,
         painter_nodes: &SHAPE_87_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wall_1",
     },
@@ -98268,8 +99955,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 88,
         vertices: &SHAPE_88_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_88_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_88_FACES,
         painter_nodes: &SHAPE_88_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wall_2",
     },
@@ -98277,8 +99966,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 89,
         vertices: &SHAPE_89_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_89_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_89_FACES,
         painter_nodes: &SHAPE_89_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wall_3",
     },
@@ -98286,8 +99977,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 90,
         vertices: &SHAPE_90_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_90_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_90_FACES,
         painter_nodes: &SHAPE_90_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wall_4",
     },
@@ -98295,8 +99988,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 91,
         vertices: &SHAPE_91_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_91_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_91_FACES,
         painter_nodes: &SHAPE_91_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wall_5",
     },
@@ -98304,8 +99999,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 92,
         vertices: &SHAPE_92_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_92_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_92_FACES,
         painter_nodes: &SHAPE_92_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wall_6",
     },
@@ -98313,8 +100010,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 93,
         vertices: &SHAPE_93_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_93_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_93_FACES,
         painter_nodes: &SHAPE_93_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "wall_7",
     },
@@ -98322,8 +100021,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 94,
         vertices: &SHAPE_94_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_94_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_94_FACES,
         painter_nodes: &SHAPE_94_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_4",
     },
@@ -98331,8 +100032,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 95,
         vertices: &SHAPE_95_VERTS,
         animation_frames: &SHAPE_95_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_95_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_95_FACES,
         painter_nodes: &SHAPE_95_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_bu_0",
     },
@@ -98340,8 +100043,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 96,
         vertices: &SHAPE_96_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_96_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_96_FACES,
         painter_nodes: &SHAPE_96_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_bu_1",
     },
@@ -98349,8 +100054,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 97,
         vertices: &SHAPE_97_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_97_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_97_FACES,
         painter_nodes: &SHAPE_97_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_bu_2",
     },
@@ -98358,8 +100065,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 98,
         vertices: &SHAPE_98_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_98_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_98_FACES,
         painter_nodes: &SHAPE_98_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_bu_3",
     },
@@ -98367,8 +100076,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 99,
         vertices: &SHAPE_99_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_99_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_99_FACES,
         painter_nodes: &SHAPE_99_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_bu_4",
     },
@@ -98376,8 +100087,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 100,
         vertices: &SHAPE_100_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_100_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_100_FACES,
         painter_nodes: &SHAPE_100_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_bu_5",
     },
@@ -98385,8 +100098,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 101,
         vertices: &SHAPE_101_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_101_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_101_FACES,
         painter_nodes: &SHAPE_101_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_bu_6",
     },
@@ -98394,8 +100109,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 102,
         vertices: &SHAPE_102_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_102_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_102_FACES,
         painter_nodes: &SHAPE_102_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_bu_7",
     },
@@ -98403,8 +100120,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 103,
         vertices: &SHAPE_103_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_103_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_103_FACES,
         painter_nodes: &SHAPE_103_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "amoeba_c",
         name: "amoeba2",
     },
@@ -98412,8 +100131,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 104,
         vertices: &SHAPE_104_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_104_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_104_FACES,
         painter_nodes: &SHAPE_104_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_8",
     },
@@ -98421,8 +100142,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 105,
         vertices: &SHAPE_105_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_105_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_105_FACES,
         painter_nodes: &SHAPE_105_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_4",
     },
@@ -98430,8 +100153,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 106,
         vertices: &SHAPE_106_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_106_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_106_FACES,
         painter_nodes: &SHAPE_106_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_5",
     },
@@ -98439,8 +100164,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 107,
         vertices: &SHAPE_107_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_107_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_107_FACES,
         painter_nodes: &SHAPE_107_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_5l",
     },
@@ -98448,8 +100175,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 108,
         vertices: &SHAPE_108_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_108_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_108_FACES,
         painter_nodes: &SHAPE_108_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_5m",
     },
@@ -98457,8 +100186,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 109,
         vertices: &SHAPE_109_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_109_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_109_FACES,
         painter_nodes: &SHAPE_109_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_5s",
     },
@@ -98466,8 +100197,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 110,
         vertices: &SHAPE_110_VERTS,
         animation_frames: &SHAPE_110_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_110_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_110_FACES,
         painter_nodes: &SHAPE_110_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ships",
     },
@@ -98475,8 +100208,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 111,
         vertices: &SHAPE_111_VERTS,
         animation_frames: &SHAPE_111_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_111_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_111_FACES,
         painter_nodes: &SHAPE_111_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "s_door_1",
     },
@@ -98484,8 +100219,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 112,
         vertices: &SHAPE_112_VERTS,
         animation_frames: &SHAPE_112_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_112_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_112_FACES,
         painter_nodes: &SHAPE_112_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "s_door_2",
     },
@@ -98493,8 +100230,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 113,
         vertices: &SHAPE_113_VERTS,
         animation_frames: &SHAPE_113_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_113_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_113_FACES,
         painter_nodes: &SHAPE_113_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "leng_0",
     },
@@ -98502,8 +100241,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 114,
         vertices: &SHAPE_114_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_114_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_114_FACES,
         painter_nodes: &SHAPE_114_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "carrier",
     },
@@ -98511,8 +100252,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 115,
         vertices: &SHAPE_115_VERTS,
         animation_frames: &SHAPE_115_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_115_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_115_FACES,
         painter_nodes: &SHAPE_115_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "base_0",
     },
@@ -98520,8 +100263,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 116,
         vertices: &SHAPE_116_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_116_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_116_FACES,
         painter_nodes: &SHAPE_116_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "cornflakes_c",
         name: "kellogs",
     },
@@ -98529,8 +100274,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 117,
         vertices: &SHAPE_117_VERTS,
         animation_frames: &SHAPE_117_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_117_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_117_FACES,
         painter_nodes: &SHAPE_117_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "k_door",
     },
@@ -98538,8 +100285,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 118,
         vertices: &SHAPE_118_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_118_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_118_FACES,
         painter_nodes: &SHAPE_118_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "kichi_3",
     },
@@ -98547,8 +100296,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 119,
         vertices: &SHAPE_119_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_119_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_119_FACES,
         painter_nodes: &SHAPE_119_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "kichi_0",
     },
@@ -98556,8 +100307,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 120,
         vertices: &SHAPE_120_VERTS,
         animation_frames: &SHAPE_120_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_120_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_120_FACES,
         painter_nodes: &SHAPE_120_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_g_0",
     },
@@ -98565,8 +100318,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 121,
         vertices: &SHAPE_121_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_121_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_121_FACES,
         painter_nodes: &SHAPE_121_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tunnel_0",
     },
@@ -98574,8 +100329,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 122,
         vertices: &SHAPE_122_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_122_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_122_FACES,
         painter_nodes: &SHAPE_122_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tunnel_4",
     },
@@ -98583,8 +100340,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 123,
         vertices: &SHAPE_123_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_123_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_123_FACES,
         painter_nodes: &SHAPE_123_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tunnel_7",
     },
@@ -98592,8 +100351,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 124,
         vertices: &SHAPE_124_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_124_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_124_FACES,
         painter_nodes: &SHAPE_124_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "mybase_1",
     },
@@ -98601,8 +100362,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 125,
         vertices: &SHAPE_125_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_125_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_125_FACES,
         painter_nodes: &SHAPE_125_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_s_0",
     },
@@ -98610,8 +100373,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 126,
         vertices: &SHAPE_126_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_126_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_126_FACES,
         painter_nodes: &SHAPE_126_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ship_s_1",
     },
@@ -98619,8 +100384,26 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 127,
         vertices: &SHAPE_127_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_127_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_127_FACES,
         painter_nodes: &SHAPE_127_PAINTER,
+        source_lods: [
+            None,
+            Some(SourceShapeData {
+                vertices: &SHAPE_127_LOD_1_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_127_LOD_1_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_127_LOD_1_FACES,
+                painter_nodes: &SHAPE_127_LOD_1_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_127_LOD_2_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_127_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_127_LOD_2_FACES,
+                painter_nodes: &SHAPE_127_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "id_0_c",
         name: "ship_4",
     },
@@ -98628,8 +100411,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 128,
         vertices: &SHAPE_128_VERTS,
         animation_frames: &SHAPE_128_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_128_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_128_FACES,
         painter_nodes: &SHAPE_128_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_7",
     },
@@ -98637,8 +100422,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 129,
         vertices: &SHAPE_129_VERTS,
         animation_frames: &SHAPE_129_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_129_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_129_FACES,
         painter_nodes: &SHAPE_129_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "warker_3",
     },
@@ -98646,8 +100433,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 130,
         vertices: &SHAPE_130_VERTS,
         animation_frames: &SHAPE_130_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_130_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_130_FACES,
         painter_nodes: &SHAPE_130_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "heli",
     },
@@ -98655,8 +100444,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 131,
         vertices: &SHAPE_131_VERTS,
         animation_frames: &SHAPE_131_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_131_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_131_FACES,
         painter_nodes: &SHAPE_131_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bazooka",
     },
@@ -98664,8 +100455,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 132,
         vertices: &SHAPE_132_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_132_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_132_FACES,
         painter_nodes: &SHAPE_132_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "uper_m",
     },
@@ -98673,8 +100466,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 133,
         vertices: &SHAPE_133_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_133_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_133_FACES,
         painter_nodes: &SHAPE_133_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "warp",
     },
@@ -98682,8 +100477,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 134,
         vertices: &SHAPE_134_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_134_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_134_FACES,
         painter_nodes: &SHAPE_134_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tank_2",
     },
@@ -98691,8 +100488,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 135,
         vertices: &SHAPE_135_VERTS,
         animation_frames: &SHAPE_135_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_135_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_135_FACES,
         painter_nodes: &SHAPE_135_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "f_dragon",
     },
@@ -98700,8 +100499,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 136,
         vertices: &SHAPE_136_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_136_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_136_FACES,
         painter_nodes: &SHAPE_136_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "xwirespacebar",
     },
@@ -98709,8 +100510,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 137,
         vertices: &SHAPE_137_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_137_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_137_FACES,
         painter_nodes: &SHAPE_137_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "xpwirespacebar",
     },
@@ -98718,8 +100521,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 138,
         vertices: &SHAPE_138_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_138_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_138_FACES,
         painter_nodes: &SHAPE_138_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sxpwirespacebar",
     },
@@ -98727,8 +100532,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 139,
         vertices: &SHAPE_139_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_139_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_139_FACES,
         painter_nodes: &SHAPE_139_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ywirespacebar",
     },
@@ -98736,8 +100543,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 140,
         vertices: &SHAPE_140_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_140_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_140_FACES,
         painter_nodes: &SHAPE_140_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zwirespacebar",
     },
@@ -98745,8 +100554,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 141,
         vertices: &SHAPE_141_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_141_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_141_FACES,
         painter_nodes: &SHAPE_141_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sxwirespacebar",
     },
@@ -98754,8 +100565,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 142,
         vertices: &SHAPE_142_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_142_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_142_FACES,
         painter_nodes: &SHAPE_142_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sywirespacebar",
     },
@@ -98763,8 +100576,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 143,
         vertices: &SHAPE_143_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_143_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_143_FACES,
         painter_nodes: &SHAPE_143_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "szwirespacebar",
     },
@@ -98772,8 +100587,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 144,
         vertices: &SHAPE_144_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_144_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_144_FACES,
         painter_nodes: &SHAPE_144_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "xsolidspacebar",
     },
@@ -98781,8 +100598,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 145,
         vertices: &SHAPE_145_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_145_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_145_FACES,
         painter_nodes: &SHAPE_145_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "xpsolidspacebar",
     },
@@ -98790,8 +100609,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 146,
         vertices: &SHAPE_146_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_146_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_146_FACES,
         painter_nodes: &SHAPE_146_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sxpsolidspacebar",
     },
@@ -98799,8 +100620,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 147,
         vertices: &SHAPE_147_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_147_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_147_FACES,
         painter_nodes: &SHAPE_147_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ysolidspacebar",
     },
@@ -98808,8 +100631,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 148,
         vertices: &SHAPE_148_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_148_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_148_FACES,
         painter_nodes: &SHAPE_148_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zsolidspacebar",
     },
@@ -98817,8 +100642,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 149,
         vertices: &SHAPE_149_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_149_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_149_FACES,
         painter_nodes: &SHAPE_149_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sxsolidspacebar",
     },
@@ -98826,8 +100653,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 150,
         vertices: &SHAPE_150_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_150_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_150_FACES,
         painter_nodes: &SHAPE_150_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sysolidspacebar",
     },
@@ -98835,8 +100664,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 151,
         vertices: &SHAPE_151_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_151_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_151_FACES,
         painter_nodes: &SHAPE_151_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "szsolidspacebar",
     },
@@ -98844,8 +100675,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 152,
         vertices: &SHAPE_152_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_152_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_152_FACES,
         painter_nodes: &SHAPE_152_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "colony_0",
     },
@@ -98853,8 +100686,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 153,
         vertices: &SHAPE_153_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_153_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_153_FACES,
         painter_nodes: &SHAPE_153_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "colony_1",
     },
@@ -98862,8 +100697,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 154,
         vertices: &SHAPE_154_VERTS,
         animation_frames: &SHAPE_154_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_154_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_154_FACES,
         painter_nodes: &SHAPE_154_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "colony_2",
     },
@@ -98871,8 +100708,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 155,
         vertices: &SHAPE_155_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_155_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_155_FACES,
         painter_nodes: &SHAPE_155_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "colony3l",
     },
@@ -98880,8 +100719,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 156,
         vertices: &SHAPE_156_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_156_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_156_FACES,
         painter_nodes: &SHAPE_156_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "colony3r",
     },
@@ -98889,8 +100730,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 157,
         vertices: &SHAPE_157_VERTS,
         animation_frames: &SHAPE_157_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_157_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_157_FACES,
         painter_nodes: &SHAPE_157_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bwarker_3",
     },
@@ -98898,8 +100741,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 158,
         vertices: &SHAPE_158_VERTS,
         animation_frames: &SHAPE_158_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_158_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_158_FACES,
         painter_nodes: &SHAPE_158_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "item_5",
     },
@@ -98907,8 +100752,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 159,
         vertices: &SHAPE_159_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_159_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_159_FACES,
         painter_nodes: &SHAPE_159_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "item_6",
     },
@@ -98916,8 +100763,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 160,
         vertices: &SHAPE_160_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_160_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_160_FACES,
         painter_nodes: &SHAPE_160_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "item_7",
     },
@@ -98925,8 +100774,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 161,
         vertices: &SHAPE_161_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_161_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_161_FACES,
         painter_nodes: &SHAPE_161_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "r_hou_0",
     },
@@ -98934,8 +100785,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 162,
         vertices: &SHAPE_162_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_162_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_162_FACES,
         painter_nodes: &SHAPE_162_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "s_hou_0",
     },
@@ -98943,8 +100796,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 163,
         vertices: &SHAPE_163_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_163_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_163_FACES,
         painter_nodes: &SHAPE_163_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_3_c",
         name: "b_hou_0",
     },
@@ -98952,8 +100807,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 164,
         vertices: &SHAPE_164_VERTS,
         animation_frames: &SHAPE_164_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_164_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_164_FACES,
         painter_nodes: &SHAPE_164_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "walker_2",
     },
@@ -98961,8 +100818,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 165,
         vertices: &SHAPE_165_VERTS,
         animation_frames: &SHAPE_165_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_165_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_165_FACES,
         painter_nodes: &SHAPE_165_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "base_0_0",
     },
@@ -98970,8 +100829,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 166,
         vertices: &SHAPE_166_VERTS,
         animation_frames: &SHAPE_166_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_166_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_166_FACES,
         painter_nodes: &SHAPE_166_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "base_0_1",
     },
@@ -98979,8 +100840,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 167,
         vertices: &SHAPE_167_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_167_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_167_FACES,
         painter_nodes: &SHAPE_167_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tank_1",
     },
@@ -98988,8 +100851,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 168,
         vertices: &SHAPE_168_VERTS,
         animation_frames: &SHAPE_168_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_168_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_168_FACES,
         painter_nodes: &SHAPE_168_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "hou_5",
     },
@@ -98997,8 +100862,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 169,
         vertices: &SHAPE_169_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_169_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_169_FACES,
         painter_nodes: &SHAPE_169_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ro_0",
     },
@@ -99006,8 +100873,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 170,
         vertices: &SHAPE_170_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_170_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_170_FACES,
         painter_nodes: &SHAPE_170_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ro_1",
     },
@@ -99015,8 +100884,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 171,
         vertices: &SHAPE_171_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_171_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_171_FACES,
         painter_nodes: &SHAPE_171_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ro_2",
     },
@@ -99024,8 +100895,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 172,
         vertices: &SHAPE_172_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_172_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_172_FACES,
         painter_nodes: &SHAPE_172_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ro_3",
     },
@@ -99033,8 +100906,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 173,
         vertices: &SHAPE_173_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_173_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_173_FACES,
         painter_nodes: &SHAPE_173_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ro_4",
     },
@@ -99042,8 +100917,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 174,
         vertices: &SHAPE_174_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_174_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_174_FACES,
         painter_nodes: &SHAPE_174_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ro_5",
     },
@@ -99051,8 +100928,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 175,
         vertices: &SHAPE_175_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_175_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_175_FACES,
         painter_nodes: &SHAPE_175_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ro_6",
     },
@@ -99060,8 +100939,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 176,
         vertices: &SHAPE_176_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_176_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_176_FACES,
         painter_nodes: &SHAPE_176_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "bro_0",
     },
@@ -99069,8 +100950,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 177,
         vertices: &SHAPE_177_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_177_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_177_FACES,
         painter_nodes: &SHAPE_177_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "bro_1",
     },
@@ -99078,8 +100961,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 178,
         vertices: &SHAPE_178_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_178_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_178_FACES,
         painter_nodes: &SHAPE_178_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "bro_2",
     },
@@ -99087,8 +100972,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 179,
         vertices: &SHAPE_179_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_179_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_179_FACES,
         painter_nodes: &SHAPE_179_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "bro_3",
     },
@@ -99096,8 +100983,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 180,
         vertices: &SHAPE_180_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_180_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_180_FACES,
         painter_nodes: &SHAPE_180_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "bro_4",
     },
@@ -99105,8 +100994,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 181,
         vertices: &SHAPE_181_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_181_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_181_FACES,
         painter_nodes: &SHAPE_181_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "bro_5",
     },
@@ -99114,8 +101005,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 182,
         vertices: &SHAPE_182_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_182_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_182_FACES,
         painter_nodes: &SHAPE_182_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "bro_6",
     },
@@ -99123,8 +101016,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 183,
         vertices: &SHAPE_183_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_183_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_183_FACES,
         painter_nodes: &SHAPE_183_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "gro_0",
     },
@@ -99132,8 +101027,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 184,
         vertices: &SHAPE_184_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_184_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_184_FACES,
         painter_nodes: &SHAPE_184_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "gro_1",
     },
@@ -99141,8 +101038,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 185,
         vertices: &SHAPE_185_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_185_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_185_FACES,
         painter_nodes: &SHAPE_185_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "gro_2",
     },
@@ -99150,8 +101049,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 186,
         vertices: &SHAPE_186_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_186_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_186_FACES,
         painter_nodes: &SHAPE_186_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "gro_3",
     },
@@ -99159,8 +101060,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 187,
         vertices: &SHAPE_187_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_187_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_187_FACES,
         painter_nodes: &SHAPE_187_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "gro_4",
     },
@@ -99168,8 +101071,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 188,
         vertices: &SHAPE_188_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_188_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_188_FACES,
         painter_nodes: &SHAPE_188_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "gro_5",
     },
@@ -99177,8 +101082,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 189,
         vertices: &SHAPE_189_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_189_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_189_FACES,
         painter_nodes: &SHAPE_189_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "gro_6",
     },
@@ -99186,8 +101093,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 190,
         vertices: &SHAPE_190_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_190_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_190_FACES,
         painter_nodes: &SHAPE_190_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "volcano",
     },
@@ -99195,8 +101104,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 191,
         vertices: &SHAPE_191_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_191_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_191_FACES,
         painter_nodes: &SHAPE_191_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "svolcano",
     },
@@ -99204,8 +101115,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 192,
         vertices: &SHAPE_192_VERTS,
         animation_frames: &SHAPE_192_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_192_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_192_FACES,
         painter_nodes: &SHAPE_192_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "meteo_0",
     },
@@ -99213,8 +101126,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 193,
         vertices: &SHAPE_193_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_193_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_193_FACES,
         painter_nodes: &SHAPE_193_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "blackhole_c",
         name: "blackhole",
     },
@@ -99222,8 +101137,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 194,
         vertices: &SHAPE_194_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_194_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_194_FACES,
         painter_nodes: &SHAPE_194_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "asteroid2_c",
         name: "asteroid2",
     },
@@ -99231,8 +101148,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 195,
         vertices: &SHAPE_195_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_195_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_195_FACES,
         painter_nodes: &SHAPE_195_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "b_holl",
     },
@@ -99240,8 +101159,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 196,
         vertices: &SHAPE_196_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_196_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_196_FACES,
         painter_nodes: &SHAPE_196_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "car_0",
     },
@@ -99249,8 +101170,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 197,
         vertices: &SHAPE_197_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_197_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_197_FACES,
         painter_nodes: &SHAPE_197_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "clisla_m",
     },
@@ -99258,8 +101181,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 198,
         vertices: &SHAPE_198_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_198_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_198_FACES,
         painter_nodes: &SHAPE_198_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "clisla_s",
     },
@@ -99267,8 +101192,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 199,
         vertices: &SHAPE_199_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_199_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_199_FACES,
         painter_nodes: &SHAPE_199_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "clisla_l",
     },
@@ -99276,8 +101203,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 200,
         vertices: &SHAPE_200_VERTS,
         animation_frames: &SHAPE_200_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_200_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_200_FACES,
         painter_nodes: &SHAPE_200_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "snake_1",
     },
@@ -99285,8 +101214,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 201,
         vertices: &SHAPE_201_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_201_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_201_FACES,
         painter_nodes: &SHAPE_201_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_b",
     },
@@ -99294,8 +101225,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 202,
         vertices: &SHAPE_202_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_202_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_202_FACES,
         painter_nodes: &SHAPE_202_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "shieldr",
     },
@@ -99303,8 +101236,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 203,
         vertices: &SHAPE_203_VERTS,
         animation_frames: &SHAPE_203_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_203_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_203_FACES,
         painter_nodes: &SHAPE_203_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ray_0",
     },
@@ -99312,8 +101247,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 204,
         vertices: &SHAPE_204_VERTS,
         animation_frames: &SHAPE_204_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_204_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_204_FACES,
         painter_nodes: &SHAPE_204_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ray_1",
     },
@@ -99321,8 +101258,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 205,
         vertices: &SHAPE_205_VERTS,
         animation_frames: &SHAPE_205_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_205_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_205_FACES,
         painter_nodes: &SHAPE_205_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_e_4",
     },
@@ -99330,8 +101269,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 206,
         vertices: &SHAPE_206_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_206_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_206_FACES,
         painter_nodes: &SHAPE_206_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "flower_1",
     },
@@ -99339,8 +101280,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 207,
         vertices: &SHAPE_207_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_207_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_207_FACES,
         painter_nodes: &SHAPE_207_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "flower_2",
     },
@@ -99348,8 +101291,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 208,
         vertices: &SHAPE_208_VERTS,
         animation_frames: &SHAPE_208_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_208_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_208_FACES,
         painter_nodes: &SHAPE_208_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "stalk",
     },
@@ -99357,8 +101302,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 209,
         vertices: &SHAPE_209_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_209_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_209_FACES,
         painter_nodes: &SHAPE_209_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "mine_2",
     },
@@ -99366,8 +101313,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 210,
         vertices: &SHAPE_210_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_210_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_210_FACES,
         painter_nodes: &SHAPE_210_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "gate_2",
     },
@@ -99375,8 +101324,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 211,
         vertices: &SHAPE_211_VERTS,
         animation_frames: &SHAPE_211_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_211_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_211_FACES,
         painter_nodes: &SHAPE_211_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "s_fish",
     },
@@ -99384,8 +101335,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 212,
         vertices: &SHAPE_212_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_212_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_212_FACES,
         painter_nodes: &SHAPE_212_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "last_b_0",
     },
@@ -99393,8 +101346,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 213,
         vertices: &SHAPE_213_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_213_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_213_FACES,
         painter_nodes: &SHAPE_213_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "last_b_2",
     },
@@ -99402,8 +101357,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 214,
         vertices: &SHAPE_214_VERTS,
         animation_frames: &SHAPE_214_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_214_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_214_FACES,
         painter_nodes: &SHAPE_214_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "last_b_3",
     },
@@ -99411,8 +101368,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 215,
         vertices: &SHAPE_215_VERTS,
         animation_frames: &SHAPE_215_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_215_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_215_FACES,
         painter_nodes: &SHAPE_215_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "door_l",
     },
@@ -99420,8 +101379,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 216,
         vertices: &SHAPE_216_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_216_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_216_FACES,
         painter_nodes: &SHAPE_216_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "car_1",
     },
@@ -99429,8 +101390,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 217,
         vertices: &SHAPE_217_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_217_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_217_FACES,
         painter_nodes: &SHAPE_217_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_a",
     },
@@ -99438,8 +101401,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 218,
         vertices: &SHAPE_218_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_218_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_218_FACES,
         painter_nodes: &SHAPE_218_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "friendship_4",
     },
@@ -99447,8 +101412,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 219,
         vertices: &SHAPE_219_VERTS,
         animation_frames: &SHAPE_219_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_219_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_219_FACES,
         painter_nodes: &SHAPE_219_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "s_wark_0",
     },
@@ -99456,8 +101423,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 220,
         vertices: &SHAPE_220_VERTS,
         animation_frames: &SHAPE_220_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_220_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_220_FACES,
         painter_nodes: &SHAPE_220_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ika",
     },
@@ -99465,8 +101434,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 221,
         vertices: &SHAPE_221_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_221_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_221_FACES,
         painter_nodes: &SHAPE_221_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "s_zaco_0",
     },
@@ -99474,8 +101445,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 222,
         vertices: &SHAPE_222_VERTS,
         animation_frames: &SHAPE_222_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_222_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_222_FACES,
         painter_nodes: &SHAPE_222_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bazz_1",
     },
@@ -99483,8 +101456,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 223,
         vertices: &SHAPE_223_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_223_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_223_FACES,
         painter_nodes: &SHAPE_223_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "finalboss_c",
         name: "face_b",
     },
@@ -99492,8 +101467,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 224,
         vertices: &SHAPE_224_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_224_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_224_FACES,
         painter_nodes: &SHAPE_224_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_demos",
     },
@@ -99501,8 +101478,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 225,
         vertices: &SHAPE_225_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_225_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_225_FACES,
         painter_nodes: &SHAPE_225_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_demo",
     },
@@ -99510,8 +101489,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 226,
         vertices: &SHAPE_226_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_226_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_226_FACES,
         painter_nodes: &SHAPE_226_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "specialweapon_c",
         name: "helpball",
     },
@@ -99519,8 +101500,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 227,
         vertices: &SHAPE_227_VERTS,
         animation_frames: &SHAPE_227_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_227_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_227_FACES,
         painter_nodes: &SHAPE_227_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tadpole",
     },
@@ -99528,8 +101511,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 228,
         vertices: &SHAPE_228_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_228_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_228_FACES,
         painter_nodes: &SHAPE_228_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "arch_0",
     },
@@ -99537,8 +101522,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 229,
         vertices: &SHAPE_229_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_229_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_229_FACES,
         painter_nodes: &SHAPE_229_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "s_tank_0",
     },
@@ -99546,8 +101533,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 230,
         vertices: &SHAPE_230_VERTS,
         animation_frames: &SHAPE_230_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_230_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_230_FACES,
         painter_nodes: &SHAPE_230_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_1",
     },
@@ -99555,8 +101544,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 231,
         vertices: &SHAPE_231_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_231_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_231_FACES,
         painter_nodes: &SHAPE_231_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "bzaco_8",
     },
@@ -99564,8 +101555,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 232,
         vertices: &SHAPE_232_VERTS,
         animation_frames: &SHAPE_232_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_232_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_232_FACES,
         painter_nodes: &SHAPE_232_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "base_1",
     },
@@ -99573,8 +101566,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 233,
         vertices: &SHAPE_233_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_233_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_233_FACES,
         painter_nodes: &SHAPE_233_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "big_gate",
     },
@@ -99582,8 +101577,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 234,
         vertices: &SHAPE_234_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_234_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_234_FACES,
         painter_nodes: &SHAPE_234_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "r_hou",
     },
@@ -99591,8 +101588,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 235,
         vertices: &SHAPE_235_VERTS,
         animation_frames: &SHAPE_235_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_235_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_235_FACES,
         painter_nodes: &SHAPE_235_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "open_l",
     },
@@ -99600,8 +101599,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 236,
         vertices: &SHAPE_236_VERTS,
         animation_frames: &SHAPE_236_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_236_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_236_FACES,
         painter_nodes: &SHAPE_236_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "up_door",
     },
@@ -99609,8 +101610,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 237,
         vertices: &SHAPE_237_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_237_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_237_FACES,
         painter_nodes: &SHAPE_237_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "big_meteor_c",
         name: "big_meteor",
     },
@@ -99618,8 +101621,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 238,
         vertices: &SHAPE_238_VERTS,
         animation_frames: &SHAPE_238_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_238_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_238_FACES,
         painter_nodes: &SHAPE_238_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_d_4",
     },
@@ -99627,8 +101632,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 239,
         vertices: &SHAPE_239_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_239_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_239_FACES,
         painter_nodes: &SHAPE_239_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "btank_1",
     },
@@ -99636,8 +101643,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 240,
         vertices: &SHAPE_240_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_240_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_240_FACES,
         painter_nodes: &SHAPE_240_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "font_t",
     },
@@ -99645,8 +101654,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 241,
         vertices: &SHAPE_241_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_241_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_241_FACES,
         painter_nodes: &SHAPE_241_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "font_h",
     },
@@ -99654,8 +101665,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 242,
         vertices: &SHAPE_242_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_242_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_242_FACES,
         painter_nodes: &SHAPE_242_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "font_e",
     },
@@ -99663,8 +101676,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 243,
         vertices: &SHAPE_243_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_243_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_243_FACES,
         painter_nodes: &SHAPE_243_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "font_n",
     },
@@ -99672,8 +101687,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 244,
         vertices: &SHAPE_244_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_244_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_244_FACES,
         painter_nodes: &SHAPE_244_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "font_d",
     },
@@ -99681,8 +101698,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 245,
         vertices: &SHAPE_245_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_245_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_245_FACES,
         painter_nodes: &SHAPE_245_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "game_c",
         name: "gamesh",
     },
@@ -99690,8 +101709,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 246,
         vertices: &SHAPE_246_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_246_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_246_FACES,
         painter_nodes: &SHAPE_246_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "over_c",
         name: "oversh",
     },
@@ -99699,8 +101720,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 247,
         vertices: &SHAPE_247_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_247_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_247_FACES,
         painter_nodes: &SHAPE_247_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tow_0",
     },
@@ -99708,8 +101731,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 248,
         vertices: &SHAPE_248_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_248_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_248_FACES,
         painter_nodes: &SHAPE_248_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bou_0",
     },
@@ -99717,8 +101742,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 256,
         vertices: &SHAPE_256_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_256_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_256_FACES,
         painter_nodes: &SHAPE_256_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "mybase_0",
     },
@@ -99726,8 +101753,26 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 257,
         vertices: &SHAPE_257_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_257_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_257_FACES,
         painter_nodes: &SHAPE_257_PAINTER,
+        source_lods: [
+            None,
+            Some(SourceShapeData {
+                vertices: &SHAPE_257_LOD_1_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_257_LOD_1_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_257_LOD_1_FACES,
+                painter_nodes: &SHAPE_257_LOD_1_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_257_LOD_2_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_257_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_257_LOD_2_FACES,
+                painter_nodes: &SHAPE_257_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "id_0_c",
         name: "sea_0",
     },
@@ -99735,8 +101780,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 258,
         vertices: &SHAPE_258_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_258_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_258_FACES,
         painter_nodes: &SHAPE_258_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sea_0_1",
     },
@@ -99744,8 +101791,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 259,
         vertices: &SHAPE_259_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_259_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_259_FACES,
         painter_nodes: &SHAPE_259_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_2_0",
     },
@@ -99753,8 +101802,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 260,
         vertices: &SHAPE_260_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_260_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_260_FACES,
         painter_nodes: &SHAPE_260_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_2_1",
     },
@@ -99762,8 +101813,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 261,
         vertices: &SHAPE_261_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_261_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_261_FACES,
         painter_nodes: &SHAPE_261_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_2_3",
     },
@@ -99771,8 +101824,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 262,
         vertices: &SHAPE_262_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_262_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_262_FACES,
         painter_nodes: &SHAPE_262_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_2_4",
     },
@@ -99780,8 +101835,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 263,
         vertices: &SHAPE_263_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_263_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_263_FACES,
         painter_nodes: &SHAPE_263_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_2_5",
     },
@@ -99789,8 +101846,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 264,
         vertices: &SHAPE_264_VERTS,
         animation_frames: &SHAPE_264_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_264_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_264_FACES,
         painter_nodes: &SHAPE_264_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_8_1",
     },
@@ -99798,8 +101857,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 265,
         vertices: &SHAPE_265_VERTS,
         animation_frames: &SHAPE_265_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_265_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_265_FACES,
         painter_nodes: &SHAPE_265_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_8_1c",
     },
@@ -99807,8 +101868,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 266,
         vertices: &SHAPE_266_VERTS,
         animation_frames: &SHAPE_266_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_266_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_266_FACES,
         painter_nodes: &SHAPE_266_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sparklas",
     },
@@ -99816,8 +101879,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 267,
         vertices: &SHAPE_267_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_267_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_267_FACES,
         painter_nodes: &SHAPE_267_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "shrap1",
     },
@@ -99825,8 +101890,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 268,
         vertices: &SHAPE_268_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_268_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_268_FACES,
         painter_nodes: &SHAPE_268_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "hyper_c",
         name: "shyper",
     },
@@ -99834,8 +101901,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 269,
         vertices: &SHAPE_269_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_269_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_269_FACES,
         painter_nodes: &SHAPE_269_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_9",
     },
@@ -99843,8 +101912,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 270,
         vertices: &SHAPE_270_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_270_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_270_FACES,
         painter_nodes: &SHAPE_270_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_g_s",
     },
@@ -99852,8 +101923,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 271,
         vertices: &SHAPE_271_VERTS,
         animation_frames: &SHAPE_271_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_271_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_271_FACES,
         painter_nodes: &SHAPE_271_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "f_fish",
     },
@@ -99861,8 +101934,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 272,
         vertices: &SHAPE_272_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_272_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_272_FACES,
         painter_nodes: &SHAPE_272_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "rockbeam_c",
         name: "rockbeam",
     },
@@ -99870,8 +101945,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 273,
         vertices: &SHAPE_273_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_273_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_273_FACES,
         painter_nodes: &SHAPE_273_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "smoke_c",
         name: "l2smoke",
     },
@@ -99879,8 +101956,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 274,
         vertices: &SHAPE_274_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_274_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_274_FACES,
         painter_nodes: &SHAPE_274_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "explode3_c",
         name: "explosion5",
     },
@@ -99888,8 +101967,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 275,
         vertices: &SHAPE_275_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_275_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_275_FACES,
         painter_nodes: &SHAPE_275_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "asteroid_c",
         name: "asteroid1",
     },
@@ -99897,8 +101978,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 276,
         vertices: &SHAPE_276_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_276_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_276_FACES,
         painter_nodes: &SHAPE_276_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "asteroid_c",
         name: "asteroid3",
     },
@@ -99906,8 +101989,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 277,
         vertices: &SHAPE_277_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_277_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_277_FACES,
         painter_nodes: &SHAPE_277_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "asteroid2_c",
         name: "asteroid4",
     },
@@ -99915,8 +102000,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 279,
         vertices: &SHAPE_279_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_279_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_279_FACES,
         painter_nodes: &SHAPE_279_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "big_meteor_c",
         name: "big_meteor",
     },
@@ -99924,8 +102011,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 280,
         vertices: &SHAPE_280_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_280_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_280_FACES,
         painter_nodes: &SHAPE_280_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "asteroid_c",
         name: "clasteroid",
     },
@@ -99933,8 +102022,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 281,
         vertices: &SHAPE_281_VERTS,
         animation_frames: &SHAPE_281_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_281_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_281_FACES,
         painter_nodes: &SHAPE_281_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "whale",
     },
@@ -99942,8 +102033,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 282,
         vertices: &SHAPE_282_VERTS,
         animation_frames: &SHAPE_282_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_282_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_282_FACES,
         painter_nodes: &SHAPE_282_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_bird",
     },
@@ -99951,8 +102044,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 283,
         vertices: &SHAPE_283_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_283_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_283_FACES,
         painter_nodes: &SHAPE_283_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_8p",
     },
@@ -99960,8 +102055,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 284,
         vertices: &SHAPE_284_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_284_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_284_FACES,
         painter_nodes: &SHAPE_284_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bou_1",
     },
@@ -99969,8 +102066,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 285,
         vertices: &SHAPE_285_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_285_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_285_FACES,
         painter_nodes: &SHAPE_285_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_8_0",
     },
@@ -99978,8 +102077,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 286,
         vertices: &SHAPE_286_VERTS,
         animation_frames: &SHAPE_286_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_286_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_286_FACES,
         painter_nodes: &SHAPE_286_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_8",
     },
@@ -99987,8 +102088,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 287,
         vertices: &SHAPE_287_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_287_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_287_FACES,
         painter_nodes: &SHAPE_287_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bou_1b",
     },
@@ -99996,8 +102099,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 288,
         vertices: &SHAPE_288_VERTS,
         animation_frames: &SHAPE_288_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_288_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_288_FACES,
         painter_nodes: &SHAPE_288_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "finalboss_c",
         name: "paper_1",
     },
@@ -100005,8 +102110,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 289,
         vertices: &SHAPE_289_VERTS,
         animation_frames: &SHAPE_289_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_289_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_289_FACES,
         painter_nodes: &SHAPE_289_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "finalboss_c",
         name: "paper_3",
     },
@@ -100014,8 +102121,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 290,
         vertices: &SHAPE_290_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_290_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_290_FACES,
         painter_nodes: &SHAPE_290_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pole_0",
     },
@@ -100023,8 +102132,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 291,
         vertices: &SHAPE_291_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_291_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_291_FACES,
         painter_nodes: &SHAPE_291_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "slot_0",
     },
@@ -100032,8 +102143,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 292,
         vertices: &SHAPE_292_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_292_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_292_FACES,
         painter_nodes: &SHAPE_292_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "font_t2",
     },
@@ -100041,8 +102154,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 293,
         vertices: &SHAPE_293_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_293_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_293_FACES,
         painter_nodes: &SHAPE_293_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "font_h2",
     },
@@ -100050,8 +102165,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 294,
         vertices: &SHAPE_294_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_294_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_294_FACES,
         painter_nodes: &SHAPE_294_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "font_e2",
     },
@@ -100059,8 +102176,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 295,
         vertices: &SHAPE_295_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_295_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_295_FACES,
         painter_nodes: &SHAPE_295_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_2_c",
         name: "font_e3",
     },
@@ -100068,8 +102187,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 296,
         vertices: &SHAPE_296_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_296_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_296_FACES,
         painter_nodes: &SHAPE_296_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "font_n2",
     },
@@ -100077,8 +102198,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 297,
         vertices: &SHAPE_297_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_297_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_297_FACES,
         painter_nodes: &SHAPE_297_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "font_d2",
     },
@@ -100086,8 +102209,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 298,
         vertices: &SHAPE_298_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_298_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_298_FACES,
         painter_nodes: &SHAPE_298_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pilon",
     },
@@ -100095,8 +102220,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 299,
         vertices: &SHAPE_299_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_299_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_299_FACES,
         painter_nodes: &SHAPE_299_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "mine_0",
     },
@@ -100104,8 +102231,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 300,
         vertices: &SHAPE_300_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_300_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_300_FACES,
         painter_nodes: &SHAPE_300_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_h_0",
     },
@@ -100113,8 +102242,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 301,
         vertices: &SHAPE_301_VERTS,
         animation_frames: &SHAPE_301_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_301_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_301_FACES,
         painter_nodes: &SHAPE_301_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_h_1",
     },
@@ -100122,8 +102253,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 302,
         vertices: &SHAPE_302_VERTS,
         animation_frames: &SHAPE_302_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_302_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_302_FACES,
         painter_nodes: &SHAPE_302_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_h_1a",
     },
@@ -100131,8 +102264,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 303,
         vertices: &SHAPE_303_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_303_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_303_FACES,
         painter_nodes: &SHAPE_303_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_h_2",
     },
@@ -100140,8 +102275,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 304,
         vertices: &SHAPE_304_VERTS,
         animation_frames: &SHAPE_304_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_304_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_304_FACES,
         painter_nodes: &SHAPE_304_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "teleport_c",
         name: "boss_h_3",
     },
@@ -100149,8 +102286,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 305,
         vertices: &SHAPE_305_VERTS,
         animation_frames: &SHAPE_305_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_305_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_305_FACES,
         painter_nodes: &SHAPE_305_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_1",
     },
@@ -100158,8 +102297,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 306,
         vertices: &SHAPE_306_VERTS,
         animation_frames: &SHAPE_306_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_306_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_306_FACES,
         painter_nodes: &SHAPE_306_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_2",
     },
@@ -100167,8 +102308,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 307,
         vertices: &SHAPE_307_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_307_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_307_FACES,
         painter_nodes: &SHAPE_307_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_5",
     },
@@ -100176,8 +102319,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 308,
         vertices: &SHAPE_308_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_308_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_308_FACES,
         painter_nodes: &SHAPE_308_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_6",
     },
@@ -100185,8 +102330,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 309,
         vertices: &SHAPE_309_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_309_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_309_FACES,
         painter_nodes: &SHAPE_309_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_7",
     },
@@ -100194,8 +102341,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 310,
         vertices: &SHAPE_310_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_310_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_310_FACES,
         painter_nodes: &SHAPE_310_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_9_0",
     },
@@ -100203,8 +102352,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 311,
         vertices: &SHAPE_311_VERTS,
         animation_frames: &SHAPE_311_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_311_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_311_FACES,
         painter_nodes: &SHAPE_311_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_9",
     },
@@ -100212,8 +102363,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 312,
         vertices: &SHAPE_312_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_312_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_312_FACES,
         painter_nodes: &SHAPE_312_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "deboss_1",
     },
@@ -100221,8 +102374,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 313,
         vertices: &SHAPE_313_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_313_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_313_FACES,
         painter_nodes: &SHAPE_313_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_0",
     },
@@ -100230,8 +102385,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 314,
         vertices: &SHAPE_314_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_314_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_314_FACES,
         painter_nodes: &SHAPE_314_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_1",
     },
@@ -100239,8 +102396,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 315,
         vertices: &SHAPE_315_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_315_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_315_FACES,
         painter_nodes: &SHAPE_315_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_2",
     },
@@ -100248,8 +102407,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 316,
         vertices: &SHAPE_316_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_316_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_316_FACES,
         painter_nodes: &SHAPE_316_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_3",
     },
@@ -100257,8 +102418,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 317,
         vertices: &SHAPE_317_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_317_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_317_FACES,
         painter_nodes: &SHAPE_317_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_4",
     },
@@ -100266,8 +102429,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 318,
         vertices: &SHAPE_318_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_318_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_318_FACES,
         painter_nodes: &SHAPE_318_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_5",
     },
@@ -100275,8 +102440,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 319,
         vertices: &SHAPE_319_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_319_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_319_FACES,
         painter_nodes: &SHAPE_319_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pipe_6",
     },
@@ -100284,8 +102451,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 320,
         vertices: &SHAPE_320_VERTS,
         animation_frames: &SHAPE_320_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_320_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_320_FACES,
         painter_nodes: &SHAPE_320_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "d_pilar",
     },
@@ -100293,8 +102462,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 321,
         vertices: &SHAPE_321_VERTS,
         animation_frames: &SHAPE_321_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_321_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_321_FACES,
         painter_nodes: &SHAPE_321_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "half_d",
     },
@@ -100302,8 +102473,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 322,
         vertices: &SHAPE_322_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_322_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_322_FACES,
         painter_nodes: &SHAPE_322_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "cockpit",
     },
@@ -100311,8 +102484,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 323,
         vertices: &SHAPE_323_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_323_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_323_FACES,
         painter_nodes: &SHAPE_323_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "old_type",
     },
@@ -100320,8 +102495,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 324,
         vertices: &SHAPE_324_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_324_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_324_FACES,
         painter_nodes: &SHAPE_324_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "item_0",
     },
@@ -100329,8 +102506,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 325,
         vertices: &SHAPE_325_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_325_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_325_FACES,
         painter_nodes: &SHAPE_325_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "r_but_2",
     },
@@ -100338,8 +102517,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 326,
         vertices: &SHAPE_326_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_326_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_326_FACES,
         painter_nodes: &SHAPE_326_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "walk_4_0",
     },
@@ -100347,8 +102528,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 327,
         vertices: &SHAPE_327_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_327_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_327_FACES,
         painter_nodes: &SHAPE_327_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "arm",
     },
@@ -100356,8 +102539,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 328,
         vertices: &SHAPE_328_VERTS,
         animation_frames: &SHAPE_328_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_328_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_328_FACES,
         painter_nodes: &SHAPE_328_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bulge",
     },
@@ -100365,8 +102550,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 329,
         vertices: &SHAPE_329_VERTS,
         animation_frames: &SHAPE_329_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_329_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_329_FACES,
         painter_nodes: &SHAPE_329_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_e_0",
     },
@@ -100374,8 +102561,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 330,
         vertices: &SHAPE_330_VERTS,
         animation_frames: &SHAPE_330_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_330_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_330_FACES,
         painter_nodes: &SHAPE_330_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_e_1",
     },
@@ -100383,8 +102572,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 331,
         vertices: &SHAPE_331_VERTS,
         animation_frames: &SHAPE_331_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_331_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_331_FACES,
         painter_nodes: &SHAPE_331_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_e_1a",
     },
@@ -100392,8 +102583,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 332,
         vertices: &SHAPE_332_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_332_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_332_FACES,
         painter_nodes: &SHAPE_332_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_e_3",
     },
@@ -100401,8 +102594,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 333,
         vertices: &SHAPE_333_VERTS,
         animation_frames: &SHAPE_333_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_333_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_333_FACES,
         painter_nodes: &SHAPE_333_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_e_4",
     },
@@ -100410,8 +102605,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 334,
         vertices: &SHAPE_334_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_334_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_334_FACES,
         painter_nodes: &SHAPE_334_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "ringlaser_c",
         name: "ringlaser",
     },
@@ -100419,8 +102616,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 335,
         vertices: &SHAPE_335_VERTS,
         animation_frames: &SHAPE_335_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_335_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_335_FACES,
         painter_nodes: &SHAPE_335_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "snake_0",
     },
@@ -100428,8 +102627,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 336,
         vertices: &SHAPE_336_VERTS,
         animation_frames: &SHAPE_336_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_336_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_336_FACES,
         painter_nodes: &SHAPE_336_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "snake_3",
     },
@@ -100437,8 +102638,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 337,
         vertices: &SHAPE_337_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_337_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_337_FACES,
         painter_nodes: &SHAPE_337_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "snake_4",
     },
@@ -100446,8 +102649,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 338,
         vertices: &SHAPE_338_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_338_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_338_FACES,
         painter_nodes: &SHAPE_338_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "burnmark_c",
         name: "smark",
     },
@@ -100455,8 +102660,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 339,
         vertices: &SHAPE_339_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_339_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_339_FACES,
         painter_nodes: &SHAPE_339_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "burnmark_c",
         name: "mmark",
     },
@@ -100464,8 +102671,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 340,
         vertices: &SHAPE_340_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_340_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_340_FACES,
         painter_nodes: &SHAPE_340_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "burnmark_c",
         name: "lmark",
     },
@@ -100473,8 +102682,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 341,
         vertices: &SHAPE_341_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_341_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_341_FACES,
         painter_nodes: &SHAPE_341_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "escapee_c",
         name: "escapee",
     },
@@ -100482,8 +102693,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 342,
         vertices: &SHAPE_342_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_342_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_342_FACES,
         painter_nodes: &SHAPE_342_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "lfdie_c",
         name: "lfdie",
     },
@@ -100491,8 +102704,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 343,
         vertices: &SHAPE_343_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_343_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_343_FACES,
         painter_nodes: &SHAPE_343_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "andross_c",
         name: "andross",
     },
@@ -100500,8 +102715,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 344,
         vertices: &SHAPE_344_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_344_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_344_FACES,
         painter_nodes: &SHAPE_344_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "andross_c",
         name: "androsscube",
     },
@@ -100509,8 +102726,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 345,
         vertices: &SHAPE_345_VERTS,
         animation_frames: &SHAPE_345_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_345_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_345_FACES,
         painter_nodes: &SHAPE_345_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "finalboss_c",
         name: "face_0_1",
     },
@@ -100518,8 +102737,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 346,
         vertices: &SHAPE_346_VERTS,
         animation_frames: &SHAPE_346_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_346_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_346_FACES,
         painter_nodes: &SHAPE_346_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "finalboss_c",
         name: "face_1",
     },
@@ -100527,8 +102748,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 347,
         vertices: &SHAPE_347_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_347_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_347_FACES,
         painter_nodes: &SHAPE_347_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "androssl3_c",
         name: "face_box",
     },
@@ -100536,8 +102759,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 348,
         vertices: &SHAPE_348_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_348_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_348_FACES,
         painter_nodes: &SHAPE_348_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "finalboss_c",
         name: "sface_b",
     },
@@ -100545,8 +102770,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 349,
         vertices: &SHAPE_349_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_349_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_349_FACES,
         painter_nodes: &SHAPE_349_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "sface2_b",
     },
@@ -100554,8 +102781,32 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 350,
         vertices: &SHAPE_350_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_350_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_350_FACES,
         painter_nodes: &SHAPE_350_PAINTER,
+        source_lods: [
+            Some(SourceShapeData {
+                vertices: &SHAPE_350_LOD_0_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_350_LOD_0_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_350_LOD_0_FACES,
+                painter_nodes: &SHAPE_350_LOD_0_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_350_LOD_1_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_350_LOD_1_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_350_LOD_1_FACES,
+                painter_nodes: &SHAPE_350_LOD_1_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_350_LOD_2_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_350_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_350_LOD_2_FACES,
+                painter_nodes: &SHAPE_350_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "id_0_c",
         name: "para_1",
     },
@@ -100563,8 +102814,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 351,
         vertices: &SHAPE_351_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_351_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_351_FACES,
         painter_nodes: &SHAPE_351_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_w",
     },
@@ -100572,8 +102825,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 352,
         vertices: &SHAPE_352_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_352_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_352_FACES,
         painter_nodes: &SHAPE_352_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_r_w",
     },
@@ -100581,8 +102836,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 353,
         vertices: &SHAPE_353_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_353_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_353_FACES,
         painter_nodes: &SHAPE_353_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_l_w",
     },
@@ -100590,8 +102847,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 354,
         vertices: &SHAPE_354_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_354_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_354_FACES,
         painter_nodes: &SHAPE_354_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_b_w",
     },
@@ -100599,8 +102858,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 355,
         vertices: &SHAPE_355_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_355_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_355_FACES,
         painter_nodes: &SHAPE_355_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "up1_man",
     },
@@ -100608,8 +102869,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 356,
         vertices: &SHAPE_356_VERTS,
         animation_frames: &SHAPE_356_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_356_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_356_FACES,
         painter_nodes: &SHAPE_356_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "f_dra_1",
     },
@@ -100617,8 +102880,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 357,
         vertices: &SHAPE_357_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_357_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_357_FACES,
         painter_nodes: &SHAPE_357_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "burnmark_c",
         name: "fire",
     },
@@ -100626,8 +102891,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 358,
         vertices: &SHAPE_358_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_358_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_358_FACES,
         painter_nodes: &SHAPE_358_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "smoke_c",
         name: "smoke",
     },
@@ -100635,8 +102902,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 359,
         vertices: &SHAPE_359_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_359_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_359_FACES,
         painter_nodes: &SHAPE_359_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "splash_c",
         name: "ssplash",
     },
@@ -100644,8 +102913,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 360,
         vertices: &SHAPE_360_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_360_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_360_FACES,
         painter_nodes: &SHAPE_360_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "splash_c",
         name: "splash",
     },
@@ -100653,8 +102924,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 361,
         vertices: &SHAPE_361_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_361_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_361_FACES,
         painter_nodes: &SHAPE_361_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "pexplod2s_c",
         name: "pexplod",
     },
@@ -100662,8 +102935,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 362,
         vertices: &SHAPE_362_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_362_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_362_FACES,
         painter_nodes: &SHAPE_362_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "boost_c",
         name: "boostshape",
     },
@@ -100671,8 +102946,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 363,
         vertices: &SHAPE_363_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_363_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_363_FACES,
         painter_nodes: &SHAPE_363_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "fire_c",
         name: "firebreath",
     },
@@ -100680,8 +102957,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 364,
         vertices: &SHAPE_364_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_364_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_364_FACES,
         painter_nodes: &SHAPE_364_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "smoke_c",
         name: "lsmoke",
     },
@@ -100689,8 +102968,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 365,
         vertices: &SHAPE_365_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_365_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_365_FACES,
         painter_nodes: &SHAPE_365_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "smoke_c",
         name: "folsmoke",
     },
@@ -100698,8 +102979,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 366,
         vertices: &SHAPE_366_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_366_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_366_FACES,
         painter_nodes: &SHAPE_366_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "androsshole_c",
         name: "androsshole",
     },
@@ -100707,8 +102990,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 367,
         vertices: &SHAPE_367_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_367_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_367_FACES,
         painter_nodes: &SHAPE_367_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "spark_c",
         name: "spexplod",
     },
@@ -100716,8 +103001,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 368,
         vertices: &SHAPE_368_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_368_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_368_FACES,
         painter_nodes: &SHAPE_368_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "myship_r",
     },
@@ -100725,8 +103012,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 369,
         vertices: &SHAPE_369_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_369_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_369_FACES,
         painter_nodes: &SHAPE_369_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "myship_l",
     },
@@ -100734,8 +103023,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 370,
         vertices: &SHAPE_370_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_370_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_370_FACES,
         painter_nodes: &SHAPE_370_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "myship_b",
     },
@@ -100743,8 +103034,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 371,
         vertices: &SHAPE_371_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_371_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_371_FACES,
         painter_nodes: &SHAPE_371_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_up",
     },
@@ -100752,8 +103045,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 372,
         vertices: &SHAPE_372_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_372_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_372_FACES,
         painter_nodes: &SHAPE_372_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "black_c",
         name: "bmyship_4",
     },
@@ -100761,8 +103056,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 373,
         vertices: &SHAPE_373_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_373_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_373_FACES,
         painter_nodes: &SHAPE_373_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "black_c",
         name: "bmyship_r",
     },
@@ -100770,8 +103067,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 374,
         vertices: &SHAPE_374_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_374_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_374_FACES,
         painter_nodes: &SHAPE_374_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "black_c",
         name: "bmyship_l",
     },
@@ -100779,8 +103078,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 375,
         vertices: &SHAPE_375_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_375_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_375_FACES,
         painter_nodes: &SHAPE_375_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "black_c",
         name: "bmyship_b",
     },
@@ -100788,8 +103089,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 376,
         vertices: &SHAPE_376_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_376_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_376_FACES,
         painter_nodes: &SHAPE_376_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "myzoom_4",
     },
@@ -100797,8 +103100,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 377,
         vertices: &SHAPE_377_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_377_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_377_FACES,
         painter_nodes: &SHAPE_377_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "myzoom_r",
     },
@@ -100806,8 +103111,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 378,
         vertices: &SHAPE_378_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_378_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_378_FACES,
         painter_nodes: &SHAPE_378_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "myzoom_l",
     },
@@ -100815,8 +103122,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 379,
         vertices: &SHAPE_379_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_379_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_379_FACES,
         painter_nodes: &SHAPE_379_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "myzoom_b",
     },
@@ -100824,8 +103133,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 380,
         vertices: &SHAPE_380_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_380_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_380_FACES,
         painter_nodes: &SHAPE_380_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "line_c",
         name: "line",
     },
@@ -100833,8 +103144,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 381,
         vertices: &SHAPE_381_VERTS,
         animation_frames: &SHAPE_381_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_381_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_381_FACES,
         painter_nodes: &SHAPE_381_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_d_0",
     },
@@ -100842,8 +103155,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 382,
         vertices: &SHAPE_382_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_382_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_382_FACES,
         painter_nodes: &SHAPE_382_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_d_2",
     },
@@ -100851,8 +103166,32 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 383,
         vertices: &SHAPE_383_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_383_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_383_FACES,
         painter_nodes: &SHAPE_383_PAINTER,
+        source_lods: [
+            Some(SourceShapeData {
+                vertices: &SHAPE_383_LOD_0_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_383_LOD_0_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_383_LOD_0_FACES,
+                painter_nodes: &SHAPE_383_LOD_0_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_383_LOD_1_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_383_LOD_1_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_383_LOD_1_FACES,
+                painter_nodes: &SHAPE_383_LOD_1_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_383_LOD_2_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_383_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_383_LOD_2_FACES,
+                painter_nodes: &SHAPE_383_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "id_0_c",
         name: "neck",
     },
@@ -100860,8 +103199,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 384,
         vertices: &SHAPE_384_VERTS,
         animation_frames: &SHAPE_384_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_384_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_384_FACES,
         painter_nodes: &SHAPE_384_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "grabber",
     },
@@ -100869,8 +103210,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 385,
         vertices: &SHAPE_385_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_385_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_385_FACES,
         painter_nodes: &SHAPE_385_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "ballandchain_c",
         name: "grabber2",
     },
@@ -100878,8 +103221,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 386,
         vertices: &SHAPE_386_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_386_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_386_FACES,
         painter_nodes: &SHAPE_386_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "egg_c",
         name: "egg",
     },
@@ -100887,8 +103232,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 387,
         vertices: &SHAPE_387_VERTS,
         animation_frames: &SHAPE_387_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_387_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_387_FACES,
         painter_nodes: &SHAPE_387_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_d_8",
     },
@@ -100896,8 +103243,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 388,
         vertices: &SHAPE_388_VERTS,
         animation_frames: &SHAPE_388_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_388_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_388_FACES,
         painter_nodes: &SHAPE_388_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_d_9",
     },
@@ -100905,8 +103254,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 389,
         vertices: &SHAPE_389_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_389_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_389_FACES,
         painter_nodes: &SHAPE_389_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "normal_c",
         name: "boss_d_6",
     },
@@ -100914,8 +103265,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 390,
         vertices: &SHAPE_390_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_390_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_390_FACES,
         painter_nodes: &SHAPE_390_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "normal_c",
         name: "boss_d_7",
     },
@@ -100923,8 +103276,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 391,
         vertices: &SHAPE_391_VERTS,
         animation_frames: &SHAPE_391_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_391_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_391_FACES,
         painter_nodes: &SHAPE_391_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_9_0",
     },
@@ -100932,8 +103287,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 392,
         vertices: &SHAPE_392_VERTS,
         animation_frames: &SHAPE_392_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_392_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_392_FACES,
         painter_nodes: &SHAPE_392_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "barrier",
     },
@@ -100941,8 +103298,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 393,
         vertices: &SHAPE_393_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_393_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_393_FACES,
         painter_nodes: &SHAPE_393_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "fireface_b",
     },
@@ -100950,8 +103309,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 394,
         vertices: &SHAPE_394_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_394_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_394_FACES,
         painter_nodes: &SHAPE_394_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_a_3",
     },
@@ -100959,8 +103320,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 395,
         vertices: &SHAPE_395_VERTS,
         animation_frames: &SHAPE_395_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_395_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_395_FACES,
         painter_nodes: &SHAPE_395_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_a_4",
     },
@@ -100968,8 +103331,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 396,
         vertices: &SHAPE_396_VERTS,
         animation_frames: &SHAPE_396_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_396_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_396_FACES,
         painter_nodes: &SHAPE_396_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_a_5",
     },
@@ -100977,8 +103342,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 397,
         vertices: &SHAPE_397_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_397_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_397_FACES,
         painter_nodes: &SHAPE_397_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_b_l",
     },
@@ -100986,8 +103353,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 398,
         vertices: &SHAPE_398_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_398_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_398_FACES,
         painter_nodes: &SHAPE_398_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_b_r",
     },
@@ -100995,8 +103364,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 399,
         vertices: &SHAPE_399_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_399_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_399_FACES,
         painter_nodes: &SHAPE_399_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_b_h",
     },
@@ -101004,8 +103375,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 400,
         vertices: &SHAPE_400_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_400_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_400_FACES,
         painter_nodes: &SHAPE_400_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "round0p",
     },
@@ -101013,8 +103386,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 401,
         vertices: &SHAPE_401_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_401_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_401_FACES,
         painter_nodes: &SHAPE_401_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "ripair_w",
     },
@@ -101022,8 +103397,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 402,
         vertices: &SHAPE_402_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_402_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_402_FACES,
         painter_nodes: &SHAPE_402_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "fireball_c",
         name: "fireball",
     },
@@ -101031,8 +103408,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 403,
         vertices: &SHAPE_403_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_403_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_403_FACES,
         painter_nodes: &SHAPE_403_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "missile",
     },
@@ -101040,8 +103419,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 404,
         vertices: &SHAPE_404_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_404_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_404_FACES,
         painter_nodes: &SHAPE_404_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "ironball_c",
         name: "ironball",
     },
@@ -101049,8 +103430,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 405,
         vertices: &SHAPE_405_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_405_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_405_FACES,
         painter_nodes: &SHAPE_405_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "bouncyball_c",
         name: "bouncyball",
     },
@@ -101058,8 +103441,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 406,
         vertices: &SHAPE_406_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_406_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_406_FACES,
         painter_nodes: &SHAPE_406_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "specialweapon_c",
         name: "shelpball",
     },
@@ -101067,8 +103452,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 407,
         vertices: &SHAPE_407_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_407_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_407_FACES,
         painter_nodes: &SHAPE_407_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "specialweapon_c",
         name: "nuke",
     },
@@ -101076,8 +103463,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 408,
         vertices: &SHAPE_408_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_408_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_408_FACES,
         painter_nodes: &SHAPE_408_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "hyper_c",
         name: "hyper",
     },
@@ -101085,8 +103474,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 409,
         vertices: &SHAPE_409_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_409_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_409_FACES,
         painter_nodes: &SHAPE_409_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "hou_3",
     },
@@ -101094,8 +103485,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 410,
         vertices: &SHAPE_410_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_410_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_410_FACES,
         painter_nodes: &SHAPE_410_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "black_c",
         name: "my_demobs",
     },
@@ -101103,8 +103496,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 411,
         vertices: &SHAPE_411_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_411_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_411_FACES,
         painter_nodes: &SHAPE_411_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "my_demos",
     },
@@ -101112,8 +103507,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 412,
         vertices: &SHAPE_412_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_412_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_412_FACES,
         painter_nodes: &SHAPE_412_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "big_m",
     },
@@ -101121,8 +103518,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 413,
         vertices: &SHAPE_413_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_413_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_413_FACES,
         painter_nodes: &SHAPE_413_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_f_b",
     },
@@ -101130,8 +103529,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 414,
         vertices: &SHAPE_414_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_414_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_414_FACES,
         painter_nodes: &SHAPE_414_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "walker_r",
     },
@@ -101139,8 +103540,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 415,
         vertices: &SHAPE_415_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_415_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_415_FACES,
         painter_nodes: &SHAPE_415_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "playerbeam_c",
         name: "playerbeam",
     },
@@ -101148,8 +103551,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 416,
         vertices: &SHAPE_416_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_416_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_416_FACES,
         painter_nodes: &SHAPE_416_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "ovalbeam_c",
         name: "ovalbeam",
     },
@@ -101157,8 +103562,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 417,
         vertices: &SHAPE_417_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_417_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_417_FACES,
         painter_nodes: &SHAPE_417_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "c_miss",
     },
@@ -101166,8 +103573,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 418,
         vertices: &SHAPE_418_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_418_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_418_FACES,
         painter_nodes: &SHAPE_418_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_0",
     },
@@ -101175,8 +103584,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 419,
         vertices: &SHAPE_419_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_419_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_419_FACES,
         painter_nodes: &SHAPE_419_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "zaco_7p",
     },
@@ -101184,8 +103595,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 420,
         vertices: &SHAPE_420_VERTS,
         animation_frames: &SHAPE_420_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_420_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_420_FACES,
         painter_nodes: &SHAPE_420_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "robot_0",
     },
@@ -101193,8 +103606,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 421,
         vertices: &SHAPE_421_VERTS,
         animation_frames: &SHAPE_421_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_421_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_421_FACES,
         painter_nodes: &SHAPE_421_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_7_0",
     },
@@ -101202,8 +103617,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 422,
         vertices: &SHAPE_422_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_422_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_422_FACES,
         painter_nodes: &SHAPE_422_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_7_1o",
     },
@@ -101211,8 +103628,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 423,
         vertices: &SHAPE_423_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_423_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_423_FACES,
         painter_nodes: &SHAPE_423_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_7_2",
     },
@@ -101220,8 +103639,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 424,
         vertices: &SHAPE_424_VERTS,
         animation_frames: &SHAPE_424_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_424_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_424_FACES,
         painter_nodes: &SHAPE_424_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_7_3",
     },
@@ -101229,8 +103650,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 425,
         vertices: &SHAPE_425_VERTS,
         animation_frames: &SHAPE_425_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_425_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_425_FACES,
         painter_nodes: &SHAPE_425_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_7_4",
     },
@@ -101238,8 +103661,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 426,
         vertices: &SHAPE_426_VERTS,
         animation_frames: &SHAPE_426_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_426_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_426_FACES,
         painter_nodes: &SHAPE_426_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_a_6",
     },
@@ -101247,8 +103672,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 427,
         vertices: &SHAPE_427_VERTS,
         animation_frames: &SHAPE_427_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_427_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_427_FACES,
         painter_nodes: &SHAPE_427_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_8",
     },
@@ -101256,8 +103683,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 428,
         vertices: &SHAPE_428_VERTS,
         animation_frames: &SHAPE_428_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_428_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_428_FACES,
         painter_nodes: &SHAPE_428_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "boss_f_9",
     },
@@ -101265,8 +103694,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 429,
         vertices: &SHAPE_429_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_429_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_429_FACES,
         painter_nodes: &SHAPE_429_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "burnmark_c",
         name: "boss_f_8a",
     },
@@ -101274,8 +103705,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 430,
         vertices: &SHAPE_430_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_430_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_430_FACES,
         painter_nodes: &SHAPE_430_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "burnmark_c",
         name: "boss_f_9a",
     },
@@ -101283,8 +103716,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 431,
         vertices: &SHAPE_431_VERTS,
         animation_frames: &SHAPE_431_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_431_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_431_FACES,
         painter_nodes: &SHAPE_431_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "finalboss_c",
         name: "face_0",
     },
@@ -101292,8 +103727,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 432,
         vertices: &SHAPE_432_VERTS,
         animation_frames: &SHAPE_432_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_432_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_432_FACES,
         painter_nodes: &SHAPE_432_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_0_0",
     },
@@ -101301,8 +103738,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 433,
         vertices: &SHAPE_433_VERTS,
         animation_frames: &SHAPE_433_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_433_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_433_FACES,
         painter_nodes: &SHAPE_433_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_0_0a",
     },
@@ -101310,8 +103749,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 434,
         vertices: &SHAPE_434_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_434_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_434_FACES,
         painter_nodes: &SHAPE_434_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_0_2",
     },
@@ -101319,8 +103760,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 435,
         vertices: &SHAPE_435_VERTS,
         animation_frames: &SHAPE_435_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_435_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_435_FACES,
         painter_nodes: &SHAPE_435_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_0_3",
     },
@@ -101328,8 +103771,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 436,
         vertices: &SHAPE_436_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_436_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_436_FACES,
         painter_nodes: &SHAPE_436_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_1_0",
     },
@@ -101337,8 +103782,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 437,
         vertices: &SHAPE_437_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_437_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_437_FACES,
         painter_nodes: &SHAPE_437_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_1_1",
     },
@@ -101346,8 +103793,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 438,
         vertices: &SHAPE_438_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_438_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_438_FACES,
         painter_nodes: &SHAPE_438_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "amoeba_c",
         name: "amoeba1",
     },
@@ -101355,8 +103804,32 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 439,
         vertices: &SHAPE_439_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_439_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_439_FACES,
         painter_nodes: &SHAPE_439_PAINTER,
+        source_lods: [
+            Some(SourceShapeData {
+                vertices: &SHAPE_439_LOD_0_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_439_LOD_0_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_439_LOD_0_FACES,
+                painter_nodes: &SHAPE_439_LOD_0_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_439_LOD_1_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_439_LOD_1_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_439_LOD_1_FACES,
+                painter_nodes: &SHAPE_439_LOD_1_PAINTER,
+            }),
+            Some(SourceShapeData {
+                vertices: &SHAPE_439_LOD_2_VERTS,
+                animation_frames: &[],
+                reflected_pair_starts: &SHAPE_439_LOD_2_REFLECTED_PAIR_STARTS,
+                faces: &SHAPE_439_LOD_2_FACES,
+                painter_nodes: &SHAPE_439_LOD_2_PAINTER,
+            }),
+        ],
         default_color_table: "id_1_c",
         name: "rpillar3",
     },
@@ -101364,8 +103837,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 440,
         vertices: &SHAPE_440_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_440_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_440_FACES,
         painter_nodes: &SHAPE_440_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "deboss_0",
     },
@@ -101373,8 +103848,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 441,
         vertices: &SHAPE_441_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_441_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_441_FACES,
         painter_nodes: &SHAPE_441_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_1_c",
         name: "deboss_2",
     },
@@ -101382,8 +103859,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 442,
         vertices: &SHAPE_442_VERTS,
         animation_frames: &SHAPE_442_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_442_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_442_FACES,
         painter_nodes: &SHAPE_442_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "flower",
     },
@@ -101391,8 +103870,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 443,
         vertices: &SHAPE_443_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_443_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_443_FACES,
         painter_nodes: &SHAPE_443_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "big_bird",
     },
@@ -101400,8 +103881,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 444,
         vertices: &SHAPE_444_VERTS,
         animation_frames: &SHAPE_444_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_444_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_444_FACES,
         painter_nodes: &SHAPE_444_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "leaf",
     },
@@ -101409,8 +103892,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 445,
         vertices: &SHAPE_445_VERTS,
         animation_frames: &SHAPE_445_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_445_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_445_FACES,
         painter_nodes: &SHAPE_445_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "walk_4_l",
     },
@@ -101418,8 +103903,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 446,
         vertices: &SHAPE_446_VERTS,
         animation_frames: &SHAPE_446_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_446_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_446_FACES,
         painter_nodes: &SHAPE_446_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "walk_4_r",
     },
@@ -101427,8 +103914,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 447,
         vertices: &SHAPE_447_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_447_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_447_FACES,
         painter_nodes: &SHAPE_447_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "tow_1",
     },
@@ -101436,8 +103925,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 448,
         vertices: &SHAPE_448_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_448_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_448_FACES,
         painter_nodes: &SHAPE_448_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "slot_1",
     },
@@ -101445,8 +103936,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 449,
         vertices: &SHAPE_449_VERTS,
         animation_frames: &SHAPE_449_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_449_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_449_FACES,
         painter_nodes: &SHAPE_449_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "slot_2",
     },
@@ -101454,8 +103947,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 450,
         vertices: &SHAPE_450_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_450_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_450_FACES,
         painter_nodes: &SHAPE_450_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "slot_3",
     },
@@ -101463,8 +103958,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 451,
         vertices: &SHAPE_451_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_451_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_451_FACES,
         painter_nodes: &SHAPE_451_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "fruitmachine_c",
         name: "slot_4",
     },
@@ -101472,8 +103969,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 452,
         vertices: &SHAPE_452_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_452_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_452_FACES,
         painter_nodes: &SHAPE_452_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "pillar3_ns",
     },
@@ -101481,8 +103980,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 453,
         vertices: &SHAPE_453_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_453_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_453_FACES,
         painter_nodes: &SHAPE_453_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "line_c",
         name: "laserline",
     },
@@ -101490,8 +103991,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 454,
         vertices: &SHAPE_454_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_454_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_454_FACES,
         painter_nodes: &SHAPE_454_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "warp_1",
     },
@@ -101499,8 +104002,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 455,
         vertices: &SHAPE_455_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_455_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_455_FACES,
         painter_nodes: &SHAPE_455_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "warp_2",
     },
@@ -101508,8 +104013,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 456,
         vertices: &SHAPE_456_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_456_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_456_FACES,
         painter_nodes: &SHAPE_456_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "warp_3",
     },
@@ -101517,8 +104024,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 457,
         vertices: &SHAPE_457_VERTS,
         animation_frames: &SHAPE_457_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_457_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_457_FACES,
         painter_nodes: &SHAPE_457_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "normal_c",
         name: "wall_l",
     },
@@ -101526,8 +104035,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 458,
         vertices: &SHAPE_458_VERTS,
         animation_frames: &SHAPE_458_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_458_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_458_FACES,
         painter_nodes: &SHAPE_458_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "normal_c",
         name: "wall_r",
     },
@@ -101535,8 +104046,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 459,
         vertices: &SHAPE_459_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_459_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_459_FACES,
         painter_nodes: &SHAPE_459_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "iris_1",
     },
@@ -101544,8 +104057,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 460,
         vertices: &SHAPE_460_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_460_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_460_FACES,
         painter_nodes: &SHAPE_460_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "stalk_1",
     },
@@ -101553,8 +104068,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 461,
         vertices: &SHAPE_461_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_461_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_461_FACES,
         painter_nodes: &SHAPE_461_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "explode_c",
         name: "explosion",
     },
@@ -101562,8 +104079,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 462,
         vertices: &SHAPE_462_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_462_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_462_FACES,
         painter_nodes: &SHAPE_462_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "explode2_c",
         name: "explosion2",
     },
@@ -101571,8 +104090,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 463,
         vertices: &SHAPE_463_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_463_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_463_FACES,
         painter_nodes: &SHAPE_463_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "explode3_c",
         name: "explosion3",
     },
@@ -101580,8 +104101,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 464,
         vertices: &SHAPE_464_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_464_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_464_FACES,
         painter_nodes: &SHAPE_464_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "explode3_c",
         name: "explosion4",
     },
@@ -101589,8 +104112,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 465,
         vertices: &SHAPE_465_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_465_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_465_FACES,
         painter_nodes: &SHAPE_465_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "expl_4",
     },
@@ -101598,8 +104123,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 466,
         vertices: &SHAPE_466_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_466_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_466_FACES,
         painter_nodes: &SHAPE_466_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "expl_6",
     },
@@ -101607,8 +104134,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 467,
         vertices: &SHAPE_467_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_467_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_467_FACES,
         painter_nodes: &SHAPE_467_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "expl_8",
     },
@@ -101616,8 +104145,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 468,
         vertices: &SHAPE_468_VERTS,
         animation_frames: &SHAPE_468_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_468_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_468_FACES,
         painter_nodes: &SHAPE_468_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_b_6",
     },
@@ -101625,8 +104156,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 469,
         vertices: &SHAPE_469_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_469_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_469_FACES,
         painter_nodes: &SHAPE_469_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "boss_b_7",
     },
@@ -101634,8 +104167,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 470,
         vertices: &SHAPE_470_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_470_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_470_FACES,
         painter_nodes: &SHAPE_470_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "hyper_c",
         name: "hyper2",
     },
@@ -101643,8 +104178,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 471,
         vertices: &SHAPE_471_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_471_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_471_FACES,
         painter_nodes: &SHAPE_471_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "hyper_c",
         name: "hyper3",
     },
@@ -101652,8 +104189,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 472,
         vertices: &SHAPE_472_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_472_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_472_FACES,
         painter_nodes: &SHAPE_472_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "hyper_c",
         name: "hyper4",
     },
@@ -101661,8 +104200,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 473,
         vertices: &SHAPE_473_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_473_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_473_FACES,
         painter_nodes: &SHAPE_473_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bazz_1p",
     },
@@ -101670,8 +104211,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 474,
         vertices: &SHAPE_474_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_474_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_474_FACES,
         painter_nodes: &SHAPE_474_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bazz_1q",
     },
@@ -101679,8 +104222,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 475,
         vertices: &SHAPE_475_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_475_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_475_FACES,
         painter_nodes: &SHAPE_475_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bazooka1",
     },
@@ -101688,8 +104233,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 476,
         vertices: &SHAPE_476_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_476_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_476_FACES,
         painter_nodes: &SHAPE_476_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "bazooka2",
     },
@@ -101697,8 +104244,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 477,
         vertices: &SHAPE_477_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_477_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_477_FACES,
         painter_nodes: &SHAPE_477_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "walker_l",
     },
@@ -101706,8 +104255,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 478,
         vertices: &SHAPE_478_VERTS,
         animation_frames: &SHAPE_478_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_478_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_478_FACES,
         painter_nodes: &SHAPE_478_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "ebullet_c",
         name: "elaser2a",
     },
@@ -101715,8 +104266,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 479,
         vertices: &SHAPE_479_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_479_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_479_FACES,
         painter_nodes: &SHAPE_479_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "flash_c",
         name: "lflash_0",
     },
@@ -101724,8 +104277,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 480,
         vertices: &SHAPE_480_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_480_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_480_FACES,
         painter_nodes: &SHAPE_480_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "flash_c",
         name: "mflash_0",
     },
@@ -101733,8 +104288,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 481,
         vertices: &SHAPE_481_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_481_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_481_FACES,
         painter_nodes: &SHAPE_481_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "flash_c",
         name: "sflash_0",
     },
@@ -101742,8 +104299,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 482,
         vertices: &SHAPE_482_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_482_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_482_FACES,
         painter_nodes: &SHAPE_482_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "training",
     },
@@ -101751,8 +104310,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 508,
         vertices: &SHAPE_508_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_508_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_508_FACES,
         painter_nodes: &SHAPE_508_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "op_0",
     },
@@ -101760,8 +104321,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 509,
         vertices: &SHAPE_509_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_509_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_509_FACES,
         painter_nodes: &SHAPE_509_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "op_1",
     },
@@ -101769,8 +104332,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 510,
         vertices: &SHAPE_510_VERTS,
         animation_frames: &[],
+        reflected_pair_starts: &SHAPE_510_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_510_FACES,
         painter_nodes: &SHAPE_510_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "op_2",
     },
@@ -101778,8 +104343,10 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         shape_id: 511,
         vertices: &SHAPE_511_VERTS,
         animation_frames: &SHAPE_511_ANIMATION_FRAMES,
+        reflected_pair_starts: &SHAPE_511_REFLECTED_PAIR_STARTS,
         faces: &SHAPE_511_FACES,
         painter_nodes: &SHAPE_511_PAINTER,
+        source_lods: [None, None, None],
         default_color_table: "bullet_c",
         name: "elaser2",
     },

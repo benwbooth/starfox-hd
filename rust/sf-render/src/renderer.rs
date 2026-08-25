@@ -34,6 +34,7 @@ use sf_core::{
     screen_wipe::ScreenWipeState,
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
     sf1_planets::PlanetPresentation,
+    stage_banner::StageBannerState,
 };
 
 const SOURCE_POLYGON_GAMEPLAY_PRESENTATION_OFFSET: [i16; 2] = [0, 0];
@@ -445,6 +446,8 @@ pub struct FrameInputs<'a> {
     pub player_view_mode: PlayerViewMode,
     /// g_stage.
     pub stage: u16,
+    /// Typed stage announcement selected and timed by the native game.
+    pub stage_banner: Option<StageBannerState>,
     /// Hud_SetShield current value (player HP).
     pub shield_cur: i32,
     pub shield_max: i32,
@@ -540,6 +543,7 @@ impl<'a> Default for FrameInputs<'a> {
             arrows: 0,
             player_view_mode: PlayerViewMode::Exterior,
             stage: 0,
+            stage_banner: None,
             shield_cur: 40,
             shield_max: 40,
             boss_hp_cur: 0,
@@ -693,6 +697,21 @@ impl Renderer {
         self.font.set_screen_size(width, height);
     }
 
+    /// Advance the HD presentation history for source-authored per-line
+    /// background placement. The integer tables remain unchanged in game
+    /// state and strict source-resolution rendering.
+    pub fn advance_background_offset_tables(
+        &mut self,
+        vertical: Option<[i16; BG2_VERTICAL_OFFSET_COLUMNS]>,
+        horizontal: Option<[i16; BG2_HORIZONTAL_OFFSET_ROWS]>,
+    ) {
+        self.bg2d.advance_offset_tables(vertical, horizontal);
+    }
+
+    pub fn snap_background_offset_tables(&mut self) {
+        self.bg2d.snap_offset_tables();
+    }
+
     /// Mirror of `Renderer_BeginFrame`: acquire the frame + reset draw lists.
     /// The actual color/depth clear happens in `Gpu::end_frame`'s render pass.
     pub fn begin_frame(&mut self) {
@@ -745,6 +764,7 @@ impl Renderer {
                 &mut self.gpu,
                 &self.transform,
                 inputs,
+                alpha,
                 self.width,
                 self.height,
             );
@@ -768,13 +788,15 @@ impl Renderer {
                 inputs.scene_style.game_palette,
             ))
         };
-        self.ui.render_point_field(
-            &mut self.gpu,
-            inputs.point_pixels,
-            &shape_palette,
-            self.width,
-            self.height,
-        );
+        if !inputs.source_resolution {
+            self.ui.render_point_field(
+                &mut self.gpu,
+                inputs.point_pixels,
+                &shape_palette,
+                self.width,
+                self.height,
+            );
+        }
         let sf2_mission = inputs.sf2.is_some_and(|sf2| sf2.mode == Sf2Mode::Mission);
         let sf1_briefing = inputs.game_state == GameState::Briefing;
         if sf2_mission {
@@ -804,16 +826,19 @@ impl Renderer {
             f32::from(inputs.scene_style.shadow_height),
             &shape_palette,
             &mut self.font,
-            inputs.source_resolution.then_some(if inputs.game_state == GameState::Playing {
-                // Projection and clipping remain in the source-local
-                // coordinate system; this offset models only final layer
-                // placement and is zero for the retail gameplay bitmap.
-                SOURCE_POLYGON_GAMEPLAY_PRESENTATION_OFFSET
-            } else {
-                SOURCE_POLYGON_DEFAULT_PRESENTATION_OFFSET
-            }),
+            inputs
+                .source_resolution
+                .then_some(if inputs.game_state == GameState::Playing {
+                    // Projection and clipping remain in the source-local
+                    // coordinate system; this offset models only final layer
+                    // placement and is zero for the retail gameplay bitmap.
+                    SOURCE_POLYGON_GAMEPLAY_PRESENTATION_OFFSET
+                } else {
+                    SOURCE_POLYGON_DEFAULT_PRESENTATION_OFFSET
+                }),
             self.hud.source_bitmap_clear(inputs),
             inputs.source_scene_camera,
+            inputs.point_pixels,
         );
         self.particles.render(&mut self.gpu, &self.transform);
         if inputs.game_state == GameState::Title {

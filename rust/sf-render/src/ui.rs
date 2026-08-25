@@ -42,6 +42,9 @@ const SF2_REFERENCE_HEIGHT: i32 = 224;
 const SF1_TITLE_VISIBLE_SCANLINES: i32 = 207;
 const SF1_TITLE_BLANK_SCANLINES: i32 = SF2_REFERENCE_HEIGHT - SF1_TITLE_VISIBLE_SCANLINES;
 const SF1_TITLE_BLANK_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+/// The HDMA window table and the bottom-origin GPU presentation differ by one
+/// scanline. This phase reproduces the source capture's window edge exactly.
+const SF1_SOURCE_WIPE_VERTICAL_PHASE: f32 = 1.0;
 const SF2_OPAQUE_BLACK_PIXEL: [u8; 4] = [0, 0, 0, u8::MAX];
 const SF2_GAME_OVER_CONTINUE_END_RETAIL_FRAME: u16 = 172;
 const SF2_GAME_OVER_RESULTS_END_RETAIL_FRAME: u16 = 76;
@@ -4118,9 +4121,46 @@ impl Ui {
             let source_height = SOURCE_HEIGHT as f32;
             let output_width = screen_width as f32;
             let output_height = screen_height as f32;
+            let (origin_x, origin_y, wipe_width, wipe_height) = if inputs.source_resolution {
+                (
+                    (output_width - source_width) * 0.5,
+                    (output_height - source_height) * 0.5 + SF1_SOURCE_WIPE_VERTICAL_PHASE,
+                    source_width,
+                    source_height,
+                )
+            } else {
+                (0.0, 0.0, output_width, output_height)
+            };
+            if origin_y > 0.0 {
+                self.quad_px(
+                    gpu,
+                    [0.0, 0.0, 0.0, 1.0],
+                    0.0,
+                    0.0,
+                    output_width,
+                    0.0,
+                    output_width,
+                    origin_y,
+                    0.0,
+                    origin_y,
+                );
+                let bottom = origin_y + wipe_height;
+                self.quad_px(
+                    gpu,
+                    [0.0, 0.0, 0.0, 1.0],
+                    0.0,
+                    bottom,
+                    output_width,
+                    bottom,
+                    output_width,
+                    output_height,
+                    0.0,
+                    output_height,
+                );
+            }
             for (row, span) in spans.iter().enumerate() {
-                let y0 = row as f32 * output_height / source_height;
-                let y1 = (row + 1) as f32 * output_height / source_height;
+                let y0 = origin_y + row as f32 * wipe_height / source_height;
+                let y1 = origin_y + (row + 1) as f32 * wipe_height / source_height;
                 let Some(span) = span else {
                     self.quad_px(
                         gpu,
@@ -4136,8 +4176,8 @@ impl Ui {
                     );
                     continue;
                 };
-                let left = f32::from(span.left) * output_width / source_width;
-                let right = f32::from(span.right_exclusive) * output_width / source_width;
+                let left = origin_x + f32::from(span.left) * wipe_width / source_width;
+                let right = origin_x + f32::from(span.right_exclusive) * wipe_width / source_width;
                 if left > 0.0 {
                     self.quad_px(
                         gpu,

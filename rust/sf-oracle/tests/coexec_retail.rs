@@ -6451,7 +6451,7 @@ fn retail_boss8_phase_transitions_vs_port() {
         assert_eq!(pa.sbyte2, 14, "port a→b sbyte2");
         assert_eq!(pa.sflags2 & B8_SFLAG4, 0, "port b clears sflag4");
         assert!(pa.collstratptr.is_none());
-        assert_ne!(pa.sflags & sf_game::alien::ASF_COLLDISABLE, 0);
+        assert_ne!(pa.sflags2 & sf_game::alien::ASF2_COLLDISABLE, 0);
         for i in 0..g.objs.aliens.len() {
             let al = &g.objs.aliens[i];
             if al.active && al.sbyte1 >= 2 && al.sbyte1 <= 4 {
@@ -8516,7 +8516,7 @@ fn retail_boss2_alive_death_vs_port() {
         );
         let pa = g.objs.aliens[boss as usize];
         assert_eq!(pa.hp, 0);
-        assert_ne!(pa.sflags & sf_game::alien::ASF_COLLDISABLE, 0);
+        assert_ne!(pa.sflags2 & sf_game::alien::ASF2_COLLDISABLE, 0);
         assert_ne!(pa.vy, 15 << 3, "port settle is kill not boss2exp");
         eprintln!("BOSS2 alive settle: MATCH — kill_Istrat (hp=0/colldisable), not boss2exp");
     }
@@ -12094,7 +12094,7 @@ fn retail_map_small_state_vs_port() {
         sf_game::vars::BGF_BG
     );
 
-    // SPECIAL: retail al_sflags=$01; port ASF4_SPECIAL on sflags4 (remap).
+    // SPECIAL: retail and port store the marker in al_sflags bit 0.
     let m = [90u8, 2];
     let bus = retail_map_exec(&rom, &m, |b| {
         seed_obj(b);
@@ -12105,8 +12105,8 @@ fn retail_map_small_state_vs_port() {
     let g = port_map_exec(&m, rust_obj);
     let idx = g.world.last_obj.unwrap() as usize;
     assert_eq!(
-        g.objs.aliens[idx].sflags4 & sf_game::alien::ASF4_SPECIAL,
-        sf_game::alien::ASF4_SPECIAL
+        g.objs.aliens[idx].sflags & sf_game::alien::ASF_SPECIAL,
+        sf_game::alien::ASF_SPECIAL
     );
     assert_eq!(g.world.specialobjtotal, 1);
 

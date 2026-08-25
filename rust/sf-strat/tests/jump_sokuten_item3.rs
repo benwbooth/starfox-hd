@@ -1,6 +1,6 @@
 //! ROM jump0/1 + jump0a + sokuten + item3/6 + core0/1 + rightwall/mine1 + fog.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_HITFLASH, ASF_NOHITAFFECT};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_HITFLASH, ASF_NOHITAFFECT};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
@@ -54,7 +54,7 @@ fn jump0_waits_then_fires_at_apex() {
     jump0_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].hp, 2);
     assert_eq!(g.objs.aliens[idx as usize].ap, 4);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 
     // Far: stay in jump0.
     g.objs.aliens[idx as usize].worldz = 2000;
@@ -70,7 +70,7 @@ fn jump0_waits_then_fires_at_apex() {
     g.objs.aliens[idx as usize].worldy = -120;
     g.objs.aliens[idx as usize].vy = -2;
     jump0a_strat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 
     g.objs.aliens[idx as usize].vy = 0;
     g.objs.aliens[idx as usize].sflags2 &= !sf_strat::enemy_a::ASF2_SFLAG1;
@@ -169,7 +169,7 @@ fn core0_1_rightwall_mine_fog() {
 
     let w = spawn_obj(&mut g);
     rightwall_istrat(&mut g, w);
-    assert_ne!(g.objs.aliens[w as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[w as usize].sflags2 & ASF2_COLLDISABLE, 0);
 
     mine1_istrat(&mut g, w);
     fog_strat(&mut g, w);

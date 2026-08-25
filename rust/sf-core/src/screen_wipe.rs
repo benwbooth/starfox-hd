@@ -173,9 +173,10 @@ fn star_aperture(frame: u8) -> [Option<ApertureSpan>; SOURCE_HEIGHT] {
     spans
 }
 
-/// Integer line walk used by `MBUMWIPE.MC`: start at half of the major-axis
-/// delta, subtract the minor delta per sample, and step the minor coordinate
-/// only when that accumulator becomes negative.
+/// Integer line walk used by `MBUMWIPE.MC`: start at half the difference
+/// between the major- and minor-axis deltas, subtract the minor delta per
+/// sample, and step the minor coordinate only when that accumulator becomes
+/// negative.
 fn draw_source_line(
     buffer: &mut [i16; SOURCE_HEIGHT],
     mut x: i16,
@@ -189,7 +190,7 @@ fn draw_source_line(
     let step_y = (end_y - y).signum();
 
     if delta_x >= delta_y {
-        let mut error = delta_x / 2;
+        let mut error = (delta_x - delta_y) / 2;
         for _ in 0..=delta_x {
             if (0..SOURCE_HEIGHT as i16).contains(&y) {
                 buffer[y as usize] = x;
@@ -202,7 +203,7 @@ fn draw_source_line(
             x += step_x;
         }
     } else {
-        let mut error = delta_y / 2;
+        let mut error = (delta_y - delta_x) / 2;
         for _ in 0..=delta_y {
             if (0..SOURCE_HEIGHT as i16).contains(&y) {
                 buffer[y as usize] = x;

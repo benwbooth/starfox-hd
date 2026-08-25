@@ -5,7 +5,7 @@
 //! lines 1970-2416. The assertions cover the linked stalk count, alternating
 //! leaves, bent tree2 crown, terminal flower, and source mesh selections.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_SHADOW, NUMBER_AL};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_SHADOW, NUMBER_AL};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemies_ground;
@@ -209,7 +209,10 @@ fn tree_explosion_turns_the_linked_stalk_and_flower_into_falling_objects() {
 
     assert_eq!(game.objs.aldead, 0);
     assert_eq!(game.objs.aliens[root as usize].hp, 0);
-    assert_ne!(game.objs.aliens[root as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(
+        game.objs.aliens[root as usize].sflags2 & ASF2_COLLDISABLE,
+        0
+    );
     let falling: Vec<_> = (0..NUMBER_AL)
         .filter_map(|idx| {
             let object = game.objs.aliens[idx];

@@ -2,7 +2,7 @@
 
 use sf_game::Game;
 use sf_strat::enemy_a::{
-    boss_attach_child_to_mother, divorce_family, ASF3_CHILDOBJ, ASF3_MOTHEROBJ,
+    boss_attach_child_to_mother, divorce_family, ASF4_CHILDOBJ, ASF4_MOTHEROBJ,
 };
 
 fn live_game() -> Game {
@@ -15,16 +15,16 @@ fn divorce_child_unlinks_from_mother() {
     let mother = g.objs.alloc().unwrap();
     let child = g.objs.alloc().unwrap();
     assert!(boss_attach_child_to_mother(&mut g, mother, child, 1));
-    assert!(g.objs.aliens[mother as usize].sflags3 & ASF3_MOTHEROBJ != 0);
-    assert!(g.objs.aliens[child as usize].sflags3 & ASF3_CHILDOBJ != 0);
+    assert!(g.objs.aliens[mother as usize].sflags4 & ASF4_MOTHEROBJ != 0);
+    assert!(g.objs.aliens[child as usize].sflags4 & ASF4_CHILDOBJ != 0);
     assert_ne!(g.objs.aliens[child as usize].ptr, 0);
 
     divorce_family(&mut g, child);
 
-    assert!(g.objs.aliens[child as usize].sflags3 & ASF3_CHILDOBJ == 0);
+    assert!(g.objs.aliens[child as usize].sflags4 & ASF4_CHILDOBJ == 0);
     assert_eq!(g.objs.aliens[child as usize].ptr, 0);
     // Mother loses its only child → mother flag cleared.
-    assert!(g.objs.aliens[mother as usize].sflags3 & ASF3_MOTHEROBJ == 0);
+    assert!(g.objs.aliens[mother as usize].sflags4 & ASF4_MOTHEROBJ == 0);
     assert_eq!(g.objs.aliens[mother as usize].sword1, 0);
 }
 
@@ -39,9 +39,9 @@ fn divorce_mother_orphans_children() {
 
     divorce_family(&mut g, mother);
 
-    assert!(g.objs.aliens[mother as usize].sflags3 & ASF3_MOTHEROBJ == 0);
+    assert!(g.objs.aliens[mother as usize].sflags4 & ASF4_MOTHEROBJ == 0);
     for c in [c1, c2] {
-        assert!(g.objs.aliens[c as usize].sflags3 & ASF3_CHILDOBJ == 0);
+        assert!(g.objs.aliens[c as usize].sflags4 & ASF4_CHILDOBJ == 0);
         assert_eq!(g.objs.aliens[c as usize].ptr, 0);
     }
 }

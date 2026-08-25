@@ -22,9 +22,7 @@ fn expected_pair(pair: u8) -> [f32; 4] {
         let five_bits = component & 31;
         f32::from(((five_bits << 3) | (five_bits >> 2)) as u8) / 255.0
     };
-    let decode = |c: u16| -> [f32; 3] {
-        [expand(c), expand(c >> 5), expand(c >> 10)]
-    };
+    let decode = |c: u16| -> [f32; 3] { [expand(c), expand(c >> 5), expand(c >> 10)] };
     let lo = decode(NIGHT_PALETTE[(pair & 0x0F) as usize]);
     let hi = decode(NIGHT_PALETTE[(pair >> 4) as usize]);
     [
@@ -36,6 +34,9 @@ fn expected_pair(pair: u8) -> [f32; 4] {
 }
 
 const ARWING_SHAPE: u16 = 3; // non-boss7 shape, color_table 0 -> id_0_c
+const TRAINING_RING_SHAPE: u16 = 482;
+const TRAINING_RING_FACE_COLOR: u8 = 14;
+const TRAINING_RING_SOURCE_COLOR_TABLE: u16 = 0x8481;
 
 #[test]
 fn source_light_uses_renderer_coordinate_basis() {
@@ -82,6 +83,28 @@ fn custom_shape_tables_and_animation_records_are_retained() {
             .unwrap()
             .len(),
         8
+    );
+}
+
+#[test]
+fn source_color_table_words_normalize_to_typed_table_ids() {
+    assert_eq!(
+        color_data::table_id_by_source_word(TRAINING_RING_SOURCE_COLOR_TABLE),
+        Some(color_data::COLOR_TABLE_ID_5_C)
+    );
+    assert_eq!(
+        resolve_face_material(
+            TRAINING_RING_SHAPE,
+            TRAINING_RING_FACE_COLOR,
+            0,
+            TRAINING_RING_SOURCE_COLOR_TABLE,
+        ),
+        resolve_face_material(
+            TRAINING_RING_SHAPE,
+            TRAINING_RING_FACE_COLOR,
+            0,
+            color_data::COLOR_TABLE_ID_5_C,
+        )
     );
 }
 

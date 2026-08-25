@@ -15,7 +15,7 @@
 
 use crate::alien::{
     StratId, ACF_FIRSTFRAME, ASF2_LCOLLIDE, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_PLAYEROBJ,
-    ASF4_SFLAG8, ASF4_SPECIAL, ASF_COLLIDE, ATNUKED, ATZREMOVE, NUMBER_AL,
+    ASF4_SFLAG8, ASF_COLLIDE, ASF_SPECIAL, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use crate::alien_compat as compat;
 use crate::coldet::Coldet;
@@ -1750,7 +1750,7 @@ impl Game {
                 // 90: mapspecial (WORLD.ASM:654-663).
                 op::SPECIAL => {
                     if let Some(idx) = self.world.last_obj {
-                        self.objs.aliens[idx as usize].sflags4 |= ASF4_SPECIAL;
+                        self.objs.aliens[idx as usize].sflags |= ASF_SPECIAL;
                         self.world.specialobjtotal = self.world.specialobjtotal.wrapping_add(1);
                         // Stable score denominator (never decremented, unlike
                         // specialobjtotal). See World::total_specials.

@@ -43,7 +43,7 @@ use sf_strat::enemy_a::{self, wm};
 use std::fmt::Write as _;
 
 const ASF4_PLAYEROBJ: u8 = 0x01;
-const ASF4_SPECIAL: u8 = 0x40;
+const ASF_SPECIAL: u8 = 0x01;
 
 fn spawn(g: &mut Game, x: i16, y: i16, z: i16, shape: u16) -> u16 {
     let idx = g.objs.alloc().expect("alien pool");
@@ -269,7 +269,7 @@ fn parity_rader0() {
     assign_istrat(&mut g, 0, clear_attack_power);
     let e1 = spawn(&mut g, 100, 0, 1200, 15);
     assign_istrat(&mut g, e1, enemy_a::strat_rader0_init);
-    g.objs.aliens[e1 as usize].sflags4 |= ASF4_SPECIAL;
+    g.objs.aliens[e1 as usize].sflags |= ASF_SPECIAL;
     g.world.specialobjtotal = 1;
     run_scenario(
         g,

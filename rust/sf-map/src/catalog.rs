@@ -119,10 +119,8 @@ const fn background_info_value(
 /// `None` is significant: source `blink` declarations do not execute an
 /// `info` command and therefore retain the preceding background state.
 pub fn background_info(background: u16) -> Option<BackgroundInfo> {
+    use BackgroundHorizontalMode::{BlackHole, Disabled, NoGradient, Rotate, Tunnel, Water};
     use PointFieldMode::{GroundGrid, None as NoPoints, Pollen, Snow, SpaceDust};
-    use BackgroundHorizontalMode::{
-        BlackHole, Disabled, NoGradient, Rotate, Tunnel, Water,
-    };
 
     let info = match background {
         // BGS.ASM `bg_1_1a`, `bg_1_1b`, and `bg_3_4a` are blink-only.
@@ -797,19 +795,20 @@ mod tests {
 
     #[test]
     fn presentation_and_training_background_info_matches_source() {
+        use BackgroundHorizontalMode::{Disabled, Rotate};
         use PointFieldMode::{GroundGrid, SpaceDust};
 
         assert_eq!(
             background_info(background_id::TITLE),
-            Some(background_info_value(SpaceDust, false, false, false))
+            Some(background_info_value(SpaceDust, false, Disabled, false))
         );
         assert_eq!(
             background_info(background_id::INTRO),
-            Some(background_info_value(SpaceDust, true, true, true))
+            Some(background_info_value(SpaceDust, true, Rotate, true))
         );
         assert_eq!(
             background_info(background_id::TRAINING),
-            Some(background_info_value(GroundGrid, true, true, true))
+            Some(background_info_value(GroundGrid, true, Rotate, true))
         );
         assert_eq!(background_info(1), None, "blink retains prior info");
     }

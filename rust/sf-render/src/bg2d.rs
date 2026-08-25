@@ -72,8 +72,34 @@ fn source_vertical_camera_offset(rotation: u16, unrestricted: bool) -> i16 {
 /// whole-unit camera position.
 fn source_horizontal_camera_offset(camera_x: i32, rotation: u16) -> i16 {
     let world_x = (camera_x >> 16) as i16;
-    ((rotation as i16) >> 5)
-        .wrapping_add(world_x >> 3)
+    ((rotation as i16) >> 5).wrapping_add(world_x >> 3)
+}
+
+fn interpolate_wrapped_offset(previous: i16, current: i16, alpha: f32, period: f32) -> f32 {
+    if period <= 0.0 {
+        return f32::from(current);
+    }
+    let previous = f32::from(previous);
+    let current = f32::from(current);
+    let mut delta = (current - previous).rem_euclid(period);
+    if delta > period * 0.5 {
+        delta -= period;
+    }
+    previous + delta * alpha.clamp(0.0, 1.0)
+}
+
+fn interpolate_offset_table<const LENGTH: usize>(
+    previous: Option<&[i16; LENGTH]>,
+    current: &[i16; LENGTH],
+    alpha: f32,
+    period: f32,
+) -> [f32; LENGTH] {
+    std::array::from_fn(|index| {
+        previous.map_or_else(
+            || f32::from(current[index]),
+            |previous| interpolate_wrapped_offset(previous[index], current[index], alpha, period),
+        )
+    })
 }
 const COLORS_PER_PALETTE: usize = 16;
 const BACKGROUND_FADE_PALETTE: usize = 4;
@@ -1076,6 +1102,10 @@ pub struct Bg2d {
     palette_four_live: [u16; COLORS_PER_PALETTE],
     palette_four_last_target: Option<PaletteFadeTarget>,
     palette_four_last_num: u16,
+    previous_vertical_offsets: Option<[i16; BG2_VERTICAL_OFFSET_COLUMNS]>,
+    current_vertical_offsets: Option<[i16; BG2_VERTICAL_OFFSET_COLUMNS]>,
+    previous_horizontal_offsets: Option<[i16; BG2_HORIZONTAL_OFFSET_ROWS]>,
+    current_horizontal_offsets: Option<[i16; BG2_HORIZONTAL_OFFSET_ROWS]>,
 }
 
 impl Bg2d {
@@ -1102,6 +1132,10 @@ impl Bg2d {
             palette_four_live: [0; COLORS_PER_PALETTE],
             palette_four_last_target: None,
             palette_four_last_num: 0,
+            previous_vertical_offsets: None,
+            current_vertical_offsets: None,
+            previous_horizontal_offsets: None,
+            current_horizontal_offsets: None,
         };
         bg.build_title_texture(gpu);
         bg
@@ -1109,6 +1143,25 @@ impl Bg2d {
 
     pub fn has_title(&self) -> bool {
         self.title_tex.is_some()
+    }
+
+    /// Advance the fixed-tick offset-table history used only by the smooth HD
+    /// presentation. Source-resolution captures continue to consume the
+    /// current integer tables from [`FrameInputs`] directly.
+    pub fn advance_offset_tables(
+        &mut self,
+        vertical: Option<[i16; BG2_VERTICAL_OFFSET_COLUMNS]>,
+        horizontal: Option<[i16; BG2_HORIZONTAL_OFFSET_ROWS]>,
+    ) {
+        self.previous_vertical_offsets = self.current_vertical_offsets;
+        self.current_vertical_offsets = vertical;
+        self.previous_horizontal_offsets = self.current_horizontal_offsets;
+        self.current_horizontal_offsets = horizontal;
+    }
+
+    pub fn snap_offset_tables(&mut self) {
+        self.previous_vertical_offsets = self.current_vertical_offsets;
+        self.previous_horizontal_offsets = self.current_horizontal_offsets;
     }
 
     pub fn title_polygon_palette(&self) -> &[u16; COLORS_PER_PALETTE] {
@@ -1387,8 +1440,8 @@ impl Bg2d {
         v1: f32,
         map_width: f32,
         map_height: f32,
-        vertical_offsets: [i16; BG2_VERTICAL_OFFSET_COLUMNS],
-        horizontal_offsets: [i16; BG2_HORIZONTAL_OFFSET_ROWS],
+        vertical_offsets: [f32; BG2_VERTICAL_OFFSET_COLUMNS],
+        horizontal_offsets: [f32; BG2_HORIZONTAL_OFFSET_ROWS],
     ) {
         let uniform_vertical_offset = vertical_offsets
             .iter()
@@ -1398,8 +1451,7 @@ impl Bg2d {
         } else {
             BG2_VERTICAL_OFFSET_COLUMNS
         };
-        let mut vertices =
-            Vec::with_capacity(BG2_HORIZONTAL_OFFSET_ROWS * column_count * 6);
+        let mut vertices = Vec::with_capacity(BG2_HORIZONTAL_OFFSET_ROWS * column_count * 6);
         // Overlay coordinates are bottom-up; walk the authored top-down
         // display rows in reverse so each value remains attached to its
         // original raster line.
@@ -1410,7 +1462,7 @@ impl Bg2d {
             let y1 = h as f32 * bottom_fraction;
             let row_v0 = v0 + (v1 - v0) * top_fraction;
             let row_v1 = v0 + (v1 - v0) * bottom_fraction;
-            let horizontal_uv = f32::from(horizontal_offset) / map_width;
+            let horizontal_uv = horizontal_offset / map_width;
 
             for column in 0..column_count {
                 let vertical_offset = if uniform_vertical_offset {
@@ -1424,7 +1476,7 @@ impl Bg2d {
                 let x1 = w as f32 * right_fraction;
                 let column_u0 = u0 + (u1 - u0) * left_fraction + horizontal_uv;
                 let column_u1 = u0 + (u1 - u0) * right_fraction + horizontal_uv;
-                let vertical_uv = -f32::from(vertical_offset) / map_height;
+                let vertical_uv = -vertical_offset / map_height;
                 let cell_v0 = row_v0 + vertical_uv;
                 let cell_v1 = row_v1 + vertical_uv;
                 vertices.extend_from_slice(&[
@@ -1630,16 +1682,11 @@ impl Bg2d {
         gpu: &mut Gpu,
         transform: &Transform,
         inputs: &FrameInputs,
+        alpha: f32,
         screen_width: i32,
         screen_height: i32,
     ) {
-        self.render_pass(
-            gpu,
-            transform,
-            inputs,
-            screen_width,
-            screen_height,
-        );
+        self.render_pass(gpu, transform, inputs, alpha, screen_width, screen_height);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1648,6 +1695,7 @@ impl Bg2d {
         gpu: &mut Gpu,
         transform: &Transform,
         inputs: &FrameInputs,
+        alpha: f32,
         screen_width: i32,
         screen_height: i32,
     ) {
@@ -1807,8 +1855,29 @@ impl Bg2d {
                 idx,
                 inputs.bg2_vertical_offsets,
                 inputs.bg2_horizontal_offsets,
-            )
-            {
+            ) {
+                let map_width = self.def_map_w[layer_index] as f32;
+                let map_height = self.def_map_h[layer_index] as f32;
+                let previous_vertical = (!inputs.source_resolution
+                    && self.current_vertical_offsets == Some(vertical_offsets))
+                .then_some(self.previous_vertical_offsets)
+                .flatten();
+                let previous_horizontal = (!inputs.source_resolution
+                    && self.current_horizontal_offsets == Some(horizontal_offsets))
+                .then_some(self.previous_horizontal_offsets)
+                .flatten();
+                let vertical_offsets = interpolate_offset_table(
+                    previous_vertical.as_ref(),
+                    &vertical_offsets,
+                    if inputs.source_resolution { 1.0 } else { alpha },
+                    map_height,
+                );
+                let horizontal_offsets = interpolate_offset_table(
+                    previous_horizontal.as_ref(),
+                    &horizontal_offsets,
+                    if inputs.source_resolution { 1.0 } else { alpha },
+                    map_width,
+                );
                 self.draw_ground_rolled_texture(
                     gpu,
                     &proj,
@@ -1819,8 +1888,8 @@ impl Bg2d {
                     v0,
                     u1,
                     v1,
-                    self.def_map_w[layer_index] as f32,
-                    self.def_map_h[layer_index] as f32,
+                    map_width,
+                    map_height,
                     vertical_offsets,
                     horizontal_offsets,
                 );
@@ -1839,9 +1908,32 @@ mod bhole_tests {
     fn strict_camera_scroll_keeps_source_integer_quantization() {
         assert_eq!(source_vertical_camera_offset(320, false), -7);
         assert_eq!(source_vertical_camera_offset((-320i16) as u16, false), 8);
-        assert_eq!(source_vertical_camera_offset((-20_000i16) as u16, false), 232);
+        assert_eq!(
+            source_vertical_camera_offset((-20_000i16) as u16, false),
+            232
+        );
         assert_eq!(source_vertical_camera_offset(20_000, false), -56);
         assert_eq!(source_horizontal_camera_offset(-31 << 16, 272), 4);
+    }
+
+    #[test]
+    fn hd_offset_tables_interpolate_across_the_texture_wrap() {
+        const MAP_PERIOD: f32 = 1_024.0;
+        let previous = [1_020i16, 8];
+        let current = [4i16, 12];
+
+        assert_eq!(
+            interpolate_offset_table(Some(&previous), &current, 0.5, MAP_PERIOD),
+            [1_024.0, 10.0],
+        );
+        assert_eq!(
+            interpolate_offset_table(Some(&previous), &current, 1.0, MAP_PERIOD),
+            [1_028.0, 12.0],
+        );
+        assert_eq!(
+            interpolate_offset_table(None, &current, 0.0, MAP_PERIOD),
+            [4.0, 12.0],
+        );
     }
 
     #[test]

@@ -32,8 +32,8 @@
 use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON,
-    ASF3_NOHITAFFECT, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT,
-    ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE,
+    ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
@@ -1230,7 +1230,7 @@ fn jmp_random50(g: &mut Game) -> bool {
 /// then routes the object through its expstrat.
 fn kill_obj(al: &mut Alien) {
     al.hp = 0;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// `s_make_obj shape,... ; s_add_Roffs2pos ... ; s_set_alptrs
@@ -5355,7 +5355,7 @@ pub fn jump0_istrat(g: &mut Game, idx: u16) {
     al.hp = JUMP0_HP;
     al.ap = JUMP0_AP;
     al.roty = DEG180;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.collflags |= COLLTYPE_ENEMY1 | COLLTYPE_ENEMYWEAP | COLLTYPE_ZENEMY;
 }
 
@@ -5378,7 +5378,7 @@ pub fn jump0a_strat(g: &mut Game, idx: u16) {
     // s_jmp_lower x,#-90,.njump — clear colldisable only while still higher
     // than -90 (worldy < -90); skip once at/below that height.
     if g.objs.aliens[idx as usize].worldy < -90 {
-        g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+        g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
     }
     // Fire once when vy crosses from ascending (neg) to falling (non-neg).
     if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 && g.objs.aliens[idx as usize].vy >= 0

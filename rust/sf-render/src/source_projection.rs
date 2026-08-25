@@ -6,13 +6,11 @@
 //! source-resolution conformance image has deterministic geometry.
 
 use crate::shape_data::ShapeVertex;
-use sf_core::snes_trig::{
-    matrix_rotate_q15, rotate_packed_point, zxy_matrix_q15, zxy_matrix_q15_fine,
-};
+use sf_core::snes_trig::{gsu_fmult_q15, matrix_rotate_q15, zxy_matrix_q15, zxy_matrix_q15_fine};
 
 const PACKED_MATRIX_SHIFT: u32 = 8;
 const FULL_PRECISION_POINT_SHIFT: u8 = 3;
-pub const MIN_FRONT_DEPTH: i16 = 1;
+pub const MIN_FRONT_DEPTH: i16 = 0;
 const PROJECTION_MAX_DEPTH: i16 = 12_288;
 const NEAR_PROJECTION_DEPTH: i16 = 256;
 const NEAR_PROJECTION_SCALE: i16 = 16;
@@ -24,6 +22,8 @@ const PROJECTION_CENTER_X: i16 = 112;
 const PROJECTION_CENTER_Y: i16 = 96;
 const SCALED_SPRITE_NEAR_DEPTH: i16 = 128;
 const SCALED_SPRITE_MAX_SIZE: i16 = 240;
+const INDIVIDUAL_PROJECTION_SCALE: u32 = 256;
+const INDIVIDUAL_PROJECTION_LIMIT: u32 = 16_383;
 const PLAYFIELD_LEFT: i16 = 16;
 const PLAYFIELD_RIGHT: i16 = 239;
 const PLAYFIELD_TOP: i16 = 16;
@@ -50,7 +50,10 @@ pub struct ProjectedPoint {
 #[derive(Debug, Clone)]
 pub struct ProjectedShape {
     pub points: Vec<ProjectedPoint>,
+    /// Typed view-space geometry retained for per-face near-plane clipping.
+    pub view_points: Vec<[i16; 3]>,
     pub object_light: [i8; 3],
+    pub view_position: [i16; 3],
     /// Source view-space object origin used for distance-color selection.
     pub object_depth: i16,
 }
@@ -76,8 +79,8 @@ pub fn project_scaled_sprite(
         return None;
     }
 
-    let shifted_adjustment = i16::from(size_adjustment as i8)
-        .wrapping_shl(u32::from(coordinate_shift));
+    let shifted_adjustment =
+        i16::from(size_adjustment as i8).wrapping_shl(u32::from(coordinate_shift));
     let mut world_size = (authored_extent as i16)
         .wrapping_mul(2)
         .wrapping_add(shifted_adjustment);
@@ -86,8 +89,7 @@ pub fn project_scaled_sprite(
     }
     let depth = view_position.2.min(PROJECTION_MAX_DEPTH - 1);
     let reciprocal = source_reciprocal(depth);
-    let projected_size = project_component(world_size, reciprocal)
-        .clamp(0, SCALED_SPRITE_MAX_SIZE);
+    let projected_size = project_component(world_size, reciprocal).clamp(0, SCALED_SPRITE_MAX_SIZE);
     if projected_size == 0 {
         return None;
     }
@@ -105,10 +107,17 @@ pub fn project_scaled_sprite(
 
 pub fn project_shape(
     vertices: &[ShapeVertex],
+    reflected_pair_starts: &[u16],
     coordinate_shift: u8,
     pose: SourcePose,
 ) -> ProjectedShape {
-    project_shape_with_flattened_height(vertices, coordinate_shift, pose, false)
+    project_shape_with_flattened_height(
+        vertices,
+        reflected_pair_starts,
+        coordinate_shift,
+        pose,
+        false,
+    )
 }
 
 /// Project the source shadow pass. The source retains the object's authored
@@ -116,44 +125,211 @@ pub fn project_shape(
 /// camera matrix, producing a fixed-point ground-plane silhouette.
 pub fn project_shadow_shape(
     vertices: &[ShapeVertex],
+    reflected_pair_starts: &[u16],
     coordinate_shift: u8,
     pose: SourcePose,
 ) -> ProjectedShape {
-    project_shape_with_flattened_height(vertices, coordinate_shift, pose, true)
+    project_shape_with_flattened_height(
+        vertices,
+        reflected_pair_starts,
+        coordinate_shift,
+        pose,
+        true,
+    )
+}
+
+pub fn project_exploded_face(
+    vertices: &[ShapeVertex],
+    reflected_pair_starts: &[u16],
+    face_indices: &[u16],
+    face_normal: [i16; 3],
+    coordinate_shift: u8,
+    explosion_state: u8,
+    pose: SourcePose,
+) -> ProjectedShape {
+    project_exploded_face_with_height(
+        vertices,
+        reflected_pair_starts,
+        face_indices,
+        face_normal,
+        coordinate_shift,
+        explosion_state,
+        pose,
+        false,
+    )
+}
+
+pub fn project_exploded_shadow_face(
+    vertices: &[ShapeVertex],
+    reflected_pair_starts: &[u16],
+    face_indices: &[u16],
+    face_normal: [i16; 3],
+    coordinate_shift: u8,
+    explosion_state: u8,
+    pose: SourcePose,
+) -> ProjectedShape {
+    project_exploded_face_with_height(
+        vertices,
+        reflected_pair_starts,
+        face_indices,
+        face_normal,
+        coordinate_shift,
+        explosion_state,
+        pose,
+        true,
+    )
+}
+
+fn rotate_shape_points(
+    vertices: &[ShapeVertex],
+    reflected_pair_starts: &[u16],
+    coordinate_shift: u8,
+    object_matrix: [[i16; 3]; 3],
+) -> Vec<[i16; 3]> {
+    let source = |vertex: &ShapeVertex| {
+        [
+            vertex.x.round() as i16,
+            (-vertex.y).round() as i16,
+            vertex.z.round() as i16,
+        ]
+    };
+    let mut rotated_points = Vec::with_capacity(vertices.len());
+    let mut index = 0;
+    let mut reflected_pair_cursor = 0;
+    while index < vertices.len() {
+        let first = source(&vertices[index]);
+        let reflected_pair = reflected_pair_starts.get(reflected_pair_cursor)
+            == Some(&u16::try_from(index).expect("source vertex index"));
+        if reflected_pair {
+            debug_assert_eq!(
+                source(&vertices[index + 1]),
+                [first[0].wrapping_neg(), first[1], first[2]],
+            );
+            reflected_pair_cursor += 1;
+        }
+        let (transformed, transformed_count) = if reflected_pair {
+            (
+                rotate_reflected_shape_pair(object_matrix, first, coordinate_shift),
+                2,
+            )
+        } else {
+            (
+                [
+                    rotate_independent_shape_point(object_matrix, first, coordinate_shift),
+                    [0; 3],
+                ],
+                1,
+            )
+        };
+        rotated_points.extend(transformed.into_iter().take(transformed_count));
+        index += if reflected_pair { 2 } else { 1 };
+    }
+    debug_assert_eq!(reflected_pair_cursor, reflected_pair_starts.len());
+    rotated_points
+}
+
+fn project_exploded_face_with_height(
+    vertices: &[ShapeVertex],
+    reflected_pair_starts: &[u16],
+    face_indices: &[u16],
+    face_normal: [i16; 3],
+    coordinate_shift: u8,
+    explosion_state: u8,
+    pose: SourcePose,
+    flatten_height: bool,
+) -> ProjectedShape {
+    let (object_matrix, view_position) = source_object_transform(pose, flatten_height);
+    let rotated_points = rotate_shape_points(
+        vertices,
+        reflected_pair_starts,
+        coordinate_shift,
+        object_matrix,
+    );
+
+    // Generated normals use the HD coordinate convention. Negating all three
+    // components reconstructs the normal consumed by the authored exploding-
+    // face translation after its encoded axis adjustments.
+    let normal = face_normal.map(i16::wrapping_neg);
+    let rotated_normal = matrix_rotate_q15(object_matrix, normal[0], normal[1], normal[2]);
+    let scale_component = |component: i16| {
+        i16::from(component as u8 as i8).wrapping_mul(i16::from(explosion_state as i8)) >> 2
+    };
+    let vertical_normal = if rotated_normal.1 < 0 {
+        rotated_normal.1
+    } else {
+        rotated_normal.1.wrapping_neg()
+    };
+    let displaced_position = (
+        view_position
+            .0
+            .wrapping_add(scale_component(rotated_normal.0)),
+        view_position
+            .1
+            .wrapping_add(scale_component(vertical_normal)),
+        view_position
+            .2
+            .wrapping_add(scale_component(rotated_normal.2)),
+    );
+    let view_points: Vec<_> = face_indices
+        .iter()
+        .filter_map(|index| rotated_points.get(usize::from(*index)))
+        .map(|rotated| {
+            [
+                rotated[0].wrapping_add(displaced_position.0),
+                rotated[1].wrapping_add(displaced_position.1),
+                rotated[2].wrapping_add(displaced_position.2),
+            ]
+        })
+        .collect();
+    let points = view_points
+        .iter()
+        .copied()
+        .map(project_individual_point)
+        .collect();
+
+    ProjectedShape {
+        points,
+        view_points,
+        object_light: quantized_object_light(object_matrix),
+        view_position: [
+            displaced_position.0,
+            displaced_position.1,
+            displaced_position.2,
+        ],
+        object_depth: view_position.2,
+    }
 }
 
 fn project_shape_with_flattened_height(
     vertices: &[ShapeVertex],
+    reflected_pair_starts: &[u16],
     coordinate_shift: u8,
     pose: SourcePose,
     flatten_height: bool,
 ) -> ProjectedShape {
     let (object_matrix, view_position) = source_object_transform(pose, flatten_height);
-    let points = vertices
-        .iter()
-        .map(|vertex| {
-            let source = [
-                vertex.x.round() as i16,
-                (-vertex.y).round() as i16,
-                vertex.z.round() as i16,
-            ];
-            let rotated = if coordinate_shift < FULL_PRECISION_POINT_SHIFT {
-                rotate_shape_point(object_matrix, source, coordinate_shift)
-            } else {
-                matrix_rotate_q15(object_matrix, source[0], source[1], source[2])
-            };
-            let position = [
-                rotated.0.wrapping_add(view_position.0),
-                rotated.1.wrapping_add(view_position.1),
-                rotated.2.wrapping_add(view_position.2),
-            ];
-            project_point(position)
-        })
-        .collect();
+    let view_points: Vec<_> = rotate_shape_points(
+        vertices,
+        reflected_pair_starts,
+        coordinate_shift,
+        object_matrix,
+    )
+    .into_iter()
+    .map(|rotated| {
+        [
+            rotated[0].wrapping_add(view_position.0),
+            rotated[1].wrapping_add(view_position.1),
+            rotated[2].wrapping_add(view_position.2),
+        ]
+    })
+    .collect();
+    let points = view_points.iter().copied().map(project_point).collect();
 
     ProjectedShape {
         points,
+        view_points,
         object_light: quantized_object_light(object_matrix),
+        view_position: [view_position.0, view_position.1, view_position.2],
         object_depth: view_position.2,
     }
 }
@@ -207,7 +383,7 @@ fn quantized_object_light(object_matrix: [[i16; 3]; 3]) -> [i8; 3] {
         (rotated.1 >> LIGHT_QUANTIZATION_SHIFT) as i8,
         (rotated.2 >> LIGHT_QUANTIZATION_SHIFT) as i8,
     ];
-    // Shape vertices and normals use a conventional upward-positive Y axis.
+    // Generated normals use the renderer's upward-positive Y convention.
     [
         source_basis[0],
         source_basis[1].wrapping_neg(),
@@ -215,32 +391,83 @@ fn quantized_object_light(object_matrix: [[i16; 3]; 3]) -> [i8; 3] {
     ]
 }
 
-fn rotate_shape_point(
+/// Transform one authored point and its X reflection as the source
+/// `PointsXb` command does. Computing the reflected point by subtracting the
+/// first point's X contribution is observably different from independently
+/// multiplying its negated X coordinate at fixed-point boundaries.
+fn rotate_reflected_shape_pair(
     matrix: [[i16; 3]; 3],
     point: [i16; 3],
     coordinate_shift: u8,
-) -> (i16, i16, i16) {
-    let packed_matrix = matrix.map(|row| {
-        row.map(|coefficient| (coefficient >> PACKED_MATRIX_SHIFT) as i8)
-    });
-    let encoded = point.map(|component| (component >> coordinate_shift) as i8);
-    let scale = 1i8.wrapping_shl(u32::from(coordinate_shift));
-    rotate_packed_point(
-        packed_matrix,
-        scale,
-        encoded[0],
-        encoded[1],
-        encoded[2],
-    )
+) -> [[i16; 3]; 2] {
+    if coordinate_shift < FULL_PRECISION_POINT_SHIFT {
+        let packed_matrix =
+            matrix.map(|row| row.map(|coefficient| (coefficient >> PACKED_MATRIX_SHIFT) as i8));
+        let encoded = point.map(|component| (component >> coordinate_shift) as i8);
+        let scale = 1i8.wrapping_shl(u32::from(coordinate_shift));
+        let axis = |column: usize| {
+            let x_product = i16::from(packed_matrix[0][column]).wrapping_mul(i16::from(encoded[0]));
+            let other_products = i16::from(packed_matrix[1][column])
+                .wrapping_mul(i16::from(encoded[1]))
+                .wrapping_add(
+                    i16::from(packed_matrix[2][column]).wrapping_mul(i16::from(encoded[2])),
+                );
+            let scaled_high_byte = |sum: i16| {
+                let high_byte = (((i32::from(sum)) << 1) >> 8) as i8;
+                i16::from(high_byte).wrapping_mul(i16::from(scale))
+            };
+            [
+                scaled_high_byte(other_products.wrapping_add(x_product)),
+                scaled_high_byte(other_products.wrapping_sub(x_product)),
+            ]
+        };
+        let x = axis(0);
+        let y = axis(1);
+        let z = axis(2);
+        return [[x[0], y[0], z[0]], [x[1], y[1], z[1]]];
+    }
+
+    let axis = |column: usize| {
+        let x_product = gsu_fmult_q15(point[0], matrix[0][column]);
+        let other_products = gsu_fmult_q15(point[1], matrix[1][column])
+            .wrapping_add(gsu_fmult_q15(point[2], matrix[2][column]));
+        [
+            other_products.wrapping_add(x_product),
+            other_products.wrapping_sub(x_product),
+        ]
+    };
+    let x = axis(0);
+    let y = axis(1);
+    let z = axis(2);
+    [[x[0], y[0], z[0]], [x[1], y[1], z[1]]]
+}
+
+/// Transform a point authored by an independent `PointsB`/`PointsW` stream.
+/// Larger scaled-byte points accumulate the complete fixed-point dot product
+/// before truncation; smaller points use the packed matrix path.
+fn rotate_independent_shape_point(
+    matrix: [[i16; 3]; 3],
+    point: [i16; 3],
+    coordinate_shift: u8,
+) -> [i16; 3] {
+    if coordinate_shift < FULL_PRECISION_POINT_SHIFT {
+        return rotate_reflected_shape_pair(matrix, point, coordinate_shift)[0];
+    }
+    std::array::from_fn(|column| {
+        let product =
+            |row: usize| i32::from(point[row]).wrapping_mul(i32::from(matrix[row][column]));
+        let sum = product(0).wrapping_add(product(1)).wrapping_add(product(2));
+        (sum >> 15) as i16
+    })
 }
 
 fn project_point(point: [i16; 3]) -> ProjectedPoint {
     if point[2] < MIN_FRONT_DEPTH {
-        return ProjectedPoint {
-            x: i16::MIN,
-            y: i16::MIN,
-            depth: point[2],
-        };
+        // Visibility is evaluated before per-face near clipping.  The source
+        // therefore retains the signed projection of a behind-camera point;
+        // replacing it with a sentinel changes both BSP traversal and face
+        // winding at the camera plane.
+        return project_individual_point(point);
     }
     let depth = point[2].min(PROJECTION_MAX_DEPTH - 1);
     let (projection_depth, project_x, project_y) = if depth < NEAR_PROJECTION_DEPTH {
@@ -272,6 +499,139 @@ fn project_point(point: [i16; 3]) -> ProjectedPoint {
     }
 }
 
+fn source_divide_by_two(value: i16) -> i16 {
+    if value == -1 {
+        0
+    } else {
+        value >> 1
+    }
+}
+
+fn source_midpoint(first: [i16; 3], second: [i16; 3]) -> [i16; 3] {
+    std::array::from_fn(|axis| source_divide_by_two(first[axis].wrapping_add(second[axis])))
+}
+
+fn near_plane_intersection(behind: [i16; 3], front: [i16; 3]) -> [i16; 3] {
+    debug_assert!(behind[2] < MIN_FRONT_DEPTH);
+    debug_assert!(front[2] >= MIN_FRONT_DEPTH);
+    let mut behind = behind;
+    let mut front = front;
+    loop {
+        let midpoint = source_midpoint(behind, front);
+        if midpoint[2] == MIN_FRONT_DEPTH {
+            return midpoint;
+        }
+        if midpoint[2] < MIN_FRONT_DEPTH {
+            behind = midpoint;
+        } else {
+            front = midpoint;
+        }
+    }
+}
+
+/// Clip one authored flat face against the source near plane and project the
+/// resulting typed polygon. The source uses midpoint refinement rather than a
+/// general division, so this deliberately preserves its integer intersections.
+pub fn project_near_clipped_face(view_points: &[[i16; 3]], indices: &[u16]) -> Vec<ProjectedPoint> {
+    if indices.len() < 2 {
+        return Vec::new();
+    }
+    let input = indices
+        .iter()
+        .map(|index| view_points.get(usize::from(*index)).copied())
+        .collect::<Option<Vec<_>>>();
+    let Some(input) = input else {
+        return Vec::new();
+    };
+    if let [first, second] = input.as_slice() {
+        let clipped = match (first[2] >= MIN_FRONT_DEPTH, second[2] >= MIN_FRONT_DEPTH) {
+            (true, true) => Some([*first, *second]),
+            (true, false) => Some([*first, near_plane_intersection(*second, *first)]),
+            (false, true) => Some([near_plane_intersection(*first, *second), *second]),
+            (false, false) => None,
+        };
+        return clipped
+            .map(|points| points.map(project_point).to_vec())
+            .unwrap_or_default();
+    }
+    let mut clipped = Vec::with_capacity(input.len() + 2);
+    for index in 0..input.len() {
+        let first = input[index];
+        let second = input[(index + 1) % input.len()];
+        let first_front = first[2] >= MIN_FRONT_DEPTH;
+        let second_front = second[2] >= MIN_FRONT_DEPTH;
+        match (first_front, second_front) {
+            (true, true) => clipped.push(first),
+            (true, false) => {
+                clipped.push(first);
+                clipped.push(near_plane_intersection(second, first));
+            }
+            (false, true) => clipped.push(near_plane_intersection(first, second)),
+            (false, false) => {}
+        }
+    }
+    if clipped.len() < 3 {
+        return Vec::new();
+    }
+    clipped.into_iter().map(project_point).collect()
+}
+
+/// Exploding faces are projected independently after their per-face normal
+/// displacement. Their authored path divides unsigned magnitudes and restores
+/// signs afterward, so negative components truncate toward zero instead of
+/// using the ordinary reciprocal-table rounding.
+fn project_individual_point(point: [i16; 3]) -> ProjectedPoint {
+    let original_depth = point[2];
+    let behind = original_depth < 0;
+    let depth = if original_depth == 0 {
+        1
+    } else {
+        original_depth.unsigned_abs()
+    };
+    let magnitude_x = point[0].unsigned_abs();
+    let magnitude_y = point[1].unsigned_abs();
+    let (projected_x, projected_y) = if magnitude_x >= magnitude_y {
+        project_magnitudes(magnitude_x, magnitude_y, depth)
+    } else {
+        let (major, minor) = project_magnitudes(magnitude_y, magnitude_x, depth);
+        (minor, major)
+    };
+    let restore_sign = |magnitude: u16, negative: bool| {
+        let value = magnitude as i16;
+        if negative {
+            value.wrapping_neg()
+        } else {
+            value
+        }
+    };
+    let projected_x = restore_sign(projected_x, (point[0] < 0) ^ behind);
+    let projected_y = restore_sign(projected_y, (point[1] < 0) ^ behind);
+
+    ProjectedPoint {
+        x: projected_x
+            .wrapping_add(PROJECTION_CENTER_X)
+            .wrapping_add(PLAYFIELD_LEFT),
+        y: projected_y
+            .wrapping_add(PROJECTION_CENTER_Y)
+            .wrapping_add(PLAYFIELD_TOP),
+        depth: original_depth,
+    }
+}
+
+fn project_magnitudes(major: u16, minor: u16, depth: u16) -> (u16, u16) {
+    let projected_major = u32::from(major) * INDIVIDUAL_PROJECTION_SCALE / u32::from(depth);
+    if projected_major <= INDIVIDUAL_PROJECTION_LIMIT {
+        return (
+            projected_major as u16,
+            (u32::from(minor) * INDIVIDUAL_PROJECTION_SCALE / u32::from(depth)) as u16,
+        );
+    }
+    (
+        INDIVIDUAL_PROJECTION_LIMIT as u16,
+        (u32::from(minor) * INDIVIDUAL_PROJECTION_LIMIT / u32::from(major.max(1))) as u16,
+    )
+}
+
 /// Reciprocal-table lookup used by the source renderer. Entries are indexed at
 /// even depths, saturate below 256, and retain the table generator's integer
 /// truncation. This is ordinary typed projection math, not source-machine
@@ -299,24 +659,24 @@ pub fn face_is_visible(points: &[ProjectedPoint], indices: [u16; 3]) -> bool {
     let Some(c) = points.get(usize::from(indices[2])) else {
         return true;
     };
-    if [a, b, c]
-        .into_iter()
-        .any(|point| point.depth < MIN_FRONT_DEPTH)
-    {
-        return true;
-    }
     let ab_x = b.x.wrapping_sub(a.x);
     let ab_y = b.y.wrapping_sub(a.y);
     let ac_x = c.x.wrapping_sub(a.x);
     let ac_y = c.y.wrapping_sub(a.y);
-    let visible = if shape_is_fully_inside_playfield(points) {
+    let behind_count = [a, b, c]
+        .into_iter()
+        .filter(|point| point.depth < MIN_FRONT_DEPTH)
+        .count();
+    let visible_winding = if shape_is_fully_inside_playfield(points) {
         source_winding_high_byte(ab_x, ab_y, ac_x, ac_y) < 0
     } else {
         i32::from(ab_x) * i32::from(ac_y) - i32::from(ab_y) * i32::from(ac_x) < 0
     };
+    let visible = visible_winding ^ (behind_count & 1 != 0);
     // Projected source coordinates increase downward. The source-visible
     // winding is therefore negative here, opposite the renderer's Y-up clip
-    // coordinates.
+    // coordinates. Before near clipping, an odd number of behind-camera
+    // visibility vertices reverses that winding decision.
     visible
 }
 
@@ -334,8 +694,9 @@ pub fn shape_is_outside_playfield(points: &[ProjectedPoint]) -> bool {
 
 fn shape_is_fully_inside_playfield(points: &[ProjectedPoint]) -> bool {
     points.iter().all(|point| {
-        (PLAYFIELD_LEFT..=PLAYFIELD_RIGHT).contains(&point.x)
-            && (PLAYFIELD_TOP..=PLAYFIELD_BOTTOM).contains(&point.y)
+        point.depth >= MIN_FRONT_DEPTH
+            && (PLAYFIELD_LEFT..PLAYFIELD_RIGHT).contains(&point.x)
+            && (PLAYFIELD_TOP..PLAYFIELD_BOTTOM).contains(&point.y)
     })
 }
 
@@ -364,7 +725,19 @@ mod tests {
             [32_767, 32_767, 32_767],
             [32_767, 32_767, 32_767],
         ];
-        assert_eq!(rotate_shape_point(matrix, [127, 127, 127], 0), (122, 122, 122));
+        assert_eq!(
+            rotate_reflected_shape_pair(matrix, [127, 127, 127], 0)[0],
+            [122, 122, 122],
+        );
+    }
+
+    #[test]
+    fn reflected_scaled_byte_points_share_the_first_x_contribution() {
+        let matrix = zxy_matrix_q15(0, 128, 0);
+        assert_eq!(
+            rotate_reflected_shape_pair(matrix, [-160, 0, -160], 3),
+            [[159, 0, 159], [-159, 0, 159]],
+        );
     }
 
     #[test]
@@ -414,13 +787,51 @@ mod tests {
     }
 
     #[test]
+    fn exact_right_outcode_boundary_keeps_full_precision_visibility() {
+        let points = [
+            ProjectedPoint {
+                x: PLAYFIELD_RIGHT - 17,
+                y: 114,
+                depth: 100,
+            },
+            ProjectedPoint {
+                x: PLAYFIELD_RIGHT,
+                y: 114,
+                depth: 100,
+            },
+            ProjectedPoint {
+                x: PLAYFIELD_RIGHT,
+                y: 88,
+                depth: 100,
+            },
+        ];
+        assert!(!shape_is_fully_inside_playfield(&points));
+        assert!(face_is_visible(&points, [0, 1, 2]));
+    }
+
+    #[test]
+    fn training_base_face_crossing_the_camera_flips_visibility() {
+        let points = [
+            project_point([115, 27, -44]),
+            project_point([115, 27, 316]),
+            project_point([75, -13, 296]),
+        ];
+
+        assert!(!shape_is_fully_inside_playfield(&points));
+        assert!(!face_is_visible(&points, [0, 1, 2]));
+    }
+
+    #[test]
     fn title_demo_light_is_quantized_before_face_shading() {
-        let (matrix, _) = source_object_transform(SourcePose {
-            world_position: [20, 20, 1_261],
-            rotation: [239, 96, 14],
-            view_position: [0, 0, 1_021],
-            view_rotation: [0; 3],
-        }, false);
+        let (matrix, _) = source_object_transform(
+            SourcePose {
+                world_position: [20, 20, 1_261],
+                rotation: [239, 96, 14],
+                view_position: [0, 0, 1_021],
+                view_rotation: [0; 3],
+            },
+            false,
+        );
         assert_eq!(quantized_object_light(matrix), [-9, -23, -126]);
     }
 
@@ -450,6 +861,7 @@ mod tests {
             .expect("compiled Corneria building");
         let projected = project_shape(
             building.vertices,
+            building.reflected_pair_starts,
             2,
             SourcePose {
                 world_position: [1_000, 0, 4_800],
@@ -480,6 +892,7 @@ mod tests {
             .expect("compiled Corneria building");
         let projected = project_shape(
             building.vertices,
+            building.reflected_pair_starts,
             2,
             SourcePose {
                 world_position: [800, 0, 3_300],
@@ -503,6 +916,7 @@ mod tests {
             .expect("compiled Corneria building");
         let projected = project_shape(
             building.vertices,
+            building.reflected_pair_starts,
             2,
             SourcePose {
                 world_position: [1_000, 0, 4_800],
@@ -513,7 +927,11 @@ mod tests {
         );
         assert_eq!(projected.object_light, [-76, -71, -75]);
         assert_eq!(
-            projected.points.iter().map(|point| point.x).collect::<Vec<_>>(),
+            projected
+                .points
+                .iter()
+                .map(|point| point.x)
+                .collect::<Vec<_>>(),
             [239, 222, 239, 222, 247, 229, 246, 228, 232, 245, 231, 245]
         );
         assert!(!shape_is_outside_playfield(&projected.points));
@@ -527,6 +945,7 @@ mod tests {
             .expect("compiled player Arwing");
         let projected = project_shadow_shape(
             arwing.vertices,
+            arwing.reflected_pair_starts,
             0,
             SourcePose {
                 world_position: [-3, 0, 3_208],
@@ -563,6 +982,42 @@ mod tests {
     }
 
     #[test]
+    fn exploded_training_shadow_uses_individual_projection_rounding() {
+        const EXPLODING_FACE_INDEX: usize = 2;
+        const EXPLOSION_STATE: u8 = 1;
+
+        let debris = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == 465)
+            .expect("compiled Training debris");
+        let face = &debris.faces[EXPLODING_FACE_INDEX];
+        let projected = project_exploded_shadow_face(
+            debris.vertices,
+            debris.reflected_pair_starts,
+            &face.vertex_indices[..usize::from(face.num_verts)],
+            face.normal,
+            0,
+            EXPLOSION_STATE,
+            SourcePose {
+                world_position: [-7, 0, 9_713],
+                rotation: [84, 179, 0],
+                view_position: [5, -28, 9_526],
+                view_rotation: [0; 3],
+            },
+        );
+
+        assert_eq!(projected.view_position, [-24, 27, 212]);
+        assert_eq!(
+            projected
+                .points
+                .iter()
+                .map(|point| (point.x, point.y))
+                .collect::<Vec<_>>(),
+            [(77, 145), (99, 141), (110, 145)]
+        );
+    }
+
+    #[test]
     fn complete_title_demo_projection_matches_the_independent_retail_capture() {
         let demo = crate::shape_data::SHAPE_DATA
             .iter()
@@ -570,6 +1025,7 @@ mod tests {
             .expect("compiled title demo shape");
         let projected = project_shape(
             demo.vertices,
+            demo.reflected_pair_starts,
             1,
             SourcePose {
                 world_position: [20, 20, 946],
@@ -652,6 +1108,7 @@ mod tests {
         ];
         let projected = project_shape(
             &vertices,
+            &[],
             1,
             SourcePose {
                 world_position: [20, 20, 2_080],

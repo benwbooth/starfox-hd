@@ -1,7 +1,7 @@
 //! Tick 148: explode `s_test_special` — special OR Cspecial → specials_dead++;
 //! never decrement specialobjtotal / never set GF_BOSSDEAD (AUDIT_HUD Critical #3).
 
-use sf_game::alien::{ASF4_CSPECIAL, ASF4_SPECIAL};
+use sf_game::alien::{ASF4_CSPECIAL, ASF_SPECIAL};
 use sf_game::vars::GF_BOSSDEAD;
 use sf_game::Game;
 use sf_strat::enemy_a::{strat_explode, wm};
@@ -17,7 +17,7 @@ fn spawn(g: &mut Game) -> u16 {
 fn explode_counts_plain_special_into_specials_dead() {
     let mut g = Game::new();
     let idx = spawn(&mut g);
-    g.objs.aliens[idx as usize].sflags4 |= ASF4_SPECIAL;
+    g.objs.aliens[idx as usize].sflags |= ASF_SPECIAL;
     g.objs.aliens[idx as usize].sflags2 |= 0x08; // ASF2_NOEXPSND — quiet
     g.world.specialobjtotal = 3;
     g.vars.write_ext8(wm::SPECIALS_DEAD, 0);

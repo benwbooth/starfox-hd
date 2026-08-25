@@ -1,6 +1,6 @@
 //! ROM bossBrob pounce / rndpos / foot / ment (GB3STRAT.ASM).
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_NOHITAFFECT, ATGND};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ATGND};
 use sf_game::Game;
 use sf_strat::bossb::{
     bossbent_istrat, bossbrobfoot_istrat, bossbrobfoot_strat, bossbrobment2_srou,
@@ -43,9 +43,9 @@ fn ment2_defers_trail_initializer_like_the_object_scheduler() {
     let mother = spawn_rob(&mut g);
     let child = bossbrobment2_srou(&mut g, mother).expect("ment2");
     assert_ne!(g.objs.aliens[child as usize].type_ & ATGND, 0);
-    assert_eq!(g.objs.aliens[child as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[child as usize].sflags2 & ASF2_COLLDISABLE, 0);
     bossbent_istrat(&mut g, child);
-    assert_ne!(g.objs.aliens[child as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[child as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]
@@ -129,9 +129,9 @@ fn rndpos2_clears_nohitaffect() {
     let mut g = Game::new();
     spawn_player(&mut g, 0);
     let idx = spawn_rob(&mut g);
-    g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+    g.objs.aliens[idx as usize].sflags3 |= ASF3_NOHITAFFECT;
     bossbrobrndpos2_istrat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 #[test]

@@ -17,11 +17,37 @@ use sf_core::scene::{DepthColors, SceneStyle};
 use std::collections::HashMap;
 
 pub const MAX_SHAPES: usize = 512;
+const SOURCE_LOCAL_FACE_INDICES: [u16; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const SOURCE_LOD_DEPTH_THRESHOLDS: [i16; 3] = [1_000, 2_000, 3_000];
+const SOURCE_ANIMATION_COUNTER_MASK: u8 = 63;
 
-const TEX_BANK_01: &[u8; 32768] =
+fn sf1_animation_frame_index(animation_frame: u8, frame_count: usize) -> usize {
+    usize::from(animation_frame & SOURCE_ANIMATION_COUNTER_MASK) % frame_count
+}
+
+fn source_lod_index(object_depth: i16) -> Option<usize> {
+    SOURCE_LOD_DEPTH_THRESHOLDS
+        .iter()
+        .rposition(|threshold| object_depth >= *threshold)
+}
+
+const SOURCE_TEX_BANK_01: &[u8; 32768] =
     include_bytes!("../../../reference/ultrastarfox/SF/MSPRITES/TEX_01.BIN");
 const TEX_BANK_23: &[u8; 32768] =
     include_bytes!("../../../reference/ultrastarfox/SF/MSPRITES/TEX_23.BIN");
+const RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS: usize = 0x0CC5;
+const RETAIL_REVISION_2_PILLAR_TEXEL: u8 = 0x59;
+
+const fn retail_revision_2_texture_bank_01() -> [u8; 32_768] {
+    let mut texture = *SOURCE_TEX_BANK_01;
+    texture[RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS] = RETAIL_REVISION_2_PILLAR_TEXEL;
+    texture
+}
+
+/// The Rev-2 retail ROM differs from the reconstructed source asset at one
+/// packed pillar texel. Keep that observed target revision explicit while the
+/// reference tree remains an unmodified static-analysis input.
+const TEX_BANK_01: [u8; 32_768] = retail_revision_2_texture_bank_01();
 
 #[derive(Clone, Copy)]
 struct TextureLayout {
@@ -112,6 +138,8 @@ pub struct GpuShape {
     pub faces: Vec<ShapeFace>,
     /// Authored back-to-front hierarchy for source-resolution rendering.
     pub painter_nodes: Vec<ShapePainterNode>,
+    /// Starts of adjacent vertex pairs sharing an authored X reflection.
+    pub reflected_pair_starts: Vec<u16>,
     /// Derived flat normals, one per face (zero for degenerate faces).
     pub face_normals: Vec<[f32; 3]>,
     /// All fan-triangulated triangle vertices (3 per triangle), face order.
@@ -124,6 +152,22 @@ pub struct GpuShape {
     pub num_line_verts: i32,
     /// Per-face first line vertex within `line_verts`, -1 = not a line face.
     pub face_line_first: Vec<i32>,
+}
+
+struct SourceLodShape {
+    base: GpuShape,
+    animation_frames: Vec<GpuShape>,
+}
+
+impl SourceLodShape {
+    fn frame(&self, animation_frame: u8) -> &GpuShape {
+        if self.animation_frames.is_empty() {
+            &self.base
+        } else {
+            &self.animation_frames
+                [sf1_animation_frame_index(animation_frame, self.animation_frames.len())]
+        }
+    }
 }
 
 /// Mirror of `BuildFaceNormals`: cross-product normals flipped to point
@@ -202,6 +246,17 @@ fn resolve_face_normals(vertices: &[ShapeVertex], faces: &[ShapeFace]) -> Vec<[f
             }
         })
         .collect()
+}
+
+fn source_explosion_face_indices(face: &ShapeFace, base_points: &[ProjectedPoint]) -> Vec<u16> {
+    let mut indices = face.vertex_indices[..usize::from(face.num_verts)].to_vec();
+    if face
+        .visibility_vertices
+        .is_some_and(|visibility| !source_projection::face_is_visible(base_points, visibility))
+    {
+        indices.reverse();
+    }
+    indices
 }
 
 /// Mirror of `Shapes_BuildExplodedModelMatrix` (`mexpfacesinit`).
@@ -388,6 +443,7 @@ pub struct ShapeStore {
     /// id. Each vector includes frame zero and follows the source Frames-table
     /// period; no source addresses or shape-language state reach rendering.
     sf1_animation_frames: HashMap<u16, Vec<GpuShape>>,
+    sf1_source_lods: HashMap<u16, [Option<SourceLodShape>; 3]>,
     sf2_shapes: HashMap<u16, GpuShape>,
     sf2_animation_frames: HashMap<u16, Vec<GpuShape>>,
     depthz_table: usize,
@@ -403,6 +459,7 @@ impl ShapeStore {
         ShapeStore {
             shapes,
             sf1_animation_frames: HashMap::new(),
+            sf1_source_lods: HashMap::new(),
             sf2_shapes: HashMap::new(),
             sf2_animation_frames: HashMap::new(),
             depthz_table: DEPTHZ_NORMAL,
@@ -515,6 +572,7 @@ impl ShapeStore {
         verts: &[ShapeVertex],
         faces: &[ShapeFace],
         painter_nodes: &[ShapePainterNode],
+        reflected_pair_starts: &[u16],
         default_color_table: u16,
         is_sf2: bool,
     ) -> GpuShape {
@@ -603,6 +661,7 @@ impl ShapeStore {
             vertices,
             faces,
             painter_nodes: painter_nodes.to_vec(),
+            reflected_pair_starts: reflected_pair_starts.to_vec(),
             face_normals,
             tri_verts,
             line_verts,
@@ -628,6 +687,7 @@ impl ShapeStore {
         self.shapes[id] = Some(Self::build_gpu_shape(
             verts,
             faces,
+            &[],
             &[],
             default_color_table,
             false,
@@ -671,7 +731,7 @@ impl ShapeStore {
                     visibility_vertices: face.visibility_vertices,
                 })
                 .collect();
-            let shape = Self::build_gpu_shape(&vertices, &faces, &[], entry.color_table, true);
+            let shape = Self::build_gpu_shape(&vertices, &faces, &[], &[], entry.color_table, true);
             let flat_shape_id = sf_core::shape::sf2_shape_id(entry.header_index);
             self.sf2_shapes.insert(flat_shape_id, shape);
             if !entry.animation_frames.is_empty() {
@@ -682,6 +742,7 @@ impl ShapeStore {
                         Self::build_gpu_shape(
                             &convert_vertices(vertices),
                             &faces,
+                            &[],
                             &[],
                             entry.color_table,
                             true,
@@ -698,7 +759,7 @@ impl ShapeStore {
     /// no hand-authored runtime mesh overrides are involved.
     pub fn register_builtins(&mut self, gpu: &mut Gpu) {
         self.sf1_texture_banks = [
-            Some(gpu.create_texture_r8(256, 128, TEX_BANK_01)),
+            Some(gpu.create_texture_r8(256, 128, &TEX_BANK_01)),
             Some(gpu.create_texture_r8(256, 128, TEX_BANK_23)),
         ];
         self.sf2_texture_banks = [
@@ -707,6 +768,7 @@ impl ShapeStore {
             Some(gpu.create_texture_r8(256, 128, &sf2_data::textures::TEXTURE_BANK_2)),
         ];
         self.sf1_animation_frames.clear();
+        self.sf1_source_lods.clear();
         for entry in shape_data::SHAPE_DATA.iter() {
             let table = crate::color_data::table_id_by_name(entry.default_color_table)
                 .unwrap_or(SHAPE_COLTAB_ID_0 as u16);
@@ -716,6 +778,7 @@ impl ShapeStore {
                     entry.vertices,
                     entry.faces,
                     entry.painter_nodes,
+                    entry.reflected_pair_starts,
                     table,
                     false,
                 ));
@@ -729,12 +792,42 @@ impl ShapeStore {
                             vertices,
                             entry.faces,
                             entry.painter_nodes,
+                            entry.reflected_pair_starts,
                             table,
                             false,
                         )
                     })
                     .collect();
                 self.sf1_animation_frames.insert(entry.shape_id, frames);
+            }
+            if entry.source_lods.iter().any(Option::is_some) {
+                let source_lods = entry.source_lods.map(|lod| {
+                    lod.map(|lod| SourceLodShape {
+                        base: Self::build_gpu_shape(
+                            lod.vertices,
+                            lod.faces,
+                            lod.painter_nodes,
+                            lod.reflected_pair_starts,
+                            table,
+                            false,
+                        ),
+                        animation_frames: lod
+                            .animation_frames
+                            .iter()
+                            .map(|vertices| {
+                                Self::build_gpu_shape(
+                                    vertices,
+                                    lod.faces,
+                                    lod.painter_nodes,
+                                    lod.reflected_pair_starts,
+                                    table,
+                                    false,
+                                )
+                            })
+                            .collect(),
+                    })
+                });
+                self.sf1_source_lods.insert(entry.shape_id, source_lods);
             }
         }
         self.register_sf2_shapes();
@@ -756,6 +849,7 @@ impl ShapeStore {
         shape: &GpuShape,
         face: &ShapeFace,
         material: u16,
+        texture_scroll: [u8; 2],
     ) -> Option<(Vec<Vertex3Tex>, TextureId, bool)> {
         let (layout_index, descriptor_index, high_nibble) =
             texture_material_fields(shape.is_sf2, material);
@@ -789,6 +883,8 @@ impl ShapeStore {
                 let vi = face.vertex_indices[ordinal] as usize;
                 let v = shape.vertices.get(vi)?;
                 let [x, y] = coords[ordinal];
+                let x = x.wrapping_add(texture_scroll[0]);
+                let y = y.wrapping_add(texture_scroll[1]);
                 out.push(Vertex3Tex {
                     pos: [v.x, v.y, v.z],
                     tex_info: [x as f32, y as f32, offset as f32, mask as f32],
@@ -796,6 +892,48 @@ impl ShapeStore {
             }
         }
         Some((out, texture, high_nibble))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_source_textured_face(
+        &self,
+        raster: &mut SourceRaster,
+        points: &[ProjectedPoint],
+        indices: &[u16],
+        face: &ShapeFace,
+        material: u16,
+        texture_scroll: [u8; 2],
+        palette: &[[f32; 4]; 16],
+    ) -> bool {
+        let (layout_index, descriptor_index, high_nibble) =
+            texture_material_fields(false, material);
+        let Some(layout) = TEXTURE_XY.get(layout_index) else {
+            return false;
+        };
+        let Some(descriptor) = crate::color_data::TEXTURE_SPRITES.get(descriptor_index) else {
+            return false;
+        };
+        let texture = match descriptor.bank {
+            0 => TEX_BANK_01.as_slice(),
+            1 => TEX_BANK_23.as_slice(),
+            _ => return false,
+        };
+        let vertex_count = usize::from(face.num_verts);
+        if !(3..=4).contains(&vertex_count) {
+            return false;
+        }
+        raster.draw_textured_polygon(
+            points,
+            indices,
+            &layout.coords[..vertex_count],
+            texture,
+            descriptor.offset,
+            layout.mask,
+            high_nibble,
+            texture_scroll,
+            palette,
+        );
+        true
     }
 
     fn source_face_order(shape: &GpuShape, points: &[ProjectedPoint]) -> Vec<usize> {
@@ -892,12 +1030,9 @@ impl ShapeStore {
         ) else {
             return false;
         };
-        let Some(material) = resolve_registered_face_material(
-            shape,
-            material_index,
-            col_frame,
-            color_table,
-        ) else {
+        let Some(material) =
+            resolve_registered_face_material(shape, material_index, col_frame, color_table)
+        else {
             return false;
         };
         let (layout_index, descriptor_index, high_nibble) =
@@ -915,8 +1050,9 @@ impl ShapeStore {
         };
         let source_size = (layout.mask & 255) + 1;
         raster.set_face(crate::source_raster::NO_FACE);
-        let texture_palette: [[f32; 4]; 16] =
-            std::array::from_fn(|index| [palette[index][0], palette[index][1], palette[index][2], 1.0]);
+        let texture_palette: [[f32; 4]; 16] = std::array::from_fn(|index| {
+            [palette[index][0], palette[index][1], palette[index][2], 1.0]
+        });
         raster.draw_scaled_sprite(
             projected.top_left,
             projected.size,
@@ -929,38 +1065,59 @@ impl ShapeStore {
         true
     }
 
+    fn source_shape_for_depth<'a>(
+        &'a self,
+        shape_id: u16,
+        object_depth: i16,
+        animation_frame: u8,
+        base: &'a GpuShape,
+    ) -> &'a GpuShape {
+        let Some(lod_index) = source_lod_index(object_depth) else {
+            return base;
+        };
+        self.sf1_source_lods
+            .get(&shape_id)
+            .and_then(|lods| lods[lod_index].as_ref())
+            .map_or(base, |lod| lod.frame(animation_frame))
+    }
+
     fn render_source_projected(
         &self,
         raster: &mut SourceRaster,
         shape_id: u16,
         shape: &GpuShape,
+        animation_frame: u8,
         col_frame: u8,
         color_table: u16,
+        texture_scroll: [u8; 2],
         pose: SourcePose,
         palette: &shapes::ShapePaletteRgb,
     ) -> bool {
-        if shape.is_sf2
-            || shape.faces.iter().any(|face| face.num_verts < 3)
-            || shape.faces.iter().any(|face| {
-                resolve_registered_face_material(shape, face.color_index, col_frame, color_table)
-                    .is_some_and(|material| material & 0xC000 == shapes::MATERIAL_COLTEXT_FLAG)
-            })
-        {
+        if shape.is_sf2 {
             return false;
         }
         let flat_shape_id = shapes::resolve_shape_word(shape_id);
         let Some(metrics) = sf_core::sf1_shape_metrics::sf1_shape_metrics(flat_shape_id) else {
             return false;
         };
-        let projected =
-            source_projection::project_shape(&shape.vertices, metrics.coordinate_shift, pose);
-        if projected
-            .points
-            .iter()
-            .any(|point| point.depth < source_projection::MIN_FRONT_DEPTH)
-        {
-            return false;
-        }
+        let base_projection = source_projection::project_shape(
+            &shape.vertices,
+            &shape.reflected_pair_starts,
+            metrics.coordinate_shift,
+            pose,
+        );
+        let shape = self.source_shape_for_depth(
+            flat_shape_id,
+            base_projection.object_depth,
+            animation_frame,
+            shape,
+        );
+        let projected = source_projection::project_shape(
+            &shape.vertices,
+            &shape.reflected_pair_starts,
+            metrics.coordinate_shift,
+            pose,
+        );
         if source_projection::shape_is_outside_playfield(&projected.points) {
             return true;
         }
@@ -978,7 +1135,51 @@ impl ShapeStore {
                 continue;
             }
             raster.set_face(face_index as u16);
-            let indices = &face.vertex_indices[..usize::from(face.num_verts)];
+            let authored_indices = &face.vertex_indices[..usize::from(face.num_verts)];
+            let material =
+                resolve_registered_face_material(shape, face.color_index, col_frame, color_table);
+            let crosses_near_plane = authored_indices.iter().any(|index| {
+                projected.view_points[usize::from(*index)][2] < source_projection::MIN_FRONT_DEPTH
+            });
+            if crosses_near_plane
+                && material
+                    .is_some_and(|material| material & 0xC000 == shapes::MATERIAL_COLTEXT_FLAG)
+            {
+                continue;
+            }
+            let clipped_points = crosses_near_plane.then(|| {
+                source_projection::project_near_clipped_face(
+                    &projected.view_points,
+                    authored_indices,
+                )
+            });
+            let (face_points, indices) = clipped_points.as_ref().map_or_else(
+                || (projected.points.as_slice(), authored_indices),
+                |points| {
+                    (
+                        points.as_slice(),
+                        &SOURCE_LOCAL_FACE_INDICES[..points.len()],
+                    )
+                },
+            );
+            let minimum_vertices = if face.num_verts == 2 { 2 } else { 3 };
+            if indices.len() < minimum_vertices {
+                continue;
+            }
+            if let Some(material) =
+                material.filter(|material| material & 0xC000 == shapes::MATERIAL_COLTEXT_FLAG)
+            {
+                self.render_source_textured_face(
+                    raster,
+                    face_points,
+                    indices,
+                    face,
+                    material,
+                    texture_scroll,
+                    &texture_palette,
+                );
+                continue;
+            }
             let shade_index =
                 shapes::compute_quantized_shade_index(face.normal, projected.object_light);
             if let Some(pair) = resolve_registered_face_palette_pair(
@@ -990,12 +1191,21 @@ impl ShapeStore {
                 depth_bank,
                 self.depth_colors,
             ) {
-                raster.draw_palette_pair(
-                    &projected.points,
-                    indices,
-                    &texture_palette,
-                    [pair.low, pair.high],
-                );
+                if face.num_verts == 2 {
+                    raster.draw_palette_line(
+                        face_points,
+                        indices,
+                        &texture_palette,
+                        [pair.low, pair.high],
+                    );
+                } else {
+                    raster.draw_palette_pair(
+                        face_points,
+                        indices,
+                        &texture_palette,
+                        [pair.low, pair.high],
+                    );
+                }
             } else {
                 let color = resolve_registered_face_color(
                     shape,
@@ -1007,7 +1217,140 @@ impl ShapeStore {
                     self.depth_colors,
                     palette,
                 );
-                raster.draw_solid(&projected.points, indices, color);
+                if face.num_verts == 2 {
+                    raster.draw_solid_line(face_points, indices, color);
+                } else {
+                    raster.draw_solid(face_points, indices, color);
+                }
+            }
+        }
+        true
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_source_exploded(
+        &self,
+        raster: &mut SourceRaster,
+        shape_id: u16,
+        shape: &GpuShape,
+        animation_frame: u8,
+        col_frame: u8,
+        color_table: u16,
+        texture_scroll: [u8; 2],
+        explosion_state: u8,
+        pose: SourcePose,
+        palette: &shapes::ShapePaletteRgb,
+    ) -> bool {
+        if shape.is_sf2 {
+            return false;
+        }
+        let flat_shape_id = shapes::resolve_shape_word(shape_id);
+        let Some(metrics) = sf_core::sf1_shape_metrics::sf1_shape_metrics(flat_shape_id) else {
+            return false;
+        };
+        let base_projection = source_projection::project_shape(
+            &shape.vertices,
+            &shape.reflected_pair_starts,
+            metrics.coordinate_shift,
+            pose,
+        );
+        let shape = self.source_shape_for_depth(
+            flat_shape_id,
+            base_projection.object_depth,
+            animation_frame,
+            shape,
+        );
+        let base_projection = source_projection::project_shape(
+            &shape.vertices,
+            &shape.reflected_pair_starts,
+            metrics.coordinate_shift,
+            pose,
+        );
+        let depth_bank =
+            shapes::select_depth_bank(f32::from(base_projection.object_depth), self.depthz_table);
+        let texture_palette: [[f32; 4]; 16] = std::array::from_fn(|index| {
+            [palette[index][0], palette[index][1], palette[index][2], 1.0]
+        });
+
+        for face_index in Self::source_face_order(shape, &base_projection.points) {
+            let face = &shape.faces[face_index];
+            let authored_indices = source_explosion_face_indices(face, &base_projection.points);
+            let projected = source_projection::project_exploded_face(
+                &shape.vertices,
+                &shape.reflected_pair_starts,
+                &authored_indices,
+                face.normal,
+                metrics.coordinate_shift,
+                explosion_state,
+                pose,
+            );
+            if projected
+                .points
+                .iter()
+                .any(|point| point.depth < source_projection::MIN_FRONT_DEPTH)
+            {
+                continue;
+            }
+            let indices = &SOURCE_LOCAL_FACE_INDICES[..usize::from(face.num_verts)];
+            raster.set_face(face_index as u16);
+            let material =
+                resolve_registered_face_material(shape, face.color_index, col_frame, color_table);
+            if let Some(material) =
+                material.filter(|material| material & 0xC000 == shapes::MATERIAL_COLTEXT_FLAG)
+            {
+                self.render_source_textured_face(
+                    raster,
+                    &projected.points,
+                    indices,
+                    face,
+                    material,
+                    texture_scroll,
+                    &texture_palette,
+                );
+                continue;
+            }
+            let shade_index =
+                shapes::compute_quantized_shade_index(face.normal, base_projection.object_light);
+            if let Some(pair) = resolve_registered_face_palette_pair(
+                shape,
+                face.color_index,
+                col_frame,
+                color_table,
+                shade_index,
+                depth_bank,
+                self.depth_colors,
+            ) {
+                if face.num_verts == 2 {
+                    raster.draw_palette_line(
+                        &projected.points,
+                        indices,
+                        &texture_palette,
+                        [pair.low, pair.high],
+                    );
+                } else {
+                    raster.draw_palette_pair(
+                        &projected.points,
+                        indices,
+                        &texture_palette,
+                        [pair.low, pair.high],
+                    );
+                }
+            } else {
+                let color = resolve_registered_face_color(
+                    shape,
+                    face.color_index,
+                    col_frame,
+                    color_table,
+                    shade_index,
+                    depth_bank,
+                    self.depth_colors,
+                    palette,
+                );
+                if face.num_verts == 2 {
+                    raster.draw_solid_line(&projected.points, indices, color);
+                } else {
+                    raster.draw_solid(&projected.points, indices, color);
+                }
             }
         }
         true
@@ -1016,12 +1359,13 @@ impl ShapeStore {
     /// Rasterize the retail fixed-point shadow pass into the same indexed
     /// bitmap as the normal polygons. Ordinary source shadows reuse the
     /// object's mesh, flatten its height contribution, and alternate shadow
-    /// color nine with transparency on the source checkerboard.
+    /// color nine with cleared pixels on the source checkerboard.
     pub fn render_source_shadow(
         &self,
         raster: &mut SourceRaster,
         shape_id: u16,
         anim_frame: u8,
+        explosion_state: u8,
         pose: SourcePose,
         palette: &shapes::ShapePaletteRgb,
     ) -> bool {
@@ -1032,7 +1376,7 @@ impl ShapeStore {
         } else {
             let flat_shape_id = shapes::resolve_shape_word(shape_id);
             if let Some(frames) = self.sf1_animation_frames.get(&flat_shape_id) {
-                &frames[usize::from(anim_frame) % frames.len()]
+                &frames[sf1_animation_frame_index(anim_frame, frames.len())]
             } else {
                 let Some(shape) = self.shapes[flat_shape_id as usize].as_ref() else {
                     return false;
@@ -1040,15 +1384,28 @@ impl ShapeStore {
                 shape
             }
         };
-        if shape.is_sf2 || shape.faces.iter().any(|face| face.num_verts < 3) {
+        if shape.is_sf2 {
             return false;
         }
         let flat_shape_id = shapes::resolve_shape_word(shape_id);
         let Some(metrics) = sf_core::sf1_shape_metrics::sf1_shape_metrics(flat_shape_id) else {
             return false;
         };
+        let base_projection = source_projection::project_shadow_shape(
+            &shape.vertices,
+            &shape.reflected_pair_starts,
+            metrics.coordinate_shift,
+            pose,
+        );
+        let shape = self.source_shape_for_depth(
+            flat_shape_id,
+            base_projection.object_depth,
+            anim_frame,
+            shape,
+        );
         let projected = source_projection::project_shadow_shape(
             &shape.vertices,
+            &shape.reflected_pair_starts,
             metrics.coordinate_shift,
             pose,
         );
@@ -1066,18 +1423,54 @@ impl ShapeStore {
         const SOURCE_SHADOW_PAIR: [u8; 2] = [9, 0];
         for face_index in Self::source_face_order(shape, &projected.points) {
             let face = &shape.faces[face_index];
-            if face.visibility_vertices.is_some_and(|indices| {
-                !source_projection::face_is_visible(&projected.points, indices)
-            }) {
+            if explosion_state == 0
+                && face.visibility_vertices.is_some_and(|indices| {
+                    !source_projection::face_is_visible(&projected.points, indices)
+                })
+            {
                 continue;
             }
             raster.set_face(face_index as u16);
-            raster.draw_palette_pair(
-                &projected.points,
-                &face.vertex_indices[..usize::from(face.num_verts)],
-                &texture_palette,
-                SOURCE_SHADOW_PAIR,
+            let authored_indices = &face.vertex_indices[..usize::from(face.num_verts)];
+            let explosion_indices = (explosion_state != 0)
+                .then(|| source_explosion_face_indices(face, &projected.points));
+            let exploded = (explosion_state != 0).then(|| {
+                source_projection::project_exploded_shadow_face(
+                    &shape.vertices,
+                    &shape.reflected_pair_starts,
+                    explosion_indices
+                        .as_deref()
+                        .expect("exploded shadow indices"),
+                    face.normal,
+                    metrics.coordinate_shift,
+                    explosion_state,
+                    pose,
+                )
+            });
+            let (face_points, face_indices) = exploded.as_ref().map_or_else(
+                || (projected.points.as_slice(), authored_indices),
+                |exploded| {
+                    (
+                        exploded.points.as_slice(),
+                        &SOURCE_LOCAL_FACE_INDICES[..usize::from(face.num_verts)],
+                    )
+                },
             );
+            if face.num_verts == 2 {
+                raster.draw_palette_line(
+                    face_points,
+                    face_indices,
+                    &texture_palette,
+                    SOURCE_SHADOW_PAIR,
+                );
+            } else {
+                raster.draw_palette_pair(
+                    face_points,
+                    face_indices,
+                    &texture_palette,
+                    SOURCE_SHADOW_PAIR,
+                );
+            }
         }
         true
     }
@@ -1095,6 +1488,7 @@ impl ShapeStore {
         anim_frame: u8,
         col_frame: u8,
         color_table: u16,
+        texture_scroll: [u8; 2],
         explosion_state: u8,
         model_matrix: &[f32; 16],
         source_pose: Option<SourcePose>,
@@ -1110,7 +1504,7 @@ impl ShapeStore {
                 return;
             }
             if let Some(frames) = self.sf1_animation_frames.get(&flat_shape_id) {
-                &frames[usize::from(anim_frame) % frames.len()]
+                &frames[sf1_animation_frame_index(anim_frame, frames.len())]
             } else {
                 let Some(shape) = self.shapes[flat_shape_id as usize].as_ref() else {
                     return;
@@ -1127,20 +1521,36 @@ impl ShapeStore {
         crate::transform::multiply(&mut projection_view_model, &projection_view, model_matrix);
         let depth_bank = self.select_depth_bank(&view, model_matrix);
         let light_object = compute_object_light(model_matrix);
-        if explosion_state == 0
-            && source_pose.is_some_and(|pose| {
+        if let Some(pose) = source_pose {
+            let rendered = if explosion_state == 0 {
                 self.render_source_projected(
                     source_raster,
                     shape_id,
                     shape,
+                    anim_frame,
                     col_frame,
                     color_table,
+                    texture_scroll,
                     pose,
                     palette,
                 )
-            })
-        {
-            return;
+            } else {
+                self.render_source_exploded(
+                    source_raster,
+                    shape_id,
+                    shape,
+                    anim_frame,
+                    col_frame,
+                    color_table,
+                    texture_scroll,
+                    explosion_state,
+                    pose,
+                    palette,
+                )
+            };
+            if rendered {
+                return;
+            }
         }
         let texture_palette: [[f32; 4]; 16] =
             std::array::from_fn(|i| [palette[i][0], palette[i][1], palette[i][2], 1.0]);
@@ -1227,7 +1637,7 @@ impl ShapeStore {
                 resolve_registered_face_material(shape, face.color_index, col_frame, color_table);
             if material.is_some_and(|word| word & 0xC000 == shapes::MATERIAL_COLTEXT_FLAG) {
                 if let Some((verts, texture, high_nibble)) =
-                    self.textured_face_vertices(shape, face, material.unwrap())
+                    self.textured_face_vertices(shape, face, material.unwrap(), texture_scroll)
                 {
                     gpu.push_textured_tris(
                         &verts,
@@ -1295,12 +1705,79 @@ impl Default for ShapeStore {
 mod tests {
     use super::{
         face_is_camera_visible, resolve_registered_face_material,
-        resolve_registered_face_palette_pair, texture_address, texture_material_fields, ShapeStore,
-        TEXTURE_XY,
+        resolve_registered_face_palette_pair, sf1_animation_frame_index,
+        source_explosion_face_indices, source_lod_index, texture_address, texture_material_fields,
+        ShapeStore, RETAIL_REVISION_2_PILLAR_TEXEL, RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS,
+        SOURCE_TEX_BANK_01, TEXTURE_XY, TEX_BANK_01,
     };
     use crate::shape_data::{ShapeFace, ShapeVertex};
     use crate::shapes;
     use sf_core::shape::sf2_shape_id;
+
+    #[test]
+    fn source_lod_thresholds_match_the_authored_distance_bands() {
+        assert_eq!(source_lod_index(999), None);
+        assert_eq!(source_lod_index(1_000), Some(0));
+        assert_eq!(source_lod_index(1_999), Some(0));
+        assert_eq!(source_lod_index(2_000), Some(1));
+        assert_eq!(source_lod_index(2_999), Some(1));
+        assert_eq!(source_lod_index(3_000), Some(2));
+    }
+
+    #[test]
+    fn sf1_animation_selection_masks_before_reducing_the_frame_table() {
+        const ROBOT_FRAME_COUNT: usize = 12;
+
+        assert_eq!(sf1_animation_frame_index(71, ROBOT_FRAME_COUNT), 7);
+        assert_eq!(sf1_animation_frame_index(63, ROBOT_FRAME_COUNT), 3);
+        assert_eq!(sf1_animation_frame_index(64, ROBOT_FRAME_COUNT), 0);
+    }
+
+    #[test]
+    fn retail_revision_two_pillar_texel_is_an_explicit_source_correction() {
+        assert_eq!(
+            SOURCE_TEX_BANK_01[RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS],
+            0x5A
+        );
+        assert_eq!(RETAIL_REVISION_2_PILLAR_TEXEL, 0x59);
+        assert_eq!(
+            TEX_BANK_01[RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS],
+            RETAIL_REVISION_2_PILLAR_TEXEL,
+        );
+    }
+
+    #[test]
+    fn hidden_explosion_face_reverses_its_authored_vertex_stream() {
+        let debris = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == 465)
+            .expect("compiled Training debris");
+        let face = &debris.faces[2];
+        let points = [
+            crate::source_projection::ProjectedPoint {
+                x: 96,
+                y: 151,
+                depth: 186,
+            },
+            crate::source_projection::ProjectedPoint {
+                x: 109,
+                y: 144,
+                depth: 186,
+            },
+            crate::source_projection::ProjectedPoint {
+                x: 123,
+                y: 150,
+                depth: 186,
+            },
+            crate::source_projection::ProjectedPoint {
+                x: 85,
+                y: 149,
+                depth: 186,
+            },
+        ];
+
+        assert_eq!(source_explosion_face_indices(face, &points), [2, 1, 3]);
+    }
 
     fn visibility_test_shape(selector: Option<[u16; 3]>) -> super::GpuShape {
         let vertices = [
@@ -1327,7 +1804,7 @@ mod tests {
             normal: [0, 127, 0],
             visibility_vertices: selector,
         }];
-        ShapeStore::build_gpu_shape(&vertices, &faces, &[], 0, false)
+        ShapeStore::build_gpu_shape(&vertices, &faces, &[], &[], 0, false)
     }
 
     #[test]
@@ -1342,6 +1819,7 @@ mod tests {
             source.vertices,
             source.faces,
             source.painter_nodes,
+            source.reflected_pair_starts,
             table,
             false,
         );

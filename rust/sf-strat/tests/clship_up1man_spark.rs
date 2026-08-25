@@ -131,7 +131,7 @@ fn up1manchild_firenorm_boss2spark() {
 
     let c1 = spawn_obj(&mut g);
     g.objs.aliens[c1 as usize].ptr = obj_link(mother);
-    g.objs.aliens[c1 as usize].sflags3 |= sf_game::alien::ASF3_CHILDOBJ;
+    g.objs.aliens[c1 as usize].sflags4 |= sf_game::alien::ASF4_CHILDOBJ;
     up1manchild1_istrat(&mut g, c1);
     assert_eq!(g.objs.aliens[c1 as usize].hp, HARD_HP);
     assert_eq!(g.objs.aliens[c1 as usize].sbyte2 as i8, -80);
@@ -142,13 +142,13 @@ fn up1manchild_firenorm_boss2spark() {
 
     let c2 = spawn_obj(&mut g);
     g.objs.aliens[c2 as usize].ptr = obj_link(mother);
-    g.objs.aliens[c2 as usize].sflags3 |= sf_game::alien::ASF3_CHILDOBJ;
+    g.objs.aliens[c2 as usize].sflags4 |= sf_game::alien::ASF4_CHILDOBJ;
     up1manchild2_istrat(&mut g, c2);
     assert_eq!(g.objs.aliens[c2 as usize].sbyte2 as i8, 80);
 
     let c3 = spawn_obj(&mut g);
     g.objs.aliens[c3 as usize].ptr = obj_link(mother);
-    g.objs.aliens[c3 as usize].sflags3 |= sf_game::alien::ASF3_CHILDOBJ;
+    g.objs.aliens[c3 as usize].sflags4 |= sf_game::alien::ASF4_CHILDOBJ;
     up1manchild3_istrat(&mut g, c3);
     assert_eq!(g.objs.aliens[c3 as usize].sbyte3 as i8, -90);
     assert_eq!(g.objs.aliens[c3 as usize].sbyte4, 0);

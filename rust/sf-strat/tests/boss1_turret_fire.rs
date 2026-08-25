@@ -1,6 +1,6 @@
 //! ROM boss1turret_nfire / boss1turretfire_end (GBSTRATS.ASM:353-401).
 
-use sf_game::alien::{ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF_NOHITAFFECT};
+use sf_game::alien::{ASF4_CHILDOBJ, ASF4_MOTHEROBJ, ASF_NOHITAFFECT};
 use sf_game::Game;
 use sf_strat::enemy_a::{
     boss1turret_nfire, boss1turretfire_end, boss_attach_child_to_mother, bossflags, set_bossflags,
@@ -14,9 +14,9 @@ fn spawn(g: &mut Game) -> u16 {
 }
 
 fn link_mother_child(g: &mut Game, mother: u16, child: u16, child_num: u8) {
-    g.objs.aliens[mother as usize].sflags3 |= ASF3_MOTHEROBJ;
+    g.objs.aliens[mother as usize].sflags4 |= ASF4_MOTHEROBJ;
     boss_attach_child_to_mother(g, mother, child, child_num);
-    assert_ne!(g.objs.aliens[child as usize].sflags3 & ASF3_CHILDOBJ, 0);
+    assert_ne!(g.objs.aliens[child as usize].sflags4 & ASF4_CHILDOBJ, 0);
 }
 
 #[test]

@@ -16,7 +16,7 @@ use sf_game::vars::COLLTYPE_ENEMY1;
 use sf_strat::bossh;
 
 const WM_RNDVAL: u16 = 0x1F00;
-const ASF3_CHILDOBJ: u8 = 0x10; // enemy_a::ASF3_CHILDOBJ
+const ASF4_CHILDOBJ: u8 = 0x10; // enemy_a::ASF4_CHILDOBJ
 const ASF_NOHITAFFECT: u8 = 0x40; // alien::ASF_NOHITAFFECT
 const ASF4_PLAYEROBJ: u8 = 0x01;
 const TEST_RANDOM_SEED: u16 = 4660;
@@ -100,7 +100,7 @@ fn legs(g: &Game, mother: u16) -> Vec<u16> {
         .filter(|&i| {
             let a = &g.objs.aliens[i];
             a.active
-                && a.sflags3 & ASF3_CHILDOBJ != 0
+                && a.sflags4 & ASF4_CHILDOBJ != 0
                 && (FIRST_LEG_CHILD_NUMBER..=LAST_LEG_CHILD_NUMBER).contains(&a.sbyte1)
                 && a.ptr as usize == mother as usize + 1 // boss_obj_index_or_null = idx+1
         })
@@ -113,7 +113,7 @@ fn child(g: &Game, mother: u16, child_number: u8) -> Option<u16> {
         .find(|&index| {
             let object = &g.objs.aliens[index];
             object.active
-                && object.sflags3 & ASF3_CHILDOBJ != 0
+                && object.sflags4 & ASF4_CHILDOBJ != 0
                 && object.sbyte1 == child_number
                 && object.ptr as usize == mother as usize + 1
         })

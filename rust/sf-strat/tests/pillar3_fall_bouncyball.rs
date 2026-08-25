@@ -2,7 +2,7 @@
 //! Medium #36 leftover Minor). ROM `pillar3fall_i` (DSTRATS.ASM:804-809) and
 //! `pillar3ffall_i` (KSTRATS.ASM:655-658).
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ, ASF_NOHITAFFECT, ASF_SHADOW};
 use sf_game::game::{Game, Hooks};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemies_ground::pillar3f_istrat;
@@ -57,7 +57,7 @@ fn find_killed_child(g: &Game, pillar: u16) -> Option<u16> {
                 && *i as u16 != pillar
                 && a.active
                 && a.hp == 0
-                && a.sflags & ASF_COLLDISABLE != 0
+                && a.sflags2 & ASF2_COLLDISABLE != 0
                 && a.expstratptr.is_some()
         })
         .map(|(i, _)| i as u16)
@@ -81,7 +81,7 @@ fn pillar3_fall_spawns_bouncyball_at_z_minus_10() {
     assert_eq!(child.worldz, pillar.worldz.wrapping_sub(10));
     assert_eq!(child.shape, SH_BOUNCYBALL);
     assert_eq!(child.hp, 0);
-    assert_ne!(child.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(child.sflags2 & ASF2_COLLDISABLE, 0);
     assert!(child.stratptr.is_some());
     assert!(child.collstratptr.is_some());
     assert!(child.expstratptr.is_some());

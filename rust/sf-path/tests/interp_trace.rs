@@ -20,8 +20,8 @@
 //! intentional behavior changes.
 
 use sf_path::alien::{
-    Alien, ObjectVisualKind, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE5, AFEXP, ASF4_NOPOLYEXP,
-    ASF_COLLDISABLE, ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL,
+    Alien, ObjectVisualKind, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE5, AFEXP, ASF2_COLLDISABLE,
+    ASF4_NOPOLYEXP, ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL,
 };
 use sf_path::ids::*;
 use sf_path::interp::{
@@ -318,7 +318,8 @@ impl PathHost for RecHost {
                 a.worldx = wx;
                 a.worldy = wy.wrapping_sub(120);
                 a.worldz = wz;
-                a.sflags |= ASF_COLLDISABLE | ASF_PARTOBJ;
+                a.sflags |= ASF_PARTOBJ;
+                a.sflags2 |= ASF2_COLLDISABLE;
                 a.flags |= AFEXP;
                 a.sbyte1 = 6;
                 a.sbyte2 = 60;

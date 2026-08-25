@@ -12,7 +12,7 @@
 //! - `Obj_Free` unlinks and pushes on the free head (LIFO reuse).
 
 use crate::alien::{
-    Alien, ACF_FIRSTFRAME, ASF3_CHILDOBJ, ASF3_MOTHEROBJ, ASF3_REALOBJ, ATZREMOVE, NUMBER_AL,
+    Alien, ACF_FIRSTFRAME, ASF3_REALOBJ, ASF4_CHILDOBJ, ASF4_MOTHEROBJ, ATZREMOVE, NUMBER_AL,
 };
 
 /// The alien pool plus the two intrusive lists (C `g_aliens`,
@@ -175,7 +175,7 @@ impl Objects {
             return;
         }
         // Child path: detach from mother list, clear child fields.
-        if self.aliens[idx as usize].sflags3 & ASF3_CHILDOBJ != 0 {
+        if self.aliens[idx as usize].sflags4 & ASF4_CHILDOBJ != 0 {
             let mother_ptr = self.aliens[idx as usize].ptr;
             if mother_ptr != 0 {
                 let mother = (mother_ptr as usize).wrapping_sub(1);
@@ -202,21 +202,21 @@ impl Objects {
                         cur = next;
                     }
                     if self.aliens[mother].sword1 as u16 == 0 {
-                        self.aliens[mother].sflags3 &= !ASF3_MOTHEROBJ;
+                        self.aliens[mother].sflags4 &= !ASF4_MOTHEROBJ;
                     }
                 }
             }
             {
                 let al = &mut self.aliens[idx as usize];
-                al.sflags3 &= !ASF3_CHILDOBJ;
+                al.sflags4 &= !ASF4_CHILDOBJ;
                 al.ptr = 0;
                 al.sword1 = 0;
             }
         }
 
         // Mother path: orphan every child (clear childobj + al_ptr).
-        if self.aliens[idx as usize].sflags3 & ASF3_MOTHEROBJ != 0 {
-            self.aliens[idx as usize].sflags3 &= !ASF3_MOTHEROBJ;
+        if self.aliens[idx as usize].sflags4 & ASF4_MOTHEROBJ != 0 {
+            self.aliens[idx as usize].sflags4 &= !ASF4_MOTHEROBJ;
             let mut cur = self.aliens[idx as usize].sword1 as u16;
             let mut guard = NUMBER_AL as i32 + 1;
             while cur != 0 && guard > 0 {
@@ -226,7 +226,7 @@ impl Objects {
                 };
                 let next = self.aliens[child as usize].sword1 as u16;
                 let al = &mut self.aliens[child as usize];
-                al.sflags3 &= !ASF3_CHILDOBJ;
+                al.sflags4 &= !ASF4_CHILDOBJ;
                 al.ptr = 0;
                 cur = next;
             }

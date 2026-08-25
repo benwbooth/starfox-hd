@@ -1,6 +1,6 @@
 //! ROM bossB face spin / scream / bent / entsplit (GB3STRAT.ASM).
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_NOHITAFFECT};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_NOHITAFFECT};
 use sf_game::Game;
 use sf_strat::bossb::{
     bossbent_cont, bossbent_istrat, bossbent_strat, bossbentlong_istrat, bossbentsplit2_istrat,
@@ -39,7 +39,7 @@ fn spin1_recenters_then_spin2() {
     assert!(g.objs.aliens[idx as usize].stratptr.is_some());
     // Already near center → spin2 (nohitaffect).
     bossbspin1_strat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn spinend2_screams_on_big_damage() {
     g.objs.aliens[idx as usize].sword2 = 30;
     g.objs.aliens[idx as usize].hp = 20; // Δ=10 ≥ 6
     bossbspinend2_strat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     assert!(g.objs.aliens[idx as usize].sbyte1 <= 30);
 }
 
@@ -84,7 +84,7 @@ fn scream_chain_returns_to_spinend2() {
     g.objs.aliens[idx as usize].sword2 = g.objs.aliens[idx as usize].hp as i16;
     bossbscreamend_init(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte4, 13); // 14 then spinend2 tick
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn newent_and_cols() {
     bossbspinendcol_istrat(&mut g, idx);
     let child = spawn_face(&mut g);
     bossbspinendentcol_istrat(&mut g, child);
-    assert_ne!(g.objs.aliens[child as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[child as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn bent_and_long_fade() {
     let idx = spawn_face(&mut g);
     bossbent_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].count, 7); // 8 then tick
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     bossbent_cont(&mut g, idx);
     let long = spawn_face(&mut g);
     bossbentlong_istrat(&mut g, long);
@@ -144,5 +144,5 @@ fn entsplit_fires_and_drifts() {
     bossbentsplit_strat(&mut g, idx);
     bossbentsplit_cont(&mut g, idx);
     bossbentsplit2_istrat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }

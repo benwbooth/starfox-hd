@@ -20,6 +20,7 @@ pub mod sf1_shape_metrics;
 mod sf1_shape_words;
 pub mod shape;
 pub mod snes_trig;
+pub mod stage_banner;
 
 pub mod pad {
     //! SNES joypad bits, matching `src/sf_rtl.h` PAD_*.

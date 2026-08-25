@@ -1,6 +1,6 @@
 //! Tick 103: makeengine / makesplash / makeSsplash / makeSdrag (GSTRATS / GA2STRAT).
 
-use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_INVISIBLE};
+use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF2_COLLDISABLE, ASF3_REALOBJ, ASF_INVISIBLE};
 use sf_game::Game;
 use sf_strat::common::{
     makeengine_srou, makeengine_srou_with_extents, makesplash_srou, makessplash_srou, splash_strat,
@@ -24,7 +24,7 @@ fn makesplash_spawns_colldisable_child() {
     let splash = makesplash_srou(&mut g, parent).expect("splash");
     let al = &g.objs.aliens[splash as usize];
     assert_eq!(al.shape, 360, "makesplash must use the retail splash mesh");
-    assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(al.sflags3 & ASF3_REALOBJ, 0);
     assert_eq!(al.worldz, 995); // parent z - 5
     assert!(al.stratptr.is_some());
@@ -77,7 +77,7 @@ fn makeengine_attaches_fireobj_and_onfire() {
     }
     let al = &g.objs.aliens[engine as usize];
     assert_eq!(al.shape, 362, "engine must use the retail boostshape mesh");
-    assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(al.sflags & ASF_INVISIBLE, 0); // hidden until update
                                               // Default zmax=40 → relposz = -40
     assert_eq!(al.relposz as i8, -40);

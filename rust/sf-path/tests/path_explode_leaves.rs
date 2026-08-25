@@ -1,6 +1,6 @@
 //! Path explode leaves: pcoinexplode, explodeparticles/pparticles, robexplode alias.
 
-use sf_path::alien::{Alien, StratRef, ASF_COLLDISABLE, NUMBER_AL};
+use sf_path::alien::{Alien, StratRef, ASF2_COLLDISABLE, NUMBER_AL};
 use sf_path::builder::{PAL_HP, PATH_MISSING_OFFSET};
 use sf_path::ids::{PATH_ID_EXPLODEPARTICLES, PATH_ID_PCOINEXPLODE, PATH_ID_ROBEXPLODE};
 use sf_path::interp::{
@@ -179,7 +179,7 @@ fn pcoinexplode_when_dead_trigger_explodes() {
         !host.exploded.is_empty(),
         "WHENDEAD pcoinexplode should explode"
     );
-    assert_ne!(world.aliens[i].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(world.aliens[i].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]

@@ -1,16 +1,17 @@
 use sf_core::player_view::PlayerViewMode;
-use sf_game::vars::{CLOSE_VIEW_DISTANCE, OUTVIEWDIST};
+use sf_game::vars::{TrainingPlayerStartupPhase, CLOSE_VIEW_DISTANCE, OUTVIEWDIST, PFM_WOBBLE};
 use sf_game::Game;
 use sf_map::catalog::{
     map_id, opening_player_strategy, opening_player_view, OpeningPlayerStrategy,
 };
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{
-    player_colony_flyin_istrat, player_cred_istrat, player_divegnd_istrat,
-    player_inside_space_flyin_istrat, player_planet_flyin_istrat, player_space_flyin_istrat,
-    player_warp_out_istrat, queue_player_on_cont_istrat, set_player_in_ltexit,
-    set_player_on_planet, set_player_undergnd, strat_player_opening_init, strat_spawn_player,
-    strat_spawn_player_for_map, CONTINUE_VIEW_DISTANCE,
+    initialize_planet_flight, player_colony_flyin_istrat, player_divegnd_istrat,
+    player_inside_space_flyin_istrat, player_move_init, player_planet_flyin_istrat,
+    player_space_flyin_istrat, player_warp_out_istrat, queue_player_cred_istrat,
+    queue_player_on_cont_istrat, set_player_in_ltexit, set_player_on_planet, set_player_undergnd,
+    strat_player_opening_init, strat_spawn_player, strat_spawn_player_for_map,
+    CONTINUE_VIEW_DISTANCE,
 };
 
 fn register_game() -> Game {
@@ -19,20 +20,33 @@ fn register_game() -> Game {
     game
 }
 
-fn apply_reference_opening(game: &mut Game, player: u16, strategy: OpeningPlayerStrategy) {
+fn apply_reference_opening(
+    game: &mut Game,
+    player: u16,
+    map: u32,
+    strategy: OpeningPlayerStrategy,
+) {
     match strategy {
         OpeningPlayerStrategy::HangarLaunch => strat_player_opening_init(game, player),
         OpeningPlayerStrategy::InteriorSpaceFlyIn => player_inside_space_flyin_istrat(game, player),
         OpeningPlayerStrategy::HyperspaceExit => player_warp_out_istrat(game, player),
         OpeningPlayerStrategy::PlanetFlyIn => player_planet_flyin_istrat(game, player),
         OpeningPlayerStrategy::GroundDive => player_divegnd_istrat(game, player),
+        OpeningPlayerStrategy::PlanetFlight if map == map_id::TRAINING => {
+            initialize_planet_flight(game, player);
+            player_move_init(game, player);
+            game.vars
+                .set_sv_i16(sv::PVIEWPOSZ, game.objs.aliens[player as usize].worldz);
+            game.vars.playerflymode &= !PFM_WOBBLE;
+            game.vars.training_player_startup = TrainingPlayerStartupPhase::InitialMovement;
+        }
         OpeningPlayerStrategy::PlanetFlight => set_player_on_planet(game, player),
         OpeningPlayerStrategy::SpaceFlyIn => player_space_flyin_istrat(game, player),
         OpeningPlayerStrategy::ColonyFlyIn => player_colony_flyin_istrat(game, player),
         OpeningPlayerStrategy::UndergroundFlight => set_player_undergnd(game, player),
         OpeningPlayerStrategy::LongTunnelExit => set_player_in_ltexit(game, player),
         OpeningPlayerStrategy::ContinuePresentation => queue_player_on_cont_istrat(game, player),
-        OpeningPlayerStrategy::PassivePresentation => player_cred_istrat(game, player),
+        OpeningPlayerStrategy::PassivePresentation => queue_player_cred_istrat(game, player),
     }
 }
 
@@ -48,7 +62,10 @@ fn every_spawned_map_applies_its_source_view_declaration() {
         let expected_distance = match opening_player_strategy(map).expect("catalog strategy") {
             // playercred_Istrat explicitly overrides the preceding pstrat
             // close distance with outviewdist (PSTRATS.ASM:587-588).
-            OpeningPlayerStrategy::PassivePresentation => OUTVIEWDIST,
+            OpeningPlayerStrategy::PassivePresentation => {
+                game.run_strategies();
+                OUTVIEWDIST
+            }
             // playeroncont_strat owns its fixed presentation distance.
             OpeningPlayerStrategy::ContinuePresentation => {
                 game.run_strategies();
@@ -78,7 +95,7 @@ fn every_spawned_map_installs_its_authored_player_initializer() {
         expected.vars.player_view_mode = view.mode;
         expected.vars.player_view_options = view.options;
         expected.apply_player_view_mode(expected_player);
-        apply_reference_opening(&mut expected, expected_player, strategy);
+        apply_reference_opening(&mut expected, expected_player, map, strategy);
 
         assert_eq!(actual_player, expected_player, "map {map}");
         assert_eq!(
@@ -108,6 +125,10 @@ fn every_spawned_map_installs_its_authored_player_initializer() {
         );
         assert_eq!(
             actual.vars.playerflymode, expected.vars.playerflymode,
+            "map {map}"
+        );
+        assert_eq!(
+            actual.vars.training_player_startup, expected.vars.training_player_startup,
             "map {map}"
         );
         assert_eq!(actual.vars.gameflags, expected.vars.gameflags, "map {map}");

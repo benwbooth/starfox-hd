@@ -2,7 +2,7 @@
 //! flashplayer no colframe seed; gate bank $7E; gate touch→spin same frame;
 //! explode special→gate2 + inviewpl gate. (#13 already FIXED via Medium #36.)
 
-use sf_game::alien::{ASF3_REALOBJ, ASF4_SPECIAL};
+use sf_game::alien::{ASF3_REALOBJ, ASF_SPECIAL};
 use sf_game::draw::AF_INVIEW_PL;
 use sf_game::game::{Game, Hooks};
 use sf_strat::enemy_a::{
@@ -135,7 +135,7 @@ fn explode_special_spawns_gate2() {
     let mut g = Game::new();
     let idx = spawn(&mut g);
     g.objs.aliens[idx as usize].flags |= AF_INVIEW_PL;
-    g.objs.aliens[idx as usize].sflags4 |= ASF4_SPECIAL;
+    g.objs.aliens[idx as usize].sflags |= ASF_SPECIAL;
     g.objs.aliens[idx as usize].sflags2 |= 0x08; // NOEXPSND
     g.objs.aliens[idx as usize].worldz = 800;
     let before = g.objs.aliens.iter().filter(|a| a.active).count();

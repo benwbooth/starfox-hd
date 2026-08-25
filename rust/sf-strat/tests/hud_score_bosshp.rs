@@ -1,7 +1,7 @@
 //! Tick 149: AUDIT_HUD Critical #1 + High #4 verify —
 //! explode specials_dead → calcstageperc / checkbonus; bosshp zero + frame feed.
 
-use sf_game::alien::ASF4_SPECIAL;
+use sf_game::alien::ASF_SPECIAL;
 use sf_game::planets::Planets;
 use sf_game::score::{self, BONERTAB};
 use sf_game::Game;
@@ -13,7 +13,7 @@ fn explode_special_feeds_stage_perc_and_bonus() {
     let mut g = Game::new();
     let idx = g.objs.alloc().expect("special");
     g.objs.aliens[idx as usize].active = true;
-    g.objs.aliens[idx as usize].sflags4 |= ASF4_SPECIAL;
+    g.objs.aliens[idx as usize].sflags |= ASF_SPECIAL;
     g.objs.aliens[idx as usize].sflags2 |= 0x08; // ASF2_NOEXPSND
     g.world.total_specials = 1;
     g.vars.write_ext8(wm::SPECIALS_DEAD, 0);

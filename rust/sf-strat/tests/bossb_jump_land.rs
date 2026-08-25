@@ -1,6 +1,6 @@
 //! ROM bossBrob jump / land / farjump / kick / start (GB3STRAT.ASM).
 
-use sf_game::alien::ASF_NOHITAFFECT;
+use sf_game::alien::ASF3_NOHITAFFECT;
 use sf_game::Game;
 use sf_strat::bossb::{
     bossbrobfarjump1_init, bossbrobfarjump1_strat, bossbrobfarjump2_strat, bossbrobfarland_init,
@@ -170,7 +170,7 @@ fn farjump_sets_nohitaffect_and_lands_close() {
         g.objs.aliens[idx as usize].shape,
         ANDROSS_WALKING_BODY_SHAPE
     );
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     g.objs.aliens[idx as usize].sbyte1 = 0;
     bossbrobfarjump1_strat(&mut g, idx);
     // Force past the ground gate into farland.
@@ -182,7 +182,7 @@ fn farjump_sets_nohitaffect_and_lands_close() {
     assert_eq!(g.objs.aliens[idx as usize].worldy, -259);
     // Close Z → farland_end clears nohitaffect + nextstate.
     bossbrobfarland_strat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 #[test]
@@ -233,8 +233,8 @@ fn farland_init_keeps_nohitaffect_until_close() {
     let idx = spawn_rob(&mut g);
     g.objs.aliens[idx as usize].worldz = 5000; // far
     bossbrobfarland_init(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     bossbrobfarland_strat(&mut g, idx);
     // Still far → still nohitaffect.
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }

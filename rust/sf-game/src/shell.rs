@@ -42,6 +42,7 @@ use sf_core::{
         PLANET_NAME_CHARACTER_TICKS, PLANET_NAME_TERMINATION_TICKS, PLANET_ZOOM_TICKS,
         RETAIL_VIDEO_FRAMES_PER_GAME_TICK, SHIP_FLASH_TICKS,
     },
+    stage_banner::{StageBannerKind, StageBannerState},
     DrawListEntry,
 };
 
@@ -82,10 +83,11 @@ pub const TALLY_READY_AUTO_TICKS: u16 = 60;
 /// black fade before respawn/game-over dispatch.
 pub const DEATH_RESPAWN_TICKS: i32 =
     1 + PLAYER_DEATH_FADE_DELAY_TICKS as i32 + BLACK_FADE_MAX as i32;
-/// `wipein` holds black for `mapwait 300`; the no-player map lane advances
-/// 65 source distance units per 20 Hz update, so the reveal starts after five
-/// updates (300 / 65 rounded up).
-pub const OPENING_WIPE_BLACK_HOLD_TICKS: u8 = 5;
+/// `wipein` holds black for `mapwait 300`. The no-player map lane crosses the
+/// distance on its fifth update, and the window generated from that crossing
+/// remains closed for the completed scene; the first aperture step is the
+/// sixth following update.
+pub const OPENING_WIPE_BLACK_HOLD_TICKS: u8 = 6;
 /// The launch player's 115-unit depth step crosses `mapwait 300` in three
 /// updates. `do_circle_explosion` observes the authored wipe on the following
 /// update, so the typed aperture keeps frame zero for the same three ticks.
@@ -1087,6 +1089,8 @@ pub struct FrameSnapshot {
     pub arrows: u8,
     pub player_view_mode: PlayerViewMode,
     pub stage: u16,
+    /// Active flight-stage announcement, if its countdown has not expired.
+    pub stage_banner: Option<StageBannerState>,
     pub shield_cur: i32,
     pub shield_max: i32,
     pub boss_hp_cur: i32,
@@ -1869,15 +1873,28 @@ impl Shell {
             }
         }
 
+        let newmap = match self.game_state {
+            GameState::AttractIntro => sf_map::catalog::map_id::INTRO,
+            GameState::Title => sf_map::catalog::map_id::TITLE,
+            GameState::Briefing => sf_map::catalog::map_id::CONTINUE,
+            _ => self.planets.newmap,
+        };
+        let stage_banner = u8::try_from(v.stagecnt)
+            .ok()
+            .filter(|ticks_remaining| *ticks_remaining != 0)
+            .map(|ticks_remaining| StageBannerState {
+                kind: if newmap == sf_map::catalog::map_id::TRAINING {
+                    StageBannerKind::Training
+                } else {
+                    StageBannerKind::Stage(self.planets.stage)
+                },
+                ticks_remaining,
+            });
+
         FrameSnapshot {
             game_state_code: self.game_state.code(),
             currentbg: v.currentbg,
-            newmap: match self.game_state {
-                GameState::AttractIntro => sf_map::catalog::map_id::INTRO,
-                GameState::Title => sf_map::catalog::map_id::TITLE,
-                GameState::Briefing => sf_map::catalog::map_id::CONTINUE,
-                _ => self.planets.newmap,
-            },
+            newmap,
             bgflags: v.bgflags,
             bg2_xscroll: v.shared.background_scroll_x as i32,
             bg2_vertical_offsets: (v.dovofs != 0).then_some(v.bg2_vertical_offsets),
@@ -1912,6 +1929,7 @@ impl Shell {
             arrows: v.strategy.arrow_flags,
             player_view_mode: v.player_view_mode,
             stage: self.planets.stage,
+            stage_banner,
             shield_cur,
             shield_max,
             boss_hp_cur: v.bosshp as i32,
@@ -2061,6 +2079,9 @@ impl Shell {
             self.game.vars.currentbg = background;
             self.game.vars.set_sound_environment_for_bg(background);
             self.game.vars.set_scene_style_for_bg(background);
+            if let Some(info) = sf_map::catalog::background_info(background) {
+                bgs::apply_background_info(&mut self.game.vars, info);
+            }
         }
 
         // Wire the route lanes' name-keyed callback registrations (they leave
@@ -3060,6 +3081,11 @@ impl Shell {
         let flash = self.game.vars.shared.special_flash;
         if flash > 0 {
             self.game.vars.shared.special_flash = flash.wrapping_sub(1);
+        }
+        // `do_stage` consumes one announcement tick after the map update that
+        // may have started it, before the sprite message is assembled.
+        if self.game.vars.stagecnt > 0 {
+            self.game.vars.stagecnt -= 1;
         }
 
         // showview_l (nmi.c:96). Cull anchor = camera viewpos (published by

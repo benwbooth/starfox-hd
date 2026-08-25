@@ -1,6 +1,6 @@
 //! ROM `hover_Istrat` / `implode_*` / `stopexplode_Istrat` / `weapcollide_Istrat`.
 
-use sf_game::alien::{ACF_WEAPON, AFEXP, ASF_COLLDISABLE, ASF_COLLIDE};
+use sf_game::alien::{ACF_WEAPON, AFEXP, ASF2_COLLDISABLE, ASF_COLLIDE};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
@@ -29,7 +29,7 @@ fn implode_recovers_after_50_ticks() {
     assert_eq!(g.objs.aliens[idx as usize].count, 50);
     assert_eq!(g.objs.aliens[idx as usize].hp, 0);
     assert_ne!(g.objs.aliens[idx as usize].flags & AFEXP, 0);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 
     for _ in 0..49 {
         implode_strat(&mut g, idx);
@@ -38,7 +38,7 @@ fn implode_recovers_after_50_ticks() {
     implode_strat(&mut g, idx); // count 1→0: recover
     assert_eq!(g.objs.aliens[idx as usize].flags & AFEXP, 0);
     assert_eq!(g.objs.aliens[idx as usize].hp, HARD_HP);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn weapcollide_kills_on_non_weapon_partner() {
     g.objs.aliens[other as usize].collflags = 0; // not ACF_WEAPON
     weapcollide_istrat(&mut g, w);
     assert_eq!(g.objs.aliens[w as usize].hp, 0);
-    assert_ne!(g.objs.aliens[w as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[w as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]

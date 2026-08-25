@@ -9,7 +9,7 @@ use sf_core::screen_fill_circle::{
     EXPANDING_INITIAL_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
 };
 use sf_game::alien::{
-    ObjectVisualKind, ACF_COLLTYPE1, AFEXP, ASF3_REALOBJ, ASF4_PLAYEROBJ, ASF_COLLDISABLE,
+    ObjectVisualKind, ACF_COLLTYPE1, AFEXP, ASF2_COLLDISABLE, ASF3_REALOBJ, ASF4_PLAYEROBJ,
     ASF_SHADOW,
 };
 use sf_game::draw::AF_INVIEW_PL;
@@ -90,6 +90,9 @@ fn spawn_with_boxes(log: Rc<RefCell<Vec<Ev>>>) -> (Game, u16) {
     g.objs.aliens[p as usize].worldz = 0;
     g.objs.aliens[p as usize].rotz = 0;
     g.objs.aliens[p as usize].stratptr = None;
+    // The focused harness bypasses the authored control-entry strategy that
+    // normally clears the ship's startup collision-disable flag.
+    g.objs.aliens[p as usize].sflags2 &= !ASF2_COLLDISABLE;
     assert!(pcbox_attach(&mut g, p));
     (g, p)
 }
@@ -203,7 +206,7 @@ fn left_wing_break_plays_destruct_05() {
     log.borrow_mut().clear();
     g.tick(); // detect HF2
     g.tick(); // fixed one-point wing damage
-    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[shot as usize].sflags2 |= ASF2_COLLDISABLE;
     for _ in 0..6 {
         g.tick();
         if g.vars.pshipflags & PSF_BRKLWING != 0 {
@@ -233,7 +236,7 @@ fn right_wing_break_plays_destruct_06() {
     log.borrow_mut().clear();
     g.tick();
     g.tick();
-    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[shot as usize].sflags2 |= ASF2_COLLDISABLE;
     for _ in 0..6 {
         g.tick();
         if g.vars.pshipflags & PSF_BRKRWING != 0 {
@@ -306,7 +309,7 @@ fn player_death_plays_se03_and_bgm11() {
     log.borrow_mut().clear();
     g.tick(); // detect HF1
     g.tick(); // body hp -> 0
-    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[shot as usize].sflags2 |= ASF2_COLLDISABLE;
     for _ in 0..8 {
         g.tick();
         if log.borrow().contains(&Ev::Se(SE_PLAYER_DOWN)) {
@@ -342,7 +345,7 @@ fn cockpit_death_finishes_the_authored_ejection_before_crashing() {
     log.borrow_mut().clear();
     g.tick();
     g.tick();
-    g.objs.aliens[shot as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[shot as usize].sflags2 |= ASF2_COLLDISABLE;
     for _ in 0..DEATH_DISPATCH_TICK_LIMIT {
         g.tick();
         if g.vars.player_view_mode == PlayerViewMode::LeavingCockpit {
@@ -353,7 +356,7 @@ fn cockpit_death_finishes_the_authored_ejection_before_crashing() {
     assert_eq!(g.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
     assert_ne!(g.vars.pshipflags2 & PSF2_PLAYERHP0, 0);
     assert_eq!(g.vars.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD), 0);
-    assert_ne!(g.objs.aliens[player as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[player as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE1), COCKPIT_EXIT_FRAMES - 1);
     let transition = g.objs.aliens[player as usize]
         .stratptr
@@ -370,7 +373,7 @@ fn cockpit_death_finishes_the_authored_ejection_before_crashing() {
     assert_eq!(g.vars.player_view_mode, PlayerViewMode::Exterior);
     assert_ne!(g.vars.gameflags & GF_PLAYERDYING, 0);
     assert_eq!(g.vars.gameflags & GF_PLAYERDEAD, 0);
-    assert_eq!(g.objs.aliens[player as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[player as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(g.objs.aliens[player as usize].stratptr, Some(transition));
     assert!(g.objs.aliens[player as usize].collstratptr.is_some());
     assert!(g.objs.aliens[player as usize].expstratptr.is_some());

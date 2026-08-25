@@ -1,5 +1,5 @@
 use sf_game::alien::{
-    ObjectVisualKind, AFEXP, AFONFIRE, ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_HITFLASH, ASF_SHADOW,
+    ObjectVisualKind, AFEXP, AFONFIRE, ASF2_COLLDISABLE, ASF4_PLAYEROBJ, ASF_HITFLASH, ASF_SHADOW,
 };
 use sf_game::draw::AF_INVIEW_PL;
 use sf_game::{Game, Hooks};
@@ -58,7 +58,7 @@ fn player_sized_explosion_keeps_polygon_debris_and_a_scaled_sprite_alive() {
     assert_eq!(polygon.count, 0);
     assert_eq!(polygon.count1, POLYGON_EXPLOSION_TICKS);
     assert_eq!(polygon.hp, 0);
-    assert_ne!(polygon.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(polygon.sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(polygon.sflags & ASF_SHADOW, ASF_SHADOW);
     assert!(polygon.expstratptr.is_some());
 

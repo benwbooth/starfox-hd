@@ -1,6 +1,6 @@
 //! Tick 139: AUDIT_BOSS_TICKS2 Minors #26/#28 + sea_make_splash gap.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ};
 use sf_game::Game;
 use sf_strat::bosses::{
     boss8a_init, boss8b_init, nucleuslauncher_istrat, sea_make_splash, sea_make_splash_surface,
@@ -43,7 +43,7 @@ fn sea_make_splash_spawns_child() {
         .into_iter()
         .find(|&i| i != parent)
         .expect("splash");
-    assert_ne!(g.objs.aliens[splash as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[splash as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[splash as usize].worldz, 995);
     assert_eq!(
         g.objs.aliens[splash as usize].worldy, 0,
@@ -110,7 +110,7 @@ fn boss8_colldisable_tracks_open_close() {
     strat_boss8_init(&mut g, boss);
     // Init/wait: invulnerable (ROM collstrat=0 from s_set_alptrs).
     assert_ne!(
-        g.objs.aliens[boss as usize].sflags & ASF_COLLDISABLE,
+        g.objs.aliens[boss as usize].sflags2 & ASF2_COLLDISABLE,
         0,
         "wait: colldisable"
     );
@@ -126,7 +126,7 @@ fn boss8_colldisable_tracks_open_close() {
 
     boss8a_init(&mut g, boss);
     assert_eq!(
-        g.objs.aliens[boss as usize].sflags & ASF_COLLDISABLE,
+        g.objs.aliens[boss as usize].sflags2 & ASF2_COLLDISABLE,
         0,
         "open: damageable"
     );
@@ -137,7 +137,7 @@ fn boss8_colldisable_tracks_open_close() {
 
     boss8b_init(&mut g, boss);
     assert_ne!(
-        g.objs.aliens[boss as usize].sflags & ASF_COLLDISABLE,
+        g.objs.aliens[boss as usize].sflags2 & ASF2_COLLDISABLE,
         0,
         "close: colldisable"
     );

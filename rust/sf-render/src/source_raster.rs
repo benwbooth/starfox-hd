@@ -5,6 +5,7 @@
 
 use crate::gpu::{Gpu, TextureId, Vertex2};
 use crate::source_projection::ProjectedPoint;
+use sf_core::point_field::PointPixel;
 
 pub const WIDTH: usize = 256;
 pub const HEIGHT: usize = 224;
@@ -33,6 +34,8 @@ const EDGE_ROUNDING_BIAS: i32 = 127;
 const EDGE_LEFT_CLAMP_DISTANCE: i32 = 8 << EDGE_FRACTION_BITS;
 const TEXTURE_ROW_STRIDE: usize = 256;
 const TEXTURE_BANK_MASK: usize = 32_767;
+const SOURCE_PALETTE_MAX_INDEX: u8 = 15;
+const SOURCE_CLEAR_INDEX: u8 = 0;
 pub const NO_FACE: u16 = u16::MAX;
 const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -121,6 +124,19 @@ struct EdgeWalker {
     direction: EdgeDirection,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TexturedVertex {
+    point: ProjectedPoint,
+    texture: [i16; 2],
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TexturedEdgeWalker {
+    edge: EdgeWalker,
+    fixed_texture: [i32; 2],
+    texture_step: [i32; 2],
+}
+
 impl EdgeWalker {
     fn new(vertex_index: usize, x: i16, direction: EdgeDirection) -> Self {
         Self {
@@ -181,6 +197,76 @@ impl EdgeWalker {
     }
 }
 
+impl TexturedEdgeWalker {
+    fn new(vertex_index: usize, vertex: TexturedVertex, direction: EdgeDirection) -> Self {
+        Self {
+            edge: EdgeWalker::new(vertex_index, vertex.point.x, direction),
+            fixed_texture: vertex
+                .texture
+                .map(|coordinate| i32::from(coordinate) << EDGE_FRACTION_BITS),
+            texture_step: [0; 2],
+        }
+    }
+
+    fn prepare_segment(&mut self, vertices: &[TexturedVertex], source_y: i16) -> bool {
+        let mut start_x = if self.edge.first_segment {
+            i32::from(vertices[self.edge.vertex_index].point.x)
+        } else {
+            (self.edge.fixed_x + EDGE_ROUNDING_BIAS) >> EDGE_FRACTION_BITS
+        };
+        let mut start_texture = if self.edge.first_segment {
+            vertices[self.edge.vertex_index].texture.map(i32::from)
+        } else {
+            self.fixed_texture
+                .map(|coordinate| coordinate >> EDGE_FRACTION_BITS)
+        };
+        self.edge.first_segment = false;
+
+        loop {
+            self.edge.vertex_index = match self.edge.direction {
+                EdgeDirection::Forward => (self.edge.vertex_index + 1) % vertices.len(),
+                EdgeDirection::Reverse => {
+                    (self.edge.vertex_index + vertices.len() - 1) % vertices.len()
+                }
+            };
+            let target = vertices[self.edge.vertex_index];
+            let delta_y = i32::from(target.point.y) - i32::from(source_y);
+            if delta_y < 0 {
+                return false;
+            }
+            if delta_y == 0 {
+                start_x = i32::from(target.point.x);
+                start_texture = target.texture.map(i32::from);
+                continue;
+            }
+
+            let reciprocal = if delta_y == 1 {
+                EDGE_UNIT_RECIPROCAL
+            } else {
+                EDGE_RECIPROCAL_ONE / delta_y
+            };
+            self.edge.step =
+                ((i32::from(target.point.x) - start_x) * reciprocal * 2) >> EDGE_FRACTION_BITS;
+            self.edge.fixed_x = start_x << EDGE_FRACTION_BITS;
+            for axis in 0..2 {
+                self.texture_step[axis] =
+                    ((i32::from(target.texture[axis]) - start_texture[axis]) * reciprocal * 2)
+                        >> EDGE_FRACTION_BITS;
+                self.fixed_texture[axis] = start_texture[axis] << EDGE_FRACTION_BITS;
+            }
+            self.edge.rows_remaining = delta_y;
+            return true;
+        }
+    }
+
+    fn advance(&mut self) {
+        self.edge.advance();
+        for axis in 0..2 {
+            self.fixed_texture[axis] += self.texture_step[axis];
+        }
+    }
+}
+
 impl SourceRaster {
     pub fn new() -> Self {
         Self {
@@ -218,6 +304,29 @@ impl SourceRaster {
         self.current_face = face;
     }
 
+    /// Seed the cartridge bitmap with the source-projected point field. The
+    /// retail renderer draws these pixels before shadows and normal objects,
+    /// so later source-raster writes intentionally replace them.
+    pub fn draw_point_field(&mut self, pixels: &[PointPixel], palette: &[[f32; 3]; 16]) {
+        for point in pixels {
+            let x = usize::from(point.x) + PLAYFIELD_LEFT as usize;
+            let y = usize::from(point.y) + PLAYFIELD_TOP as usize;
+            if x >= WIDTH || y >= HEIGHT {
+                continue;
+            }
+            let palette_index = usize::from(point.palette_index.min(15));
+            let color = palette[palette_index];
+            let pixel = y * WIDTH + x;
+            let rgba = pixel * CHANNELS;
+            self.rgba[rgba..rgba + CHANNELS]
+                .copy_from_slice(&rgba8([color[0], color[1], color[2], 1.0]));
+            self.indices[pixel] = point.palette_index;
+            self.owners[pixel] = 0;
+            self.faces[pixel] = NO_FACE;
+            self.has_pixels = true;
+        }
+    }
+
     pub(crate) fn clear_rect(&mut self, rect: SourceBitmapRect) {
         let right = rect.left.saturating_add(rect.width).min(WIDTH);
         let bottom = rect.top.saturating_add(rect.height).min(HEIGHT);
@@ -250,11 +359,20 @@ impl SourceRaster {
     ) {
         self.draw_polygon(points, indices, |x, y| {
             let index = if (x ^ y) & 1 == 0 { pair[0] } else { pair[1] };
-            Some(if index == 0 {
-                ([0; CHANNELS], index)
-            } else {
-                (rgba8(palette[usize::from(index.min(15))]), index)
-            })
+            Some(source_flat_palette_pixel(palette, index))
+        });
+    }
+
+    pub fn draw_palette_line(
+        &mut self,
+        points: &[ProjectedPoint],
+        indices: &[u16],
+        palette: &[[f32; 4]; 16],
+        pair: [u8; 2],
+    ) {
+        self.draw_line(points, indices, |x, y| {
+            let index = if (x ^ y) & 1 == 0 { pair[0] } else { pair[1] };
+            Some(source_flat_palette_pixel(palette, index))
         });
     }
 
@@ -263,6 +381,85 @@ impl SourceRaster {
         self.draw_polygon(points, indices, |_, _| {
             (color[3] != 0).then_some((color, u8::MAX))
         });
+    }
+
+    pub fn draw_solid_line(&mut self, points: &[ProjectedPoint], indices: &[u16], color: [f32; 4]) {
+        let color = rgba8(color);
+        self.draw_line(points, indices, |_, _| {
+            (color[3] != 0).then_some((color, u8::MAX))
+        });
+    }
+
+    fn draw_line(
+        &mut self,
+        points: &[ProjectedPoint],
+        indices: &[u16],
+        mut color_at: impl FnMut(usize, usize) -> Option<([u8; 4], u8)>,
+    ) {
+        let [first_index, second_index] = indices else {
+            return;
+        };
+        let (Some(first), Some(second)) = (
+            points.get(usize::from(*first_index)),
+            points.get(usize::from(*second_index)),
+        ) else {
+            return;
+        };
+        let Some([first, second]) = clip_line(*first, *second) else {
+            return;
+        };
+        let (mut x, mut y) = (i32::from(first.x), i32::from(first.y));
+        let (end_x, end_y) = (i32::from(second.x), i32::from(second.y));
+        let delta_x = (end_x - x).abs();
+        let delta_y = (end_y - y).abs();
+        let step_x = (end_x - x).signum();
+        let step_y = (end_y - y).signum();
+
+        let mut plot = |x: i32, y: i32| {
+            let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
+                return;
+            };
+            if x >= WIDTH || y >= HEIGHT {
+                return;
+            }
+            let Some((color, index)) = color_at(x, y) else {
+                return;
+            };
+            let pixel = y * WIDTH + x;
+            let offset = pixel * CHANNELS;
+            self.rgba[offset..offset + CHANNELS].copy_from_slice(&color);
+            self.indices[pixel] = index;
+            self.owners[pixel] = self.current_owner;
+            self.faces[pixel] = self.current_face;
+            self.has_pixels |= color[3] != 0;
+        };
+
+        if delta_x >= delta_y {
+            // The source line primitive tests the signed accumulator before
+            // advancing the minor axis, then subtracts the minor distance at
+            // the end of each major-axis step.
+            let mut error = (delta_x - delta_y) / 2 - delta_y;
+            for _ in 0..=delta_x {
+                plot(x, y);
+                if error < 0 {
+                    y += step_y;
+                    error += delta_x;
+                }
+                x += step_x;
+                error -= delta_y;
+            }
+        } else {
+            let mut error = (delta_y - delta_x) / 2 - delta_x;
+            for _ in 0..=delta_y {
+                plot(x, y);
+                if error < 0 {
+                    x += step_x;
+                    error += delta_y;
+                }
+                y += step_y;
+                error -= delta_x;
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -287,8 +484,7 @@ impl SourceRaster {
             // before selecting repeated output rows; the reduction routine
             // uses the ordinary floor accumulator.
             let source_y = if projected_size > source_size {
-                (u32::from(destination_y) * source_size_u32
-                    + projected_size_u32.saturating_sub(1))
+                (u32::from(destination_y) * source_size_u32 + projected_size_u32.saturating_sub(1))
                     / projected_size_u32
             } else {
                 (u32::from(destination_y) * reduction_step) >> 8
@@ -329,6 +525,130 @@ impl SourceRaster {
                 self.faces[y * WIDTH + x] = self.current_face;
                 self.has_pixels = true;
             }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_textured_polygon(
+        &mut self,
+        points: &[ProjectedPoint],
+        indices: &[u16],
+        texture_coordinates: &[[u8; 2]],
+        texture: &[u8],
+        texture_offset: u16,
+        texture_mask: u16,
+        high_nibble: bool,
+        texture_scroll: [u8; 2],
+        palette: &[[f32; 4]; 16],
+    ) {
+        if indices.len() < 3 || indices.len() != texture_coordinates.len() {
+            return;
+        }
+        let vertices = indices
+            .iter()
+            .zip(texture_coordinates)
+            .map(|(index, texture)| {
+                points
+                    .get(usize::from(*index))
+                    .copied()
+                    .map(|point| TexturedVertex {
+                        point,
+                        texture: texture.map(i16::from),
+                    })
+            })
+            .collect::<Option<Vec<_>>>();
+        let Some(vertices) = vertices else {
+            return;
+        };
+        let vertices = clip_textured_polygon(vertices);
+        if vertices.len() < 3 {
+            return;
+        }
+        let minimum_vertex = vertices
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, vertex)| vertex.point.y)
+            .map(|(index, _)| index)
+            .unwrap_or(0);
+        let minimum_y = vertices[minimum_vertex].point.y;
+        let maximum_y = vertices
+            .iter()
+            .map(|vertex| vertex.point.y)
+            .max()
+            .unwrap_or(0);
+        if minimum_y == maximum_y {
+            return;
+        }
+
+        let mut forward = TexturedEdgeWalker::new(
+            minimum_vertex,
+            vertices[minimum_vertex],
+            EdgeDirection::Forward,
+        );
+        let mut reverse = TexturedEdgeWalker::new(
+            minimum_vertex,
+            vertices[minimum_vertex],
+            EdgeDirection::Reverse,
+        );
+        for source_y in minimum_y..maximum_y {
+            if forward.edge.rows_remaining == 0 && !forward.prepare_segment(&vertices, source_y) {
+                break;
+            }
+            if reverse.edge.rows_remaining == 0 && !reverse.prepare_segment(&vertices, source_y) {
+                break;
+            }
+
+            let left = forward.edge.fixed_x >> EDGE_FRACTION_BITS;
+            let right = reverse.edge.fixed_x >> EDGE_FRACTION_BITS;
+            let span = right - left + 1;
+            if span > 0 {
+                let reciprocal = if span == 1 {
+                    EDGE_UNIT_RECIPROCAL
+                } else {
+                    EDGE_RECIPROCAL_ONE / span
+                };
+                let mut fixed_texture = forward.fixed_texture;
+                let texture_step: [i32; 2] = std::array::from_fn(|axis| {
+                    let difference = reverse.fixed_texture[axis] - fixed_texture[axis];
+                    ((i64::from(difference) * i64::from(reciprocal) * 2) >> 16) as i32
+                });
+                for source_x in left..=right {
+                    let texture_coordinate: [usize; 2] = std::array::from_fn(|axis| {
+                        let scrolled = (fixed_texture[axis] as i16)
+                            .wrapping_add(i16::from(texture_scroll[axis]) << EDGE_FRACTION_BITS);
+                        usize::from((scrolled as u16 >> EDGE_FRACTION_BITS) as u8)
+                    });
+                    let texture_x = texture_coordinate[0] & usize::from(texture_mask & 255);
+                    let texture_y =
+                        texture_coordinate[1] & usize::from(texture_mask >> EDGE_FRACTION_BITS);
+                    let address =
+                        (usize::from(texture_offset) + texture_y * TEXTURE_ROW_STRIDE + texture_x)
+                            & TEXTURE_BANK_MASK;
+                    let texel = texture.get(address).copied().unwrap_or(0);
+                    let palette_index = if high_nibble { texel >> 4 } else { texel & 15 };
+                    if palette_index != 0 {
+                        if let (Ok(x), Ok(y)) =
+                            (usize::try_from(source_x), usize::try_from(source_y))
+                        {
+                            if x < WIDTH && y < HEIGHT {
+                                let pixel = y * WIDTH + x;
+                                let offset = pixel * CHANNELS;
+                                self.rgba[offset..offset + CHANNELS]
+                                    .copy_from_slice(&rgba8(palette[usize::from(palette_index)]));
+                                self.indices[pixel] = palette_index;
+                                self.owners[pixel] = self.current_owner;
+                                self.faces[pixel] = self.current_face;
+                                self.has_pixels = true;
+                            }
+                        }
+                    }
+                    for axis in 0..2 {
+                        fixed_texture[axis] += texture_step[axis];
+                    }
+                }
+            }
+            forward.advance();
+            reverse.advance();
         }
     }
 
@@ -434,8 +754,8 @@ impl SourceRaster {
         };
         let scale = output_height as f32 / HEIGHT as f32;
         let draw_width = WIDTH as f32 * scale;
-        let left = (output_width as f32 - draw_width) * 0.5
-            + f32::from(presentation_offset[0]) * scale;
+        let left =
+            (output_width as f32 - draw_width) * 0.5 + f32::from(presentation_offset[0]) * scale;
         let top = f32::from(presentation_offset[1]) * scale;
         let vertices = [
             Vertex2 {
@@ -528,8 +848,116 @@ fn clip_polygon(mut input: Vec<ProjectedPoint>) -> Vec<ProjectedPoint> {
     input
 }
 
+fn textured_intersection(
+    boundary: ClipBoundary,
+    inside: TexturedVertex,
+    outside: TexturedVertex,
+) -> TexturedVertex {
+    let point = boundary.intersection(inside.point, outside.point);
+    let (inside_axis, outside_axis, boundary_axis) = match boundary {
+        ClipBoundary::Left | ClipBoundary::Right => (inside.point.x, outside.point.x, point.x),
+        ClipBoundary::Top | ClipBoundary::Bottom => (inside.point.y, outside.point.y, point.y),
+    };
+    let axis_delta = i32::from(outside_axis) - i32::from(inside_axis);
+    let distance = i32::from(boundary_axis) - i32::from(inside_axis);
+    let texture = std::array::from_fn(|axis| {
+        let value_delta = i32::from(outside.texture[axis]) - i32::from(inside.texture[axis]);
+        (i32::from(inside.texture[axis]) + distance * value_delta / axis_delta) as i16
+    });
+    TexturedVertex { point, texture }
+}
+
+fn clip_textured_polygon(mut input: Vec<TexturedVertex>) -> Vec<TexturedVertex> {
+    for boundary in [
+        ClipBoundary::Left,
+        ClipBoundary::Right,
+        ClipBoundary::Top,
+        ClipBoundary::Bottom,
+    ] {
+        if input.is_empty() {
+            break;
+        }
+        let mut output = Vec::with_capacity(input.len() + 2);
+        let mut previous = *input.last().expect("nonempty textured polygon");
+        let mut previous_inside = boundary.contains(previous.point);
+        for current in input.iter().copied() {
+            let current_inside = boundary.contains(current.point);
+            match (previous_inside, current_inside) {
+                (true, true) => output.push(current),
+                (true, false) => {
+                    output.push(textured_intersection(boundary, previous, current));
+                }
+                (false, true) => {
+                    // Texture clipping evaluates from the authored previous
+                    // endpoint. Keeping that direction matters because signed
+                    // division truncates adjacent intersections differently.
+                    let crossing = textured_intersection(boundary, previous, current);
+                    output.push(crossing);
+                    output.push(current);
+                }
+                (false, false) => {}
+            }
+            previous = current;
+            previous_inside = current_inside;
+        }
+        input = output;
+    }
+    input
+}
+
+fn clip_line(first: ProjectedPoint, second: ProjectedPoint) -> Option<[ProjectedPoint; 2]> {
+    // MCLIP's dedicated two-point path feeds a closed two-vertex stream
+    // through the polygon clipper.  That is observably different from a
+    // conventional line clip when an edge passes just outside a corner: the
+    // two authored directions can truncate onto the corner and leave a
+    // zero-length line there.  Preserve that presentation result without
+    // carrying any of the source processor's working state into the port.
+    let mut input = vec![first, second];
+    for boundary in [
+        ClipBoundary::Left,
+        ClipBoundary::Right,
+        ClipBoundary::Top,
+        ClipBoundary::Bottom,
+    ] {
+        let mut output = Vec::with_capacity(input.len() + 2);
+        for index in 0..input.len() {
+            let edge_start = input[index];
+            let edge_end = input[(index + 1) % input.len()];
+            match (boundary.contains(edge_start), boundary.contains(edge_end)) {
+                (true, true) => output.push(edge_start),
+                (true, false) => {
+                    output.push(edge_start);
+                    output.push(boundary.intersection(edge_start, edge_end));
+                }
+                (false, true) => {
+                    output.push(boundary.intersection(edge_start, edge_end));
+                }
+                (false, false) => {}
+            }
+        }
+        if output.len() < 2 {
+            return None;
+        }
+        input = output;
+    }
+    Some([input[0], input[1]])
+}
+
 fn rgba8(color: [f32; 4]) -> [u8; 4] {
     color.map(|component| (component.clamp(0.0, 1.0) * 255.0).round() as u8)
+}
+
+fn source_flat_palette_pixel(palette: &[[f32; 4]; 16], index: u8) -> ([u8; 4], u8) {
+    if index == SOURCE_CLEAR_INDEX {
+        // Flat primitives replace destination bitplanes even when their
+        // authored color is zero. Textures and sprites handle zero separately
+        // as a transparent sample before reaching the pixel writer.
+        return ([0; CHANNELS], SOURCE_CLEAR_INDEX);
+    }
+    (
+        rgba8(palette[usize::from(index.min(SOURCE_PALETTE_MAX_INDEX))]),
+        index,
+    )
 }
 
 impl Default for SourceRaster {
@@ -558,13 +986,7 @@ mod tests {
         gpu.set_clear_color(99.0 / 255.0, 181.0 / 255.0, 156.0 / 255.0, 1.0);
         gpu.begin_frame();
         let mut texture = None;
-        raster.submit(
-            &mut gpu,
-            &mut texture,
-            WIDTH as u32,
-            HEIGHT as u32,
-            [0, 0],
-        );
+        raster.submit(&mut gpu, &mut texture, WIDTH as u32, HEIGHT as u32, [0, 0]);
         gpu.end_frame();
 
         let (_, _, pixels) = gpu.read_pixels().expect("source-raster pixels");
@@ -583,20 +1005,173 @@ mod tests {
     }
 
     #[test]
+    fn training_pillar_texture_uses_the_authored_scanline_phase() {
+        const POINTS: [ProjectedPoint; 4] = [
+            ProjectedPoint {
+                x: 69,
+                y: 90,
+                depth: 5_119,
+            },
+            ProjectedPoint {
+                x: 62,
+                y: 90,
+                depth: 5_119,
+            },
+            ProjectedPoint {
+                x: 62,
+                y: 96,
+                depth: 5_119,
+            },
+            ProjectedPoint {
+                x: 69,
+                y: 96,
+                depth: 5_119,
+            },
+        ];
+        const INDICES: [u16; 4] = [0, 1, 2, 3];
+        const TEXTURE_COORDINATES: [[u8; 2]; 4] = [[0, 0], [31, 0], [31, 31], [0, 31]];
+        const EXPECTED: [[u8; 8]; 6] = [
+            [10, 10, 10, 10, 10, 10, 10, 10],
+            [10, 10, 10, 10, 14, 10, 10, 10],
+            [10, 12, 12, 10, 14, 10, 12, 12],
+            [10, 10, 10, 12, 10, 12, 10, 10],
+            [10, 10, 10, 12, 10, 12, 10, 10],
+            [10, 14, 10, 14, 10, 10, 10, 10],
+        ];
+        const TEXTURE_OFFSET: u16 = 192;
+        const TEXTURE_MASK: u16 = 0x1F1F;
+        const TEXTURE: &[u8; 32_768] =
+            include_bytes!("../../../reference/ultrastarfox/SF/MSPRITES/TEX_01.BIN");
+        let palette = [[0.0, 0.0, 0.0, 1.0]; 16];
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_pair(&POINTS, &INDICES, &palette, [10, 10]);
+        raster.draw_textured_polygon(
+            &POINTS,
+            &INDICES,
+            &TEXTURE_COORDINATES,
+            TEXTURE,
+            TEXTURE_OFFSET,
+            TEXTURE_MASK,
+            false,
+            [0, 0],
+            &palette,
+        );
+
+        for (row, expected) in EXPECTED.iter().enumerate() {
+            let start = (90 + row) * WIDTH + 62;
+            assert_eq!(&raster.indices[start..start + expected.len()], expected);
+        }
+    }
+
+    #[test]
+    fn clipped_training_pillar_texture_keeps_authored_intersection_direction() {
+        const POINTS: [ProjectedPoint; 4] = [
+            ProjectedPoint {
+                x: 242,
+                y: 73,
+                depth: 2_977,
+            },
+            ProjectedPoint {
+                x: 231,
+                y: 73,
+                depth: 2_977,
+            },
+            ProjectedPoint {
+                x: 231,
+                y: 84,
+                depth: 2_977,
+            },
+            ProjectedPoint {
+                x: 242,
+                y: 84,
+                depth: 2_977,
+            },
+        ];
+        const INDICES: [u16; 4] = [0, 1, 2, 3];
+        const TEXTURE_COORDINATES: [[u8; 2]; 4] = [[0, 0], [31, 0], [31, 31], [0, 31]];
+        const TEXTURE: &[u8; 32_768] =
+            include_bytes!("../../../reference/ultrastarfox/SF/MSPRITES/TEX_01.BIN");
+        let palette = [[0.0, 0.0, 0.0, 1.0]; 16];
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_pair(&POINTS, &INDICES, &palette, [10, 10]);
+        raster.draw_textured_polygon(
+            &POINTS,
+            &INDICES,
+            &TEXTURE_COORDINATES,
+            TEXTURE,
+            192,
+            0x1F1F,
+            false,
+            [0, 0],
+            &palette,
+        );
+
+        assert_eq!(raster.indices[77 * WIDTH + 233], 12);
+    }
+
+    #[test]
     fn clipped_corneria_building_keeps_the_source_left_edge_guard() {
         const CAPTURED_POINTS: [ProjectedPoint; 12] = [
-            ProjectedPoint { x: 16, y: 122, depth: 2_095 },
-            ProjectedPoint { x: -3, y: 122, depth: 2_095 },
-            ProjectedPoint { x: 17, y: 75, depth: 2_095 },
-            ProjectedPoint { x: -2, y: 74, depth: 2_095 },
-            ProjectedPoint { x: 9, y: 122, depth: 2_095 },
-            ProjectedPoint { x: -11, y: 122, depth: 2_095 },
-            ProjectedPoint { x: 10, y: 72, depth: 2_095 },
-            ProjectedPoint { x: -11, y: 72, depth: 2_095 },
-            ProjectedPoint { x: -10, y: 122, depth: 2_095 },
-            ProjectedPoint { x: 6, y: 122, depth: 2_095 },
-            ProjectedPoint { x: -9, y: 72, depth: 2_095 },
-            ProjectedPoint { x: 6, y: 72, depth: 2_095 },
+            ProjectedPoint {
+                x: 16,
+                y: 122,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: -3,
+                y: 122,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: 17,
+                y: 75,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: -2,
+                y: 74,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: 9,
+                y: 122,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: -11,
+                y: 122,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: 10,
+                y: 72,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: -11,
+                y: 72,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: -10,
+                y: 122,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: 6,
+                y: 122,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: -9,
+                y: 72,
+                depth: 2_095,
+            },
+            ProjectedPoint {
+                x: 6,
+                y: 72,
+                depth: 2_095,
+            },
         ];
         const FACE: [u16; 4] = [2, 6, 4, 0];
         const SOURCE_COLOR: u8 = 11;
@@ -618,6 +1193,49 @@ mod tests {
                 "captured left-edge row {y}",
             );
         }
+    }
+
+    #[test]
+    fn flat_palette_zero_clears_earlier_geometry() {
+        const POINTS: [ProjectedPoint; 4] = [
+            ProjectedPoint {
+                x: 80,
+                y: 80,
+                depth: 1,
+            },
+            ProjectedPoint {
+                x: 96,
+                y: 80,
+                depth: 1,
+            },
+            ProjectedPoint {
+                x: 96,
+                y: 96,
+                depth: 1,
+            },
+            ProjectedPoint {
+                x: 80,
+                y: 96,
+                depth: 1,
+            },
+        ];
+        const FACE: [u16; 4] = [0, 3, 2, 1];
+        const UNDER_COLOR: u8 = 7;
+        const UNDER_OWNER: u16 = 3;
+        const OVER_OWNER: u16 = 4;
+        const TARGET_X: usize = 88;
+        const TARGET_Y: usize = 88;
+
+        let mut raster = SourceRaster::new();
+        raster.set_owner(UNDER_OWNER);
+        raster.draw_palette_pair(&POINTS, &FACE, &[[1.0; 4]; 16], [UNDER_COLOR, UNDER_COLOR]);
+        raster.set_owner(OVER_OWNER);
+        raster.draw_palette_pair(&POINTS, &FACE, &[[1.0; 4]; 16], [0, 0]);
+
+        let target = TARGET_Y * WIDTH + TARGET_X;
+        assert_eq!(raster.indices()[target], SOURCE_CLEAR_INDEX);
+        assert_eq!(raster.owners()[target], OVER_OWNER);
+        assert_eq!(raster.diagnostic_pixel(TARGET_X, TARGET_Y), [0; CHANNELS]);
     }
 
     #[test]
@@ -649,6 +1267,191 @@ mod tests {
         assert_eq!(raster.indices()[offset], PALETTE_INDEX);
         assert_eq!(raster.owners()[offset], 6);
         assert_eq!(raster.faces()[offset], NO_FACE);
+    }
+
+    #[test]
+    fn vertical_source_line_includes_both_retail_endpoints() {
+        const POINTS: [ProjectedPoint; 2] = [
+            ProjectedPoint {
+                x: 78,
+                y: 89,
+                depth: 5_119,
+            },
+            ProjectedPoint {
+                x: 78,
+                y: 113,
+                depth: 5_119,
+            },
+        ];
+        const COLOR_INDEX: u8 = 1;
+
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_line(
+            &POINTS,
+            &[0, 1],
+            &[[1.0; 4]; 16],
+            [COLOR_INDEX, COLOR_INDEX],
+        );
+
+        for y in 89..=113 {
+            assert_eq!(raster.indices()[y * WIDTH + 78], COLOR_INDEX);
+        }
+        assert_eq!(raster.indices()[88 * WIDTH + 78], 0);
+        assert_eq!(raster.indices()[114 * WIDTH + 78], 0);
+    }
+
+    #[test]
+    fn diagonal_source_line_uses_the_retail_initial_step_phase() {
+        const POINTS: [ProjectedPoint; 2] = [
+            ProjectedPoint {
+                x: 78,
+                y: 91,
+                depth: 5_119,
+            },
+            ProjectedPoint {
+                x: 82,
+                y: 109,
+                depth: 5_119,
+            },
+        ];
+        const COLOR_INDEX: u8 = 2;
+
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_line(
+            &POINTS,
+            &[0, 1],
+            &[[1.0; 4]; 16],
+            [COLOR_INDEX, COLOR_INDEX],
+        );
+
+        assert_eq!(raster.indices()[93 * WIDTH + 79], COLOR_INDEX);
+        assert_eq!(raster.indices()[93 * WIDTH + 78], 0);
+    }
+
+    #[test]
+    fn negative_diagonal_source_line_defers_the_first_horizontal_step() {
+        const POINTS: [ProjectedPoint; 2] = [
+            ProjectedPoint {
+                x: 78,
+                y: 91,
+                depth: 5_119,
+            },
+            ProjectedPoint {
+                x: 73,
+                y: 109,
+                depth: 5_119,
+            },
+        ];
+        const COLOR_INDEX: u8 = 9;
+
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_line(
+            &POINTS,
+            &[0, 1],
+            &[[1.0; 4]; 16],
+            [COLOR_INDEX, COLOR_INDEX],
+        );
+
+        assert_eq!(raster.indices()[92 * WIDTH + 78], COLOR_INDEX);
+        assert_eq!(raster.indices()[92 * WIDTH + 77], 0);
+        assert_eq!(raster.indices()[93 * WIDTH + 77], COLOR_INDEX);
+    }
+
+    #[test]
+    fn clipped_training_tower_line_restarts_its_retail_step_phase() {
+        const POINTS: [ProjectedPoint; 2] = [
+            ProjectedPoint {
+                x: 13,
+                y: 114,
+                depth: 2_788,
+            },
+            ProjectedPoint {
+                x: 46,
+                y: 107,
+                depth: 2_788,
+            },
+        ];
+        const COLOR_INDEX: u8 = 2;
+
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_line(
+            &POINTS,
+            &[0, 1],
+            &[[1.0; 4]; 16],
+            [COLOR_INDEX, COLOR_INDEX],
+        );
+
+        assert_eq!(raster.indices()[108 * WIDTH + 39], 0);
+        assert_eq!(raster.indices()[109 * WIDTH + 39], COLOR_INDEX);
+    }
+
+    #[test]
+    fn clipped_training_tower_line_preserves_authored_intersection_direction() {
+        const POINTS: [ProjectedPoint; 2] = [
+            ProjectedPoint {
+                x: 25,
+                y: 107,
+                depth: 2_788,
+            },
+            ProjectedPoint {
+                x: 13,
+                y: 114,
+                depth: 2_788,
+            },
+        ];
+        const COLOR_INDEX: u8 = 3;
+
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_line(
+            &POINTS,
+            &[0, 1],
+            &[[1.0; 4]; 16],
+            [COLOR_INDEX, COLOR_INDEX],
+        );
+
+        assert_eq!(raster.indices()[108 * WIDTH + 23], COLOR_INDEX);
+        assert_eq!(raster.indices()[109 * WIDTH + 23], 0);
+    }
+
+    #[test]
+    fn source_line_corner_clip_retains_the_wireframe_origin_pixel() {
+        // MY_W face 1 at Training frame 1089.  The geometric segment misses
+        // the playfield, but the source's closed two-point clip stream
+        // truncates both directional intersections onto its upper-left pixel.
+        const POINTS: [ProjectedPoint; 2] = [
+            ProjectedPoint {
+                x: 17,
+                y: 15,
+                depth: 7_681,
+            },
+            ProjectedPoint {
+                x: -3,
+                y: 16,
+                depth: 6_916,
+            },
+        ];
+        const COLOR_INDEX: u8 = 7;
+
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_line(
+            &POINTS,
+            &[0, 1],
+            &[[1.0; 4]; 16],
+            [COLOR_INDEX, COLOR_INDEX],
+        );
+
+        assert_eq!(
+            raster.indices()[PLAYFIELD_TOP as usize * WIDTH + PLAYFIELD_LEFT as usize],
+            COLOR_INDEX,
+        );
+        assert_eq!(
+            raster
+                .indices()
+                .iter()
+                .filter(|&&index| index == COLOR_INDEX)
+                .count(),
+            1,
+        );
     }
 
     #[test]
@@ -696,8 +1499,7 @@ mod tests {
             + SOURCE_SAMPLE[0]] = PALETTE_INDEX << 4;
         // Exact-ratio sampling would incorrectly select column 16 here; the
         // source's quantized reduction step selects transparent column 15.
-        texture[usize::from(TEXTURE_OFFSET) + 4 * TEXTURE_ROW_STRIDE + 16] =
-            PALETTE_INDEX << 4;
+        texture[usize::from(TEXTURE_OFFSET) + 4 * TEXTURE_ROW_STRIDE + 16] = PALETTE_INDEX << 4;
         let mut raster = SourceRaster::new();
         raster.draw_scaled_sprite(
             TOP_LEFT,
@@ -708,7 +1510,10 @@ mod tests {
             true,
             &[[1.0; 4]; 16],
         );
-        assert_eq!(raster.indices()[TARGET[1] * WIDTH + TARGET[0]], PALETTE_INDEX);
+        assert_eq!(
+            raster.indices()[TARGET[1] * WIDTH + TARGET[0]],
+            PALETTE_INDEX
+        );
         assert_eq!(raster.indices()[62 * WIDTH + 90], 0);
     }
 

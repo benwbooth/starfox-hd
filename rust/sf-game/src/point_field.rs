@@ -16,7 +16,6 @@ const PROJECTION_MAX_Z: i16 = 12_288;
 const PROJECTION_NUMERATOR: i32 = 32_767 * 256;
 const PROJECTION_CENTER_X: i16 = 112;
 const PROJECTION_CENTER_Y: i16 = 96;
-const VISIBLE_POINT_TOP: i16 = 1;
 const PROJECTION_WIDTH: i16 = 224;
 const PROJECTION_HEIGHT: i16 = 192;
 const GROUND_GRID_POINTS_PER_AXIS: usize = 15;
@@ -206,13 +205,11 @@ impl PointField {
             PointFieldMode::Pollen => 3,
             PointFieldMode::None | PointFieldMode::GroundGrid => return,
         };
-        if y >= VISIBLE_POINT_TOP {
-            self.pixels.push(PointPixel {
-                x: x as u8,
-                y: y as u8,
-                palette_index,
-            });
-        }
+        self.pixels.push(PointPixel {
+            x: x as u8,
+            y: y as u8,
+            palette_index,
+        });
         if point.z < DUST_NEAR_DOUBLE_PIXEL_Z && y + 1 < PROJECTION_HEIGHT {
             // The source PLOT operation advances its horizontal coordinate.
             // Its following decrement restores the original column before
@@ -377,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn title_framebuffer_hides_top_point_but_retains_near_trail() {
+    fn source_framebuffer_retains_top_point_and_near_trail() {
         let mut field = PointField::new();
         field.pixels.clear();
         field.project_dust_point(
@@ -389,8 +386,9 @@ mod tests {
                 z: 512,
             },
         );
-        assert_eq!(field.pixels.len(), 1);
-        assert_eq!(field.pixels[0].y, 1);
+        assert_eq!(field.pixels.len(), 2);
+        assert_eq!(field.pixels[0].y, 0);
+        assert_eq!(field.pixels[1].y, 1);
 
         field.pixels.clear();
         field.project_dust_point(
@@ -402,6 +400,7 @@ mod tests {
                 z: 1_045,
             },
         );
-        assert!(field.pixels.is_empty());
+        assert_eq!(field.pixels.len(), 1);
+        assert_eq!(field.pixels[0].y, 0);
     }
 }
