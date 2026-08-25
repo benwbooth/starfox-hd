@@ -30,7 +30,7 @@ use sf_render::renderer::{
     Sf2PilotSelectionPhase, Sf2StrategicActor, Sf2StrategicActorAppearance, Sf2StrategicActorKind,
     Sf2TitleMenuItem, Sf2TitlePage, SF2_RADAR_CONTACT_CAPACITY,
 };
-use sf_render::shape_data::SHAPE_EXT_ASTEROID1;
+use sf_render::shape_data::{SHAPE_EXT_ASTEROID1, SHAPE_EXT_MYBASE_0};
 use sf_render::shapes::{self, SHAPE_ELASER2, SHAPE_MYSHIP_4};
 
 mod common;
@@ -121,6 +121,7 @@ fn gl_runtime_suite() {
     check_sf2_mission_backdrops(&mut renderer);
     check_sf2_mission_message(&mut renderer);
     check_superfx_texture_face(&mut renderer);
+    check_corneria_base_insignia(&mut renderer);
     check_player_laser(&mut renderer);
 
     renderer.shutdown();
@@ -1133,6 +1134,47 @@ fn check_superfx_texture_face(renderer: &mut Renderer) {
         colors.len() >= 3,
         "texture map collapsed to {} flat colors",
         colors.len()
+    );
+}
+
+fn check_corneria_base_insignia(renderer: &mut Renderer) {
+    const TEST_DEPTH: i32 = 3_000;
+    const TEST_HEIGHT: i32 = -320;
+    const FRONT_FACING_YAW: i16 = 128;
+    const INSIGNIA_LIGHT_RGB: [u8; 3] = [247, 255, 255];
+    const MINIMUM_INSIGNIA_LIGHT_PIXELS: usize = 100;
+
+    renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+    let curr = [DrawListEntry {
+        shape_id: SHAPE_EXT_MYBASE_0,
+        y: TEST_HEIGHT << 16,
+        z: TEST_DEPTH << 16,
+        ry: FRONT_FACING_YAW,
+        flags: DL_FLAG_VISIBLE,
+        obj_id: 1,
+        ..Default::default()
+    }];
+    let inputs = FrameInputs {
+        game_state: GameState::Boot,
+        ..Default::default()
+    };
+    renderer.begin_frame();
+    renderer.submit(&curr, &curr, 1.0, &inputs);
+    renderer.end_frame();
+
+    let pixels = renderer.read_pixels_rgb();
+    if let Some(path) = std::env::var_os("SF1_BASE_DUMP_PPM") {
+        let mut ppm = format!("P6\n{W} {H}\n255\n").into_bytes();
+        ppm.extend_from_slice(&pixels);
+        std::fs::write(path, ppm).expect("write requested Corneria base dump");
+    }
+    let insignia_light_pixels = pixels
+        .chunks_exact(3)
+        .filter(|pixel| color_near(pixel, INSIGNIA_LIGHT_RGB, 2))
+        .count();
+    assert!(
+        insignia_light_pixels >= MINIMUM_INSIGNIA_LIGHT_PIXELS,
+        "Corneria base insignia was hidden by its coplanar backing face ({insignia_light_pixels} light pixels)"
     );
 }
 

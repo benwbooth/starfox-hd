@@ -40,7 +40,7 @@ use sf_render::renderer::{
     Sf2StrategicActorAppearance, Sf2StrategicActorKind, Sf2StrategicPhase, Sf2TitleMenuItem,
     Sf2TitlePage, WindowState, SF2_RADAR_CONTACT_CAPACITY, WINDOWARRAY_SIZE,
 };
-use sf_render::shapes::Sf2PolygonPalette;
+use sf_render::shapes::{Sf2PolygonPalette, SHAPE_ALIAS_OP_0, SHAPE_ALIAS_OP_1, SHAPE_ALIAS_OP_2};
 
 use crate::audio::AudioSys;
 use crate::config::Config;
@@ -958,6 +958,7 @@ fn main() {
     let fast_forward = std::env::var("SF_FAST_FORWARD")
         .map(|value| value == "1")
         .unwrap_or(false);
+    let presentation_trace = std::env::var_os("SF_PRESENTATION_TRACE").is_some();
 
     // --- Fixed timestep game loop with interpolation (main.c:153-201) ---
     let tick_duration = if sf2.is_some() {
@@ -1107,7 +1108,7 @@ fn main() {
                 frame = shell.frame();
                 audio.tick(&mut shell, &frame);
 
-                if std::env::var_os("SF_PRESENTATION_TRACE").is_some() {
+                if presentation_trace {
                     for current in &curr_list {
                         if let Some(previous) = prev_list.iter().find(|previous| {
                             previous.obj_id == current.obj_id
@@ -1123,6 +1124,52 @@ fn main() {
                                 current.shape_id,
                                 previous.interpolation_id,
                                 current.interpolation_id
+                            );
+                        }
+                    }
+
+                    let launch_segments: Vec<_> = curr_list
+                        .iter()
+                        .filter(|entry| {
+                            matches!(
+                                entry.shape_id,
+                                SHAPE_ALIAS_OP_0 | SHAPE_ALIAS_OP_1 | SHAPE_ALIAS_OP_2
+                            )
+                        })
+                        .collect();
+                    if !launch_segments.is_empty() {
+                        eprintln!(
+                            "[sf1-present] launch total={} gameframe={} camera=({},{},{}) rotation=({},{},{}) snap={} segments={}",
+                            total_ticks,
+                            frame.gameframe,
+                            frame.camera.x >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                            frame.camera.y >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                            frame.camera.z >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                            frame.camera.rotation[0],
+                            frame.camera.rotation[1],
+                            frame.camera.rotation[2],
+                            frame.camera.snap,
+                            launch_segments.len(),
+                        );
+                        for current in launch_segments {
+                            let previous = prev_list.iter().find(|previous| {
+                                previous.obj_id == current.obj_id
+                                    && previous.shape_id == current.shape_id
+                                    && previous.interpolation_id == current.interpolation_id
+                            });
+                            eprintln!(
+                                "[sf1-present] segment object={} shape={} lifetime={} position=({},{},{}) previous={:?}",
+                                current.obj_id,
+                                current.shape_id,
+                                current.interpolation_id,
+                                current.x >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                                current.y >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                                current.z >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                                previous.map(|entry| [
+                                    entry.x >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                                    entry.y >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                                    entry.z >> WORLD_TO_RENDER_FRACTIONAL_BITS,
+                                ]),
                             );
                         }
                     }

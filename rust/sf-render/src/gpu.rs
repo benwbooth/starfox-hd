@@ -513,7 +513,12 @@ impl Gpu {
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
             },
-            depth_stencil: depth_stencil(true, wgpu::CompareFunction::Less),
+            // COLTEXT faces are authored as coplanar overlays immediately
+            // after a solid backing face (for example the two Corneria-base
+            // insignias in mybase_0). `Less` made the equal-depth texture lose
+            // nondeterministically as the camera moved. Preserve source draw
+            // order by allowing the later textured decal at equal depth.
+            depth_stencil: depth_stencil(true, wgpu::CompareFunction::LessEqual),
             multisample: wgpu::MultisampleState::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &shader,

@@ -129,13 +129,18 @@ pub(crate) fn project_draw_object_origin(
     if object_id == 0 {
         return None;
     }
-    let current = curr.iter().find(|entry| entry.obj_id == object_id)?;
-    let entry = prev
-        .iter()
-        .find(|entry| can_interpolate(entry, current))
-        .map_or(*current, |previous| {
-            interpolate_entry(previous, current, alpha)
-        });
+    let previous = prev.iter().find(|entry| entry.obj_id == object_id);
+    let current = curr.iter().find(|entry| entry.obj_id == object_id);
+    let entry = if alpha < 1.0 {
+        let previous = previous?;
+        current
+            .filter(|current| can_interpolate(previous, current))
+            .map_or(*previous, |current| {
+                interpolate_entry(previous, current, alpha)
+            })
+    } else {
+        *current?
+    };
 
     project_world_origin(transform, entry.x, entry.y, entry.z)
 }
@@ -190,6 +195,47 @@ fn can_interpolate(previous: &DrawListEntry, current: &DrawListEntry) -> bool {
         && previous.obj_id == current.obj_id
         && previous.shape_id == current.shape_id
         && previous.interpolation_id == current.interpolation_id
+}
+
+fn interpolation_pair<'a>(
+    entry: &'a DrawListEntry,
+    presenting_previous: bool,
+    prev: &'a [DrawListEntry],
+    curr: &'a [DrawListEntry],
+    prev_by_id: &[i16; MAX_OBJECTS + 1],
+    curr_by_id: &[i16; MAX_OBJECTS + 1],
+) -> Option<(&'a DrawListEntry, &'a DrawListEntry)> {
+    let object_id = usize::from(entry.obj_id);
+    if object_id == 0 || object_id > MAX_OBJECTS {
+        return None;
+    }
+    if presenting_previous {
+        let current_index = curr_by_id[object_id];
+        if current_index < 0 {
+            return None;
+        }
+        let current = &curr[current_index as usize];
+        can_interpolate(entry, current).then_some((entry, current))
+    } else {
+        let previous_index = prev_by_id[object_id];
+        if previous_index < 0 {
+            return None;
+        }
+        let previous = &prev[previous_index as usize];
+        can_interpolate(previous, entry).then_some((previous, entry))
+    }
+}
+
+fn presentation_entries<'a>(
+    prev: &'a [DrawListEntry],
+    curr: &'a [DrawListEntry],
+    alpha: f32,
+) -> (bool, &'a [DrawListEntry]) {
+    let presenting_previous = alpha < 1.0;
+    (
+        presenting_previous,
+        if presenting_previous { prev } else { curr },
+    )
 }
 
 fn source_sort_depth(entry: &DrawListEntry, camera: SourceSceneCamera) -> i16 {
@@ -454,12 +500,14 @@ impl DrawListRenderer {
         source_point_pixels: &[PointPixel],
         shadow_style: ShadowStyle,
     ) {
-        // At the exact fixed-update boundary the source still presents the
-        // preceding complete draw snapshot. Iterating `curr` here made newly
-        // born objects pop in one presentation frame early and removed
-        // objects disappear early, even though matched objects correctly
-        // interpolated from `prev` at alpha zero.
-        let presented = if alpha <= 0.0 { prev } else { curr };
+        // Interpolation presents the interval from `prev` to `curr`. Keep the
+        // preceding snapshot's topology throughout that open interval: a
+        // retired object remains until the interpolated camera reaches the
+        // tick that retired it, while a newborn object enters at that same
+        // endpoint. Switching to `curr` for every alpha above zero made whole
+        // corridor segments disappear almost one tick before the camera
+        // reached their cull boundary, exposing seams as a 20 Hz flicker.
+        let (presenting_previous, presented) = presentation_entries(prev, curr, alpha);
         if presented.is_empty() {
             return;
         }
@@ -495,6 +543,12 @@ impl DrawListRenderer {
                 prev_by_id[p.obj_id as usize] = i as i16;
             }
         }
+        let mut curr_by_id = [-1i16; MAX_OBJECTS + 1];
+        for (i, current) in curr.iter().enumerate() {
+            if (current.obj_id as usize) <= MAX_OBJECTS {
+                curr_by_id[current.obj_id as usize] = i as i16;
+            }
+        }
 
         let source_camera = source_presentation_offset.map(|_| {
             source_scene_camera.unwrap_or_else(|| {
@@ -520,19 +574,17 @@ impl DrawListRenderer {
                     if !has_source_shadow(entry) {
                         continue;
                     }
-                    let previous_index =
-                        if entry.obj_id != 0 && (entry.obj_id as usize) <= MAX_OBJECTS {
-                            prev_by_id[entry.obj_id as usize]
-                        } else {
-                            -1
-                        };
-                    let shadow = if previous_index >= 0
-                        && can_interpolate(&prev[previous_index as usize], entry)
-                    {
-                        interpolate_entry(&prev[previous_index as usize], entry, alpha)
-                    } else {
-                        *entry
-                    };
+                    let shadow = interpolation_pair(
+                        entry,
+                        presenting_previous,
+                        prev,
+                        curr,
+                        &prev_by_id,
+                        &curr_by_id,
+                    )
+                    .map_or(*entry, |(previous, current)| {
+                        interpolate_entry(previous, current, alpha)
+                    });
                     let ground = shadow_height as i16;
                     if (shadow.y >> 16) as i16 > ground {
                         continue;
@@ -568,27 +620,26 @@ impl DrawListRenderer {
             }
 
             // Interpolate if we have a matching previous entry.
-            let prev_idx = if entry.obj_id != 0 && (entry.obj_id as usize) <= MAX_OBJECTS {
-                prev_by_id[entry.obj_id as usize]
-            } else {
-                -1
-            };
-            let interpolating = prev_idx >= 0 && can_interpolate(&prev[prev_idx as usize], entry);
-            let interp = if interpolating {
-                interpolate_entry(&prev[prev_idx as usize], entry, alpha)
-            } else {
-                *entry
-            };
+            let interpolation = interpolation_pair(
+                entry,
+                presenting_previous,
+                prev,
+                curr,
+                &prev_by_id,
+                &curr_by_id,
+            );
+            let interp = interpolation.map_or(*entry, |(previous, current)| {
+                interpolate_entry(previous, current, alpha)
+            });
 
             // Fractional interpolated rotation for a jitter-free model build
             // (interp.rx/ry/rz are truncated to whole SNES units and are still
             // used for the flat shadow pass, where the error is invisible).
-            let (frx, fry, frz) = if interpolating {
-                let p = &prev[prev_idx as usize];
+            let (frx, fry, frz) = if let Some((previous, current)) = interpolation {
                 (
-                    lerp_angle8_f(p.rx, entry.rx, alpha),
-                    lerp_angle8_f(p.ry, entry.ry, alpha),
-                    lerp_angle8_f(p.rz, entry.rz, alpha),
+                    lerp_angle8_f(previous.rx, current.rx, alpha),
+                    lerp_angle8_f(previous.ry, current.ry, alpha),
+                    lerp_angle8_f(previous.rz, current.rz, alpha),
                 )
             } else {
                 (entry.rx as f32, entry.ry as f32, entry.rz as f32)
@@ -744,7 +795,7 @@ impl DrawListRenderer {
 
 #[cfg(test)]
 mod interpolation_tests {
-    use super::{can_interpolate, DrawListEntry};
+    use super::{can_interpolate, presentation_entries, DrawListEntry};
 
     #[test]
     fn source_slot_reuse_never_interpolates_across_allocation_lifetimes() {
@@ -768,6 +819,50 @@ mod interpolation_tests {
 
         assert!(can_interpolate(&previous, &same_object));
         assert!(!can_interpolate(&previous, &reused_slot));
+    }
+
+    #[test]
+    fn previous_topology_is_presented_until_the_interpolation_endpoint() {
+        const RETIRED_OBJECT_ID: u16 = 2;
+        const NEW_OBJECT_ID: u16 = 3;
+        const HALF_TICK: f32 = 0.5;
+
+        let previous = [
+            DrawListEntry {
+                obj_id: 1,
+                ..DrawListEntry::default()
+            },
+            DrawListEntry {
+                obj_id: RETIRED_OBJECT_ID,
+                ..DrawListEntry::default()
+            },
+        ];
+        let current = [
+            previous[0],
+            DrawListEntry {
+                obj_id: NEW_OBJECT_ID,
+                ..DrawListEntry::default()
+            },
+        ];
+
+        let (presenting_previous, between_ticks) =
+            presentation_entries(&previous, &current, HALF_TICK);
+        assert!(presenting_previous);
+        assert!(between_ticks
+            .iter()
+            .any(|entry| entry.obj_id == RETIRED_OBJECT_ID));
+        assert!(!between_ticks
+            .iter()
+            .any(|entry| entry.obj_id == NEW_OBJECT_ID));
+
+        let (presenting_previous, at_endpoint) = presentation_entries(&previous, &current, 1.0);
+        assert!(!presenting_previous);
+        assert!(!at_endpoint
+            .iter()
+            .any(|entry| entry.obj_id == RETIRED_OBJECT_ID));
+        assert!(at_endpoint
+            .iter()
+            .any(|entry| entry.obj_id == NEW_OBJECT_ID));
     }
 }
 
