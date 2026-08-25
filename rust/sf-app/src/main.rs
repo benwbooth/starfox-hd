@@ -118,6 +118,7 @@ fn to_render_entry(e: &CoreEntry) -> RenderEntry {
         tscroll_x: e.tscroll_x,
         tscroll_y: e.tscroll_y,
         obj_id: e.obj_id,
+        interpolation_id: e.interpolation_id,
     }
 }
 
@@ -166,6 +167,7 @@ fn to_sf2_render_entry(object: &sf2_game::RenderObject) -> RenderEntry {
         tscroll_x: object.texture_scroll_x,
         tscroll_y: object.texture_scroll_y,
         obj_id: object.object.stable_render_id(),
+        interpolation_id: u64::from(object.object.stable_render_id()),
     }
 }
 
@@ -897,7 +899,7 @@ fn main() {
             }
         }
     } else {
-        match AudioSys::new(&sdl, cfg.audio_asset_dir(), cfg.pepper_typewriter_sound) {
+        match AudioSys::new(&sdl, cfg.audio_asset_dir(), cfg.pepper_briefing_sounds) {
             Ok(audio) => audio,
             Err(error) => {
                 eprintln!("Audio asset validation failed: {error}");
@@ -1105,6 +1107,27 @@ fn main() {
                 frame = shell.frame();
                 audio.tick(&mut shell, &frame);
 
+                if std::env::var_os("SF_PRESENTATION_TRACE").is_some() {
+                    for current in &curr_list {
+                        if let Some(previous) = prev_list.iter().find(|previous| {
+                            previous.obj_id == current.obj_id
+                                && previous.shape_id == current.shape_id
+                                && previous.interpolation_id != current.interpolation_id
+                        }) {
+                            eprintln!(
+                                "[sf1-present] recycled-slot state={} gameframe={} map={} object={} shape={} lifetime={}->{}",
+                                frame.game_state_code,
+                                frame.gameframe,
+                                frame.newmap,
+                                current.obj_id,
+                                current.shape_id,
+                                previous.interpolation_id,
+                                current.interpolation_id
+                            );
+                        }
+                    }
+                }
+
                 if let Some(d) = dump.as_mut() {
                     let list = shell.draw_list();
                     d.tick(
@@ -1127,6 +1150,7 @@ fn main() {
                 if cam.snap {
                     renderer.transform.snap_camera();
                     renderer.snap_background_offset_tables();
+                    prev_list.clone_from(&curr_list);
                 }
             }
 

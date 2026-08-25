@@ -132,7 +132,7 @@ pub(crate) fn project_draw_object_origin(
     let current = curr.iter().find(|entry| entry.obj_id == object_id)?;
     let entry = prev
         .iter()
-        .find(|entry| entry.obj_id == object_id && entry.shape_id == current.shape_id)
+        .find(|entry| can_interpolate(entry, current))
         .map_or(*current, |previous| {
             interpolate_entry(previous, current, alpha)
         });
@@ -181,6 +181,15 @@ pub struct DrawListEntry {
     pub tscroll_y: u8,
     /// Stable source-object id (alien index + 1); 0 = no identity.
     pub obj_id: u16,
+    /// Allocation-lifetime token paired with `obj_id` for interpolation.
+    pub interpolation_id: u64,
+}
+
+fn can_interpolate(previous: &DrawListEntry, current: &DrawListEntry) -> bool {
+    current.obj_id != 0
+        && previous.obj_id == current.obj_id
+        && previous.shape_id == current.shape_id
+        && previous.interpolation_id == current.interpolation_id
 }
 
 fn source_sort_depth(entry: &DrawListEntry, camera: SourceSceneCamera) -> i16 {
@@ -518,7 +527,7 @@ impl DrawListRenderer {
                             -1
                         };
                     let shadow = if previous_index >= 0
-                        && prev[previous_index as usize].shape_id == entry.shape_id
+                        && can_interpolate(&prev[previous_index as usize], entry)
                     {
                         interpolate_entry(&prev[previous_index as usize], entry, alpha)
                     } else {
@@ -564,7 +573,7 @@ impl DrawListRenderer {
             } else {
                 -1
             };
-            let interpolating = prev_idx >= 0 && prev[prev_idx as usize].shape_id == entry.shape_id;
+            let interpolating = prev_idx >= 0 && can_interpolate(&prev[prev_idx as usize], entry);
             let interp = if interpolating {
                 interpolate_entry(&prev[prev_idx as usize], entry, alpha)
             } else {
@@ -730,6 +739,35 @@ impl DrawListRenderer {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod interpolation_tests {
+    use super::{can_interpolate, DrawListEntry};
+
+    #[test]
+    fn source_slot_reuse_never_interpolates_across_allocation_lifetimes() {
+        const RECYCLED_TUNNEL_SHAPE: u16 = 510;
+        const FIRST_ALLOCATION_ID: u64 = 41;
+
+        let previous = DrawListEntry {
+            obj_id: 1,
+            shape_id: RECYCLED_TUNNEL_SHAPE,
+            interpolation_id: FIRST_ALLOCATION_ID,
+            ..DrawListEntry::default()
+        };
+        let same_object = DrawListEntry {
+            interpolation_id: previous.interpolation_id,
+            ..previous
+        };
+        let reused_slot = DrawListEntry {
+            interpolation_id: previous.interpolation_id + 1,
+            ..previous
+        };
+
+        assert!(can_interpolate(&previous, &same_object));
+        assert!(!can_interpolate(&previous, &reused_slot));
     }
 }
 

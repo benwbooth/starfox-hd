@@ -450,9 +450,11 @@ enum PlayerBoxScan {
     AllMatches,
 }
 
-/// Live player damage-proxy slots. Empty = direct model (no boxes).
+/// Player damage-proxy slots. Empty = direct model (no boxes).
 /// Mirrors the ROM `pcboxobj_B/LW/RW` word vars (GILESALC.INC:255-257) plus
-/// the ship slot (`playpt`) that owns the three-box collision list.
+/// the ship slot (`playpt`) that owns the three-box collision list. The ROM
+/// invalidates `playpt` on death but deliberately retains all three proxy
+/// pointers so `calcmeters` can continue reading the depleted body HP.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PcboxState {
     /// The ship object (ROM `playpt`) — owns the live three-box collider.
@@ -463,9 +465,9 @@ pub struct PcboxState {
 }
 
 impl PcboxState {
-    /// True once [`Game::pcbox_attach`] has built the boxes.
+    /// True while the ship still routes collisions through the boxes.
     pub fn attached(&self) -> bool {
-        self.body.is_some()
+        self.player.is_some() && self.body.is_some()
     }
 
     /// Classify a slot, if it is one of the boxes.
@@ -1013,7 +1015,10 @@ impl Game {
             al.endcollstratptr = None;
             al.expstratptr = None;
         }
-        self.coldet.pcbox = PcboxState::default();
+        // `playerdead_Istrat` makes `playpt` invalid but does not clear the
+        // three `pcboxobj_*` words. Keep those typed slot references so the
+        // HUD reads the body's terminal HP exactly as `calcmeters` does.
+        self.coldet.pcbox.player = None;
     }
 }
 

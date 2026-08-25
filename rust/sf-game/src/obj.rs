@@ -27,6 +27,9 @@ pub struct Objects {
     /// C `g_aldead` — death flag set by strategies, checked by the
     /// dostrats loop after each strategy call.
     pub aldead: u8,
+    /// Renderer-only lifetime token for each reusable source object slot.
+    presentation_ids: Vec<u64>,
+    next_presentation_id: u64,
 }
 
 impl Objects {
@@ -38,6 +41,8 @@ impl Objects {
             active_head: None,
             free_head: None,
             aldead: 0,
+            presentation_ids: vec![0; NUMBER_AL],
+            next_presentation_id: 1,
         };
         for i in (0..NUMBER_AL as u16).rev() {
             o.aliens[i as usize].active = false;
@@ -58,6 +63,7 @@ impl Objects {
         self.free_head = None;
         for i in (0..NUMBER_AL as u16).rev() {
             self.aliens[i as usize] = Alien::default();
+            self.presentation_ids[i as usize] = 0;
             self.free_push_front(i);
         }
     }
@@ -142,6 +148,8 @@ impl Objects {
         let idx = self.free_head?;
         self.unlink(idx, false);
         self.aliens[idx as usize] = Alien::default();
+        self.presentation_ids[idx as usize] = self.next_presentation_id;
+        self.next_presentation_id = self.next_presentation_id.wrapping_add(1).max(1);
         {
             let al = &mut self.aliens[idx as usize];
             al.active = true;
@@ -149,6 +157,11 @@ impl Objects {
         }
         self.active_push_front(idx);
         Some(idx)
+    }
+
+    /// Opaque identity for the current allocation lifetime of `idx`.
+    pub(crate) fn presentation_id(&self, idx: u16) -> u64 {
+        self.presentation_ids[idx as usize]
     }
 
     /// C `Obj_Free()` / ROM `Removedeadal` (STRATROU.ASM:19): divorce the
@@ -304,6 +317,24 @@ impl Objects {
         self.aliens[tail as usize].next = Some(idx);
         self.aliens[idx as usize].prev = Some(tail);
         self.aliens[idx as usize].next = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Objects;
+
+    #[test]
+    fn reused_source_slot_gets_a_new_presentation_identity() {
+        let mut objects = Objects::init();
+        let first_slot = objects.alloc().expect("first object");
+        let first_identity = objects.presentation_id(first_slot);
+        objects.free(first_slot);
+
+        let second_slot = objects.alloc().expect("reused object");
+        let second_identity = objects.presentation_id(second_slot);
+        assert_eq!(second_slot, first_slot);
+        assert_ne!(second_identity, first_identity);
     }
 }
 

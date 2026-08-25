@@ -302,9 +302,11 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
 
     // Death sequence engaged.
     assert_eq!(g.vars.gameflags & GF_PLAYERDYING, GF_PLAYERDYING);
-    // Boxes detached: state cleared, boxes colldisable so they leave the
-    // collision list.
+    // Collision routing is detached, while the source pcbox pointers remain
+    // addressable for `calcmeters` during the death presentation.
     assert!(!g.coldet.pcbox.attached());
+    assert_eq!(g.coldet.pcbox.body, Some(body));
+    assert_eq!(g.coldet.pcbox.lwing, Some(lwing));
     assert!(g.objs.aliens[body as usize].sflags2 & ASF2_COLLDISABLE != 0);
     assert!(g.objs.aliens[lwing as usize].sflags2 & ASF2_COLLDISABLE != 0);
 

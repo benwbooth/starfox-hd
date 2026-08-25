@@ -93,6 +93,10 @@ pub struct DrawListEntry {
     /// Stable object identity (alien index + 1) for render interpolation
     /// pairing across ticks; 0 = unpaired.
     pub obj_id: u16,
+    /// Port-only allocation-lifetime identity. Source object slots are reused;
+    /// matching this token prevents interpolation between unrelated objects
+    /// that happened to occupy the same slot with the same shape.
+    pub interpolation_id: u64,
 }
 
 pub mod dl_flags {

@@ -433,6 +433,7 @@ fn to_render_entry(entry: &sf_core::DrawListEntry) -> RenderDrawListEntry {
         tscroll_x: entry.tscroll_x,
         tscroll_y: entry.tscroll_y,
         obj_id: entry.obj_id,
+        interpolation_id: entry.interpolation_id,
     }
 }
 

@@ -1846,15 +1846,21 @@ impl Shell {
         let st = self.state.borrow();
         let v = &self.game.vars;
 
-        // calcmeters/HUD inputs (nmi.c:77-90): shield from the player
-        // alien when present (NMI_PLAYER_MAX_HP cap), else full defaults;
+        // calcmeters/HUD inputs (TRANS.ASM:602-611): shield from the body
+        // collision proxy retained in `pcboxobj_B`, not the base player;
         // boss meter fill = m_bossHP / g_bossmaxhp (mdrawbossHP,
         // MDRAWLIS.MC:985-1057): bosshp is re-summed each frame by the boss
         // part strats, bossmaxhp is set once at boss init.
-        let (shield_cur, shield_max) = match self.game.objs.player() {
-            Some(p) => (p.hp as i32, NMI_PLAYER_MAX_HP),
-            None => (NMI_PLAYER_MAX_HP, NMI_PLAYER_MAX_HP),
-        };
+        let shield_cur = self
+            .game
+            .coldet
+            .pcbox
+            .body
+            .and_then(|body| self.game.objs.aliens.get(body as usize))
+            .map_or(NMI_PLAYER_MAX_HP, |body| {
+                i32::from(i8::from_ne_bytes([body.hp])).max(0)
+            });
+        let shield_max = NMI_PLAYER_MAX_HP;
 
         let mut screen_fill_circle = v.screen_fill_circle;
         if let ScreenFillCircleCenter::Object(object_id) = screen_fill_circle.center {
@@ -3825,6 +3831,34 @@ mod tests {
     use super::*;
     use sf_core::screen_wipe::ScreenWipeKind::{HorizontalReveal, StarReveal};
     use sf_map::catalog::map_id;
+
+    #[test]
+    fn shield_meter_reads_the_retained_body_proxy_through_death() {
+        const DAMAGED_BODY_HP: u8 = 10;
+
+        let mut shell = Shell::new();
+        let body = shell.game.objs.alloc().expect("body proxy slot");
+        shell.game.coldet.pcbox.player = Some(body);
+        shell.game.coldet.pcbox.body = Some(body);
+        shell.game.objs.aliens[body as usize].hp = DAMAGED_BODY_HP;
+
+        let damaged = shell.frame();
+        assert_eq!(damaged.shield_cur, i32::from(DAMAGED_BODY_HP));
+        assert_eq!(damaged.shield_max, NMI_PLAYER_MAX_HP);
+
+        shell.game.objs.aliens[body as usize].hp = 0;
+        shell.game.pcbox_detach();
+        assert!(!shell.game.coldet.pcbox.attached());
+        assert_eq!(shell.game.coldet.pcbox.body, Some(body));
+        assert_eq!(shell.frame().shield_cur, 0);
+
+        shell.game.objs.aliens[body as usize].hp = u8::MAX;
+        assert_eq!(
+            shell.frame().shield_cur,
+            0,
+            "negative source HP is clamped exactly as calcmeters does"
+        );
+    }
 
     #[test]
     fn frame_resolves_null_shape_circle_anchor_to_flat_world_position() {

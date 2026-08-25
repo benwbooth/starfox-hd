@@ -266,6 +266,7 @@ pub fn build_list(
 
         // Stable identity for render interpolation (draw.c:149-152).
         entry.obj_id = i + 1;
+        entry.interpolation_id = objs.presentation_id(i);
 
         // Game_SubmitDrawEntry cap (boot.c:295-299).
         if out.len() < MAX_DRAW_LIST {
@@ -349,6 +350,7 @@ mod tests {
             tscroll_x: 3,
             tscroll_y: 4,
             obj_id: 1,
+            interpolation_id: 1,
         };
         assert_eq!(e, &expect);
 

@@ -17,7 +17,9 @@ use sf_audio::sf2_native_player::{
 };
 use sf_audio::sound::{PosSndFamily, Sound, SoundBackend, SoundGameState, SoundObj, SoundPlayer};
 use sf_game::game::{Game, PosSndFamilyId};
-use sf_game::shell::{FrameSnapshot, GameState, Shell, SoundCmd, PEPPER_CHARACTER_SOUND};
+use sf_game::shell::{
+    FrameSnapshot, GameState, Shell, SoundCmd, PEPPER_CHARACTER_SOUND, PEPPER_DISMISS_SOUND,
+};
 
 /// Native asset output rate.
 const AUDIO_RATE: i32 = 32000;
@@ -32,8 +34,8 @@ const ASF3_REALOBJ: u8 = sf_game::alien::ASF3_REALOBJ;
 /// C `ACF_FIRSTFRAME` — matches sf_game::alien.
 const ACF_FIRSTFRAME: u8 = sf_game::alien::ACF_FIRSTFRAME;
 
-fn shell_effect_enabled(effect: u8, pepper_typewriter_sound: bool) -> bool {
-    effect != PEPPER_CHARACTER_SOUND || pepper_typewriter_sound
+fn shell_effect_enabled(effect: u8, pepper_briefing_sounds: bool) -> bool {
+    pepper_briefing_sounds || !matches!(effect, PEPPER_CHARACTER_SOUND | PEPPER_DISMISS_SOUND)
 }
 
 enum StreamSource {
@@ -253,7 +255,7 @@ pub struct AudioSys {
     _stream: Option<AudioStreamWithCallback<NativeStreamCallback>>,
     backend: NativeBackend,
     sound: Sound,
-    pepper_typewriter_sound: bool,
+    pepper_briefing_sounds: bool,
     sf2_player: Option<Sf2NativePlayer>,
     sf2_music: Option<Sf2MusicCue>,
     sf2_engine: Option<(Sf2SoundBank, Sf2SoundPilot, Sf2EngineCue)>,
@@ -267,7 +269,7 @@ impl AudioSys {
     pub fn new(
         sdl: &sdl3::Sdl,
         asset_dir: PathBuf,
-        pepper_typewriter_sound: bool,
+        pepper_briefing_sounds: bool,
     ) -> Result<AudioSys, NativeAudioError> {
         let player = NativePlayer::new(&asset_dir);
         player.validate_star_fox_assets()?;
@@ -277,7 +279,7 @@ impl AudioSys {
             player.clone(),
             StreamSource::StarFox(player),
             None,
-            pepper_typewriter_sound,
+            pepper_briefing_sounds,
         ))
     }
 
@@ -301,7 +303,7 @@ impl AudioSys {
         player: NativePlayer,
         source: StreamSource,
         sf2_player: Option<Sf2NativePlayer>,
-        pepper_typewriter_sound: bool,
+        pepper_briefing_sounds: bool,
     ) -> AudioSys {
         let stream = match sdl.audio() {
             Ok(audio) => {
@@ -347,7 +349,7 @@ impl AudioSys {
             _stream: stream,
             backend,
             sound,
-            pepper_typewriter_sound,
+            pepper_briefing_sounds,
             sf2_player,
             sf2_music: None,
             sf2_engine: None,
@@ -446,8 +448,21 @@ impl AudioSys {
         // boot.c, windows.c, strings.c, planets.c call sites.
         let in_gameplay = shell.state() == GameState::Playing;
         for cmd in shell.drain_sound() {
+            if std::env::var_os("SF_AUDIO_TRACE").is_some() {
+                let reaches_sound_ring = match cmd {
+                    SoundCmd::PlaySe(id) => {
+                        shell_effect_enabled(id, self.pepper_briefing_sounds)
+                    }
+                    _ => true,
+                };
+                eprintln!(
+                    "[sf1-audio] state={:?} gameframe={} command={cmd:?} output={reaches_sound_ring}",
+                    shell.state(),
+                    frame.gameframe
+                );
+            }
             match cmd {
-                SoundCmd::PlaySe(id) if shell_effect_enabled(id, self.pepper_typewriter_sound) => {
+                SoundCmd::PlaySe(id) if shell_effect_enabled(id, self.pepper_briefing_sounds) => {
                     self.sound.play_se(&state, id);
                 }
                 SoundCmd::PlaySe(_) => {}
@@ -589,11 +604,13 @@ mod tests {
     use sf_audio::sound::*;
 
     #[test]
-    fn pepper_typewriter_chirp_is_optional_without_muting_other_effects() {
+    fn pepper_briefing_sounds_are_optional_without_muting_other_effects() {
         assert!(!shell_effect_enabled(PEPPER_CHARACTER_SOUND, false));
         assert!(shell_effect_enabled(PEPPER_CHARACTER_SOUND, true));
+        assert!(!shell_effect_enabled(PEPPER_DISMISS_SOUND, false));
+        assert!(shell_effect_enabled(PEPPER_DISMISS_SOUND, true));
         assert!(shell_effect_enabled(
-            sf_game::shell::PEPPER_DISMISS_SOUND,
+            sf_game::shell::PLANET_CONFIRM_SOUND,
             false
         ));
     }
