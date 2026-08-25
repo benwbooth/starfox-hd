@@ -3476,7 +3476,7 @@ fn player_exitbase_follow_strat(g: &mut Game, idx: u16) {
             (al.worldz, al.roty)
         };
         let wal = &mut g.objs.aliens[w as usize];
-        wal.sflags |= ASF_COLLDISABLE;
+        wal.sflags2 |= ASF2_COLLDISABLE;
         wal.worldx = CATCHUP_WINGMAN_X;
         wal.worldy = CATCHUP_WINGMAN_Y;
         wal.worldz = self_z.wrapping_add(CATCHUP_WINGMAN_Z_OFFSET);
@@ -3545,6 +3545,11 @@ mod exit_base_follow_tests {
         let wingman = active[1];
         let wingman_go = sid(&mut game, K_FRIENDSTART3GO);
         assert_eq!(game.objs.aliens[wingman as usize].shape, SHAPE_MYSHIP_4);
+        assert_eq!(game.objs.aliens[wingman as usize].sflags, 0);
+        assert_eq!(
+            game.objs.aliens[wingman as usize].sflags2 & ASF2_COLLDISABLE,
+            ASF2_COLLDISABLE
+        );
         assert_eq!(
             game.objs.aliens[wingman as usize].stratptr,
             Some(wingman_go)
@@ -3625,7 +3630,7 @@ fn friendstart3_istrat(g: &mut Game, idx: u16) {
     // s_setnoremove_behind x
     al.type_ &= !ATZREMOVE;
     // s_set_alsflag x,colldisable
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     // s_set_strat x,friendstart3go_strat
     al.stratptr = Some(go_id);
     // s_set_lifecnt x,#70

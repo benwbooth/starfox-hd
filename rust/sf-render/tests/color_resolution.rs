@@ -18,12 +18,12 @@ use sf_render::shapes::{
 /// Independent BGR555 + nibble-pair-average reference (mirrors the SNES
 /// 5-bit channel layout: bits 0-4 red, 5-9 green, 10-14 blue).
 fn expected_pair(pair: u8) -> [f32; 4] {
+    let expand = |component: u16| {
+        let five_bits = component & 31;
+        f32::from(((five_bits << 3) | (five_bits >> 2)) as u8) / 255.0
+    };
     let decode = |c: u16| -> [f32; 3] {
-        [
-            (c & 0x1F) as f32 / 31.0,
-            ((c >> 5) & 0x1F) as f32 / 31.0,
-            ((c >> 10) & 0x1F) as f32 / 31.0,
-        ]
+        [expand(c), expand(c >> 5), expand(c >> 10)]
     };
     let lo = decode(NIGHT_PALETTE[(pair & 0x0F) as usize]);
     let hi = decode(NIGHT_PALETTE[(pair >> 4) as usize]);

@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 use crate::bg2d::Bg2d;
 use crate::draw_list::{
     project_draw_object_origin, project_world_origin, DrawListEntry, DrawListRenderer,
+    SourceSceneCamera,
 };
 use crate::font::Font;
-use crate::gpu::{Gpu, RenderViewport, TextureId, Vertex2};
+use crate::gpu::{Gpu, RenderViewport, TextureId, Vertex2, WHITE_TEX};
 use crate::hud::Hud;
 use crate::particles::Particles;
 use crate::shapes_gl::ShapeStore;
@@ -24,7 +25,9 @@ use crate::ui::Ui;
 use sf_core::{
     player_view::PlayerViewMode,
     point_field::PointPixel,
-    scene::{PaletteFadeTarget, SceneStyle},
+    scene::{
+        PaletteFadeTarget, SceneStyle, BG2_HORIZONTAL_OFFSET_ROWS, BG2_VERTICAL_OFFSET_COLUMNS,
+    },
     screen_fill_circle::{
         ScreenFillCircleCenter, ScreenFillCircleScope, ScreenFillCircleState, MAX_COLOR_LEVEL,
     },
@@ -32,6 +35,9 @@ use sf_core::{
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
     sf1_planets::PlanetPresentation,
 };
+
+const SOURCE_POLYGON_GAMEPLAY_PRESENTATION_OFFSET: [i16; 2] = [0, 0];
+const SOURCE_POLYGON_DEFAULT_PRESENTATION_OFFSET: [i16; 2] = [0, 0];
 
 /// Semantic presentation state shared by the native game and renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -361,6 +367,17 @@ pub struct FrameInputs<'a> {
     /// Present only when rendering the native Star Fox 2 game.
     pub sf2: Option<Sf2FrameInputs>,
 
+    /// Present the unfiltered 256-by-224 SF1 source frame, including the
+    /// hardware-authored flight-playfield mask. The normal HD presentation
+    /// leaves this false so optional visual styling remains independent.
+    pub source_resolution: bool,
+    /// Completed-scene pitch used by the source background transfer. This is
+    /// separate from the later presentation camera during strict capture.
+    pub source_background_pitch: Option<u16>,
+    /// Optional completed-scene camera for strict source capture. This keeps
+    /// source bitmap projection independent from the later live BG2 camera.
+    pub source_scene_camera: Option<SourceSceneCamera>,
+
     // Global state (boot.h / game_vars.h)
     pub game_state: GameState,
     /// g_currentbg (last setbg operand).
@@ -371,6 +388,10 @@ pub struct FrameInputs<'a> {
     pub bgflags: u8,
     /// g_bg2Xscroll.
     pub bg2_xscroll: i32,
+    /// Source Mode-2 vertical offset for each eight-pixel display column.
+    pub bg2_vertical_offsets: Option<[i16; BG2_VERTICAL_OFFSET_COLUMNS]>,
+    /// Source rotating-ground horizontal placement for every display row.
+    pub bg2_horizontal_offsets: Option<[i16; BG2_HORIZONTAL_OFFSET_ROWS]>,
     /// g_nomaxbg2Yscroll.
     pub nomax_bg2_yscroll: bool,
     /// Typed polygon lighting and shadow-plane state selected by the active
@@ -441,6 +462,8 @@ pub struct FrameInputs<'a> {
     pub msg_count1: u8,
     /// g_msg_count2.
     pub msg_count2: u8,
+    /// Typed portrait frame selected by the radio-message state machine.
+    pub radio_face_frame: u8,
     /// g_whichfriend.
     pub whichfriend: u8,
     /// g_friends_meter.
@@ -484,11 +507,16 @@ impl<'a> Default for FrameInputs<'a> {
     fn default() -> Self {
         FrameInputs {
             sf2: None,
+            source_resolution: false,
+            source_background_pitch: None,
+            source_scene_camera: None,
             game_state: GameState::Boot,
             currentbg: 0,
             newmap: 0,
             bgflags: 0,
             bg2_xscroll: 0,
+            bg2_vertical_offsets: None,
+            bg2_horizontal_offsets: None,
             nomax_bg2_yscroll: false,
             scene_style: SceneStyle::default(),
             point_pixels: &[],
@@ -522,6 +550,7 @@ impl<'a> Default for FrameInputs<'a> {
             shieldup: 0,
             msg_count1: 0,
             msg_count2: 0,
+            radio_face_frame: 0,
             whichfriend: 0,
             friends_meter: 0,
             message_text: None,
@@ -775,6 +804,16 @@ impl Renderer {
             f32::from(inputs.scene_style.shadow_height),
             &shape_palette,
             &mut self.font,
+            inputs.source_resolution.then_some(if inputs.game_state == GameState::Playing {
+                // Projection and clipping remain in the source-local
+                // coordinate system; this offset models only final layer
+                // placement and is zero for the retail gameplay bitmap.
+                SOURCE_POLYGON_GAMEPLAY_PRESENTATION_OFFSET
+            } else {
+                SOURCE_POLYGON_DEFAULT_PRESENTATION_OFFSET
+            }),
+            self.hud.source_bitmap_clear(inputs),
+            inputs.source_scene_camera,
         );
         self.particles.render(&mut self.gpu, &self.transform);
         if inputs.game_state == GameState::Title {
@@ -795,9 +834,16 @@ impl Renderer {
             &mut self.sprites,
             &mut self.font,
             inputs,
+            &shape_palette,
             self.width,
             self.height,
         );
+        if inputs.source_resolution && inputs.game_state == GameState::Playing {
+            // The flight window is applied after bitmap-resident meters and
+            // radio portraits. This clips the portrait's final two source
+            // rows just as the retail layer window does.
+            self.render_source_flight_mask();
+        }
         self.ui.render(
             &mut self.gpu,
             &mut self.font,
@@ -808,6 +854,91 @@ impl Renderer {
         );
         self.ui
             .render_fade(&mut self.gpu, inputs, self.width, self.height);
+    }
+
+    /// Mask the source's 224-by-192 flight bitmap after scene drawing and
+    /// before HUD/OAM presentation. The logic-aligned retail PPU scanout fixes
+    /// its authored first visible line at output line 16.
+    fn render_source_flight_mask(&mut self) {
+        const SOURCE_FRAME_WIDTH: f32 = 256.0;
+        const SOURCE_FRAME_HEIGHT: f32 = 224.0;
+        const PLAYFIELD_LEFT: f32 = 16.0;
+        const PLAYFIELD_TOP: f32 = 17.0;
+        const PLAYFIELD_WIDTH: f32 = 224.0;
+        // The flight window exposes 190 of the 192 bitmap rows. Its final two
+        // rows are black before HUD/OAM composition.
+        const PLAYFIELD_HEIGHT: f32 = 190.0;
+        const IDENTITY: [f32; 16] = [
+            1.0, 0.0, 0.0, 0.0, //
+            0.0, 1.0, 0.0, 0.0, //
+            0.0, 0.0, 1.0, 0.0, //
+            0.0, 0.0, 0.0, 1.0,
+        ];
+
+        let output_width = self.width as f32;
+        let output_height = self.height as f32;
+        let scale = output_height / SOURCE_FRAME_HEIGHT;
+        let source_left = (output_width - SOURCE_FRAME_WIDTH * scale) * 0.5;
+        let left = source_left + PLAYFIELD_LEFT * scale;
+        let top = PLAYFIELD_TOP * scale;
+        let right = left + PLAYFIELD_WIDTH * scale;
+        let bottom = top + PLAYFIELD_HEIGHT * scale;
+        let projection = [
+            2.0 / output_width,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.0 / output_height,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -1.0,
+            0.0,
+            -1.0,
+            -1.0,
+            0.0,
+            1.0,
+        ];
+        for [x, y, width, height] in [
+            [0.0, 0.0, left, output_height],
+            [right, 0.0, output_width - right, output_height],
+            [left, 0.0, right - left, top],
+            [left, bottom, right - left, output_height - bottom],
+        ] {
+            if width <= 0.0 || height <= 0.0 {
+                continue;
+            }
+            let render_y = output_height - y - height;
+            let vertices = [
+                Vertex2 {
+                    pos: [x, render_y],
+                    uv: [0.0, 0.0],
+                },
+                Vertex2 {
+                    pos: [x + width, render_y],
+                    uv: [0.0, 0.0],
+                },
+                Vertex2 {
+                    pos: [x + width, render_y + height],
+                    uv: [0.0, 0.0],
+                },
+                Vertex2 {
+                    pos: [x, render_y + height],
+                    uv: [0.0, 0.0],
+                },
+            ];
+            self.gpu.push_overlay_fan(
+                &vertices,
+                &projection,
+                &IDENTITY,
+                [0.0, 0.0, 0.0, 1.0],
+                0,
+                None,
+                WHITE_TEX,
+            );
+        }
     }
 
     /// Present the source fixed-colour addition inside the authored circle.
@@ -989,6 +1120,23 @@ impl Renderer {
             }
             None => vec![0u8; w * h * 3],
         }
+    }
+
+    /// Indexed polygon bitmap from the most recent strict source render.
+    pub fn source_bitmap_indices(&self) -> &[u8] {
+        self.draw_list.source_bitmap_indices()
+    }
+
+    pub fn source_bitmap_rgba(&self) -> &[u8] {
+        self.draw_list.source_bitmap_rgba()
+    }
+
+    pub fn source_bitmap_owners(&self) -> &[u16] {
+        self.draw_list.source_bitmap_owners()
+    }
+
+    pub fn source_bitmap_faces(&self) -> &[u16] {
+        self.draw_list.source_bitmap_faces()
     }
 
     /// Mirror of `Renderer_Shutdown` (wgpu frees GPU resources on drop).

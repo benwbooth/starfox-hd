@@ -13,12 +13,17 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 mod scenario;
+mod source_video;
 
 pub use scenario::{
     compare_scenario, read_scenario_evidence, read_scenario_manifest, write_scenario_evidence,
     write_scenario_manifest, CaptureChannel, ConformanceReport, EvidenceProducer,
     NonStrictEvidence, ScenarioEvidence, ScenarioInputRun, ScenarioManifest,
     EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
+};
+pub use source_video::{
+    compare_source_rgb, hash_rgb, read_source_rgb_ppm, write_source_rgb_ppm, SourceVideoDivergence,
+    SOURCE_FRAME_HEIGHT, SOURCE_FRAME_RGB_BYTES, SOURCE_FRAME_WIDTH,
 };
 
 pub const TRACE_SCHEMA_VERSION: u32 = 1;

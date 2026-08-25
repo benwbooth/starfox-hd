@@ -15,8 +15,8 @@
 //! it is not an address namespace.
 
 use sf_game::alien::{
-    Alien, ObjectVisualKind, StratId, ACF_FIRSTFRAME, ACF_WEAPON, AFONFIRE, ASF3_REALOBJ,
-    ASF_COLLDISABLE, ASF_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
+    Alien, ObjectVisualKind, StratId, ACF_FIRSTFRAME, ACF_WEAPON, AFONFIRE, ASF2_COLLDISABLE,
+    ASF3_REALOBJ, ASF_COLLDISABLE, ASF_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
 };
 // NUMBER_AL used by updateengine_srou bounds check.
 use sf_game::vars::GameVars;
@@ -683,7 +683,7 @@ pub fn flash_istrat(g: &mut Game, idx: u16) {
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
         al.tx = 0;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         init_colanim(al, 0);
     }
     add_player_z(g, idx);
@@ -995,7 +995,7 @@ pub fn boost_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.count = 10; // s_set_lifecnt #10
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sflags &= !ASF_INVISIBLE;
         al.type_ &= !ATZREMOVE; // s_setnoremove_behind
         al.stratptr = Some(tick);
@@ -1037,6 +1037,26 @@ pub fn boost_strat(g: &mut Game, idx: u16) {
     al.count = al.count.wrapping_sub(1);
     if al.count == 0 {
         g.objs.aldead = 1;
+    }
+}
+
+#[cfg(test)]
+mod boost_field_tests {
+    use super::*;
+
+    #[test]
+    fn boost_uses_typed_sprite_kind_and_second_collision_flag_byte() {
+        let mut game = Game::new();
+        let host = strat_make_obj(&mut game, 0).expect("boost host");
+        let flame = strat_make_obj(&mut game, SH_BOOSTSHAPE).expect("boost flame");
+        game.vars.set_sv_i16(sv::BOOSTOBJ, host as i16);
+
+        boost_istrat(&mut game, flame);
+
+        let flame = game.objs.aliens[usize::from(flame)];
+        assert_eq!(flame.visual_kind, ObjectVisualKind::ScaledSprite);
+        assert_eq!(flame.sflags, 0);
+        assert_eq!(flame.sflags2 & ASF2_COLLDISABLE, ASF2_COLLDISABLE);
     }
 }
 

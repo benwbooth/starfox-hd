@@ -174,6 +174,69 @@ pub fn matrix_rotate_q15(matrix: [[i16; 3]; 3], x: i16, y: i16, z: i16) -> (i16,
     )
 }
 
+/// One output axis of the source renderer's packed-point transform.
+///
+/// The three signed products accumulate in a wrapping word. The source then
+/// doubles that word, keeps its high byte as a signed value, and applies the
+/// shape's authored power-of-two scale.
+#[inline]
+pub fn packed_point_axis(
+    coefficient_a: i8,
+    coefficient_b: i8,
+    coefficient_c: i8,
+    x: i8,
+    y: i8,
+    z: i8,
+    scale: i8,
+) -> i16 {
+    let sum = i16::from(coefficient_a)
+        .wrapping_mul(i16::from(x))
+        .wrapping_add(i16::from(coefficient_b).wrapping_mul(i16::from(y)))
+        .wrapping_add(i16::from(coefficient_c).wrapping_mul(i16::from(z)));
+    let high_byte = (((i32::from(sum)) << 1) >> 8) as i8;
+    i16::from(high_byte).wrapping_mul(i16::from(scale))
+}
+
+/// Transform one signed-byte point with the packed source object matrix.
+#[inline]
+pub fn rotate_packed_point(
+    matrix: [[i8; 3]; 3],
+    scale: i8,
+    x: i8,
+    y: i8,
+    z: i8,
+) -> (i16, i16, i16) {
+    (
+        packed_point_axis(
+            matrix[0][0],
+            matrix[1][0],
+            matrix[2][0],
+            x,
+            y,
+            z,
+            scale,
+        ),
+        packed_point_axis(
+            matrix[0][1],
+            matrix[1][1],
+            matrix[2][1],
+            x,
+            y,
+            z,
+            scale,
+        ),
+        packed_point_axis(
+            matrix[0][2],
+            matrix[1][2],
+            matrix[2][2],
+            x,
+            y,
+            z,
+            scale,
+        ),
+    )
+}
+
 /// ROM `mulslogmac` (MACROS.INC:911) — signed 8×8 → signed 8.
 #[inline]
 pub fn mulslog_mac8(a: i8, b: i8) -> i8 {

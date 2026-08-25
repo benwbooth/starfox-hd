@@ -12,7 +12,10 @@
 
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::point_field::PointFieldMode;
-use sf_core::scene::{DepthColors, DepthThresholds, GamePalette, PaletteFadeTarget, SceneStyle};
+use sf_core::scene::{
+    BackgroundHorizontalMode, DepthColors, DepthThresholds, GamePalette, PaletteFadeTarget,
+    SceneStyle, BG2_HORIZONTAL_OFFSET_ROWS, BG2_VERTICAL_OFFSET_COLUMNS,
+};
 use sf_core::screen_fill_circle::ScreenFillCircleState;
 
 // ============================================================
@@ -598,11 +601,19 @@ pub struct GameVars {
     pub dovofs: u8,
     /// ROM `dohofs` — BG2 horizontal-offset enable (WORLD.ASM sethofson/off).
     pub dohofs: u8,
+    /// Typed horizontal transform selected by the active background.
+    pub background_horizontal_mode: BackgroundHorizontalMode,
     /// ROM `bgmode` — PPU BGMODE mirror written by vofs on/off (1=off, 2=on).
     pub bgmode: u8,
     /// ROM `bg2vofs` — BG2 vertical scroll latch copied from the shared
     /// background-scroll field.
     pub bg2vofs: u16,
+    /// Low-coordinate portion of the source `bg2voffsbak` transfer table.
+    /// The high Mode-2 enable bit is represented by [`Self::dovofs`].
+    pub bg2_vertical_offsets: [i16; BG2_VERTICAL_OFFSET_COLUMNS],
+    /// Per-row horizontal placement produced by the active rotating-ground
+    /// background declaration.
+    pub bg2_horizontal_offsets: [i16; BG2_HORIZONTAL_OFFSET_ROWS],
     /// Typed mirror of the independent polygon-palette, distance-colour,
     /// distance-threshold, and shadow-plane selections made by BGS.ASM.
     pub scene_style: SceneStyle,
@@ -722,8 +733,11 @@ impl Default for GameVars {
             bgtransspeed: 0,
             dovofs: 0,
             dohofs: 0,
+            background_horizontal_mode: BackgroundHorizontalMode::Disabled,
             bgmode: 1, // ROM idle = Mode 1 (vofsoffplease)
             bg2vofs: 0,
+            bg2_vertical_offsets: [16; BG2_VERTICAL_OFFSET_COLUMNS],
+            bg2_horizontal_offsets: [0; BG2_HORIZONTAL_OFFSET_ROWS],
             scene_style: SceneStyle::default(),
             palfade_num: 0,
             palfade_target: None,

@@ -5,12 +5,123 @@
 //! `bg_dmalist` / `bgtransspeed` (C `g_currentbg` etc., game_vars.c).
 
 use crate::vars::{GameVars, BGF_BG, BGF_INFO, BGF_RESTART};
-use sf_core::scene::{PaletteFadeTarget, PALETTE_FADE_COUNTER_START};
+use sf_core::scene::{
+    BackgroundHorizontalMode, PaletteFadeTarget, BG2_HORIZONTAL_OFFSET_ROWS,
+    BG2_VERTICAL_OFFSET_COLUMNS, PALETTE_FADE_COUNTER_START,
+};
+
+/// The rotating-ground transform is mirrored around the 112-line horizon.
+const HORIZONTAL_OFFSET_HALF_ROWS: usize = BG2_HORIZONTAL_OFFSET_ROWS / 2;
+/// Fixed-point reduction used by the authored ground-roll gradient.
+const HORIZONTAL_ROLL_REDUCTION: u32 = 7;
+/// Fractional portion retained by the authored 8.8 recurrence.
+const HORIZONTAL_FRACTION_BITS: u32 = 8;
+/// Player lateral position contributes one background pixel per eight world
+/// units.
+const HORIZONTAL_WORLD_REDUCTION: u32 = 3;
+/// Complete yaw contributes one background pixel per 32 turn fractions.
+const HORIZONTAL_YAW_REDUCTION: u32 = 5;
 
 /// `seapal - seapal + 30`, saved by `fadetoseado` as `lastpalfade`.
 const SEA_FADE_LAST_COLOR_OFFSET: u16 = 30;
 /// `groundpal - seapal + 30`; the two source rows are 32 bytes apart.
 const GROUND_FADE_LAST_COLOR_OFFSET: u16 = 62;
+
+/// Low-coordinate portion of `SGDATA.ASM` `bg2tab1` through `bg2tab6`.
+/// The source words also set the Mode-2 vertical-offset enable bit; the Rust
+/// renderer carries that state in the surrounding `Option` instead.
+const BG2_VERTICAL_OFFSET_TABLES: [[i16; BG2_VERTICAL_OFFSET_COLUMNS]; 6] = [
+    [16; BG2_VERTICAL_OFFSET_COLUMNS],
+    [
+        20, 19, 19, 19, 18, 18, 18, 18, 18, 17, 17, 17, 17, 16, 16, 16, 16, 16, 15, 15, 15,
+        15, 14, 14, 14, 14, 14, 13, 13, 13, 12, 12,
+    ],
+    [
+        23, 22, 21, 21, 20, 20, 20, 19, 19, 18, 18, 18, 17, 17, 16, 16, 16, 15, 15, 14, 14,
+        14, 13, 13, 12, 12, 12, 11, 11, 10, 9, 9,
+    ],
+    [
+        25, 24, 24, 23, 23, 22, 21, 21, 20, 20, 19, 18, 18, 17, 17, 16, 15, 15, 14, 14, 13,
+        12, 12, 11, 11, 10, 9, 9, 8, 8, 7, 7,
+    ],
+    [
+        28, 27, 26, 25, 24, 24, 23, 22, 21, 21, 20, 19, 18, 18, 17, 16, 15, 14, 14, 13, 12,
+        11, 11, 10, 9, 8, 7, 7, 6, 5, 4, 4,
+    ],
+    [
+        32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12,
+        11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1,
+    ],
+];
+
+/// Typed presentation form of `calcbg2voffsets`. `player_roll` is the
+/// source's complete signed 16-bit turn fraction (`plrotz`), not a camera or
+/// processor field. Negative banking reverses the authored column order.
+pub fn background_vertical_offsets(
+    player_roll: i16,
+    depth_rotation: bool,
+) -> [i16; BG2_VERTICAL_OFFSET_COLUMNS] {
+    let effective_roll = if depth_rotation { player_roll } else { 0 };
+    let magnitude = if effective_roll < 0 {
+        effective_roll.wrapping_neg() as u16
+    } else {
+        effective_roll as u16
+    };
+    // The Rev-2 cartridge selects successive authored tables for high-byte
+    // roll buckets 0 through 5, then saturates at table 6. Deterministic WRAM
+    // captures cover bucket 1 -> table 2 and bucket 3 -> table 4. This differs
+    // from the duplicated pointer entries in the surviving development tree,
+    // so retail behavior is authoritative for the port.
+    let table_index = usize::from((magnitude >> 8) & 7).min(BG2_VERTICAL_OFFSET_TABLES.len() - 1);
+    let mut offsets = BG2_VERTICAL_OFFSET_TABLES[table_index];
+    if effective_roll < 0 {
+        offsets.reverse();
+    }
+    offsets
+}
+
+/// Typed presentation form of the rotating-ground horizontal transform.
+///
+/// The source builds the top and bottom halves outward from the horizon with
+/// a signed 8.8 roll gradient. The returned values are complete background
+/// offsets, including player position, camera yaw, turn compensation, and the
+/// background's authored base scroll.
+pub fn background_horizontal_offsets(
+    player_roll: i16,
+    player_world_x: i16,
+    view_yaw: i16,
+    player_turn_rotation: i16,
+    background_scroll_x: i16,
+) -> [i16; BG2_HORIZONTAL_OFFSET_ROWS] {
+    let base = player_world_x
+        .wrapping_shr(HORIZONTAL_WORLD_REDUCTION)
+        .wrapping_add(
+            view_yaw
+                .wrapping_sub(player_turn_rotation)
+                .wrapping_shr(HORIZONTAL_YAW_REDUCTION),
+        )
+        .wrapping_add(background_scroll_x);
+    let gradient = (!player_roll).wrapping_shr(HORIZONTAL_ROLL_REDUCTION);
+    let whole_step = gradient.wrapping_shr(HORIZONTAL_FRACTION_BITS);
+    let fractional_step = (gradient as u16) << HORIZONTAL_FRACTION_BITS;
+    let mut fractional_accumulator = 0u16;
+    let mut whole_accumulator = 0i16;
+    let mut offsets = [0; BG2_HORIZONTAL_OFFSET_ROWS];
+
+    for distance in 0..HORIZONTAL_OFFSET_HALF_ROWS {
+        let (fraction, carry) = fractional_accumulator.overflowing_add(fractional_step);
+        fractional_accumulator = fraction;
+        whole_accumulator = whole_accumulator
+            .wrapping_add(whole_step)
+            .wrapping_add(i16::from(carry));
+        offsets[HORIZONTAL_OFFSET_HALF_ROWS - 1 - distance] =
+            base.wrapping_add(whole_accumulator);
+        offsets[HORIZONTAL_OFFSET_HALF_ROWS + distance] =
+            base.wrapping_add(!whole_accumulator);
+    }
+
+    offsets
+}
 
 /// Result of draining pending background-request flags (ROM `transswap` /
 /// `dobgreq_l` / `setbginforeq_l` side effects without SNES DMA).
@@ -91,10 +202,31 @@ pub fn calc_bg2_voffsets(vars: &mut GameVars, player_rotz: i16) -> Bg2VofsResult
         return Bg2VofsResult::default();
     }
     vars.shared.last_rotation = key;
+    vars.bg2_vertical_offsets = background_vertical_offsets(player_rotz, dozrot);
     Bg2VofsResult {
         needs_dma: true,
         table_key: key,
     }
+}
+
+/// Transfer-bound background preparation. `calcbgscroll_l` clears the
+/// source's cached table pointer immediately before `calcbg2voffsets`, so an
+/// enabled Mode-2 table is materialized from the pre-strategy player roll on
+/// every game-loop transfer. Keeping the 32 columns in [`GameVars`] preserves
+/// that observable one-update presentation phase without machine memory.
+pub fn prepare_transfer(vars: &mut GameVars, player_world_x: i16) -> Bg2VofsResult {
+    vars.shared.last_rotation = u16::MAX;
+    let vertical = calc_bg2_voffsets(vars, vars.strategy.player_rotation[2]);
+    if vars.background_horizontal_mode == BackgroundHorizontalMode::Rotate {
+        vars.bg2_horizontal_offsets = background_horizontal_offsets(
+            vars.strategy.player_rotation[2],
+            player_world_x,
+            vars.strategy.view_yaw,
+            vars.strategy.player_turn_rotation,
+            vars.shared.background_scroll_x,
+        );
+    }
+    vertical
 }
 
 /// ROM `transswap` body after the bitmap wait (TRANS.ASM:273): service
@@ -141,7 +273,8 @@ pub fn update(vars: &mut GameVars) {
             } else {
                 vars.vofs_off_please();
             }
-            vars.dohofs = u8::from(info.horizontal_offsets);
+            vars.background_horizontal_mode = info.horizontal_mode;
+            vars.dohofs = u8::from(info.horizontal_mode != BackgroundHorizontalMode::Disabled);
             vars.shared.do_depth_rotation = u8::from(info.depth_rotation);
         }
         vars.preserve_player_strategy = false;
@@ -217,6 +350,10 @@ mod tests {
         assert_eq!(vars.point_field_mode, PointFieldMode::SpaceDust);
         assert_eq!(vars.dotsflag, -1);
         assert_eq!((vars.dovofs, vars.dohofs), (0, 0));
+        assert_eq!(
+            vars.background_horizontal_mode,
+            BackgroundHorizontalMode::Disabled
+        );
         assert_eq!(vars.shared.do_depth_rotation, 0);
 
         vars.currentbg = background_id::TRAINING;
@@ -225,6 +362,10 @@ mod tests {
         assert_eq!(vars.point_field_mode, PointFieldMode::GroundGrid);
         assert_eq!(vars.dotsflag, 1);
         assert_eq!((vars.dovofs, vars.dohofs), (1, 1));
+        assert_eq!(
+            vars.background_horizontal_mode,
+            BackgroundHorizontalMode::Rotate
+        );
         assert_eq!(vars.shared.do_depth_rotation, 1);
     }
 
@@ -238,6 +379,7 @@ mod tests {
         vars.dotsflag = -1;
         vars.dovofs = 1;
         vars.dohofs = 1;
+        vars.background_horizontal_mode = BackgroundHorizontalMode::Rotate;
         vars.shared.do_depth_rotation = 1;
         vars.bgflags = BGF_INFO;
         update(&mut vars);
@@ -271,5 +413,94 @@ mod tests {
         let rotated_result = calc_bg2_voffsets(&mut vars, 0x0500); // hi=5 → key=(5&7)<<1=10
         assert!(rotated_result.needs_dma);
         assert_eq!(rotated_result.table_key, 10);
+        assert_eq!(
+            vars.bg2_vertical_offsets,
+            BG2_VERTICAL_OFFSET_TABLES[5]
+        );
+    }
+
+    #[test]
+    fn transfer_materializes_columns_from_the_pre_strategy_roll() {
+        let mut vars = GameVars::init();
+        vars.dovofs = 1;
+        vars.shared.do_depth_rotation = 1;
+        vars.strategy.player_rotation[2] = 0x0100;
+
+        let player_world_x = vars.player_posx;
+        let result = prepare_transfer(&mut vars, player_world_x);
+
+        assert!(result.needs_dma);
+        assert_eq!(vars.bg2_vertical_offsets, BG2_VERTICAL_OFFSET_TABLES[1]);
+    }
+
+    #[test]
+    fn source_vertical_offset_columns_follow_roll_direction() {
+        assert_eq!(
+            background_vertical_offsets(0, true),
+            [16; BG2_VERTICAL_OFFSET_COLUMNS]
+        );
+        assert_eq!(
+            background_vertical_offsets(0x0100, true),
+            BG2_VERTICAL_OFFSET_TABLES[1]
+        );
+        let mut reversed = BG2_VERTICAL_OFFSET_TABLES[1];
+        reversed.reverse();
+        assert_eq!(background_vertical_offsets(-0x0100, true), reversed);
+        assert_eq!(
+            background_vertical_offsets(0x0600, false),
+            [16; BG2_VERTICAL_OFFSET_COLUMNS]
+        );
+        assert_eq!(
+            background_vertical_offsets(0x0600, true),
+            BG2_VERTICAL_OFFSET_TABLES[5]
+        );
+        for (bucket, expected) in BG2_VERTICAL_OFFSET_TABLES.iter().enumerate() {
+            assert_eq!(
+                background_vertical_offsets((bucket as i16) << 8, true),
+                *expected,
+                "source vertical-offset table {}",
+                bucket + 1,
+            );
+        }
+    }
+
+    #[test]
+    fn horizontal_offsets_are_mirrored_around_the_source_horizon() {
+        const BASE_SCROLL: i16 = 20;
+        const PLAYER_WORLD_X: i16 = 64;
+        const VIEW_YAW: i16 = 320;
+        const PLAYER_TURN: i16 = 64;
+        const EXPECTED_BASE: i16 = 36;
+
+        let offsets = background_horizontal_offsets(
+            0,
+            PLAYER_WORLD_X,
+            VIEW_YAW,
+            PLAYER_TURN,
+            BASE_SCROLL,
+        );
+
+        assert_eq!(offsets[..HORIZONTAL_OFFSET_HALF_ROWS], [EXPECTED_BASE - 1; 112]);
+        assert_eq!(offsets[HORIZONTAL_OFFSET_HALF_ROWS..], [EXPECTED_BASE; 112]);
+    }
+
+    #[test]
+    fn transfer_materializes_horizontal_rows_from_typed_scene_state() {
+        let mut vars = GameVars::init();
+        vars.dohofs = 1;
+        vars.background_horizontal_mode = BackgroundHorizontalMode::Rotate;
+        vars.strategy.player_rotation[2] = 768;
+        vars.player_posx = -40;
+        vars.strategy.view_yaw = 256;
+        vars.strategy.player_turn_rotation = 32;
+        vars.shared.background_scroll_x = 7;
+
+        let player_world_x = vars.player_posx;
+        prepare_transfer(&mut vars, player_world_x);
+
+        assert_eq!(
+            vars.bg2_horizontal_offsets,
+            background_horizontal_offsets(768, -40, 256, 32, 7)
+        );
     }
 }

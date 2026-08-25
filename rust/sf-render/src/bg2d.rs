@@ -17,7 +17,10 @@ use crate::gpu::{Gpu, TextureId, Vertex2, WHITE_TEX};
 use crate::renderer::{FrameInputs, GameState, BGF_BG};
 use crate::shapes::background_fade_palette_bgr;
 use crate::transform::Transform;
-use sf_core::scene::{PaletteFadeTarget, PALETTE_FADE_COUNTER_START};
+use sf_core::scene::{
+    PaletteFadeTarget, BG2_HORIZONTAL_OFFSET_ROWS, BG2_VERTICAL_OFFSET_COLUMNS,
+    PALETTE_FADE_COUNTER_START,
+};
 
 const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -47,6 +50,31 @@ fn ortho(w: f32, h: f32) -> [f32; 16] {
 
 pub const BG2D_W: usize = 256;
 pub const BG2D_H: usize = 224;
+
+/// Source background pitch ramp. The authored 16-bit turn fraction is reduced
+/// by 64, then half of that result is added before the direction is reversed.
+/// Keeping the intermediate signed shifts avoids half-pixel sampling drift in
+/// strict source-resolution output.
+fn source_vertical_camera_offset(rotation: u16, unrestricted: bool) -> i16 {
+    const MAXIMUM_DOWNWARD_OFFSET: i16 = 232;
+    const MAXIMUM_UPWARD_OFFSET: i16 = -56;
+
+    let reduced = (rotation as i16) >> 6;
+    let offset = reduced.wrapping_add(reduced >> 1).wrapping_neg();
+    if unrestricted {
+        offset
+    } else {
+        offset.clamp(MAXIMUM_UPWARD_OFFSET, MAXIMUM_DOWNWARD_OFFSET)
+    }
+}
+
+/// Source horizontal background coupling from the complete yaw fraction and
+/// whole-unit camera position.
+fn source_horizontal_camera_offset(camera_x: i32, rotation: u16) -> i16 {
+    let world_x = (camera_x >> 16) as i16;
+    ((rotation as i16) >> 5)
+        .wrapping_add(world_x >> 3)
+}
 const COLORS_PER_PALETTE: usize = 16;
 const BACKGROUND_FADE_PALETTE: usize = 4;
 /// Native polygon materials for the pre-rendered title presentation use the
@@ -972,9 +1000,9 @@ fn load_file(base: &Path, rel: &str) -> Option<Vec<u8>> {
 }
 
 fn upload_rgba(gpu: &mut Gpu, rgba: &[u8], w: usize, h: usize) -> Option<TextureId> {
-    // The shared wgpu sampler uses Repeat, matching SNES tilemap wrap for sky
-    // windows and scanline HOFS effects.
-    Some(gpu.create_texture_rgba(w as u32, h as u32, rgba))
+    // Background tilemaps wrap independently from clamped portraits, glyphs,
+    // and source bitmaps.
+    Some(gpu.create_texture_rgba_repeat(w as u32, h as u32, rgba))
 }
 
 /// Apply the source `fadepalto_l` steps not yet reflected in `palette`.
@@ -1345,6 +1373,99 @@ impl Bg2d {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn draw_ground_rolled_texture(
+        &self,
+        gpu: &mut Gpu,
+        proj: &[f32; 16],
+        tex: TextureId,
+        w: i32,
+        h: i32,
+        u0: f32,
+        v0: f32,
+        u1: f32,
+        v1: f32,
+        map_width: f32,
+        map_height: f32,
+        vertical_offsets: [i16; BG2_VERTICAL_OFFSET_COLUMNS],
+        horizontal_offsets: [i16; BG2_HORIZONTAL_OFFSET_ROWS],
+    ) {
+        let uniform_vertical_offset = vertical_offsets
+            .iter()
+            .all(|offset| *offset == vertical_offsets[0]);
+        let column_count = if uniform_vertical_offset {
+            1
+        } else {
+            BG2_VERTICAL_OFFSET_COLUMNS
+        };
+        let mut vertices =
+            Vec::with_capacity(BG2_HORIZONTAL_OFFSET_ROWS * column_count * 6);
+        // Overlay coordinates are bottom-up; walk the authored top-down
+        // display rows in reverse so each value remains attached to its
+        // original raster line.
+        for (row, horizontal_offset) in horizontal_offsets.into_iter().rev().enumerate() {
+            let top_fraction = row as f32 / BG2_HORIZONTAL_OFFSET_ROWS as f32;
+            let bottom_fraction = (row + 1) as f32 / BG2_HORIZONTAL_OFFSET_ROWS as f32;
+            let y0 = h as f32 * top_fraction;
+            let y1 = h as f32 * bottom_fraction;
+            let row_v0 = v0 + (v1 - v0) * top_fraction;
+            let row_v1 = v0 + (v1 - v0) * bottom_fraction;
+            let horizontal_uv = f32::from(horizontal_offset) / map_width;
+
+            for column in 0..column_count {
+                let vertical_offset = if uniform_vertical_offset {
+                    vertical_offsets[0]
+                } else {
+                    vertical_offsets[column]
+                };
+                let left_fraction = column as f32 / column_count as f32;
+                let right_fraction = (column + 1) as f32 / column_count as f32;
+                let x0 = w as f32 * left_fraction;
+                let x1 = w as f32 * right_fraction;
+                let column_u0 = u0 + (u1 - u0) * left_fraction + horizontal_uv;
+                let column_u1 = u0 + (u1 - u0) * right_fraction + horizontal_uv;
+                let vertical_uv = -f32::from(vertical_offset) / map_height;
+                let cell_v0 = row_v0 + vertical_uv;
+                let cell_v1 = row_v1 + vertical_uv;
+                vertices.extend_from_slice(&[
+                    Vertex2 {
+                        pos: [x0, y0],
+                        uv: [column_u0, cell_v0],
+                    },
+                    Vertex2 {
+                        pos: [x1, y0],
+                        uv: [column_u1, cell_v0],
+                    },
+                    Vertex2 {
+                        pos: [x1, y1],
+                        uv: [column_u1, cell_v1],
+                    },
+                    Vertex2 {
+                        pos: [x0, y0],
+                        uv: [column_u0, cell_v0],
+                    },
+                    Vertex2 {
+                        pos: [x1, y1],
+                        uv: [column_u1, cell_v1],
+                    },
+                    Vertex2 {
+                        pos: [x0, y1],
+                        uv: [column_u0, cell_v1],
+                    },
+                ]);
+            }
+        }
+        gpu.push_overlay_tris(
+            &vertices,
+            proj,
+            &IDENTITY,
+            [1.0, 1.0, 1.0, 1.0],
+            1,
+            None,
+            tex,
+        );
+    }
+
     /// Draw the title tilemap priorities that sit above the centered BG1
     /// SuperFX framebuffer. The complementary low-priority plane is clipped
     /// to that framebuffer's 224-by-192 source playfield.
@@ -1443,7 +1564,12 @@ impl Bg2d {
         let mw = self.def_map_w[idx] as f32;
         let mh = self.def_map_h[idx] as f32;
         let mut vofs = def.vofs as f32; // bg2Yscroll base (BGS.ASM)
-        let mut hofs = inputs.bg2_xscroll as f32;
+        let has_typed_horizontal_offsets = with_camera && inputs.bg2_horizontal_offsets.is_some();
+        let mut hofs = if has_typed_horizontal_offsets {
+            0.0
+        } else {
+            inputs.bg2_xscroll as f32
+        };
 
         if inputs.game_state == GameState::Briefing && def.id == BG2D_ID_CONTINUE {
             hofs += (inputs.control_type.panel_column() * CONTROLLER_PANEL_SIZE) as f32;
@@ -1452,10 +1578,7 @@ impl Bg2d {
 
         if with_camera {
             let cam = transform.render_camera();
-            // Fractional signed SNES angle units (render-frame interpolated, so
-            // the painted horizon glides with the 3D view instead of stepping
-            // once per 20 Hz tick — see Transform::render_camera_angles_f).
-            let (rx, ry) = transform.render_camera_angles_f(); // pitch +up, yaw +right
+            let (rx, ry) = transform.render_camera_angles_f();
 
             // Vertical: the ROM's exact SLOPE (calcbgscroll_l,
             // GSTRATS.ASM:3190): scroll = -(viewrotx16*3/128) — LINEAR,
@@ -1464,29 +1587,31 @@ impl Bg2d {
             // BGS.ASM). (The old focal*tan(pitch) curve diverged from the
             // ROM ramp as pitch grew — the "shadow creeps above the horizon"
             // class — and stays removed.)
-            let mut vdelta = -(rx * 6.0);
-            if !inputs.nomax_bg2_yscroll {
-                vdelta = vdelta.clamp(-56.0, 232.0);
-            }
+            let vdelta = if inputs.source_resolution {
+                let (_, rotation) = transform.source_camera();
+                f32::from(source_vertical_camera_offset(
+                    inputs.source_background_pitch.unwrap_or(rotation[0]),
+                    inputs.nomax_bg2_yscroll,
+                ))
+            } else {
+                let mut offset = -(rx * 6.0);
+                if !inputs.nomax_bg2_yscroll {
+                    offset = offset.clamp(-56.0, 232.0);
+                }
+                offset
+            };
             vofs += vdelta;
 
-            // Horizon BASE alignment: the BGS.ASM vofs bases put the painted
-            // green-ground horizon at screen row ~130, while the 3D ground
-            // plane's vanishing line sits at the projection centre (row 112,
-            // cscrc=112). On the SNES the ~18-row gap is the mountain-haze
-            // band and distant ground objects visually sink into it at the
-            // 8:7-PAR 224-line CRT raster; on the port's clean widescreen
-            // output the same gap reads as ground objects FLOATING above the
-            // painted terrain (user-reported both with the old 60-deg FOV and
-            // again with the SNES-exact projection). Shift the window so the
-            // painted horizon lands on the y=0 vanishing line — slope stays
-            // ROM-exact, only the base is display-compensated.
-            const SNES_HORIZON_ROW: f32 = 130.0;
-            vofs += SNES_HORIZON_ROW - BG2D_H as f32 * 0.5;
-
-            // Horizontal: m_scrollxoff = bg2Xscroll + yaw*8 px, plus the
-            // `hofmode rotate` HDMA base of worldx>>3.
-            hofs += ry * 8.0 + (cam.x >> 16) as f32 / 8.0;
+            // Strict capture uses the authored signed shifts. The HD path
+            // retains render-frame interpolation for smooth presentation.
+            if !has_typed_horizontal_offsets {
+                hofs += if inputs.source_resolution {
+                    let (_, rotation) = transform.source_camera();
+                    f32::from(source_horizontal_camera_offset(cam.x, rotation[1]))
+                } else {
+                    ry * 8.0 + (cam.x >> 16) as f32 / 8.0
+                };
+            }
         }
 
         // Texture rows were flipped at compose time (GL row 0 = map bottom),
@@ -1501,6 +1626,24 @@ impl Bg2d {
 
     /// Mirror of `Bg2d_Render` (per-frame background pass).
     pub fn render(
+        &mut self,
+        gpu: &mut Gpu,
+        transform: &Transform,
+        inputs: &FrameInputs,
+        screen_width: i32,
+        screen_height: i32,
+    ) {
+        self.render_pass(
+            gpu,
+            transform,
+            inputs,
+            screen_width,
+            screen_height,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_pass(
         &mut self,
         gpu: &mut Gpu,
         transform: &Transform,
@@ -1653,6 +1796,37 @@ impl Bg2d {
         } else {
             self.bhole_key = None;
         }
+        if couple {
+            if let (
+                Some(texture),
+                Some(layer_index),
+                Some(vertical_offsets),
+                Some(horizontal_offsets),
+            ) = (
+                tex,
+                idx,
+                inputs.bg2_vertical_offsets,
+                inputs.bg2_horizontal_offsets,
+            )
+            {
+                self.draw_ground_rolled_texture(
+                    gpu,
+                    &proj,
+                    texture,
+                    screen_width,
+                    screen_height,
+                    u0,
+                    v0,
+                    u1,
+                    v1,
+                    self.def_map_w[layer_index] as f32,
+                    self.def_map_h[layer_index] as f32,
+                    vertical_offsets,
+                    horizontal_offsets,
+                );
+                return;
+            }
+        }
         self.draw_layer_texture(gpu, &proj, tex, screen_width, screen_height, u0, v0, u1, v1);
     }
 }
@@ -1660,6 +1834,15 @@ impl Bg2d {
 #[cfg(test)]
 mod bhole_tests {
     use super::*;
+
+    #[test]
+    fn strict_camera_scroll_keeps_source_integer_quantization() {
+        assert_eq!(source_vertical_camera_offset(320, false), -7);
+        assert_eq!(source_vertical_camera_offset((-320i16) as u16, false), 8);
+        assert_eq!(source_vertical_camera_offset((-20_000i16) as u16, false), 232);
+        assert_eq!(source_vertical_camera_offset(20_000, false), -56);
+        assert_eq!(source_horizontal_camera_offset(-31 << 16, 272), 4);
+    }
 
     #[test]
     fn background_palette_walk_matches_the_retail_color_order() {

@@ -99,6 +99,10 @@ pub struct Gsu {
     execution_watch_visits: u64,
     execution_watch_last_ram: u32,
     execution_watch_values: Vec<u32>,
+    execution_capture_watch: Option<(u32, usize, usize)>,
+    execution_captures: Vec<ExecutionCapture>,
+    pixel_write_watch: Option<(u8, u8)>,
+    pixel_write_captures: Vec<ExecutionCapture>,
     current_instruction: u32,
     target_ram_writes: Vec<(u32, u16, u8, u8)>,
     pc_trace: Vec<u32>,
@@ -106,6 +110,14 @@ pub struct Gsu {
     trace_next_run: bool,
     trace_this_run: bool,
     point_states: Vec<(u32, [u16; 16], u16, usize, usize, bool, bool, bool)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExecutionCapture {
+    pub instruction: u32,
+    pub memory: Vec<u8>,
+    pub values: [u16; 16],
+    pub color: u8,
 }
 
 impl Gsu {
@@ -155,6 +167,10 @@ impl Gsu {
             execution_watch_visits: 0,
             execution_watch_last_ram: 0,
             execution_watch_values: Vec::new(),
+            execution_capture_watch: None,
+            execution_captures: Vec::new(),
+            pixel_write_watch: None,
+            pixel_write_captures: Vec::new(),
             current_instruction: 0,
             target_ram_writes: Vec::new(),
             pc_trace: Vec::new(),
@@ -488,6 +504,41 @@ impl Gsu {
         self.execution_watch_values.clone()
     }
 
+    /// Capture one bounded RAM window whenever the selected instruction is
+    /// entered. This is oracle-only instrumentation for locating the first
+    /// renderer-stage divergence.
+    pub fn watch_execution_capture(
+        &mut self,
+        program_bank: u8,
+        instruction: u16,
+        ram_start: usize,
+        ram_len: usize,
+    ) {
+        assert!(ram_start.saturating_add(ram_len) <= self.ram.len());
+        self.execution_capture_watch = Some((
+            (u32::from(program_bank) << 16) | u32::from(instruction),
+            ram_start,
+            ram_len,
+        ));
+        self.execution_captures.clear();
+    }
+
+    pub fn take_execution_captures(&mut self) -> Vec<ExecutionCapture> {
+        std::mem::take(&mut self.execution_captures)
+    }
+
+    /// Capture every non-transparent write to one source-bitmap pixel. This
+    /// is oracle-only instrumentation used to identify the primitive that
+    /// produced a differing retail pixel.
+    pub fn watch_pixel_writes(&mut self, x: u8, y: u8) {
+        self.pixel_write_watch = Some((x, y));
+        self.pixel_write_captures.clear();
+    }
+
+    pub fn take_pixel_write_captures(&mut self) -> Vec<ExecutionCapture> {
+        std::mem::take(&mut self.pixel_write_captures)
+    }
+
     pub fn target_ram_writes(&self) -> Vec<(u32, u16, u8, u8)> {
         self.target_ram_writes.clone()
     }
@@ -687,6 +738,14 @@ impl Gsu {
             }
             color &= 0x0F;
         }
+        if self.pixel_write_watch == Some((x, y)) {
+            self.pixel_write_captures.push(ExecutionCapture {
+                instruction: self.current_instruction,
+                memory: self.ram.clone(),
+                values: self.r,
+                color,
+            });
+        }
         if self.primary_pixel_cache.x != x & 0xF8 || self.primary_pixel_cache.y != y {
             self.flush_primary_pixel_cache(x, y);
         }
@@ -828,6 +887,16 @@ impl Gsu {
                     actual & mask == expected & mask
                 });
             self.execution_watch_hit |= matched;
+        }
+        if let Some((watched_address, ram_start, ram_len)) = self.execution_capture_watch {
+            if watched_address == address {
+                self.execution_captures.push(ExecutionCapture {
+                    instruction: address,
+                    memory: self.ram[ram_start..ram_start + ram_len].to_vec(),
+                    values: self.r,
+                    color: self.colr,
+                });
+            }
         }
         if let Some((lo, hi)) = self.trace_range {
             let pc = self.r[15];

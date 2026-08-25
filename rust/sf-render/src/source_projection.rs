@@ -6,10 +6,11 @@
 //! source-resolution conformance image has deterministic geometry.
 
 use crate::shape_data::ShapeVertex;
-use sf_core::snes_trig::{matrix_rotate_q15, zxy_matrix_q15, zxy_matrix_q15_fine};
+use sf_core::snes_trig::{
+    matrix_rotate_q15, rotate_packed_point, zxy_matrix_q15, zxy_matrix_q15_fine,
+};
 
 const PACKED_MATRIX_SHIFT: u32 = 8;
-const PACKED_POINT_PRODUCT_SHIFT: u32 = 7;
 const FULL_PRECISION_POINT_SHIFT: u8 = 3;
 pub const MIN_FRONT_DEPTH: i16 = 1;
 const PROJECTION_MAX_DEPTH: i16 = 12_288;
@@ -21,6 +22,8 @@ const RECIPROCAL_FRACTION_BITS: u32 = 15;
 const MAX_RECIPROCAL: i16 = 32_767;
 const PROJECTION_CENTER_X: i16 = 112;
 const PROJECTION_CENTER_Y: i16 = 96;
+const SCALED_SPRITE_NEAR_DEPTH: i16 = 128;
+const SCALED_SPRITE_MAX_SIZE: i16 = 240;
 const PLAYFIELD_LEFT: i16 = 16;
 const PLAYFIELD_RIGHT: i16 = 239;
 const PLAYFIELD_TOP: i16 = 16;
@@ -48,6 +51,56 @@ pub struct ProjectedPoint {
 pub struct ProjectedShape {
     pub points: Vec<ProjectedPoint>,
     pub object_light: [i8; 3],
+    /// Source view-space object origin used for distance-color selection.
+    pub object_depth: i16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProjectedSprite {
+    /// Final 256-by-224 presentation coordinate of the upper-left pixel.
+    pub top_left: [i16; 2],
+    pub size: u16,
+}
+
+/// Project the typed flat fields consumed by the source scaled-sprite path.
+/// The authored extent is doubled before the signed strategy adjustment is
+/// applied, matching the source ShapeHdr sizing contract.
+pub fn project_scaled_sprite(
+    pose: SourcePose,
+    authored_extent: u16,
+    coordinate_shift: u8,
+    size_adjustment: u8,
+) -> Option<ProjectedSprite> {
+    let (_, view_position) = source_object_transform(pose, false);
+    if view_position.2 <= SCALED_SPRITE_NEAR_DEPTH {
+        return None;
+    }
+
+    let shifted_adjustment = i16::from(size_adjustment as i8)
+        .wrapping_shl(u32::from(coordinate_shift));
+    let mut world_size = (authored_extent as i16)
+        .wrapping_mul(2)
+        .wrapping_add(shifted_adjustment);
+    if world_size == 0 {
+        world_size = 1;
+    }
+    let depth = view_position.2.min(PROJECTION_MAX_DEPTH - 1);
+    let reciprocal = source_reciprocal(depth);
+    let projected_size = project_component(world_size, reciprocal)
+        .clamp(0, SCALED_SPRITE_MAX_SIZE);
+    if projected_size == 0 {
+        return None;
+    }
+
+    let center = project_point([view_position.0, view_position.1, depth]);
+    let half_size = (projected_size + 1) / 2;
+    Some(ProjectedSprite {
+        top_left: [
+            center.x.wrapping_sub(half_size),
+            center.y.wrapping_sub(half_size),
+        ],
+        size: projected_size as u16,
+    })
 }
 
 pub fn project_shape(
@@ -55,7 +108,27 @@ pub fn project_shape(
     coordinate_shift: u8,
     pose: SourcePose,
 ) -> ProjectedShape {
-    let (object_matrix, view_position) = source_object_transform(pose);
+    project_shape_with_flattened_height(vertices, coordinate_shift, pose, false)
+}
+
+/// Project the source shadow pass. The source retains the object's authored
+/// X/Z rotation but removes its world-height contribution before applying the
+/// camera matrix, producing a fixed-point ground-plane silhouette.
+pub fn project_shadow_shape(
+    vertices: &[ShapeVertex],
+    coordinate_shift: u8,
+    pose: SourcePose,
+) -> ProjectedShape {
+    project_shape_with_flattened_height(vertices, coordinate_shift, pose, true)
+}
+
+fn project_shape_with_flattened_height(
+    vertices: &[ShapeVertex],
+    coordinate_shift: u8,
+    pose: SourcePose,
+    flatten_height: bool,
+) -> ProjectedShape {
+    let (object_matrix, view_position) = source_object_transform(pose, flatten_height);
     let points = vertices
         .iter()
         .map(|vertex| {
@@ -65,7 +138,7 @@ pub fn project_shape(
                 vertex.z.round() as i16,
             ];
             let rotated = if coordinate_shift < FULL_PRECISION_POINT_SHIFT {
-                rotate_packed_point(object_matrix, source, coordinate_shift)
+                rotate_shape_point(object_matrix, source, coordinate_shift)
             } else {
                 matrix_rotate_q15(object_matrix, source[0], source[1], source[2])
             };
@@ -81,10 +154,14 @@ pub fn project_shape(
     ProjectedShape {
         points,
         object_light: quantized_object_light(object_matrix),
+        object_depth: view_position.2,
     }
 }
 
-fn source_object_transform(pose: SourcePose) -> ([[i16; 3]; 3], (i16, i16, i16)) {
+fn source_object_transform(
+    pose: SourcePose,
+    flatten_height: bool,
+) -> ([[i16; 3]; 3], (i16, i16, i16)) {
     let view_matrix = zxy_matrix_q15_fine(
         pose.view_rotation[0],
         pose.view_rotation[1],
@@ -101,8 +178,13 @@ fn source_object_transform(pose: SourcePose) -> ([[i16; 3]; 3], (i16, i16, i16))
         pose.rotation[1].wrapping_neg(),
         pose.rotation[2].wrapping_neg(),
     );
-    let transposed_object: [[i16; 3]; 3] =
+    let mut transposed_object: [[i16; 3]; 3] =
         std::array::from_fn(|row| std::array::from_fn(|column| direct_object[column][row]));
+    if flatten_height {
+        for row in &mut transposed_object {
+            row[1] = 0;
+        }
+    }
     let object_matrix = std::array::from_fn(|row| {
         let source = transposed_object[row];
         let transformed = matrix_rotate_q15(view_matrix, source[0], source[1], source[2]);
@@ -133,21 +215,23 @@ fn quantized_object_light(object_matrix: [[i16; 3]; 3]) -> [i8; 3] {
     ]
 }
 
-fn rotate_packed_point(
+fn rotate_shape_point(
     matrix: [[i16; 3]; 3],
     point: [i16; 3],
     coordinate_shift: u8,
 ) -> (i16, i16, i16) {
-    let scale = 1i16.wrapping_shl(u32::from(coordinate_shift));
-    let encoded = point.map(|component| component >> coordinate_shift);
-    let component = |column: usize| {
-        let sum = (0..3).fold(0i32, |accumulator, row| {
-            let coefficient = (matrix[row][column] >> PACKED_MATRIX_SHIFT) as i8;
-            accumulator.wrapping_add(i32::from(coefficient) * i32::from(encoded[row]))
-        });
-        ((sum >> PACKED_POINT_PRODUCT_SHIFT) as i16).wrapping_mul(scale)
-    };
-    (component(0), component(1), component(2))
+    let packed_matrix = matrix.map(|row| {
+        row.map(|coefficient| (coefficient >> PACKED_MATRIX_SHIFT) as i8)
+    });
+    let encoded = point.map(|component| (component >> coordinate_shift) as i8);
+    let scale = 1i8.wrapping_shl(u32::from(coordinate_shift));
+    rotate_packed_point(
+        packed_matrix,
+        scale,
+        encoded[0],
+        encoded[1],
+        encoded[2],
+    )
 }
 
 fn project_point(point: [i16; 3]) -> ProjectedPoint {
@@ -236,6 +320,18 @@ pub fn face_is_visible(points: &[ProjectedPoint], indices: [u16; 3]) -> bool {
     visible
 }
 
+/// Source `mtestoutcodes`: reject an object when every projected point lies
+/// beyond the same playfield edge. Individual faces are clipped only after
+/// this whole-shape test, which is why a near-edge object can still leave the
+/// retail rasterizer's clamped rightmost column.
+pub fn shape_is_outside_playfield(points: &[ProjectedPoint]) -> bool {
+    points.is_empty()
+        || points.iter().all(|point| point.x < PLAYFIELD_LEFT)
+        || points.iter().all(|point| point.x >= PLAYFIELD_RIGHT)
+        || points.iter().all(|point| point.y < PLAYFIELD_TOP)
+        || points.iter().all(|point| point.y >= PLAYFIELD_BOTTOM)
+}
+
 fn shape_is_fully_inside_playfield(points: &[ProjectedPoint]) -> bool {
     points.iter().all(|point| {
         (PLAYFIELD_LEFT..=PLAYFIELD_RIGHT).contains(&point.x)
@@ -260,6 +356,16 @@ fn source_winding_high_byte(ab_x: i16, ab_y: i16, ac_x: i16, ac_y: i16) -> i8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packed_shape_rotation_keeps_word_and_signed_byte_wrapping() {
+        let matrix = [
+            [32_767, 32_767, 32_767],
+            [32_767, 32_767, 32_767],
+            [32_767, 32_767, 32_767],
+        ];
+        assert_eq!(rotate_shape_point(matrix, [127, 127, 127], 0), (122, 122, 122));
+    }
 
     #[test]
     fn near_projection_preserves_the_source_reciprocal_table_rounding() {
@@ -314,8 +420,146 @@ mod tests {
             rotation: [239, 96, 14],
             view_position: [0, 0, 1_021],
             view_rotation: [0; 3],
-        });
+        }, false);
         assert_eq!(quantized_object_light(matrix), [-9, -23, -126]);
+    }
+
+    #[test]
+    fn wingman_boost_sprite_matches_the_retail_frame_333_capture() {
+        let sprite = project_scaled_sprite(
+            SourcePose {
+                world_position: [-46, -48, 292],
+                rotation: [0; 3],
+                view_position: [0; 3],
+                view_rotation: [0; 3],
+            },
+            20,
+            1,
+            u8::MAX,
+        )
+        .expect("visible boost sprite");
+        assert_eq!(sprite.top_left, [70, 52]);
+        assert_eq!(sprite.size, 33);
+    }
+
+    #[test]
+    fn corneria_edge_building_projects_like_the_retail_capture() {
+        let building = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == 61)
+            .expect("compiled Corneria building");
+        let projected = project_shape(
+            building.vertices,
+            2,
+            SourcePose {
+                world_position: [1_000, 0, 4_800],
+                rotation: [0, 128, 0],
+                view_position: [-14, -55, 2_686],
+                view_rotation: [160, 160, 0],
+            },
+        );
+        assert_eq!(projected.object_light, [-76, -72, -74]);
+        assert_eq!(
+            projected.points[9..12]
+                .iter()
+                .map(|point| (point.x, point.y))
+                .collect::<Vec<_>>(),
+            [(258, 122), (242, 72), (257, 72)]
+        );
+        assert!(building.faces[5]
+            .visibility_vertices
+            .is_some_and(|selector| face_is_visible(&projected.points, selector)));
+        assert!(!shape_is_outside_playfield(&projected.points));
+    }
+
+    #[test]
+    fn corneria_far_edge_building_is_rejected_by_source_object_outcodes() {
+        let building = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == 61)
+            .expect("compiled Corneria building");
+        let projected = project_shape(
+            building.vertices,
+            2,
+            SourcePose {
+                world_position: [800, 0, 3_300],
+                rotation: [0, 128, 0],
+                view_position: [-41, -61, 2_296],
+                view_rotation: [352, 352, 0],
+            },
+        );
+        assert_eq!(
+            projected.points.iter().map(|point| point.x).min(),
+            Some(293)
+        );
+        assert!(shape_is_outside_playfield(&projected.points));
+    }
+
+    #[test]
+    fn corneria_near_edge_building_matches_retail_projection() {
+        let building = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == 61)
+            .expect("compiled Corneria building");
+        let projected = project_shape(
+            building.vertices,
+            2,
+            SourcePose {
+                world_position: [1_000, 0, 4_800],
+                rotation: [0, 128, 0],
+                view_position: [-24, -57, 2_504],
+                view_rotation: [272, 240, 0],
+            },
+        );
+        assert_eq!(projected.object_light, [-76, -71, -75]);
+        assert_eq!(
+            projected.points.iter().map(|point| point.x).collect::<Vec<_>>(),
+            [239, 222, 239, 222, 247, 229, 246, 228, 232, 245, 231, 245]
+        );
+        assert!(!shape_is_outside_playfield(&projected.points));
+    }
+
+    #[test]
+    fn corneria_player_shadow_matches_the_retail_projection() {
+        let arwing = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == 2)
+            .expect("compiled player Arwing");
+        let projected = project_shadow_shape(
+            arwing.vertices,
+            0,
+            SourcePose {
+                world_position: [-3, 0, 3_208],
+                rotation: [0; 3],
+                view_position: [-6, -53, 3_040],
+                view_rotation: [168, 98, 0],
+            },
+        );
+        assert_eq!(
+            projected
+                .points
+                .iter()
+                .map(|point| (point.x, point.y))
+                .collect::<Vec<_>>(),
+            [
+                (128, 198),
+                (128, 195),
+                (128, 195),
+                (125, 169),
+                (201, 219),
+                (54, 219),
+                (163, 204),
+                (92, 204),
+                (99, 197),
+                (155, 196),
+                (112, 195),
+                (141, 195),
+                (157, 195),
+                (96, 195),
+                (107, 186),
+                (145, 186),
+            ]
+        );
     }
 
     #[test]

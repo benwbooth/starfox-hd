@@ -2,7 +2,7 @@
 //! input trace. A divergence is expected until the native timing is corrected.
 
 use sf_core::{pad, sf1_controls::BriefingPhase, sf1_planets::PlanetSequencePhase};
-use sf_difftest::{first_divergence, SemanticFrame};
+use sf_difftest::{first_divergence, write_source_rgb_ppm, SemanticFrame};
 use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
     RetailMachine, RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET,
@@ -14,6 +14,8 @@ use sf_oracle::{
 };
 use std::path::Path;
 use std::process::ExitCode;
+
+mod support;
 
 const DEFAULT_TICKS: u32 = 920;
 const VIDEO_FRAMES_PER_TICK: u32 = 3;
@@ -35,6 +37,12 @@ const ROUTE_SELECTION_CONFIRM_HOLD_TICKS: u32 = 12;
 const PLANET_DISMISS_START_TICK: u32 = 840;
 const PLANET_DISMISS_END_TICK: u32 = 900;
 const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
+const BRIEFING_CAPTURE_TICK: u32 = 630;
+const RGB_CHANNELS: usize = 3;
+const PEPPER_CAPTURE_LEFT: usize = 16;
+const PEPPER_CAPTURE_TOP: usize = 80;
+const PEPPER_CAPTURE_WIDTH: usize = 48;
+const PEPPER_CAPTURE_HEIGHT: usize = 80;
 
 const RETAIL_PHASE_ENTRIES: [u32; 11] = [
     RETAIL_PLANET_MAP_FADE_ENTRY,
@@ -127,6 +135,22 @@ fn scripted_input(tick: u32) -> u16 {
         };
     }
     0
+}
+
+fn pepper_capture(rgb: &[u8]) -> Vec<u8> {
+    assert_eq!(
+        rgb.len(),
+        sf_difftest::SOURCE_FRAME_WIDTH * sf_difftest::SOURCE_FRAME_HEIGHT * RGB_CHANNELS,
+        "briefing source frame dimensions"
+    );
+    (PEPPER_CAPTURE_TOP..PEPPER_CAPTURE_TOP + PEPPER_CAPTURE_HEIGHT)
+        .flat_map(|y| {
+            let start = (y * sf_difftest::SOURCE_FRAME_WIDTH + PEPPER_CAPTURE_LEFT) * RGB_CHANNELS;
+            rgb[start..start + PEPPER_CAPTURE_WIDTH * RGB_CHANNELS]
+                .iter()
+                .copied()
+        })
+        .collect()
 }
 
 #[derive(Default)]
@@ -309,6 +333,15 @@ fn main() -> ExitCode {
     let mut retail_origin = None;
     let mut native_origin = None;
     let mut retail_phase_tracker = RetailPhaseTracker::default();
+    let retail_ppm = std::env::var_os("SF1_FRONTEND_RETAIL_PPM");
+    let native_ppm = std::env::var_os("SF1_FRONTEND_NATIVE_PPM");
+    let mut renderer = sf_render::renderer::Renderer::new_headless(
+        sf_difftest::SOURCE_FRAME_WIDTH as i32,
+        sf_difftest::SOURCE_FRAME_HEIGHT as i32,
+        &sf_render::renderer::config_from_repo_root(repository),
+    )
+    .expect("headless front-end renderer");
+    let mut portrait_certified = false;
 
     for tick in 0..tick_limit {
         let input = scripted_input(tick);
@@ -317,6 +350,38 @@ fn main() -> ExitCode {
             .unwrap_or_else(|error| panic!("retail machine failed: {error}"));
         let retail_execution_entries = retail.take_cpu_execution_watch_hits();
         native.tick(input);
+        if tick == BRIEFING_CAPTURE_TICK {
+            let retail_rgb = retail
+                .ppu_frame()
+                .rgba
+                .chunks_exact(4)
+                .flat_map(|pixel| pixel[..3].iter().copied())
+                .collect::<Vec<_>>();
+            if let Some(path) = retail_ppm.as_ref() {
+                write_source_rgb_ppm(path, &retail_rgb).expect("write retail briefing frame");
+            }
+            let frame = native.frame();
+            let inputs =
+                support::frame_inputs(&frame, sf_render::renderer::GameState::PlanetSelect);
+            renderer.begin_frame();
+            renderer.submit(&[], &[], 1.0, &inputs);
+            renderer.end_frame();
+            let native_rgb = renderer.read_pixels_rgb();
+            if let Some(path) = native_ppm.as_ref() {
+                write_source_rgb_ppm(path, &native_rgb).expect("write native briefing frame");
+            }
+            let retail_portrait = pepper_capture(&retail_rgb);
+            let native_portrait = pepper_capture(&native_rgb);
+            let first_difference = retail_portrait
+                .chunks_exact(RGB_CHANNELS)
+                .zip(native_portrait.chunks_exact(RGB_CHANNELS))
+                .position(|(retail_pixel, native_pixel)| retail_pixel != native_pixel);
+            assert_eq!(
+                first_difference, None,
+                "General Pepper source portrait diverged at region pixel {first_difference:?}"
+            );
+            portrait_certified = true;
+        }
         record_transition(
             &mut retail_trace,
             &mut previous_retail,
@@ -339,6 +404,11 @@ fn main() -> ExitCode {
 
     print_trace("retail", &retail_trace);
     print_trace("native", &native_trace);
+    assert!(portrait_certified, "briefing portrait capture was not reached");
+    println!(
+        "briefing_portrait certified_pixels={} first_divergence=none",
+        PEPPER_CAPTURE_WIDTH * PEPPER_CAPTURE_HEIGHT
+    );
     match first_divergence(&retail_trace, &native_trace) {
         Ok(None) => {
             println!("OK: SF1 front-end semantic phase timing matches retail");

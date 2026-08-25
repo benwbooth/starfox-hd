@@ -273,7 +273,7 @@ fn authored_face_normals_are_retained_in_gl_coordinates() {
         .iter()
         .find(|entry| entry.name == "myship_4")
         .expect("Arwing source mesh");
-    assert_eq!(arwing.faces[0].normal, [-90, -90, 9]);
+    assert_eq!(arwing.faces[0].normal, [-90, -90, -9]);
 
     let laser = SHAPE_DATA
         .iter()

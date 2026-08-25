@@ -171,6 +171,7 @@ pub struct Gpu {
     uniform_bgl: wgpu::BindGroupLayout,
     texture_bgl: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    repeat_sampler: wgpu::Sampler,
     color_format: wgpu::TextureFormat,
     presentation_texture: wgpu::Texture,
     presentation_view: wgpu::TextureView,
@@ -593,10 +594,17 @@ impl Gpu {
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("nearest"),
-            // SNES BG tilemaps wrap in both axes. Ordinary HUD/shape UVs stay
-            // inside [0,1], so repeat is identical for them while allowing
-            // camera skies and per-scanline black-hole HOFS to wrap exactly.
+            label: Some("nearest-clamp"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let repeat_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("nearest-repeat"),
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
             address_mode_w: wgpu::AddressMode::Repeat,
@@ -640,6 +648,7 @@ impl Gpu {
             uniform_bgl,
             texture_bgl,
             sampler,
+            repeat_sampler,
             color_format,
             presentation_texture,
             presentation_view,
@@ -722,12 +731,43 @@ impl Gpu {
 
     /// Upload an RGBA8 texture, returns its id.
     pub fn create_texture_rgba(&mut self, width: u32, height: u32, data: &[u8]) -> TextureId {
-        self.create_texture(width, height, 4, wgpu::TextureFormat::Rgba8Unorm, data)
+        self.create_texture(
+            width,
+            height,
+            4,
+            wgpu::TextureFormat::Rgba8Unorm,
+            data,
+            false,
+        )
+    }
+
+    /// Upload an RGBA8 texture whose authored coordinates wrap like a tilemap.
+    pub fn create_texture_rgba_repeat(
+        &mut self,
+        width: u32,
+        height: u32,
+        data: &[u8],
+    ) -> TextureId {
+        self.create_texture(
+            width,
+            height,
+            4,
+            wgpu::TextureFormat::Rgba8Unorm,
+            data,
+            true,
+        )
     }
 
     /// Upload a single-channel R8 texture (font atlas / palette indices).
     pub fn create_texture_r8(&mut self, width: u32, height: u32, data: &[u8]) -> TextureId {
-        self.create_texture(width, height, 1, wgpu::TextureFormat::R8Unorm, data)
+        self.create_texture(
+            width,
+            height,
+            1,
+            wgpu::TextureFormat::R8Unorm,
+            data,
+            false,
+        )
     }
 
     fn create_texture(
@@ -737,6 +777,7 @@ impl Gpu {
         bpp: u32,
         format: wgpu::TextureFormat,
         data: &[u8],
+        repeat: bool,
     ) -> TextureId {
         let (w, h) = (width.max(1), height.max(1));
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -764,7 +805,11 @@ impl Gpu {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    resource: wgpu::BindingResource::Sampler(if repeat {
+                        &self.repeat_sampler
+                    } else {
+                        &self.sampler
+                    }),
                 },
             ],
         });

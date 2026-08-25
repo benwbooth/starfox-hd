@@ -19,6 +19,13 @@ const PROJECTION_CENTER_Y: i16 = 96;
 const VISIBLE_POINT_TOP: i16 = 1;
 const PROJECTION_WIDTH: i16 = 224;
 const PROJECTION_HEIGHT: i16 = 192;
+const GROUND_GRID_POINTS_PER_AXIS: usize = 15;
+const GROUND_GRID_WORLD_SPACING: i16 = 256;
+const GROUND_GRID_HALF_WIDTH: i16 =
+    GROUND_GRID_WORLD_SPACING * GROUND_GRID_POINTS_PER_AXIS as i16 / 2;
+const GROUND_GRID_MATRIX_SHIFT: u32 = 7;
+const GROUND_GRID_DOUBLE_PIXEL_Z: i16 = 512;
+const GROUND_GRID_COLOR: u8 = 14;
 
 const STAR_COLORS: [u8; 64] = [
     14, 14, 13, 12, 11, 10, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 14, 14, 13, 12, 11, 10, 9, 9, 9, 9, 9, 9,
@@ -74,6 +81,10 @@ impl PointField {
 
     pub fn update(&mut self, mode: PointFieldMode, view_position: [i16; 3], matrix: [[i16; 3]; 3]) {
         self.pixels.clear();
+        if mode == PointFieldMode::GroundGrid {
+            self.project_ground_grid(view_position, matrix);
+            return;
+        }
         if !matches!(
             mode,
             PointFieldMode::SpaceDust | PointFieldMode::Snow | PointFieldMode::Pollen
@@ -99,6 +110,73 @@ impl PointField {
 
         for (index, point) in rotated.into_iter().enumerate() {
             self.project_dust_point(mode, index, point);
+        }
+    }
+
+    /// Source `mshowgrid_l` / `mshowgrid`: build the 15-by-15 planetary
+    /// ground grid directly from the typed camera transform.  The source
+    /// prepares one rotated corner plus rotated world-axis increments, then
+    /// projects each point through the same fixed-point reciprocal path used
+    /// for dust.  No source-machine storage is represented here.
+    fn project_ground_grid(&mut self, view_position: [i16; 3], matrix: [[i16; 3]; 3]) {
+        let grid_corner = |position: i16| {
+            let within_cell = (position as u16 & (GROUND_GRID_WORLD_SPACING as u16 - 1))
+                ^ (GROUND_GRID_WORLD_SPACING as u16 - 1);
+            (within_cell as i16).wrapping_sub(GROUND_GRID_HALF_WIDTH)
+        };
+        let start = matrix_rotate_q15(
+            matrix,
+            grid_corner(view_position[0]),
+            view_position[1].wrapping_neg(),
+            grid_corner(view_position[2]),
+        );
+        let axis_step = |axis: usize| {
+            [
+                matrix[axis][0] >> GROUND_GRID_MATRIX_SHIFT,
+                matrix[axis][1] >> GROUND_GRID_MATRIX_SHIFT,
+                matrix[axis][2] >> GROUND_GRID_MATRIX_SHIFT,
+            ]
+        };
+        let x_step = axis_step(0);
+        let z_step = axis_step(2);
+
+        let mut row_start = [start.0, start.1, start.2];
+        for _ in 0..GROUND_GRID_POINTS_PER_AXIS {
+            let mut point = row_start;
+            for _ in 0..GROUND_GRID_POINTS_PER_AXIS {
+                self.project_ground_point(point);
+                point[0] = point[0].wrapping_add(x_step[0]);
+                point[1] = point[1].wrapping_add(x_step[1]);
+                point[2] = point[2].wrapping_add(x_step[2]);
+            }
+            row_start[0] = row_start[0].wrapping_add(z_step[0]);
+            row_start[1] = row_start[1].wrapping_add(z_step[1]);
+            row_start[2] = row_start[2].wrapping_add(z_step[2]);
+        }
+    }
+
+    fn project_ground_point(&mut self, point: [i16; 3]) {
+        if point[2] < PROJECTION_NEAR_Z {
+            return;
+        }
+        let depth = point[2].min(PROJECTION_MAX_Z - 1) & !1;
+        let factor = (PROJECTION_NUMERATOR / i32::from(depth)) as i16;
+        let x = gsu_fmult_q15(point[0], factor).wrapping_add(PROJECTION_CENTER_X);
+        let y = gsu_fmult_q15(point[1], factor).wrapping_add(PROJECTION_CENTER_Y);
+        if !(0..PROJECTION_WIDTH).contains(&x) || !(0..PROJECTION_HEIGHT).contains(&y) {
+            return;
+        }
+        self.pixels.push(PointPixel {
+            x: x as u8,
+            y: y as u8,
+            palette_index: GROUND_GRID_COLOR,
+        });
+        if point[2] < GROUND_GRID_DOUBLE_PIXEL_Z && y + 1 < PROJECTION_HEIGHT {
+            self.pixels.push(PointPixel {
+                x: x as u8,
+                y: (y + 1) as u8,
+                palette_index: GROUND_GRID_COLOR,
+            });
         }
     }
 
@@ -282,6 +360,20 @@ mod tests {
         assert_eq!(field.pixels.len(), 2);
         assert_eq!(field.pixels[0].x, field.pixels[1].x);
         assert_eq!(field.pixels[0].y + 1, field.pixels[1].y);
+    }
+
+    #[test]
+    fn ground_grid_projects_typed_points_without_consuming_dust_state() {
+        let matrix = zxy_matrix_q15_fine(0, 0, 0);
+        let mut field = PointField::new();
+        let random_state = field.random_state;
+        field.update(PointFieldMode::GroundGrid, [0, -128, 0], matrix);
+        assert!(!field.pixels.is_empty());
+        assert!(field
+            .pixels
+            .iter()
+            .all(|pixel| pixel.palette_index == GROUND_GRID_COLOR));
+        assert_eq!(field.random_state, random_state);
     }
 
     #[test]

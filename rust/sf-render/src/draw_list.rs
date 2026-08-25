@@ -7,7 +7,7 @@ use crate::font::Font;
 use crate::gpu::{Gpu, TextureId};
 use crate::shapes_gl::ShapeStore;
 use crate::source_projection::SourcePose;
-use crate::source_raster::SourceRaster;
+use crate::source_raster::{SourceBitmapRect, SourceRaster};
 use crate::transform::Transform;
 
 pub const MAX_OBJECTS: usize = 128;
@@ -18,6 +18,15 @@ pub const DL_FLAG_SHADOW: u8 = 0x02;
 pub const DL_FLAG_HIGHLIGHT: u8 = 0x04;
 pub const DL_FLAG_TEXT: u8 = 0x10;
 pub const DL_FLAG_SCALED_SPRITE: u8 = 0x20;
+
+/// Typed camera used to project a completed source-resolution scene when its
+/// bitmap is presented under a later display state. The normal application
+/// leaves this unset and uses the renderer's current camera.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceSceneCamera {
+    pub position: [i32; 3],
+    pub rotation: [u16; 3],
+}
 
 /// Project the model origin through the column-major GPU matrices. Returns
 /// NDC x/y and positive camera depth (`clip.w`) for an in-front point.
@@ -110,6 +119,56 @@ pub struct DrawListEntry {
     pub obj_id: u16,
 }
 
+fn source_sort_depth(entry: &DrawListEntry, camera: SourceSceneCamera) -> i16 {
+    let view_matrix = sf_core::snes_trig::zxy_matrix_q15_fine(
+        camera.rotation[0],
+        camera.rotation[1],
+        camera.rotation[2],
+    );
+    let world_position = [
+        (entry.x >> 16) as i16,
+        (entry.y >> 16) as i16,
+        (entry.z >> 16) as i16,
+    ];
+    let camera_position = camera
+        .position
+        .map(|coordinate| (coordinate >> 16) as i16);
+    let relative = [
+        world_position[0].wrapping_sub(camera_position[0]),
+        world_position[1].wrapping_sub(camera_position[1]),
+        world_position[2].wrapping_sub(camera_position[2]),
+    ];
+    let view_position = sf_core::snes_trig::matrix_rotate_q15(
+        view_matrix,
+        relative[0],
+        relative[1],
+        relative[2],
+    );
+    let shape_sort_depth = sf_core::sf1_shape_metrics::sf1_shape_metrics(entry.shape_id)
+        .map_or(0, |metrics| metrics.sort_depth);
+    view_position
+        .2
+        .wrapping_add(entry.sort_z)
+        .wrapping_add(shape_sort_depth)
+}
+
+fn source_painter_order(
+    entries: &[DrawListEntry],
+    camera: SourceSceneCamera,
+) -> Vec<usize> {
+    let mut order: Vec<_> = (0..entries.len()).collect();
+    // MDRAWLIS.MC `mallrotzsort` links the farthest object first. Its compare
+    // decrements the existing depth before testing, so a later entry with the
+    // same depth is inserted before the earlier entry.
+    order.sort_by_key(|index| {
+        (
+            std::cmp::Reverse(source_sort_depth(&entries[*index], camera)),
+            std::cmp::Reverse(*index),
+        )
+    });
+    order
+}
+
 fn lerp_angle8(from: i16, to: i16, t: f32) -> i16 {
     let a8 = from & 0xFF;
     let b8 = to & 0xFF;
@@ -191,13 +250,43 @@ fn apply_scaled_sprite_model(
 
 pub struct DrawListRenderer {
     source_texture: Option<TextureId>,
+    last_source_indices: Vec<u8>,
+    last_source_rgba: Vec<u8>,
+    last_source_owners: Vec<u16>,
+    last_source_faces: Vec<u16>,
 }
 
 impl DrawListRenderer {
     pub fn new() -> Self {
         DrawListRenderer {
             source_texture: None,
+            last_source_indices: vec![0; crate::source_raster::WIDTH * crate::source_raster::HEIGHT],
+            last_source_rgba: vec![
+                0;
+                crate::source_raster::WIDTH * crate::source_raster::HEIGHT * 4
+            ],
+            last_source_owners: vec![0; crate::source_raster::WIDTH * crate::source_raster::HEIGHT],
+            last_source_faces: vec![
+                crate::source_raster::NO_FACE;
+                crate::source_raster::WIDTH * crate::source_raster::HEIGHT
+            ],
         }
+    }
+
+    pub fn source_bitmap_indices(&self) -> &[u8] {
+        &self.last_source_indices
+    }
+
+    pub fn source_bitmap_rgba(&self) -> &[u8] {
+        &self.last_source_rgba
+    }
+
+    pub fn source_bitmap_owners(&self) -> &[u16] {
+        &self.last_source_owners
+    }
+
+    pub fn source_bitmap_faces(&self) -> &[u16] {
+        &self.last_source_faces
     }
 
     /// Mirror of `RenderShadow` (MARIO/MDRAWLIS.MC shadow pass): project the
@@ -246,7 +335,7 @@ impl DrawListRenderer {
     /// Mirror of `DrawList_Render`. `shape_palette` is the frame's decoded
     /// BGS-selected polygon palette.
     #[allow(clippy::too_many_arguments)]
-    pub fn render(
+    pub(crate) fn render(
         &mut self,
         gpu: &mut Gpu,
         shapes: &ShapeStore,
@@ -257,6 +346,9 @@ impl DrawListRenderer {
         shadow_height: f32,
         shape_palette: &crate::shapes::ShapePaletteRgb,
         font: &mut Font,
+        source_presentation_offset: Option<[i16; 2]>,
+        source_bitmap_clear: Option<SourceBitmapRect>,
+        source_scene_camera: Option<SourceSceneCamera>,
     ) {
         // At the exact fixed-update boundary the source still presents the
         // preceding complete draw snapshot. Iterating `curr` here made newly
@@ -292,7 +384,68 @@ impl DrawListRenderer {
             }
         }
 
-        for entry in presented {
+        let source_camera = source_presentation_offset.map(|_| {
+            source_scene_camera.unwrap_or_else(|| {
+                let (camera, rotation) = transform.source_camera();
+                SourceSceneCamera {
+                    position: [camera.x, camera.y, camera.z],
+                    rotation,
+                }
+            })
+        });
+        let presented_order = source_camera.map_or_else(
+            || (0..presented.len()).collect(),
+            |camera| source_painter_order(presented, camera),
+        );
+
+        // The source builds every dithered ground shadow into the indexed
+        // bitmap before its normal-object pass. Keep this strict path
+        // separate from the smooth translucent HD shadow pass below.
+        if let Some(camera) = source_camera.filter(|_| matches!(alpha, 0.0 | 1.0)) {
+            for &entry_index in &presented_order {
+                let entry = &presented[entry_index];
+                if entry.flags & (DL_FLAG_VISIBLE | DL_FLAG_SHADOW)
+                    != (DL_FLAG_VISIBLE | DL_FLAG_SHADOW)
+                    || entry.explosion_cnt != 0
+                {
+                    continue;
+                }
+                let previous_index = if entry.obj_id != 0 && (entry.obj_id as usize) <= MAX_OBJECTS {
+                    prev_by_id[entry.obj_id as usize]
+                } else {
+                    -1
+                };
+                let shadow = if previous_index >= 0
+                    && prev[previous_index as usize].shape_id == entry.shape_id
+                {
+                    interpolate_entry(&prev[previous_index as usize], entry, alpha)
+                } else {
+                    *entry
+                };
+                let ground = shadow_height as i16;
+                if (shadow.y >> 16) as i16 > ground {
+                    continue;
+                }
+                source_raster.set_owner(shadow.obj_id);
+                shapes.render_source_shadow(
+                    &mut source_raster,
+                    shadow.shape_id,
+                    shadow.anim_frame,
+                    SourcePose {
+                        world_position: [(shadow.x >> 16) as i16, ground, (shadow.z >> 16) as i16],
+                        rotation: [shadow.rx as u8, shadow.ry as u8, shadow.rz as u8],
+                        view_position: camera
+                            .position
+                            .map(|coordinate| (coordinate >> 16) as i16),
+                        view_rotation: camera.rotation,
+                    },
+                    shape_palette,
+                );
+            }
+        }
+
+        for entry_index in presented_order {
+            let entry = &presented[entry_index];
             if entry.flags & DL_FLAG_VISIBLE == 0 {
                 continue;
             }
@@ -365,8 +518,9 @@ impl DrawListRenderer {
             // other object.
             let source_pose = (interp.flags & DL_FLAG_SCALED_SPRITE == 0
                 && matches!(alpha, 0.0 | 1.0))
-            .then(|| {
-                let (camera, view_rotation) = transform.source_camera();
+            .then(|| source_camera)
+            .flatten()
+            .map(|camera| {
                 SourcePose {
                     world_position: [
                         (interp.x >> 16) as i16,
@@ -374,14 +528,39 @@ impl DrawListRenderer {
                         (interp.z >> 16) as i16,
                     ],
                     rotation: [interp.rx as u8, interp.ry as u8, interp.rz as u8],
-                    view_position: [
-                        (camera.x >> 16) as i16,
-                        (camera.y >> 16) as i16,
-                        (camera.z >> 16) as i16,
-                    ],
-                    view_rotation,
+                    view_position: camera
+                        .position
+                        .map(|coordinate| (coordinate >> 16) as i16),
+                    view_rotation: camera.rotation,
                 }
             });
+            source_raster.set_owner(interp.obj_id);
+            if interp.flags & DL_FLAG_SCALED_SPRITE != 0 {
+                if let Some(camera) = source_camera.filter(|_| matches!(alpha, 0.0 | 1.0)) {
+                    let pose = SourcePose {
+                        world_position: [
+                            (interp.x >> 16) as i16,
+                            (interp.y >> 16) as i16,
+                            (interp.z >> 16) as i16,
+                        ],
+                        rotation: [0; 3],
+                        view_position: camera
+                            .position
+                            .map(|coordinate| (coordinate >> 16) as i16),
+                        view_rotation: camera.rotation,
+                    };
+                    shapes.render_source_scaled_sprite(
+                        &mut source_raster,
+                        interp.shape_id,
+                        interp.col_frame,
+                        interp.color_table,
+                        interp.depth_offset,
+                        interp.tscroll_x,
+                        pose,
+                        shape_palette,
+                    );
+                }
+            }
             shapes.render(
                 gpu,
                 &mut source_raster,
@@ -406,14 +585,32 @@ impl DrawListRenderer {
         }
 
         let (output_width, output_height) = gpu.size();
-        source_raster.submit(gpu, &mut self.source_texture, output_width, output_height);
+        if let Some(rect) = source_bitmap_clear {
+            source_raster.clear_rect(rect);
+        }
+        self.last_source_indices
+            .clone_from_slice(source_raster.indices());
+        self.last_source_rgba.clone_from_slice(source_raster.rgba());
+        self.last_source_owners
+            .clone_from_slice(source_raster.owners());
+        self.last_source_faces
+            .clone_from_slice(source_raster.faces());
+        source_raster.submit(
+            gpu,
+            &mut self.source_texture,
+            output_width,
+            output_height,
+            source_presentation_offset.unwrap_or([0; 2]),
+        );
 
         // --- Shadow pass (after the opaque pass so depth testing hides
         // shadow fragments behind solid geometry). The retained flat pipeline
         // has no alpha blend / depth-mask toggle, so shadows draw as opaque
         // black tris (see parity note). ---
-        for e in &shadow_list {
-            self.render_shadow(gpu, &proj, &view, shapes, transform, e, shadow_height);
+        if source_presentation_offset.is_none() {
+            for e in &shadow_list {
+                self.render_shadow(gpu, &proj, &view, shapes, transform, e, shadow_height);
+            }
         }
     }
 }
@@ -441,6 +638,22 @@ mod projection_tests {
     const DESTROYED_Z: i32 = 500 << 16;
     const EXPECTED_PLAYER_SPRITE_SCALE: f32 = 0.25;
     const MATRIX_EPSILON: f32 = 0.000_01;
+
+    #[test]
+    fn source_painter_orders_far_to_near_and_reverses_equal_depths() {
+        let at_depth = |depth: i32| DrawListEntry {
+            z: depth << 16,
+            shape_id: crate::shapes::SHAPE_ARWING,
+            ..DrawListEntry::default()
+        };
+        let entries = [at_depth(167), at_depth(479), at_depth(479)];
+        let camera = SourceSceneCamera {
+            position: [0; 3],
+            rotation: [0; 3],
+        };
+
+        assert_eq!(source_painter_order(&entries, camera), [2, 1, 0]);
+    }
 
     #[test]
     fn projects_model_origin_with_gpu_matrix_order() {

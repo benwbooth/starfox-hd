@@ -3,12 +3,13 @@
 //! Port (C oracle): `src/renderer/sprites.c`. Decodes 4bpp tile data from
 //! OBJ-1.CGX and palettes from OBJ-1.COL, builds an indexed (GL_R8) atlas,
 //! and renders sprites as textured quads via the HUD shader's
-//! palette-lookup mode (uUseTexture == 2). Also owns the radio portrait
-//! atlas (FACE.CGX) and the in-game bitmap palette (NIGHT.COL row 0).
+//! palette-lookup mode. Also owns the indexed radio portrait atlas
+//! (FACE.CGX); the active scene supplies its game palette at draw time.
 
 use std::path::Path;
 
 use crate::gpu::{Gpu, TextureId, Vertex2};
+use crate::shapes::ShapePaletteRgb;
 
 const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -61,8 +62,8 @@ const MAX_SPRITE_QUEUE: usize = 256;
 // Radio portrait faces (FACE.CGX): 18 frames, 32x40 4bpp, 640 bytes each
 // stored as 4 columns of 5 tiles (column-major).
 const FACE_FRAMES: usize = 18;
-const FACE_W: usize = 32;
-const FACE_H: usize = 40;
+pub(crate) const FACE_W: usize = 32;
+pub(crate) const FACE_H: usize = 40;
 const FACE_FRAME_SIZE: usize = 640;
 const FACE_ATLAS_W: usize = FACE_FRAMES * FACE_W; // 576
 const FACE_ATLAS_H: usize = FACE_H;
@@ -96,10 +97,14 @@ pub fn decode_4bpp_tile(src: &[u8], dst8x8: &mut [u8; 64]) {
 /// BGR555 word -> normalized RGBA (alpha 1).
 pub fn decode_bgr555_bytes(src: &[u8]) -> [f32; 4] {
     let word = src[0] as u16 | ((src[1] as u16) << 8);
+    let normalized = |component: u16| {
+        let expanded = (component << 3) | (component >> 2);
+        f32::from(expanded) / 255.0
+    };
     [
-        ((word) & 0x1F) as f32 / 31.0,
-        ((word >> 5) & 0x1F) as f32 / 31.0,
-        ((word >> 10) & 0x1F) as f32 / 31.0,
+        normalized(word & 0x1F),
+        normalized((word >> 5) & 0x1F),
+        normalized((word >> 10) & 0x1F),
         1.0,
     ]
 }
@@ -111,8 +116,6 @@ pub struct Sprites {
     screen_w: i32,
     screen_h: i32,
     palettes: [[[f32; 4]; COLORS_PER_PAL]; NUM_PALETTES],
-    /// In-game bitmap palette (NIGHT.COL row 0).
-    bitmap_palette: [[f32; 4]; COLORS_PER_PAL],
     queue: Vec<SpriteCmd>,
 }
 
@@ -125,7 +128,6 @@ impl Sprites {
             screen_w: 1280,
             screen_h: 720,
             palettes: [[[0.0; 4]; COLORS_PER_PAL]; NUM_PALETTES],
-            bitmap_palette: [[0.0; 4]; COLORS_PER_PAL],
             queue: Vec::with_capacity(MAX_SPRITE_QUEUE),
         };
 
@@ -178,20 +180,7 @@ impl Sprites {
             }
         }
 
-        // ---- Load in-game bitmap palette (NIGHT.COL row 0) ----
-        let night_path = base_dir.join("data/sprites/NIGHT.COL");
-        match std::fs::read(&night_path) {
-            Err(_) => eprintln!("Sprites: cannot open {}", night_path.display()),
-            Ok(row0) => {
-                if row0.len() >= 32 {
-                    for c in 0..COLORS_PER_PAL {
-                        s.bitmap_palette[c] = decode_bgr555_bytes(&row0[c * 2..]);
-                    }
-                }
-            }
-        }
-
-        // ---- Load portrait frames (FACE.CGX) into an RGBA atlas ----
+        // ---- Load portrait frames (FACE.CGX) into an indexed atlas ----
         let face_path = base_dir.join("data/sprites/FACE.CGX");
         match std::fs::read(&face_path) {
             Err(_) => eprintln!("Sprites: cannot open {}", face_path.display()),
@@ -199,7 +188,7 @@ impl Sprites {
                 if face_rom.len() < FACE_FRAMES * FACE_FRAME_SIZE {
                     eprintln!("Sprites: FACE.CGX short read ({} bytes)", face_rom.len());
                 } else {
-                    let mut face_atlas = vec![0u8; FACE_ATLAS_W * FACE_ATLAS_H * 4];
+                    let mut face_atlas = vec![0u8; FACE_ATLAS_W * FACE_ATLAS_H];
                     let mut tile8x8 = [0u8; 64];
                     for fr in 0..FACE_FRAMES {
                         // Frame layout: 4 columns of 5 tiles, column-major
@@ -211,22 +200,16 @@ impl Sprites {
                                 decode_4bpp_tile(src, &mut tile8x8);
                                 for py in 0..8 {
                                     for px in 0..8 {
-                                        let idx = tile8x8[px + py * 8] as usize;
+                                        let index = tile8x8[px + py * 8];
                                         let ax = fr * FACE_W + col4 * 8 + px;
                                         let ay = trow * 8 + py;
-                                        let dst =
-                                            &mut face_atlas[(ay * FACE_ATLAS_W + ax) * 4..][..4];
-                                        // Color 0 = transparent (3D shows through)
-                                        dst[0] = (s.bitmap_palette[idx][0] * 255.0) as u8;
-                                        dst[1] = (s.bitmap_palette[idx][1] * 255.0) as u8;
-                                        dst[2] = (s.bitmap_palette[idx][2] * 255.0) as u8;
-                                        dst[3] = if idx != 0 { 255 } else { 0 };
+                                        face_atlas[ay * FACE_ATLAS_W + ax] = index;
                                     }
                                 }
                             }
                         }
                     }
-                    s.face_tex = Some(gpu.create_texture_rgba(
+                    s.face_tex = Some(gpu.create_texture_r8(
                         FACE_ATLAS_W as u32,
                         FACE_ATLAS_H as u32,
                         &face_atlas,
@@ -267,7 +250,7 @@ impl Sprites {
     }
 
     /// Flush the sprite queue (mirror of `Sprites_RenderHUD`).
-    pub fn render_hud(&mut self, gpu: &mut Gpu) {
+    pub fn render_hud(&mut self, gpu: &mut Gpu, source_y_adjustment: i32) {
         let Some(atlas_tex) = self.atlas_tex else {
             self.queue.clear();
             return;
@@ -307,7 +290,7 @@ impl Sprites {
 
             // SNES Y=0 at top -> OpenGL Y=0 at bottom
             let px = cmd.x as f32 * sx;
-            let py = sh - (cmd.y + 8) as f32 * sy;
+            let py = sh - (cmd.y + source_y_adjustment + 8) as f32 * sy;
             let pw = 8.0 * sx;
             let ph = 8.0 * sy;
 
@@ -346,15 +329,8 @@ impl Sprites {
         self.queue.clear();
     }
 
-    /// In-game bitmap palette lookup (NIGHT.COL row 0), alpha forced to 1.
-    pub fn bitmap_color(&self, index: usize) -> [f32; 4] {
-        let index = if index >= COLORS_PER_PAL { 0 } else { index };
-        let c = self.bitmap_palette[index];
-        [c[0], c[1], c[2], 1.0]
-    }
-
     /// Draw a radio portrait frame (0-17) at SNES screen coordinates.
-    pub fn draw_face(&self, gpu: &mut Gpu, frame: i32, x: i32, y: i32) {
+    pub fn draw_face(&self, gpu: &mut Gpu, frame: i32, x: i32, y: i32, palette: &ShapePaletteRgb) {
         let Some(face_tex) = self.face_tex else {
             return;
         };
@@ -394,13 +370,17 @@ impl Sprites {
                 uv: [u0, 0.0],
             },
         ];
+        let indexed_palette: [[f32; 4]; COLORS_PER_PAL] = std::array::from_fn(|index| {
+            let color = palette[index];
+            [color[0], color[1], color[2], 1.0]
+        });
         gpu.push_overlay_fan(
             &verts,
             &proj,
             &IDENTITY,
             [1.0, 1.0, 1.0, 1.0],
-            1,
-            None,
+            2,
+            Some(&indexed_palette),
             face_tex,
         );
     }

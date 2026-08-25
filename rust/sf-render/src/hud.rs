@@ -13,10 +13,14 @@
 //!  - The C forces `g_meters = 1` on entering gameplay / stage advance
 //!    (MAIN.ASM:105 stand-in); mirrored with an internal flag.
 
-use crate::font::Font;
+use crate::font::{source_message_advance, Font};
 use crate::gpu::{Gpu, Vertex2, WHITE_TEX};
 use crate::renderer::{FrameInputs, GameState};
-use crate::sprites::{Sprites, SPR_HFLIP, SPR_PAL_CROSS, SPR_PAL_DEFAULT, SPR_VFLIP};
+use crate::shapes::ShapePaletteRgb;
+use crate::source_raster::SourceBitmapRect;
+use crate::sprites::{
+    Sprites, FACE_H, FACE_W, SPR_HFLIP, SPR_PAL_CROSS, SPR_PAL_DEFAULT, SPR_VFLIP,
+};
 
 #[inline]
 fn ortho(w: f32, h: f32) -> [f32; 16] {
@@ -60,11 +64,23 @@ const UNIT_QUAD: [Vertex2; 4] = [
     },
 ];
 
-/// Vertical offset of the 256x192 Super FX bitmap within the 256x224 screen.
+/// Horizontal and vertical offsets of the 224x192 Super FX playfield within
+/// the 256x224 presentation raster.
+const BITMAP_X_OFS: i32 = 16;
 const BITMAP_Y_OFS: i32 = 16;
+const SOURCE_OAM_Y_ADJUSTMENT: i32 = 1;
+
+/// The retail flight-meter tile rows select a fixed presentation palette,
+/// independently of the BGS-selected polygon palette used by the scene.
+/// Values are the exact expanded RGB555 colors observed in the source PPU.
+const SOURCE_METER_OUTLINE_RGB: [f32; 3] = [206.0 / 255.0, 206.0 / 255.0, 206.0 / 255.0];
+const SOURCE_SHIELD_METER_RGB: [f32; 3] = [1.0, 0.0, 0.0];
+const SOURCE_BOOST_METER_RGB: [f32; 3] = [115.0 / 255.0, 90.0 / 255.0, 222.0 / 255.0];
 
 /// CONTINUE.ASM openingframes
 const MSG_OPENING_FRAMES: u8 = 5;
+const RADIO_PORTRAIT_BITMAP_X: usize = 48 + BITMAP_X_OFS as usize;
+const RADIO_PORTRAIT_BITMAP_Y: usize = 152 + BITMAP_Y_OFS as usize;
 
 // variables.h flags used by the HUD (mirrors of the C defines).
 pub const GF_PLAYERDYING: u8 = 2;
@@ -78,8 +94,9 @@ pub const FRIEND_ANDROSS: u8 = 5;
 // Radio message text layout (mfprintstr / friendmsgrighttextclip).
 const MSG_TEXT_X: i32 = 82;
 const MSG_TEXT_Y: i32 = 169 + BITMAP_Y_OFS;
-const MSG_LINE_H: i32 = 16;
-const MSG_CHARS_LINE: usize = 11; // (174 - 82) / 8px cells
+const MSG_LINE_H: i32 = 13;
+const MSG_RIGHT_CLIP: i32 = 174;
+const MSG_LINE_WIDTH: i32 = MSG_RIGHT_CLIP - MSG_TEXT_X;
 const MSG_MAX_LINES: usize = 3;
 
 // Radar arrow frame layouts — port of artab (SPRITES.ASM:943-1027).
@@ -163,44 +180,39 @@ static ARROW_LEFT: [[ArrowSpr; 4]; 4] = [
     [AZ, AZ, AZ, AZ],
 ];
 
-/// Word-wrap like mfprintstr (right clip at x=174), lines 16px apart.
+/// Word-wrap like `mfprintstr`, using the authored per-glyph widths and the
+/// source right clip instead of fixed-width HD cells.
 /// Mirror of `WrapMessage`.
 pub fn wrap_message(msg: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
-    let bytes = msg.as_bytes();
-    let mut p = 0usize;
-    while p < bytes.len() && lines.len() < MSG_MAX_LINES {
-        // Measure next word
-        let mut wlen = 0usize;
-        while p + wlen < bytes.len() && bytes[p + wlen] != b' ' {
-            wlen += 1;
+    let mut line_width = 0i32;
+    for word in msg.split_ascii_whitespace() {
+        if lines.len() >= MSG_MAX_LINES {
+            break;
         }
-        if wlen == 0 {
-            p += 1;
-            continue; // skip spaces
-        }
-
-        let col = cur.len();
-        let mut need = wlen + if col > 0 { 1 } else { 0 };
-        if col + need > MSG_CHARS_LINE && col > 0 {
+        let word_width: i32 = word
+            .bytes()
+            .map(|byte| i32::from(source_message_advance(byte)))
+            .sum();
+        let separator_width = if cur.is_empty() {
+            0
+        } else {
+            i32::from(source_message_advance(b' '))
+        };
+        if !cur.is_empty() && line_width + separator_width + word_width > MSG_LINE_WIDTH {
             lines.push(std::mem::take(&mut cur));
             if lines.len() >= MSG_MAX_LINES {
                 break;
             }
-            need = wlen;
+            line_width = 0;
         }
-        let _ = need;
         if !cur.is_empty() {
             cur.push(' ');
+            line_width += separator_width;
         }
-        for i in 0..wlen {
-            if cur.len() >= MSG_CHARS_LINE {
-                break;
-            }
-            cur.push(bytes[p + i] as char);
-        }
-        p += wlen;
+        cur.push_str(word);
+        line_width += word_width;
     }
     if !cur.is_empty() && lines.len() < MSG_MAX_LINES {
         lines.push(cur);
@@ -212,9 +224,7 @@ pub struct Hud {
     // calcmeters/do_sprites per-game-frame animation state
     boostanim: i32,      // m_boostanim (TRANS.ASM:613)
     sprframe: usize,     // arrow flash frame 0-3 (SPRITES.ASM:862)
-    face_talk: i32,      // current talk-frame (5..17 or 4)
     last_gameframe: u32, // 0xFFFF_FFFF = unset
-    rng: u32,            // local RNG — do not perturb game RNG
 
     screen_w: f32,
     screen_h: f32,
@@ -235,9 +245,7 @@ impl Default for Hud {
         Hud {
             boostanim: 40,
             sprframe: 0,
-            face_talk: 0,
             last_gameframe: 0xFFFF_FFFF,
-            rng: 0x1234_5678,
             screen_w: 0.0,
             screen_h: 0.0,
             was_playing: false,
@@ -251,6 +259,22 @@ impl Default for Hud {
 }
 
 impl Hud {
+    /// The source face-copy replaces its complete bitmap block, including
+    /// zero pixels. The decoded GPU portrait is drawn later over this cleared
+    /// 3D region.
+    pub(crate) fn source_bitmap_clear(&self, inputs: &FrameInputs) -> Option<SourceBitmapRect> {
+        (inputs.source_resolution
+            && inputs.game_state == GameState::Playing
+            && inputs.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) == 0
+            && (inputs.msg_count1 != 0 || inputs.msg_count2 != 0))
+            .then_some(SourceBitmapRect {
+                left: RADIO_PORTRAIT_BITMAP_X,
+                top: RADIO_PORTRAIT_BITMAP_Y,
+                width: FACE_W,
+                height: FACE_H,
+            })
+    }
+
     pub fn new(_gpu: &mut Gpu) -> Self {
         Self::default()
     }
@@ -259,18 +283,13 @@ impl Hud {
         std::mem::take(&mut self.pending_sounds)
     }
 
-    fn random(&mut self) -> u32 {
-        self.rng = self.rng.wrapping_mul(1664525).wrapping_add(1013904223);
-        self.rng >> 16
-    }
-
     /// Solid rectangle in SNES screen space (256x224, y down), bitmap
     /// palette color. Mirror of `SnesSolidRect`.
     #[allow(clippy::too_many_arguments)]
     fn snes_solid_rect(
         &self,
         gpu: &mut Gpu,
-        sprites: &Sprites,
+        palette: &ShapePaletteRgb,
         x: f32,
         y: f32,
         w: f32,
@@ -279,13 +298,14 @@ impl Hud {
     ) {
         let sx = self.screen_w / 256.0;
         let sy = self.screen_h / 224.0;
-        let rgba = sprites.bitmap_color(color_idx);
+        let color_idx = color_idx.min(palette.len() - 1);
+        let rgb = palette[color_idx];
 
         let mut model = [0.0f32; 16];
         model[0] = w * sx;
         model[5] = h * sy;
         model[10] = 1.0;
-        model[12] = x * sx;
+        model[12] = (x + BITMAP_X_OFS as f32) * sx;
         model[13] = self.screen_h - (y + h) * sy;
         model[15] = 1.0;
 
@@ -294,7 +314,7 @@ impl Hud {
             &UNIT_QUAD,
             &proj,
             &model,
-            [rgba[0], rgba[1], rgba[2], 1.0],
+            [rgb[0], rgb[1], rgb[2], 1.0],
             0,
             None,
             WHITE_TEX,
@@ -306,17 +326,17 @@ impl Hud {
     fn snes_outline_box(
         &self,
         gpu: &mut Gpu,
-        sprites: &Sprites,
+        palette: &ShapePaletteRgb,
         x: f32,
         y: f32,
         w: f32,
         h: f32,
         color_idx: usize,
     ) {
-        self.snes_solid_rect(gpu, sprites, x, y, w, 1.0, color_idx);
-        self.snes_solid_rect(gpu, sprites, x, y + h - 1.0, w, 1.0, color_idx);
-        self.snes_solid_rect(gpu, sprites, x, y, 1.0, h, color_idx);
-        self.snes_solid_rect(gpu, sprites, x + w - 1.0, y, 1.0, h, color_idx);
+        self.snes_solid_rect(gpu, palette, x, y, w, 1.0, color_idx);
+        self.snes_solid_rect(gpu, palette, x, y + h - 1.0, w, 1.0, color_idx);
+        self.snes_solid_rect(gpu, palette, x, y, 1.0, h, color_idx);
+        self.snes_solid_rect(gpu, palette, x + w - 1.0, y, 1.0, h, color_idx);
     }
 
     /// Per-game-frame animation updates (mirror of `Hud_TickAnimations`).
@@ -364,21 +384,6 @@ impl Hud {
                 }
             }
         }
-
-        // Radio talk-frame reroll (CONTINUE.ASM friends_messages_l "normal").
-        if inputs.msg_count1 > 0 && inputs.msg_count2 >= MSG_OPENING_FRAMES {
-            let rnd = self.random() & 31;
-            if rnd == 0 {
-                self.face_talk = 4; // face_frame4
-            } else {
-                let mut mouth = (rnd & 1) as i32;
-                if inputs.msg_count1 < 30 {
-                    mouth = 0;
-                }
-                self.face_talk =
-                    MSG_OPENING_FRAMES as i32 + (((inputs.whichfriend & 0x7F) as i32) << 1) + mouth;
-            }
-        }
     }
 
     fn draw_arrow_set(&self, sprites: &mut Sprites, set: &[[ArrowSpr; 4]; 4]) {
@@ -397,24 +402,6 @@ impl Hud {
         }
     }
 
-    /// Font wrapper compensating x so text lines up with the portrait in
-    /// 256-wide space (mirror of `DrawMsgLine`).
-    #[allow(clippy::too_many_arguments)]
-    fn draw_msg_line(
-        &self,
-        gpu: &mut Gpu,
-        font: &Font,
-        x: i32,
-        y_top: i32,
-        text: &str,
-        r: f32,
-        g: f32,
-        b: f32,
-    ) {
-        let fx = x as f32 * (self.screen_w / 256.0) / (self.screen_h / 224.0);
-        font.draw_string(gpu, (fx + 0.5) as i32, 224 - y_top - 8, text, r, g, b);
-    }
-
     /// Radio message block: portrait + text (CONTINUE.ASM
     /// friends_messages_l). Mirror of `DrawRadioMessage`.
     fn draw_radio_message(
@@ -423,6 +410,7 @@ impl Hud {
         sprites: &Sprites,
         font: &Font,
         inputs: &FrameInputs,
+        palette: &ShapePaletteRgb,
     ) {
         // friends_messages_l bails while the player is dying/dead.
         if inputs.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0 {
@@ -433,13 +421,13 @@ impl Hud {
         }
 
         // --- Portrait (mcopyface at friendmugshotx=6 cols -> x=48, y=152) --
-        let frame = if inputs.msg_count1 == 0 || inputs.msg_count2 < MSG_OPENING_FRAMES {
-            // Opening/closing window iris: frames 0-4
-            (inputs.msg_count2 as i32).min(4)
-        } else {
-            self.face_talk
-        };
-        sprites.draw_face(gpu, frame, 48, 152 + BITMAP_Y_OFS);
+        sprites.draw_face(
+            gpu,
+            i32::from(inputs.radio_face_frame),
+            48 + BITMAP_X_OFS,
+            152 + BITMAP_Y_OFS,
+            palette,
+        );
 
         // Text only once the window is open and the message is live.
         if inputs.msg_count1 == 0 || inputs.msg_count2 < MSG_OPENING_FRAMES {
@@ -458,34 +446,29 @@ impl Hud {
             }
 
             let lines = wrap_message(msg);
-            let shadow = sprites.bitmap_color(9); // msprintstr shadow colour 9
+            let shadow = palette[9]; // msprintstr shadow colour 9
+            let text = palette[14];
             for (i, line) in lines.iter().enumerate() {
-                self.draw_msg_line(
+                font.draw_source_message_line(
                     gpu,
-                    font,
-                    MSG_TEXT_X + 1,
+                    MSG_TEXT_X + BITMAP_X_OFS + 1,
                     ty + i as i32 * MSG_LINE_H + 1,
                     line,
-                    shadow[0],
-                    shadow[1],
-                    shadow[2],
+                    [shadow[0], shadow[1], shadow[2], 1.0],
                 );
-                self.draw_msg_line(
+                font.draw_source_message_line(
                     gpu,
-                    font,
-                    MSG_TEXT_X,
+                    MSG_TEXT_X + BITMAP_X_OFS,
                     ty + i as i32 * MSG_LINE_H,
                     line,
-                    1.0,
-                    1.0,
-                    1.0,
+                    [text[0], text[1], text[2], 1.0],
                 );
             }
         }
     }
 
     /// Teammate HP meter (mshowteammate2, MTXTPRT.MC:568).
-    fn draw_teammate_meter(&self, gpu: &mut Gpu, sprites: &Sprites, inputs: &FrameInputs) {
+    fn draw_teammate_meter(&self, gpu: &mut Gpu, palette: &ShapePaletteRgb, inputs: &FrameInputs) {
         if inputs.gameflags & (GF_PLAYERDYING | GF_PLAYERDEAD) != 0 {
             return;
         }
@@ -499,7 +482,7 @@ impl Hud {
         let mut hp = (inputs.friends_meter & 0x7F) as i32;
         self.snes_outline_box(
             gpu,
-            sprites,
+            palette,
             82.0,
             (177 + BITMAP_Y_OFS) as f32,
             44.0,
@@ -510,7 +493,7 @@ impl Hud {
             hp = hp.min(40);
             self.snes_solid_rect(
                 gpu,
-                sprites,
+                palette,
                 84.0,
                 (179 + BITMAP_Y_OFS) as f32,
                 hp as f32,
@@ -529,6 +512,7 @@ impl Hud {
         sprites: &mut Sprites,
         font: &mut Font,
         inputs: &FrameInputs,
+        shape_palette: &ShapePaletteRgb,
         screen_width: i32,
         screen_height: i32,
     ) {
@@ -559,6 +543,11 @@ impl Hud {
         if hud_on {
             // --- Super FX bitmap meters (MDRAWLIS.MC), bitmap y + 16 ---
 
+            let mut meter_palette = *shape_palette;
+            meter_palette[13] = SOURCE_METER_OUTLINE_RGB;
+            meter_palette[4] = SOURCE_SHIELD_METER_RGB;
+            meter_palette[7] = SOURCE_BOOST_METER_RGB;
+
             // Shield meter (mdamagemeter): 40x8 box colour 13 at (8,176),
             // fill = player HP clamped to 36, 4px tall. Colour 7 while
             // shieldup (wireframe shield), else colour 2 (MDRAWLIS.MC:911-926).
@@ -567,7 +556,7 @@ impl Hud {
                 let fill_col = shield_meter_fill_color(inputs.shieldup);
                 self.snes_outline_box(
                     gpu,
-                    sprites,
+                    &meter_palette,
                     8.0,
                     (176 + BITMAP_Y_OFS) as f32,
                     40.0,
@@ -577,7 +566,7 @@ impl Hud {
                 if fill > 0 {
                     self.snes_solid_rect(
                         gpu,
-                        sprites,
+                        &meter_palette,
                         10.0,
                         (178 + BITMAP_Y_OFS) as f32,
                         fill as f32,
@@ -593,7 +582,7 @@ impl Hud {
                 let fill = self.boostanim.min(36);
                 self.snes_outline_box(
                     gpu,
-                    sprites,
+                    &meter_palette,
                     176.0,
                     (176 + BITMAP_Y_OFS) as f32,
                     40.0,
@@ -603,12 +592,12 @@ impl Hud {
                 if fill > 0 {
                     self.snes_solid_rect(
                         gpu,
-                        sprites,
+                        &meter_palette,
                         178.0,
                         (178 + BITMAP_Y_OFS) as f32,
                         fill as f32,
                         4.0,
-                        6,
+                        7,
                     );
                 }
             }
@@ -634,7 +623,7 @@ impl Hud {
                 let bx = (222 - w) as f32;
                 self.snes_outline_box(
                     gpu,
-                    sprites,
+                    shape_palette,
                     bx,
                     (2 + BITMAP_Y_OFS) as f32,
                     w as f32,
@@ -644,7 +633,7 @@ impl Hud {
                 if curv > 0 {
                     self.snes_solid_rect(
                         gpu,
-                        sprites,
+                        shape_palette,
                         bx + 2.0,
                         (4 + BITMAP_Y_OFS) as f32,
                         curv as f32,
@@ -655,10 +644,10 @@ impl Hud {
             }
 
             if !tally {
-                self.draw_teammate_meter(gpu, sprites, inputs);
+                self.draw_teammate_meter(gpu, shape_palette, inputs);
 
                 // Portrait sits on the bitmap layer, under the OAM sprites.
-                self.draw_radio_message(gpu, sprites, font, inputs);
+                self.draw_radio_message(gpu, sprites, font, inputs, shape_palette);
             }
 
             // --- OAM sprites (SPRITES.ASM do_sprites_l order) ---
@@ -727,12 +716,19 @@ impl Hud {
         } else {
             // Radio traffic still runs with the meters hidden during flight.
             if !tally {
-                self.draw_teammate_meter(gpu, sprites, inputs);
-                self.draw_radio_message(gpu, sprites, font, inputs);
+                self.draw_teammate_meter(gpu, shape_palette, inputs);
+                self.draw_radio_message(gpu, sprites, font, inputs, shape_palette);
             }
         }
 
-        sprites.render_hud(gpu);
+        sprites.render_hud(
+            gpu,
+            if inputs.source_resolution {
+                SOURCE_OAM_Y_ADJUSTMENT
+            } else {
+                0
+            },
+        );
     }
 }
 
@@ -742,7 +738,7 @@ pub fn shield_meter_fill_color(shieldup: u8) -> usize {
     if shieldup != 0 {
         7
     } else {
-        2
+        4
     }
 }
 
@@ -759,8 +755,33 @@ pub fn bomb_icon_draw_count(bombs: i32, specflash: u8, gameframe: u16) -> (i32, 
 
 #[cfg(test)]
 mod tests {
-    use super::{bomb_icon_draw_count, shield_meter_fill_color, Hud, SPRAR_UP};
-    use crate::renderer::FrameInputs;
+    use super::{
+        bomb_icon_draw_count, shield_meter_fill_color, Hud, RADIO_PORTRAIT_BITMAP_X,
+        RADIO_PORTRAIT_BITMAP_Y, FACE_H, FACE_W, SPRAR_UP,
+    };
+    use crate::renderer::{FrameInputs, GameState};
+    use crate::source_raster::SourceBitmapRect;
+
+    #[test]
+    fn source_radio_portrait_replaces_its_complete_bitmap_block() {
+        let hud = Hud::default();
+        let inputs = FrameInputs {
+            source_resolution: true,
+            game_state: GameState::Playing,
+            msg_count1: 1,
+            ..FrameInputs::default()
+        };
+
+        assert_eq!(
+            hud.source_bitmap_clear(&inputs),
+            Some(SourceBitmapRect {
+                left: RADIO_PORTRAIT_BITMAP_X,
+                top: RADIO_PORTRAIT_BITMAP_Y,
+                width: FACE_W,
+                height: FACE_H,
+            })
+        );
+    }
 
     #[test]
     fn bomb_flash_hides_newest_until_blink_window() {
@@ -778,7 +799,7 @@ mod tests {
 
     #[test]
     fn shield_meter_uses_color_seven_when_shieldup() {
-        assert_eq!(shield_meter_fill_color(0), 2);
+        assert_eq!(shield_meter_fill_color(0), 4);
         assert_eq!(shield_meter_fill_color(1), 7);
         assert_eq!(shield_meter_fill_color(0xFF), 7);
     }

@@ -14,6 +14,19 @@ const FONT_ATLAS_ROWS: usize = 5;
 const FONT_ATLAS_W: usize = FONT_ATLAS_COLS * FONT_GLYPH_PX; // 256
 const FONT_ATLAS_H: usize = FONT_ATLAS_ROWS * FONT_GLYPH_PX; // 80
 
+const SOURCE_MESSAGE_FONT: &[u8; 3_500] =
+    include_bytes!("../../../reference/ultrastarfox/SF/DATA/FONT/MOJI_0.FON");
+const SOURCE_MESSAGE_GLYPHS: usize = 140;
+const SOURCE_MESSAGE_WIDTH_BYTES: usize = SOURCE_MESSAGE_GLYPHS;
+const SOURCE_MESSAGE_GLYPH_WIDTH: usize = 16;
+const SOURCE_MESSAGE_GLYPH_HEIGHT: usize = 12;
+const SOURCE_MESSAGE_GLYPH_BYTES: usize = SOURCE_MESSAGE_GLYPH_HEIGHT * 2;
+const SOURCE_MESSAGE_ATLAS_COLUMNS: usize = 14;
+const SOURCE_MESSAGE_ATLAS_ROWS: usize =
+    SOURCE_MESSAGE_GLYPHS.div_ceil(SOURCE_MESSAGE_ATLAS_COLUMNS);
+const SOURCE_MESSAGE_ATLAS_WIDTH: usize = SOURCE_MESSAGE_ATLAS_COLUMNS * SOURCE_MESSAGE_GLYPH_WIDTH;
+const SOURCE_MESSAGE_ATLAS_HEIGHT: usize = SOURCE_MESSAGE_ATLAS_ROWS * SOURCE_MESSAGE_GLYPH_HEIGHT;
+
 /// Advance/draw size in SNES units (256x224 reference).
 const FONT_CELL: f32 = 8.0;
 
@@ -21,6 +34,7 @@ const GLYPH_SPACE: u8 = 39;
 
 pub struct Font {
     texture: Option<TextureId>,
+    source_message_texture: TextureId,
     screen_w: i32,
     screen_h: i32,
     ascii_to_glyph: [u8; 256],
@@ -77,8 +91,10 @@ fn build_translation_table() -> [u8; 256] {
 
 impl Font {
     pub fn new(gpu: &mut Gpu, base_dir: &Path) -> Self {
+        let source_message_texture = create_source_message_texture(gpu);
         let mut font = Font {
             texture: None,
+            source_message_texture,
             screen_w: 800,
             screen_h: 600,
             ascii_to_glyph: build_translation_table(),
@@ -124,6 +140,69 @@ impl Font {
 
         font.initialized = true;
         font
+    }
+
+    /// Draw the retail variable-width 12-pixel message font at top-origin
+    /// source-screen coordinates.  This is the typed native presentation of
+    /// `mfprintstr`/`msprintstr`; the authored glyph pixels are embedded at
+    /// build time and are not recovered from machine state.
+    pub fn draw_source_message_line(
+        &self,
+        gpu: &mut Gpu,
+        x: i32,
+        y_top: i32,
+        text: &str,
+        color: [f32; 4],
+    ) {
+        let scale = self.screen_h as f32 / 224.0;
+        let proj = ortho(self.screen_w as f32, self.screen_h as f32);
+        let mut source_x = x;
+        for byte in text.bytes() {
+            let glyph = source_message_glyph(byte);
+            if byte != b' ' {
+                let column = usize::from(glyph) % SOURCE_MESSAGE_ATLAS_COLUMNS;
+                let row = usize::from(glyph) / SOURCE_MESSAGE_ATLAS_COLUMNS;
+                let u0 = (column * SOURCE_MESSAGE_GLYPH_WIDTH) as f32
+                    / SOURCE_MESSAGE_ATLAS_WIDTH as f32;
+                let v0 =
+                    (row * SOURCE_MESSAGE_GLYPH_HEIGHT) as f32 / SOURCE_MESSAGE_ATLAS_HEIGHT as f32;
+                let u1 = u0 + SOURCE_MESSAGE_GLYPH_WIDTH as f32 / SOURCE_MESSAGE_ATLAS_WIDTH as f32;
+                let v1 =
+                    v0 + SOURCE_MESSAGE_GLYPH_HEIGHT as f32 / SOURCE_MESSAGE_ATLAS_HEIGHT as f32;
+                let left = source_x as f32 * scale;
+                let right = left + SOURCE_MESSAGE_GLYPH_WIDTH as f32 * scale;
+                let top = self.screen_h as f32 - y_top as f32 * scale;
+                let bottom = top - SOURCE_MESSAGE_GLYPH_HEIGHT as f32 * scale;
+                let vertices = [
+                    Vertex2 {
+                        pos: [left, bottom],
+                        uv: [u0, v1],
+                    },
+                    Vertex2 {
+                        pos: [right, bottom],
+                        uv: [u1, v1],
+                    },
+                    Vertex2 {
+                        pos: [right, top],
+                        uv: [u1, v0],
+                    },
+                    Vertex2 {
+                        pos: [left, top],
+                        uv: [u0, v0],
+                    },
+                ];
+                gpu.push_overlay_fan(
+                    &vertices,
+                    &proj,
+                    &IDENTITY,
+                    color,
+                    1,
+                    None,
+                    self.source_message_texture,
+                );
+            }
+            source_x += i32::from(source_message_advance(byte));
+        }
     }
 
     pub fn set_screen_size(&mut self, w: i32, h: i32) {
@@ -268,4 +347,58 @@ impl Font {
         let s = String::from_utf8(buf).unwrap_or_default();
         self.draw_string(gpu, x, y, &s, 1.0, 1.0, 1.0);
     }
+}
+
+fn create_source_message_texture(gpu: &mut Gpu) -> TextureId {
+    let mut atlas = vec![0u8; SOURCE_MESSAGE_ATLAS_WIDTH * SOURCE_MESSAGE_ATLAS_HEIGHT * 4];
+    for glyph in 0..SOURCE_MESSAGE_GLYPHS {
+        let atlas_x = (glyph % SOURCE_MESSAGE_ATLAS_COLUMNS) * SOURCE_MESSAGE_GLYPH_WIDTH;
+        let atlas_y = (glyph / SOURCE_MESSAGE_ATLAS_COLUMNS) * SOURCE_MESSAGE_GLYPH_HEIGHT;
+        let data_start = SOURCE_MESSAGE_WIDTH_BYTES + glyph * SOURCE_MESSAGE_GLYPH_BYTES;
+        for row in 0..SOURCE_MESSAGE_GLYPH_HEIGHT {
+            let row_start = data_start + row * 2;
+            let bits = u16::from_le_bytes([
+                SOURCE_MESSAGE_FONT[row_start],
+                SOURCE_MESSAGE_FONT[row_start + 1],
+            ]);
+            for column in 0..SOURCE_MESSAGE_GLYPH_WIDTH {
+                if bits & (1 << (15 - column)) == 0 {
+                    continue;
+                }
+                let pixel = ((atlas_y + row) * SOURCE_MESSAGE_ATLAS_WIDTH + atlas_x + column) * 4;
+                atlas[pixel..pixel + 4].fill(255);
+            }
+        }
+    }
+    gpu.create_texture_rgba(
+        SOURCE_MESSAGE_ATLAS_WIDTH as u32,
+        SOURCE_MESSAGE_ATLAS_HEIGHT as u32,
+        &atlas,
+    )
+}
+
+fn source_message_glyph(byte: u8) -> u8 {
+    match byte {
+        b' ' => 39,
+        b'!' => 70,
+        b'"' => 0,
+        b'#' => 67,
+        b'%' => 37,
+        b'\'' => 68,
+        b',' => 131,
+        b'-' => 66,
+        b'.' => 38,
+        b'?' => 36,
+        b'0'..=b'9' => byte - b'0',
+        b':' => 137,
+        b';' => 132,
+        b'A'..=b'Z' => 10 + byte - b'A',
+        b'^' => 135,
+        b'a'..=b'z' => 40 + byte - b'a',
+        _ => 0,
+    }
+}
+
+pub fn source_message_advance(byte: u8) -> u8 {
+    SOURCE_MESSAGE_FONT[usize::from(source_message_glyph(byte))]
 }

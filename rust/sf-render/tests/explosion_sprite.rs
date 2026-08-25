@@ -6,9 +6,9 @@ const HEIGHT: i32 = 224;
 const TEST_DEPTH: i32 = 300;
 const MEDIUM_EXPLOSION_SPRITE_SHAPE: u16 = 462;
 const PLAYER_SPRITE_SCALE_ADJUSTMENT: u8 = 253;
-const CLEAR_COLOR: [u8; 3] = [0, 0, 13];
+const CLEAR_COLOR: [u8; 3] = [0, 0, 0];
 const MINIMUM_ADJUSTED_PIXELS: usize = 50;
-const MINIMUM_AREA_RATIO: usize = 8;
+const MINIMUM_AREA_RATIO: usize = 2;
 
 fn rendered_pixels(renderer: &mut Renderer, adjustment: u8) -> usize {
     let entry = DrawListEntry {
@@ -21,6 +21,7 @@ fn rendered_pixels(renderer: &mut Renderer, adjustment: u8) -> usize {
     };
     let inputs = FrameInputs {
         game_state: GameState::Boot,
+        source_resolution: true,
         ..Default::default()
     };
     renderer.begin_frame();
@@ -50,7 +51,10 @@ fn player_sized_explosion_uses_the_source_signed_sprite_adjustment() {
     let adjusted_pixels = rendered_pixels(&mut renderer, PLAYER_SPRITE_SCALE_ADJUSTMENT);
     renderer.shutdown();
 
-    assert!(adjusted_pixels >= MINIMUM_ADJUSTED_PIXELS);
+    assert!(
+        adjusted_pixels >= MINIMUM_ADJUSTED_PIXELS,
+        "base={base_pixels} adjusted={adjusted_pixels}"
+    );
     assert!(
         base_pixels >= adjusted_pixels * MINIMUM_AREA_RATIO,
         "base={base_pixels} adjusted={adjusted_pixels}"

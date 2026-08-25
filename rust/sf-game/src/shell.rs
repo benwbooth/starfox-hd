@@ -25,7 +25,9 @@ use sf_core::{
     pad,
     player_view::{PlayerViewMode, PlayerViewOptions},
     point_field::PointPixel,
-    scene::{PaletteFadeTarget, SceneStyle},
+    scene::{
+        PaletteFadeTarget, SceneStyle, BG2_HORIZONTAL_OFFSET_ROWS, BG2_VERTICAL_OFFSET_COLUMNS,
+    },
     screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCircleState},
     screen_wipe::{ScreenWipeKind, ScreenWipeState},
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
@@ -276,10 +278,16 @@ const LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE: i16 = 63;
 /// Runtime random state left by the retail 3D setup and game-frame-zero
 /// strategy initialization. Gameplay then advances it once per logic frame.
 const LEVEL_INITIALIZATION_RANDOM_STATE: [u8; 4] = [114, 239, 178, 245];
-/// Normal retail gameplay cadence observed at the completed Corneria strategy
-/// boundary. The original uses this elapsed-display-frame count to compensate
-/// player X/Y motion; the native port keeps the same deterministic cadence.
+/// Fixed native gameplay cadence. Retail's similarly named value counts how
+/// many display refreshes its machine-specific transfer/render path consumed;
+/// importing that fluctuating counter would make the modern port depend on
+/// source hardware execution time.
 const GAMEPLAY_PLAYER_FRAME_RATE: u8 = 6;
+/// The ordinary level transfer completes two additional player color-cycle
+/// advances before its first active strategy update.
+const STANDARD_GAMEPLAY_PLAYER_COLOR_FRAME: u8 = 131;
+/// Training's shorter handoff retains the prelevel color-cycle seed.
+const TRAINING_GAMEPLAY_PLAYER_COLOR_FRAME: u8 = 129;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InitialPlayerDepth {
@@ -291,6 +299,7 @@ enum InitialPlayerDepth {
 struct GameplayInitializationProfile {
     transfer_ticks: u8,
     second_player_update_tick: Option<u8>,
+    player_color_frame: u8,
     map_countdown: u16,
     last_depth_change: i16,
     random_state: [u8; 4],
@@ -301,6 +310,7 @@ const STANDARD_GAMEPLAY_INITIALIZATION: GameplayInitializationProfile =
     GameplayInitializationProfile {
         transfer_ticks: LEVEL_INITIALIZATION_TICKS,
         second_player_update_tick: Some(SECOND_STARTUP_PLAYER_UPDATE_TICK),
+        player_color_frame: STANDARD_GAMEPLAY_PLAYER_COLOR_FRAME,
         map_countdown: LEVEL_INITIALIZATION_MAP_COUNTDOWN,
         last_depth_change: LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE,
         random_state: LEVEL_INITIALIZATION_RANDOM_STATE,
@@ -314,6 +324,7 @@ const TRAINING_GAMEPLAY_INITIALIZATION: GameplayInitializationProfile =
     GameplayInitializationProfile {
         transfer_ticks: 6,
         second_player_update_tick: None,
+        player_color_frame: TRAINING_GAMEPLAY_PLAYER_COLOR_FRAME,
         map_countdown: 288,
         last_depth_change: 0,
         random_state: [58, 167, 85, 127],
@@ -998,6 +1009,32 @@ pub struct CameraSnapshot {
     pub snap: bool,
 }
 
+/// Radio portrait, message, and teammate meter state captured at the source
+/// HUD draw boundary. The live message counters continue advancing after this
+/// snapshot, so gameplay logic and completed presentation remain independent.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RadioPresentation {
+    pub count: u8,
+    pub opening_frame: u8,
+    pub portrait_frame: u8,
+    pub speaker: u8,
+    pub teammate_meter: u8,
+    pub text: Option<String>,
+}
+
+impl RadioPresentation {
+    fn capture(strings: &Strings) -> Self {
+        Self {
+            count: strings.msg_count1,
+            opening_frame: strings.msg_count2,
+            portrait_frame: strings.face_frame,
+            speaker: strings.whichfriend,
+            teammate_meter: strings.friends_meter,
+            text: strings.active_text.map(String::from),
+        }
+    }
+}
+
 /// Per-tick observable state for sf-app (HUD, background, fades, messages,
 /// route map, camera, and the sf-audio `SoundGameState` inputs).
 #[derive(Debug, Clone, Default)]
@@ -1007,6 +1044,12 @@ pub struct FrameSnapshot {
     pub newmap: u32,
     pub bgflags: u8,
     pub bg2_xscroll: i32,
+    /// Source Mode-2 vertical offset for each eight-pixel display column.
+    /// `None` means the active background declared vertical offsets disabled.
+    pub bg2_vertical_offsets: Option<[i16; BG2_VERTICAL_OFFSET_COLUMNS]>,
+    /// Source horizontal offset for each display row. `None` means the active
+    /// background does not use rotating-ground placement.
+    pub bg2_horizontal_offsets: Option<[i16; BG2_HORIZONTAL_OFFSET_ROWS]>,
     pub nomax_bg2_yscroll: bool,
     pub scene_style: SceneStyle,
     /// Source-resolution pixels produced by the typed background point field.
@@ -1056,9 +1099,14 @@ pub struct FrameSnapshot {
     pub shieldup: u8,
     pub msg_count1: u8,
     pub msg_count2: u8,
+    /// Typed radio portrait frame selected by the message state machine.
+    pub radio_face_frame: u8,
     pub whichfriend: u8,
     pub friends_meter: u8,
     pub message_text: Option<String>,
+    /// Completed source HUD state, captured before the message animation
+    /// advances at the end of the gameplay update.
+    pub radio_presentation: RadioPresentation,
     pub whichroute: u8,
     pub currentplanet: i16,
     pub nebula_on: u16,
@@ -1371,6 +1419,9 @@ pub struct Shell {
     /// Completed point-field pixels published with the preceding source
     /// framebuffer, one presentation update behind the working point state.
     presented_point_pixels: Vec<PointPixel>,
+    /// Completed source HUD state. This stays separate from the live message
+    /// counters used by strategies and semantic conformance checks.
+    radio_presentation: RadioPresentation,
     /// C `s_draw_list` (boot.c:46).
     draw_list: Vec<DrawListEntry>,
     cam_snapshot: CameraSnapshot,
@@ -1445,6 +1496,7 @@ impl Shell {
             camera: GameCamera::new(),
             point_field: PointField::new(),
             presented_point_pixels: Vec::new(),
+            radio_presentation: RadioPresentation::default(),
             draw_list: Vec::new(),
             cam_snapshot: CameraSnapshot::default(),
             prev_pad: 0,
@@ -1565,6 +1617,23 @@ impl Shell {
     /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
     /// stored into `game.vars.pad1`.
     pub fn tick(&mut self, pad1: u16) {
+        // TRANS.ASM runs the background transfer from the previous player
+        // roll before `dostrats` advances the current game update.
+        let transfer_player_x = {
+            let player = self.game.vars.internal_playpt;
+            if player >= 0
+                && (player as usize) < self.game.objs.aliens.len()
+                && self.game.objs.aliens[player as usize].active
+            {
+                self.game.objs.aliens[player as usize].worldx
+            } else {
+                self.game
+                    .objs
+                    .player()
+                    .map_or(self.game.vars.player_posx, |player| player.worldx)
+            }
+        };
+        bgs::prepare_transfer(&mut self.game.vars, transfer_player_x);
         let circle_was_active = self.game.vars.screen_fill_circle.is_active();
         self.game.vars.screen_fill_circle.advance();
         if circle_was_active && !self.game.vars.screen_fill_circle.is_active() {
@@ -1688,18 +1757,23 @@ impl Shell {
         // Every tick after the state switch (boot.c:278-284):
         // Bgs_Update, Windows_Update, Strings_Update.
         bgs::update(&mut self.game.vars);
-        let friends_meter = {
+        let (friends_meter, radio_presentation) = {
             let mut st = self.state.borrow_mut();
             let st = &mut *st;
             let vars = &mut self.game.vars;
+            let mut radio_presentation = RadioPresentation::capture(&st.strings);
             st.windows.update(
                 &mut vars.strategy.stay_black,
                 &mut vars.oncewipe,
                 &mut vars.circleanim,
             );
             st.strings.update(&mut self.game.vars, &mut st.sound);
-            st.strings.friends_meter
+            // The source face selector is the result of this draw, while its
+            // visibility gates use the counters observed on entry.
+            radio_presentation.portrait_frame = st.strings.face_frame;
+            (st.strings.friends_meter, radio_presentation)
         };
+        self.radio_presentation = radio_presentation;
         self.game.vars.shared.friends_meter = friends_meter;
 
         // ENDSEQ checks `fadedir` after `transfer_l`; that transfer includes
@@ -1806,6 +1880,10 @@ impl Shell {
             },
             bgflags: v.bgflags,
             bg2_xscroll: v.shared.background_scroll_x as i32,
+            bg2_vertical_offsets: (v.dovofs != 0).then_some(v.bg2_vertical_offsets),
+            bg2_horizontal_offsets: (v.background_horizontal_mode
+                == sf_core::scene::BackgroundHorizontalMode::Rotate)
+                .then_some(v.bg2_horizontal_offsets),
             nomax_bg2_yscroll: v.strategy.no_maximum_background_y != 0,
             scene_style: v.scene_style,
             point_pixels: self.presented_point_pixels.clone(),
@@ -1845,9 +1923,11 @@ impl Shell {
             shieldup: self.game.vars.shieldup,
             msg_count1: st.strings.msg_count1,
             msg_count2: st.strings.msg_count2,
+            radio_face_frame: st.strings.face_frame,
             whichfriend: st.strings.whichfriend,
             friends_meter: st.strings.friends_meter,
             message_text: st.strings.active_text.map(String::from),
+            radio_presentation: self.radio_presentation.clone(),
             whichroute: self.planets.whichroute,
             currentplanet: self.planets.currentplanet,
             nebula_on: self.planets.nebula_on,
@@ -1906,6 +1986,7 @@ impl Shell {
         self.camera.init(&mut self.game.vars);
         self.point_field = PointField::new();
         self.presented_point_pixels.clear();
+        self.radio_presentation = RadioPresentation::default();
         self.game.world = World::init();
         self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:123-127): the sf-path literal
@@ -2543,6 +2624,7 @@ impl Shell {
         // Keep the port's equivalent as ordinary typed scene state.
         self.point_field = PointField::new();
         self.presented_point_pixels.clear();
+        self.radio_presentation = RadioPresentation::default();
         self.game.world = World::init();
         self.reregister_strats();
         {
@@ -2621,9 +2703,6 @@ impl Shell {
     }
 
     fn update_point_field(&mut self) {
-        self.presented_point_pixels.clear();
-        self.presented_point_pixels
-            .extend_from_slice(self.point_field.pixels());
         let mut view_position = [
             self.camera.vars.viewposx,
             self.camera.vars.viewposy,
@@ -2636,6 +2715,12 @@ impl Shell {
         let matrix = sf_core::snes_trig::zxy_matrix_q15_fine(rotation[0], rotation[1], rotation[2]);
         self.point_field
             .update(self.game.vars.point_field_mode, view_position, matrix);
+        // `mshowgrid_l` / `mshowstars_l` contributes to the 3D bitmap built
+        // from this completed camera update.  Presentation can occur later,
+        // but the bitmap must not retain the preceding camera's point field.
+        self.presented_point_pixels.clear();
+        self.presented_point_pixels
+            .extend_from_slice(self.point_field.pixels());
     }
 
     fn begin_attract_fade(
@@ -2783,6 +2868,7 @@ impl Shell {
         self.camera.init(&mut self.game.vars);
         self.point_field = PointField::new();
         self.presented_point_pixels.clear();
+        self.radio_presentation = RadioPresentation::default();
         self.game.world = World::init();
         self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:79-83): static catalog via
@@ -2834,6 +2920,7 @@ impl Shell {
             // counter, but ordinary openings such as Training do not.
             self.game.vars.gameframe = 0;
             self.initialize_player_for_map(self.planets.newmap, player);
+            self.game.objs.aliens[usize::from(player)].colframe = profile.player_color_frame;
             self.game.vars.rng = profile.random_state;
             self.game.vars.strategy.frame_rate = GAMEPLAY_PLAYER_FRAME_RATE;
             self.game.vars.mapcnt = profile.map_countdown;
@@ -4031,6 +4118,33 @@ mod tests {
         assert_eq!(frame.boostcnt, 9);
         assert_eq!(frame.arrows, 5);
         assert_eq!(frame.bombs, 2);
+    }
+
+    #[test]
+    fn radio_presentation_precedes_the_live_message_animation_step() {
+        const PEPPY_LAUNCH_MESSAGE: u8 = 25;
+        const TEXT_REVEAL_FRAME: u8 = 5;
+
+        let mut shell = Shell::new();
+        shell
+            .state
+            .borrow_mut()
+            .strings
+            .send_message(PEPPY_LAUNCH_MESSAGE);
+        for _ in 0..TEXT_REVEAL_FRAME {
+            shell.tick(0);
+        }
+
+        let frame = shell.frame();
+        assert_eq!(frame.msg_count2, TEXT_REVEAL_FRAME);
+        assert_eq!(
+            frame.radio_presentation.opening_frame,
+            TEXT_REVEAL_FRAME - 1
+        );
+        assert_eq!(
+            frame.radio_presentation.text.as_deref(),
+            Some("yeah - let's go!")
+        );
     }
 
     #[test]

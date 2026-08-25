@@ -6,8 +6,9 @@
 //! Verified against the real ROM by `sf-oracle` (tests/gen_3dvecs.rs).
 
 pub use sf_core::snes_trig::{
-    mulslog, mulslog_mac8, rotate_16xz, rotate_16yz, rotate_8xz, rotate_8yx, rotate_8yz,
-    strat_roffs_full, strat_roffs_full_scaled, strat_roffs_roll, COSTAB, SINTAB,
+    mulslog, mulslog_mac8, packed_point_axis as msh_packed8_axis, rotate_16xz, rotate_16yz,
+    rotate_8xz, rotate_8yx, rotate_8yz, rotate_packed_point as msh_rot_point8, strat_roffs_full,
+    strat_roffs_full_scaled, strat_roffs_roll, COSTAB, SINTAB,
 };
 
 /// GSU `FMULT` + `ROL`: signed `(a * b) >> 15` truncated to i16.
@@ -239,29 +240,6 @@ pub fn strat_roffs_yaw_i16(roty: u8, offx: i16, offy: i16, offz: i16) -> (i16, i
 #[inline]
 pub fn mcore_zrot(rotz: &mut u8, vz: i16) {
     *rotz = rotz.wrapping_add((vz >> 3) as u8);
-}
-
-/// One output axis of `msh_rotpoints8` (MOBJ.MC:1678): sum three signed
-/// products, double the total, select the high byte, then apply scale.
-#[inline]
-pub fn msh_packed8_axis(ma: i8, mb: i8, mc: i8, x: i8, y: i8, z: i8, scale: i8) -> i16 {
-    let sum = (ma as i16)
-        .wrapping_mul(x as i16)
-        .wrapping_add((mb as i16).wrapping_mul(y as i16))
-        .wrapping_add((mc as i16).wrapping_mul(z as i16));
-    let scaled_high_byte = (((sum as i32) << 1) >> 8) as i8;
-    (scaled_high_byte as i16).wrapping_mul(scale as i16)
-}
-
-/// ROM `msh_rotpoints8` packed matrix (when `m_shift < 3`).
-/// `mat` bytes are Q7-ish object-matrix entries; `scale` is `m_scale`.
-#[inline]
-pub fn msh_rot_point8(mat: [[i8; 3]; 3], scale: i8, x: i8, y: i8, z: i8) -> (i16, i16, i16) {
-    (
-        msh_packed8_axis(mat[0][0], mat[1][0], mat[2][0], x, y, z, scale),
-        msh_packed8_axis(mat[0][1], mat[1][1], mat[2][1], x, y, z, scale),
-        msh_packed8_axis(mat[0][2], mat[1][2], mat[2][2], x, y, z, scale),
-    )
 }
 
 /// Batch form of `msh_rot_point8`.

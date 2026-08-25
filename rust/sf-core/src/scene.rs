@@ -6,6 +6,25 @@
 //! Keeping those concepts as enums prevents background identifiers or source
 //! addresses from leaking into the renderer.
 
+/// Number of eight-pixel Mode-2 vertical-offset columns in the 256-pixel
+/// source display.
+pub const BG2_VERTICAL_OFFSET_COLUMNS: usize = 32;
+/// Number of independently scrolled background rows in the 256-by-224
+/// source display.
+pub const BG2_HORIZONTAL_OFFSET_ROWS: usize = 224;
+
+/// Horizontal background transform selected by the active authored scene.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BackgroundHorizontalMode {
+    #[default]
+    Disabled,
+    Rotate,
+    Tunnel,
+    NoGradient,
+    BlackHole,
+    Water,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum GamePalette {
     #[default]

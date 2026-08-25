@@ -185,6 +185,36 @@ impl SnesBus {
             .map_or_else(Vec::new, |gsu| gsu.execution_watch_values())
     }
 
+    pub fn watch_gsu_execution_capture(
+        &mut self,
+        program_bank: u8,
+        instruction: u16,
+        ram_start: usize,
+        ram_len: usize,
+    ) {
+        if let Some(gsu) = self.gsu.as_mut() {
+            gsu.watch_execution_capture(program_bank, instruction, ram_start, ram_len);
+        }
+    }
+
+    pub fn take_gsu_execution_captures(&mut self) -> Vec<gsu::ExecutionCapture> {
+        self.gsu
+            .as_mut()
+            .map_or_else(Vec::new, |gsu| gsu.take_execution_captures())
+    }
+
+    pub fn watch_gsu_pixel_writes(&mut self, x: u8, y: u8) {
+        if let Some(gsu) = self.gsu.as_mut() {
+            gsu.watch_pixel_writes(x, y);
+        }
+    }
+
+    pub fn take_gsu_pixel_write_captures(&mut self) -> Vec<gsu::ExecutionCapture> {
+        self.gsu
+            .as_mut()
+            .map_or_else(Vec::new, |gsu| gsu.take_pixel_write_captures())
+    }
+
     pub fn gsu_run_debug_state(&self) -> Option<((u8, u16), (u8, u16, u16), u64, bool, u64)> {
         self.gsu.as_ref().map(|gsu| {
             (

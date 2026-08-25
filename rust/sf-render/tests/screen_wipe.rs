@@ -3,7 +3,7 @@ use sf_render::renderer::{config_from_repo_root, FrameInputs, GameState, Rendere
 
 const WIDTH: i32 = 224;
 const HEIGHT: i32 = 192;
-const CLEAR_BLUE: [u8; 3] = [0, 0, 13];
+const MASK_COLOR: [u8; 3] = [0, 0, 0];
 
 fn render(wipe: ScreenWipeState) -> Option<Vec<u8>> {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -16,7 +16,8 @@ fn render(wipe: ScreenWipeState) -> Option<Vec<u8>> {
         }
     };
     let inputs = FrameInputs {
-        game_state: GameState::Boot,
+        game_state: GameState::Playing,
+        newmap: 1,
         screen_wipe: wipe,
         ..Default::default()
     };
@@ -46,13 +47,13 @@ fn horizontal_reveal_masks_the_actual_output_surface() {
     let half_open_pixels = render(half_open).expect("same adapter remains available");
     let revealed = half_open_pixels
         .chunks_exact(3)
-        .filter(|pixel| **pixel == CLEAR_BLUE)
+        .filter(|pixel| **pixel != MASK_COLOR)
         .count();
     assert_eq!(revealed, WIDTH as usize * 96);
     assert_eq!(
         half_open_pixels
             .chunks_exact(3)
-            .filter(|pixel| **pixel == [0, 0, 0])
+            .filter(|pixel| **pixel == MASK_COLOR)
             .count(),
         WIDTH as usize * 96
     );
@@ -70,7 +71,7 @@ fn final_star_record_keeps_only_the_source_corner_mask() {
     };
     let revealed = pixels
         .chunks_exact(3)
-        .filter(|pixel| **pixel == CLEAR_BLUE)
+        .filter(|pixel| **pixel != MASK_COLOR)
         .count();
     assert!(revealed > WIDTH as usize * HEIGHT as usize * 3 / 4);
     assert!(revealed < WIDTH as usize * HEIGHT as usize);

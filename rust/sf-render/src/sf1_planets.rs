@@ -15,8 +15,11 @@ const BYTES_PER_TILE: usize = 32;
 const TILEMAP_COLUMNS: usize = 32;
 const SOURCE_PALETTE: usize = 6;
 const COLORS_PER_PALETTE: usize = 16;
-const BRIEFING_TILE_BASE: usize = 386;
-const PADDING_TILE: usize = BRIEFING_TILE_BASE - 1;
+// DOG.CGX's decoded tile stream is addressed from the 384-tile dynamic
+// briefing bitmap base. DOG.SCR starts the portrait at tile 385; treating the
+// separately queued 64-byte transfer offset as part of this file-relative
+// index rotates every portrait row by two tiles.
+const BRIEFING_TILE_BASE: usize = 384;
 const PEPPER_LEFT_TILE: usize = 2;
 const PEPPER_TOP_TILE: usize = 10;
 const PEPPER_TILE_COLUMNS: usize = 6;
@@ -48,20 +51,16 @@ pub fn decode_portraits() -> Vec<u8> {
             let map_word =
                 u16::from_le_bytes([DOG_TILEMAP[map_offset], DOG_TILEMAP[map_offset + 1]]);
             let tile_index = usize::from(map_word & TILE_INDEX_MASK);
-            if tile_index < PADDING_TILE {
+            if tile_index < BRIEFING_TILE_BASE {
                 continue;
             }
 
-            if tile_index == PADDING_TILE {
-                decoded.fill(0);
-            } else {
-                let source_index = tile_index - BRIEFING_TILE_BASE;
-                let source_start = source_index * BYTES_PER_TILE;
-                decode_4bpp_tile(
-                    &DOG_TILES[source_start..source_start + BYTES_PER_TILE],
-                    &mut decoded,
-                );
-            }
+            let source_index = tile_index - BRIEFING_TILE_BASE;
+            let source_start = source_index * BYTES_PER_TILE;
+            decode_4bpp_tile(
+                &DOG_TILES[source_start..source_start + BYTES_PER_TILE],
+                &mut decoded,
+            );
 
             for pixel_y in 0..TILE_SIZE {
                 for pixel_x in 0..TILE_SIZE {

@@ -24,6 +24,15 @@ pub struct PpuFrame {
     pub oam: Vec<u8>,
     pub bg_hofs: [u16; 4],
     pub bg_vofs: [u16; 4],
+    /// Horizontal scroll values active while each completed scanline was
+    /// composed. Oracle-only raster evidence for HDMA-driven backgrounds.
+    pub scanline_bg_hofs: [[u16; 4]; FRAME_HEIGHT],
+    /// BG1 color indices captured during the completed scanout. Empty unless
+    /// explicitly enabled by an oracle diagnostic.
+    pub completed_bg1_indices: Vec<u8>,
+    /// Presence/priority flags for completed BG1/BG2 pixels: bits 0/1 are
+    /// BG1 present/high and bits 2/3 are BG2 present/high.
+    pub completed_bg_priority: Vec<u8>,
 }
 
 pub(crate) struct Ppu {
@@ -46,6 +55,13 @@ pub(crate) struct Ppu {
     mode7: [u16; 6],
     scanout_rgba: Vec<u8>,
     completed_rgba: Vec<u8>,
+    scanout_bg_hofs: [[u16; 4]; FRAME_HEIGHT],
+    completed_bg_hofs: [[u16; 4]; FRAME_HEIGHT],
+    capture_bg1_indices: bool,
+    scanout_bg1_indices: Vec<u8>,
+    completed_bg1_indices: Vec<u8>,
+    scanout_bg_priority: Vec<u8>,
+    completed_bg_priority: Vec<u8>,
     /// Last non-forced-blank display value.  The CPU commonly sets forced
     /// blank during vblank after the visible frame has already been scanned;
     /// a snapshot compositor must retain that completed frame's brightness.
@@ -76,6 +92,13 @@ impl Ppu {
             mode7: [0; 6],
             scanout_rgba: blank.clone(),
             completed_rgba: blank,
+            scanout_bg_hofs: [[0; 4]; FRAME_HEIGHT],
+            completed_bg_hofs: [[0; 4]; FRAME_HEIGHT],
+            capture_bg1_indices: false,
+            scanout_bg1_indices: vec![u8::MAX; FRAME_WIDTH * FRAME_HEIGHT],
+            completed_bg1_indices: Vec::new(),
+            scanout_bg_priority: vec![0; FRAME_WIDTH * FRAME_HEIGHT],
+            completed_bg_priority: Vec::new(),
             last_visible_inidisp: None,
         }
     }
@@ -83,9 +106,27 @@ impl Ppu {
     /// Finish the prior raster frame and clear the new scanout buffer.
     pub(crate) fn begin_frame(&mut self) {
         self.completed_rgba.clone_from(&self.scanout_rgba);
+        self.completed_bg_hofs = self.scanout_bg_hofs;
+        self.scanout_bg_hofs.fill([0; 4]);
+        if self.capture_bg1_indices {
+            self.completed_bg1_indices
+                .clone_from(&self.scanout_bg1_indices);
+            self.scanout_bg1_indices.fill(u8::MAX);
+            self.completed_bg_priority
+                .clone_from(&self.scanout_bg_priority);
+            self.scanout_bg_priority.fill(0);
+        }
         for pixel in self.scanout_rgba.chunks_exact_mut(4) {
             pixel.copy_from_slice(&[0, 0, 0, 255]);
         }
+    }
+
+    pub(crate) fn capture_completed_bg1_indices(&mut self) {
+        self.capture_bg1_indices = true;
+        self.scanout_bg1_indices.fill(u8::MAX);
+        self.completed_bg1_indices = vec![u8::MAX; FRAME_WIDTH * FRAME_HEIGHT];
+        self.scanout_bg_priority.fill(0);
+        self.completed_bg_priority = vec![0; FRAME_WIDTH * FRAME_HEIGHT];
     }
 
     #[inline]
@@ -247,6 +288,9 @@ impl Ppu {
             oam: self.oam.clone(),
             bg_hofs: self.bg_hofs,
             bg_vofs: self.bg_vofs,
+            scanline_bg_hofs: self.completed_bg_hofs,
+            completed_bg1_indices: self.completed_bg1_indices.clone(),
+            completed_bg_priority: self.completed_bg_priority.clone(),
         }
     }
 
@@ -663,10 +707,19 @@ impl Ppu {
         if y >= FRAME_HEIGHT {
             return;
         }
+        self.scanout_bg_hofs[y] = self.bg_hofs;
         let forced_blank = self.registers[0] & 0x80 != 0;
         let mode = self.registers[5] & 7;
         let sprites = self.sprite_scanline(y);
         for x in 0..FRAME_WIDTH {
+            if self.capture_bg1_indices {
+                let pixel = y * FRAME_WIDTH + x;
+                let bg1 = self.bg_pixel(0, x, y);
+                self.scanout_bg1_indices[pixel] = bg1.map_or(u8::MAX, |(color, _)| color);
+                let bg2 = self.bg_pixel(1, x, y);
+                self.scanout_bg_priority[pixel] = bg1.map_or(0, |(_, high)| 1 | (u8::from(high) << 1))
+                    | bg2.map_or(0, |(_, high)| 4 | (u8::from(high) << 3));
+            }
             let output = if forced_blank {
                 [0, 0, 0, 255]
             } else {

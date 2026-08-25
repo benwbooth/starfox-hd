@@ -4471,7 +4471,7 @@ fn pelaser_family_init(g: &mut Game, idx: u16, tick: StrategyFn) {
         al.vel = 66; // restore bolt speed after mother addgen
         al.animframe = 0x80 | 4; // s_init_anim #4
         if g.vars.pstratflags & PSTF_FIRSTFRAMELCOL == 0 {
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
         }
     }
 }
@@ -4487,7 +4487,7 @@ pub fn pelaser_strat(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     }
-    g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
     apply_velocity(&mut g.objs.aliens[idx as usize]);
     // s_decbne_lifecnt — remove + dec numplasers when count hits 0
     let c = g.objs.aliens[idx as usize].count.wrapping_sub(1);
@@ -7133,7 +7133,7 @@ pub fn strat_hardrot_init(g: &mut Game, idx: u16) {
 /// C `Strat_NoColl_Init` (nocoll_Istrat, GSTRATS.ASM:735-739).
 pub fn strat_nocoll_init(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.stratptr = None;
 }
 
@@ -15147,7 +15147,7 @@ fn friendexitbase_strat(g: &mut Game, idx: u16) {
 pub fn strat_friendexitbase_init(g: &mut Game, idx: u16) {
     let s = sid(g, friendexitbase_strat);
     let al = &mut g.objs.aliens[idx as usize];
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.count = (1500 / PEXITBASE_SPEED) as u8;
     al.stratptr = Some(s);
     al.sflags |= ASF_SHADOW;

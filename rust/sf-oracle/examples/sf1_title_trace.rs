@@ -453,11 +453,13 @@ fn native_video_hash(
         };
     }
     let inputs = FrameInputs {
+        source_resolution: true,
         game_state: RenderGameState::Title,
         currentbg: frame.currentbg,
         newmap: frame.newmap,
         bgflags: frame.bgflags,
         bg2_xscroll: frame.bg2_xscroll,
+        bg2_vertical_offsets: frame.bg2_vertical_offsets,
         nomax_bg2_yscroll: frame.nomax_bg2_yscroll,
         scene_style: frame.scene_style,
         point_pixels: &frame.point_pixels,

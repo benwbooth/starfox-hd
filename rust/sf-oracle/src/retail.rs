@@ -1732,6 +1732,10 @@ impl RetailBootBus {
         self.ppu.snapshot_bg_indices(bg)
     }
 
+    pub fn capture_completed_bg1_indices(&mut self) {
+        self.ppu.capture_completed_bg1_indices();
+    }
+
     /// Write the CPU-visible address space without advancing either processor.
     /// Used to seed input/state in reset-boot archaeology tools.
     pub fn poke8(&mut self, addr: u32, value: u8) {
@@ -2563,6 +2567,10 @@ impl RetailMachine {
         self.bus.ppu_snapshot_bg_indices(bg)
     }
 
+    pub fn capture_completed_bg1_indices(&mut self) {
+        self.bus.capture_completed_bg1_indices();
+    }
+
     /// Clone the native 32 kHz stereo PCM queue consumed by the front end.
     pub fn audio_queue(&self) -> RetailPcmQueue {
         self.bus.apu_pcm_queue()
@@ -2613,6 +2621,33 @@ impl RetailMachine {
 
     pub fn gsu_execution_watch_values(&self) -> Vec<u32> {
         self.bus.inner.gsu_execution_watch_values()
+    }
+
+    pub fn watch_gsu_execution_capture(
+        &mut self,
+        program_bank: u8,
+        instruction: u16,
+        ram_start: usize,
+        ram_len: usize,
+    ) {
+        self.bus.inner.watch_gsu_execution_capture(
+            program_bank,
+            instruction,
+            ram_start,
+            ram_len,
+        );
+    }
+
+    pub fn take_gsu_execution_captures(&mut self) -> Vec<crate::gsu::ExecutionCapture> {
+        self.bus.inner.take_gsu_execution_captures()
+    }
+
+    pub fn watch_gsu_pixel_writes(&mut self, x: u8, y: u8) {
+        self.bus.inner.watch_gsu_pixel_writes(x, y);
+    }
+
+    pub fn take_gsu_pixel_write_captures(&mut self) -> Vec<crate::gsu::ExecutionCapture> {
+        self.bus.inner.take_gsu_pixel_write_captures()
     }
 
     pub fn gsu_run_debug_state(&self) -> Option<((u8, u16), (u8, u16, u16), u64, bool, u64)> {

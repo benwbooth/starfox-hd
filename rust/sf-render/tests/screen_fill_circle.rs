@@ -3,7 +3,7 @@ use sf_render::renderer::{config_from_repo_root, FrameInputs, GameState, Rendere
 
 const WIDTH: i32 = 256;
 const HEIGHT: i32 = 224;
-const CLEAR_BLUE: u8 = 13;
+const CLEAR_COMPONENT: u8 = 0;
 const MINIMUM_RED_PIXELS: usize = 800;
 const MAXIMUM_RED_PIXELS: usize = 1_300;
 const OBJECT_WORLD_X: i32 = 40;
@@ -38,8 +38,8 @@ fn player_death_circle_adds_red_inside_the_authored_radius() {
     let center = ((HEIGHT as usize / 2) * WIDTH as usize + WIDTH as usize / 2) * 3;
     assert!(pixels[center] > 100);
     assert_eq!(pixels[center + 1], 0);
-    assert_eq!(pixels[center + 2], CLEAR_BLUE);
-    assert_eq!(&pixels[..3], &[0, 0, CLEAR_BLUE]);
+    assert_eq!(pixels[center + 2], CLEAR_COMPONENT);
+    assert_eq!(&pixels[..3], &[CLEAR_COMPONENT; 3]);
 
     let red_pixels = pixels.chunks_exact(3).filter(|pixel| pixel[0] > 0).count();
     assert!((MINIMUM_RED_PIXELS..=MAXIMUM_RED_PIXELS).contains(&red_pixels));
@@ -83,6 +83,6 @@ fn white_fill_projects_its_typed_object_center() {
     let source_center = ((HEIGHT as usize / 2) * WIDTH as usize + WIDTH as usize / 2) * 3;
     assert_eq!(
         &pixels[source_center..source_center + 3],
-        &[0, 0, CLEAR_BLUE]
+        &[CLEAR_COMPONENT; 3]
     );
 }

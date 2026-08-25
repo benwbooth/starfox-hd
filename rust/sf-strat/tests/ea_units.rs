@@ -2,7 +2,7 @@
 //! no-panic smoke run over every ported object initializer (debug-build overflow
 //! checks make this a real arithmetic-wrap audit).
 
-use sf_game::alien::{ASF_COLLDISABLE, ATGND};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_COLLDISABLE, ASF_SHADOW, ATGND};
 use sf_game::game::{Game, StrategyFn};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemy_a::{self, achase_angle, strat_tab_scaled, wm};
@@ -292,6 +292,39 @@ fn smoke_all_initializers() {
     for &f in fns {
         smoke(f);
     }
+}
+
+#[test]
+fn nocoll_uses_the_source_second_strategy_flag_byte() {
+    let (mut game, object) = game_with_obj();
+    enemy_a::strat_nocoll_init(&mut game, object);
+
+    let object = game.objs.aliens[usize::from(object)];
+    assert_eq!(object.sflags, 0);
+    assert_eq!(object.sflags2, ASF2_COLLDISABLE);
+    assert_eq!(object.stratptr, None);
+}
+
+#[test]
+fn first_frame_laser_and_exit_craft_use_the_second_strategy_flag_byte() {
+    let (mut game, laser) = game_with_obj();
+    enemy_a::pelaser_istrat(&mut game, laser);
+    assert_eq!(game.objs.aliens[usize::from(laser)].sflags, 0);
+    assert_eq!(
+        game.objs.aliens[usize::from(laser)].sflags2,
+        ASF2_COLLDISABLE
+    );
+    enemy_a::pelaser_strat(&mut game, laser);
+    assert_eq!(game.objs.aliens[usize::from(laser)].sflags2, 0);
+
+    let exit_craft = game.objs.alloc().expect("exit craft slot");
+    strat_init_obj_vars(&mut game.objs.aliens[usize::from(exit_craft)]);
+    enemy_a::strat_friendexitbase_init(&mut game, exit_craft);
+    assert_eq!(game.objs.aliens[usize::from(exit_craft)].sflags, ASF_SHADOW);
+    assert_eq!(
+        game.objs.aliens[usize::from(exit_craft)].sflags2,
+        ASF2_COLLDISABLE
+    );
 }
 
 /// zaco3/zaco4 with a live target in range (they bail to a fallback path

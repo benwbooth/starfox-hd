@@ -10,9 +10,8 @@
 //!      at col_frame 0) and a COLLITE hull grey shade.
 //!  (b) bg_1_1c playing-state frame: screen-top row is the composed sky
 //!      blue RGB(49, 90, 148) after the calcbgscroll_l coupling at rx=0.
-//!  (c) Title frame vs the C-build golden (8x8 region averages captured
-//!      once from SF_DUMP_PPM; exact hash impractical across GPU scaling,
-//!      so per-region average deltas must stay <= 4).
+//!  (c) Title frame vs the exact source-asset CPU composition (8x8 region
+//!      averages; GPU scaling may shift each average by one channel value).
 //!  (d) An SF2 campaign missile samples the retail SF2 descriptor table and
 //!      packed-nibble texture bank without falling back to debug magenta.
 //!  (e) The SF1 end-level tally uses its native graph, teammate portraits,
@@ -35,10 +34,12 @@ use sf_render::shape_data::SHAPE_EXT_ASTEROID1;
 use sf_render::shapes::{self, SHAPE_ELASER2, SHAPE_MYSHIP_4};
 
 mod common;
-use common::{grid_8x8, C_TITLE_GOLDEN_8X8};
+use common::{grid_8x8, SOURCE_TITLE_COMPOSITE_GRID};
 
 const W: u32 = 1280;
 const H: u32 = 720;
+const SF1_CLEAR_RGB: [u8; 3] = [0, 0, 0];
+const CORNERIA_SKY_RGB: [u8; 3] = [49, 90, 148];
 static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 const SF2_TEST_MISSION_TIME_TENTHS: u16 = 11;
 const SF2_MAP_WIDTH: i32 = 256;
@@ -885,7 +886,7 @@ fn check_sf2_native_frontend(renderer: &mut Renderer) {
             .chunks_exact(3)
             .filter(|pixel| {
                 colors.insert([pixel[0], pixel[1], pixel[2]]);
-                !color_near(pixel, [0, 0, 13], 2)
+                !color_near(pixel, SF1_CLEAR_RGB, 2)
             })
             .count();
         assert!(
@@ -987,7 +988,7 @@ fn check_sf2_shape(renderer: &mut Renderer) {
     let px = renderer.read_pixels_rgb();
     let visible = px
         .chunks_exact(3)
-        .filter(|pixel| !color_near(pixel, [0, 0, 13], 2))
+        .filter(|pixel| !color_near(pixel, SF1_CLEAR_RGB, 2))
         .count();
     assert!(
         visible > 100,
@@ -1033,7 +1034,7 @@ fn check_sf2_texture_face(renderer: &mut Renderer) {
     let mut magenta = 0usize;
     let mut colors = std::collections::BTreeSet::new();
     for pixel in pixels.chunks_exact(3) {
-        if !color_near(pixel, [0, 0, 13], 2) {
+        if !color_near(pixel, SF1_CLEAR_RGB, 2) {
             visible += 1;
             colors.insert([pixel[0], pixel[1], pixel[2]]);
         }
@@ -1067,6 +1068,7 @@ fn check_player_laser(renderer: &mut Renderer) {
     }];
     let inputs = FrameInputs {
         game_state: GameState::Boot,
+        source_resolution: true,
         ..Default::default()
     };
     renderer.begin_frame();
@@ -1076,7 +1078,7 @@ fn check_player_laser(renderer: &mut Renderer) {
     let px = renderer.read_pixels_rgb();
     let visible = px
         .chunks_exact(3)
-        .filter(|p| !color_near(p, [0, 0, 13], 2))
+        .filter(|p| !color_near(p, SF1_CLEAR_RGB, 2))
         .count();
     let magenta = px
         .chunks_exact(3)
@@ -1090,16 +1092,19 @@ fn check_player_laser(renderer: &mut Renderer) {
 }
 
 fn check_superfx_texture_face(renderer: &mut Renderer) {
+    const TEST_DEPTH: i32 = 500;
     renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
     let curr = [DrawListEntry {
         shape_id: SHAPE_EXT_ASTEROID1,
-        z: 220 << 16,
+        z: TEST_DEPTH << 16,
+        ry: 128,
         flags: DL_FLAG_VISIBLE,
         obj_id: 1,
         ..Default::default()
     }];
     let inputs = FrameInputs {
         game_state: GameState::Boot,
+        source_resolution: true,
         ..Default::default()
     };
     renderer.begin_frame();
@@ -1111,7 +1116,7 @@ fn check_superfx_texture_face(renderer: &mut Renderer) {
     let mut magenta = 0usize;
     let mut colors = std::collections::BTreeSet::new();
     for p in px.chunks_exact(3) {
-        if !color_near(p, [0, 0, 13], 2) {
+        if !color_near(p, SF1_CLEAR_RGB, 2) {
             visible += 1;
             colors.insert([p[0], p[1], p[2]]);
         }
@@ -1131,7 +1136,7 @@ fn check_superfx_texture_face(renderer: &mut Renderer) {
     );
 }
 
-// (c) Full composed title frame vs C-build golden region averages.
+// (c) Full composed title frame vs source-asset region averages.
 fn check_title_golden(renderer: &mut Renderer) {
     let inputs = FrameInputs {
         game_state: GameState::Title,
@@ -1144,24 +1149,27 @@ fn check_title_golden(renderer: &mut Renderer) {
     let px = renderer.read_pixels_rgb();
     let grid = grid_8x8(&px, W as usize, H as usize, 3);
     let mut max_delta = 0i32;
-    for (i, (got, want)) in grid.iter().zip(C_TITLE_GOLDEN_8X8.iter()).enumerate() {
+    for (i, (got, want)) in grid
+        .iter()
+        .zip(SOURCE_TITLE_COMPOSITE_GRID.iter())
+        .enumerate()
+    {
         for c in 0..3 {
             let delta = (got[c] as i32 - want[c] as i32).abs();
             max_delta = max_delta.max(delta);
             assert!(
-                delta <= 4,
+                delta <= 1,
                 "title GL region {i} channel {c}: got {} want {} (delta {delta})",
                 got[c],
                 want[c]
             );
         }
     }
-    println!("title golden: max region delta {max_delta}");
+    println!("title source-asset grid: max region delta {max_delta}");
 }
 
 // (b) bg_1_1c: playing state on map 1_1 with a level camera at rx=0. The
-// ROM-exact linear scroll plus the +18 horizon-base display compensation
-// (see bg2d::sky_uv_window) windows a uniform sky-blue row at the top.
+// Authored linear camera coupling windows a uniform sky-blue row at the top.
 fn check_bg_1_1c_sky(renderer: &mut Renderer) {
     renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
     let inputs = FrameInputs {
@@ -1179,8 +1187,8 @@ fn check_bg_1_1c_sky(renderer: &mut Renderer) {
     for x in [10usize, W as usize / 2, W as usize - 10] {
         let p = &px[x * 3..x * 3 + 3];
         assert!(
-            color_near(p, [49, 98, 156], 2),
-            "bg_1_1c top row at x={x}: got ({}, {}, {}), want sky blue (49, 98, 156)",
+            color_near(p, CORNERIA_SKY_RGB, 2),
+            "bg_1_1c top row at x={x}: got ({}, {}, {}), want sky blue {CORNERIA_SKY_RGB:?}",
             p[0],
             p[1],
             p[2]
@@ -1256,7 +1264,7 @@ fn check_arwing(renderer: &mut Renderer) {
     let mut canopy_hits = 0usize;
     let mut hull_hits = 0usize;
     for p in px.chunks_exact(3) {
-        if !color_near(p, [0, 0, 13], 2) {
+        if !color_near(p, SF1_CLEAR_RGB, 2) {
             non_bg += 1;
         }
         if color_near(p, canopy, 3) {

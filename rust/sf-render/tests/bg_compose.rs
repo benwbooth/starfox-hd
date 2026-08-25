@@ -3,10 +3,9 @@
 //! Verifies the bg2d composers against known values from the C oracle:
 //!  - bg_1_1c (ST-P.CGX + BG2-D.COL): the screen-top row at the base scroll
 //!    (bg2Yscroll 232) is the uniform Corneria sky blue RGB(49, 90, 148).
-//!  - The composed title screen matches an 8x8 region-average golden grid
-//!    captured ONCE from the C build (SF_DUMP_PPM on the stable title
-//!    frame, 2026-07-01). Per-region tolerance covers GPU-scaling noise in
-//!    the capture; the compose itself is exact integer math.
+//!  - The static source-asset title composition matches an exact 8x8
+//!    region-average regression grid. Dynamic screen authority lives in the
+//!    external retail title-video oracle.
 
 use std::path::PathBuf;
 
@@ -15,7 +14,7 @@ use sf_render::bg2d::{
 };
 
 mod common;
-use common::{grid_8x8, C_TITLE_GOLDEN_8X8};
+use common::{grid_8x8, SOURCE_TITLE_COMPOSITE_GRID};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -52,7 +51,7 @@ fn bg_1_1c_sky_top_row_is_corneria_blue() {
 }
 
 #[test]
-fn title_compose_matches_c_golden_grid() {
+fn title_compose_matches_source_asset_grid() {
     let ti_cgx = read("data/title/TI-3-US.CGX");
     let ti_scr = read("data/title/TI-3-US.SCR");
     let cp_cgx = read("data/title/CP.CGX");
@@ -71,17 +70,7 @@ fn title_compose_matches_c_golden_grid() {
     }
 
     let grid = grid_8x8(&top_down, BG2D_W, BG2D_H, 4);
-    for (i, (got, want)) in grid.iter().zip(C_TITLE_GOLDEN_8X8.iter()).enumerate() {
-        for c in 0..3 {
-            let delta = (got[c] as i32 - want[c] as i32).abs();
-            assert!(
-                delta <= 3,
-                "title region {i} channel {c}: got {} want {} (delta {delta})",
-                got[c],
-                want[c]
-            );
-        }
-    }
+    assert_eq!(grid, SOURCE_TITLE_COMPOSITE_GRID);
 }
 
 #[test]

@@ -858,6 +858,77 @@ impl ShapeStore {
         order
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_source_scaled_sprite(
+        &self,
+        raster: &mut SourceRaster,
+        shape_id: u16,
+        col_frame: u8,
+        color_table: u16,
+        material_index: u8,
+        size_adjustment: u8,
+        pose: SourcePose,
+        palette: &shapes::ShapePaletteRgb,
+    ) -> bool {
+        let flat_shape_id = shapes::resolve_shape_word(shape_id);
+        let Some(shape) = self
+            .shapes
+            .get(usize::from(flat_shape_id))
+            .and_then(Option::as_ref)
+        else {
+            return false;
+        };
+        if shape.is_sf2 {
+            return false;
+        }
+        let Some(metrics) = sf_core::sf1_shape_metrics::sf1_shape_metrics(flat_shape_id) else {
+            return false;
+        };
+        let Some(projected) = source_projection::project_scaled_sprite(
+            pose,
+            metrics.visual_extent,
+            metrics.coordinate_shift,
+            size_adjustment,
+        ) else {
+            return false;
+        };
+        let Some(material) = resolve_registered_face_material(
+            shape,
+            material_index,
+            col_frame,
+            color_table,
+        ) else {
+            return false;
+        };
+        let (layout_index, descriptor_index, high_nibble) =
+            texture_material_fields(false, material);
+        let Some(layout) = TEXTURE_XY.get(layout_index) else {
+            return false;
+        };
+        let Some(descriptor) = crate::color_data::TEXTURE_SPRITES.get(descriptor_index) else {
+            return false;
+        };
+        let texture = match descriptor.bank {
+            0 => TEX_BANK_01.as_slice(),
+            1 => TEX_BANK_23.as_slice(),
+            _ => return false,
+        };
+        let source_size = (layout.mask & 255) + 1;
+        raster.set_face(crate::source_raster::NO_FACE);
+        let texture_palette: [[f32; 4]; 16] =
+            std::array::from_fn(|index| [palette[index][0], palette[index][1], palette[index][2], 1.0]);
+        raster.draw_scaled_sprite(
+            projected.top_left,
+            projected.size,
+            source_size,
+            texture,
+            descriptor.offset,
+            high_nibble,
+            &texture_palette,
+        );
+        true
+    }
+
     fn render_source_projected(
         &self,
         raster: &mut SourceRaster,
@@ -865,7 +936,6 @@ impl ShapeStore {
         shape: &GpuShape,
         col_frame: u8,
         color_table: u16,
-        depth_bank: u8,
         pose: SourcePose,
         palette: &shapes::ShapePaletteRgb,
     ) -> bool {
@@ -891,6 +961,11 @@ impl ShapeStore {
         {
             return false;
         }
+        if source_projection::shape_is_outside_playfield(&projected.points) {
+            return true;
+        }
+        let depth_bank =
+            shapes::select_depth_bank(f32::from(projected.object_depth), self.depthz_table);
 
         let texture_palette: [[f32; 4]; 16] = std::array::from_fn(|index| {
             [palette[index][0], palette[index][1], palette[index][2], 1.0]
@@ -902,6 +977,7 @@ impl ShapeStore {
             }) {
                 continue;
             }
+            raster.set_face(face_index as u16);
             let indices = &face.vertex_indices[..usize::from(face.num_verts)];
             let shade_index =
                 shapes::compute_quantized_shade_index(face.normal, projected.object_light);
@@ -933,6 +1009,75 @@ impl ShapeStore {
                 );
                 raster.draw_solid(&projected.points, indices, color);
             }
+        }
+        true
+    }
+
+    /// Rasterize the retail fixed-point shadow pass into the same indexed
+    /// bitmap as the normal polygons. Ordinary source shadows reuse the
+    /// object's mesh, flatten its height contribution, and alternate shadow
+    /// color nine with transparency on the source checkerboard.
+    pub fn render_source_shadow(
+        &self,
+        raster: &mut SourceRaster,
+        shape_id: u16,
+        anim_frame: u8,
+        pose: SourcePose,
+        palette: &shapes::ShapePaletteRgb,
+    ) -> bool {
+        let shape = if let Some(frames) = self.sf2_animation_frames.get(&shape_id) {
+            &frames[usize::from(anim_frame) % frames.len()]
+        } else if let Some(shape) = self.sf2_shapes.get(&shape_id) {
+            shape
+        } else {
+            let flat_shape_id = shapes::resolve_shape_word(shape_id);
+            if let Some(frames) = self.sf1_animation_frames.get(&flat_shape_id) {
+                &frames[usize::from(anim_frame) % frames.len()]
+            } else {
+                let Some(shape) = self.shapes[flat_shape_id as usize].as_ref() else {
+                    return false;
+                };
+                shape
+            }
+        };
+        if shape.is_sf2 || shape.faces.iter().any(|face| face.num_verts < 3) {
+            return false;
+        }
+        let flat_shape_id = shapes::resolve_shape_word(shape_id);
+        let Some(metrics) = sf_core::sf1_shape_metrics::sf1_shape_metrics(flat_shape_id) else {
+            return false;
+        };
+        let projected = source_projection::project_shadow_shape(
+            &shape.vertices,
+            metrics.coordinate_shift,
+            pose,
+        );
+        if projected
+            .points
+            .iter()
+            .any(|point| point.depth < source_projection::MIN_FRONT_DEPTH)
+            || source_projection::shape_is_outside_playfield(&projected.points)
+        {
+            return true;
+        }
+        let texture_palette: [[f32; 4]; 16] = std::array::from_fn(|index| {
+            [palette[index][0], palette[index][1], palette[index][2], 1.0]
+        });
+        const SOURCE_SHADOW_PAIR: [u8; 2] = [9, 0];
+        for face_index in Self::source_face_order(shape, &projected.points) {
+            let face = &shape.faces[face_index];
+            if face.visibility_vertices.is_some_and(|indices| {
+                !source_projection::face_is_visible(&projected.points, indices)
+            }) {
+                continue;
+            }
+            raster.set_face(face_index as u16);
+            raster.draw_palette_pair(
+                &projected.points,
+                &face.vertex_indices[..usize::from(face.num_verts)],
+                &texture_palette,
+                SOURCE_SHADOW_PAIR,
+            );
         }
         true
     }
@@ -990,7 +1135,6 @@ impl ShapeStore {
                     shape,
                     col_frame,
                     color_table,
-                    depth_bank,
                     pose,
                     palette,
                 )
@@ -1150,7 +1294,9 @@ impl Default for ShapeStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        face_is_camera_visible, texture_address, texture_material_fields, ShapeStore, TEXTURE_XY,
+        face_is_camera_visible, resolve_registered_face_material,
+        resolve_registered_face_palette_pair, texture_address, texture_material_fields, ShapeStore,
+        TEXTURE_XY,
     };
     use crate::shape_data::{ShapeFace, ShapeVertex};
     use crate::shapes;
@@ -1182,6 +1328,40 @@ mod tests {
             visibility_vertices: selector,
         }];
         ShapeStore::build_gpu_shape(&vertices, &faces, &[], 0, false)
+    }
+
+    #[test]
+    fn corneria_building_depth_material_resolves_from_the_authored_table() {
+        let source = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|shape| shape.shape_id == 61)
+            .expect("Corneria building shape");
+        let table = crate::color_data::table_id_by_name(source.default_color_table)
+            .expect("building color table");
+        let shape = ShapeStore::build_gpu_shape(
+            source.vertices,
+            source.faces,
+            source.painter_nodes,
+            table,
+            false,
+        );
+        let face = &shape.faces[5];
+        assert_eq!(
+            resolve_registered_face_material(&shape, face.color_index, 58, 0),
+            Some(0x3E06)
+        );
+        assert_eq!(
+            resolve_registered_face_palette_pair(
+                &shape,
+                face.color_index,
+                58,
+                0,
+                0,
+                0,
+                sf_core::scene::DepthColors::Night,
+            ),
+            Some(shapes::PalettePair { low: 12, high: 12 })
+        );
     }
 
     #[test]
