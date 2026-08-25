@@ -584,8 +584,7 @@ pub struct RendererConfig {
     pub shader_dir: Option<PathBuf>,
     /// Root containing the `data/` asset tree (repo root).
     pub asset_root: PathBuf,
-    /// HD ground-shadow presentation. Source-resolution oracle captures keep
-    /// their retail shadows regardless of this preference.
+    /// HD polygon-shading and ground-shadow presentation.
     pub shadow_style: ShadowStyle,
 }
 
@@ -1181,7 +1180,7 @@ pub fn config_from_repo_root(root: &Path) -> RendererConfig {
     RendererConfig {
         shader_dir: Some(root.join("rust/sf-render/shaders")),
         asset_root: root.to_path_buf(),
-        shadow_style: ShadowStyle::Disabled,
+        shadow_style: ShadowStyle::RetailDithered,
     }
 }
 

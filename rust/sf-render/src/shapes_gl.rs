@@ -1493,6 +1493,7 @@ impl ShapeStore {
         model_matrix: &[f32; 16],
         source_pose: Option<SourcePose>,
         palette: &shapes::ShapePaletteRgb,
+        palette_pair_style: shapes::PalettePairStyle,
     ) {
         let shape = if let Some(frames) = self.sf2_animation_frames.get(&shape_id) {
             &frames[usize::from(anim_frame) % frames.len()]
@@ -1592,14 +1593,27 @@ impl ShapeStore {
                     );
                     let first = shape.face_line_first[i] as usize;
                     if let Some(pair) = pair {
-                        gpu.push_palette_pair_lines(
-                            &shape.line_verts[first..first + 2],
-                            &proj,
-                            &view,
-                            &model,
-                            &texture_palette,
-                            [pair.low, pair.high],
-                        );
+                        match palette_pair_style {
+                            shapes::PalettePairStyle::RetailDithered => {
+                                gpu.push_palette_pair_lines(
+                                    &shape.line_verts[first..first + 2],
+                                    &proj,
+                                    &view,
+                                    &model,
+                                    &texture_palette,
+                                    [pair.low, pair.high],
+                                );
+                            }
+                            shapes::PalettePairStyle::Smooth => {
+                                gpu.push_flat_lines(
+                                    &shape.line_verts[first..first + 2],
+                                    &proj,
+                                    &view,
+                                    &model,
+                                    shapes::decode_palette_pair_in(pair.packed(), palette),
+                                );
+                            }
+                        }
                     } else {
                         let color = resolve_registered_face_color(
                             shape,
@@ -1664,14 +1678,27 @@ impl ShapeStore {
             let start = (tri_start * 3) as usize;
             let count = (tri_count * 3) as usize;
             if let Some(pair) = pair {
-                gpu.push_palette_pair_tris(
-                    &shape.tri_verts[start..start + count],
-                    &proj,
-                    &view,
-                    &model,
-                    &texture_palette,
-                    [pair.low, pair.high],
-                );
+                match palette_pair_style {
+                    shapes::PalettePairStyle::RetailDithered => {
+                        gpu.push_palette_pair_tris(
+                            &shape.tri_verts[start..start + count],
+                            &proj,
+                            &view,
+                            &model,
+                            &texture_palette,
+                            [pair.low, pair.high],
+                        );
+                    }
+                    shapes::PalettePairStyle::Smooth => {
+                        gpu.push_flat_tris(
+                            &shape.tri_verts[start..start + count],
+                            &proj,
+                            &view,
+                            &model,
+                            shapes::decode_palette_pair_in(pair.packed(), palette),
+                        );
+                    }
+                }
             } else {
                 let color = resolve_registered_face_color(
                     shape,

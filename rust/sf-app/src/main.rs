@@ -897,7 +897,7 @@ fn main() {
             }
         }
     } else {
-        match AudioSys::new(&sdl, cfg.audio_asset_dir()) {
+        match AudioSys::new(&sdl, cfg.audio_asset_dir(), cfg.pepper_typewriter_sound) {
             Ok(audio) => audio,
             Err(error) => {
                 eprintln!("Audio asset validation failed: {error}");

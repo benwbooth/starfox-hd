@@ -20,17 +20,16 @@ pub const DL_FLAG_HIGHLIGHT: u8 = 0x04;
 pub const DL_FLAG_TEXT: u8 = 0x10;
 pub const DL_FLAG_SCALED_SPRITE: u8 = 0x20;
 
-/// Presentation style for projected ground shadows in the HD renderer.
-/// Strict source-resolution captures always retain the retail dithered pass
-/// independently of this setting so the visual oracle remains exact.
+/// Presentation style for polygon shading and projected ground shadows.
+/// Oracle captures select [`Self::RetailDithered`] explicitly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShadowStyle {
-    /// Do not draw projected ground shadows.
+    /// Do not draw projected ground shadows; average polygon shade pairs.
     #[default]
     Disabled,
-    /// Draw a translucent, resolution-independent HD shadow.
+    /// Draw smooth shadows and average polygon shade pairs.
     Smooth,
-    /// Draw the retail alternating-pixel shadow at HD resolution.
+    /// Preserve retail alternating-pixel shadows and polygon shade pairs.
     RetailDithered,
 }
 
@@ -469,7 +468,12 @@ impl DrawListRenderer {
         // Interpolated entries that want a drop shadow (collected during the
         // main pass, drawn afterwards as a translucent overlay).
         let mut shadow_list: Vec<DrawListEntry> = Vec::new();
-        let mut source_raster = SourceRaster::new();
+        let palette_pair_style = if shadow_style == ShadowStyle::RetailDithered {
+            crate::shapes::PalettePairStyle::RetailDithered
+        } else {
+            crate::shapes::PalettePairStyle::Smooth
+        };
+        let mut source_raster = SourceRaster::with_palette_pair_style(palette_pair_style);
         if source_presentation_offset.is_some() {
             source_raster.draw_point_field(source_point_pixels, shape_palette);
         }
@@ -497,46 +501,54 @@ impl DrawListRenderer {
             |camera| source_painter_order(presented, camera),
         );
 
-        // The source builds every dithered ground shadow into the indexed
-        // bitmap before its normal-object pass. Keep this strict path
-        // separate from the smooth translucent HD shadow pass below.
-        if let Some(camera) = source_camera.filter(|_| matches!(alpha, 0.0 | 1.0)) {
-            for &entry_index in &presented_order {
-                let entry = &presented[entry_index];
-                if !has_source_shadow(entry) {
-                    continue;
+        // The source builds ground shadows into the indexed bitmap before its
+        // normal-object pass. The selected presentation style controls whether
+        // that bitmap uses smooth averaged colors or retail checkerboards.
+        if shadow_style != ShadowStyle::Disabled {
+            if let Some(camera) = source_camera.filter(|_| matches!(alpha, 0.0 | 1.0)) {
+                for &entry_index in &presented_order {
+                    let entry = &presented[entry_index];
+                    if !has_source_shadow(entry) {
+                        continue;
+                    }
+                    let previous_index =
+                        if entry.obj_id != 0 && (entry.obj_id as usize) <= MAX_OBJECTS {
+                            prev_by_id[entry.obj_id as usize]
+                        } else {
+                            -1
+                        };
+                    let shadow = if previous_index >= 0
+                        && prev[previous_index as usize].shape_id == entry.shape_id
+                    {
+                        interpolate_entry(&prev[previous_index as usize], entry, alpha)
+                    } else {
+                        *entry
+                    };
+                    let ground = shadow_height as i16;
+                    if (shadow.y >> 16) as i16 > ground {
+                        continue;
+                    }
+                    source_raster.set_owner(shadow.obj_id);
+                    shapes.render_source_shadow(
+                        &mut source_raster,
+                        shadow.shape_id,
+                        shadow.anim_frame,
+                        shadow.explosion_cnt,
+                        SourcePose {
+                            world_position: [
+                                (shadow.x >> 16) as i16,
+                                ground,
+                                (shadow.z >> 16) as i16,
+                            ],
+                            rotation: [shadow.rx as u8, shadow.ry as u8, shadow.rz as u8],
+                            view_position: camera
+                                .position
+                                .map(|coordinate| (coordinate >> 16) as i16),
+                            view_rotation: camera.rotation,
+                        },
+                        shape_palette,
+                    );
                 }
-                let previous_index = if entry.obj_id != 0 && (entry.obj_id as usize) <= MAX_OBJECTS
-                {
-                    prev_by_id[entry.obj_id as usize]
-                } else {
-                    -1
-                };
-                let shadow = if previous_index >= 0
-                    && prev[previous_index as usize].shape_id == entry.shape_id
-                {
-                    interpolate_entry(&prev[previous_index as usize], entry, alpha)
-                } else {
-                    *entry
-                };
-                let ground = shadow_height as i16;
-                if (shadow.y >> 16) as i16 > ground {
-                    continue;
-                }
-                source_raster.set_owner(shadow.obj_id);
-                shapes.render_source_shadow(
-                    &mut source_raster,
-                    shadow.shape_id,
-                    shadow.anim_frame,
-                    shadow.explosion_cnt,
-                    SourcePose {
-                        world_position: [(shadow.x >> 16) as i16, ground, (shadow.z >> 16) as i16],
-                        rotation: [shadow.rx as u8, shadow.ry as u8, shadow.rz as u8],
-                        view_position: camera.position.map(|coordinate| (coordinate >> 16) as i16),
-                        view_rotation: camera.rotation,
-                    },
-                    shape_palette,
-                );
             }
         }
 
@@ -668,6 +680,7 @@ impl DrawListRenderer {
                 &model,
                 source_pose,
                 shape_palette,
+                palette_pair_style,
             );
 
             // Queue the drop shadow (skip exploding objects).

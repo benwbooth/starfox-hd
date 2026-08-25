@@ -30,6 +30,8 @@ pub struct Config {
     pub sample_rate: i32,
     pub buffer_size: i32,
     pub volume: i32,
+    /// Optional source type-on chirp during General Pepper's stage briefing.
+    pub pepper_typewriter_sound: bool,
     pub deadzone: f32,
 }
 
@@ -51,6 +53,7 @@ impl Default for Config {
             sample_rate: 48000,
             buffer_size: 1024,
             volume: 100,
+            pepper_typewriter_sound: false,
             deadzone: 0.15,
         }
     }
@@ -143,6 +146,9 @@ impl Config {
                 ("Audio", "SampleRate") => cfg.sample_rate = atoi(val),
                 ("Audio", "BufferSize") => cfg.buffer_size = atoi(val),
                 ("Audio", "Volume") => cfg.volume = atoi(val),
+                ("Audio", "PepperTypewriterSound") => {
+                    cfg.pepper_typewriter_sound = atoi(val) != 0;
+                }
                 ("Input", "DeadZone") => cfg.deadzone = atof(val),
                 _ => {}
             }
@@ -182,6 +188,7 @@ mod tests {
         assert_eq!(c.shadow_style, ShadowStyle::Disabled);
         assert_eq!(c.sample_rate, 48000);
         assert_eq!(c.volume, 100);
+        assert!(!c.pepper_typewriter_sound);
         assert!((c.deadzone - 0.15).abs() < 1e-6);
         assert_eq!(c.asset_dir, "data");
         assert_eq!(c.rom_file, "Star Fox (USA) (Rev 2).sfc");
@@ -194,13 +201,14 @@ mod tests {
         let p = dir.join("starfox.ini");
         std::fs::write(
             &p,
-            "# comment\n[Video]\nWindowWidth = 1920\nMSAA = junk\nShadowStyle = 2\n; c\n[Input]\nDeadZone = 0.25\n[Audio]\nVolume=80\n",
+            "# comment\n[Video]\nWindowWidth = 1920\nMSAA = junk\nShadowStyle = 2\n; c\n[Input]\nDeadZone = 0.25\n[Audio]\nVolume=80\nPepperTypewriterSound=1\n",
         )
         .unwrap();
         let c = Config::load(&p);
         assert_eq!(c.window_width, 1920);
         assert_eq!(c.msaa, 0); // atoi("junk") == 0, like the C
         assert_eq!(c.volume, 80);
+        assert!(c.pepper_typewriter_sound);
         assert_eq!(c.shadow_style, ShadowStyle::RetailDithered);
         assert!((c.deadzone - 0.25).abs() < 1e-6);
         assert_eq!(c.window_height, 720); // untouched default

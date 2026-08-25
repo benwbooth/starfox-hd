@@ -431,6 +431,16 @@ pub struct PalettePair {
     pub high: u8,
 }
 
+/// Presentation treatment for the source's alternating palette pairs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PalettePairStyle {
+    /// Replace alternating source pixels with their average HD color.
+    Smooth,
+    /// Preserve the retail source-pixel checkerboard.
+    #[default]
+    RetailDithered,
+}
+
 impl PalettePair {
     pub const fn from_packed(pair: u8) -> Self {
         Self {

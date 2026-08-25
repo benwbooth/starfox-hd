@@ -4,6 +4,7 @@
 //! presentation boundaries. It is a renderer, not source-machine state.
 
 use crate::gpu::{Gpu, TextureId, Vertex2};
+use crate::shapes::PalettePairStyle;
 use crate::source_projection::ProjectedPoint;
 use sf_core::point_field::PointPixel;
 
@@ -41,6 +42,17 @@ const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
 
+fn average_palette_pair(palette: &[[f32; 4]; 16], pair: [u8; 2]) -> [f32; 4] {
+    let low = palette[usize::from(pair[0].min(SOURCE_PALETTE_MAX_INDEX))];
+    let high = palette[usize::from(pair[1].min(SOURCE_PALETTE_MAX_INDEX))];
+    [
+        (low[0] + high[0]) * 0.5,
+        (low[1] + high[1]) * 0.5,
+        (low[2] + high[2]) * 0.5,
+        1.0,
+    ]
+}
+
 #[derive(Debug)]
 pub struct SourceRaster {
     rgba: Vec<u8>,
@@ -50,6 +62,7 @@ pub struct SourceRaster {
     current_owner: u16,
     current_face: u16,
     has_pixels: bool,
+    palette_pair_style: PalettePairStyle,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -277,6 +290,14 @@ impl SourceRaster {
             current_owner: 0,
             current_face: NO_FACE,
             has_pixels: false,
+            palette_pair_style: PalettePairStyle::RetailDithered,
+        }
+    }
+
+    pub fn with_palette_pair_style(palette_pair_style: PalettePairStyle) -> Self {
+        Self {
+            palette_pair_style,
+            ..Self::new()
         }
     }
 
@@ -357,6 +378,10 @@ impl SourceRaster {
         palette: &[[f32; 4]; 16],
         pair: [u8; 2],
     ) {
+        if self.palette_pair_style == PalettePairStyle::Smooth {
+            self.draw_solid(points, indices, average_palette_pair(palette, pair));
+            return;
+        }
         self.draw_polygon(points, indices, |x, y| {
             let index = if (x ^ y) & 1 == 0 { pair[0] } else { pair[1] };
             Some(source_flat_palette_pixel(palette, index))
@@ -370,6 +395,10 @@ impl SourceRaster {
         palette: &[[f32; 4]; 16],
         pair: [u8; 2],
     ) {
+        if self.palette_pair_style == PalettePairStyle::Smooth {
+            self.draw_solid_line(points, indices, average_palette_pair(palette, pair));
+            return;
+        }
         self.draw_line(points, indices, |x, y| {
             let index = if (x ^ y) & 1 == 0 { pair[0] } else { pair[1] };
             Some(source_flat_palette_pixel(palette, index))
@@ -969,6 +998,52 @@ impl Default for SourceRaster {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smooth_palette_pairs_replace_checkerboards_with_the_average_color() {
+        const POINTS: [ProjectedPoint; 4] = [
+            ProjectedPoint {
+                x: 80,
+                y: 80,
+                depth: 1,
+            },
+            ProjectedPoint {
+                x: 96,
+                y: 80,
+                depth: 1,
+            },
+            ProjectedPoint {
+                x: 96,
+                y: 96,
+                depth: 1,
+            },
+            ProjectedPoint {
+                x: 80,
+                y: 96,
+                depth: 1,
+            },
+        ];
+        const FACE: [u16; 4] = [0, 3, 2, 1];
+        const LOW_COLOR: u8 = 1;
+        const HIGH_COLOR: u8 = 2;
+        const TARGET_X: usize = 88;
+        const TARGET_Y: usize = 88;
+
+        let mut palette = [[0.0; 4]; 16];
+        palette[usize::from(LOW_COLOR)] = [0.2, 0.4, 0.6, 1.0];
+        palette[usize::from(HIGH_COLOR)] = [0.6, 0.8, 1.0, 1.0];
+        let mut raster = SourceRaster::with_palette_pair_style(PalettePairStyle::Smooth);
+        raster.draw_palette_pair(&POINTS, &FACE, &palette, [LOW_COLOR, HIGH_COLOR]);
+
+        assert_eq!(
+            raster.diagnostic_pixel(TARGET_X, TARGET_Y),
+            rgba8([0.4, 0.6, 0.8, 1.0])
+        );
+        assert_eq!(
+            raster.diagnostic_pixel(TARGET_X + 1, TARGET_Y),
+            rgba8([0.4, 0.6, 0.8, 1.0])
+        );
+    }
 
     #[test]
     fn opaque_source_pixel_replaces_the_background_exactly() {
