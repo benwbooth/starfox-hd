@@ -847,3 +847,131 @@ pub fn select_depth_bank(depth: f32, depthz_table: usize) -> u8 {
     }
     bank
 }
+
+/// Continuous HD counterpart of the source's four discrete COLDEPTH bands.
+/// The source-resolution renderer still uses [`select_depth_bank`] exactly;
+/// this blend prevents a close polygon from flashing as its interpolated pose
+/// crosses a whole-object palette threshold between fixed updates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DepthBank {
+    Nearest,
+    Near,
+    Far,
+    Farthest,
+}
+
+impl DepthBank {
+    pub const fn from_source_index(index: u8) -> Self {
+        match index {
+            1 => Self::Near,
+            2 => Self::Far,
+            3 => Self::Farthest,
+            _ => Self::Nearest,
+        }
+    }
+
+    pub const fn source_index(self) -> u8 {
+        match self {
+            Self::Nearest => 0,
+            Self::Near => 1,
+            Self::Far => 2,
+            Self::Farthest => 3,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DepthBankBlend {
+    pub near_bank: DepthBank,
+    pub far_bank: DepthBank,
+    pub amount: f32,
+}
+
+pub fn blend_depth_banks(depth: f32, depthz_table: usize) -> DepthBankBlend {
+    let table = if depthz_table < DEPTHZ_COUNT {
+        depthz_table
+    } else {
+        DEPTHZ_NORMAL
+    };
+    let thresholds = DEPTHZ_TABLES[table];
+    if depth <= 0.0 {
+        return DepthBankBlend {
+            near_bank: DepthBank::Nearest,
+            far_bank: DepthBank::Nearest,
+            amount: 0.0,
+        };
+    }
+    for (near_bank, far_threshold) in thresholds.into_iter().enumerate() {
+        let near_threshold = if near_bank == 0 {
+            0.0
+        } else {
+            thresholds[near_bank - 1]
+        };
+        if depth <= far_threshold {
+            return DepthBankBlend {
+                near_bank: DepthBank::from_source_index(near_bank as u8),
+                far_bank: DepthBank::from_source_index(near_bank as u8 + 1),
+                amount: ((depth - near_threshold) / (far_threshold - near_threshold))
+                    .clamp(0.0, 1.0),
+            };
+        }
+    }
+    DepthBankBlend {
+        near_bank: DepthBank::Farthest,
+        far_bank: DepthBank::Farthest,
+        amount: 0.0,
+    }
+}
+
+#[cfg(test)]
+mod depth_blend_tests {
+    use super::{blend_depth_banks, DepthBank, DepthBankBlend, DEPTHZ_TUNNEL};
+
+    #[test]
+    fn hd_depth_colors_are_continuous_at_tunnel_boundaries() {
+        const FIRST_TUNNEL_BOUNDARY: f32 = 500.0;
+        const SECOND_TUNNEL_MIDPOINT: f32 = 625.0;
+        const FINAL_TUNNEL_BOUNDARY: f32 = 1_000.0;
+
+        assert_eq!(
+            blend_depth_banks(0.0, DEPTHZ_TUNNEL),
+            DepthBankBlend {
+                near_bank: DepthBank::Nearest,
+                far_bank: DepthBank::Nearest,
+                amount: 0.0,
+            }
+        );
+        assert_eq!(
+            blend_depth_banks(FIRST_TUNNEL_BOUNDARY, DEPTHZ_TUNNEL),
+            DepthBankBlend {
+                near_bank: DepthBank::Nearest,
+                far_bank: DepthBank::Near,
+                amount: 1.0,
+            }
+        );
+        assert_eq!(
+            blend_depth_banks(SECOND_TUNNEL_MIDPOINT, DEPTHZ_TUNNEL),
+            DepthBankBlend {
+                near_bank: DepthBank::Near,
+                far_bank: DepthBank::Far,
+                amount: 0.5,
+            }
+        );
+        assert_eq!(
+            blend_depth_banks(FINAL_TUNNEL_BOUNDARY, DEPTHZ_TUNNEL),
+            DepthBankBlend {
+                near_bank: DepthBank::Far,
+                far_bank: DepthBank::Farthest,
+                amount: 1.0,
+            }
+        );
+        assert_eq!(
+            blend_depth_banks(FINAL_TUNNEL_BOUNDARY + 1.0, DEPTHZ_TUNNEL),
+            DepthBankBlend {
+                near_bank: DepthBank::Farthest,
+                far_bank: DepthBank::Farthest,
+                amount: 0.0,
+            }
+        );
+    }
+}

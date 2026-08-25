@@ -437,6 +437,52 @@ fn resolve_registered_face_palette_pair(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn resolve_registered_face_smooth_color(
+    shape: &GpuShape,
+    face_color_index: u8,
+    col_frame: u8,
+    color_table: u16,
+    shade_index: i32,
+    depth_blend: shapes::DepthBankBlend,
+    depth_colors: DepthColors,
+    palette: &shapes::ShapePaletteRgb,
+) -> [f32; 4] {
+    let color_at = |depth_bank: shapes::DepthBank| {
+        let depth_bank = depth_bank.source_index();
+        resolve_registered_face_palette_pair(
+            shape,
+            face_color_index,
+            col_frame,
+            color_table,
+            shade_index,
+            depth_bank,
+            depth_colors,
+        )
+        .map(|pair| shapes::decode_palette_pair_in(pair.packed(), palette))
+        .unwrap_or_else(|| {
+            resolve_registered_face_color(
+                shape,
+                face_color_index,
+                col_frame,
+                color_table,
+                shade_index,
+                depth_bank,
+                depth_colors,
+                palette,
+            )
+        })
+    };
+    let near = color_at(depth_blend.near_bank);
+    if depth_blend.near_bank == depth_blend.far_bank {
+        return near;
+    }
+    let far = color_at(depth_blend.far_bank);
+    std::array::from_fn(|channel| {
+        near[channel] + (far[channel] - near[channel]) * depth_blend.amount
+    })
+}
+
 pub struct ShapeStore {
     shapes: Vec<Option<GpuShape>>,
     /// Fully decompiled SF1 vertex streams, keyed by the flat native shape
@@ -833,15 +879,12 @@ impl ShapeStore {
         self.register_sf2_shapes();
     }
 
-    /// Pick the COLDEPTH bank from the object's view-space depth
-    /// (`Shapes_SelectDepthBank`).
-    fn select_depth_bank(&self, view: &[f32; 16], model_matrix: &[f32; 16]) -> u8 {
+    fn object_depth(view: &[f32; 16], model_matrix: &[f32; 16]) -> f32 {
         let x = model_matrix[12];
         let y = model_matrix[13];
         let z = model_matrix[14];
         // Camera looks down -Z in view space, so depth is the negated view Z.
-        let depth = -(view[2] * x + view[6] * y + view[10] * z + view[14]);
-        shapes::select_depth_bank(depth, self.depthz_table)
+        -(view[2] * x + view[6] * y + view[10] * z + view[14])
     }
 
     fn textured_face_vertices(
@@ -1528,7 +1571,17 @@ impl ShapeStore {
         crate::transform::multiply(&mut projection_view, &proj, &view);
         let mut projection_view_model = [0.0; 16];
         crate::transform::multiply(&mut projection_view_model, &projection_view, model_matrix);
-        let depth_bank = self.select_depth_bank(&view, model_matrix);
+        let object_depth = Self::object_depth(&view, model_matrix);
+        let depth_bank = shapes::select_depth_bank(object_depth, self.depthz_table);
+        let depth_blend = if shape.is_sf2 {
+            shapes::DepthBankBlend {
+                near_bank: shapes::DepthBank::from_source_index(depth_bank),
+                far_bank: shapes::DepthBank::from_source_index(depth_bank),
+                amount: 0.0,
+            }
+        } else {
+            shapes::blend_depth_banks(object_depth, self.depthz_table)
+        };
         let light_object = compute_object_light(model_matrix);
         if let Some(pose) = source_pose {
             let rendered = if explosion_state == 0 {
@@ -1590,7 +1643,26 @@ impl ShapeStore {
                     } else {
                         *model_matrix
                     };
-                    let pair = resolve_registered_face_palette_pair(
+                    let first = shape.face_line_first[i] as usize;
+                    if palette_pair_style == shapes::PalettePairStyle::Smooth {
+                        let color = resolve_registered_face_smooth_color(
+                            shape,
+                            face.color_index,
+                            col_frame,
+                            color_table,
+                            SHADE_TABLE_LEN as i32 - 1,
+                            depth_blend,
+                            self.depth_colors,
+                            palette,
+                        );
+                        gpu.push_flat_lines(
+                            &shape.line_verts[first..first + 2],
+                            &proj,
+                            &view,
+                            &model,
+                            color,
+                        );
+                    } else if let Some(pair) = resolve_registered_face_palette_pair(
                         shape,
                         face.color_index,
                         col_frame,
@@ -1598,30 +1670,15 @@ impl ShapeStore {
                         SHADE_TABLE_LEN as i32 - 1,
                         depth_bank,
                         self.depth_colors,
-                    );
-                    let first = shape.face_line_first[i] as usize;
-                    if let Some(pair) = pair {
-                        match palette_pair_style {
-                            shapes::PalettePairStyle::RetailDithered => {
-                                gpu.push_palette_pair_lines(
-                                    &shape.line_verts[first..first + 2],
-                                    &proj,
-                                    &view,
-                                    &model,
-                                    &texture_palette,
-                                    [pair.low, pair.high],
-                                );
-                            }
-                            shapes::PalettePairStyle::Smooth => {
-                                gpu.push_flat_lines(
-                                    &shape.line_verts[first..first + 2],
-                                    &proj,
-                                    &view,
-                                    &model,
-                                    shapes::decode_palette_pair_in(pair.packed(), palette),
-                                );
-                            }
-                        }
+                    ) {
+                        gpu.push_palette_pair_lines(
+                            &shape.line_verts[first..first + 2],
+                            &proj,
+                            &view,
+                            &model,
+                            &texture_palette,
+                            [pair.low, pair.high],
+                        );
                     } else {
                         let color = resolve_registered_face_color(
                             shape,
@@ -1674,7 +1731,27 @@ impl ShapeStore {
                 }
             }
 
-            let pair = resolve_registered_face_palette_pair(
+            let start = (tri_start * 3) as usize;
+            let count = (tri_count * 3) as usize;
+            if palette_pair_style == shapes::PalettePairStyle::Smooth {
+                let color = resolve_registered_face_smooth_color(
+                    shape,
+                    face.color_index,
+                    col_frame,
+                    color_table,
+                    shade_index,
+                    depth_blend,
+                    self.depth_colors,
+                    palette,
+                );
+                gpu.push_flat_tris(
+                    &shape.tri_verts[start..start + count],
+                    &proj,
+                    &view,
+                    &model,
+                    color,
+                );
+            } else if let Some(pair) = resolve_registered_face_palette_pair(
                 shape,
                 face.color_index,
                 col_frame,
@@ -1682,31 +1759,15 @@ impl ShapeStore {
                 shade_index,
                 depth_bank,
                 self.depth_colors,
-            );
-            let start = (tri_start * 3) as usize;
-            let count = (tri_count * 3) as usize;
-            if let Some(pair) = pair {
-                match palette_pair_style {
-                    shapes::PalettePairStyle::RetailDithered => {
-                        gpu.push_palette_pair_tris(
-                            &shape.tri_verts[start..start + count],
-                            &proj,
-                            &view,
-                            &model,
-                            &texture_palette,
-                            [pair.low, pair.high],
-                        );
-                    }
-                    shapes::PalettePairStyle::Smooth => {
-                        gpu.push_flat_tris(
-                            &shape.tri_verts[start..start + count],
-                            &proj,
-                            &view,
-                            &model,
-                            shapes::decode_palette_pair_in(pair.packed(), palette),
-                        );
-                    }
-                }
+            ) {
+                gpu.push_palette_pair_tris(
+                    &shape.tri_verts[start..start + count],
+                    &proj,
+                    &view,
+                    &model,
+                    &texture_palette,
+                    [pair.low, pair.high],
+                );
             } else {
                 let color = resolve_registered_face_color(
                     shape,
