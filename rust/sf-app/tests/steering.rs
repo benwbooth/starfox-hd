@@ -6,11 +6,11 @@
 use sf_core::{pad, sf1_planets::PlanetSequencePhase};
 use sf_game::alien::{ASF2_COLLDISABLE, ASF4_INVISIBLE};
 use sf_game::shell::{
-    GameState, GameplayEntryPhase, Shell, BRIEFING_INPUT_DELAY_TICKS, INTRO_INPUT_DELAY_TICKS,
-    TITLE_INPUT_DELAY_TICKS, TITLE_PRESENTATION_INPUT_READY_TICKS,
+    GameState, GameplayEntryPhase, Shell, SoundCmd, BRIEFING_INPUT_DELAY_TICKS,
+    INTRO_INPUT_DELAY_TICKS, TITLE_INPUT_DELAY_TICKS, TITLE_PRESENTATION_INPUT_READY_TICKS,
 };
 use sf_game::vars::{PSF3_NOCOLLISIONS, PSF_NOCTRL, PSTF_NOTDIE};
-use std::collections::BTreeMap;
+use sf_strat::enemy_a::PSF2_DOUBLASER;
 
 /// Read the canonical player slot. Shape id 2 is not unique once the opening
 /// spawns companion/collision objects, so scanning the active list can select
@@ -134,10 +134,11 @@ fn left_input_moves_ship_screen_left() {
 }
 
 #[test]
-fn corneria_arch_course_spawns_its_authored_twin_laser_reward() {
+fn corneria_arch_course_completes_and_collects_reward_with_normal_flight_controls() {
     const CHECKPOINT_RADIUS: i16 = 100;
-    const CHECKPOINT_APPROACH_DEPTH: i32 = 180;
+    const STEERING_DEADBAND: i16 = 20;
     const TWIN_LASER_SHAPE: u16 = 160;
+    const TWIN_LASER_PICKUP_SOUND: u8 = 21;
     const COURSE_TICK_BUDGET: usize = 800;
 
     let mut shell = drive_to_controllable();
@@ -145,95 +146,74 @@ fn corneria_arch_course_spawns_its_authored_twin_laser_reward() {
     shell.game.vars.pstratflags |= PSTF_NOTDIE;
 
     let mut checkpoints_crossed = 0usize;
-    let mut checkpoint_approaches = Vec::new();
-    let mut nearest_checkpoint_depth = BTreeMap::<i16, u16>::new();
     let mut previous_counter = shell.game.vars.map.skill_fly;
+    let mut reward_spawned = false;
     for _ in 0..COURSE_TICK_BUDGET {
         let player_index = shell.game.vars.internal_playpt as usize;
-        let player_depth = shell.game.objs.aliens[player_index].worldz;
-        for object in shell.game.objs.aliens.iter().filter(|object| {
-            object.active
-                && object.shape == 0
-                && object.sword1 == CHECKPOINT_RADIUS
-                && object.sflags2 & ASF2_COLLDISABLE != 0
-                && object.sflags4 & ASF4_INVISIBLE != 0
-        }) {
-            let depth = object.worldz.wrapping_sub(player_depth).unsigned_abs();
-            nearest_checkpoint_depth
-                .entry(object.worldx)
-                .and_modify(|nearest| *nearest = (*nearest).min(depth))
-                .or_insert(depth);
-        }
+        let player = shell.game.objs.aliens[player_index];
+        let reward = shell
+            .game
+            .objs
+            .aliens
+            .iter()
+            .find(|object| object.active && object.shape == TWIN_LASER_SHAPE)
+            .map(|object| (object.worldx, object.worldy));
+        reward_spawned |= reward.is_some();
         let checkpoint = shell
             .game
             .objs
             .aliens
             .iter()
-            .find(|object| {
+            .filter(|object| {
                 object.active
                     && object.shape == 0
                     && object.sword1 == CHECKPOINT_RADIUS
                     && object.sflags2 & ASF2_COLLDISABLE != 0
                     && object.sflags4 & ASF4_INVISIBLE != 0
-                    && i32::from(object.worldz.wrapping_sub(player_depth)).abs()
-                        < CHECKPOINT_APPROACH_DEPTH
             })
+            .min_by_key(|object| object.worldz.wrapping_sub(player.worldz).unsigned_abs())
             .map(|object| (object.worldx, object.worldy));
-        if let Some((x, y)) = checkpoint {
-            if checkpoint_approaches.last().copied() != Some((x, y)) {
-                checkpoint_approaches.push((x, y));
-            }
-            let player = &mut shell.game.objs.aliens[player_index];
-            player.worldx = x;
-            player.worldy = y;
-            player.vx = 0;
-            player.vy = 0;
-        }
+        let target = reward.or(checkpoint);
+        let input = target.map_or(0, |(target_x, target_y)| {
+            let dx = target_x.wrapping_sub(player.worldx);
+            let dy = target_y.wrapping_sub(player.worldy);
+            let horizontal = if dx > STEERING_DEADBAND {
+                pad::RIGHT
+            } else if dx < -STEERING_DEADBAND {
+                pad::LEFT
+            } else {
+                0
+            };
+            let vertical = if dy > STEERING_DEADBAND {
+                pad::DOWN
+            } else if dy < -STEERING_DEADBAND {
+                pad::UP
+            } else {
+                0
+            };
+            horizontal | vertical
+        });
 
-        shell.tick(0);
+        shell.tick(input);
         let counter = shell.game.vars.map.skill_fly;
         if counter < previous_counter {
             checkpoints_crossed += usize::from(previous_counter - counter);
         }
         previous_counter = counter;
-
-        if shell
-            .game
-            .objs
-            .aliens
-            .iter()
-            .any(|object| object.active && object.shape == TWIN_LASER_SHAPE)
-        {
+        if shell.game.vars.pshipflags2 & PSF2_DOUBLASER != 0 {
             assert_eq!(counter, 0);
             assert_eq!(checkpoints_crossed, 4);
+            assert!(reward_spawned);
+            assert!(shell
+                .drain_sound()
+                .contains(&SoundCmd::PlaySe(TWIN_LASER_PICKUP_SOUND)));
             return;
         }
     }
 
-    let player_index = shell.game.vars.internal_playpt as usize;
-    let player = shell.game.objs.aliens[player_index];
-    let checkpoints = shell
-        .game
-        .objs
-        .aliens
-        .iter()
-        .filter(|object| {
-            object.active
-                && object.shape == 0
-                && object.sword1 == CHECKPOINT_RADIUS
-                && object.sflags2 & ASF2_COLLDISABLE != 0
-                && object.sflags4 & ASF4_INVISIBLE != 0
-        })
-        .map(|object| (object.worldx, object.worldy, object.worldz))
-        .collect::<Vec<_>>();
+    let player = shell.game.objs.aliens[shell.game.vars.internal_playpt as usize];
     panic!(
-        "Corneria arch reward did not spawn; crossed {checkpoints_crossed}, approaches={checkpoint_approaches:?}, nearest={nearest_checkpoint_depth:?}, counter={}, state={:?}, map={}, pointer={}, player=({},{},{}), checkpoints={checkpoints:?}",
-        shell.game.vars.map.skill_fly,
-        shell.state(),
-        shell.frame().newmap,
-        shell.game.vars.mapptr,
-        player.worldx,
-        player.worldy,
-        player.worldz,
+        "normal flight did not complete Corneria's arch course; crossed={checkpoints_crossed}, counter={}, player=({},{},{})",
+        shell.game.vars.map.skill_fly, player.worldx, player.worldy, player.worldz,
     );
 }
