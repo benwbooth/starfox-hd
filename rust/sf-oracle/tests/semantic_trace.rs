@@ -8,8 +8,8 @@ use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_PTR, AL_ROTX,
     AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE3, AL_SWORD2, AL_VEL, AL_VX, AL_VY, AL_VZ,
     RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
-    RETAIL_DOSTRATS_COMPLETE, RETAIL_FRAMERATE, RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ,
-    RETAIL_LASTZCHANGE, RETAIL_MAPCNT, RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY,
+    RETAIL_DOSTRATS_COMPLETE, RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE,
+    RETAIL_MAPCNT, RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY,
     RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY,
     RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
     RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
@@ -1020,7 +1020,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel;
         let align_completed_level_frame =
             native_level_active && tick >= COMPLETED_FRAME_ALIGNMENT_TICK;
-        let mut native_frame_rate_for_update = None;
         if align_completed_level_frame {
             if !retail_level_boundary_aligned {
                 assert!(
@@ -1035,11 +1034,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 );
                 retail_level_boundary_aligned = true;
             }
-            // The source records the elapsed display-frame count immediately
-            // before the strategy pass consumes it. Capture that typed timing
-            // input at the entry boundary; the value exposed after advancing
-            // to the next boundary belongs to the following update.
-            native_frame_rate_for_update = Some(retail.peek8(WORK_RAM | RETAIL_FRAMERATE));
             let max_video_frames = if tick == CORNERIA_AUDIO_UPLOAD_TICK {
                 MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD
             } else {
@@ -1063,9 +1057,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 .map(|previous| previous != retail_level_frame)
                 .unwrap_or(true);
         if !native_level_active || retail_completed_level_update {
-            if let Some(frame_rate) = native_frame_rate_for_update {
-                native.game.vars.strategy.frame_rate = frame_rate;
-            }
             native.tick(input);
         }
         if native.state() == GameState::Playing
