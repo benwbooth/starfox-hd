@@ -478,7 +478,7 @@ impl Hud {
     }
 
     /// Per-game-frame animation updates (mirror of `Hud_TickAnimations`).
-    pub(crate) fn tick_animations(&mut self, inputs: &FrameInputs) {
+    pub(crate) fn tick_animations(&mut self, inputs: &FrameInputs, source_hud_visible: bool) {
         if inputs.gameframe as u32 == self.last_gameframe {
             return;
         }
@@ -513,7 +513,7 @@ impl Hud {
 
         // Arrow flash frame (SPRITES.ASM do_arrows:861-876): advance every
         // other game frame through 4 frames; SE $8A on wrap while visible.
-        if inputs.gameframe & 1 != 0 {
+        if source_hud_visible && inputs.gameframe & 1 != 0 {
             self.sprframe += 1;
             if self.sprframe >= 4 {
                 self.sprframe = 0;
@@ -670,13 +670,16 @@ impl Hud {
             self.force_meters = true;
         }
 
-        self.tick_animations(inputs);
-
         sprites.set_screen_size(screen_width, screen_height);
         font.set_screen_size(screen_width, screen_height);
 
         // do_sprites_l gate: m_meters set, screen not blacked out.
         let hud_on = (inputs.meters != 0 || self.force_meters) && inputs.stayblack == -1;
+        // The source calls do_arrows, including its warning beep, only under
+        // the real m_meters/stayblack gate. `force_meters` is an HD fallback
+        // for incomplete presentation state and must not synthesize audio.
+        let source_hud_visible = inputs.meters != 0 && inputs.stayblack == -1;
+        self.tick_animations(inputs, source_hud_visible);
 
         if hud_on {
             // --- Super FX bitmap meters (MDRAWLIS.MC), bitmap y + 16 ---
@@ -955,13 +958,13 @@ mod tests {
         inputs.arrows = SPRAR_UP;
         // Prime last_gameframe so subsequent ticks animate.
         inputs.gameframe = 0;
-        hud.tick_animations(&inputs);
+        hud.tick_animations(&inputs, true);
         assert!(hud.pending_sounds.is_empty());
 
         // Odd frames advance sprframe: 1,2,3,4→wrap.
         for gf in [1u16, 3, 5, 7] {
             inputs.gameframe = gf;
-            hud.tick_animations(&inputs);
+            hud.tick_animations(&inputs, true);
         }
         assert_eq!(hud.take_pending_sounds(), vec![0x8A]);
 
@@ -969,8 +972,27 @@ mod tests {
         inputs.arrows = 0;
         for gf in [9u16, 11, 13, 15] {
             inputs.gameframe = gf;
-            hud.tick_animations(&inputs);
+            hud.tick_animations(&inputs, true);
         }
+        assert!(hud.take_pending_sounds().is_empty());
+    }
+
+    #[test]
+    fn hidden_hud_does_not_advance_or_sound_warning_arrows() {
+        let mut hud = Hud::default();
+        let mut inputs = FrameInputs {
+            arrows: SPRAR_UP,
+            ..FrameInputs::default()
+        };
+
+        inputs.gameframe = 0;
+        hud.tick_animations(&inputs, false);
+        for gameframe in [1u16, 3, 5, 7, 9] {
+            inputs.gameframe = gameframe;
+            hud.tick_animations(&inputs, false);
+        }
+
+        assert_eq!(hud.sprframe, 0);
         assert!(hud.take_pending_sounds().is_empty());
     }
 }

@@ -878,6 +878,7 @@ fn main() {
     let render_cfg = RendererConfig {
         shader_dir: cli.shader_dir.clone(),
         asset_root: cli.asset_root.clone().unwrap_or_else(|| cfg.asset_root()),
+        shadow_style: cfg.shadow_style,
     };
     let mut renderer = match Renderer::new(gpu, cfg.window_width, cfg.window_height, &render_cfg) {
         Ok(r) => r,

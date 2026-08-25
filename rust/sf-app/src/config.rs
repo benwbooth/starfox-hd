@@ -6,6 +6,8 @@
 
 use std::path::{Path, PathBuf};
 
+use sf_render::draw_list::ShadowStyle;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     /// C `rom_file` ([General] RomFile).
@@ -23,6 +25,8 @@ pub struct Config {
     pub msaa: i32,
     pub crt_filter: i32,
     pub bloom_enabled: i32,
+    /// HD ground-shadow presentation; retail source captures ignore this.
+    pub shadow_style: ShadowStyle,
     pub sample_rate: i32,
     pub buffer_size: i32,
     pub volume: i32,
@@ -43,6 +47,7 @@ impl Default for Config {
             msaa: 4,
             crt_filter: 0,
             bloom_enabled: 0,
+            shadow_style: ShadowStyle::Disabled,
             sample_rate: 48000,
             buffer_size: 1024,
             volume: 100,
@@ -132,6 +137,9 @@ impl Config {
                 ("Video", "MSAA") => cfg.msaa = atoi(val),
                 ("Video", "CRTFilter") => cfg.crt_filter = atoi(val),
                 ("Video", "BloomEnabled") => cfg.bloom_enabled = atoi(val),
+                ("Video", "ShadowStyle") => {
+                    cfg.shadow_style = ShadowStyle::from_config_value(atoi(val));
+                }
                 ("Audio", "SampleRate") => cfg.sample_rate = atoi(val),
                 ("Audio", "BufferSize") => cfg.buffer_size = atoi(val),
                 ("Audio", "Volume") => cfg.volume = atoi(val),
@@ -171,6 +179,7 @@ mod tests {
         assert_eq!(c.window_width, 1280);
         assert_eq!(c.window_height, 720);
         assert_eq!(c.msaa, 4);
+        assert_eq!(c.shadow_style, ShadowStyle::Disabled);
         assert_eq!(c.sample_rate, 48000);
         assert_eq!(c.volume, 100);
         assert!((c.deadzone - 0.15).abs() < 1e-6);
@@ -185,13 +194,14 @@ mod tests {
         let p = dir.join("starfox.ini");
         std::fs::write(
             &p,
-            "# comment\n[Video]\nWindowWidth = 1920\nMSAA = junk\n; c\n[Input]\nDeadZone = 0.25\n[Audio]\nVolume=80\n",
+            "# comment\n[Video]\nWindowWidth = 1920\nMSAA = junk\nShadowStyle = 2\n; c\n[Input]\nDeadZone = 0.25\n[Audio]\nVolume=80\n",
         )
         .unwrap();
         let c = Config::load(&p);
         assert_eq!(c.window_width, 1920);
         assert_eq!(c.msaa, 0); // atoi("junk") == 0, like the C
         assert_eq!(c.volume, 80);
+        assert_eq!(c.shadow_style, ShadowStyle::RetailDithered);
         assert!((c.deadzone - 0.25).abs() < 1e-6);
         assert_eq!(c.window_height, 720); // untouched default
     }

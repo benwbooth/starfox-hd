@@ -948,6 +948,22 @@ impl Gpu {
         self.push_palette_pair_variant(Pipe::FlatTri, verts, proj, view, model, palette, pair);
     }
 
+    /// Draw a retail two-color checkerboard without writing depth. Color zero
+    /// remains transparent, making this suitable for optional dithered ground
+    /// shadows in the HD presentation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn push_palette_pair_tris_alpha(
+        &mut self,
+        verts: &[Vertex3],
+        proj: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        palette: &[[f32; 4]; 16],
+        pair: [u8; 2],
+    ) {
+        self.push_palette_pair_variant(Pipe::FlatTriAlpha, verts, proj, view, model, palette, pair);
+    }
+
     /// Draw palette-indexed Super FX texture-map triangles in 3D.  Each R8
     /// texel stores both source CGX planes; mode 2 selects its low nibble and
     /// mode 3 the high nibble, exactly matching the source texture selector.

@@ -20,6 +20,34 @@ pub const DL_FLAG_HIGHLIGHT: u8 = 0x04;
 pub const DL_FLAG_TEXT: u8 = 0x10;
 pub const DL_FLAG_SCALED_SPRITE: u8 = 0x20;
 
+/// Presentation style for projected ground shadows in the HD renderer.
+/// Strict source-resolution captures always retain the retail dithered pass
+/// independently of this setting so the visual oracle remains exact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShadowStyle {
+    /// Do not draw projected ground shadows.
+    #[default]
+    Disabled,
+    /// Draw a translucent, resolution-independent HD shadow.
+    Smooth,
+    /// Draw the retail alternating-pixel shadow at HD resolution.
+    RetailDithered,
+}
+
+impl ShadowStyle {
+    /// Decode the documented `[Video] ShadowStyle` INI value.
+    pub fn from_config_value(value: i32) -> Self {
+        match value {
+            1 => Self::Smooth,
+            2 => Self::RetailDithered,
+            _ => Self::Disabled,
+        }
+    }
+}
+
+const RETAIL_SHADOW_COLOR: u8 = 9;
+const RETAIL_SHADOW_TRANSPARENT: u8 = 0;
+
 const STRATEGY_COLOR_SPECIAL: u8 = 0x01;
 const STRATEGY_COLOR_HIT_FLASH: u8 = 0x02;
 
@@ -340,6 +368,8 @@ impl DrawListRenderer {
         transform: &Transform,
         e: &DrawListEntry,
         shadow_height: f32,
+        shape_palette: &crate::shapes::ShapePaletteRgb,
+        shadow_style: ShadowStyle,
     ) {
         let Some(shape) = shapes.get(e.shape_id) else {
             return;
@@ -362,9 +392,38 @@ impl DrawListRenderer {
         model[9] = 0.0;
         model[13] += 0.5;
 
-        // Alpha-blended, non-depth-writing (was GL SRC_ALPHA blend + depth
-        // mask off) so the shadow tints the ground instead of occluding it.
-        gpu.push_flat_tris_alpha(&shape.tri_verts, proj, view, &model, [0.0, 0.0, 0.0, 0.40]);
+        match shadow_style {
+            ShadowStyle::Disabled => {}
+            ShadowStyle::Smooth => {
+                // Alpha-blended and non-depth-writing so the HD shadow tints
+                // the ground instead of occluding it.
+                gpu.push_flat_tris_alpha(
+                    &shape.tri_verts,
+                    proj,
+                    view,
+                    &model,
+                    [0.0, 0.0, 0.0, 0.40],
+                );
+            }
+            ShadowStyle::RetailDithered => {
+                let palette = std::array::from_fn(|index| {
+                    [
+                        shape_palette[index][0],
+                        shape_palette[index][1],
+                        shape_palette[index][2],
+                        1.0,
+                    ]
+                });
+                gpu.push_palette_pair_tris_alpha(
+                    &shape.tri_verts,
+                    proj,
+                    view,
+                    &model,
+                    &palette,
+                    [RETAIL_SHADOW_COLOR, RETAIL_SHADOW_TRANSPARENT],
+                );
+            }
+        }
     }
 
     /// Mirror of `DrawList_Render`. `shape_palette` is the frame's decoded
@@ -385,6 +444,7 @@ impl DrawListRenderer {
         source_bitmap_clear: Option<SourceBitmapRect>,
         source_scene_camera: Option<SourceSceneCamera>,
         source_point_pixels: &[PointPixel],
+        shadow_style: ShadowStyle,
     ) {
         // At the exact fixed-update boundary the source still presents the
         // preceding complete draw snapshot. Iterating `curr` here made newly
@@ -611,7 +671,9 @@ impl DrawListRenderer {
             );
 
             // Queue the drop shadow (skip exploding objects).
-            if interp.flags & DL_FLAG_SHADOW != 0
+            if shadow_style != ShadowStyle::Disabled
+                && source_presentation_offset.is_none()
+                && interp.flags & DL_FLAG_SHADOW != 0
                 && interp.explosion_cnt == 0
                 && shadow_list.len() < MAX_DRAW_LIST
             {
@@ -638,13 +700,21 @@ impl DrawListRenderer {
             source_presentation_offset.unwrap_or([0; 2]),
         );
 
-        // --- Shadow pass (after the opaque pass so depth testing hides
-        // shadow fragments behind solid geometry). The retained flat pipeline
-        // has no alpha blend / depth-mask toggle, so shadows draw as opaque
-        // black tris (see parity note). ---
-        if source_presentation_offset.is_none() {
+        // --- Optional HD shadow pass (after opaque geometry so depth testing
+        // hides projected fragments behind solid objects). ---
+        if source_presentation_offset.is_none() && shadow_style != ShadowStyle::Disabled {
             for e in &shadow_list {
-                self.render_shadow(gpu, &proj, &view, shapes, transform, e, shadow_height);
+                self.render_shadow(
+                    gpu,
+                    &proj,
+                    &view,
+                    shapes,
+                    transform,
+                    e,
+                    shadow_height,
+                    shape_palette,
+                    shadow_style,
+                );
             }
         }
     }

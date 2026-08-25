@@ -17,6 +17,10 @@ const UNITY_GAIN: i32 = 32_768;
 /// Source-driver fade duration measured against the oracle: 65,536 output
 /// frames, followed only by the filter tail.
 const MUSIC_FADE_FRAMES: usize = 65_536;
+/// Semantic acknowledgement values used by the source-compatible sound
+/// queue when pausing and resuming the native mixer.
+const PAUSE_ENABLED_ACKNOWLEDGEMENT: u8 = 2;
+const PAUSE_DISABLED_ACKNOWLEDGEMENT: u8 = 1;
 
 #[derive(Debug)]
 pub enum NativeAudioError {
@@ -464,7 +468,17 @@ impl NativePlayer {
     }
 
     pub fn set_paused(&self, paused: bool) {
-        self.inner.lock().unwrap().paused = paused;
+        let mut state = self.inner.lock().unwrap();
+        state.paused = paused;
+        // The source sound driver echoes the pause command immediately. The
+        // native mixer performs the state change synchronously, so publish
+        // the equivalent acknowledgement here; otherwise the sound queue
+        // waits forever on the pause-on command and never applies resume.
+        state.last_effect_consumed = Some(if paused {
+            PAUSE_ENABLED_ACKNOWLEDGEMENT
+        } else {
+            PAUSE_DISABLED_ACKNOWLEDGEMENT
+        });
     }
 
     /// Fill an interleaved 32 kHz stereo buffer.
@@ -644,6 +658,20 @@ mod tests {
             player.start_music(18),
             Err(NativeAudioError::MissingAsset(_))
         ));
+    }
+
+    #[test]
+    fn pause_state_acknowledges_both_transitions() {
+        let player = NativePlayer::with_asset_root(temporary_asset_dir("pause-ack"));
+
+        player.set_paused(true);
+        assert!(player.effect_consumed(PAUSE_ENABLED_ACKNOWLEDGEMENT));
+        let mut muted = [TEST_SAMPLE; 2];
+        player.generate(&mut muted);
+        assert_eq!(muted, [0, 0]);
+
+        player.set_paused(false);
+        assert!(player.effect_consumed(PAUSE_DISABLED_ACKNOWLEDGEMENT));
     }
 
     #[test]

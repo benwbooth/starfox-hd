@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::bg2d::Bg2d;
 use crate::draw_list::{
-    project_draw_object_origin, project_world_origin, DrawListEntry, DrawListRenderer,
+    project_draw_object_origin, project_world_origin, DrawListEntry, DrawListRenderer, ShadowStyle,
     SourceSceneCamera,
 };
 use crate::font::Font;
@@ -584,6 +584,9 @@ pub struct RendererConfig {
     pub shader_dir: Option<PathBuf>,
     /// Root containing the `data/` asset tree (repo root).
     pub asset_root: PathBuf,
+    /// HD ground-shadow presentation. Source-resolution oracle captures keep
+    /// their retail shadows regardless of this preference.
+    pub shadow_style: ShadowStyle,
 }
 
 pub struct Renderer {
@@ -602,6 +605,7 @@ pub struct Renderer {
     pub particles: Particles,
     native_frame_texture: Option<TextureId>,
     native_frame_size: (u32, u32),
+    shadow_style: ShadowStyle,
 }
 
 const SOURCE_FRAME_WIDTH: u32 = 256;
@@ -678,6 +682,7 @@ impl Renderer {
             particles,
             native_frame_texture: None,
             native_frame_size: (0, 0),
+            shadow_style: config.shadow_style,
         })
     }
 
@@ -839,6 +844,7 @@ impl Renderer {
             self.hud.source_bitmap_clear(inputs),
             inputs.source_scene_camera,
             inputs.point_pixels,
+            self.shadow_style,
         );
         self.particles.render(&mut self.gpu, &self.transform);
         if inputs.game_state == GameState::Title {
@@ -1175,6 +1181,7 @@ pub fn config_from_repo_root(root: &Path) -> RendererConfig {
     RendererConfig {
         shader_dir: Some(root.join("rust/sf-render/shaders")),
         asset_root: root.to_path_buf(),
+        shadow_style: ShadowStyle::Disabled,
     }
 }
 
