@@ -6,7 +6,7 @@ use sf_strat::bosses::boss8_strat;
 use sf_strat::enemy_a::boss_attach_child_to_mother;
 use sf_strat::enemy_b::{
     boss7b2_init, boss7b2_strat, boss7coll_istrat, boss7hatchcol_istrat, boss7intropart_istrat,
-    boss7launchercol_istrat,
+    boss7launchercol_istrat, strat_boss7_init,
 };
 
 const BOSS7_SFLAG_HATCH: u8 = 0x10;
@@ -20,6 +20,68 @@ fn spawn(g: &mut Game) -> u16 {
     let idx = g.objs.alloc().expect("obj");
     g.objs.aliens[idx as usize].active = true;
     idx
+}
+
+#[test]
+fn attached_boss_parts_run_after_their_mother_in_source_order() {
+    let mut game = Game::new();
+    let mother = spawn(&mut game);
+    let first_child = spawn(&mut game);
+    assert!(boss_attach_child_to_mother(
+        &mut game,
+        mother,
+        first_child,
+        1
+    ));
+    let second_child = spawn(&mut game);
+    assert!(boss_attach_child_to_mother(
+        &mut game,
+        mother,
+        second_child,
+        2
+    ));
+
+    assert_eq!(
+        game.objs.active_indices(),
+        vec![mother, second_child, first_child]
+    );
+}
+
+#[test]
+fn attack_carrier_parts_consume_the_completed_mother_pose_each_tick() {
+    const BOSS_START_Y: i16 = -560;
+    const BOSS_START_Z: i16 = 3_000;
+    const PLAYER_SPEED: i16 = 64;
+
+    let mut game = Game::new();
+    let player = spawn(&mut game);
+    let boss = spawn(&mut game);
+    game.objs.active_move_after(boss, player);
+    game.objs.aliens[boss as usize].worldy = BOSS_START_Y;
+    game.objs.aliens[boss as usize].worldz = BOSS_START_Z;
+    game.vars.internal_playpt = player as i16;
+    game.vars.playervel_z = PLAYER_SPEED;
+    game.vars.pviewvelz = PLAYER_SPEED;
+    strat_boss7_init(&mut game, boss);
+
+    game.run_strategies();
+    let mother = game.objs.aliens[boss as usize];
+    for child in game
+        .objs
+        .active_indices()
+        .into_iter()
+        .filter(|child| game.objs.aliens[*child as usize].ptr == boss + 1)
+    {
+        let part = game.objs.aliens[child as usize];
+        assert_eq!(
+            [part.rotx, part.roty, part.rotz],
+            [mother.rotx, mother.roty, mother.rotz]
+        );
+        assert_ne!(
+            part.worldz, BOSS_START_Z,
+            "child retained the preceding mother pose"
+        );
+    }
 }
 
 #[test]

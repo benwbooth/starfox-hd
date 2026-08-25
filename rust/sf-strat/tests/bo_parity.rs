@@ -20,6 +20,10 @@
 //! Restoring that omitted lifecycle and timing also restores its object-slot
 //! reuse and random draws, so all downstream slot references and
 //! random-dependent poses were re-blessed together at that source boundary.
+//! The boss2 and boss8 fixtures also preserve `l_add` scheduling from
+//! `MACROS.INC`: a newly made child is inserted after the current mother and
+//! therefore advances after the mother's completed pose in the same pass.
+//! The retired C allocator incorrectly pushed every child at the list head.
 //!
 //! Regenerate (repo root; harness in the session scratchpad):
 //!   gcc -O1 -Isrc -o bo_harness bo_harness.c bo_stubs.c \

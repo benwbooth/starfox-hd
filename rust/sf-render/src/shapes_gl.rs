@@ -1491,6 +1491,7 @@ impl ShapeStore {
         texture_scroll: [u8; 2],
         explosion_state: u8,
         model_matrix: &[f32; 16],
+        depth_layer: u8,
         source_pose: Option<SourcePose>,
         palette: &shapes::ShapePaletteRgb,
         palette_pair_style: shapes::PalettePairStyle,
@@ -1514,7 +1515,14 @@ impl ShapeStore {
             }
         };
 
-        let proj = *transform.projection();
+        let mut proj = *transform.projection();
+        // Sequential launch-corridor pieces deliberately overlap at their
+        // seams. MARIO resolves those coplanar faces by painter order; a
+        // depth buffer otherwise produces moving moire strips as the camera
+        // enters a seam. Keep screen projection unchanged and give the later
+        // painter layer a tiny, deterministic normalized-depth preference.
+        const DEPTH_LAYER_STEP: f32 = 0.000_001;
+        proj[10] += f32::from(depth_layer) * DEPTH_LAYER_STEP;
         let view = *transform.view();
         let mut projection_view = [0.0; 16];
         crate::transform::multiply(&mut projection_view, &proj, &view);

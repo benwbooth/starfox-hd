@@ -95,9 +95,7 @@ fn lerp_fine_camera_angle(from: u16, to: u16, t: f32, big_jump: &mut bool) -> f3
     if !(-CAMERA_CUT_FINE..=CAMERA_CUT_FINE).contains(&difference) {
         *big_jump = true;
     }
-    (f32::from(from) + difference as f32 * t)
-        .rem_euclid(FULL_TURN_FINE as f32)
-        / FINE_ANGLE_SCALE
+    (f32::from(from) + difference as f32 * t).rem_euclid(FULL_TURN_FINE as f32) / FINE_ANGLE_SCALE
 }
 
 // SNES 0-255 angle -> signed [-128, 128) in the same units (float-safe).
@@ -441,6 +439,16 @@ impl Transform {
     /// snapshot without reconstructing angles from a floating-point matrix.
     pub fn source_camera(&self) -> (CameraState, [u16; 3]) {
         (self.cam_render, self.cam_render_rotation)
+    }
+
+    /// The two fixed-update cameras that bound the current presentation
+    /// interval. Draw-list interpolation uses these source-space endpoints to
+    /// avoid inventing geometry while an object crosses the camera plane.
+    pub fn source_camera_endpoints(&self) -> [(CameraState, [u16; 3]); 2] {
+        [
+            (self.cam_prev, self.cam_rotation_prev),
+            (self.cam_curr, self.cam_rotation_curr),
+        ]
     }
 
     /// Fractional signed render-camera pitch/yaw (SNES units) for the 2D

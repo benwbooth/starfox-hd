@@ -5,6 +5,7 @@
 
 use crate::font::Font;
 use crate::gpu::{Gpu, TextureId};
+use crate::shapes::{SHAPE_ALIAS_OP_0, SHAPE_ALIAS_OP_1, SHAPE_ALIAS_OP_2};
 use crate::shapes_gl::ShapeStore;
 use crate::source_projection::SourcePose;
 use crate::source_raster::{SourceBitmapRect, SourceRaster};
@@ -136,6 +137,12 @@ pub(crate) fn project_draw_object_origin(
         current
             .filter(|current| can_interpolate(previous, current))
             .map_or(*previous, |current| {
+                let alpha = source_safe_interpolation_alpha(
+                    previous,
+                    current,
+                    transform.source_camera_endpoints(),
+                    alpha,
+                );
                 interpolate_entry(previous, current, alpha)
             })
     } else {
@@ -279,6 +286,30 @@ fn source_painter_order(entries: &[DrawListEntry], camera: SourceSceneCamera) ->
     order
 }
 
+fn launch_corridor_depth_layers(
+    entries: &[DrawListEntry],
+    camera: SourceSceneCamera,
+) -> [u8; MAX_DRAW_LIST] {
+    let mut tunnel_order = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            matches!(
+                entry.shape_id,
+                SHAPE_ALIAS_OP_0 | SHAPE_ALIAS_OP_1 | SHAPE_ALIAS_OP_2
+            )
+            .then_some(index)
+        })
+        .collect::<Vec<_>>();
+    tunnel_order
+        .sort_by_key(|index| std::cmp::Reverse(source_sort_depth(&entries[*index], camera)));
+    let mut layers = [0; MAX_DRAW_LIST];
+    for (layer, index) in tunnel_order.into_iter().enumerate() {
+        layers[index] = (layer + 1) as u8;
+    }
+    layers
+}
+
 fn has_source_shadow(entry: &DrawListEntry) -> bool {
     entry.flags & (DL_FLAG_VISIBLE | DL_FLAG_SHADOW) == (DL_FLAG_VISIBLE | DL_FLAG_SHADOW)
 }
@@ -325,6 +356,41 @@ fn interpolate_entry(a: &DrawListEntry, b: &DrawListEntry, alpha: f32) -> DrawLi
     out.ry = lerp_angle8(a.ry, b.ry, alpha);
     out.rz = lerp_angle8(a.rz, b.rz, alpha);
     out
+}
+
+fn source_camera_depth(
+    entry: &DrawListEntry,
+    camera: (crate::transform::CameraState, [u16; 3]),
+) -> i16 {
+    let (position, rotation) = camera;
+    let relative = [
+        ((entry.x.wrapping_sub(position.x)) >> 16) as i16,
+        ((entry.y.wrapping_sub(position.y)) >> 16) as i16,
+        ((entry.z.wrapping_sub(position.z)) >> 16) as i16,
+    ];
+    let matrix = sf_core::snes_trig::zxy_matrix_q15_fine(rotation[0], rotation[1], rotation[2]);
+    sf_core::snes_trig::matrix_rotate_q15(matrix, relative[0], relative[1], relative[2]).2
+}
+
+/// Interpolation must not synthesize poses while an object crosses through
+/// the camera plane. The retail renderer presents only the two fixed-update
+/// endpoints; blending across the sign change feeds near-zero depth into the
+/// perspective divide and turns corridor segments or close ships into long,
+/// flickering shards. Hold the preceding source pose through that one open
+/// interval, then switch at its ordinary endpoint.
+fn source_safe_interpolation_alpha(
+    previous: &DrawListEntry,
+    current: &DrawListEntry,
+    camera_endpoints: [(crate::transform::CameraState, [u16; 3]); 2],
+    alpha: f32,
+) -> f32 {
+    let previous_depth = source_camera_depth(previous, camera_endpoints[0]);
+    let current_depth = source_camera_depth(current, camera_endpoints[1]);
+    if alpha < 1.0 && (previous_depth > 0) != (current_depth > 0) {
+        0.0
+    } else {
+        alpha
+    }
 }
 
 /// Build the camera-facing basis used by MARIO's `mssprite` path, then apply
@@ -521,6 +587,7 @@ impl DrawListRenderer {
         // the pass (set_view_lerp is called once) and passed per draw.
         let view = *transform.view();
         let proj = *transform.projection();
+        let camera_endpoints = transform.source_camera_endpoints();
 
         // Interpolated entries that want a drop shadow (collected during the
         // main pass, drawn afterwards as a translucent overlay).
@@ -562,6 +629,14 @@ impl DrawListRenderer {
         let presented_order = source_camera.map_or_else(
             || (0..presented.len()).collect(),
             |camera| source_painter_order(presented, camera),
+        );
+        let (render_camera, render_rotation) = transform.source_camera();
+        let corridor_depth_layers = launch_corridor_depth_layers(
+            presented,
+            SourceSceneCamera {
+                position: [render_camera.x, render_camera.y, render_camera.z],
+                rotation: render_rotation,
+            },
         );
 
         // The source builds ground shadows into the indexed bitmap before its
@@ -629,13 +704,19 @@ impl DrawListRenderer {
                 &curr_by_id,
             );
             let interp = interpolation.map_or(*entry, |(previous, current)| {
-                interpolate_entry(previous, current, alpha)
+                interpolate_entry(
+                    previous,
+                    current,
+                    source_safe_interpolation_alpha(previous, current, camera_endpoints, alpha),
+                )
             });
 
             // Fractional interpolated rotation for a jitter-free model build
             // (interp.rx/ry/rz are truncated to whole SNES units and are still
             // used for the flat shadow pass, where the error is invisible).
             let (frx, fry, frz) = if let Some((previous, current)) = interpolation {
+                let alpha =
+                    source_safe_interpolation_alpha(previous, current, camera_endpoints, alpha);
                 (
                     lerp_angle8_f(previous.rx, current.rx, alpha),
                     lerp_angle8_f(previous.ry, current.ry, alpha),
@@ -738,6 +819,7 @@ impl DrawListRenderer {
                 [interp.tscroll_x, interp.tscroll_y],
                 interp.explosion_cnt,
                 &model,
+                corridor_depth_layers[entry_index],
                 source_pose,
                 shape_palette,
                 palette_pair_style,
@@ -795,7 +877,12 @@ impl DrawListRenderer {
 
 #[cfg(test)]
 mod interpolation_tests {
-    use super::{can_interpolate, presentation_entries, DrawListEntry};
+    use super::{
+        can_interpolate, launch_corridor_depth_layers, presentation_entries,
+        source_safe_interpolation_alpha, DrawListEntry, SourceSceneCamera,
+    };
+    use crate::shapes::{SHAPE_ALIAS_OP_0, SHAPE_ALIAS_OP_1};
+    use crate::transform::Transform;
 
     #[test]
     fn source_slot_reuse_never_interpolates_across_allocation_lifetimes() {
@@ -863,6 +950,102 @@ mod interpolation_tests {
         assert!(at_endpoint
             .iter()
             .any(|entry| entry.obj_id == NEW_OBJECT_ID));
+    }
+
+    #[test]
+    fn camera_plane_crossings_hold_the_preceding_source_pose() {
+        const HALF_TICK: f32 = 0.5;
+        const PREVIOUS_DEPTH: i32 = 40;
+        const CURRENT_DEPTH: i32 = -40;
+
+        let mut transform = Transform::new();
+        transform.set_camera(0, 0, 0, 0, 0, 0);
+        transform.set_camera(0, 0, 0, 0, 0, 0);
+        let previous = DrawListEntry {
+            z: PREVIOUS_DEPTH << 16,
+            ..DrawListEntry::default()
+        };
+        let current = DrawListEntry {
+            z: CURRENT_DEPTH << 16,
+            ..previous
+        };
+
+        assert_eq!(
+            source_safe_interpolation_alpha(
+                &previous,
+                &current,
+                transform.source_camera_endpoints(),
+                HALF_TICK,
+            ),
+            0.0
+        );
+        assert_eq!(
+            source_safe_interpolation_alpha(
+                &previous,
+                &current,
+                transform.source_camera_endpoints(),
+                1.0,
+            ),
+            1.0
+        );
+    }
+
+    #[test]
+    fn in_front_motion_keeps_smooth_interpolation() {
+        const HALF_TICK: f32 = 0.5;
+
+        let mut transform = Transform::new();
+        transform.set_camera(0, 0, 0, 0, 0, 0);
+        transform.set_camera(0, 0, 0, 0, 0, 0);
+        let previous = DrawListEntry {
+            z: 80 << 16,
+            ..DrawListEntry::default()
+        };
+        let current = DrawListEntry {
+            z: 40 << 16,
+            ..previous
+        };
+
+        assert_eq!(
+            source_safe_interpolation_alpha(
+                &previous,
+                &current,
+                transform.source_camera_endpoints(),
+                HALF_TICK,
+            ),
+            HALF_TICK
+        );
+    }
+
+    #[test]
+    fn overlapping_corridor_segments_follow_source_painter_depth() {
+        const FAR_DEPTH: i32 = 800;
+        const NEAR_DEPTH: i32 = 200;
+
+        let entries = [
+            DrawListEntry {
+                shape_id: SHAPE_ALIAS_OP_0,
+                z: FAR_DEPTH << 16,
+                ..DrawListEntry::default()
+            },
+            DrawListEntry {
+                shape_id: SHAPE_ALIAS_OP_1,
+                z: NEAR_DEPTH << 16,
+                ..DrawListEntry::default()
+            },
+            DrawListEntry::default(),
+        ];
+        let layers = launch_corridor_depth_layers(
+            &entries,
+            SourceSceneCamera {
+                position: [0; 3],
+                rotation: [0; 3],
+            },
+        );
+
+        assert_eq!(layers[0], 1);
+        assert_eq!(layers[1], 2);
+        assert_eq!(layers[2], 0);
     }
 }
 

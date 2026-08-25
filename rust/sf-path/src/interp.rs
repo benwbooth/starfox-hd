@@ -610,16 +610,7 @@ fn path_genvecs<H: PathHost>(host: &mut H, al: &mut Alien) {
 
 /// C `path_get_obj_by_ptr`.
 fn path_get_obj_by_ptr(world: &PathWorld, ptr_index: u16) -> Option<usize> {
-    if ptr_index == PATH_NULL_OBJ {
-        return None;
-    }
-    if ptr_index as usize >= NUMBER_AL {
-        return None;
-    }
-    if !world.aliens[ptr_index as usize].active {
-        return None;
-    }
-    Some(ptr_index as usize)
+    path_obj_from_index(world, ptr_index)
 }
 
 /// ROM `Xanglexy_l` — elevation via `xzdiffs_l` adjacent (not float hypot).
@@ -805,7 +796,7 @@ fn path_fire_at_target<H: PathHost>(
         (Some(s), Some(t)) => (s, t),
         _ => return,
     };
-    world.aliens[shot as usize].ptr = target as u16;
+    world.aliens[shot as usize].ptr = path_obj_index_or_null(target);
 }
 
 /// ROM `adiv2` (STRATMAC.INC:712) applied `rate` times with the
@@ -863,17 +854,24 @@ pub fn path_random_goto(draw: u16) -> bool {
     (draw as u8) < RANDOM_GOTO_THRESHOLD
 }
 
-/// C `path_obj_index_or_null` — every index is in range in this port.
+/// Convert a flat object slot to the source-compatible, zero-safe handle used
+/// by object relationships. The handle remains semantic game state; it is not
+/// an emulated address.
 fn path_obj_index_or_null(idx: usize) -> u16 {
-    idx as u16
+    if idx < NUMBER_AL {
+        (idx as u16) + 1
+    } else {
+        PATH_NULL_OBJ
+    }
 }
 
-/// C `path_obj_from_index_raw`.
-fn path_obj_from_index_raw(idx: u16) -> Option<usize> {
-    if idx as usize >= NUMBER_AL {
+/// Resolve a zero-safe object handle to its flat object slot.
+fn path_obj_from_index_raw(handle: u16) -> Option<usize> {
+    let idx = handle.checked_sub(1)? as usize;
+    if idx >= NUMBER_AL {
         return None;
     }
-    Some(idx as usize)
+    Some(idx)
 }
 
 /// C `path_obj_from_index`.
@@ -1782,7 +1780,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let shape = world.pread16(ip, 1);
                 let found = path_find_near_shape(world, si, shape, None, 7000, 7000);
                 world.aliens[si].ptr = match found {
-                    Some(f) => f as u16,
+                    Some(f) => path_obj_index_or_null(f),
                     None => PATH_NULL_OBJ,
                 };
                 advance = 3;
@@ -1793,7 +1791,7 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
                 let cur = path_get_obj_by_ptr(world, world.aliens[si].ptr);
                 let found = path_find_near_shape(world, si, shape, cur, 3000, 3000);
                 world.aliens[si].ptr = match found {
-                    Some(f) => f as u16,
+                    Some(f) => path_obj_index_or_null(f),
                     None => PATH_NULL_OBJ,
                 };
                 advance = 3;
@@ -3552,6 +3550,23 @@ mod vm_lifecycle_tests {
         assert_eq!(vm.sp, 0);
         assert_eq!(vm.trigger_count, 0);
         assert!(!vm.ifnot_pending);
+    }
+}
+
+#[cfg(test)]
+mod object_handle_tests {
+    use super::*;
+
+    #[test]
+    fn player_slot_zero_remains_distinct_from_a_null_object_handle() {
+        let mut world = PathWorld::new();
+        world.aliens[0].active = true;
+
+        let player_handle = path_obj_index_or_null(0);
+
+        assert_ne!(player_handle, PATH_NULL_OBJ);
+        assert_eq!(path_get_obj_by_ptr(&world, player_handle), Some(0));
+        assert_eq!(path_get_obj_by_ptr(&world, PATH_NULL_OBJ), None);
     }
 }
 

@@ -22,6 +22,9 @@
 //! The boss1 post-destruction records also retain the retail circle anchor
 //! created by `makebosscircexp_srou`; the retired C translation omitted that
 //! presentation object.
+//! The boss1 fixture preserves the retail `l_add` schedule as well: its cover
+//! and turrets are inserted after their current mother, not pushed ahead of it
+//! as they were by the retired C allocation shim.
 //! The three corrected fixtures also include the retail runtime random draw at
 //! the start of every completed strategy frame. The retired C translation did
 //! not run that scheduler-level draw, so its later generated positions and

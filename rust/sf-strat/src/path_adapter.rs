@@ -246,8 +246,35 @@ pub fn register(g: &mut Game) -> PathInitIds {
 #[cfg(test)]
 mod registration_tests {
     use super::*;
+    use sf_game::alien::{ASF4_CHILDOBJ, ASF4_SFLAG8};
     use sf_game::obj::strat_init_obj_vars;
-    use sf_path::ids::PATH_ID_MATEMSG;
+    use sf_path::ids::{PATH_ID_MATEMSG, PATH_ID_ROBOTSWITHLOG, PATH_ID_TOW_0};
+
+    const RETAIL_TOW0_EXPLODE_ADDRESS: u32 = sf_path::rom_catalog_data::ROM_TOW0EXPLODE_ISTRAT_ADDR;
+    const CATALOG_TOW0_EXPLODE_ADDRESS: u32 = 0x030001;
+
+    fn allocate_path_object(game: &mut Game, path_id: u16) -> u16 {
+        let object = game.objs.alloc().expect("path object slot");
+        strat_init_obj_vars(&mut game.objs.aliens[object as usize]);
+        set_object_path(game, object, path_id);
+        object
+    }
+
+    fn child_with_number(game: &Game, mother: u16, child_number: u8) -> u16 {
+        let mother_handle = mother + 1;
+        game.objs
+            .aliens
+            .iter()
+            .enumerate()
+            .find_map(|(index, object)| {
+                (object.active
+                    && object.sflags4 & ASF4_CHILDOBJ != 0
+                    && object.ptr == mother_handle
+                    && object.sbyte1 == child_number)
+                    .then_some(index as u16)
+            })
+            .unwrap_or_else(|| panic!("numbered path child {child_number}"))
+    }
 
     #[test]
     fn every_certified_inline_path_action_is_registered() {
@@ -301,6 +328,80 @@ mod registration_tests {
 
         assert_eq!(game.objs.aliens[object as usize].worldz, FIRST_DEPTH);
         assert_ne!(game.objs.aliens[object as usize].stratptr, Some(init));
+    }
+
+    #[test]
+    fn destroyed_corneria_tower_flags_its_top_to_fall() {
+        const FALL_START_DELAY_TICKS: usize = 8;
+
+        let mut game = Game::new();
+        let init = register(&mut game).path_init;
+        let tow_explode = game.world.register_strategy(enemy_a::strat_tow0_explode);
+        game.world
+            .register_strategy_address(RETAIL_TOW0_EXPLODE_ADDRESS, tow_explode);
+        game.world
+            .register_strategy_address(CATALOG_TOW0_EXPLODE_ADDRESS, tow_explode);
+
+        // Occupy slot zero so the test exercises the formerly ambiguous
+        // zero/null relationship boundary.
+        let _player_slot = game.objs.alloc().expect("player slot");
+        let tower = allocate_path_object(&mut game, PATH_ID_TOW_0);
+        game.call_strat(init, tower);
+
+        let top_handle = game.objs.aliens[tower as usize].ptr;
+        let top = top_handle.checked_sub(1).expect("tower top handle");
+        assert!(game.objs.aliens[top as usize].active);
+        assert_eq!(game.objs.aliens[top as usize].ptr, tower + 1);
+
+        let explode = game.objs.aliens[tower as usize]
+            .expstratptr
+            .expect("tower explode strategy");
+        game.call_strat(explode, tower);
+        assert_ne!(game.objs.aliens[top as usize].sflags4 & ASF4_SFLAG8, 0);
+
+        let initial_height = game.objs.aliens[top as usize].worldy;
+        for _ in 0..=FALL_START_DELAY_TICKS {
+            let tick = game.objs.aliens[top as usize]
+                .stratptr
+                .expect("tower top path strategy");
+            game.call_strat(tick, top);
+        }
+        assert!(game.objs.aliens[top as usize].worldy > initial_height);
+    }
+
+    #[test]
+    fn destroyed_carrier_releases_its_load_instead_of_leaving_it_floating() {
+        const LEFT_CARRIER_CHILD: u8 = 2;
+        const RIGHT_CARRIER_CHILD: u8 = 3;
+        const CARRIED_LOAD_CHILD: u8 = 1;
+        const ACTIVE_COURSE_DEPTH: i16 = 1_000;
+
+        let mut game = Game::new();
+        let init = register(&mut game).path_init;
+        let _player_slot = game.objs.alloc().expect("player slot");
+        let carrier = allocate_path_object(&mut game, PATH_ID_ROBOTSWITHLOG);
+        game.objs.aliens[carrier as usize].worldz = ACTIVE_COURSE_DEPTH;
+        game.call_strat(init, carrier);
+
+        let left_robot = child_with_number(&game, carrier, LEFT_CARRIER_CHILD);
+        let right_robot = child_with_number(&game, carrier, RIGHT_CARRIER_CHILD);
+        let load = child_with_number(&game, carrier, CARRIED_LOAD_CHILD);
+        let explode = game.objs.aliens[left_robot as usize]
+            .expstratptr
+            .expect("carrier explode strategy");
+        game.call_strat(explode, left_robot);
+
+        let load_tick = game.objs.aliens[load as usize]
+            .stratptr
+            .expect("carried load path strategy");
+        game.call_strat(load_tick, load);
+
+        assert_eq!(game.objs.aliens[load as usize].sflags4 & ASF4_CHILDOBJ, 0);
+        assert_ne!(
+            game.objs.aliens[right_robot as usize].sflags4 & ASF4_SFLAG8,
+            0
+        );
+        assert_eq!(game.objs.aliens[load as usize].pbyte1 as i8, -50);
     }
 }
 

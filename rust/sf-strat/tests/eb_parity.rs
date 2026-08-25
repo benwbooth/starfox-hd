@@ -16,6 +16,10 @@
 //! the start of every completed strategy frame. The retired C translation did
 //! not run that scheduler-level draw, so its later rotations and launch vectors
 //! were shifted relative to the cartridge.
+//! The multipart boss fixtures use the retail `l_add` ordering documented in
+//! `MACROS.INC`: each `s_make_childobj` is inserted after the current mother.
+//! The retired C allocation shim instead pushed those children at the active
+//! head, causing linked components to consume a stale mother pose.
 //!
 //! Regenerate (repo root, harness source in session scratchpad, run inside
 //! `nix develop`, strip the Obj_Init banner):

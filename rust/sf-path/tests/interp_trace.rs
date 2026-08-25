@@ -14,7 +14,8 @@
 //! the 65816 oracle proved C wrong vs the ROM (proportional ROM achase
 //! curves, P_ADDW world adds, P_SPAWN coord/4 + x4, accel exact-hit zeroing,
 //! adiv2 space-flight coupling, P_IFBETWEEN exclusive lower bound,
-//! P_CHILDDEAD fallthrough, p_sound2 data — see
+//! P_CHILDDEAD fallthrough, p_sound2 data, and zero-safe flat object handles
+//! for source pointers (so the player in slot zero remains targetable) — see
 //! sf-oracle/tests/audit_path.rs). The pi_*.txt fixtures are now a snapshot
 //! of the ROM-corrected Rust output; re-bless with SF_BLESS_FIXTURES=1 after
 //! intentional behavior changes.

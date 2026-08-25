@@ -38,6 +38,8 @@ const SECOND_DROP_HITCOUNT: u8 = 25;
 const FIRST_LEG_CHILD_NUMBER: u8 = 1;
 const LAST_LEG_CHILD_NUMBER: u8 = 5;
 const TOP_CHILD_NUMBER: u8 = 6;
+const LEG_ANIMATION_FRAMES: u8 = 16;
+const LEG_SCAMPER_HIGH_FRAME: u8 = 3;
 const LEG_COUNT: usize = 5;
 const CHILD_POSITION_SCALE: u32 = 3;
 const LEG_ONE_LOCAL_POSITION: (i8, i8, i8) = (0, 5, 15);
@@ -183,11 +185,17 @@ fn init_seeds_bar_and_generates_family() {
         assert_ne!(lcf & ACF_COLLTYPE2, 0, "leg {leg}");
         assert_eq!(lcf & COLLTYPE_ENEMY1, 0, "leg {leg}");
         let child_number = g.objs.aliens[leg as usize].sbyte1;
+        let authored_frame = child_number.wrapping_sub(2) & ANIMATION_FRAME_MASK;
+        let expected_frame = if authored_frame == LEG_SCAMPER_HIGH_FRAME {
+            authored_frame
+        } else {
+            authored_frame.wrapping_add(1) % LEG_ANIMATION_FRAMES
+        };
         assert_eq!(g.objs.aliens[leg as usize].hp, BOSSHLEG_PROTECTED_HP);
         assert_eq!(
             g.objs.aliens[leg as usize].animframe & ANIMATION_FRAME_MASK,
-            child_number.wrapping_sub(2) & ANIMATION_FRAME_MASK,
-            "leg {child_number} starts on its authored frame"
+            expected_frame,
+            "leg {child_number} advances its authored frame after the mother"
         );
     }
 

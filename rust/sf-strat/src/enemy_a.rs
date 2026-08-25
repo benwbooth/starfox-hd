@@ -7758,6 +7758,13 @@ pub fn boss_attach_child_to_mother(g: &mut Game, mother: u16, child: u16, child_
         al.ptr = boss_obj_index_or_null(mother);
         al.sword1 = 0;
     }
+    // `s_make_childobj` allocates through `l_add` while the mother is the
+    // current active-list object. Each new child is therefore inserted
+    // immediately after its mother (and before older siblings), so the mother
+    // advances first and every child consumes that completed pose in the same
+    // strategy pass. Leaving allocations at the active-list head made linked
+    // parts follow one tick behind fast-moving multipart bosses.
+    g.objs.active_move_after(child, mother);
     let child_idx = boss_obj_index_or_null(child);
     if child_idx == 0 {
         boss_clear_child_link(g, child);
@@ -8947,11 +8954,13 @@ pub fn boss1makechild(g: &mut Game, idx: u16) {
 
 /// C `Strat_Tow0Explode` (strat_enemy.c:3552).
 pub fn strat_tow0_explode(g: &mut Game, idx: u16) {
-    // tow_0 flags its linked tow_1 child via `ptr` (C comment: mirrors the
-    // path WHENDEAD script until generic handling is ported).
-    let ptr = g.objs.aliens[idx as usize].ptr;
-    if ptr != 0 && (ptr as usize) < NUMBER_AL && g.objs.aliens[ptr as usize].active {
-        g.objs.aliens[ptr as usize].sflags4 |= ASF4_SFLAG8;
+    // tow_0 flags its linked tow_1 child via the ordinary zero-safe object
+    // handle used throughout the flat object model.
+    let child_handle = g.objs.aliens[idx as usize].ptr;
+    if let Some(child) = strat_obj_from_ptr(child_handle) {
+        if g.objs.aliens[child as usize].active {
+            g.objs.aliens[child as usize].sflags4 |= ASF4_SFLAG8;
+        }
     }
     // (F5) ASM tow0explode_Istrat -> pillarexplode plays NO direct sound; the
     // former play_se(0x10) here was a leftover placeholder chime. Deleted.
