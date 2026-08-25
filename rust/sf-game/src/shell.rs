@@ -119,11 +119,11 @@ pub const INTRO_EXIT_FADE_START: u8 = 11;
 /// the controller screen becoming the active background.
 pub const TITLE_TO_BRIEFING_BLACK_HOLD_TICKS: u16 = 22;
 /// Native sound-catalog identity loaded by both attract-intro entry points.
-pub const MUSIC_ATTRACT_INTRO: u8 = 1;
+pub const MUSIC_ATTRACT_INTRO_TRACK: u8 = 1;
 /// Driver cue used while leaving the title.
-pub const MUSIC_FADE_OUT: u8 = 241;
+pub const MUSIC_FADE_OUT_CUE: u8 = 241;
 /// Native sound-catalog identity used by the controller/training screen.
-pub const MUSIC_CONTROLLER_SCREEN: u8 = 3;
+pub const MUSIC_CONTROLLER_SCREEN_TRACK: u8 = 3;
 /// CONT.ASM ignores the first controller-screen START edges until this tick.
 pub const BRIEFING_INPUT_DELAY_TICKS: u16 = 16;
 /// The controller screen's CPU-driven normal fade completes in this many
@@ -150,12 +150,12 @@ const OBSTACLE_SOUND_RIGHT: u8 = 109;
 const OBSTACLE_SOUND_CENTER: u8 = 110;
 const OBSTACLE_SOUND_LEFT: u8 = 111;
 
-/// Route-map music package.
-pub const MUSIC_PLANET_MAP: u8 = 1;
-/// Spherical-planet close-up music package.
-pub const MUSIC_PLANET_ZOOM: u8 = 11;
-/// Flat sector/asteroid close-up music package.
-pub const MUSIC_PLANET_ZOOM_SHORT: u8 = 13;
+/// Native sound-catalog identity loaded for the route map.
+pub const MUSIC_PLANET_MAP_TRACK: u8 = 5;
+/// Driver cue for the spherical-planet close-up.
+pub const MUSIC_PLANET_ZOOM_CUE: u8 = 11;
+/// Driver cue for the flat sector/asteroid close-up.
+pub const MUSIC_PLANET_ZOOM_SHORT_CUE: u8 = 13;
 /// Route-map confirmation effect.
 pub const PLANET_CONFIRM_SOUND: u8 = 16;
 const ROUTE_CONFIRM_BUTTONS: u16 = pad::START | pad::A | pad::B;
@@ -167,9 +167,9 @@ pub const PEPPER_DISMISS_SOUND: u8 = 19;
 
 /// Staff-roll music package in the native audio catalog. The source ending
 /// switches to this package immediately before loading the credits map.
-pub const MUSIC_STAFF_ROLL: u8 = 32;
+pub const MUSIC_STAFF_ROLL_TRACK: u8 = 32;
 /// End-sequence sound package. Its catalog start cue is the source recap song.
-pub const MUSIC_END_SEQUENCE: u8 = 31;
+pub const MUSIC_END_SEQUENCE_TRACK: u8 = 31;
 /// Source circular wipe duration between replay entries and after the last.
 pub const ENDING_REPLAY_TRANSITION_TICKS: u8 = 37;
 /// The source begins bringing the detail panel in below this remaining count.
@@ -956,7 +956,8 @@ impl GameState {
 /// Sound command emitted this tick, drained by sf-app.
 ///
 /// Call-site mapping (C `src/game/sound.h`):
-/// - `PlayMusic` — `Sound_PlayMusic` (map VM setbgm hook).
+/// - `StartMusicCue` — source `startbgm` and gameplay `setbgm` commands.
+/// - `BootMusicTrack` — source `bgm` package load followed by its start cue.
 /// - `PlaySe` — `Sound_PlaySE` (boot.c:159, strings.c:61/141, level inline
 ///   callbacks) and `Strat_TrigSE` (strat_common.c:323, which is just
 ///   `Sound_PlaySE`).
@@ -966,7 +967,8 @@ impl GameState {
 ///   site yet).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoundCmd {
-    PlayMusic(u8),
+    StartMusicCue(u8),
+    BootMusicTrack(u8),
     PlaySe(u8),
     /// `Sound_MakeSnd` (SOUND.ASM makesnd): positional one-shot SE keyed to a
     /// `*sound_l` family, using the source object's world XZ. sf-app resolves
@@ -1247,12 +1249,12 @@ struct ShellHooks {
 }
 
 impl Hooks for ShellHooks {
-    fn play_music(&mut self, track_id: u8) {
+    fn play_music(&mut self, cue: u8) {
         // C Sound_PlayMusic (map setbgm, world.c setbgmdo).
         self.state
             .borrow_mut()
             .sound
-            .push(SoundCmd::PlayMusic(track_id));
+            .push(SoundCmd::StartMusicCue(cue));
     }
 
     fn play_se(&mut self, sound_id: u8) {
@@ -1729,7 +1731,7 @@ impl Shell {
                         {
                             let mut st = self.state.borrow_mut();
                             st.sound.push(SoundCmd::PlaySe(0x67));
-                            st.sound.push(SoundCmd::PlayMusic(0xf1));
+                            st.sound.push(SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE));
                         }
                         self.planets.lives = DEFAULT_LIVES;
                         self.game.vars.reset_player_run_state();
@@ -2132,7 +2134,7 @@ impl Shell {
         self.state
             .borrow_mut()
             .sound
-            .push(SoundCmd::PlayMusic(MUSIC_PLANET_MAP));
+            .push(SoundCmd::BootMusicTrack(MUSIC_PLANET_MAP_TRACK));
     }
 
     fn begin_later_planet_sequence(&mut self, previous_planet: Sf1Planet, travel_path_id: u16) {
@@ -2156,7 +2158,7 @@ impl Shell {
         self.state
             .borrow_mut()
             .sound
-            .push(SoundCmd::PlayMusic(MUSIC_PLANET_MAP));
+            .push(SoundCmd::BootMusicTrack(MUSIC_PLANET_MAP_TRACK));
     }
 
     fn set_planet_phase(&mut self, phase: PlanetSequencePhase) {
@@ -2231,7 +2233,9 @@ impl Shell {
                         self.planet_presentation.briefing_message = self.planets.briefing_message;
                         self.set_planet_phase(PlanetSequencePhase::ShipFlash);
                         let mut state = self.state.borrow_mut();
-                        state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+                        state
+                            .sound
+                            .push(SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE));
                         state.sound.push(SoundCmd::PlaySe(PLANET_CONFIRM_SOUND));
                     }
                 }
@@ -2254,7 +2258,9 @@ impl Shell {
                 if self.pad1_new & (pad::B | pad::START | pad::Y | pad::A | pad::X) != 0 {
                     self.set_planet_phase(PlanetSequencePhase::ShipFlash);
                     let mut state = self.state.borrow_mut();
-                    state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+                    state
+                        .sound
+                        .push(SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE));
                     state.sound.push(SoundCmd::PlaySe(PLANET_CONFIRM_SOUND));
                 }
             }
@@ -2299,14 +2305,14 @@ impl Shell {
                 if self.planet_presentation.phase_tick >= BRIEFING_PREPARATION_TICKS {
                     self.set_planet_phase(PlanetSequencePhase::ZoomingPlanet);
                     let music = if self.planet_presentation.selected_planet.is_sphere() {
-                        MUSIC_PLANET_ZOOM
+                        MUSIC_PLANET_ZOOM_CUE
                     } else {
-                        MUSIC_PLANET_ZOOM_SHORT
+                        MUSIC_PLANET_ZOOM_SHORT_CUE
                     };
                     self.state
                         .borrow_mut()
                         .sound
-                        .push(SoundCmd::PlayMusic(music));
+                        .push(SoundCmd::StartMusicCue(music));
                 }
             }
             PlanetSequencePhase::ZoomingPlanet => {
@@ -2435,7 +2441,9 @@ impl Shell {
             if start_pressed {
                 state.sound.push(SoundCmd::PlaySe(16));
             }
-            state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+            state
+                .sound
+                .push(SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE));
         }
         let destination = if start_pressed {
             AttractDestination::Briefing
@@ -2453,7 +2461,7 @@ impl Shell {
             self.state
                 .borrow_mut()
                 .sound
-                .push(SoundCmd::PlayMusic(MUSIC_ATTRACT_INTRO));
+                .push(SoundCmd::BootMusicTrack(MUSIC_ATTRACT_INTRO_TRACK));
             self.attract.level_loaded = true;
         }
 
@@ -2486,7 +2494,7 @@ impl Shell {
             self.state
                 .borrow_mut()
                 .sound
-                .push(SoundCmd::PlayMusic(MUSIC_CONTROLLER_SCREEN));
+                .push(SoundCmd::BootMusicTrack(MUSIC_CONTROLLER_SCREEN_TRACK));
             self.briefing.level_loaded = true;
         }
 
@@ -2550,7 +2558,9 @@ impl Shell {
                     {
                         let mut state = self.state.borrow_mut();
                         state.sound.push(SoundCmd::PlaySe(BRIEFING_CONFIRM_SOUND));
-                        state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+                        state
+                            .sound
+                            .push(SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE));
                         state.windows.fade_to_black_over(
                             MapFadeRate::Normal,
                             0,
@@ -2634,7 +2644,9 @@ impl Shell {
         {
             {
                 let mut state = self.state.borrow_mut();
-                state.sound.push(SoundCmd::PlayMusic(MUSIC_FADE_OUT));
+                state
+                    .sound
+                    .push(SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE));
                 state
                     .windows
                     .fade_to_black_over(MapFadeRate::Normal, 0, BRIEFING_FADE_TICKS);
@@ -3542,7 +3554,7 @@ impl Shell {
         self.state
             .borrow_mut()
             .sound
-            .push(SoundCmd::PlayMusic(MUSIC_END_SEQUENCE));
+            .push(SoundCmd::BootMusicTrack(MUSIC_END_SEQUENCE_TRACK));
         // ROM ENDSEQ mutes sound effects throughout the recap and staff roll.
         self.state
             .borrow_mut()
@@ -3729,7 +3741,7 @@ impl Shell {
         self.state
             .borrow_mut()
             .sound
-            .push(SoundCmd::PlayMusic(MUSIC_STAFF_ROLL));
+            .push(SoundCmd::BootMusicTrack(MUSIC_STAFF_ROLL_TRACK));
         self.game_state = GameState::Ending;
     }
 
@@ -4505,7 +4517,7 @@ mod tests {
         assert!(!sh.frame().player_dead);
         let snd = sh.drain_sound();
         assert!(snd.contains(&SoundCmd::PlaySe(0x67)));
-        assert!(snd.contains(&SoundCmd::PlayMusic(0xf1)));
+        assert!(snd.contains(&SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE)));
     }
 
     /// Zero continue credits: death with no lives skips Continue → Title.
@@ -4712,7 +4724,7 @@ mod tests {
         let mut shell = Shell::new();
         advance_to_planet_select(&mut shell);
         let entry_sounds = shell.drain_sound();
-        assert!(entry_sounds.contains(&SoundCmd::PlayMusic(MUSIC_PLANET_MAP)));
+        assert!(entry_sounds.contains(&SoundCmd::BootMusicTrack(MUSIC_PLANET_MAP_TRACK)));
         assert_eq!(
             shell.frame().windowmode,
             0,
@@ -4732,7 +4744,7 @@ mod tests {
         shell.tick(0);
         assert_eq!(shell.frame().whichroute, 1);
         let confirmation_sounds = shell.drain_sound();
-        assert!(confirmation_sounds.contains(&SoundCmd::PlayMusic(MUSIC_FADE_OUT)));
+        assert!(confirmation_sounds.contains(&SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE)));
         assert!(confirmation_sounds.contains(&SoundCmd::PlaySe(PLANET_CONFIRM_SOUND)));
 
         assert_planet_phase_duration(
@@ -4767,7 +4779,7 @@ mod tests {
         );
         assert!(shell
             .drain_sound()
-            .contains(&SoundCmd::PlayMusic(MUSIC_PLANET_ZOOM)));
+            .contains(&SoundCmd::StartMusicCue(MUSIC_PLANET_ZOOM_CUE)));
         assert_planet_phase_duration(
             &mut shell,
             PlanetSequencePhase::ZoomingPlanet,
@@ -4876,7 +4888,7 @@ mod tests {
             sounds.contains(&SoundCmd::NoSetPort3(true)),
             "ending sequence enables the sound-effect mute"
         );
-        assert!(sounds.contains(&SoundCmd::PlayMusic(MUSIC_STAFF_ROLL)));
+        assert!(sounds.contains(&SoundCmd::BootMusicTrack(MUSIC_STAFF_ROLL_TRACK)));
     }
 
     /// The source final screen is an infinite presentation, not a shortcut

@@ -8,9 +8,9 @@ use sf_game::alien::ASF_TEXTOBJ;
 use sf_game::shell::{
     GameState, GameplayEntryPhase, Shell, SoundCmd, BOOT_TO_ATTRACT_DELAY_TICKS,
     BRIEFING_CONFIRM_SOUND, BRIEFING_INPUT_DELAY_TICKS, BRIEFING_MOVE_SOUND,
-    INTRO_INPUT_DELAY_TICKS, MUSIC_ATTRACT_INTRO, MUSIC_CONTROLLER_SCREEN, MUSIC_FADE_OUT,
-    TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS, TITLE_PRESENTATION_INPUT_READY_TICKS,
-    TRAINING_INPUT_DELAY_TICKS,
+    INTRO_INPUT_DELAY_TICKS, MUSIC_ATTRACT_INTRO_TRACK, MUSIC_CONTROLLER_SCREEN_TRACK,
+    MUSIC_FADE_OUT_CUE, TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS,
+    TITLE_PRESENTATION_INPUT_READY_TICKS, TRAINING_INPUT_DELAY_TICKS,
 };
 use sf_map::catalog::map_id;
 use sf_strat::common::{sv, StratRam};
@@ -99,7 +99,7 @@ fn boot_loads_the_retail_intro_map_player_and_music() {
     assert!(shell.game.objs.player().is_some());
     assert!(shell
         .drain_sound()
-        .contains(&SoundCmd::PlayMusic(MUSIC_ATTRACT_INTRO)));
+        .contains(&SoundCmd::BootMusicTrack(MUSIC_ATTRACT_INTRO_TRACK)));
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn intro_skip_gate_and_title_start_gate_reach_the_controller_screen() {
     assert_eq!(shell.state(), GameState::Title);
     assert!(!shell
         .drain_sound()
-        .contains(&SoundCmd::PlayMusic(MUSIC_FADE_OUT)));
+        .contains(&SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE)));
 
     for _ in 4..TITLE_PRESENTATION_INPUT_READY_TICKS {
         shell.tick(0);
@@ -164,14 +164,14 @@ fn intro_skip_gate_and_title_start_gate_reach_the_controller_screen() {
     assert_eq!(shell.state(), GameState::Title);
     let sounds = shell.drain_sound();
     assert!(sounds.contains(&SoundCmd::PlaySe(16)));
-    assert!(sounds.contains(&SoundCmd::PlayMusic(MUSIC_FADE_OUT)));
+    assert!(sounds.contains(&SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE)));
 
     tick_until_state(&mut shell, GameState::Briefing, TRANSITION_LIMIT_TICKS);
     shell.tick(0);
     assert_eq!(shell.game.world.loaded_map_id, Some(map_id::CONTINUE));
     assert!(shell
         .drain_sound()
-        .contains(&SoundCmd::PlayMusic(MUSIC_CONTROLLER_SCREEN)));
+        .contains(&SoundCmd::BootMusicTrack(MUSIC_CONTROLLER_SCREEN_TRACK)));
 }
 
 #[test]
@@ -207,7 +207,7 @@ fn controller_layout_and_game_selection_match_cont_asm() {
     shell.tick(pad::START);
     let sounds = shell.drain_sound();
     assert!(sounds.contains(&SoundCmd::PlaySe(BRIEFING_CONFIRM_SOUND)));
-    assert!(sounds.contains(&SoundCmd::PlayMusic(MUSIC_FADE_OUT)));
+    assert!(sounds.contains(&SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE)));
     tick_until_state(&mut shell, GameState::PlanetSelect, TRANSITION_LIMIT_TICKS);
 }
 
@@ -299,14 +299,14 @@ fn unattended_title_fades_back_to_a_fresh_intro() {
     assert_eq!(shell.state(), GameState::Title);
     assert!(shell
         .drain_sound()
-        .contains(&SoundCmd::PlayMusic(MUSIC_FADE_OUT)));
+        .contains(&SoundCmd::StartMusicCue(MUSIC_FADE_OUT_CUE)));
 
     tick_until_state(&mut shell, GameState::AttractIntro, TRANSITION_LIMIT_TICKS);
     shell.tick(0);
     assert_eq!(shell.game.world.loaded_map_id, Some(map_id::INTRO));
     assert!(shell
         .drain_sound()
-        .contains(&SoundCmd::PlayMusic(MUSIC_ATTRACT_INTRO)));
+        .contains(&SoundCmd::BootMusicTrack(MUSIC_ATTRACT_INTRO_TRACK)));
 }
 
 #[test]

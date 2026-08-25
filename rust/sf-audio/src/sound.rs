@@ -514,34 +514,25 @@ impl Sound {
         backend.play_immediate(sound_id);
     }
 
-    /// C `Sound_PlayMusic`.
-    ///
-    /// During gameplay (`in_gameplay`, C `g_game_state == GAME_STATE_PLAYING`)
-    /// this matches the original exactly: map `setbgm` ops (WORLD.ASM
-    /// setbgmdo) and strat `startbgm` macros write a RAW driver song command
-    /// into bgm_music — 5 = boss, 7 = fanfare, $F0 = all-clear, and $F1 =
-    /// fade-out — played from
-    /// the bank booted at level entry.  No sbootapu reboot.  Values >=
-    /// SND_TRACK_COUNT are always raw commands.
-    ///
-    /// Outside gameplay the port's UI/map scripts pass sndtbl track ids
-    /// (e.g. the title map's setbgm 2 -> SND_TITLE): full bootapu semantics.
-    pub fn play_music(&mut self, backend: &mut dyn SoundBackend, music_id: u8, in_gameplay: bool) {
-        if in_gameplay || music_id >= catalog::SND_TRACK_COUNT {
-            backend.start_music(music_id);
-            return;
-        }
-        Self::boot_track(backend, music_id);
+    /// Source `startbgm`: start a driver cue from the currently loaded package.
+    pub fn start_music_cue(&mut self, backend: &mut dyn SoundBackend, cue: u8) {
+        backend.start_music(cue);
+    }
+
+    /// Source `bgm`: load a sound package and start its catalog entry cue.
+    pub fn boot_music_track(&mut self, backend: &mut dyn SoundBackend, track: u8) {
+        backend.load_track(track);
+        backend.start_music(catalog::track_start_cue(track));
     }
 
     /// ROM `do_bgm_init` (SOUND.ASM:47) — `bootapu #snd_init`.
     pub fn do_bgm_init(&mut self, backend: &mut dyn SoundBackend) {
-        self.play_music(backend, catalog::SND_INIT, false);
+        self.boot_music_track(backend, catalog::SND_INIT);
     }
 
     /// ROM `do_bgm_continue` (SOUND.ASM:75) — `bootapu #snd_continue`.
     pub fn do_bgm_continue(&mut self, backend: &mut dyn SoundBackend) {
-        self.play_music(backend, catalog::SND_CONTINUE, false);
+        self.boot_music_track(backend, catalog::SND_CONTINUE);
     }
 
     /// C `Sound_StopMusic`: startbgm 0 — tell the driver to stop the song.
@@ -566,15 +557,6 @@ impl Sound {
     }
 
     // -----------------------------------------------------------------------
-    // bootapu: upload the sndtbl row and queue its start command (bgm_music)
-    // (C `sound_boot_track`).
-    // -----------------------------------------------------------------------
-    fn boot_track(backend: &mut dyn SoundBackend, track_id: u8) {
-        backend.load_track(track_id);
-        backend.start_music(catalog::track_start_cue(track_id));
-    }
-
-    // -----------------------------------------------------------------------
     // Level-entry BGM boot (C `sound_level_music_tick`).  While the player
     // is dead (death anim / game over / continue), drop the boot latch so
     // the respawn reboots the level bank — mirroring the original's
@@ -594,7 +576,7 @@ impl Sound {
         self.music_booted = true;
 
         if let Some(track) = sound_track_for_map(state.new_map) {
-            Self::boot_track(backend, track);
+            self.boot_music_track(backend, track);
         }
     }
 
@@ -1062,24 +1044,42 @@ mod tests {
     }
 
     #[test]
-    fn play_music_raw_vs_boot() {
+    fn music_cues_and_track_boots_are_explicit() {
+        const GAMEPLAY_BOSS_CUE: u8 = 5;
+
         let mut snd = Sound::new();
         let mut be = FakeBackend::default();
 
-        // In gameplay: raw driver command, no reboot (setbgmdo semantics).
-        snd.play_music(&mut be, 5, true);
-        assert_eq!(be.bgm, vec![5]);
+        snd.start_music_cue(&mut be, GAMEPLAY_BOSS_CUE);
+        assert_eq!(be.bgm, vec![GAMEPLAY_BOSS_CUE]);
         assert!(be.booted.is_empty());
 
-        // >= SND_TRACK_COUNT is always a raw command (e.g. $F0 all-clear).
-        snd.play_music(&mut be, 0xF0, false);
-        assert_eq!(be.bgm, vec![5, 0xF0]);
+        snd.start_music_cue(&mut be, catalog::MUSIC_ALL_CLEAR);
+        assert_eq!(be.bgm, vec![GAMEPLAY_BOSS_CUE, catalog::MUSIC_ALL_CLEAR]);
         assert!(be.booted.is_empty());
 
-        // Outside gameplay with a track id: full bootapu semantics.
-        snd.play_music(&mut be, catalog::SND_TITLE, false);
+        snd.boot_music_track(&mut be, catalog::SND_TITLE);
         assert_eq!(be.booted, vec![catalog::SND_TITLE]);
-        assert_eq!(be.bgm, vec![5, 0xF0, 0x12]);
+        assert_eq!(
+            be.bgm,
+            vec![
+                GAMEPLAY_BOSS_CUE,
+                catalog::MUSIC_ALL_CLEAR,
+                catalog::track_start_cue(catalog::SND_TITLE),
+            ]
+        );
+
+        snd.boot_music_track(&mut be, catalog::SND_MAP);
+        assert_eq!(be.booted, vec![catalog::SND_TITLE, catalog::SND_MAP]);
+        assert_eq!(
+            be.bgm,
+            vec![
+                GAMEPLAY_BOSS_CUE,
+                catalog::MUSIC_ALL_CLEAR,
+                catalog::track_start_cue(catalog::SND_TITLE),
+                catalog::track_start_cue(catalog::SND_MAP),
+            ]
+        );
     }
 
     #[test]

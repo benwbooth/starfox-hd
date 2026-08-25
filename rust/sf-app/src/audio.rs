@@ -474,8 +474,9 @@ impl AudioSys {
                         self.sound.make_snd(&state, &player, x, z, fam);
                     }
                 }
-                SoundCmd::PlayMusic(id) => {
-                    self.sound.play_music(&mut self.backend, id, in_gameplay)
+                SoundCmd::StartMusicCue(cue) => self.sound.start_music_cue(&mut self.backend, cue),
+                SoundCmd::BootMusicTrack(track) => {
+                    self.sound.boot_music_track(&mut self.backend, track)
                 }
                 SoundCmd::PlayImmediate(id) => self.sound.play(&mut self.backend, id),
                 SoundCmd::StopMusic => self.sound.stop_music(&mut self.backend),

@@ -158,3 +158,37 @@ fn corneria_track_boots_and_plays() {
         eprintln!("wrote {}", path.display());
     }
 }
+
+#[test]
+fn map_track_shipping_pcm_prefix_matches_the_oracle() {
+    let Some(stats) = boot_and_render(boot::SND_MAP) else {
+        return;
+    };
+    assert_audible(boot::SND_MAP, &stats);
+
+    let dir = asset_dir().expect("sound data used by the oracle render");
+    let path = dir.join("native_audio/music/track_05_cue_01.wav");
+    let wave =
+        std::fs::read(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    let pcm = wave
+        .get(44..)
+        .unwrap_or_else(|| panic!("{} has no PCM payload", path.display()));
+    let expected_bytes = stats.samples.len() * std::mem::size_of::<i16>();
+    assert!(
+        pcm.len() >= expected_bytes,
+        "{} is shorter than the oracle prefix",
+        path.display()
+    );
+    for (frame, (actual, expected)) in stats
+        .samples
+        .iter()
+        .zip(pcm[..expected_bytes].chunks_exact(2))
+        .enumerate()
+    {
+        assert_eq!(
+            actual.to_le_bytes(),
+            [expected[0], expected[1]],
+            "map music PCM diverged at sample {frame}"
+        );
+    }
+}
