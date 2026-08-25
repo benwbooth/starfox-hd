@@ -29,8 +29,22 @@ const SOURCE_MESSAGE_ATLAS_HEIGHT: usize = SOURCE_MESSAGE_ATLAS_ROWS * SOURCE_ME
 
 /// Advance/draw size in SNES units (256x224 reference).
 const FONT_CELL: f32 = 8.0;
+const SOURCE_SCREEN_WIDTH: f32 = 256.0;
+const SOURCE_SCREEN_HEIGHT: f32 = 224.0;
 
 const GLYPH_SPACE: u8 = 39;
+
+/// Scale authored 256 by 224 screen coordinates onto the active HD target.
+/// Bitmap portraits, OAM sprites, and message text all share these axes; using
+/// the vertical scale for both text axes moves the text left into the portrait
+/// on a widescreen target.
+#[inline]
+fn source_screen_scales(screen_width: i32, screen_height: i32) -> (f32, f32) {
+    (
+        screen_width as f32 / SOURCE_SCREEN_WIDTH,
+        screen_height as f32 / SOURCE_SCREEN_HEIGHT,
+    )
+}
 
 pub struct Font {
     texture: Option<TextureId>,
@@ -154,7 +168,7 @@ impl Font {
         text: &str,
         color: [f32; 4],
     ) {
-        let scale = self.screen_h as f32 / 224.0;
+        let (scale_x, scale_y) = source_screen_scales(self.screen_w, self.screen_h);
         let proj = ortho(self.screen_w as f32, self.screen_h as f32);
         let mut source_x = x;
         for byte in text.bytes() {
@@ -169,10 +183,10 @@ impl Font {
                 let u1 = u0 + SOURCE_MESSAGE_GLYPH_WIDTH as f32 / SOURCE_MESSAGE_ATLAS_WIDTH as f32;
                 let v1 =
                     v0 + SOURCE_MESSAGE_GLYPH_HEIGHT as f32 / SOURCE_MESSAGE_ATLAS_HEIGHT as f32;
-                let left = source_x as f32 * scale;
-                let right = left + SOURCE_MESSAGE_GLYPH_WIDTH as f32 * scale;
-                let top = self.screen_h as f32 - y_top as f32 * scale;
-                let bottom = top - SOURCE_MESSAGE_GLYPH_HEIGHT as f32 * scale;
+                let left = source_x as f32 * scale_x;
+                let right = left + SOURCE_MESSAGE_GLYPH_WIDTH as f32 * scale_x;
+                let top = self.screen_h as f32 - y_top as f32 * scale_y;
+                let bottom = top - SOURCE_MESSAGE_GLYPH_HEIGHT as f32 * scale_y;
                 let vertices = [
                     Vertex2 {
                         pos: [left, bottom],
@@ -346,6 +360,25 @@ impl Font {
         buf.reverse();
         let s = String::from_utf8(buf).unwrap_or_default();
         self.draw_string(gpu, x, y, &s, 1.0, 1.0, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{source_screen_scales, SOURCE_SCREEN_HEIGHT};
+
+    #[test]
+    fn source_message_uses_the_same_widescreen_axes_as_portraits() {
+        const TEST_SCREEN_WIDTH: i32 = 1_280;
+        const TEST_SCREEN_HEIGHT: i32 = 720;
+
+        let (scale_x, scale_y) = source_screen_scales(TEST_SCREEN_WIDTH, TEST_SCREEN_HEIGHT);
+        assert_eq!(scale_x, 5.0);
+        assert!((scale_y - TEST_SCREEN_HEIGHT as f32 / SOURCE_SCREEN_HEIGHT).abs() < f32::EPSILON);
+
+        const PORTRAIT_RIGHT: f32 = 48.0 + 16.0 + 32.0;
+        const MESSAGE_LEFT: f32 = 82.0 + 16.0;
+        assert!(MESSAGE_LEFT * scale_x > PORTRAIT_RIGHT * scale_x);
     }
 }
 

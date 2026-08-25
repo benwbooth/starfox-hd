@@ -28,9 +28,9 @@ use sf_core::sf1_shape_metrics::sf1_shape_metrics;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
     ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT,
-    ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-    ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL, ASF_SSPRITE, ATGND,
-    ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
+    ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE,
+    ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL,
+    ASF_SSPRITE, ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::PCBOX_WING_HP;
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -827,6 +827,8 @@ pub(crate) fn strat_find_near_colltype(
 const RADER_HP: u8 = 8;
 const RADER_AP: u8 = 4;
 const SKILLFLY_RADIUS_DEFAULT: i16 = 20 << 2;
+const SKILLFLY_DEPTH_RANGE: u16 = 200;
+const SKILLFLY_BEHIND_PROBE: i16 = 1000;
 const PILLAR3_HP: u8 = 8;
 const PILLAR3_FALL_HP: u8 = 4;
 const PILLAR3_AP: u8 = 8;
@@ -4372,7 +4374,7 @@ pub fn elaser2die_istrat(g: &mut Game, idx: u16) {
             let src = g.objs.aliens[idx as usize];
             let al = &mut g.objs.aliens[flash as usize];
             al.sflags3 &= !ASF3_REALOBJ;
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.worldx = src.worldx;
             al.worldy = src.worldy;
             al.worldz = src.worldz;
@@ -4398,9 +4400,15 @@ pub fn elaser2die_strat(g: &mut Game, idx: u16) {
         let child = g.objs.aliens[idx as usize].ptr;
         if child != 0 {
             let ci = child.wrapping_sub(1);
-            if (ci as usize) < NUMBER_AL && g.objs.aliens[ci as usize].active {
+            if (ci as usize) < NUMBER_AL
+                && g.objs.aliens[ci as usize].active
+                && g.objs.aliens[ci as usize].shape == SH_LFDIE_PROXY
+                && g.objs.aliens[ci as usize].sflags3 & ASF3_REALOBJ == 0
+            {
                 // Mark child dead via aldead only affects current strat object;
-                // free the flash child directly.
+                // free the flash child directly. Its source slot may already
+                // have been retired and reused, so validate the typed flash
+                // identity before acting on the retained index.
                 g.objs.free(ci);
             }
             g.objs.aliens[idx as usize].ptr = 0;
@@ -7328,31 +7336,22 @@ fn skillfly_remove(g: &mut Game) {
     g.objs.aldead = 1;
 }
 
+/// Absolute distance in the source's wrapping 16-bit world-coordinate space.
+/// Stages legitimately cross the signed boundary; widening before subtraction
+/// turns two adjacent points there into points nearly 65,536 units apart.
+#[inline]
+fn skillfly_axis_distance(first: i16, second: i16) -> u16 {
+    first.wrapping_sub(second).unsigned_abs()
+}
+
 /// C `skillfly_strat` (strat_enemy.c:550).
 fn skillfly_strat(g: &mut Game, idx: u16) {
     let Some(pl) = player(g) else { return };
     let me = g.objs.aliens[idx as usize];
-    if (me.worldz as i32 - pl.worldz as i32).abs() < 200 {
-        let mut radius = me.sword1;
-        if radius < 0 {
-            radius = radius.wrapping_neg();
-        }
-        let dx = {
-            let d = me.worldx.wrapping_sub(pl.worldx);
-            if d < 0 {
-                d.wrapping_neg()
-            } else {
-                d
-            }
-        };
-        let dy = {
-            let d = me.worldy.wrapping_sub(pl.worldy);
-            if d < 0 {
-                d.wrapping_neg()
-            } else {
-                d
-            }
-        };
+    if skillfly_axis_distance(me.worldz, pl.worldz) < SKILLFLY_DEPTH_RANGE {
+        let radius = me.sword1.unsigned_abs();
+        let dx = skillfly_axis_distance(me.worldx, pl.worldx);
+        let dy = skillfly_axis_distance(me.worldy, pl.worldy);
         if dx < radius && dy < radius {
             skillfly_remove(g);
             return;
@@ -7360,9 +7359,9 @@ fn skillfly_strat(g: &mut Game, idx: u16) {
     }
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.worldz = al.worldz.wrapping_add(1000);
+        al.worldz = al.worldz.wrapping_add(SKILLFLY_BEHIND_PROBE);
     }
-    if pl.worldz >= g.objs.aliens[idx as usize].worldz {
+    if pl.worldz.wrapping_sub(g.objs.aliens[idx as usize].worldz) >= 0 {
         // ASM `s_jmp_objinfront y,x,.rem` (DSTRATS.ASM:8471) reaches `.rem`
         // WITHOUT the `s_dec_var skillfly` — only the caught path (:8459-8460)
         // decrements the skill-ring counter. (Audit A #33)
@@ -7370,7 +7369,7 @@ fn skillfly_strat(g: &mut Game, idx: u16) {
         return;
     }
     let al = &mut g.objs.aliens[idx as usize];
-    al.worldz = al.worldz.wrapping_sub(1000);
+    al.worldz = al.worldz.wrapping_sub(SKILLFLY_BEHIND_PROBE);
 }
 
 /// C `Strat_Skillfly_Init` (strat_enemy.c:592).
@@ -7378,9 +7377,9 @@ pub fn strat_skillfly_init(g: &mut Game, idx: u16) {
     let s = sid(g, skillfly_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         if al.shape == 0 {
-            al.sflags |= ASF_INVISIBLE;
+            al.sflags4 |= ASF4_INVISIBLE;
         }
         al.stratptr = Some(s);
     }
@@ -7396,6 +7395,42 @@ pub fn strat_skillfly_init(g: &mut Game, idx: u16) {
     // Istrat falls straight through into the strat body on the spawn frame.
     // (Audit A #37)
     skillfly_strat(g, idx);
+}
+
+#[cfg(test)]
+mod skillfly_coordinate_tests {
+    use super::*;
+
+    #[test]
+    fn checkpoint_catches_player_across_signed_world_depth_boundary() {
+        let mut game = Game::new();
+        let player = game.objs.alloc().expect("player slot");
+        assert_eq!(player, 0);
+        game.objs.aliens[player as usize].worldx = 40;
+        game.objs.aliens[player as usize].worldy = -60;
+        game.objs.aliens[player as usize].worldz = i16::MAX - 7;
+
+        let checkpoint = game.objs.alloc().expect("checkpoint slot");
+        let object = &mut game.objs.aliens[checkpoint as usize];
+        object.worldx = 40;
+        object.worldy = -60;
+        object.worldz = i16::MIN + 8;
+        object.sword1 = 100;
+
+        strat_skillfly_init(&mut game, checkpoint);
+
+        assert_eq!(skillfly_axis_distance(i16::MAX - 7, i16::MIN + 8), 16);
+        assert_ne!(
+            game.objs.aliens[checkpoint as usize].sflags2 & ASF2_COLLDISABLE,
+            0
+        );
+        assert_ne!(
+            game.objs.aliens[checkpoint as usize].sflags4 & ASF4_INVISIBLE,
+            0
+        );
+        assert_eq!(game.vars.map.skill_fly, 0);
+        assert_eq!(game.objs.aldead, 1);
+    }
 }
 
 // ============================================================

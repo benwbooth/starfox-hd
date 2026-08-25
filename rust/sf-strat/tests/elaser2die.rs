@@ -1,6 +1,6 @@
 //! ROM `elaser2die` / `pelaser2die` / `playerbeamdie` (GSTRATS.ASM).
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ, ATZREMOVE};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{
@@ -18,7 +18,7 @@ fn elaser2die_spawns_flash_and_animates_out() {
     assert!(g.objs.aliens[flash as usize].active);
     assert_eq!(g.objs.aliens[idx as usize].next, Some(flash));
     assert_eq!(g.objs.aliens[flash as usize].sflags3 & ASF3_REALOBJ, 0);
-    assert_ne!(g.objs.aliens[flash as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[flash as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // First strat tick already ran from istrat fall-through: anim += 2
     assert_eq!(g.objs.aliens[idx as usize].animframe & 0x7F, 2);
 
@@ -30,6 +30,27 @@ fn elaser2die_spawns_flash_and_animates_out() {
         assert!(guard < 16, "elaser2die never removed");
     }
     assert!(!g.objs.aliens[flash as usize].active);
+}
+
+#[test]
+fn elaser2die_does_not_remove_an_object_that_reuses_its_flash_slot() {
+    const REPLACEMENT_SHAPE: u16 = 77;
+
+    let mut g = Game::new();
+    let laser = g.objs.alloc().expect("laser");
+    elaser2die_istrat(&mut g, laser);
+    let flash = g.objs.aliens[laser as usize].ptr - 1;
+    g.objs.free(flash);
+
+    let replacement = g.objs.alloc().expect("replacement object");
+    assert_eq!(replacement, flash, "the source slot should be reused");
+    g.objs.aliens[replacement as usize].shape = REPLACEMENT_SHAPE;
+    g.objs.aliens[laser as usize].animframe = 0x80 | 8;
+
+    elaser2die_strat(&mut g, laser);
+
+    assert!(g.objs.aliens[replacement as usize].active);
+    assert_eq!(g.objs.aliens[replacement as usize].shape, REPLACEMENT_SHAPE);
 }
 
 #[test]

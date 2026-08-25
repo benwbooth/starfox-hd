@@ -286,10 +286,7 @@ fn source_painter_order(entries: &[DrawListEntry], camera: SourceSceneCamera) ->
     order
 }
 
-fn launch_corridor_depth_layers(
-    entries: &[DrawListEntry],
-    camera: SourceSceneCamera,
-) -> [u8; MAX_DRAW_LIST] {
+fn launch_corridor_depth_layers(entries: &[DrawListEntry]) -> [u8; MAX_DRAW_LIST] {
     let mut tunnel_order = entries
         .iter()
         .enumerate()
@@ -301,8 +298,15 @@ fn launch_corridor_depth_layers(
             .then_some(index)
         })
         .collect::<Vec<_>>();
-    tunnel_order
-        .sort_by_key(|index| std::cmp::Reverse(source_sort_depth(&entries[*index], camera)));
+    // Consecutive MAP1_1A tunnel meshes overlap by twenty source units. Their
+    // seam owner must remain fixed while the intro camera turns through 180
+    // degrees: camera-depth sorting reverses at the midpoint and makes the
+    // two coplanar surfaces exchange ownership for a frame. World depth and
+    // shape identity are authored, stable tie-breakers for this one corridor.
+    tunnel_order.sort_by_key(|index| {
+        let entry = &entries[*index];
+        (entry.z, entry.shape_id, entry.interpolation_id)
+    });
     let mut layers = [0; MAX_DRAW_LIST];
     for (layer, index) in tunnel_order.into_iter().enumerate() {
         layers[index] = (layer + 1) as u8;
@@ -630,14 +634,7 @@ impl DrawListRenderer {
             || (0..presented.len()).collect(),
             |camera| source_painter_order(presented, camera),
         );
-        let (render_camera, render_rotation) = transform.source_camera();
-        let corridor_depth_layers = launch_corridor_depth_layers(
-            presented,
-            SourceSceneCamera {
-                position: [render_camera.x, render_camera.y, render_camera.z],
-                rotation: render_rotation,
-            },
-        );
+        let corridor_depth_layers = launch_corridor_depth_layers(presented);
 
         // The source builds ground shadows into the indexed bitmap before its
         // normal-object pass. The selected presentation style controls whether
@@ -879,7 +876,7 @@ impl DrawListRenderer {
 mod interpolation_tests {
     use super::{
         can_interpolate, launch_corridor_depth_layers, presentation_entries,
-        source_safe_interpolation_alpha, DrawListEntry, SourceSceneCamera,
+        source_safe_interpolation_alpha, DrawListEntry,
     };
     use crate::shapes::{SHAPE_ALIAS_OP_0, SHAPE_ALIAS_OP_1};
     use crate::transform::Transform;
@@ -1018,7 +1015,7 @@ mod interpolation_tests {
     }
 
     #[test]
-    fn overlapping_corridor_segments_follow_source_painter_depth() {
+    fn overlapping_corridor_segments_follow_stable_world_depth() {
         const FAR_DEPTH: i32 = 800;
         const NEAR_DEPTH: i32 = 200;
 
@@ -1035,17 +1032,51 @@ mod interpolation_tests {
             },
             DrawListEntry::default(),
         ];
-        let layers = launch_corridor_depth_layers(
-            &entries,
-            SourceSceneCamera {
-                position: [0; 3],
-                rotation: [0; 3],
-            },
-        );
+        let layers = launch_corridor_depth_layers(&entries);
 
-        assert_eq!(layers[0], 1);
-        assert_eq!(layers[1], 2);
+        assert_eq!(layers[0], 2);
+        assert_eq!(layers[1], 1);
         assert_eq!(layers[2], 0);
+    }
+
+    #[test]
+    fn later_corridor_spawns_do_not_renumber_existing_seam_owners() {
+        const FIRST_DEPTH: i32 = 200;
+        const SECOND_DEPTH: i32 = 800;
+
+        let first_pair = [
+            DrawListEntry {
+                shape_id: SHAPE_ALIAS_OP_0,
+                z: FIRST_DEPTH << 16,
+                interpolation_id: 1,
+                ..DrawListEntry::default()
+            },
+            DrawListEntry {
+                shape_id: SHAPE_ALIAS_OP_1,
+                z: FIRST_DEPTH << 16,
+                interpolation_id: 2,
+                ..DrawListEntry::default()
+            },
+        ];
+        let initial = launch_corridor_depth_layers(&first_pair);
+        let with_later_pair = launch_corridor_depth_layers(&[
+            first_pair[0],
+            first_pair[1],
+            DrawListEntry {
+                shape_id: SHAPE_ALIAS_OP_0,
+                z: SECOND_DEPTH << 16,
+                interpolation_id: 3,
+                ..DrawListEntry::default()
+            },
+            DrawListEntry {
+                shape_id: SHAPE_ALIAS_OP_1,
+                z: SECOND_DEPTH << 16,
+                interpolation_id: 4,
+                ..DrawListEntry::default()
+            },
+        ]);
+
+        assert_eq!(&with_later_pair[..2], &initial[..2]);
     }
 }
 
