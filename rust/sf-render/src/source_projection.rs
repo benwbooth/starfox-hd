@@ -30,6 +30,7 @@ const PLAYFIELD_TOP: i16 = 16;
 const PLAYFIELD_BOTTOM: i16 = 207;
 const LIGHT_COMPONENT_Q15: i16 = 18_917;
 const LIGHT_QUANTIZATION_SHIFT: u32 = 8;
+const OBJECT_Y_HALF_TURN: u8 = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourcePose {
@@ -349,6 +350,25 @@ fn source_object_transform(
         pose.world_position[2].wrapping_sub(pose.view_position[2]),
     ];
     let view_position = matrix_rotate_q15(view_matrix, relative[0], relative[1], relative[2]);
+    let exact_axis_matrix = if pose.rotation == [0; 3] {
+        Some(view_matrix)
+    } else if pose.rotation == [0, OBJECT_Y_HALF_TURN, 0] {
+        let mut matrix = view_matrix;
+        matrix[0] = matrix[0].map(i16::wrapping_neg);
+        matrix[2] = matrix[2].map(i16::wrapping_neg);
+        Some(matrix)
+    } else {
+        None
+    };
+    if let Some(mut matrix) = exact_axis_matrix {
+        // The source has dedicated zero-rotation and Y-half-turn paths which
+        // copy or sign-flip the view matrix. Avoiding an approximate identity
+        // multiply changes fixed-point projections at visible pixel edges.
+        if flatten_height {
+            matrix[1] = [0; 3];
+        }
+        return (matrix, view_position);
+    }
     let direct_object = zxy_matrix_q15(
         pose.rotation[0].wrapping_neg(),
         pose.rotation[1].wrapping_neg(),
@@ -935,6 +955,90 @@ mod tests {
             [239, 222, 239, 222, 247, 229, 246, 228, 232, 245, 231, 245]
         );
         assert!(!shape_is_outside_playfield(&projected.points));
+    }
+
+    #[test]
+    fn corneria_corridor_segment_matches_complete_retail_projection() {
+        let corridor = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == crate::shape_data::SHAPE_EXT_OP_1)
+            .expect("compiled Corneria corridor segment");
+        let pose = SourcePose {
+            world_position: [0, 0, 2_301],
+            rotation: [0; 3],
+            view_position: [-700, -1_199, 3_037],
+            view_rotation: [57_024, 25_488, 0],
+        };
+        let projected = project_shape(corridor.vertices, corridor.reflected_pair_starts, 3, pose);
+
+        let retail_matrix = [
+            [-25_103, -15_337, 14_423],
+            [0, 22_445, 23_868],
+            [-21_055, 18_284, -17_196],
+        ];
+        assert_eq!(
+            zxy_matrix_q15_fine(
+                pose.view_rotation[0],
+                pose.view_rotation[1],
+                pose.view_rotation[2],
+            ),
+            retail_matrix,
+        );
+        assert_eq!(source_object_transform(pose, false).0, retail_matrix);
+        assert_eq!(projected.view_position, [-65, 82, 1_567]);
+        assert_eq!(
+            [projected.view_points[7], projected.view_points[11]],
+            [[492, -11, 1_655], [320, -462, 1_386]],
+        );
+        assert_eq!(
+            projected
+                .points
+                .iter()
+                .map(|point| [point.x, point.y])
+                .collect::<Vec<_>>(),
+            [
+                [127, 68],
+                [202, 106],
+                [212, 72],
+                [127, 35],
+                [188, 28],
+                [153, 15],
+                [123, 68],
+                [204, 110],
+                [122, 35],
+                [214, 76],
+                [151, 13],
+                [187, 26],
+                [123, 70],
+                [198, 110],
+                [122, 37],
+                [208, 76],
+                [183, 32],
+                [148, 18],
+                [160, 153],
+                [81, 101],
+                [165, 120],
+                [75, 67],
+                [96, 50],
+                [133, 70],
+                [76, 101],
+                [161, 158],
+                [69, 67],
+                [167, 125],
+                [92, 48],
+                [130, 68],
+                [155, 158],
+                [76, 105],
+                [159, 125],
+                [68, 71],
+                [126, 74],
+                [89, 54],
+                [93, 192],
+                [1, 113],
+                [48, 133],
+                [11, 102],
+            ],
+        );
     }
 
     #[test]
