@@ -571,7 +571,7 @@ pub fn project_near_clipped_face(view_points: &[[i16; 3]], indices: &[u16]) -> V
             (false, false) => None,
         };
         return clipped
-            .map(|points| points.map(project_point).to_vec())
+            .map(|points| points.map(project_individual_point).to_vec())
             .unwrap_or_default();
     }
     let mut clipped = Vec::with_capacity(input.len() + 2);
@@ -593,13 +593,16 @@ pub fn project_near_clipped_face(view_points: &[[i16; 3]], indices: &[u16]) -> V
     if clipped.len() < 3 {
         return Vec::new();
     }
-    clipped.into_iter().map(project_point).collect()
+    clipped
+        .into_iter()
+        .map(project_individual_point)
+        .collect()
 }
 
-/// Exploding faces are projected independently after their per-face normal
-/// displacement. Their authored path divides unsigned magnitudes and restores
-/// signs afterward, so negative components truncate toward zero instead of
-/// using the ordinary reciprocal-table rounding.
+/// Near-clipped and exploding faces are projected independently after their
+/// per-face geometry changes. Their authored path divides unsigned magnitudes
+/// and restores signs afterward, so negative components truncate toward zero
+/// instead of using the ordinary reciprocal-table rounding.
 fn project_individual_point(point: [i16; 3]) -> ProjectedPoint {
     let original_depth = point[2];
     let behind = original_depth < 0;
@@ -1037,6 +1040,45 @@ mod tests {
                 [1, 113],
                 [48, 133],
                 [11, 102],
+            ],
+        );
+    }
+
+    #[test]
+    fn corneria_camera_plane_line_uses_individual_reprojection() {
+        let corridor = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == crate::shape_data::SHAPE_EXT_OP_1)
+            .expect("compiled Corneria corridor segment");
+        let projected = project_shape(
+            corridor.vertices,
+            corridor.reflected_pair_starts,
+            3,
+            SourcePose {
+                world_position: [0, 0, 5_421],
+                rotation: [0; 3],
+                view_position: [-348, -715, 5_649],
+                view_rotation: [56_496, 6_752, 0],
+            },
+        );
+
+        assert_eq!(
+            [projected.view_points[4], projected.view_points[38]],
+            [[607, 475, -100], [28, -108, 395]],
+        );
+        assert_eq!(
+            project_near_clipped_face(&projected.view_points, &[4, 38]),
+            [
+                ProjectedPoint {
+                    x: 16_511,
+                    y: 12_039,
+                    depth: 0,
+                },
+                ProjectedPoint {
+                    x: 146,
+                    y: 43,
+                    depth: 395,
+                },
             ],
         );
     }

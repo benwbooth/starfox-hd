@@ -1587,6 +1587,32 @@ mod tests {
     }
 
     #[test]
+    fn corneria_camera_plane_line_matches_retail_clipped_endpoints() {
+        const FIRST: ProjectedPoint = ProjectedPoint {
+            x: 16_511,
+            y: 12_039,
+            depth: 0,
+        };
+        const SECOND: ProjectedPoint = ProjectedPoint {
+            x: 146,
+            y: 43,
+            depth: 395,
+        };
+
+        assert_eq!(
+            clip_line(FIRST, SECOND),
+            Some([
+                ProjectedPoint {
+                    x: 239,
+                    y: 112,
+                    depth: 0,
+                },
+                SECOND,
+            ]),
+        );
+    }
+
+    #[test]
     fn bitmap_replacement_clears_color_and_diagnostics() {
         const TARGET: [usize; 2] = [70, 172];
         const OWNER: u16 = 9;
