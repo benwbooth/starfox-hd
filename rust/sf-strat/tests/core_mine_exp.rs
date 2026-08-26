@@ -1,6 +1,6 @@
 //! ROM core1exp / mcore1exp / monolithexp / mine2exp / blowcube.
 
-use sf_game::alien::ASF_INVISIBLE;
+use sf_game::alien::ASF4_INVISIBLE;
 use sf_game::vars::{GF_BOSSDEAD, GF_STRATDONE1, HARD_HP};
 use sf_game::Game;
 use sf_strat::enemy_a::{
@@ -27,7 +27,7 @@ fn core1exp_sets_flags_and_follows_player() {
     let before = g.objs.active_indices().len();
     core1exp_istrat(&mut g, idx);
     assert_ne!(g.vars.gameflags & GF_STRATDONE1, 0);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].count, 19); // fall-through dec
     assert!(g.objs.active_indices().len() > before, "Lexp spawned");
     // Stick to player.

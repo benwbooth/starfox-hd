@@ -1,6 +1,6 @@
 //! Tick 178–179: boost_Istrat / boost_strat pitch+yaw Roffs + call-site wiring.
 
-use sf_game::alien::{ObjectVisualKind, ASF2_COLLDISABLE, ASF3_REALOBJ, ASF_INVISIBLE, NUMBER_AL};
+use sf_game::alien::{ObjectVisualKind, ASF2_COLLDISABLE, ASF3_REALOBJ, ASF4_INVISIBLE, NUMBER_AL};
 use sf_game::Game;
 use sf_strat::common::{boost_istrat, boost_sprite, boost_strat, set_boost_zoff, sv, StratRam};
 use sf_strat::enemy_a::{shipoutoflb3_istrat, shipoutoflb3_strat};
@@ -26,13 +26,13 @@ fn boost_istrat_falls_through_to_first_attached_tick() {
     let idx = spawn(&mut g);
     g.vars.set_sv_i16(sv::BOOSTOBJ, idx as i16);
     set_boost_zoff(&mut g, -30);
-    g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
     g.objs.aliens[idx as usize].sbyte1 = BOOST_SPRITE_SIZE;
     boost_istrat(&mut g, idx);
     let al = &g.objs.aliens[idx as usize];
     assert_eq!(al.count, 9);
     assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
-    assert_eq!(al.sflags & ASF_INVISIBLE, 0);
+    assert_eq!(al.sflags4 & ASF4_INVISIBLE, 0);
     assert!(al.stratptr.is_some());
     assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
     assert_eq!(al.depthoffset, 0);

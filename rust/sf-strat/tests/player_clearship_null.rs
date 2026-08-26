@@ -1,6 +1,6 @@
 //! Tick 93: ClearShip / ClearShip2 / playernull cutscene leaves.
 
-use sf_game::alien::ASF_INVISIBLE;
+use sf_game::alien::ASF4_INVISIBLE;
 use sf_game::vars::{
     GF_NOZREMOVE, GF_STAGEDONE, GF_VIEWROT, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE,
     PSTF_NOVDISTC,
@@ -170,5 +170,5 @@ fn clearship_far_z_goes_invisible() {
     g.vars.set_sv_i16(sv::PVIEWPOSZ, 1000);
     g.objs.aliens[idx as usize].sbyte3 = 50; // stay in nturn
     player_clear_ship_strat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
 }

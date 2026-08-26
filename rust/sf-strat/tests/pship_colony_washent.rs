@@ -1,6 +1,6 @@
 //! Tick 89: pshipcolony + pshipwashent pipe-follow cutscenes.
 
-use sf_game::alien::{ASF_INVISIBLE, ASF_SHADOW};
+use sf_game::alien::{ASF4_INVISIBLE, ASF_SHADOW};
 use sf_game::Game;
 use sf_strat::common::StratRam;
 use sf_strat::player::{
@@ -52,7 +52,7 @@ fn pshipcolony_straight_handoff_ltunnel() {
     let player = spawn(&mut g);
     assert_eq!(player, 0);
     g.vars.internal_playpt = 0;
-    g.objs.aliens[0].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[0].sflags4 |= ASF4_INVISIBLE;
     g.vars.write_ext8(WM_DOZROT, 1);
 
     let ship = spawn(&mut g);
@@ -67,7 +67,7 @@ fn pshipcolony_straight_handoff_ltunnel() {
     pshipcolony_strat(&mut g, ship);
     assert_eq!(g.objs.aldead, 1);
     assert_eq!(g.vars.read_ext8(WM_DOZROT), 0);
-    assert_eq!(g.objs.aliens[0].sflags & ASF_INVISIBLE, 0);
+    assert_eq!(g.objs.aliens[0].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.objs.aliens[0].worldx, 0);
     assert_eq!(g.objs.aliens[0].worldy, LTUNNEL_VIEWCY);
     // worldz = ship.z(+150 this frame) + 120
@@ -80,7 +80,7 @@ fn pshipwashent_straight_handoff_nucleus() {
     let mut g = Game::new();
     let player = spawn(&mut g);
     g.vars.internal_playpt = player as i16;
-    g.objs.aliens[player as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[player as usize].sflags4 |= ASF4_INVISIBLE;
     g.vars.write_ext8(WM_DOZROT, 1);
     g.vars.set_sv_i16(sv::OUTDIST, 200);
 
@@ -101,7 +101,7 @@ fn pshipwashent_straight_handoff_nucleus() {
     pshipwashent_strat(&mut g, ship);
     assert_eq!(g.objs.aldead, 1);
     assert_eq!(g.vars.read_ext8(WM_DOZROT), 0);
-    assert_eq!(g.objs.aliens[player as usize].sflags & ASF_INVISIBLE, 0);
+    assert_eq!(g.objs.aliens[player as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.objs.aliens[player as usize].worldx, 0);
     // player z copied from ship then +medpspeed
     assert_eq!(

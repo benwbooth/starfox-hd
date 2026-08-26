@@ -29,8 +29,8 @@ use sf_game::alien::{
     Alien, ExplosionSize, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3,
     ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF2_COLLDISABLE,
     ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_SFLAG8, ASF_COLLDISABLE,
-    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW,
-    ASF_SPECIAL, ASF_SSPRITE, ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
+    ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL, ASF_SSPRITE,
+    ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::PCBOX_WING_HP;
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -548,7 +548,7 @@ pub(crate) fn fire_relslowlaser_weapon_pos(
         // the source weapon class. Laser presentation comes from the shape;
         // this field controls object lifecycle and weapon-family tests.
         al.type_ = ATMISSILE;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.sflags2 |= ASF2_RELEXPLODE;
         al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4 | ACF_COLLTYPE1;
         al.collstratptr = Some(coll);
@@ -606,7 +606,7 @@ pub(crate) fn fire_relfastelaser_weapon_pos(
         al.vel = 90;
         al.count = 40;
         al.type_ = ATMISSILE;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.sflags2 |= ASF2_RELEXPLODE;
         al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4 | ACF_COLLTYPE1;
         al.collstratptr = Some(coll);
@@ -2822,7 +2822,7 @@ pub fn core1exp_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.expstratptr = Some(s_exp);
-        al.sflags |= ASF_INVISIBLE;
+        al.sflags4 |= ASF4_INVISIBLE;
         al.count = 20;
         al.type_ &= !ATZREMOVE; // s_setnoremove_behind
     }
@@ -3044,7 +3044,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].stratstate == MPARTOUT_I_STATE {
         set_bossflags(g, 0);
         monolithpart_srou(g, idx, 200);
-        g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+        g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
         monolith_next_state(g, idx);
     }
 
@@ -3052,7 +3052,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].stratstate == MPARTOUT_E_STATE && bossflags(g) & BF_FLAG1 != 0 {
         let restart_z = g.vars.psvar_word1;
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.worldz = restart_z;
         set_bossflags(g, bossflags(g) | BF_FLAG2);
         g.objs.aliens[idx as usize].stratstate = MCHGFACE_I_STATE;
@@ -3085,7 +3085,8 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
                 g.objs.aliens[core as usize].worldy =
                     g.objs.aliens[core as usize].worldy.wrapping_sub(15 << 4);
                 mcore1_istrat(g, core);
-                g.objs.aliens[core as usize].sflags |= ASF_INVISIBLE | ASF_COLLDISABLE;
+                g.objs.aliens[core as usize].sflags4 |= ASF4_INVISIBLE;
+                g.objs.aliens[core as usize].sflags |= ASF_COLLDISABLE;
                 g.objs.aliens[idx as usize].ptr = core.wrapping_add(1);
             }
         }
@@ -3265,7 +3266,8 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
                     copy_pos(g, core, idx);
                     let al = &mut g.objs.aliens[core as usize];
                     al.worldy = al.worldy.wrapping_sub(15 << 4);
-                    al.sflags &= !(ASF_INVISIBLE | ASF_COLLDISABLE);
+                    al.sflags4 &= !ASF4_INVISIBLE;
+                    al.sflags &= !ASF_COLLDISABLE;
                     al.stratstate = 0;
                 }
             }
@@ -3296,7 +3298,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
             g.objs.aldead = 1;
             return;
         }
-        g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+        g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
         if g.objs.aliens[idx as usize].sword1 == 0 {
             monolith_next_state(g, idx);
         } else {
@@ -3310,10 +3312,11 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
             return;
         }
         g.objs.aliens[core as usize].stratstate = 6;
-        g.objs.aliens[idx as usize].sflags &= !ASF_INVISIBLE;
+        g.objs.aliens[idx as usize].sflags4 &= !ASF4_INVISIBLE;
         g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_sub(2);
         if g.objs.aliens[idx as usize].count == 0 {
-            g.objs.aliens[core as usize].sflags |= ASF_INVISIBLE | ASF_COLLDISABLE;
+            g.objs.aliens[core as usize].sflags4 |= ASF4_INVISIBLE;
+            g.objs.aliens[core as usize].sflags |= ASF_COLLDISABLE;
             g.hooks.play_se(0x87);
             if currentlevel(g) == 3 {
                 g.objs.aliens[idx as usize].flags &= !AFEXP;
@@ -3851,7 +3854,7 @@ pub fn mcore1_strat(g: &mut Game, idx: u16) {
             g.objs.aliens[idx as usize].colframe = col;
         }
 
-        if g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE != 0 {
+        if g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE != 0 {
             add_player_z(g, idx);
             return;
         }
@@ -4600,7 +4603,7 @@ pub fn fire_playerbeam(g: &mut Game, firer: u16) -> Option<u16> {
         al.sbyte3 = owner_vel;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
         al.type_ = ATMISSILE;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -4643,7 +4646,7 @@ pub fn fire_elaser(g: &mut Game, firer: u16) -> Option<u16> {
         al.sbyte3 = owner_vel;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5;
         al.type_ = ATMISSILE;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.shape = SHAPE_ELASER2;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -4797,7 +4800,7 @@ fn place_weapon_at_firer(g: &mut Game, shot: u16, firer: u16, muzzle_z: i16) {
     al.sbyte1 = rx;
     al.sbyte2 = ry;
     al.sbyte3 = owner_vel;
-    al.sflags &= !ASF_INVISIBLE;
+    al.sflags4 &= !ASF4_INVISIBLE;
     // `gen_weapon` marks every spawned shot as a weapon/first-frame object
     // and `s_make_immune` stores the two object pointers in both directions.
     // Object links use one-based values in `ptr`, but collision immunity is a
@@ -5294,7 +5297,7 @@ pub fn helpball_istrat(g: &mut Game, idx: u16) {
         al.sbyte3 = 30;
         al.sbyte1 = 0;
         al.sbyte2 = 0;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
     }
 }
@@ -5408,7 +5411,7 @@ pub fn helpballhome_istrat(g: &mut Game, idx: u16) {
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
         al.type_ |= ATLASER;
         al.type_ &= !ATZREMOVE;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.sbyte1 = al.roty;
         al.sbyte2 = al.rotx;
@@ -5561,7 +5564,7 @@ fn place_missile_weapon(g: &mut Game, shot: u16, firer: u16) {
     al.rotz = 0;
     al.ptr = target;
     al.type_ = ATMISSILE | ATZREMOVE;
-    al.sflags &= !ASF_INVISIBLE;
+    al.sflags4 &= !ASF4_INVISIBLE;
     al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4; // enemyweap
                                                                  // Raw slot index; the reciprocal side was written by
                                                                  // `place_weapon_at_firer`, matching ROM `s_make_immune`.
@@ -7101,7 +7104,7 @@ pub fn fire_nuke(g: &mut Game, firer: u16) -> Option<u16> {
         al.sbyte3 = owner_vel; // mother speed for addgen
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
         al.type_ |= ATLASER;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
     }
     nuke_istrat(g, shot);
@@ -8385,7 +8388,7 @@ fn boss1_fire_hplasma(
     al.count = HPLASMA_LIFE;
     al.snd2 = 6;
     al.type_ = ATLASER | ATZREMOVE;
-    al.sflags &= !ASF_INVISIBLE;
+    al.sflags4 &= !ASF4_INVISIBLE;
     al.visual_kind = ObjectVisualKind::ScaledSprite;
     al.collflags = ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4;
     al.immuneptr = strat_obj_index_or_null(self_idx);

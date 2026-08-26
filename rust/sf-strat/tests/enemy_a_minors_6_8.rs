@@ -1,7 +1,7 @@
 //! Tick 160: AUDIT_ENEMY_A Minors #6–#8 — zacos muzzle Z120; clship flyin
 //! sflag1 gated by notdelay; zaco2loop HMISSILE1 unconditional on level!=1.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_INVISIBLE, ATMISSILE};
+use sf_game::alien::{ASF3_REALOBJ, ASF4_INVISIBLE, ATMISSILE};
 use sf_game::Game;
 use sf_strat::enemy_a::{
     frame_tick_mod, strat_clship_turna_init, strat_clship_turnb_init, wm, zaco2_istrat,
@@ -153,7 +153,7 @@ fn zaco2loop_fires_hmissile_on_non_easy_unconditionally() {
             .find(|alien| alien.active && alien.type_ & ATMISSILE != 0)
             .expect("zaco2 HMISSILE1");
         assert_eq!(missile.shape, SH_MISSILE);
-        assert_eq!(missile.sflags & ASF_INVISIBLE, 0);
+        assert_eq!(missile.sflags4 & ASF4_INVISIBLE, 0);
     }
     // level 1 → no missile
     {

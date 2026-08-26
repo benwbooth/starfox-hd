@@ -62,8 +62,8 @@ pub(crate) mod eb_compat {
     pub use sf_game::alien::{
         Alien, ExplosionSize, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
         ACF_COLLTYPE5, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ,
-        ASF4_CSPECIAL, ASF4_PLAYEROBJ, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-        ASF_INVISIBLE, ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER,
+        ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_PLAYEROBJ, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE,
+        ASF_HITFLASH, ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER,
         ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
     };
     pub use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -953,7 +953,7 @@ fn boss7hatch_strat(g: &mut Game, idx: u16) {
 
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.sflags |= ASF_NOHITAFFECT;
     }
 
@@ -1038,7 +1038,8 @@ fn boss7hatch_init(g: &mut Game, idx: u16) {
         al.hp = hp;
         al.ap = 10;
         al.collflags |= crate::enemy_a::COLLTYPE_ENEMY1;
-        al.sflags |= ASF_SHADOW | ASF_INVISIBLE;
+        al.sflags |= ASF_SHADOW;
+        al.sflags4 |= ASF4_INVISIBLE;
         al.depthoffset = 1;
         al.colframe = 0;
         al.animframe = 0;
@@ -1055,7 +1056,7 @@ fn boss7launcher_common_strat(g: &mut Game, idx: u16, yoff: i16) {
 
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.sflags |= ASF_NOHITAFFECT;
     }
 
@@ -1153,7 +1154,8 @@ fn boss7launcher_init_common(g: &mut Game, idx: u16, strat: StrategyFn, exp: Str
         al.hp = hp;
         al.ap = 10;
         al.collflags |= crate::enemy_a::COLLTYPE_ENEMY1;
-        al.sflags |= ASF_SHADOW | ASF_INVISIBLE;
+        al.sflags |= ASF_SHADOW;
+        al.sflags4 |= ASF4_INVISIBLE;
         al.depthoffset = 1;
         al.colframe = 0;
         al.animframe = 0;
@@ -1177,7 +1179,7 @@ fn boss7shield_strat(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     };
-    g.objs.aliens[idx as usize].sflags &= !ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 &= !ASF4_INVISIBLE;
     let mother = g.objs.aliens[mother_idx as usize];
     boss_apply_yaw_offset(g, idx, &mother, 20i16 << BOSS7_SCALE, 0, 0);
 }
@@ -1193,7 +1195,8 @@ fn boss7shield_init(g: &mut Game, idx: u16) {
     al.hp = HARD_HP;
     al.ap = 10;
     al.collflags |= crate::enemy_a::COLLTYPE_ENEMY1;
-    al.sflags |= ASF_SHADOW | ASF_INVISIBLE;
+    al.sflags |= ASF_SHADOW;
+    al.sflags4 |= ASF4_INVISIBLE;
 }
 
 /// C `boss7_spawn_child` (strat_enemy.c:1514).
@@ -2056,7 +2059,8 @@ fn bossa_retarget_turrets(g: &mut Game, idx: u16) {
 /// C `bossA_part_coll` (strat_enemy.c:3061).
 fn bossa_part_coll(g: &mut Game, idx: u16) {
     let sflags = g.objs.aliens[idx as usize].sflags;
-    if sflags & (ASF_INVISIBLE | ASF_NOHITAFFECT) != 0 {
+    let sflags4 = g.objs.aliens[idx as usize].sflags4;
+    if sflags4 & ASF4_INVISIBLE != 0 || sflags & ASF_NOHITAFFECT != 0 {
         let al = &mut g.objs.aliens[idx as usize];
         al.hitflags = 0;
         al.sflags &= !ASF_COLLIDE;
@@ -2070,7 +2074,7 @@ fn bossa_part_coll(g: &mut Game, idx: u16) {
 /// resurrect it in the DOWN state) and the mother's destroyed-turret count
 /// `sbyte3` increments.
 pub fn bossa_turret_exp_init(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
     if let Some(e) = make_large_exp_obj(g, idx) {
         // s_clr_alsflag y,noexpsnd: this one is audible.
         g.objs.aliens[e as usize].sflags2 &= !ASF2_NOEXPSND;
@@ -2167,13 +2171,13 @@ fn bossa_turret_cont(g: &mut Game, idx: u16) {
     // .dfire skips the bossHP add AND fire; the add sits between the
     // invisible gate and the nohitaffect gate, so it runs for every VISIBLE
     // turret tick (dead husks stay invisible and contribute nothing).
-    if me.sflags & ASF_INVISIBLE == 0 {
+    if me.sflags4 & ASF4_INVISIBLE == 0 {
         add_bosshp(g, idx);
     }
 
     // Fire block: skipped entirely for invisible husks and while
     // nohitaffect (cup covering).
-    if me.sflags & ASF_INVISIBLE == 0 && me.sflags & ASF_NOHITAFFECT == 0 {
+    if me.sflags4 & ASF4_INVISIBLE == 0 && me.sflags & ASF_NOHITAFFECT == 0 {
         // s_jmpnot_objpointnegZ (STRATMAC.INC:6218-6221): the window is
         // roty in [deg180-deg45, deg180+deg45] — facing the player.
         if me.roty >= DEG180 - DEG45 && me.roty <= DEG180 + DEG45 {
@@ -2304,7 +2308,7 @@ pub fn bossa_cup_strat(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     };
-    g.objs.aliens[idx as usize].sflags &= !ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 &= !ASF4_INVISIBLE;
 
     let mut state = g.objs.aliens[idx as usize].stratstate;
     if state == BOSSA_CUP_STATE_IROTATE {
@@ -2451,8 +2455,8 @@ pub fn bossa_cup_strat(g: &mut Game, idx: u16) {
                         ta.sflags |= ASF_NOHITAFFECT;
                         ta.hp = BOSSA_TURRET_HP;
                     }
-                    if g.objs.aliens[t as usize].sflags & ASF_INVISIBLE != 0 {
-                        g.objs.aliens[t as usize].sflags &= !ASF_INVISIBLE;
+                    if g.objs.aliens[t as usize].sflags4 & ASF4_INVISIBLE != 0 {
+                        g.objs.aliens[t as usize].sflags4 &= !ASF4_INVISIBLE;
                         let m = &mut g.objs.aliens[mother_idx as usize];
                         m.sbyte3 = m.sbyte3.wrapping_sub(1);
                     }

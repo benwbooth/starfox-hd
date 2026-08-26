@@ -160,7 +160,6 @@ pub struct Alien {
 }
 
 // Source `al_sflags` byte (STRATEQU.INC `make_sflag`, bits 0 through 7).
-pub const ASF_INVISIBLE: u8 = 0x01;
 pub const ASF_SPECIAL: u8 = 0x01;
 pub const ASF_HITFLASH: u8 = 0x02;
 pub const ASF_SHADOW: u8 = 0x08;

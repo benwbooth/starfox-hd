@@ -7,10 +7,14 @@
 //!     wrongly also rolled on dpad LEFT/RIGHT steering), so the flight scenario
 //!     no longer rolls at the LEFT/RIGHT press ticks;
 //!   * player laser/beam bolts spawn with a visible shape (11) instead of the
-//!     C stub's shape 0 + ASF_INVISIBLE, so laser objects read `slot:11:...`.
+//!     C stub's shape 0 + ASF4_INVISIBLE, so laser objects read `slot:11:...`.
 //!   * the bridge-clear duplicate runs ROM `clshipBridgeboost_Istrat`
 //!     (PCSTRATS.ASM:77-83, GCSTRATS.ASM:642-668); the C harness/port left that
 //!     duplicated ship inert after spawning it.
+//!   * `dupplayer` stores `invisible` in the fourth source strategy-flag byte
+//!     (`PSTRATS.ASM:3516-3524`, `STRATEQU.INC:926-933`). The frozen C harness
+//!     collapsed it onto the first-byte `special` bit, so the corrected player
+//!     keeps first-byte `shadow` without synthesizing `special`.
 //!   * temporary boost sprites apply the signed `boostZoff` through the host's
 //!     pitch and yaw (`GSTRATS.ASM:723-731`, `STRATMAC.INC:4098-4189`); the C
 //!     port parked them at the host origin and omitted the rotated offset.

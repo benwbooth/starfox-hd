@@ -1,7 +1,7 @@
 //! Tick 192: bossA cup GO/IROTATE/return + turret husk revive
 //! (AUDIT_ENEMY_B Criticals #3–#9 verify).
 
-use sf_game::alien::{ASF_INVISIBLE, ASF_NOHITAFFECT};
+use sf_game::alien::{ASF4_INVISIBLE, ASF_NOHITAFFECT};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::boss_attach_child_to_mother;
@@ -176,7 +176,7 @@ fn bossa_turret_husk_and_down_revive() {
         g.objs.aliens[turret as usize].active,
         "husk stays allocated"
     );
-    assert_ne!(g.objs.aliens[turret as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[turret as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.objs.aliens[turret as usize].hp, HARD_HP);
     assert_eq!(g.objs.aliens[mother as usize].sbyte3, 1);
 
@@ -188,7 +188,7 @@ fn bossa_turret_husk_and_down_revive() {
     g.objs.aliens[cup as usize].worldz = g.objs.aliens[turret as usize].worldz;
 
     bossa_cup_strat(&mut g, cup);
-    assert_eq!(g.objs.aliens[turret as usize].sflags & ASF_INVISIBLE, 0);
+    assert_eq!(g.objs.aliens[turret as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.objs.aliens[turret as usize].hp, BOSSA_TURRET_HP);
     assert_eq!(g.objs.aliens[mother as usize].sbyte3, 0);
 }

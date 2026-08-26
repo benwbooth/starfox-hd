@@ -32,7 +32,7 @@
 use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_FIRSTFRAME, ACF_WEAPON,
-    ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE,
+    ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF4_INVISIBLE, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
     ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -6701,9 +6701,9 @@ pub fn sdoor2_istrat(g: &mut Game, idx: u16) {
 
 pub fn sdoor2_strat(g: &mut Game, idx: u16) {
     if g.vars.gameflags & GF_STRATDONE2 != 0 {
-        g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+        g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
     } else {
-        g.objs.aliens[idx as usize].sflags &= !ASF_INVISIBLE;
+        g.objs.aliens[idx as usize].sflags4 &= !ASF4_INVISIBLE;
     }
     if let Some(ship) = sdoor_ship(g, idx) {
         let pos = g.objs.aliens[ship as usize];

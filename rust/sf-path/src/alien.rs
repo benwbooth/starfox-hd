@@ -221,7 +221,6 @@ pub struct Alien {
 
 // Alien strategy flags (al_sflags) — from VARS.INC / STRATEQU.INC
 // (C origin: src/game/obj.h ASF_*).
-pub const ASF_INVISIBLE: u8 = 0x01;
 pub const ASF_HITFLASH: u8 = 0x02;
 pub const ASF_SHADOW: u8 = 0x08;
 pub const ASF_PARTOBJ: u8 = 0x10;

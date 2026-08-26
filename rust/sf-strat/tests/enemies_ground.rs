@@ -13,7 +13,7 @@
 
 use sf_core::player_view::PlayerViewMode;
 use sf_game::alien::{
-    ObjectVisualKind, AFEXP, ASF_COLLIDE, ASF_INVISIBLE, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ObjectVisualKind, AFEXP, ASF4_INVISIBLE, ASF_COLLIDE, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
@@ -1817,7 +1817,7 @@ fn misspod_close_fires_five_missiles_and_self_destructs() {
     assert!(missiles.iter().all(|missile| missile.shape == SH_MISSILE));
     assert!(missiles
         .iter()
-        .all(|missile| missile.sflags & ASF_INVISIBLE == 0));
+        .all(|missile| missile.sflags4 & ASF4_INVISIBLE == 0));
     let a = g.objs.aliens[pod as usize];
     assert_eq!(a.hp, 0, "s_kill_obj: hp=0");
     assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "s_kill_obj: colldisable");
@@ -1844,7 +1844,7 @@ fn misstank_init_builds_carrier_and_counts_down() {
         g.objs.aliens[child].shape, SH_SMALL_MISSILE_CARRIER,
         "s_make_obj #small_m"
     );
-    assert_eq!(g.objs.aliens[child].sflags & ASF_INVISIBLE, 0);
+    assert_eq!(g.objs.aliens[child].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(a.sflags2 & ASF2_SFLAG1, 0, "not launched while far");
 }
 
@@ -1992,7 +1992,7 @@ fn houdai5f_fires_homing_hplasma_when_far() {
     assert_eq!(shot.count, 100, "s_set_lifecnt y,#100");
     assert_eq!(shot.shape, SH_BOUNCYBALL);
     assert_eq!(shot.visual_kind, ObjectVisualKind::ScaledSprite);
-    assert_eq!(shot.sflags & ASF_INVISIBLE, 0);
+    assert_eq!(shot.sflags4 & ASF4_INVISIBLE, 0);
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! Tick 103: makeengine / makesplash / makeSsplash / makeSdrag (GSTRATS / GA2STRAT).
 
-use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF2_COLLDISABLE, ASF3_REALOBJ, ASF_INVISIBLE};
+use sf_game::alien::{ObjectVisualKind, AFONFIRE, ASF2_COLLDISABLE, ASF3_REALOBJ, ASF4_INVISIBLE};
 use sf_game::Game;
 use sf_strat::common::{
     makeengine_srou, makeengine_srou_with_extents, makesplash_srou, makessplash_srou, splash_strat,
@@ -78,8 +78,8 @@ fn makeengine_attaches_fireobj_and_onfire() {
     let al = &g.objs.aliens[engine as usize];
     assert_eq!(al.shape, 362, "engine must use the retail boostshape mesh");
     assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
-    assert_ne!(al.sflags & ASF_INVISIBLE, 0); // hidden until update
-                                              // Default zmax=40 → relposz = -40
+    assert_ne!(al.sflags4 & ASF4_INVISIBLE, 0); // hidden until update
+                                                // Default zmax=40 → relposz = -40
     assert_eq!(al.relposz as i8, -40);
     assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
     assert_eq!(al.depthoffset, 0, "source color argument is zero");
@@ -99,7 +99,7 @@ fn updateengine_places_behind_parent() {
     let engine = makeengine_srou_with_extents(&mut g, parent, 48, 40).expect("e");
     assert!(updateengine_srou(&mut g, parent));
     let al = &g.objs.aliens[engine as usize];
-    assert_eq!(al.sflags & ASF_INVISIBLE, 0);
+    assert_eq!(al.sflags4 & ASF4_INVISIBLE, 0);
     // Behind parent along -Z when facing forward (roty=0); mulslog may truncate ±2.
     let dz = al.worldz.wrapping_sub(500);
     assert!(

@@ -1,6 +1,6 @@
 //! ROM windexp/windspin + tank1fire/misspoda + cupfire + ship1aexp/mine2expnofire.
 
-use sf_game::alien::{ObjectVisualKind, ASF_COLLDISABLE, ASF_INVISIBLE, ASF_NOHITAFFECT, ATLASER};
+use sf_game::alien::{ObjectVisualKind, ASF4_INVISIBLE, ASF_COLLDISABLE, ASF_NOHITAFFECT, ATLASER};
 use sf_game::Game;
 use sf_strat::enemies_ground::{
     misspoda_init, tank1fire, windexp_istrat, windspin_istrat, windspin_strat,
@@ -74,7 +74,7 @@ fn tank1fire_cadence_and_range_gate() {
         .expect("tank high-plasma projectile");
     assert_eq!(shot.shape, sf_strat::enemy_a::SH_BOUNCYBALL);
     assert_eq!(shot.visual_kind, ObjectVisualKind::ScaledSprite);
-    assert_eq!(shot.sflags & ASF_INVISIBLE, 0);
+    assert_eq!(shot.sflags4 & ASF4_INVISIBLE, 0);
 
     // Too close in z -> no fire even at count 10.
     g.objs.aliens[idx as usize].sbyte2 = 11;

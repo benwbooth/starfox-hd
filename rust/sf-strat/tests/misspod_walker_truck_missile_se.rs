@@ -1,7 +1,7 @@
 //! Tick 204: misspod / walker1 / truck custom `s_fire_weapon` paths must
 //! `jsl missilesound_l` via `make_snd(Missile)` (gen_weapon), not silent spawn.
 
-use sf_game::alien::{ASF_INVISIBLE, ATMISSILE};
+use sf_game::alien::{ASF4_INVISIBLE, ATMISSILE};
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_strat::enemies_ground::{
     misspoda_init, misspoda_strat, truck_cont, walker1_istrat, walker1_strat,
@@ -75,7 +75,7 @@ fn assert_missile_presentation(g: &Game, skip: u16, expected_count: usize) {
     assert!(missiles.iter().all(|missile| missile.shape == SH_MISSILE));
     assert!(missiles
         .iter()
-        .all(|missile| missile.sflags & ASF_INVISIBLE == 0));
+        .all(|missile| missile.sflags4 & ASF4_INVISIBLE == 0));
 }
 
 fn missile_snd_count(log: &RefCell<Vec<SndEvent>>, x: i16, z: i16) -> usize {

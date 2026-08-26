@@ -1,7 +1,7 @@
 //! Tick 96: player Warp / WarpOut cutscene leaves.
 
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
-use sf_game::alien::ASF_INVISIBLE;
+use sf_game::alien::ASF4_INVISIBLE;
 use sf_game::vars::{
     GF_NOZREMOVE, GF_VIEWROT, PFM_WOBBLE, PSF3_ENGINESND, PSF3_NOCOLLISIONS, PSF_NOCTRL,
     PSF_NOFIRE, PSTF_INSEQ, PSTF_NOVDISTC,
@@ -80,7 +80,7 @@ fn warp_state1_hyperspace_and_state2_to_warp1() {
     assert!(player_warp_strat(&mut g, idx));
     assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE1), 19); // init 20, warp1_strat decbne → 19
     assert_eq!(g.vars.pshipflags3 & PSF3_ENGINESND, 0);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
 }
 
 #[test]

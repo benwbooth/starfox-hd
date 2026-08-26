@@ -16,7 +16,7 @@
 
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_FIRSTFRAME, ACF_WEAPON, AFONFIRE, ASF2_COLLDISABLE,
-    ASF3_REALOBJ, ASF_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
+    ASF3_REALOBJ, ASF4_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
 };
 // NUMBER_AL used by updateengine_srou bounds check.
 use sf_game::vars::GameVars;
@@ -948,7 +948,7 @@ pub fn makeengine_srou_with_extents(
     {
         let al = &mut g.objs.aliens[engine as usize];
         al.sflags2 |= ASF2_COLLDISABLE;
-        al.sflags |= ASF_INVISIBLE;
+        al.sflags4 |= ASF4_INVISIBLE;
         al.relposz = rel_z;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
@@ -962,7 +962,7 @@ pub fn makeengine_srou_with_extents(
     }
     updateengine_srou(g, parent);
     // ROM sets invisible AFTER updateengine (flame hidden until first real update).
-    g.objs.aliens[engine as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[engine as usize].sflags4 |= ASF4_INVISIBLE;
     Some(engine)
 }
 
@@ -976,7 +976,7 @@ pub fn updateengine_srou(g: &mut Game, parent: u16) -> bool {
     if engine as usize >= NUMBER_AL || !g.objs.aliens[engine as usize].active {
         return false;
     }
-    g.objs.aliens[engine as usize].sflags &= !ASF_INVISIBLE;
+    g.objs.aliens[engine as usize].sflags4 &= !ASF4_INVISIBLE;
     let p = g.objs.aliens[parent as usize];
     let oz = g.objs.aliens[engine as usize].relposz as i8;
     // ROM `s_add_Roffs2pos … #0,#0,relposz,1,1,0` — pitch then yaw, no roll.
@@ -997,7 +997,7 @@ pub fn boost_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.count = 10; // s_set_lifecnt #10
         al.sflags2 |= ASF2_COLLDISABLE;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.type_ &= !ATZREMOVE; // s_setnoremove_behind
         al.stratptr = Some(tick);
         al.visual_kind = ObjectVisualKind::ScaledSprite;
@@ -1072,7 +1072,7 @@ pub fn boost_sprite(g: &mut Game, size: Option<u8>) -> Option<u16> {
     {
         let al = &mut g.objs.aliens[flame as usize];
         al.stratptr = Some(init);
-        al.sflags |= ASF_INVISIBLE; // cleared in boost_Istrat
+        al.sflags4 |= ASF4_INVISIBLE; // cleared in boost_Istrat
         if let Some(s) = size {
             al.sbyte1 = s;
         }
@@ -1340,7 +1340,7 @@ pub fn strat_spawn_projectile(
     // default projectile is the retail elaser2 needle; specialized plasma
     // callers overwrite it after allocation.
     al.shape = 511;
-    al.sflags &= !ASF_INVISIBLE;
+    al.sflags4 &= !ASF4_INVISIBLE;
     al.type_ |= ATLASER | ATZREMOVE;
 
     al.stratptr = Some(tick_id);

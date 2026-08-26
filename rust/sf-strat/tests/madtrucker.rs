@@ -17,7 +17,7 @@ use sf_core::screen_fill_circle::{
     EXPANDING_INITIAL_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
 };
 use sf_game::alien::{
-    ObjectVisualKind, AFONFIRE, ASF_COLLIDE, ASF_INVISIBLE, ASF_SHADOW, NUMBER_AL,
+    ObjectVisualKind, AFONFIRE, ASF4_INVISIBLE, ASF_COLLIDE, ASF_SHADOW, NUMBER_AL,
 };
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
@@ -485,7 +485,7 @@ fn madbiker_inits_moves_and_dies() {
     assert_eq!(flame.relposx, 0);
     assert_eq!(flame.relposy, NEGATIVE_FIVE_AS_BYTE);
     assert_eq!(flame.relposz, NEGATIVE_TEN_AS_BYTE);
-    assert_eq!(flame.sflags & ASF_INVISIBLE, 0);
+    assert_eq!(flame.sflags4 & ASF4_INVISIBLE, 0);
     let (engine_x, engine_y, engine_z) =
         strat_roffs_pitch_yaw(b.rotx, b.roty, 0, 0, MADBIKER_ENGINE_Z_OFFSET);
     assert_eq!(flame.worldx, b.worldx.wrapping_add(engine_x));

@@ -1,6 +1,6 @@
 //! Tick 87: pshipdivegnd + viewdivegnd.
 
-use sf_game::alien::{ASF_INVISIBLE, ASF_SHADOW, ATZREMOVE};
+use sf_game::alien::{ASF4_INVISIBLE, ASF_SHADOW, ATZREMOVE};
 use sf_game::vars::{GF_NOZREMOVE, OUTVIEWDIST};
 use sf_game::Game;
 use sf_strat::common::StratRam;
@@ -59,7 +59,7 @@ fn pshipdivegnd_handoff_when_far() {
     let player = spawn(&mut g);
     assert_eq!(player, 0);
     g.vars.internal_playpt = 0;
-    g.objs.aliens[0].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[0].sflags4 |= ASF4_INVISIBLE;
 
     let cam = spawn(&mut g);
     g.objs.aliens[cam as usize].worldz = 0;
@@ -78,7 +78,7 @@ fn pshipdivegnd_handoff_when_far() {
     assert_eq!(g.vars.pviewvelz, MED_PSPEED);
     assert_eq!(g.vars.sv_i16(sv::OUTDIST), OUTVIEWDIST);
     assert_eq!(g.vars.viewdist, OUTVIEWDIST);
-    assert_eq!(g.objs.aliens[0].sflags & ASF_INVISIBLE, 0);
+    assert_eq!(g.objs.aliens[0].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.objs.aliens[0].worldx, 11);
     assert_eq!(g.objs.aliens[0].vel, MED_PSPEED as u8);
 }

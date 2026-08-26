@@ -1,7 +1,7 @@
 //! Tick 205: boss custom `s_fire_weapon` HMISSILE paths must
 //! `jsl missilesound_l` via `make_snd(Missile)` (gen_weapon).
 
-use sf_game::alien::{ASF_INVISIBLE, ATMISSILE, NUMBER_AL};
+use sf_game::alien::{ASF4_INVISIBLE, ATMISSILE, NUMBER_AL};
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses::{self, strat_flingboss_init, strat_webmonster_init};
@@ -72,7 +72,7 @@ fn assert_missile_presentation(g: &Game) {
         .filter(|alien| alien.active && alien.type_ & ATMISSILE != 0)
     {
         assert_eq!(missile.shape, SH_MISSILE);
-        assert_eq!(missile.sflags & ASF_INVISIBLE, 0);
+        assert_eq!(missile.sflags4 & ASF4_INVISIBLE, 0);
     }
 }
 

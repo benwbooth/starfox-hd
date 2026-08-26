@@ -1,6 +1,6 @@
 //! Tick 95: ClearDemo / DIVE / ClearChase cutscene leaves.
 
-use sf_game::alien::ASF_INVISIBLE;
+use sf_game::alien::ASF4_INVISIBLE;
 use sf_game::vars::{
     GF_NOZREMOVE, GF_VIEWROT, PFM_WOBBLE, PSF3_ENGINESND, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ,
     PSTF_NOVDISTC,
@@ -67,7 +67,7 @@ fn clear_demo_init_countdown_and_demo2() {
     player_clear_demo2_strat(&mut g, idx);
     assert_eq!(g.vars.sv_u8(sv::PSVAR_BYTE3), 1);
     assert_eq!(g.vars.pshipflags3 & PSF3_ENGINESND, 0);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
 }
 
 #[test]

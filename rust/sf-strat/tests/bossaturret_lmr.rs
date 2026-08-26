@@ -1,6 +1,6 @@
 //! Tick 91: bossAturret L/M/R istrat + strat leaves.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ASF4_INVISIBLE, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW};
 use sf_game::Game;
 use sf_strat::enemy_a::boss_attach_child_to_mother;
 use sf_strat::enemy_b::{
@@ -103,7 +103,7 @@ fn bossaturret_cont_aim_and_lone_sweep() {
     assert_eq!(g.objs.aliens[turret as usize].sbyte2, 20);
 
     // Invisible husk: still repositions, no crash
-    g.objs.aliens[turret as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[turret as usize].sflags4 |= ASF4_INVISIBLE;
     bossaturretm_strat(&mut g, turret); // same cont
     assert!(g.objs.aliens[turret as usize].active);
 

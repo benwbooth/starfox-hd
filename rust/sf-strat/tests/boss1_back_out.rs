@@ -1,7 +1,7 @@
 //! Tick 135: boss1 Mediums 6–8 verify (back-mode fire axes + beqdec out cycle)
 //! + ENDSEQ nosetport3 covered in shell tests.
 
-use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_INVISIBLE};
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF4_INVISIBLE};
 use sf_game::Game;
 use sf_strat::enemy_a::{
     boss1back_strat, boss1out_strat, strat_boss1_init, wm, SH_BOUNCYBALL, SH_MISSILE,
@@ -97,7 +97,7 @@ fn boss1back_fires_from_firer_rots_not_aim() {
     );
     let s = &g.objs.aliens[shots[0] as usize];
     assert_eq!(s.shape, SH_BOUNCYBALL);
-    assert_eq!(s.sflags & ASF_INVISIBLE, 0);
+    assert_eq!(s.sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(s.visual_kind, ObjectVisualKind::ScaledSprite);
     // homingflat_Istrat (GSTRATS.ASM:1723): copy weapon rots into sbyte1/2,
     // then force visual rotx=0 / roty=deg180 for the flat sprite. Spread lives
@@ -131,7 +131,7 @@ fn boss1back_fires_from_firer_rots_not_aim() {
     assert!(
         missiles.iter().all(|&i| {
             let missile = &g.objs.aliens[i as usize];
-            missile.shape == SH_MISSILE && missile.sflags & ASF_INVISIBLE == 0
+            missile.shape == SH_MISSILE && missile.sflags4 & ASF4_INVISIBLE == 0
         }),
         "HMISSILE1 pair must use the visible missile mesh"
     );

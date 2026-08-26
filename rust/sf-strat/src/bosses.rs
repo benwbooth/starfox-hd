@@ -22,8 +22,8 @@ use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     Alien, ExplosionSize, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3,
     ACF_COLLTYPE4, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF2_COLLDISABLE,
-    ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE, ASF4_SFLAG8, ASF_COLLDISABLE,
-    ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER,
+    ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE, ASF4_INVISIBLE, ASF4_SFLAG8,
+    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ASF_SHADOW, ATGND, ATLASER,
     ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -4091,7 +4091,7 @@ fn flingboss_fire_missile(g: &mut Game, idx: u16, wr_pitch: u8, wr_yaw: u8) {
     al.rotx = pitch;
     al.roty = yaw;
     al.rotz = me.rotz;
-    al.sflags &= !ASF_INVISIBLE;
+    al.sflags4 &= !ASF4_INVISIBLE;
     al.sflags |= ASF_SHADOW;
     al.shape = SH_MISSILE;
     al.type_ = ATMISSILE | ATZREMOVE;
@@ -5056,7 +5056,7 @@ fn cast_fire_ringlaser(g: &mut Game, idx: u16) {
         al.rotz = me.rotz;
         al.shape = SH_CAST_RINGLASER;
         al.type_ = ATLASER | ATZREMOVE;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.stratptr = Some(init);
 
         // The ROM object is born with only ACF_FIRSTFRAME. In particular it
@@ -5098,7 +5098,7 @@ fn cast_ringlaser_init(g: &mut Game, idx: u16) {
         al.ap = 7;
         al.colframe = 0;
         al.sflags3 |= ASF3_SAMESHAPECOLLIDE;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
         al.tx = 0;
@@ -6056,7 +6056,7 @@ fn chicken_arm_firebreath(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[fb as usize];
         al.shape = SH_CHICK_FIREBREATH;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
     }
     chicken_firebreath_istrat(g, fb);
     play_se(g, CHICK_SE_FIRE);
@@ -6515,7 +6515,7 @@ pub fn chicken_firebreath2_istrat(g: &mut Game, idx: u16) {
         al.collflags |= ACF_COLLTYPE2; // ENEMY1
         al.sbyte1 = FIREBREATH_ANIM_SPEED;
         al.shape = SH_CHICK_FIREBREATH;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
         al.tx = 0;
@@ -6552,7 +6552,7 @@ pub fn chicken_firebreath_strat(g: &mut Game, idx: u16) {
         let short = sid(g, chicken_firebreath_short_istrat);
         g.objs.aliens[trail as usize].stratptr = Some(short);
         g.objs.aliens[trail as usize].shape = SH_CHICK_FIREBREATH;
-        g.objs.aliens[trail as usize].sflags &= !ASF_INVISIBLE;
+        g.objs.aliens[trail as usize].sflags4 &= !ASF4_INVISIBLE;
     }
 
     add_player_z(g, idx);
@@ -6617,7 +6617,7 @@ fn chicken_firebreath_short_istrat(g: &mut Game, idx: u16) {
         al.ap = FIREBREATH_AP;
         crate::common::init_colanim(al, 0);
         al.shape = SH_CHICK_FIREBREATH;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
         al.tx = 0;
@@ -6660,7 +6660,7 @@ pub fn chicken_egg_istrat(g: &mut Game, idx: u16) {
         al.ap = EGG_AP;
         al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1 = acf_colltype2
         al.sflags |= ASF_SHADOW;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
         al.tx = 0;
@@ -6758,7 +6758,7 @@ fn chicken_shell_istrat(g: &mut Game, idx: u16) {
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.sflags |= ASF_SHADOW;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
     }
     chicken_shell_strat(g, idx);
 }
@@ -6820,7 +6820,7 @@ fn chicken_wings_strat_init(g: &mut Game, idx: u16) {
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.sflags |= ASF_NOHITAFFECT | ASF_COLLDISABLE | ASF_SHADOW;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.type_ &= !ATZREMOVE;
         al.animframe = 0x80; // s_init_anim x,#0
     }
@@ -7938,7 +7938,7 @@ fn sprouty_make_head(g: &mut Game, idx: u16) {
             al.ptr = boss_obj_index_or_null(idx); // head.al_ptr = segment
             al.sbyte2 = seg.sbyte2; // copy sbyte2 (fire counter)
             al.sbyte3 = sd_sword1_hi(&seg); // copy sword1+1 -> head sbyte3
-            al.sflags &= !ASF_INVISIBLE;
+            al.sflags4 &= !ASF4_INVISIBLE;
             if seg.sflags4 & ASF4_SFLAG8 != 0 {
                 al.sflags2 |= SD_SFLAG1; // nessie head: set sflag1
             }
@@ -8310,7 +8310,7 @@ fn sd_head_fire(g: &mut Game, idx: u16) {
         al.shape = SD_FIREBREATH;
         al.vel = FIREBREATH_VEL2;
         al.collflags |= ACF_COLLTYPE2;
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
     }
     chicken_firebreath2_istrat(g, fb);
     play_se(g, SD_SE_FIRE);
@@ -8636,7 +8636,7 @@ fn wm_propturret_fire(g: &mut Game, idx: u16) {
     al.rotx = pitch;
     al.roty = yaw;
     al.rotz = me.rotz;
-    al.sflags &= !ASF_INVISIBLE;
+    al.sflags4 &= !ASF4_INVISIBLE;
     al.sflags |= ASF_SHADOW;
     al.shape = SH_MISSILE;
     al.type_ = ATMISSILE | ATZREMOVE;
@@ -10774,9 +10774,9 @@ pub fn lastb2_istrat(g: &mut Game, idx: u16) {
     let flag1 = gameflags2(g) & GF2_STRATFLAG1 != 0;
     let al = &mut g.objs.aliens[idx as usize];
     if in_seq && flag1 {
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
     } else {
-        al.sflags |= ASF_INVISIBLE;
+        al.sflags4 |= ASF4_INVISIBLE;
     }
 }
 
@@ -10813,7 +10813,8 @@ pub fn lastb4_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.rotx = DEG90;
-        al.sflags |= ASF_COLLDISABLE | ASF_INVISIBLE;
+        al.sflags |= ASF_COLLDISABLE;
+        al.sflags4 |= ASF4_INVISIBLE;
     }
     let in_seq = g.vars.pstratflags & sf_game::vars::PSTF_INSEQ != 0;
     let flag2 = gameflags2(g) & GF2_STRATFLAG2 != 0;
@@ -10821,7 +10822,7 @@ pub fn lastb4_istrat(g: &mut Game, idx: u16) {
         g.objs.aliens[idx as usize].animframe = 0;
         return;
     }
-    g.objs.aliens[idx as usize].sflags &= !ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 &= !ASF4_INVISIBLE;
     let Some(v) = lastb_viewtoobj(g) else {
         return;
     };

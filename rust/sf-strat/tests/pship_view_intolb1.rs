@@ -1,6 +1,6 @@
 //! Tick 88: pshipintolb1 + viewintolb1.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_INVISIBLE};
+use sf_game::alien::{ASF4_INVISIBLE, ASF_COLLDISABLE};
 use sf_game::vars::{GF_NOZREMOVE, PSTF_INSEQ};
 use sf_game::Game;
 use sf_strat::common::StratRam;
@@ -75,7 +75,7 @@ fn pshipintolb1_handoff_to_ltunnel() {
     let player = spawn(&mut g);
     assert_eq!(player, 0);
     g.vars.internal_playpt = 0;
-    g.objs.aliens[0].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[0].sflags4 |= ASF4_INVISIBLE;
     g.objs.aliens[0].worldz = 1000;
     g.vars.gameflags |= GF_NOZREMOVE;
     g.vars.write_ext8(WM_FLOATVAR1, 99);
@@ -96,7 +96,7 @@ fn pshipintolb1_handoff_to_ltunnel() {
     // One tick: chase + decbne → state 4 → handoff same frame
     pshipintolb1_strat(&mut g, ship);
     assert_eq!(g.objs.aldead, 1);
-    assert_eq!(g.objs.aliens[0].sflags & ASF_INVISIBLE, 0);
+    assert_eq!(g.objs.aliens[0].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.vars.sv_i16(sv::VIEWTOOBJ), 0);
     assert_eq!(g.vars.sv_u8(sv::VIEWTYPE), VIEWTYPE_NORM);
     assert_eq!(g.vars.pviewvelz, MAX_PSPEED);
@@ -136,7 +136,7 @@ fn player_reaches_map_target_and_builds_the_lb1_cutscene() {
 
     assert_ne!(g.vars.pstratflags & PSTF_INSEQ, 0);
     assert_ne!(g.vars.gameflags & GF_NOZREMOVE, 0);
-    assert_ne!(g.objs.aliens[player as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[player as usize].sflags4 & ASF4_INVISIBLE, 0);
     let ship = g.vars.sv_i16(sv::VIEWTOOBJ);
     assert!(ship >= 0 && ship as u16 != player);
     assert_eq!(g.objs.aliens[ship as usize].sbyte1, DEG90 / 2);

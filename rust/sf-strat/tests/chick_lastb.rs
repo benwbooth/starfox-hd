@@ -1,6 +1,6 @@
 //! ROM chick hatchling + lastb2/3/4 final-base doors + public amoeba aliases.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_INVISIBLE, ASF_SHADOW};
+use sf_game::alien::{ASF4_INVISIBLE, ASF_COLLDISABLE, ASF_SHADOW};
 use sf_game::vars::{GF_STRATDONE1, PSTF_INSEQ};
 use sf_game::Game;
 use sf_strat::bosses::{
@@ -70,13 +70,13 @@ fn lastb2_visibility_gates() {
     g.vars.pstratflags = 0;
     g.vars.write_ext8(WM_GAMEFLAGS2, 0);
     lastb2_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
     // In seq + flag1 → visible.
     g.vars.pstratflags |= PSTF_INSEQ;
     g.vars.write_ext8(WM_GAMEFLAGS2, GF2_STRATFLAG1);
     lastb2_istrat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn lastb4_opens_and_sets_stratdone1() {
     g.vars.write_ext8(WM_GAMEFLAGS2, GF2_STRATFLAG2);
     lastb4_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].rotx, 64); // DEG90
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_INVISIBLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_ne!(g.vars.gameflags & GF_STRATDONE1, 0);
     assert_eq!(g.objs.aliens[idx as usize].animframe, 1);
 }

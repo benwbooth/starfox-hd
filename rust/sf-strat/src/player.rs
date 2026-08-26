@@ -37,8 +37,8 @@ use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME,
     ACF_WEAPON, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_INVISIBLE, ASF4_PLAYEROBJ,
-    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_INVISIBLE, ASF_SHADOW, ATGND, ATLASER,
-    ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE,
+    NUMBER_AL,
 };
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
@@ -283,7 +283,7 @@ fn player_ship_row(ship_num: u8) -> PlayerShipShapes {
 /// bolt spawned by `fire_Elaser`, GSTRATS.ASM:2346), but `elaser2` has no
 /// `def_shape` entry in ISTRATS.ASM so `tools/shape_compiler.py` never assigns
 /// it a runtime id and sf-render has no mesh for it. `strat_spawn_projectile`
-/// therefore stubbed every projectile as `shape = 0` + `ASF_INVISIBLE`, which
+/// therefore stubbed every projectile as `shape = 0` + `ASF4_INVISIBLE`, which
 /// `Draw_BuildList` skips on BOTH filters (shape==0 and invisible) — the reason
 /// player lasers were invisible in both the C and Rust builds.
 ///
@@ -3303,7 +3303,7 @@ fn player_exitbase_go_init(g: &mut Game, idx: u16) {
         al.snd1 = 0xB1;
     }
     // s_set_var B,stagecnt,#50
-    g.vars.stagecnt = 50;
+    g.vars.stagecnt = i16::from(sf_core::stage_banner::STAGE_BANNER_INITIAL_TICKS);
     // s_set_var B,psvar_byte2,#0
     g.vars.set_sv_u8(sv::PSVAR_BYTE2, 0);
     // ASM falls through into playerExitBaseGo_strat
@@ -3512,7 +3512,10 @@ mod exit_base_follow_tests {
             game.objs.aliens[player as usize].sflags4 & ASF4_INVISIBLE,
             0
         );
-        assert_eq!(game.objs.aliens[player as usize].sflags & ASF_INVISIBLE, 0);
+        assert_eq!(
+            game.objs.aliens[player as usize].sflags & sf_game::alien::ASF_SPECIAL,
+            0
+        );
 
         game.vars.set_sv_u8(sv::PSVAR_BYTE1, 1);
         player_exitbase_wait_strat(&mut game, player);
@@ -3520,7 +3523,10 @@ mod exit_base_follow_tests {
             game.objs.aliens[player as usize].sflags4 & ASF4_INVISIBLE,
             0
         );
-        assert_eq!(game.objs.aliens[player as usize].sflags & ASF_INVISIBLE, 0);
+        assert_eq!(
+            game.objs.aliens[player as usize].sflags & sf_game::alien::ASF_SPECIAL,
+            0
+        );
     }
 
     #[test]
@@ -3537,7 +3543,10 @@ mod exit_base_follow_tests {
             game.objs.aliens[camera as usize].sflags4 & ASF4_INVISIBLE,
             0
         );
-        assert_eq!(game.objs.aliens[camera as usize].sflags & ASF_INVISIBLE, 0);
+        assert_eq!(
+            game.objs.aliens[camera as usize].sflags & sf_game::alien::ASF_SPECIAL,
+            0
+        );
     }
 
     #[test]
@@ -4110,7 +4119,7 @@ pub fn player_clear_ship_strat(g: &mut Game, idx: u16) {
     let wz = g.objs.aliens[idx as usize].worldz;
     let pview_z = g.vars.sv_i16(sv::PVIEWPOSZ);
     if (wz as i32).wrapping_sub(pview_z as i32) >= 4000 {
-        g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+        g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
     }
 
     let wx = g.objs.aliens[idx as usize].worldx;
@@ -5021,7 +5030,7 @@ pub fn pshipcolony_strat(g: &mut Game, idx: u16) {
             let pidx = p as u16;
             set_player_in_ltunnel(g, pidx);
             g.vars.shared.do_depth_rotation = 0;
-            g.objs.aliens[pidx as usize].sflags &= !ASF_INVISIBLE;
+            g.objs.aliens[pidx as usize].sflags4 &= !ASF4_INVISIBLE;
             g.objs.aliens[pidx as usize].worldx = 0;
             g.objs.aliens[pidx as usize].worldy = LTUNNEL_VIEWCY;
             let wz = g.objs.aliens[idx as usize].worldz;
@@ -5086,7 +5095,7 @@ pub fn pshipwashent_strat(g: &mut Game, idx: u16) {
             let pidx = p as u16;
             set_player_in_nucleus(g, pidx);
             g.vars.shared.do_depth_rotation = 0;
-            g.objs.aliens[pidx as usize].sflags &= !ASF_INVISIBLE;
+            g.objs.aliens[pidx as usize].sflags4 &= !ASF4_INVISIBLE;
             g.objs.aliens[pidx as usize].worldx = 0;
             g.objs.aliens[pidx as usize].worldz =
                 g.objs.aliens[pidx as usize].worldz.wrapping_add(MED_PSPEED);
@@ -5712,7 +5721,7 @@ pub fn player_out_of_cock_strat(g: &mut Game, idx: u16) -> bool {
     // `s_playerfly_mode space,nomacro`: update the space bounds while
     // preserving the transition/death flags until the branch below.
     apply_space_flight_mode(g, SpaceFlightSetup::PreserveSequence);
-    g.objs.aliens[idx as usize].sflags &= !ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 &= !ASF4_INVISIBLE;
     g.vars.player_view_mode = PlayerViewMode::Exterior;
 
     if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
@@ -6586,7 +6595,7 @@ pub fn pshipintolb1_strat(g: &mut Game, idx: u16) {
         if p >= 0 && (p as usize) < NUMBER_AL {
             let pidx = p as u16;
             set_player_in_ltunnel(g, pidx);
-            g.objs.aliens[pidx as usize].sflags &= !ASF_INVISIBLE;
+            g.objs.aliens[pidx as usize].sflags4 &= !ASF4_INVISIBLE;
             g.vars.set_sv_i16(sv::VIEWTOOBJ, pidx as i16);
             g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
             g.vars.pviewvelz = MAX_PSPEED;
@@ -6760,7 +6769,7 @@ pub fn pshipdivegnd_strat(g: &mut Game, idx: u16) {
                     pl.worldx = src.worldx;
                     pl.worldy = src.worldy;
                     pl.worldz = src.worldz;
-                    pl.sflags &= !ASF_INVISIBLE;
+                    pl.sflags4 &= !ASF4_INVISIBLE;
                     pl.vel = MED_PSPEED as u8;
                 }
             }
@@ -7167,7 +7176,7 @@ fn dupplayer(g: &mut Game, idx: u16) -> Option<u16> {
         d.rotz = src.rotz;
         d.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
     }
-    g.objs.aliens[idx as usize].sflags |= ASF_INVISIBLE;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
     Some(dup)
 }
 
