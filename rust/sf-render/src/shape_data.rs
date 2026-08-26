@@ -233,6 +233,7 @@ pub const SHAPE_EXT_LFLASH_0: u16 = 479;
 pub const SHAPE_EXT_MFLASH_0: u16 = 480;
 pub const SHAPE_EXT_SFLASH_0: u16 = 481;
 pub const SHAPE_EXT_TRAINING: u16 = 482;
+pub const SHAPE_EXT_IMYSHIP_4: u16 = 507;
 pub const SHAPE_EXT_OP_0: u16 = 508;
 pub const SHAPE_EXT_OP_1: u16 = 509;
 pub const SHAPE_EXT_OP_2: u16 = 510;
@@ -98113,6 +98114,209 @@ static SHAPE_482_FACES: [ShapeFace; 32] = [
 
 static SHAPE_482_PAINTER: [ShapePainterNode; 0] = [];
 
+// Shape 507: imyship_4
+static SHAPE_507_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
+static SHAPE_507_VERTS: [ShapeVertex; 16] = [
+    v(0.0, 0.0, -10.0),
+    v(0.0, -1.0, 0.0),
+    v(0.0, 6.0, 0.0),
+    v(0.0, -2.0, 80.0),
+    v(36.0, -14.0, -40.0),
+    v(-36.0, -14.0, -40.0),
+    v(20.0, 11.0, -20.0),
+    v(-20.0, 11.0, -20.0),
+    v(-18.0, -9.0, -6.0),
+    v(18.0, -9.0, -6.0),
+    v(-10.0, -4.0, 0.0),
+    v(10.0, -4.0, 0.0),
+    v(20.0, -4.0, 0.0),
+    v(-20.0, -4.0, 0.0),
+    v(-14.0, -10.0, 20.0),
+    v(14.0, -10.0, 20.0),
+];
+static SHAPE_507_FACES: [ShapeFace; 20] = [
+    f(
+        [3, 2, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        16,
+        [-90, -90, -9],
+        Some([3, 2, 11]),
+    ),
+    f(
+        [10, 14, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        7,
+        [-65, -100, -43],
+        Some([10, 14, 7]),
+    ),
+    f(
+        [10, 13, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [0, -123, 31],
+        Some([10, 13, 5]),
+    ),
+    f(
+        [8, 13, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        44,
+        [0, 98, -81],
+        Some([8, 13, 10]),
+    ),
+    f(
+        [13, 8, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [72, 91, -52],
+        Some([13, 8, 5]),
+    ),
+    f(
+        [8, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        1,
+        [-80, 94, 29],
+        Some([8, 10, 5]),
+    ),
+    f(
+        [10, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        20,
+        [90, -90, -9],
+        Some([10, 2, 3]),
+    ),
+    f(
+        [0, 10, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        10,
+        [-36, 121, 12],
+        Some([0, 10, 1]),
+    ),
+    f(
+        [10, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        43,
+        [0, 0, 127],
+        Some([10, 11, 1]),
+    ),
+    f(
+        [0, 2, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        18,
+        [83, -83, 50],
+        Some([0, 2, 10]),
+    ),
+    f(
+        [3, 11, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [0, 127, -3],
+        Some([3, 11, 10]),
+    ),
+    f(
+        [7, 14, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        7,
+        [65, 100, 43],
+        Some([7, 14, 10]),
+    ),
+    f(
+        [1, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        10,
+        [36, 121, 12],
+        Some([1, 11, 0]),
+    ),
+    f(
+        [6, 15, 11, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        7,
+        [65, -100, -43],
+        Some([6, 15, 11]),
+    ),
+    f(
+        [11, 15, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        7,
+        [-65, 100, 43],
+        Some([11, 15, 6]),
+    ),
+    f(
+        [11, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        14,
+        [-83, -83, 50],
+        Some([11, 2, 0]),
+    ),
+    f(
+        [4, 11, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [80, 94, 29],
+        Some([4, 11, 9]),
+    ),
+    f(
+        [12, 11, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        0,
+        [0, -123, 31],
+        Some([12, 11, 4]),
+    ),
+    f(
+        [11, 12, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        44,
+        [0, 98, -81],
+        Some([11, 12, 9]),
+    ),
+    f(
+        [4, 9, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        3,
+        1,
+        [-72, 91, -52],
+        Some([4, 9, 12]),
+    ),
+];
+
+static SHAPE_507_PAINTER: [ShapePainterNode; 7] = [
+    ShapePainterNode::Partition {
+        visibility_vertices: Some([3, 2, 11]),
+        face_start: 0,
+        face_count: 1,
+        left: Some(1),
+        right: Some(4),
+    },
+    ShapePainterNode::Partition {
+        visibility_vertices: Some([10, 14, 7]),
+        face_start: 1,
+        face_count: 1,
+        left: Some(2),
+        right: Some(3),
+    },
+    ShapePainterNode::Leaf {
+        face_start: 2,
+        face_count: 4,
+    },
+    ShapePainterNode::Leaf {
+        face_start: 6,
+        face_count: 6,
+    },
+    ShapePainterNode::Partition {
+        visibility_vertices: Some([1, 11, 0]),
+        face_start: 12,
+        face_count: 1,
+        left: Some(5),
+        right: Some(6),
+    },
+    ShapePainterNode::Leaf {
+        face_start: 13,
+        face_count: 2,
+    },
+    ShapePainterNode::Leaf {
+        face_start: 15,
+        face_count: 5,
+    },
+];
+
 // Shape 508: op_0
 static SHAPE_508_REFLECTED_PAIR_STARTS: [u16; 10] = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18];
 static SHAPE_508_VERTS: [ShapeVertex; 20] = [
@@ -98917,7 +99121,7 @@ static SHAPE_511_FACES: [ShapeFace; 6] = [
 
 static SHAPE_511_PAINTER: [ShapePainterNode; 0] = [];
 
-pub const SHAPE_DATA_COUNT: usize = 478;
+pub const SHAPE_DATA_COUNT: usize = 479;
 
 pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
     ShapeDataEntry {
@@ -104305,6 +104509,17 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "training",
+    },
+    ShapeDataEntry {
+        shape_id: 507,
+        vertices: &SHAPE_507_VERTS,
+        animation_frames: &[],
+        reflected_pair_starts: &SHAPE_507_REFLECTED_PAIR_STARTS,
+        faces: &SHAPE_507_FACES,
+        painter_nodes: &SHAPE_507_PAINTER,
+        source_lods: [None, None, None],
+        default_color_table: "id_0_c",
+        name: "imyship_4",
     },
     ShapeDataEntry {
         shape_id: 508,

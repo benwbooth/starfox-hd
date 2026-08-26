@@ -53,6 +53,12 @@ const DIRECT_SHAPE_IDS: [(u16, u16); 17] = [
     (0xBB9C, 420),
     (0xC360, 351),
 ];
+const RETAIL_INTRO_SHAPE_IDS: [(u16, u16); 4] = [
+    (0xBB48, sf_render::shapes::SHAPE_ALIAS_OP_0),
+    (0xBB64, sf_render::shapes::SHAPE_ALIAS_OP_1),
+    (0xBB80, sf_render::shapes::SHAPE_ALIAS_OP_2),
+    (0xD304, sf_core::shape::SF1_SHAPE_INTRO_ARWING),
+];
 
 const FRONT_END_CONFIRM_CADENCE_TICKS: u32 = 60;
 const FRONT_END_CONFIRM_HOLD_TICKS: u32 = 2;
@@ -102,6 +108,12 @@ fn gsu_word(machine: &RetailMachine, address: usize) -> u16 {
 }
 
 fn retail_flat_shape(retail: &RetailMachine, source_word: u16) -> u16 {
+    if let Some((_, native_shape)) = RETAIL_INTRO_SHAPE_IDS
+        .iter()
+        .find(|(retail_shape, _)| *retail_shape == source_word)
+    {
+        return *native_shape;
+    }
     if let Some((_, native_shape)) = DIRECT_SHAPE_IDS
         .iter()
         .find(|(retail_shape, _)| *retail_shape == source_word)

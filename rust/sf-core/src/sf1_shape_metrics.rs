@@ -4286,6 +4286,15 @@ pub const SF1_SHAPE_METRICS: &[(u16, Sf1ShapeMetrics)] = &[
         },
     ), // training
     (
+        507,
+        Sf1ShapeMetrics {
+            sort_depth: 500,
+            visual_extent: 80,
+            coordinate_shift: 0,
+            half_extents: [36, 14, 80],
+        },
+    ), // imyship_4
+    (
         508,
         Sf1ShapeMetrics {
             sort_depth: 0,

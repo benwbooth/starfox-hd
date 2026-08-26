@@ -10,6 +10,9 @@ use crate::sf1_shape_words;
 /// lower 512 flat ids; SF2 catalog indices are offset into this disjoint range
 /// rather than carrying source ShapeHdr addresses through the shipping port.
 pub const SF2_SHAPE_NAMESPACE_START: u16 = 1024;
+/// Flat identity of `Imyship_4`, the launch-intro Arwing ShapeHdr. It shares
+/// the regular Arwing mesh but retains its authored presentation metadata.
+pub const SF1_SHAPE_INTRO_ARWING: u16 = 507;
 
 pub const fn sf2_shape_id(catalog_index: u16) -> u16 {
     SF2_SHAPE_NAMESPACE_START + catalog_index
@@ -27,7 +30,7 @@ pub fn resolve_shape_word(shape_word: u16) -> u16 {
         551 => 508,
         552 => 509,
         553 => 510,
-        554 => 2,
+        554 => SF1_SHAPE_INTRO_ARWING,
         557 => 282,
         614 => 298,
         _ => sf1_shape_words::flat_id(shape_word).unwrap_or(shape_word),
@@ -47,6 +50,11 @@ mod tests {
         assert_eq!(resolve_shape_word(0x98B8), 386); // egg
         assert_eq!(resolve_shape_word(0xA2A6), 387); // boss_d_8
         assert_eq!(resolve_shape_word(0xA2C2), 388); // boss_d_9
+    }
+
+    #[test]
+    fn launch_intro_compatibility_word_keeps_its_flat_header_identity() {
+        assert_eq!(resolve_shape_word(554), SF1_SHAPE_INTRO_ARWING);
     }
 
     #[test]

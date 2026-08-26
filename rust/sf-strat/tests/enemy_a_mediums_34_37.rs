@@ -2,7 +2,7 @@
 //! delayexplode s_decbpl (count_down); pillar3explode 8-child chain + silent;
 //! init→strat same-frame fall-through.
 
-use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF3_REALOBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF2_COLLDISABLE, ASF3_REALOBJ};
 use sf_game::game::{Game, Hooks};
 use sf_strat::enemy_a::{
     delayexplode_strat, strat_hard180yr_init, strat_hard90yr_init, strat_houdai_init,
@@ -83,7 +83,7 @@ fn delayexplode_count_one_survives_first_tick() {
     assert_eq!(g.objs.aldead, 0, "expiry signals death, does not remove");
     assert_eq!(g.objs.aliens[idx as usize].hp, 0);
     assert_ne!(
-        g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE,
+        g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE,
         0,
         "colldisable set"
     );

@@ -4,7 +4,7 @@
 //! stayrel/stayrelhard180yr/staydist and GASTRATS.ASM gnd).
 
 use crate::enemy_a::{pviewposz, sid, DEG180};
-use sf_game::alien::{ASF_COLLDISABLE, ATGND};
+use sf_game::alien::{ASF2_COLLDISABLE, ATGND};
 use sf_game::game::Game;
 use sf_game::vars::{HARD_AP, HARD_HP};
 
@@ -16,7 +16,7 @@ fn stayrel_strat(g: &mut Game, idx: u16) {
     // s_add_playerZ x
     al.worldz = al.worldz.wrapping_add(v);
     // s_set_alsflag x,colldisable
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// C `Strat_StayRel_Init` (src/strat/strat_ground.c:27).
@@ -36,7 +36,7 @@ pub fn strat_gnd_init(g: &mut Game, idx: u16) {
     // s_set_altype x,gnd
     al.type_ |= ATGND;
     // s_set_alsflag x,colldisable
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// C `stayrelhard180yr_strat` (GSTRATS.ASM:692-695).
@@ -70,7 +70,7 @@ fn staydist_strat(g: &mut Game, idx: u16) {
     // s_add_alvar W,x,al_worldz,pviewposz
     al.worldz = al.sword1.wrapping_add(pvz);
     // s_set_alsflag x,colldisable
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// C `Strat_StayDist_Init` (GSTRATS.ASM:706-711): `sword1` is the desired

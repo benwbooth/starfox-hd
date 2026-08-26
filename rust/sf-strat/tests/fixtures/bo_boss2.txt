@@ -241,7 +241,7 @@ T20 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2231 rx=0 ry=134 rz=0 v=0 sf=8 
 T20 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2235 rx=0 ry=198 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T20 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2238 rx=0 ry=6 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T20 A11 sh=405 f=16 t=2 c=46 c1=0 x=8168 y=-723 z=1558 rx=11 ry=122 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=122 b2=11 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-7 vy=15 vz=-55 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
-T20 A12 sh=3 f=16 t=8 c=1 c1=0 x=7920 y=-800 z=2145 rx=0 ry=0 rz=0 v=0 sf=0 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T20 A12 sh=explosion-large f=16 t=8 c=1 c1=0 x=7920 y=-800 z=2145 rx=0 ry=0 rz=0 v=0 sf=0 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T21 G gf=21 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
 T21 A00 sh=2 f=16 t=8 c=0 c1=0 x=0 y=0 z=1365 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=8 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T21 A01 sh=255 f=16 t=8 c=50 c1=0 x=8192 y=-600 z=2300 rx=0 ry=40 rz=0 v=0 sf=24 s2=0 s3=8 s4=64 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=3 w2=0 hp=255 ap=10 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
@@ -254,7 +254,7 @@ T21 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2296 rx=0 ry=136 rz=0 v=0 sf=8 
 T21 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2300 rx=0 ry=200 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T21 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2303 rx=0 ry=8 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T21 A11 sh=405 f=16 t=2 c=45 c1=0 x=8161 y=-708 z=1503 rx=11 ry=122 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=122 b2=11 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-7 vy=15 vz=-55 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
-T21 A12 sh=3 f=16 t=8 c=0 c1=0 x=7920 y=-800 z=2145 rx=0 ry=0 rz=0 v=0 sf=2 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T21 A12 sh=explosion-large f=16 t=8 c=0 c1=0 x=7920 y=-800 z=2145 rx=0 ry=0 rz=0 v=0 sf=2 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T22 G gf=22 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
 T22 A00 sh=2 f=16 t=8 c=0 c1=0 x=0 y=0 z=1430 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=8 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T22 A01 sh=255 f=16 t=8 c=50 c1=0 x=8192 y=-600 z=2365 rx=0 ry=42 rz=0 v=0 sf=24 s2=0 s3=8 s4=64 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=3 w2=0 hp=255 ap=10 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
@@ -263,7 +263,7 @@ T22 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2366 rx=0 ry=42 rz=0 v=0 sf=8 s
 T22 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2362 rx=0 ry=106 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T22 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2363 rx=0 ry=170 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T22 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2367 rx=0 ry=234 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=9 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
-T22 A07 sh=462 f=16 t=8 c=1 c1=6 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T22 A07 sh=463 f=16 t=8 c=1 c1=8 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T22 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2361 rx=0 ry=138 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=9 b2=96 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=11 fo=0 ptr=2 sm=0
 T22 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2365 rx=0 ry=202 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T22 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2368 rx=0 ry=10 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
@@ -276,7 +276,7 @@ T23 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2431 rx=0 ry=44 rz=0 v=0 sf=8 s
 T23 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2427 rx=0 ry=108 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T23 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2428 rx=0 ry=172 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T23 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2432 rx=0 ry=236 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=9 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
-T23 A07 sh=462 f=16 t=8 c=2 c1=6 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T23 A07 sh=463 f=16 t=8 c=2 c1=8 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T23 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2426 rx=0 ry=140 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=9 b2=96 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=11 fo=0 ptr=2 sm=0
 T23 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2430 rx=0 ry=204 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T23 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2433 rx=0 ry=12 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
@@ -289,7 +289,7 @@ T24 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2496 rx=0 ry=46 rz=0 v=0 sf=8 s
 T24 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2492 rx=0 ry=110 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T24 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2493 rx=0 ry=174 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T24 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2497 rx=0 ry=238 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=9 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
-T24 A07 sh=462 f=16 t=8 c=3 c1=6 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T24 A07 sh=463 f=16 t=8 c=3 c1=8 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T24 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2491 rx=0 ry=142 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=9 b2=96 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=11 fo=0 ptr=2 sm=0
 T24 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2495 rx=0 ry=206 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T24 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2498 rx=0 ry=14 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
@@ -302,7 +302,7 @@ T25 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2560 rx=0 ry=48 rz=0 v=0 sf=8 s
 T25 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2556 rx=0 ry=112 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T25 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2559 rx=0 ry=176 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T25 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2563 rx=0 ry=240 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=9 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
-T25 A07 sh=462 f=16 t=8 c=4 c1=6 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=132 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T25 A07 sh=463 f=16 t=8 c=4 c1=8 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=132 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T25 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2557 rx=0 ry=144 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=9 b2=96 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=11 fo=0 ptr=2 sm=0
 T25 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2561 rx=0 ry=208 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T25 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2562 rx=0 ry=16 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
@@ -315,7 +315,7 @@ T26 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2625 rx=0 ry=50 rz=0 v=0 sf=8 s
 T26 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2621 rx=0 ry=114 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T26 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2624 rx=0 ry=178 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T26 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2628 rx=0 ry=242 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=9 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
-T26 A07 sh=462 f=16 t=8 c=5 c1=6 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=133 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T26 A07 sh=463 f=16 t=8 c=5 c1=8 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=133 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T26 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2622 rx=0 ry=146 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=9 b2=96 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=11 fo=0 ptr=2 sm=0
 T26 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2626 rx=0 ry=210 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T26 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2627 rx=0 ry=18 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
@@ -328,6 +328,7 @@ T27 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2690 rx=0 ry=52 rz=0 v=0 sf=8 s
 T27 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2686 rx=0 ry=116 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T27 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2689 rx=0 ry=180 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T27 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2693 rx=0 ry=244 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=9 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
+T27 A07 sh=463 f=16 t=8 c=6 c1=8 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=134 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T27 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2687 rx=0 ry=148 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=9 b2=96 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=11 fo=0 ptr=2 sm=0
 T27 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2691 rx=0 ry=212 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T27 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2692 rx=0 ry=20 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
@@ -340,6 +341,7 @@ T28 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2755 rx=0 ry=54 rz=0 v=0 sf=8 s
 T28 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2751 rx=0 ry=118 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T28 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2754 rx=0 ry=182 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T28 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2758 rx=0 ry=246 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=9 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
+T28 A07 sh=463 f=16 t=8 c=7 c1=8 x=7920 y=-800 z=2145 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=135 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T28 A08 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2752 rx=0 ry=150 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=9 b2=96 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=11 fo=0 ptr=2 sm=0
 T28 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2756 rx=0 ry=214 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T28 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2757 rx=0 ry=22 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
@@ -364,7 +366,7 @@ T30 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2885 rx=0 ry=58 rz=0 v=0 sf=8 s
 T30 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2881 rx=0 ry=122 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T30 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2884 rx=0 ry=186 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T30 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2888 rx=0 ry=250 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
-T30 A07 sh=3 f=16 t=8 c=1 c1=0 x=8344 y=-800 z=2593 rx=0 ry=0 rz=0 v=0 sf=0 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T30 A07 sh=explosion-large f=16 t=8 c=1 c1=0 x=8344 y=-800 z=2593 rx=0 ry=0 rz=0 v=0 sf=0 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T30 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2886 rx=0 ry=218 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T30 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2887 rx=0 ry=26 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T30 A11 sh=405 f=16 t=2 c=36 c1=0 x=8069 y=-508 z=1047 rx=30 ry=110 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=110 b2=30 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-18 vy=39 vz=-38 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -376,7 +378,7 @@ T31 A03 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2950 rx=0 ry=62 rz=0 v=0 sf=8 s
 T31 A04 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2946 rx=0 ry=126 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=3 b2=64 b3=0 b4=0 b5=0 b6=0 w1=6 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T31 A05 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2949 rx=0 ry=190 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=0 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T31 A06 sh=263 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2953 rx=0 ry=254 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=0 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
-T31 A07 sh=3 f=16 t=8 c=0 c1=0 x=8344 y=-800 z=2593 rx=0 ry=0 rz=0 v=0 sf=2 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T31 A07 sh=explosion-large f=16 t=8 c=0 c1=0 x=8344 y=-800 z=2593 rx=0 ry=0 rz=0 v=0 sf=2 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T31 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2951 rx=0 ry=222 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T31 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=2952 rx=0 ry=30 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T31 A11 sh=405 f=16 t=2 c=35 c1=0 x=8050 y=-464 z=1014 rx=34 ry=107 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=107 b2=34 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-19 vy=44 vz=-33 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -389,7 +391,7 @@ T32 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3011 rx=0 ry=130 rz=0 v=0 sf=8 
 T32 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3015 rx=0 ry=194 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T32 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3018 rx=0 ry=2 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T32 A07 sh=403 f=16 t=10 c=100 c1=0 x=8192 y=-808 z=3015 rx=0 ry=240 rz=0 v=60 sf=8 s2=4 s3=8 s4=0 b1=25 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=71 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T32 A08 sh=462 f=16 t=8 c=1 c1=6 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T32 A08 sh=463 f=16 t=8 c=1 c1=8 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T32 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3017 rx=0 ry=226 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T32 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3016 rx=0 ry=34 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T32 A11 sh=405 f=16 t=2 c=34 c1=0 x=8032 y=-417 z=986 rx=38 ry=104 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=104 b2=38 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-18 vy=47 vz=-28 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -402,7 +404,7 @@ T33 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3076 rx=0 ry=134 rz=0 v=0 sf=8 
 T33 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3080 rx=0 ry=198 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T33 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3083 rx=0 ry=6 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T33 A07 sh=403 f=16 t=10 c=99 c1=0 x=8213 y=-808 z=3068 rx=0 ry=240 rz=10 v=60 sf=8 s2=4 s3=8 s4=0 b1=24 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T33 A08 sh=462 f=16 t=8 c=2 c1=6 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T33 A08 sh=463 f=16 t=8 c=2 c1=8 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T33 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3082 rx=0 ry=230 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T33 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3081 rx=0 ry=38 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T33 A11 sh=405 f=16 t=2 c=33 c1=0 x=8015 y=-367 z=963 rx=42 ry=102 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=102 b2=42 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-17 vy=50 vz=-23 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -415,7 +417,7 @@ T34 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3141 rx=0 ry=138 rz=0 v=0 sf=8 
 T34 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3145 rx=0 ry=202 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T34 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3148 rx=0 ry=10 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T34 A07 sh=403 f=16 t=10 c=98 c1=0 x=8234 y=-808 z=3121 rx=0 ry=240 rz=20 v=60 sf=8 s2=4 s3=8 s4=0 b1=23 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T34 A08 sh=462 f=16 t=8 c=3 c1=6 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T34 A08 sh=463 f=16 t=8 c=3 c1=8 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T34 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3147 rx=0 ry=234 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T34 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3146 rx=0 ry=42 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T34 A11 sh=405 f=16 t=2 c=32 c1=0 x=8000 y=-314 z=945 rx=46 ry=100 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=100 b2=46 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-15 vy=53 vz=-18 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -428,7 +430,7 @@ T35 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3206 rx=0 ry=142 rz=0 v=0 sf=8 
 T35 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3210 rx=0 ry=206 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T35 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3213 rx=0 ry=14 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T35 A07 sh=403 f=16 t=10 c=97 c1=0 x=8255 y=-808 z=3174 rx=0 ry=240 rz=30 v=60 sf=8 s2=4 s3=8 s4=0 b1=22 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T35 A08 sh=462 f=16 t=8 c=4 c1=6 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=132 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T35 A08 sh=463 f=16 t=8 c=4 c1=8 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=132 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T35 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3212 rx=0 ry=238 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T35 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3211 rx=0 ry=46 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T35 A11 sh=405 f=16 t=2 c=31 c1=0 x=7988 y=-259 z=931 rx=50 ry=98 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=98 b2=50 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-12 vy=55 vz=-14 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -441,7 +443,7 @@ T36 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3272 rx=0 ry=146 rz=0 v=0 sf=8 
 T36 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3276 rx=0 ry=210 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T36 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3277 rx=0 ry=18 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T36 A07 sh=403 f=16 t=10 c=96 c1=0 x=8276 y=-808 z=3227 rx=0 ry=240 rz=40 v=60 sf=8 s2=4 s3=8 s4=0 b1=21 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T36 A08 sh=462 f=16 t=8 c=5 c1=6 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=133 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T36 A08 sh=463 f=16 t=8 c=5 c1=8 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=133 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T36 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3278 rx=0 ry=242 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T36 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3275 rx=0 ry=50 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T36 A11 sh=405 f=16 t=2 c=30 c1=0 x=7978 y=-202 z=921 rx=53 ry=96 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=96 b2=53 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-10 vy=57 vz=-10 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -454,6 +456,7 @@ T37 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3337 rx=0 ry=150 rz=0 v=0 sf=8 
 T37 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3341 rx=0 ry=214 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T37 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3342 rx=0 ry=22 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T37 A07 sh=403 f=16 t=10 c=95 c1=0 x=8297 y=-808 z=3280 rx=0 ry=240 rz=50 v=60 sf=8 s2=4 s3=8 s4=0 b1=20 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
+T37 A08 sh=463 f=16 t=8 c=6 c1=8 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=134 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T37 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3343 rx=0 ry=246 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T37 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3340 rx=0 ry=54 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T37 A11 sh=405 f=16 t=2 c=29 c1=0 x=7970 y=-144 z=914 rx=56 ry=94 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=94 b2=56 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-8 vy=58 vz=-7 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -466,6 +469,7 @@ T38 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3402 rx=0 ry=154 rz=0 v=0 sf=8 
 T38 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3406 rx=0 ry=218 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T38 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3407 rx=0 ry=26 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=10 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T38 A07 sh=403 f=16 t=10 c=94 c1=0 x=8318 y=-808 z=3333 rx=0 ry=240 rz=60 v=60 sf=8 s2=4 s3=8 s4=0 b1=19 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
+T38 A08 sh=463 f=16 t=8 c=7 c1=8 x=8344 y=-800 z=2593 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=135 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T38 A09 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3408 rx=0 ry=250 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=11 b2=160 b3=0 b4=0 b5=0 b6=0 w1=11 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T38 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3405 rx=0 ry=58 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T38 A11 sh=405 f=16 t=2 c=28 c1=0 x=7965 y=-85 z=910 rx=59 ry=92 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=92 b2=59 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=-5 vy=59 vz=-4 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
@@ -490,7 +494,7 @@ T40 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3533 rx=0 ry=162 rz=0 v=0 sf=8 
 T40 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3537 rx=0 ry=226 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T40 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3536 rx=0 ry=34 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T40 A07 sh=403 f=16 t=10 c=92 c1=0 x=8360 y=-808 z=3439 rx=0 ry=240 rz=80 v=60 sf=8 s2=4 s3=8 s4=0 b1=17 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T40 A08 sh=3 f=16 t=8 c=1 c1=0 x=8200 y=-800 z=3745 rx=0 ry=0 rz=0 v=0 sf=0 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T40 A08 sh=explosion-large f=16 t=8 c=1 c1=0 x=8200 y=-800 z=3745 rx=0 ry=0 rz=0 v=0 sf=0 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T40 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3534 rx=0 ry=66 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T40 A11 sh=405 f=16 t=2 c=26 c1=0 x=7965 y=33 z=910 rx=66 ry=88 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=88 b2=66 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=2 vy=59 vz=1 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T41 G gf=41 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -502,7 +506,7 @@ T41 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3598 rx=0 ry=168 rz=0 v=0 sf=8 
 T41 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3602 rx=0 ry=232 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T41 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3601 rx=0 ry=40 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T41 A07 sh=403 f=16 t=10 c=91 c1=0 x=8381 y=-808 z=3492 rx=0 ry=240 rz=90 v=60 sf=8 s2=4 s3=8 s4=0 b1=16 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T41 A08 sh=3 f=16 t=8 c=0 c1=0 x=8200 y=-800 z=3745 rx=0 ry=0 rz=0 v=0 sf=2 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T41 A08 sh=explosion-large f=16 t=8 c=0 c1=0 x=8200 y=-800 z=3745 rx=0 ry=0 rz=0 v=0 sf=2 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T41 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3599 rx=0 ry=72 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T41 A11 sh=405 f=16 t=2 c=25 c1=0 x=7972 y=91 z=914 rx=70 ry=86 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=86 b2=70 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=7 vy=58 vz=4 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T42 G gf=42 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -514,7 +518,7 @@ T42 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3663 rx=0 ry=174 rz=0 v=0 sf=8 
 T42 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3667 rx=0 ry=238 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T42 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3666 rx=0 ry=46 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T42 A07 sh=403 f=16 t=10 c=90 c1=0 x=8402 y=-808 z=3545 rx=0 ry=240 rz=100 v=60 sf=8 s2=4 s3=8 s4=0 b1=15 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T42 A09 sh=462 f=16 t=8 c=1 c1=6 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T42 A09 sh=463 f=16 t=8 c=1 c1=8 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T42 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3664 rx=0 ry=78 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T42 A11 sh=405 f=16 t=2 c=24 c1=0 x=7983 y=148 z=920 rx=74 ry=85 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=85 b2=74 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=11 vy=57 vz=6 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T43 G gf=43 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -526,7 +530,7 @@ T43 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3729 rx=0 ry=180 rz=0 v=0 sf=8 
 T43 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3733 rx=0 ry=244 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T43 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3730 rx=0 ry=52 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T43 A07 sh=403 f=16 t=10 c=89 c1=0 x=8423 y=-808 z=3598 rx=0 ry=240 rz=110 v=60 sf=8 s2=4 s3=8 s4=0 b1=14 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T43 A09 sh=462 f=16 t=8 c=2 c1=6 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T43 A09 sh=463 f=16 t=8 c=2 c1=8 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T43 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3728 rx=0 ry=84 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T43 A11 sh=405 f=16 t=2 c=23 c1=0 x=8000 y=203 z=928 rx=78 ry=84 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=84 b2=78 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=17 vy=55 vz=8 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T44 G gf=44 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -538,7 +542,7 @@ T44 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3794 rx=0 ry=186 rz=0 v=0 sf=8 
 T44 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3798 rx=0 ry=250 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T44 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3795 rx=0 ry=58 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T44 A07 sh=403 f=16 t=10 c=88 c1=0 x=8444 y=-808 z=3651 rx=0 ry=240 rz=120 v=60 sf=8 s2=4 s3=8 s4=0 b1=13 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T44 A09 sh=462 f=16 t=8 c=3 c1=6 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T44 A09 sh=463 f=16 t=8 c=3 c1=8 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T44 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3793 rx=0 ry=90 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T44 A11 sh=405 f=16 t=2 c=22 c1=0 x=8021 y=256 z=938 rx=82 ry=83 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=83 b2=82 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=21 vy=53 vz=10 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T45 G gf=45 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -550,7 +554,7 @@ T45 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3860 rx=0 ry=192 rz=0 v=0 sf=8 
 T45 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3863 rx=0 ry=0 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T45 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3859 rx=0 ry=64 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T45 A07 sh=403 f=16 t=10 c=87 c1=0 x=8465 y=-808 z=3704 rx=0 ry=240 rz=130 v=60 sf=8 s2=4 s3=8 s4=0 b1=12 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T45 A09 sh=462 f=16 t=8 c=4 c1=6 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=132 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T45 A09 sh=463 f=16 t=8 c=4 c1=8 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=132 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T45 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3857 rx=0 ry=96 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T45 A11 sh=405 f=16 t=2 c=21 c1=0 x=8047 y=306 z=950 rx=86 ry=82 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=82 b2=86 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=26 vy=50 vz=12 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T46 G gf=46 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -562,7 +566,7 @@ T46 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3925 rx=0 ry=198 rz=0 v=0 sf=8 
 T46 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3928 rx=0 ry=6 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T46 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3924 rx=0 ry=70 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T46 A07 sh=403 f=16 t=10 c=86 c1=0 x=8486 y=-808 z=3757 rx=0 ry=240 rz=140 v=60 sf=8 s2=4 s3=8 s4=0 b1=11 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T46 A09 sh=462 f=16 t=8 c=5 c1=6 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=133 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T46 A09 sh=463 f=16 t=8 c=5 c1=8 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=133 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T46 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3922 rx=0 ry=102 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T46 A11 sh=405 f=16 t=2 c=20 c1=0 x=8078 y=353 z=963 rx=90 ry=81 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=81 b2=90 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=31 vy=47 vz=13 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T47 G gf=47 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -574,6 +578,7 @@ T47 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3990 rx=0 ry=204 rz=0 v=0 sf=8 
 T47 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3993 rx=0 ry=12 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T47 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3989 rx=0 ry=76 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T47 A07 sh=403 f=16 t=10 c=85 c1=0 x=8507 y=-808 z=3810 rx=0 ry=240 rz=150 v=60 sf=8 s2=4 s3=8 s4=0 b1=10 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
+T47 A09 sh=463 f=16 t=8 c=6 c1=8 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=134 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T47 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=3987 rx=0 ry=108 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T47 A11 sh=405 f=16 t=2 c=19 c1=0 x=8114 y=395 z=977 rx=95 ry=80 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=80 b2=95 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=36 vy=42 vz=14 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T48 G gf=48 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -585,6 +590,7 @@ T48 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=4056 rx=0 ry=210 rz=0 v=0 sf=8 
 T48 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=4057 rx=0 ry=18 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T48 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=4053 rx=0 ry=82 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=11 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T48 A07 sh=403 f=16 t=10 c=84 c1=0 x=8528 y=-808 z=3863 rx=0 ry=240 rz=160 v=60 sf=8 s2=4 s3=8 s4=0 b1=9 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
+T48 A09 sh=463 f=16 t=8 c=7 c1=8 x=8200 y=-800 z=3745 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=135 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T48 A10 sh=259 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=4051 rx=0 ry=114 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=13 b2=224 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=16 ap=16 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T48 A11 sh=405 f=16 t=2 c=18 c1=0 x=8156 y=432 z=993 rx=100 ry=79 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=79 b2=100 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=42 vy=37 vz=16 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T49 G gf=49 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -607,7 +613,7 @@ T50 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=4186 rx=0 ry=222 rz=0 v=0 sf=8 
 T50 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=4187 rx=0 ry=30 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T50 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-600 z=4183 rx=0 ry=94 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T50 A07 sh=403 f=16 t=10 c=82 c1=0 x=8570 y=-808 z=3969 rx=0 ry=240 rz=180 v=60 sf=8 s2=4 s3=8 s4=0 b1=7 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T50 A09 sh=3 f=16 t=8 c=1 c1=0 x=8144 y=-800 z=3852 rx=0 ry=0 rz=0 v=0 sf=0 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T50 A09 sh=explosion-large f=16 t=8 c=1 c1=0 x=8144 y=-800 z=3852 rx=0 ry=0 rz=0 v=0 sf=0 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T50 A11 sh=405 f=16 t=2 c=16 c1=0 x=8250 y=488 z=1024 rx=110 ry=77 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=77 b2=110 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=49 vy=25 vz=16 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T51 G gf=51 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
 T51 A00 sh=2 f=16 t=8 c=0 c1=0 x=0 y=0 z=3315 rx=0 ry=0 rz=0 v=0 sf=0 s2=0 s3=8 s4=1 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=3 ap=0 cf=0 vx=0 vy=0 vz=65 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
@@ -618,7 +624,7 @@ T51 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-680 z=4187 rx=0 ry=226 rz=0 v=0 sf=8 
 T51 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-680 z=4186 rx=0 ry=34 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T51 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-680 z=4182 rx=0 ry=98 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T51 A07 sh=403 f=16 t=10 c=81 c1=0 x=8591 y=-808 z=4022 rx=0 ry=240 rz=190 v=60 sf=8 s2=4 s3=8 s4=0 b1=6 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T51 A09 sh=3 f=16 t=8 c=0 c1=0 x=8144 y=-800 z=3852 rx=0 ry=0 rz=0 v=0 sf=2 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T51 A09 sh=explosion-large f=16 t=8 c=0 c1=0 x=8144 y=-800 z=3852 rx=0 ry=0 rz=0 v=0 sf=2 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T51 A10 sh=0 f=17 t=8 c=0 c1=0 x=8192 y=-600 z=4185 rx=0 ry=0 rz=0 v=0 sf=16 s2=0 s3=0 s4=0 b1=4 b2=9 b3=3 b4=0 b5=0 b6=0 w1=0 w2=0 hp=0 ap=0 cf=4 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T51 A11 sh=405 f=16 t=2 c=15 c1=0 x=8302 y=506 z=1039 rx=115 ry=76 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=76 b2=115 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=52 vy=18 vz=15 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T52 G gf=52 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -630,7 +636,7 @@ T52 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-758 z=4187 rx=0 ry=228 rz=0 v=0 sf=8 
 T52 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-758 z=4186 rx=0 ry=36 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T52 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-758 z=4182 rx=0 ry=100 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T52 A07 sh=403 f=16 t=10 c=80 c1=0 x=8612 y=-808 z=4075 rx=0 ry=240 rz=200 v=60 sf=8 s2=4 s3=8 s4=0 b1=5 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T52 A08 sh=462 f=16 t=8 c=1 c1=6 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T52 A08 sh=463 f=16 t=8 c=1 c1=8 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=129 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T52 A10 sh=0 f=17 t=8 c=0 c1=0 x=8192 y=-680 z=4185 rx=0 ry=0 rz=0 v=0 sf=16 s2=0 s3=0 s4=0 b1=4 b2=9 b3=3 b4=0 b5=0 b6=0 w1=0 w2=0 hp=0 ap=0 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T52 A11 sh=405 f=16 t=2 c=14 c1=0 x=8357 y=517 z=1053 rx=120 ry=75 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=75 b2=120 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=55 vy=11 vz=14 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T53 G gf=53 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -642,7 +648,7 @@ T53 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-834 z=4187 rx=0 ry=230 rz=0 v=0 sf=8 
 T53 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-834 z=4186 rx=0 ry=38 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T53 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-834 z=4182 rx=0 ry=102 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T53 A07 sh=403 f=16 t=10 c=79 c1=0 x=8633 y=-808 z=4128 rx=0 ry=240 rz=210 v=60 sf=8 s2=4 s3=8 s4=0 b1=4 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T53 A08 sh=462 f=16 t=8 c=2 c1=6 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T53 A08 sh=463 f=16 t=8 c=2 c1=8 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=130 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T53 A10 sh=0 f=17 t=8 c=0 c1=0 x=8192 y=-758 z=4185 rx=0 ry=0 rz=0 v=0 sf=16 s2=0 s3=0 s4=0 b1=4 b2=9 b3=3 b4=0 b5=0 b6=0 w1=0 w2=0 hp=0 ap=0 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T53 A11 sh=405 f=16 t=2 c=13 c1=0 x=8413 y=521 z=1066 rx=125 ry=74 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=74 b2=125 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=56 vy=4 vz=13 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T54 G gf=54 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -654,7 +660,7 @@ T54 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-908 z=4187 rx=0 ry=232 rz=0 v=0 sf=8 
 T54 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-908 z=4186 rx=0 ry=40 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T54 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-908 z=4182 rx=0 ry=104 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T54 A07 sh=403 f=16 t=10 c=78 c1=0 x=8654 y=-808 z=4181 rx=0 ry=240 rz=220 v=60 sf=8 s2=4 s3=8 s4=0 b1=3 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T54 A08 sh=462 f=16 t=8 c=3 c1=6 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T54 A08 sh=463 f=16 t=8 c=3 c1=8 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=131 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T54 A10 sh=0 f=17 t=8 c=0 c1=0 x=8192 y=-834 z=4185 rx=0 ry=0 rz=0 v=0 sf=16 s2=0 s3=0 s4=0 b1=4 b2=9 b3=3 b4=0 b5=0 b6=0 w1=0 w2=0 hp=0 ap=0 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T54 A11 sh=405 f=16 t=2 c=12 c1=0 x=8469 y=519 z=1077 rx=130 ry=73 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=73 b2=130 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=56 vy=-2 vz=11 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T55 G gf=55 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -666,7 +672,7 @@ T55 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-980 z=4187 rx=0 ry=234 rz=0 v=0 sf=8 
 T55 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-980 z=4186 rx=0 ry=42 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T55 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-980 z=4182 rx=0 ry=106 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T55 A07 sh=403 f=16 t=10 c=77 c1=0 x=8675 y=-808 z=4234 rx=0 ry=240 rz=230 v=60 sf=8 s2=4 s3=8 s4=0 b1=2 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T55 A08 sh=462 f=16 t=8 c=4 c1=6 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=132 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T55 A08 sh=463 f=16 t=8 c=4 c1=8 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=132 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T55 A10 sh=0 f=17 t=8 c=0 c1=0 x=8192 y=-908 z=4185 rx=0 ry=0 rz=0 v=0 sf=16 s2=0 s3=0 s4=0 b1=4 b2=9 b3=3 b4=0 b5=0 b6=0 w1=0 w2=0 hp=0 ap=0 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T55 A11 sh=405 f=16 t=2 c=11 c1=0 x=8525 y=510 z=1087 rx=135 ry=72 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=72 b2=135 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=56 vy=-9 vz=10 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T56 G gf=56 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -678,7 +684,7 @@ T56 A04 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-1050 z=4187 rx=0 ry=236 rz=0 v=0 sf=8
 T56 A05 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-1050 z=4186 rx=0 ry=44 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T56 A06 sh=262 f=16 t=8 c=0 c1=0 x=8192 y=-1050 z=4182 rx=0 ry=108 rz=0 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T56 A07 sh=403 f=16 t=10 c=76 c1=0 x=8696 y=-808 z=4287 rx=0 ry=240 rz=240 v=60 sf=8 s2=4 s3=8 s4=0 b1=1 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=21 vy=0 vz=53 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
-T56 A08 sh=462 f=16 t=8 c=5 c1=6 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=133 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
+T56 A08 sh=463 f=16 t=8 c=5 c1=8 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=133 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T56 A10 sh=0 f=17 t=8 c=0 c1=0 x=8192 y=-980 z=4185 rx=0 ry=0 rz=0 v=0 sf=16 s2=0 s3=0 s4=0 b1=4 b2=9 b3=3 b4=0 b5=0 b6=0 w1=0 w2=0 hp=0 ap=0 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T56 A11 sh=405 f=16 t=2 c=10 c1=0 x=8579 y=494 z=1095 rx=140 ry=71 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=71 b2=140 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=54 vy=-16 vz=8 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T57 G gf=57 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -690,6 +696,7 @@ T57 A04 sh=262 f=16 t=8 c=0 c1=0 x=7680 y=-1118 z=4179 rx=0 ry=238 rz=128 v=0 sf
 T57 A05 sh=262 f=16 t=8 c=0 c1=0 x=7680 y=-1118 z=4178 rx=0 ry=46 rz=128 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T57 A06 sh=262 f=16 t=8 c=0 c1=0 x=7680 y=-1118 z=4174 rx=0 ry=110 rz=128 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T57 A07 sh=403 f=16 t=10 c=75 c1=0 x=8680 y=-757 z=4310 rx=43 ry=25 rz=250 v=60 sf=8 s2=4 s3=8 s4=0 b1=1 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=-16 vy=51 vz=23 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
+T57 A08 sh=463 f=16 t=8 c=6 c1=8 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=134 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T57 A10 sh=0 f=17 t=8 c=0 c1=0 x=8192 y=-1050 z=4185 rx=0 ry=0 rz=0 v=0 sf=16 s2=0 s3=0 s4=0 b1=4 b2=9 b3=3 b4=0 b5=0 b6=0 w1=0 w2=0 hp=0 ap=0 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T57 A11 sh=405 f=16 t=2 c=9 c1=0 x=8631 y=471 z=1102 rx=145 ry=70 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=70 b2=145 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=52 vy=-23 vz=7 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T58 G gf=58 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0
@@ -701,6 +708,7 @@ T58 A04 sh=262 f=16 t=8 c=0 c1=0 x=7200 y=-1184 z=4174 rx=0 ry=240 rz=128 v=0 sf
 T58 A05 sh=262 f=16 t=8 c=0 c1=0 x=7200 y=-1184 z=4171 rx=0 ry=48 rz=128 v=0 sf=8 s2=0 s3=8 s4=16 b1=4 b2=128 b3=2 b4=0 b5=0 b6=0 w1=7 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T58 A06 sh=262 f=16 t=8 c=0 c1=0 x=7200 y=-1184 z=4167 rx=0 ry=112 rz=128 v=0 sf=8 s2=0 s3=8 s4=16 b1=5 b2=192 b3=2 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=1 cf=80 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=2 sm=0
 T58 A07 sh=403 f=16 t=10 c=74 c1=0 x=8682 y=-698 z=4309 rx=66 ry=46 rz=4 v=60 sf=8 s2=4 s3=8 s4=0 b1=1 b2=240 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=2 ap=8 cf=67 vx=2 vy=59 vz=-1 hf=0 ss=0 colf=0 af=0 snd2=2 im=2 fo=1 ptr=1 sm=0
+T58 A08 sh=463 f=16 t=8 c=7 c1=8 x=8144 y=-800 z=3852 rx=0 ry=128 rz=0 v=0 sf=32 s2=13 s3=0 s4=0 b1=0 b2=0 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=255 ap=8 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=135 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T58 A10 sh=0 f=17 t=8 c=0 c1=0 x=7680 y=-1118 z=4177 rx=0 ry=0 rz=0 v=0 sf=16 s2=0 s3=0 s4=0 b1=4 b2=9 b3=3 b4=0 b5=0 b6=0 w1=0 w2=0 hp=0 ap=0 cf=0 vx=0 vy=0 vz=0 hf=0 ss=0 colf=0 af=0 snd2=0 im=0 fo=0 ptr=0 sm=0
 T58 A11 sh=405 f=16 t=2 c=8 c1=0 x=8680 y=441 z=1107 rx=150 ry=69 rz=0 v=60 sf=0 s2=4 s3=8 s4=0 b1=69 b2=150 b3=0 b4=0 b5=0 b6=0 w1=0 w2=0 hp=1 ap=10 cf=74 vx=49 vy=-30 vz=5 hf=0 ss=0 colf=0 af=0 snd2=6 im=8 fo=1 ptr=1 sm=0
 T59 G gf=59 gfl=0 bf=0 sf=0 bmax=128 met=1 gsv=0 mtr=0 psf=0 psf2=0 pst=0

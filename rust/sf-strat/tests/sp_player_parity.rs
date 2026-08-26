@@ -90,6 +90,8 @@
 //!   ./sp_player_trace && cp sp_player_trace.txt \
 //!       rust/sf-strat/tests/fixtures/
 
+mod support;
+
 use sf_game::alien::{ASF_COLLIDE, NUMBER_AL};
 use sf_game::vars::{GameVars, GF_STRATDONE2, SPACE_MODE, WATER_MODE};
 use sf_game::{Game, Hooks};
@@ -101,6 +103,7 @@ use sf_strat::player::{
 use std::cell::RefCell;
 use std::fmt::Write;
 use std::rc::Rc;
+use support::trace_visual_identity;
 
 // Pad bits (sf-core pad module, C sf_rtl.h PAD_*).
 use sf_core::pad;
@@ -269,7 +272,7 @@ fn dump(g: &Game, t: i32, sounds: &Rc<RefCell<Vec<u8>>>, out: &mut String) {
             out,
             " {}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
             i,
-            al.shape,
+            trace_visual_identity(al),
             al.worldx,
             al.worldy,
             al.worldz,

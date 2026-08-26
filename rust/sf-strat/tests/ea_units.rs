@@ -2,7 +2,7 @@
 //! no-panic smoke run over every ported object initializer (debug-build overflow
 //! checks make this a real arithmetic-wrap audit).
 
-use sf_game::alien::{ASF2_COLLDISABLE, ASF_COLLDISABLE, ASF_SHADOW, ATGND};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_SHADOW, ATGND};
 use sf_game::game::{Game, StrategyFn};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemy_a::{self, achase_angle, strat_tab_scaled, wm};
@@ -115,7 +115,7 @@ fn ground_stayrel_scrolls_and_disables_collision() {
     g.call_strat(sid, idx);
     let al = &g.objs.aliens[idx as usize];
     assert_eq!(al.worldz, 165);
-    assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
     g.call_strat(sid, idx);
     assert_eq!(g.objs.aliens[idx as usize].worldz, 230);
 }
@@ -129,7 +129,7 @@ fn ground_gnd_is_inert_ground_type() {
     assert!(al.collstratptr.is_none());
     assert!(al.expstratptr.is_none());
     assert_ne!(al.type_ & ATGND, 0);
-    assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn ground_staydist_offsets_from_view_z() {
     {
         let al = &g.objs.aliens[idx as usize];
         assert_eq!(al.worldz, 1000);
-        assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+        assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
     }
     // ROM staydist_Istrat (GSTRATS.ASM:706-711) re-runs every tick: the
     // object TRACKS pviewposz instead of freezing at the init-time value.

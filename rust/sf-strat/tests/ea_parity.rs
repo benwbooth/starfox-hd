@@ -39,11 +39,14 @@
 //!       ./ea_harness $s | grep -v '^Obj_Init' \
 //!           > rust/sf-strat/tests/fixtures/ea_$s.txt; done
 
+mod support;
+
 use sf_game::alien::{ACF_FIRSTFRAME, ASF_COLLDISABLE, ASF_COLLIDE};
 use sf_game::game::{Game, StrategyFn};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemy_a::{self, wm};
 use std::fmt::Write as _;
+use support::trace_visual_identity;
 
 const ASF4_PLAYEROBJ: u8 = 0x01;
 const ASF_SPECIAL: u8 = 0x01;
@@ -111,7 +114,7 @@ fn dump_tick(g: &Game, t: i32, out: &mut String) {
              ss={} colf={} af={} snd1={} snd2={} imm={} fop={} ptr={} wx={} \
              wy={} wz={}",
             idx,
-            al.shape,
+            trace_visual_identity(al),
             al.flags,
             al.type_,
             al.count,

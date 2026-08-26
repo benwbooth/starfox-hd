@@ -49,6 +49,7 @@ SHAPE_ASM_FILES = [
 # which is why the legacy renderer had to overwrite it by hand.
 PREFERRED_HEADER_FILES = {
     "myship_4": "PSHAPES.ASM",
+    "imyship_4": "PSHAPES.ASM",
     "bmyship_4": "PSHAPES.ASM",
     "friendship_4": "PSHAPES.ASM",
 }
@@ -77,6 +78,8 @@ SKIP_SHAPE_IDS = {
 # These meshes exist in SHAPES*.ASM / USHAPES.ASM but are NOT in the
 # ISTRATS.ASM def_shape table, so they have no MACRO-counted id. The runtime
 # reserves flat slots for them below MAX_SHAPES (512) in shapes.c:
+#   - 507 retains the authored `Imyship_4` header used by the launch-intro
+#     Arwings. It shares `myship_4` geometry but has a sort-depth bias of 500.
 #   - 508..510 are the SHAPE_ALIAS_OP_* slots that Shapes_ResolveShapeWord
 #     already maps the raw 16-bit shape words 551/552/553 onto (the
 #     launch-intro runway strips referenced by levels.c SH_OP_0..2).
@@ -87,6 +90,7 @@ SKIP_SHAPE_IDS = {
 # code can retarget its current nullshape proxies by name.
 EXTENDED_SHAPES = {
     # lowercase ASM label : fixed runtime shape id
+    "imyship_4":  507,  # launch-intro Arwing ShapeHdr (authored sort depth 500)
     "op_0":       508,  # runway edge-light rails (wireframe, Face2 only)
     "op_1":       509,  # runway main strip
     "op_2":       510,  # runway end strip

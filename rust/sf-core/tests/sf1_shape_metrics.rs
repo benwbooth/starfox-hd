@@ -1,4 +1,5 @@
 use sf_core::sf1_shape_metrics::sf1_shape_metrics;
+use sf_core::shape::SF1_SHAPE_INTRO_ARWING;
 
 const NULL_SHAPE: u16 = 0;
 const PLAYER_SHIP_SHAPE: u16 = 2;
@@ -11,6 +12,7 @@ const NULL_COORDINATE_SHIFT: u8 = 2;
 const NULL_HALF_EXTENTS: [i16; 3] = [136, 136, 144];
 const PLAYER_HALF_EXTENTS: [i16; 3] = [36, 14, 80];
 const MEDIUM_EXPLOSION_COORDINATE_SHIFT: u8 = 4;
+const INTRO_ARWING_SORT_DEPTH: i16 = 500;
 
 #[test]
 fn generated_metrics_retain_the_source_explosion_inputs() {
@@ -27,4 +29,13 @@ fn generated_metrics_retain_the_source_explosion_inputs() {
     let sprite = sf1_shape_metrics(MEDIUM_EXPLOSION_SPRITE_SHAPE).expect("explosion2 ShapeHdr");
     assert_eq!(sprite.visual_extent, MEDIUM_EXPLOSION_VISUAL_EXTENT);
     assert_eq!(sprite.coordinate_shift, MEDIUM_EXPLOSION_COORDINATE_SHIFT);
+}
+
+#[test]
+fn launch_intro_arwing_retains_its_authored_sort_depth() {
+    let ordinary = sf1_shape_metrics(PLAYER_SHIP_SHAPE).expect("player ShapeHdr");
+    let intro = sf1_shape_metrics(SF1_SHAPE_INTRO_ARWING).expect("intro player ShapeHdr");
+    assert_eq!(ordinary.sort_depth, 0);
+    assert_eq!(intro.sort_depth, INTRO_ARWING_SORT_DEPTH);
+    assert_eq!(intro.half_extents, ordinary.half_extents);
 }

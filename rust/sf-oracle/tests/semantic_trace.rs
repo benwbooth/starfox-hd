@@ -882,7 +882,7 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             RETAIL_DIRECT_SHAPE_OP_1 => Some(sf_map::consts::sh::OP_1),
             RETAIL_DIRECT_SHAPE_OP_2 => Some(sf_map::consts::sh::OP_2),
             RETAIL_DIRECT_SHAPE_BOOST => Some(sf_map::consts::sh::BOOST_SHAPE),
-            RETAIL_DIRECT_SHAPE_MYSHIP_4 => Some(sf_map::consts::sh::MYSHIP_4),
+            RETAIL_DIRECT_SHAPE_MYSHIP_4 => Some(sf_core::shape::SF1_SHAPE_INTRO_ARWING),
             RETAIL_DIRECT_SHAPE_MYBASE_0 => Some(sf_map::consts::sh::MYBASE_0),
             RETAIL_DIRECT_SHAPE_ENEMY_LASER => Some(NATIVE_SHAPE_ENEMY_LASER),
             RETAIL_DIRECT_SHAPE_PLAYER_LASER => Some(NATIVE_SHAPE_PLAYER_LASER),

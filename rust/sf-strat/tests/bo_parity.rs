@@ -20,6 +20,9 @@
 //! Restoring that omitted lifecycle and timing also restores its object-slot
 //! reuse and random draws, so all downstream slot references and
 //! random-dependent poses were re-blessed together at that source boundary.
+//! Abstract explosion headers are recorded as typed `explosion-*` identities;
+//! using their source header numbers as native mesh ids aliases Arwing meshes
+//! and selects the wrong explosion size.
 //! The boss2 and boss8 fixtures also preserve `l_add` scheduling from
 //! `MACROS.INC`: a newly made child is inserted after the current mother and
 //! therefore advances after the mother's completed pose in the same pass.
@@ -34,11 +37,14 @@
 //!   for s in boss2 bossg boss8; do ./bo_harness $s \
 //!       > rust/sf-strat/tests/fixtures/bo_$s.txt; done
 
+mod support;
+
 use sf_game::alien::NUMBER_AL;
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses::{install_bosses, BossStratIds};
 use std::fmt::Write as _;
+use support::trace_visual_identity;
 
 // WRAM addresses (C globals mirrored into g_ram; see bosses.rs / enemy_a).
 const WM_RNDVAL: u16 = 0x1F00;
@@ -90,7 +96,7 @@ fn dump_tick(g: &Game, t: i32, out: &mut String) {
              snd2={} im={} fo={} ptr={} sm={}",
             t,
             s,
-            al.shape,
+            trace_visual_identity(al),
             al.flags,
             al.type_,
             al.count,

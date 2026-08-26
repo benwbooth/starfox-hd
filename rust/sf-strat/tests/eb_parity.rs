@@ -30,11 +30,14 @@
 //!       ./eb_harness.bin $s | grep -v '^Obj_Init' \
 //!           > rust/sf-strat/tests/fixtures/eb_$s.txt; done
 
+mod support;
+
 use sf_game::game::{Game, StrategyFn};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemy_a::wm;
 use sf_strat::enemy_b;
 use std::fmt::Write as _;
+use support::trace_visual_identity;
 
 const ASF4_PLAYEROBJ: u8 = 0x01;
 
@@ -97,7 +100,7 @@ fn dump_tick(g: &Game, t: i32, out: &mut String) {
              ss={} colf={} af={} snd1={} snd2={} imm={} fop={} ptr={} wx={} \
              wy={} wz={}",
             idx,
-            al.shape,
+            trace_visual_identity(al),
             al.flags,
             al.type_,
             al.count,

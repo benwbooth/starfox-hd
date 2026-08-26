@@ -1097,11 +1097,7 @@ fn retail_stayrelhard180yr_strat_vs_port() {
 /// CAPSTONE (2nd strat) — RETAIL `stayrel_strat` vs THE PORT.
 ///
 /// `stayrel_strat` ($06:864B) = `jsl sr_addplayerZx` (scroll) + set the
-/// `colldisable` sflag. `worldz` is diffed directly (MATCH expected). The sflag
-/// is NOT raw-diffable: retail stores `colldisable` in `al_sflags2` bit `$01`
-/// (sflag bit 8), while the port's C `obj.h` layout stores it in `al_sflags`
-/// bit `$10` — a deliberate representation remap, not a bug. We assert each
-/// side sets ITS OWN `colldisable` bit, and document the mapping.
+/// `colldisable` flag. `worldz` and the second flag byte are diffed directly.
 #[test]
 fn retail_stayrel_strat_vs_port() {
     let Some(rom) = retail() else { return };
@@ -1139,22 +1135,17 @@ fn retail_stayrel_strat_vs_port() {
     );
     assert!(first_div.is_none(), "stayrel worldz: {first_div:?}");
 
-    // colldisable sflag — each side sets its own representation's bit.
-    let retail_sflags2 = bus.read8(0x7E_0000 | (blk + AL_SFLAGS2)); // bit $01 = colldisable
-    let port_sflags = g.objs.aliens[idx as usize].sflags; // bit $10 = ASF_COLLDISABLE
+    // The flat port preserves the source object's second flag byte.
+    let retail_sflags2 = bus.read8(0x7E_0000 | (blk + AL_SFLAGS2));
+    let port_sflags2 = g.objs.aliens[idx as usize].sflags2;
     eprintln!(
         "NAMED-STRAT stayrel [pz={pz} pvz={pvz}]: worldz MATCH over {N} ticks (final {rw}); \
-         colldisable set retail al_sflags2=${retail_sflags2:02X}(bit $01) <-> port al_sflags=${port_sflags:02X}(bit $10)"
+         colldisable retail al_sflags2=${retail_sflags2:02X} port sflags2=${port_sflags2:02X}"
     );
-    assert_ne!(
-        retail_sflags2 & 0x01,
-        0,
-        "retail stayrel set colldisable in al_sflags2 bit $01"
-    );
-    assert_ne!(
-        port_sflags & 0x10,
-        0,
-        "port stayrel set colldisable in al_sflags bit $10"
+    assert_eq!(
+        port_sflags2 & sf_game::alien::ASF2_COLLDISABLE,
+        retail_sflags2 & sf_game::alien::ASF2_COLLDISABLE,
+        "stayrel collision-disable flag bank"
     );
 }
 
@@ -1461,20 +1452,15 @@ fn retail_staydist_strat_vs_port() {
             "retail staydist worldz = sword1 + pviewposz"
         );
         let retail_sflags2 = bus.read8(0x7E_0000 | (blk + AL_SFLAGS2));
-        let port_sflags = g.objs.aliens[idx as usize].sflags;
-        assert_ne!(
-            retail_sflags2 & 0x01,
-            0,
-            "retail staydist set colldisable in al_sflags2 bit $01"
-        );
-        assert_ne!(
-            port_sflags & 0x10,
-            0,
-            "port staydist set colldisable in al_sflags bit $10"
+        let port_sflags2 = g.objs.aliens[idx as usize].sflags2;
+        assert_eq!(
+            port_sflags2 & sf_game::alien::ASF2_COLLDISABLE,
+            retail_sflags2 & sf_game::alien::ASF2_COLLDISABLE,
+            "staydist collision-disable flag bank"
         );
         match first_div {
             None => eprintln!(
-                "BATCH2 staydist [sword1={sword1} pvp {pvp0}->{pvp1}]: MATCH — retail == port worldz over {N} ticks (final {rw}); colldisable retail al_sflags2=${retail_sflags2:02X}(bit$01) <-> port al_sflags=${port_sflags:02X}(bit$10)"
+                "BATCH2 staydist [sword1={sword1} pvp {pvp0}->{pvp1}]: MATCH — retail == port worldz over {N} ticks (final {rw}); colldisable retail al_sflags2=${retail_sflags2:02X} port sflags2=${port_sflags2:02X}"
             ),
             Some((t, r, p)) => panic!("staydist diverged tick {t}: retail worldz={r} port worldz={p}"),
         }
@@ -1488,8 +1474,8 @@ fn retail_staydist_strat_vs_port() {
 /// `al_type |= gnd($01)` + `al_sflags2 |= colldisable($01)`. We seed an object
 /// with DIRTY strat pointers + type + sflags, run the retail Istrat once, and
 /// diff the observable effects vs the port `strat_gnd_init`. Footprint reads NO
-/// globals. The colldisable sflag uses the same representation remap as stayrel
-/// (retail al_sflags2 bit $01 <-> port al_sflags bit $10).
+/// globals. The flat port preserves collision-disable in the same second flag
+/// byte as the source object layout.
 #[test]
 fn retail_gnd_strat_vs_port() {
     let Some(rom) = retail() else { return };
@@ -1535,26 +1521,26 @@ fn retail_gnd_strat_vs_port() {
     let idx = g.objs.alloc().expect("alien pool");
     // Dirty the port object too.
     g.objs.aliens[idx as usize].type_ = 0;
-    g.objs.aliens[idx as usize].sflags = 0;
+    g.objs.aliens[idx as usize].sflags2 = 0;
     g.call_strat(ids.gnd, idx);
     let p = &g.objs.aliens[idx as usize];
     eprintln!(
-        "BATCH2 gnd: port stratptr={:?} collstratptr={:?} expstratptr={:?} type=${:02X} sflags=${:02X}",
-        p.stratptr, p.collstratptr, p.expstratptr, p.type_, p.sflags
+        "BATCH2 gnd: port stratptr={:?} collstratptr={:?} expstratptr={:?} type=${:02X} sflags2=${:02X}",
+        p.stratptr, p.collstratptr, p.expstratptr, p.type_, p.sflags2
     );
     assert!(p.stratptr.is_none(), "port gnd cleared stratptr");
     assert!(p.collstratptr.is_none(), "port gnd cleared collstratptr");
     assert!(p.expstratptr.is_none(), "port gnd cleared expstratptr");
     assert_ne!(p.type_ & 0x01, 0, "port gnd set type_ |= ATGND($01)");
-    assert_ne!(
-        p.sflags & 0x10,
-        0,
-        "port gnd set colldisable in al_sflags bit $10"
+    assert_eq!(
+        p.sflags2 & sf_game::alien::ASF2_COLLDISABLE,
+        r_sflags2 & sf_game::alien::ASF2_COLLDISABLE,
+        "gnd collision-disable flag bank"
     );
 
     // Semantic MATCH: both zeroed the strat pointer (per-tick becomes a no-op),
     // both flagged the object as ground + collision-disabled.
-    eprintln!("BATCH2 gnd: MATCH — retail & port both zero stratptr + set type=gnd + colldisable (sflag remap $01<->$10)");
+    eprintln!("BATCH2 gnd: MATCH — retail & port both zero stratptr + set type=gnd + collision-disable in the second flag byte");
 }
 
 // ============================================================================

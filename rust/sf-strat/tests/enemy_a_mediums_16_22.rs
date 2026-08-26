@@ -2,7 +2,7 @@
 //! flyaway leftpl, zaco3die signed pitch, zaco3go stale vecs, para→para2
 //! initface + stored aim + gravity +3.
 
-use sf_game::alien::ASF3_REALOBJ;
+use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF3_REALOBJ};
 use sf_game::game::StrategyFn;
 use sf_game::Game;
 use sf_strat::enemy_a::{
@@ -11,7 +11,6 @@ use sf_strat::enemy_a::{
 
 const SHAPE_KAMIKAZE: u16 = 9;
 const SHAPE_PILLAR3: u16 = 27;
-const SHAPE_MEDIUM_EXPLOSION_ENVELOPE: u16 = 2;
 
 fn spawn_player(g: &mut Game, x: i16, y: i16, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -83,8 +82,8 @@ fn zaco4_death_uses_the_shared_dive_and_same_frame_medium_flash() {
     assert_eq!(g.objs.aliens[zaco as usize].shape, SHAPE_KAMIKAZE);
     assert_eq!(g.objs.aliens[child as usize].prev, Some(zaco));
     assert_eq!(
-        g.objs.aliens[child as usize].shape,
-        SHAPE_MEDIUM_EXPLOSION_ENVELOPE
+        g.objs.aliens[child as usize].visual_kind,
+        ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Medium)
     );
     assert_eq!(
         g.objs.aliens[zaco as usize].stratptr, g.objs.aliens[zaco as usize].expstratptr,

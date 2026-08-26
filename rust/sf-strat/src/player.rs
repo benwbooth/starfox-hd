@@ -761,7 +761,7 @@ fn shipintro_float(g: &mut Game, idx: u16) {
     if al.sbyte3 >= SHIPINTRO_ROTZ_FLOAT.len() as u8 {
         al.sbyte3 = 0;
     }
-    al.rotz = SHIPINTRO_ROTZ_FLOAT[al.sbyte3 as usize] as u8;
+    al.rotz = SHIPINTRO_ROTZ_FLOAT[al.sbyte3 as usize].wrapping_mul(2) as u8;
 
     al.sbyte4 = al.sbyte4.wrapping_add(1);
     if al.sbyte4 >= SHIPINTRO_VIEW_FLOAT.len() as u8 {
@@ -3255,7 +3255,7 @@ pub fn strat_player_exit_base(g: &mut Game, idx: u16) {
         al.worldy = -39 << MYBASE_SCALE;
         al.worldz = -200;
         // s_set_alsflag x,invisible — hidden inside the hangar
-        al.sflags |= ASF_INVISIBLE;
+        al.sflags4 |= ASF4_INVISIBLE;
     }
 
     // s_set_var B,nomaxbg2Yscroll,#1
@@ -3294,8 +3294,9 @@ fn player_exitbase_go_init(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(go_id);
-        // s_clr_alsflag x,invisible — the ship emerges from the hangar
-        al.sflags &= !ASF_INVISIBLE;
+        // s_clr_alsflag x,invisible — `invisible` lives in the fourth source
+        // strategy-flag byte (STRATEQU.INC), not the first-byte `special` bit.
+        al.sflags4 &= !ASF4_INVISIBLE;
         // set_sound2 x,#0
         al.snd2 = 0;
         // s_set_alvar B,x,al_snd1,#%10110001 — engine roar, panned
@@ -3500,6 +3501,44 @@ fn player_exitbase_follow_strat(g: &mut Game, idx: u16) {
 #[cfg(test)]
 mod exit_base_follow_tests {
     use super::*;
+
+    #[test]
+    fn hangar_visibility_uses_the_fourth_strategy_flag_byte() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+
+        strat_player_exit_base(&mut game, player);
+        assert_ne!(
+            game.objs.aliens[player as usize].sflags4 & ASF4_INVISIBLE,
+            0
+        );
+        assert_eq!(game.objs.aliens[player as usize].sflags & ASF_INVISIBLE, 0);
+
+        game.vars.set_sv_u8(sv::PSVAR_BYTE1, 1);
+        player_exitbase_wait_strat(&mut game, player);
+        assert_eq!(
+            game.objs.aliens[player as usize].sflags4 & ASF4_INVISIBLE,
+            0
+        );
+        assert_eq!(game.objs.aliens[player as usize].sflags & ASF_INVISIBLE, 0);
+    }
+
+    #[test]
+    fn opening_camera_is_invisible_in_the_fourth_strategy_flag_byte() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+
+        strat_player_opening_init(&mut game, player);
+
+        let camera = game.objs.aliens[player as usize]
+            .next
+            .expect("opening camera");
+        assert_ne!(
+            game.objs.aliens[camera as usize].sflags4 & ASF4_INVISIBLE,
+            0
+        );
+        assert_eq!(game.objs.aliens[camera as usize].sflags & ASF_INVISIBLE, 0);
+    }
 
     #[test]
     fn exact_source_distance_stays_in_follow_phase() {
@@ -7365,8 +7404,8 @@ fn viewopening_istrat(g: &mut Game, idx: u16) {
     let strat_id = sid(g, K_VIEWOPENING_STRAT);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        // s_set_alsflag x,invisible
-        al.sflags |= ASF_INVISIBLE;
+        // s_set_alsflag x,invisible — fourth source strategy-flag byte.
+        al.sflags4 |= ASF4_INVISIBLE;
         // s_set_strat x,viewopening_strat
         al.stratptr = Some(strat_id);
         // s_add_alvar W,x,al_worldx,#-600*2 / worldy,#-1000*2 / worldz,#3500
@@ -7612,7 +7651,7 @@ pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
     g.vars.set_sv_u8(sv::PSVAR_BYTE3, 70);
 
     // s_set_alvar W,x,al_shape,#Imyship_4
-    g.objs.aliens[idx as usize].shape = SHAPE_MYSHIP_4;
+    g.objs.aliens[idx as usize].shape = sf_core::shape::SF1_SHAPE_INTRO_ARWING;
 
     // s_set_var B,psvar_byte1,#0 / psvar_byte2,#0
     g.vars.set_sv_u8(sv::PSVAR_BYTE1, 0);

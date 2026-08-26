@@ -41,7 +41,7 @@ const SH_WALKER_0: u16 = 26;
 const SH_UPER_M: u16 = 132;
 
 // Mobile-family constants (cited).
-const ASF_SHADOW: u8 = 0x04; // alien.rs
+const ASF_SHADOW: u8 = 0x08; // STRATEQU.INC make_sflag bit 3
 const COLLTYPE_ENEMY1_M: u8 = 0x10;
 const COLLTYPE_ENEMYWEAP_M: u8 = 0x40;
 const WIREMAN_HP: u8 = 4; // wiremanHP
@@ -2335,7 +2335,7 @@ const TRUCK_HP: u8 = 4; // STRATEQU.INC:142
 const TRUCK_AP: u8 = 8; // STRATEQU.INC:143
                         // HARD_AP / DEG90 / ASF_COLLDISABLE / ASF2_SFLAG2 / PSF2_PLAYERHP0 are already
                         // defined earlier in this test module (reused here).
-const ASF_COLLIDE_M: u8 = 0x20; // alien.rs ASF_COLLIDE
+const ASF_COLLIDE_M: u8 = 0x80; // STRATEQU.INC make_sflag bit 7
 const PSF2_WIRESHIP: u8 = 2; // GILESALC.INC:85
 
 fn any_missile(g: &Game) -> bool {
