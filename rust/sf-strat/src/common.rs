@@ -1194,8 +1194,10 @@ const SH_PEXPLOD: u16 = 361;
 
 /// ROM `rotsflatstay_Istrat` (GSTRATS.ASM:1200) — billboard, no collide, no strat.
 pub fn rotsflatstay_istrat(g: &mut Game, idx: u16) {
+    let [pitch, yaw] = flat_billboard_rotation(&g.vars);
     let al = &mut g.objs.aliens[idx as usize];
-    // s_rots_flat — cosmetic.
+    al.rotx = pitch;
+    al.roty = yaw;
     al.sflags2 |= ASF2_COLLDISABLE;
     al.stratptr = None;
     al.collstratptr = None;

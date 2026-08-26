@@ -1,6 +1,6 @@
 //! ROM `sgenspark_srou` / `lspark_*` (PSTRATS.ASM:54-88).
 
-use sf_game::alien::{ASF_COLLDISABLE, NUMBER_AL};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_COLLDISABLE, NUMBER_AL};
 use sf_game::Game;
 use sf_strat::player::{install, sgen_slspark, sgen_spark};
 
@@ -32,7 +32,8 @@ fn sgen_spark_spawns_when_allowed() {
     assert_eq!(al.worldz, 200);
     assert_eq!(al.count, 5);
     assert_eq!(al.vel, 15);
-    assert!(al.sflags & ASF_COLLDISABLE != 0);
+    assert_eq!(al.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
     assert!(al.stratptr.is_some());
 }
 

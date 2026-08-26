@@ -1,5 +1,6 @@
 //! Tick 101: pcolRW / pendcolB / pendcolLW / pendcolRW (PSTRATS.ASM).
 
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_COLLDISABLE};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{
@@ -12,6 +13,7 @@ const PSF_RWINGCOLL: u8 = 4;
 const PSF_BRKRWING: u8 = 16;
 const SCREENFLASH_WING_FRMS: u8 = 2;
 const SCREENFLASH_WING_TYPE: u8 = 1;
+const HALF_TURN_ANGLE: u8 = 128;
 
 fn spawn(g: &mut Game) -> u16 {
     let idx = g.objs.alloc().expect("obj");
@@ -54,6 +56,10 @@ fn pcolrw_sets_flags_flash_and_fx() {
     assert!(g.objs.aliens[rwing as usize].endcollstratptr.is_some());
     // spexplod FX spawned into sword1
     assert!(g.objs.aliens[rwing as usize].sword1 > 0);
+    let effect = g.objs.aliens[rwing as usize].sword1 as usize;
+    assert_eq!(g.objs.aliens[effect].roty, HALF_TURN_ANGLE);
+    assert_eq!(g.objs.aliens[effect].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[effect].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.aliens.iter().filter(|a| a.active).count() > before);
 
     pcolrw_strat(&mut g, rwing); // scrape spark path

@@ -636,7 +636,7 @@ fn main() {
     }
     if std::env::var_os("SF1_WEAPON_NATIVE_PRESENTATION_PROBE").is_some() {
         let mut scene = None;
-        for tick in 0..=support::WEAPON_TRACE_END_TICK {
+        for tick in 0..=support::weapon_trace_end_tick() {
             native.tick(trace_input(tick, false));
             if native.state() != GameState::Playing
                 || native.frame().gameplay_entry_phase != GameplayEntryPhase::ActiveLevel
@@ -780,7 +780,7 @@ fn main() {
         panic!("native presentation probe did not reach game frame {probe_game_frame}");
     }
     if std::env::var_os("SF1_WEAPON_NATIVE_PROBE").is_some() {
-        for tick in 0..=support::WEAPON_TRACE_END_TICK {
+        for tick in 0..=support::weapon_trace_end_tick() {
             native.tick(trace_input(tick, false));
             if native.state() == GameState::Playing
                 && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
@@ -842,7 +842,7 @@ fn main() {
         panic!("native probe did not reach game frame {probe_game_frame}");
     }
 
-    for tick in 0..=support::WEAPON_TRACE_END_TICK {
+    for tick in 0..=support::weapon_trace_end_tick() {
         let input = trace_input(tick, bank_probe);
         let next_input = trace_input(tick.saturating_add(1), bank_probe);
         let native_level_active = native.state() == GameState::Playing

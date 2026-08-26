@@ -19,9 +19,10 @@
 //! order is imposed on other lanes.
 
 use crate::common::{
-    boost_sprite, kill_obj, set_boost_zoff, sf_random, strat_apply_velocity, strat_chase,
-    strat_chase_proportional, strat_gen_vecs_3d, strat_make_obj, strat_perc62, strat_perc75,
-    strat_perc87, strat_perc93, strat_remove_obj, strat_speed_to, sv, StratRam,
+    add_colanim_wrap, boost_sprite, flat_billboard_rotation, init_colanim, kill_obj,
+    set_boost_zoff, sf_random, strat_apply_velocity, strat_chase, strat_chase_proportional,
+    strat_gen_vecs_3d, strat_make_obj, strat_perc62, strat_perc75, strat_perc87, strat_perc93,
+    strat_remove_obj, strat_speed_to, sv, StratRam,
 };
 use crate::enemy_a::{
     add_player_z, addrnd2pos_xy, bigparticleexplode_istrat, copy_pos, fire_nuke,
@@ -155,6 +156,7 @@ const SHAPE_MYSHIP_4: u16 = 2;
 const SHAPE_ARWING: u16 = 2;
 /// Invisible / nullshape stand-in (shape id 0 is skipped by Draw_BuildList).
 const SHAPE_NULL: u16 = 0;
+const SHAPE_SPARK_EXPLOSION: u16 = 367;
 const SHAPE_LINE_SPARK: u16 = 380;
 
 // --- Player ship shape table (GSTRATS.ASM:146-170, STRATEQU.INC:790-796) ---
@@ -1244,9 +1246,7 @@ pub fn sgen_spark(g: &mut Game, at: u16) {
     let src = g.objs.aliens[at as usize];
     let rotz = (sf_random(&mut g.vars) & 0xFF) as u8;
     let (vx, vy) = gen_flatvecs(rotz, 15);
-    let outvx = g.vars.sv_i16(sv::OUTVX);
-    let outvy = g.vars.sv_i16(sv::OUTVY);
-    let turn = (g.vars.sv_i16(sv::PLAYER_TURNROT) >> 8) as u8;
+    let [pitch, yaw] = flat_billboard_rotation(&g.vars);
     let strat = sid(g, K_LSPARK_INIT);
     {
         let al = &mut g.objs.aliens[spark as usize];
@@ -1259,24 +1259,25 @@ pub fn sgen_spark(g: &mut Game, at: u16) {
         al.vx = vx;
         al.vy = vy;
         al.vz = 0;
-        al.sflags |= ASF_COLLDISABLE;
-        // s_rots_flat: billboard to camera (outvy+1 negated + 180 + turn).
-        al.roty = (outvy >> 8) as u8;
-        al.roty = al.roty.wrapping_neg().wrapping_add(128).wrapping_add(turn);
-        al.rotx = (outvx >> 8) as u8;
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.rotx = pitch;
+        al.roty = yaw;
         al.stratptr = Some(strat);
     }
 }
 
 /// ROM `lspark_Istrat` (PSTRATS.ASM:54).
 pub fn lspark_istrat(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].stratptr = Some(sid(g, K_LSPARK_STRAT));
+    let strategy = sid(g, K_LSPARK_STRAT);
+    let spark = &mut g.objs.aliens[idx as usize];
+    init_colanim(spark, 0);
+    spark.stratptr = Some(strategy);
 }
 
 /// ROM `lspark_strat` / `lspark_cont` (PSTRATS.ASM:59): scroll with player Z,
 /// integrate velocity, then expire.
 pub fn lspark_strat(g: &mut Game, idx: u16) {
-    // s_add_colanim x,#2,#16 — cosmetic colour cycle; HD path ignores.
+    add_colanim_wrap(&mut g.objs.aliens[idx as usize], 2, 16);
     lspark_cont(g, idx);
 }
 
@@ -1298,11 +1299,15 @@ pub fn lspark_cont(g: &mut Game, idx: u16) {
 
 /// ROM `slspark_Istrat` (PSTRATS.ASM:43).
 fn slspark_istrat(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].stratptr = Some(sid(g, K_SLSPARK_STRAT));
+    let strategy = sid(g, K_SLSPARK_STRAT);
+    let spark = &mut g.objs.aliens[idx as usize];
+    init_colanim(spark, 0);
+    spark.stratptr = Some(strategy);
 }
 
 /// ROM `slspark_strat` (PSTRATS.ASM:48): colanim +1 then same cont as lspark.
 fn slspark_strat(g: &mut Game, idx: u16) {
+    add_colanim_wrap(&mut g.objs.aliens[idx as usize], 1, 16);
     lspark_cont(g, idx);
 }
 
@@ -1316,9 +1321,7 @@ pub fn sgen_slspark(g: &mut Game, at: u16) {
     let src = g.objs.aliens[at as usize];
     let rotz = (sf_random(&mut g.vars) & 0xFF) as u8;
     let (vx, vy) = gen_flatvecs(rotz, 20);
-    let outvx = g.vars.sv_i16(sv::OUTVX);
-    let outvy = g.vars.sv_i16(sv::OUTVY);
-    let turn = (g.vars.sv_i16(sv::PLAYER_TURNROT) >> 8) as u8;
+    let [pitch, yaw] = flat_billboard_rotation(&g.vars);
     let strat = sid(g, K_SLSPARK_INIT);
     {
         let al = &mut g.objs.aliens[spark as usize];
@@ -1331,10 +1334,9 @@ pub fn sgen_slspark(g: &mut Game, at: u16) {
         al.vx = vx;
         al.vy = vy;
         al.vz = 0;
-        al.sflags |= ASF_COLLDISABLE;
-        al.roty = (outvy >> 8) as u8;
-        al.roty = al.roty.wrapping_neg().wrapping_add(128).wrapping_add(turn);
-        al.rotx = (outvx >> 8) as u8;
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.rotx = pitch;
+        al.roty = yaw;
         al.stratptr = Some(strat);
     }
 }
@@ -1517,13 +1519,15 @@ fn play_wing_hit_se(g: &mut Game, partner: Option<u16>, soft_se: u8) {
 }
 
 fn spawn_spexplod_fx(g: &mut Game, box_idx: u16) -> Option<u16> {
-    const SH_SPEXPLOD: u16 = 367;
-    let fx = strat_make_obj(g, SH_SPEXPLOD)?;
+    let fx = strat_make_obj(g, SHAPE_SPARK_EXPLOSION)?;
     g.objs.active_move_after(fx, box_idx);
+    let [pitch, yaw] = flat_billboard_rotation(&g.vars);
     {
         let al = &mut g.objs.aliens[fx as usize];
         al.type_ &= !ATZREMOVE;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.rotx = pitch;
+        al.roty = yaw;
     }
     let src = g.objs.aliens[box_idx as usize];
     let al = &mut g.objs.aliens[fx as usize];

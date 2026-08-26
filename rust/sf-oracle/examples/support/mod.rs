@@ -9,9 +9,21 @@ use sf_render::renderer::{
 };
 
 pub const WEAPON_TRACE_END_TICK: u32 = 1_231;
+const WEAPON_TRACE_END_TICK_ENV: &str = "SF1_WEAPON_TRACE_END_TICK";
 pub const WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME: u16 = 312;
 pub const WEAPON_VIDEO_CAPTURE_LAST_GAME_FRAME: u16 = 337;
 pub const WEAPON_VIDEO_PRESENTATION_LAST_GAME_FRAME: u16 = WEAPON_VIDEO_CAPTURE_LAST_GAME_FRAME + 1;
+
+pub fn weapon_trace_end_tick() -> u32 {
+    std::env::var(WEAPON_TRACE_END_TICK_ENV)
+        .ok()
+        .map(|value| {
+            value
+                .parse::<u32>()
+                .expect("weapon trace end tick must be decimal")
+        })
+        .unwrap_or(WEAPON_TRACE_END_TICK)
+}
 
 const SOURCE_SHAPE_CATALOG_ENTRIES: u16 = 512;
 const GSU_DRAW_COUNT: usize = 0x01B6;
@@ -34,12 +46,13 @@ const DRAW_COLOR_FRAME: usize = 26;
 const DRAW_DEPTH_OFFSET: usize = 27;
 const DRAW_TEXTURE_SCROLL_X: usize = 28;
 const DRAW_TEXTURE_SCROLL_Y: usize = 29;
-const DIRECT_SHAPE_IDS: [(u16, u16); 17] = [
+const DIRECT_SHAPE_IDS: [(u16, u16); 21] = [
     (0xDD84, sf_map::consts::sh::MYBASE_0),
     (0xB369, 511),
     (0xB219, sf_map::consts::sh::BOOST_SHAPE),
     (0xDD30, 298),
     (0xBD40, 482),
+    (0xB34D, sf_render::shape_data::SHAPE_EXT_ELASER2A),
     (0xB075, 479),
     (0xB289, 367),
     (0xB2A5, 342),
@@ -50,7 +63,10 @@ const DIRECT_SHAPE_IDS: [(u16, u16); 17] = [
     (0xB587, 465),
     (0xACF5, 2),
     (0xADD5, 357),
+    (0xAEED, sf_render::shape_data::SHAPE_EXT_BOUNCYBALL),
     (0xBB9C, 420),
+    (0xBD78, sf_render::shape_data::SHAPE_EXT_TOW_1),
+    (0xB882, sf_render::shape_data::SHAPE_EXT_PILLAR3_NS),
     (0xC360, 351),
 ];
 const RETAIL_INTRO_SHAPE_IDS: [(u16, u16); 4] = [

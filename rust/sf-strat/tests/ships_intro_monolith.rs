@@ -144,6 +144,7 @@ fn lspark_and_door1_inits() {
     g.objs.aliens[spark as usize].count = 3;
     g.objs.aliens[spark as usize].vx = 5;
     lspark_istrat(&mut g, spark);
+    assert_eq!(g.objs.aliens[spark as usize].colframe, 0x80);
     let x0 = g.objs.aliens[spark as usize].worldx;
     lspark_strat(&mut g, spark);
     assert_eq!(g.objs.aliens[spark as usize].worldx, x0.wrapping_add(5));
