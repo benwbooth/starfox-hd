@@ -91,6 +91,17 @@ impl ClipBoundary {
         }
     }
 
+    /// The source's dedicated two-point clipper tests its maximum clip
+    /// coordinates after subtracting one, so the final column and row are
+    /// inclusive for lines even though polygon outcodes remain exclusive.
+    fn contains_line_endpoint(self, point: ProjectedPoint) -> bool {
+        match self {
+            Self::Right => point.x <= PLAYFIELD_RIGHT,
+            Self::Bottom => point.y <= PLAYFIELD_BOTTOM,
+            Self::Left | Self::Top => self.contains(point),
+        }
+    }
+
     fn intersection(self, inside: ProjectedPoint, outside: ProjectedPoint) -> ProjectedPoint {
         let interpolate = |inside_axis: i16,
                            outside_axis: i16,
@@ -952,7 +963,10 @@ fn clip_line(first: ProjectedPoint, second: ProjectedPoint) -> Option<[Projected
         for index in 0..input.len() {
             let edge_start = input[index];
             let edge_end = input[(index + 1) % input.len()];
-            match (boundary.contains(edge_start), boundary.contains(edge_end)) {
+            match (
+                boundary.contains_line_endpoint(edge_start),
+                boundary.contains_line_endpoint(edge_end),
+            ) {
                 (true, true) => output.push(edge_start),
                 (true, false) => {
                     output.push(edge_start);
@@ -1524,6 +1538,49 @@ mod tests {
                 .indices()
                 .iter()
                 .filter(|&&index| index == COLOR_INDEX)
+                .count(),
+            1,
+        );
+    }
+
+    #[test]
+    fn corneria_corridor_line_keeps_only_the_retail_bottom_edge_pixel() {
+        // OP_0 face 23 at Corneria game frame 26. These source-projected
+        // endpoints are byte-for-byte equal to the retail projection capture.
+        // The two directional left-edge intersections differ by one row; the
+        // inclusive line-only bottom clip collapses the retained pair onto
+        // the final drawable row.
+        const POINTS: [ProjectedPoint; 2] = [
+            ProjectedPoint {
+                x: 36,
+                y: 223,
+                depth: 1_581,
+            },
+            ProjectedPoint {
+                x: 3,
+                y: 195,
+                depth: 1_581,
+            },
+        ];
+        const EVEN_COLOR: u8 = 14;
+        const ODD_COLOR: u8 = 13;
+
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_line(&POINTS, &[0, 1], &[[1.0; 4]; 16], [EVEN_COLOR, ODD_COLOR]);
+
+        assert_eq!(
+            raster.indices()[PLAYFIELD_BOTTOM as usize * WIDTH + PLAYFIELD_LEFT as usize],
+            ODD_COLOR,
+        );
+        assert_eq!(
+            raster.indices()[(PLAYFIELD_BOTTOM as usize - 1) * WIDTH + PLAYFIELD_LEFT as usize],
+            SOURCE_CLEAR_INDEX,
+        );
+        assert_eq!(
+            raster
+                .indices()
+                .iter()
+                .filter(|&&index| index != SOURCE_CLEAR_INDEX)
                 .count(),
             1,
         );
