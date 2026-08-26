@@ -21,6 +21,7 @@ const MAX_RECIPROCAL: i16 = 32_767;
 const PROJECTION_CENTER_X: i16 = 112;
 const PROJECTION_CENTER_Y: i16 = 96;
 const SCALED_SPRITE_NEAR_DEPTH: i16 = 128;
+const SCALED_SPRITE_NEAR_SCALE: i16 = 2;
 const SCALED_SPRITE_MAX_SIZE: i16 = 240;
 const INDIVIDUAL_PROJECTION_SCALE: u32 = 256;
 const INDIVIDUAL_PROJECTION_LIMIT: u32 = 16_383;
@@ -89,8 +90,21 @@ pub fn project_scaled_sprite(
         world_size = 1;
     }
     let depth = view_position.2.min(PROJECTION_MAX_DEPTH - 1);
-    let reciprocal = source_reciprocal(depth);
-    let projected_size = project_component(world_size, reciprocal).clamp(0, SCALED_SPRITE_MAX_SIZE);
+    // The scaled-sprite projector has a dedicated close-range path. Sprites
+    // are rejected at depth 128, so one doubling brings every surviving near
+    // sprite into the reciprocal table's ordinary range while preserving the
+    // world-size/depth ratio and its fixed-point rounding.
+    let (projection_size, projection_depth) = if depth < NEAR_PROJECTION_DEPTH {
+        (
+            world_size.wrapping_mul(SCALED_SPRITE_NEAR_SCALE),
+            depth.wrapping_mul(SCALED_SPRITE_NEAR_SCALE),
+        )
+    } else {
+        (world_size, depth)
+    };
+    let reciprocal = source_reciprocal(projection_depth);
+    let projected_size =
+        project_component(projection_size, reciprocal).clamp(0, SCALED_SPRITE_MAX_SIZE);
     if projected_size == 0 {
         return None;
     }
@@ -892,6 +906,26 @@ mod tests {
         .expect("visible boost sprite");
         assert_eq!(sprite.top_left, [70, 52]);
         assert_eq!(sprite.size, 33);
+    }
+
+    #[test]
+    fn corneria_launch_boost_uses_the_retail_close_range_scale() {
+        let sprite = project_scaled_sprite(
+            SourcePose {
+                world_position: [40, -80, 9_278],
+                rotation: [0; 3],
+                view_position: [0, -45, 9_137],
+                view_rotation: [64_928, 0, 0],
+            },
+            20,
+            1,
+            251,
+        )
+        .expect("visible launch boost sprite");
+        // The retail sprite origin is local [156, -15]; typed source-raster
+        // coordinates include the 16-pixel playfield origin.
+        assert_eq!(sprite.top_left, [172, 1]);
+        assert_eq!(sprite.size, 56);
     }
 
     #[test]

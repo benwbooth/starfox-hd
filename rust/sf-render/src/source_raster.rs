@@ -536,7 +536,12 @@ impl SourceRaster {
             }
             for destination_x in 0..projected_size {
                 let source_x = if projected_size > source_size {
-                    u32::from(destination_x) * source_size_u32 / projected_size_u32
+                    // The enlargement loop advances its horizontal texel
+                    // after the accumulated scale crosses a boundary. An
+                    // output exactly on that boundary therefore retains the
+                    // preceding texel for one final pixel.
+                    (u32::from(destination_x) * source_size_u32).saturating_sub(1)
+                        / projected_size_u32
                 } else {
                     (u32::from(destination_x) * reduction_step) >> 8
                 };
@@ -1356,6 +1361,40 @@ mod tests {
         assert_eq!(raster.indices()[offset], PALETTE_INDEX);
         assert_eq!(raster.owners()[offset], 6);
         assert_eq!(raster.faces()[offset], NO_FACE);
+    }
+
+    #[test]
+    fn enlarged_sprite_retains_the_previous_texel_at_horizontal_boundaries() {
+        const TOP_LEFT: [i16; 2] = [32, 32];
+        const PROJECTED_SIZE: u16 = 56;
+        const SOURCE_SIZE: u16 = 32;
+        const PRE_BOUNDARY_DESTINATION_X: usize = 7;
+        const POST_BOUNDARY_DESTINATION_X: usize = 8;
+        const SOURCE_BOUNDARY_X: usize = 4;
+        const PALETTE_INDEX: u8 = 6;
+
+        let mut texture = [0u8; TEXTURE_BANK_MASK + 1];
+        texture[SOURCE_BOUNDARY_X] = PALETTE_INDEX;
+        let mut raster = SourceRaster::new();
+        raster.draw_scaled_sprite(
+            TOP_LEFT,
+            PROJECTED_SIZE,
+            SOURCE_SIZE,
+            &texture,
+            0,
+            false,
+            &[[1.0; 4]; 16],
+        );
+
+        let row = usize::try_from(TOP_LEFT[1]).expect("positive sprite Y") * WIDTH;
+        let left = row
+            + usize::try_from(TOP_LEFT[0]).expect("positive sprite X")
+            + PRE_BOUNDARY_DESTINATION_X;
+        let right = row
+            + usize::try_from(TOP_LEFT[0]).expect("positive sprite X")
+            + POST_BOUNDARY_DESTINATION_X;
+        assert_eq!(raster.indices()[left], SOURCE_CLEAR_INDEX);
+        assert_eq!(raster.indices()[right], PALETTE_INDEX);
     }
 
     #[test]
