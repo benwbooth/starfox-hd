@@ -12,10 +12,32 @@ const FRONT_END_TICKS_BEFORE_CORNERIA_HANDOFF: u32 = 890;
 const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
 const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
 const CORNERIA_AUDIO_UPLOAD_FRAME: u16 = 186;
-const LAST_INPUT_INDEPENDENT_OPENING_FRAME: u16 = 318;
+const DEFAULT_LAST_INPUT_INDEPENDENT_FRAME: u16 = 318;
+const LAST_FRAME_ENV: &str = "SF1_CADENCE_LAST_FRAME";
+const OUTPUT_FIRST_FRAME_ENV: &str = "SF1_CADENCE_OUTPUT_FIRST_FRAME";
 const MAX_HANDOFF_BOUNDARIES: usize = 4;
 
 fn main() {
+    let last_frame = std::env::var(LAST_FRAME_ENV)
+        .ok()
+        .map(|value| {
+            value
+                .parse::<u16>()
+                .unwrap_or_else(|error| panic!("invalid {LAST_FRAME_ENV}={value:?}: {error}"))
+        })
+        .unwrap_or(DEFAULT_LAST_INPUT_INDEPENDENT_FRAME);
+    let output_first_frame = std::env::var(OUTPUT_FIRST_FRAME_ENV)
+        .ok()
+        .map(|value| {
+            value.parse::<u16>().unwrap_or_else(|error| {
+                panic!("invalid {OUTPUT_FIRST_FRAME_ENV}={value:?}: {error}")
+            })
+        })
+        .unwrap_or(0);
+    assert!(
+        output_first_frame <= last_frame,
+        "{OUTPUT_FIRST_FRAME_ENV} must not exceed {LAST_FRAME_ENV}"
+    );
     let rom = load_retail_rom().expect("Star Fox retail ROM is required");
     let mut retail = RetailMachine::new(rom);
     for tick in 0..FRONT_END_TICKS_BEFORE_CORNERIA_HANDOFF {
@@ -59,7 +81,7 @@ fn main() {
     let mut updates = 0u32;
     let mut cadence_by_frame = Vec::new();
     let mut presentation_refreshes_by_frame = Vec::new();
-    for expected_game_frame in 0..=LAST_INPUT_INDEPENDENT_OPENING_FRAME {
+    for expected_game_frame in 0..=last_frame {
         let rate = retail.peek8(WORK_RAM | RETAIL_FRAMERATE);
         let game_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
         assert_eq!(game_frame, expected_game_frame);
@@ -86,14 +108,15 @@ fn main() {
         "cadence_values={:?}",
         cadence_by_frame
             .iter()
+            .filter(|(game_frame, _)| *game_frame >= output_first_frame)
             .map(|(_, rate)| *rate)
             .collect::<Vec<_>>()
     );
-    println!("presentation_refreshes_by_frame={presentation_refreshes_by_frame:?}");
     println!(
         "presentation_refresh_values={:?}",
         presentation_refreshes_by_frame
             .iter()
+            .filter(|(game_frame, _)| *game_frame >= output_first_frame)
             .map(|(_, refreshes)| *refreshes)
             .collect::<Vec<_>>()
     );

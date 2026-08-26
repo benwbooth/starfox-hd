@@ -36,9 +36,9 @@ const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
 const RETAIL_ROM_SHA256: &str = "82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548";
 const FRONT_END_SCENARIO_ID: &str = "sf1-front-end-corneria-opening";
-/// Exclusive strict boundary for the currently certified Corneria opening.
-const FRONT_END_TICKS: u32 = 1_220;
-const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
+/// Exclusive strict boundary for the currently certified Corneria scenario.
+const CORNERIA_SCENARIO_TICKS: u32 = 1_700;
+const CERTIFIED_CORNERIA_LEVEL_FRAME: u16 = 800;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
 const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
@@ -591,7 +591,7 @@ fn front_end_input(tick: u32) -> u16 {
 
 fn front_end_input_runs() -> Vec<ScenarioInputRun> {
     let mut runs = Vec::<ScenarioInputRun>::new();
-    for tick in 0..FRONT_END_TICKS {
+    for tick in 0..CORNERIA_SCENARIO_TICKS {
         let input = u32::from(front_end_input(tick));
         if let Some(run) = runs.last_mut().filter(|run| run.input == input) {
             run.frames += 1;
@@ -606,7 +606,7 @@ fn front_end_manifest() -> ScenarioManifest {
     ScenarioManifest {
         schema_version: SCENARIO_SCHEMA_VERSION,
         id: FRONT_END_SCENARIO_ID.to_owned(),
-        description: "Retail boot through the first Corneria corridor updates".to_owned(),
+        description: "Retail boot through the Corneria corridor and first combat wave".to_owned(),
         retail_rom_sha256: RETAIL_ROM_SHA256.to_owned(),
         clock: ScenarioClock::logical_update(),
         input_runs: front_end_input_runs(),
@@ -620,6 +620,7 @@ fn front_end_manifest() -> ScenarioManifest {
         required_retail_coverage: [
             "retail:front-end-phases".to_owned(),
             "retail:corneria-level-state".to_owned(),
+            "retail:corneria-kamikaze-wave".to_owned(),
             "retail:object-lifecycle".to_owned(),
         ]
         .into_iter()
@@ -627,6 +628,7 @@ fn front_end_manifest() -> ScenarioManifest {
         required_native_coverage: [
             "native:front-end-phases".to_owned(),
             "native:corneria-level-state".to_owned(),
+            "native:corneria-kamikaze-wave".to_owned(),
             "native:object-lifecycle".to_owned(),
         ]
         .into_iter()
@@ -1217,8 +1219,9 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     let mut retail_phase_tracker = RetailPhaseTracker::default();
     let mut previous_retail_level_frame = None;
     let mut retail_level_boundary_aligned = false;
+    let mut saw_authored_kamikaze_pair = false;
 
-    for tick in 0..FRONT_END_TICKS {
+    for tick in 0..CORNERIA_SCENARIO_TICKS {
         let input = front_end_input(tick);
         let native_level_active = native.state() == GameState::Playing
             && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel;
@@ -1289,6 +1292,19 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         if tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
             let native_snapshot = native_level_snapshot(&native);
             let retail_snapshot = retail_level_snapshot(&retail);
+            let retail_kamikazes = retail_snapshot
+                .objects
+                .iter()
+                .filter(|object| object.shape == Some(NATIVE_SHAPE_KAMIKAZE))
+                .count();
+            let native_kamikazes = native_snapshot
+                .objects
+                .iter()
+                .filter(|object| object.shape == Some(NATIVE_SHAPE_KAMIKAZE))
+                .count();
+            if retail_kamikazes == 2 && native_kamikazes == 2 {
+                saw_authored_kamikaze_pair = true;
+            }
             let retail_random_state = [
                 retail.peek8(WORK_RAM | RETAIL_RAND),
                 retail.peek8(WORK_RAM | RETAIL_RAND + 1),
@@ -1387,6 +1403,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         coverage: [
             "retail:front-end-phases".to_owned(),
             "retail:corneria-level-state".to_owned(),
+            "retail:corneria-kamikaze-wave".to_owned(),
             "retail:object-lifecycle".to_owned(),
         ]
         .into_iter()
@@ -1404,6 +1421,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         coverage: [
             "native:front-end-phases".to_owned(),
             "native:corneria-level-state".to_owned(),
+            "native:corneria-kamikaze-wave".to_owned(),
             "native:object-lifecycle".to_owned(),
         ]
         .into_iter()
@@ -1429,7 +1447,11 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         "trace must reach the initialized retail Corneria opening"
     );
     assert!(
-        previous_retail_level_frame >= Some(FIRST_CORRIDOR_LEVEL_FRAME),
-        "trace must compare the first Corneria corridor and wingman objects"
+        previous_retail_level_frame >= Some(CERTIFIED_CORNERIA_LEVEL_FRAME),
+        "trace must compare Corneria through certified level frame {CERTIFIED_CORNERIA_LEVEL_FRAME}"
+    );
+    assert!(
+        saw_authored_kamikaze_pair,
+        "trace must observe the authored two-kamikaze Corneria wave on both sides"
     );
 }

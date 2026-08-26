@@ -1,4 +1,4 @@
-//! Strict whole-machine proof for typed native Corneria opening timing.
+//! Strict whole-machine proof for typed native Corneria neutral-run timing.
 
 #[path = "../examples/support/mod.rs"]
 mod support;
@@ -16,11 +16,11 @@ const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
 const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
 const CORNERIA_AUDIO_UPLOAD_FRAME: u16 = 186;
 const EXPECTED_FIRST_GAME_FRAME: u16 = 0;
-const EXPECTED_LAST_GAME_FRAME: u16 = 318;
+const EXPECTED_LAST_GAME_FRAME: u16 = 820;
 const MAX_HANDOFF_BOUNDARIES: usize = 4;
 
 #[test]
-fn typed_corneria_opening_timing_matches_retail_refresh_boundaries() {
+fn typed_corneria_neutral_timing_matches_retail_refresh_boundaries() {
     let Some(rom) = load_retail_rom() else {
         eprintln!("Corneria timing proof skipped: Star Fox retail ROM not found");
         return;
