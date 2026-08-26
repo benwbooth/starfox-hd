@@ -63,7 +63,7 @@ const UNIFORM_STRIDE: u64 = 512;
 const FLAT_FILL_SOLID: u32 = 0;
 const FLAT_FILL_PALETTE_PAIR: u32 = 1;
 const DISPLAY_BRIGHTNESS_MAX: u8 = 15;
-const DISPLAY_SCALE_DENOMINATOR: u32 = DISPLAY_BRIGHTNESS_MAX as u32;
+const DISPLAY_SCALE_DENOMINATOR: u32 = DISPLAY_BRIGHTNESS_MAX as u32 + 1;
 
 fn identity() -> [[f32; 4]; 4] {
     [
@@ -719,7 +719,7 @@ impl Gpu {
     }
 
     /// Select the source display's typed presentation state. Visible levels
-    /// zero through 15 use `level / 15` component scaling; scene
+    /// zero through 15 use `(level + 1) / 16` component scaling; scene
     /// transfer blanking is a separate all-black state.
     pub fn set_display_presentation(
         &mut self,
@@ -728,7 +728,11 @@ impl Gpu {
         black_subtraction: u8,
     ) {
         let level = level.min(DISPLAY_BRIGHTNESS_MAX);
-        self.presentation_scale_numerator = if forced_blank { 0 } else { u32::from(level) };
+        self.presentation_scale_numerator = if forced_blank {
+            0
+        } else {
+            u32::from(level) + 1
+        };
         self.presentation_black_subtraction = u32::from(black_subtraction.min(31));
     }
 
@@ -1791,8 +1795,8 @@ fn fs_display_brightness(in: DisplayBrightnessOut) -> @location(0) vec4<f32> {
     let texel = textureLoad(tex, vec2<i32>(in.clip.xy), 0);
     let source = vec3<u32>(texel.rgb * 255.0 + vec3<f32>(0.5)) >> vec3<u32>(3u);
     let subtracted = source - min(source, vec3<u32>(u.mode.y));
-    let scaled = subtracted * u.mode.x / 15u;
-    let expanded = (scaled << vec3<u32>(3u)) | (scaled >> vec3<u32>(2u));
-    return vec4<f32>(vec3<f32>(expanded) / 255.0, texel.a);
+    let expanded = (subtracted << vec3<u32>(3u)) | (subtracted >> vec3<u32>(2u));
+    let scaled = expanded * u.mode.x / 16u;
+    return vec4<f32>(vec3<f32>(scaled) / 255.0, texel.a);
 }
 "#;

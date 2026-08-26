@@ -604,12 +604,9 @@ pub fn presentation_aligned_source_frame(
     aligned.stayblack = scene.stayblack;
     aligned.gameflags = scene.gameflags;
     aligned.gameframe = scene.gameframe;
-    // Display brightness and aperture/window geometry are committed with the
-    // completed scene transfer. Later BG/CGRAM state remains live, but taking
-    // these fields from the following update advances level-opening fades one
-    // whole source scene too early (the uninterrupted Training oracle proves
-    // the black hold and 3/6/9/12/15 quick-fade sequence).
-    aligned.display_brightness = scene.display_brightness;
+    // Display brightness is live presentation state: the launch fade can
+    // advance between completion of the source bitmap and its later scanout.
+    // Aperture geometry remains committed with the completed scene transfer.
     aligned.display_forced_blank = scene.display_forced_blank;
     aligned.display_black_subtraction = scene.display_black_subtraction;
     aligned.screen_wipe = scene.screen_wipe;
@@ -637,6 +634,29 @@ pub fn presentation_aligned_source_frame(
         .radio_presentation
         .clone_from(&scene.radio_presentation);
     aligned
+}
+
+#[cfg(test)]
+mod presentation_alignment_tests {
+    use super::*;
+
+    #[test]
+    fn source_bitmap_uses_the_live_presentation_brightness() {
+        const SCENE_BRIGHTNESS: u8 = 15;
+        const PRESENTATION_BRIGHTNESS: u8 = 14;
+
+        let scene = FrameSnapshot {
+            display_brightness: SCENE_BRIGHTNESS,
+            ..FrameSnapshot::default()
+        };
+        let presentation = FrameSnapshot {
+            display_brightness: PRESENTATION_BRIGHTNESS,
+            ..FrameSnapshot::default()
+        };
+
+        let aligned = presentation_aligned_source_frame(&scene, &presentation);
+        assert_eq!(aligned.display_brightness, PRESENTATION_BRIGHTNESS);
+    }
 }
 
 pub fn render_presentation_aligned_source_frame(

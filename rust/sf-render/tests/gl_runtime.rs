@@ -55,6 +55,9 @@ const SF2_OPENING_REPORT_FNV1A: u32 = 0x8D1501C7;
 const SF2_PILOT_SELECTION_FOX_FNV1A: u32 = 0xC2AC3D23;
 const DITHER_TEST_WIDTH: u32 = 512;
 const DITHER_TEST_HEIGHT: u32 = 448;
+const DISPLAY_SOURCE_RGB: [u8; 3] = [41, 16, 173];
+const DISPLAY_DIMMED_RGB: [u8; 3] = [38, 15, 162];
+const DISPLAY_DIMMED_LEVEL: u8 = 14;
 const FNV_OFFSET_BASIS: u32 = 0x811C9DC5;
 const FNV_PRIME: u32 = 0x01000193;
 const FIRST_RETURN_FNV1A: u32 = 0x92CFDF43;
@@ -510,6 +513,22 @@ fn check_palette_pair_dither() {
     };
     assert_eq!(pixel(0, 0), [0, 0, 255]);
     assert_eq!(pixel(2, 0), [0, 255, 0]);
+
+    gpu.begin_frame();
+    gpu.set_clear_color(
+        f32::from(DISPLAY_SOURCE_RGB[0]) / 255.0,
+        f32::from(DISPLAY_SOURCE_RGB[1]) / 255.0,
+        f32::from(DISPLAY_SOURCE_RGB[2]) / 255.0,
+        1.0,
+    );
+    gpu.set_display_presentation(DISPLAY_DIMMED_LEVEL, false, 0);
+    gpu.end_frame();
+    let (_, _, pixels) = gpu.read_pixels().expect("display brightness readback");
+    assert_eq!(
+        &pixels[..DISPLAY_DIMMED_RGB.len()],
+        DISPLAY_DIMMED_RGB,
+        "display brightness must match the retail launch-fade sample"
+    );
 }
 
 const fn strategic_actor(
