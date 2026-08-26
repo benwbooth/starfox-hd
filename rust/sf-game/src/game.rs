@@ -26,6 +26,7 @@ use crate::world::{op, resolve_shape_word, InlineCb, NativeCb, World};
 use sf_core::pad;
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::scene::PaletteFadeTarget;
+use sf_core::stage_banner::STAGE_BANNER_INITIAL_TICKS;
 use sf_map::consts::wm;
 use sf_map::consts::{cb, sh, DirectStrategy};
 use sf_map::levels::{BuiltLevel, NativeCallback};
@@ -1487,7 +1488,7 @@ impl Game {
                 }
                 // 14: setstage.
                 op::SETSTAGE => {
-                    self.vars.stagecnt = 50;
+                    self.vars.stagecnt = i16::from(STAGE_BANNER_INITIAL_TICKS);
                     self.vars.mapptr = p.wrapping_add(1);
                 }
                 // 16: setbg — bg_index(2).

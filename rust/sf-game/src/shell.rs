@@ -42,10 +42,7 @@ use sf_core::{
         PLANET_NAME_CHARACTER_TICKS, PLANET_NAME_TERMINATION_TICKS, PLANET_ZOOM_TICKS,
         RETAIL_VIDEO_FRAMES_PER_GAME_TICK, SHIP_FLASH_TICKS,
     },
-    stage_banner::{
-        ScrambleBannerState, StageBannerKind, StageBannerState,
-        PRESENTATION_FRAMES_PER_GAMEPLAY_TICK,
-    },
+    stage_banner::{ScrambleBannerState, StageBannerKind, StageBannerState},
     DrawListEntry,
 };
 
@@ -1832,21 +1829,13 @@ impl Shell {
         }
     }
 
-    /// Consume the source sprite lane's 60 Hz countdowns for the presentation
-    /// interval completed since the preceding 20 Hz game update.
+    /// Consume the source sprite lane countdowns once for this 20 Hz game
+    /// update. The assembled OAM is retained across the intervening video
+    /// refreshes; `do_stage` and `prt_scramble` therefore each decrement once.
     fn consume_hud_presentation_interval(&mut self, wipe_was_active: bool) {
-        self.game.vars.stagecnt = self
-            .game
-            .vars
-            .stagecnt
-            .saturating_sub(i16::from(PRESENTATION_FRAMES_PER_GAMEPLAY_TICK))
-            .max(0);
+        self.game.vars.stagecnt = self.game.vars.stagecnt.saturating_sub(1).max(0);
         if !wipe_was_active {
-            self.game.vars.scramble_count = self
-                .game
-                .vars
-                .scramble_count
-                .saturating_sub(PRESENTATION_FRAMES_PER_GAMEPLAY_TICK);
+            self.game.vars.scramble_count = self.game.vars.scramble_count.saturating_sub(1);
         }
     }
 
@@ -3872,26 +3861,26 @@ mod tests {
     use sf_map::catalog::map_id;
 
     #[test]
-    fn hud_countdowns_consume_three_presentation_frames_per_game_tick() {
+    fn hud_countdowns_advance_once_per_completed_sprite_lane() {
         let mut shell = Shell::new();
-        shell.game.vars.stagecnt = 50;
-        shell.game.vars.scramble_count = 50;
+        shell.game.vars.stagecnt = i16::from(sf_core::stage_banner::STAGE_BANNER_INITIAL_TICKS);
+        shell.game.vars.scramble_count = sf_core::stage_banner::STAGE_BANNER_INITIAL_TICKS;
 
         shell.consume_hud_presentation_interval(false);
-        assert_eq!(shell.game.vars.stagecnt, 47);
-        assert_eq!(shell.game.vars.scramble_count, 47);
+        assert_eq!(shell.game.vars.stagecnt, 49);
+        assert_eq!(shell.game.vars.scramble_count, 49);
 
         shell.consume_hud_presentation_interval(true);
-        assert_eq!(shell.game.vars.stagecnt, 44);
+        assert_eq!(shell.game.vars.stagecnt, 48);
         assert_eq!(
-            shell.game.vars.scramble_count, 47,
+            shell.game.vars.scramble_count, 49,
             "the source skips prt_scramble while its aperture wipe is active"
         );
 
         shell.game.vars.stagecnt = 2;
         shell.game.vars.scramble_count = 1;
         shell.consume_hud_presentation_interval(false);
-        assert_eq!(shell.game.vars.stagecnt, 0);
+        assert_eq!(shell.game.vars.stagecnt, 1);
         assert_eq!(shell.game.vars.scramble_count, 0);
     }
 

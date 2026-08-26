@@ -384,8 +384,8 @@ impl Hud {
         }
     }
 
-    fn draw_stage_banner(sprites: &mut Sprites, banner: StageBannerState, presentation_phase: u8) {
-        if !banner.is_visible_at_phase(presentation_phase) {
+    fn draw_stage_banner(sprites: &mut Sprites, banner: StageBannerState) {
+        if !banner.is_visible() {
             return;
         }
         match banner.kind {
@@ -884,7 +884,7 @@ impl Hud {
             Self::draw_scramble_banner(sprites, scramble_banner, presentation_phase);
         }
         if let Some(stage_banner) = inputs.stage_banner {
-            Self::draw_stage_banner(sprites, stage_banner, presentation_phase);
+            Self::draw_stage_banner(sprites, stage_banner);
         }
 
         sprites.render_hud(
