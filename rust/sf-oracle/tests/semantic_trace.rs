@@ -2,7 +2,11 @@
 //! compared through the shared, storage-independent semantic trace format.
 
 use sf_core::{pad, sf1_controls::BriefingPhase, sf1_planets::PlanetSequencePhase};
-use sf_difftest::{first_divergence, SemanticFrame, SemanticObject};
+use sf_difftest::{
+    compare_scenario, first_divergence, CaptureChannel, EvidenceProducer, NonStrictEvidence,
+    ScenarioEvidence, ScenarioInputRun, ScenarioManifest, SemanticEvent, SemanticFrame,
+    SemanticObject, EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
+};
 use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
     call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_PTR, AL_ROTX,
@@ -17,6 +21,8 @@ use sf_oracle::{
     RETAIL_PSHIPFLAGS, RETAIL_PSHIPFLAGS2, RETAIL_PSHIPFLAGS3, RETAIL_PSTRATFLAGS,
     RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
 };
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 
 const FRAME_COUNT: u64 = 30;
 const INITIAL_POSITION_X: i16 = 1_000;
@@ -28,6 +34,8 @@ const VELOCITY_Z: i16 = -50;
 const VIEW_FORWARD_VELOCITY: i16 = -200;
 const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
+const RETAIL_ROM_SHA256: &str = "82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548";
+const FRONT_END_SCENARIO_ID: &str = "sf1-front-end-corneria-opening";
 /// Exclusive strict boundary for the currently certified Corneria opening.
 const FRONT_END_TICKS: u32 = 1_220;
 const FIRST_CORRIDOR_LEVEL_FRAME: u16 = 5;
@@ -241,6 +249,125 @@ struct LevelSnapshot {
     free_order: Vec<u16>,
     objects: Vec<LevelObjectSnapshot>,
 }
+
+#[derive(Default)]
+struct ObjectIdentityTracker {
+    generations: BTreeMap<u16, u32>,
+    active: BTreeSet<u16>,
+}
+
+impl ObjectIdentityTracker {
+    fn record_level(
+        &mut self,
+        mut frame: SemanticFrame,
+        snapshot: &LevelSnapshot,
+        random_state: [u8; 4],
+    ) -> SemanticFrame {
+        frame = frame
+            .with_field("level.background", snapshot.background)
+            .with_field("level.frame", snapshot.game_frame)
+            .with_field("level.flags", snapshot.game_flags)
+            .with_field("player.ship_flags", snapshot.player_ship_flags[0])
+            .with_field("player.ship_flags_2", snapshot.player_ship_flags[1])
+            .with_field("player.ship_flags_3", snapshot.player_ship_flags[2])
+            .with_field("player.strategy_flags", snapshot.player_strategy_flags)
+            .with_field("map.countdown", snapshot.map_countdown)
+            .with_field("view.forward_velocity", snapshot.forward_velocity)
+            .with_field("player.previous_depth", snapshot.previous_player_depth)
+            .with_field("player.last_depth_change", snapshot.last_depth_change)
+            .with_field("player.hit_timer", snapshot.player_hit_timer)
+            .with_field("player.hit_flags", snapshot.player_hit_flags)
+            .with_field("random.byte_0", random_state[0])
+            .with_field("random.byte_1", random_state[1])
+            .with_field("random.byte_2", random_state[2])
+            .with_field("random.byte_3", random_state[3])
+            .with_field(
+                "object_pool.active_order",
+                format!("{:?}", snapshot.active_order),
+            )
+            .with_field(
+                "object_pool.free_order",
+                format!("{:?}", snapshot.free_order),
+            );
+
+        let current: BTreeSet<_> = snapshot.objects.iter().map(|object| object.slot).collect();
+        for slot in self.active.difference(&current) {
+            let generation = self
+                .generations
+                .get(slot)
+                .copied()
+                .expect("active object generation");
+            frame.events.push(
+                SemanticEvent::new("object-death")
+                    .with_field("identity", format!("slot-{slot}-birth-{generation}")),
+            );
+        }
+        for slot in current.difference(&self.active) {
+            let generation = self.generations.entry(*slot).or_default();
+            *generation += 1;
+            frame.events.push(
+                SemanticEvent::new("object-birth")
+                    .with_field("identity", format!("slot-{slot}-birth-{generation}")),
+            );
+        }
+        self.active = current;
+
+        for object in &snapshot.objects {
+            let generation = self.generations[&object.slot];
+            let kind = match object.slot {
+                0 => "player",
+                1 => "player-body",
+                2 => "player-left-wing",
+                3 => "player-right-wing",
+                4 => "player-follower",
+                5 => "opening-camera",
+                _ => "level-object",
+            };
+            let mut semantic =
+                SemanticObject::new(format!("slot-{}-birth-{generation}", object.slot), kind)
+                    .with_field("slot", object.slot)
+                    .with_field("position.x", object.position.0)
+                    .with_field("position.y", object.position.1)
+                    .with_field("position.z", object.position.2);
+            if let Some(shape) = object.shape {
+                semantic = semantic.with_field("shape", shape);
+            }
+            if let Some(lifetime) = object.departure_lifetime {
+                semantic = semantic.with_field("departure.lifetime", lifetime);
+            }
+            if let Some(delay) = object.departure_delay {
+                semantic = semantic.with_field("departure.delay", delay);
+            }
+            if let Some(wait) = object.path_wait {
+                semantic = semantic.with_field("path.wait", wait);
+            }
+            if let Some(motion) = object.fighter_motion {
+                semantic = semantic
+                    .with_field("fighter.rotation.x", motion.rotation[0])
+                    .with_field("fighter.rotation.y", motion.rotation[1])
+                    .with_field("fighter.rotation.z", motion.rotation[2])
+                    .with_field("fighter.speed", motion.speed)
+                    .with_field("fighter.velocity.x", motion.velocity.0)
+                    .with_field("fighter.velocity.y", motion.velocity.1)
+                    .with_field("fighter.velocity.z", motion.velocity.2)
+                    .with_field("fighter.lateral_offset", motion.lateral_offset)
+                    .with_field("fighter.vertical_offset", motion.vertical_offset);
+            }
+            if let Some(motion) = object.authored_motion {
+                semantic = semantic
+                    .with_field("motion.rotation.x", motion.rotation[0])
+                    .with_field("motion.rotation.y", motion.rotation[1])
+                    .with_field("motion.rotation.z", motion.rotation[2])
+                    .with_field("motion.speed", motion.speed)
+                    .with_field("motion.velocity.x", motion.velocity.0)
+                    .with_field("motion.velocity.y", motion.velocity.1)
+                    .with_field("motion.velocity.z", motion.velocity.2);
+            }
+            frame.objects.push(semantic);
+        }
+        frame
+    }
+}
 const RETAIL_PHASE_ENTRIES: [u32; 12] = [
     RETAIL_PLANET_MAP_FADE_ENTRY,
     RETAIL_PLANET_ISOLATION_ENTRY,
@@ -449,6 +576,55 @@ fn front_end_input(tick: u32) -> u16 {
         };
     }
     0
+}
+
+fn front_end_input_runs() -> Vec<ScenarioInputRun> {
+    let mut runs = Vec::<ScenarioInputRun>::new();
+    for tick in 0..FRONT_END_TICKS {
+        let input = u32::from(front_end_input(tick));
+        if let Some(run) = runs.last_mut().filter(|run| run.input == input) {
+            run.frames += 1;
+        } else {
+            runs.push(ScenarioInputRun { frames: 1, input });
+        }
+    }
+    runs
+}
+
+fn front_end_manifest() -> ScenarioManifest {
+    ScenarioManifest {
+        schema_version: SCENARIO_SCHEMA_VERSION,
+        id: FRONT_END_SCENARIO_ID.to_owned(),
+        description: "Retail boot through the first Corneria corridor updates".to_owned(),
+        retail_rom_sha256: RETAIL_ROM_SHA256.to_owned(),
+        input_runs: front_end_input_runs(),
+        required_channels: [
+            CaptureChannel::SemanticState,
+            CaptureChannel::ObjectLifecycle,
+            CaptureChannel::Coverage,
+        ]
+        .into_iter()
+        .collect(),
+        required_retail_coverage: [
+            "retail:front-end-phases".to_owned(),
+            "retail:corneria-level-state".to_owned(),
+            "retail:object-lifecycle".to_owned(),
+        ]
+        .into_iter()
+        .collect(),
+        required_native_coverage: [
+            "native:front-end-phases".to_owned(),
+            "native:corneria-level-state".to_owned(),
+            "native:object-lifecycle".to_owned(),
+        ]
+        .into_iter()
+        .collect(),
+    }
+}
+
+fn scenario_frame(tick: u32, input: u16, phase: Option<FrontEndPhase>) -> SemanticFrame {
+    SemanticFrame::new(u64::from(tick), u64::from(tick), u32::from(input))
+        .with_field("phase", phase.map_or("unobserved", FrontEndPhase::name))
 }
 
 fn retail_front_end_phase(
@@ -992,6 +1168,12 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         eprintln!("retail front-end trace skipped: Star Fox retail ROM not found");
         return;
     };
+    let retail_rom_sha256 = format!("{:x}", Sha256::digest(&rom));
+    assert_eq!(
+        retail_rom_sha256, RETAIL_ROM_SHA256,
+        "retail scenario requires the pinned Star Fox USA Rev 2 ROM"
+    );
+    let manifest = front_end_manifest();
 
     let mut retail = RetailMachine::new(rom);
     for (entry, opcode) in RETAIL_PLANET_PHASE_ENTRY_OPCODES {
@@ -1006,6 +1188,10 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     let mut native = configured_native_shell();
     let mut retail_trace = Vec::new();
     let mut native_trace = Vec::new();
+    let mut retail_scenario_frames = Vec::new();
+    let mut native_scenario_frames = Vec::new();
+    let mut retail_identities = ObjectIdentityTracker::default();
+    let mut native_identities = ObjectIdentityTracker::default();
     let mut previous_retail = None;
     let mut previous_native = None;
     let mut retail_origin = None;
@@ -1079,6 +1265,9 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             );
         }
 
+        let mut retail_level_evidence = None;
+        let mut native_level_evidence = None;
+        let mut retail_random_evidence = None;
         if tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
             let native_snapshot = native_level_snapshot(&native);
             let retail_snapshot = retail_level_snapshot(&retail);
@@ -1088,14 +1277,9 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 retail.peek8(WORK_RAM | RETAIL_RAND + 2),
                 retail.peek8(WORK_RAM | RETAIL_RAND + 3),
             ];
-            assert_eq!(
-                native_snapshot, retail_snapshot,
-                "Corneria level state diverged at tick {tick}"
-            );
-            assert_eq!(
-                native.game.vars.rng, retail_random_state,
-                "Corneria runtime random stream diverged at tick {tick}"
-            );
+            retail_level_evidence = Some(retail_snapshot);
+            native_level_evidence = Some(native_snapshot);
+            retail_random_evidence = Some(retail_random_state);
         }
 
         let retail_phase = retail_front_end_phase(
@@ -1104,6 +1288,22 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             &retail_execution_entries,
         );
         let native_phase = native_front_end_phase(&native);
+        let retail_frame = scenario_frame(tick, input, retail_phase);
+        let native_frame = scenario_frame(tick, input, native_phase);
+        retail_scenario_frames.push(
+            match (retail_level_evidence.as_ref(), retail_random_evidence) {
+                (Some(snapshot), Some(random_state)) => {
+                    retail_identities.record_level(retail_frame, snapshot, random_state)
+                }
+                _ => retail_frame,
+            },
+        );
+        native_scenario_frames.push(match native_level_evidence.as_ref() {
+            Some(snapshot) => {
+                native_identities.record_level(native_frame, snapshot, native.game.vars.rng)
+            }
+            None => native_frame,
+        });
         record_front_end_transition(
             &mut retail_trace,
             &mut previous_retail,
@@ -1135,6 +1335,52 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             );
         }
     }
+
+    let channels: BTreeSet<_> = [
+        CaptureChannel::SemanticState,
+        CaptureChannel::ObjectLifecycle,
+        CaptureChannel::Coverage,
+    ]
+    .into_iter()
+    .collect();
+    let retail_evidence = ScenarioEvidence {
+        schema_version: EVIDENCE_SCHEMA_VERSION,
+        scenario_id: FRONT_END_SCENARIO_ID.to_owned(),
+        producer: EvidenceProducer::Retail,
+        retail_rom_sha256: retail_rom_sha256.clone(),
+        channels: channels.clone(),
+        coverage: [
+            "retail:front-end-phases".to_owned(),
+            "retail:corneria-level-state".to_owned(),
+            "retail:object-lifecycle".to_owned(),
+        ]
+        .into_iter()
+        .collect(),
+        non_strict: NonStrictEvidence::default(),
+        frames: retail_scenario_frames,
+    };
+    let native_evidence = ScenarioEvidence {
+        schema_version: EVIDENCE_SCHEMA_VERSION,
+        scenario_id: FRONT_END_SCENARIO_ID.to_owned(),
+        producer: EvidenceProducer::Native,
+        retail_rom_sha256,
+        channels,
+        coverage: [
+            "native:front-end-phases".to_owned(),
+            "native:corneria-level-state".to_owned(),
+            "native:object-lifecycle".to_owned(),
+        ]
+        .into_iter()
+        .collect(),
+        non_strict: NonStrictEvidence::default(),
+        frames: native_scenario_frames,
+    };
+    let report = compare_scenario(&manifest, &retail_evidence, &native_evidence)
+        .expect("front-end scenario evidence must be structurally valid");
+    assert!(
+        report.strict_pass,
+        "strict front-end scenario failed: {report:#?}"
+    );
 
     if let Some(divergence) =
         first_divergence(&retail_trace, &native_trace).expect("front-end traces must be valid")
