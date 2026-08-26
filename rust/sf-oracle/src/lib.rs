@@ -11,7 +11,7 @@
 pub mod gsu;
 mod ppu;
 mod retail;
-pub use ppu::PpuFrame;
+pub use ppu::{CompletedRaster, PpuFrame};
 pub use retail::*;
 
 use w65c816::{AddressType, Signals, System, CPU};

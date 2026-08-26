@@ -1393,7 +1393,7 @@ pub fn init_object_pool(bus: &mut SnesBus) {
 // Retail boot-from-reset probe (milestone 1).
 // ------------------------------------------------------------------------
 
-use crate::ppu::{Ppu, PpuFrame, FRAME_HEIGHT};
+use crate::ppu::{CompletedRaster, Ppu, PpuFrame, FRAME_HEIGHT};
 use sf_spc::{Filter, SnesSpc, BASS_NORM, GAIN_UNIT, IPL_ROM};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -1741,6 +1741,14 @@ impl RetailBootBus {
 
     pub fn capture_completed_bg1_indices(&mut self) {
         self.ppu.capture_completed_bg1_indices();
+    }
+
+    pub fn capture_completed_rasters(&mut self) {
+        self.ppu.capture_completed_rasters();
+    }
+
+    pub fn take_completed_rasters(&mut self) -> Vec<CompletedRaster> {
+        self.ppu.take_completed_rasters()
     }
 
     /// Write the CPU-visible address space without advancing either processor.
@@ -2111,7 +2119,8 @@ impl RetailBootBus {
         let new_frame = self.dot / (DOTS_PER_LINE * LINES_PER_FRAME) != prev_frame;
         if new_frame {
             self.apu.finish_video_frame(self.master_clock);
-            self.ppu.begin_frame();
+            self.ppu
+                .begin_frame(self.dot / (DOTS_PER_LINE * LINES_PER_FRAME));
             self.init_hdma();
         }
         let v = self.cur_v();
@@ -2580,6 +2589,17 @@ impl RetailMachine {
 
     pub fn capture_completed_bg1_indices(&mut self) {
         self.bus.capture_completed_bg1_indices();
+    }
+
+    /// Record completed retail scanouts for strict presentation association.
+    /// Capture is opt-in because each raster includes source-resolution pixels.
+    pub fn capture_completed_rasters(&mut self) {
+        self.bus.capture_completed_rasters();
+    }
+
+    /// Drain completed scanouts recorded since the preceding observation.
+    pub fn take_completed_rasters(&mut self) -> Vec<CompletedRaster> {
+        self.bus.take_completed_rasters()
     }
 
     /// Clone the native 32 kHz stereo PCM queue consumed by the front end.

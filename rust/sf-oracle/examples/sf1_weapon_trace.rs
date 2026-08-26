@@ -9,17 +9,18 @@ use sf_core::pad;
 use sf_difftest::{
     compare_source_rgb, read_source_rgb_ppm, write_source_rgb_ppm, SourceVideoDivergence,
 };
+use sf_game::presentation::CompletedPresentationQueue;
 use sf_game::shell::{GameState, GameplayEntryPhase, Shell, SoundCmd};
 use sf_oracle::{
-    load_retail_rom, RetailMachine, AL_AP, AL_COLLFLAGS, AL_HP, AL_IMMUNEPTR, AL_LIFECNT, AL_ROTX,
-    AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE2, AL_SBYTE3, AL_TYPE, AL_VEL, AL_VX, AL_VY, AL_VZ,
-    RETAIL_AL_ANIMFRAME, RETAIL_BUILD_DRAWLIST_L, RETAIL_DOSTRATS, RETAIL_FRAMERATE,
-    RETAIL_BG2SCROLL, RETAIL_DOVOFS, RETAIL_GAMEFRAME, RETAIL_PLAYPT,
-    RETAIL_PLROTZ, RETAIL_POOL, RETAIL_SOUND_EFFECT_EVENTS,
-    RETAIL_SOUND_EFFECT_WRITE_CURSOR, RETAIL_VIEW_POSITION_X, RETAIL_VIEW_POSITION_Y,
-    RETAIL_VIEW_POSITION_Z,
+    load_retail_rom, CompletedRaster, RetailMachine, AL_AP, AL_COLLFLAGS, AL_HP, AL_IMMUNEPTR,
+    AL_LIFECNT, AL_ROTX, AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE2, AL_SBYTE3, AL_TYPE, AL_VEL, AL_VX,
+    AL_VY, AL_VZ, RETAIL_AL_ANIMFRAME, RETAIL_BG2SCROLL, RETAIL_BUILD_DRAWLIST_L, RETAIL_DOSTRATS,
+    RETAIL_DOVOFS, RETAIL_FRAMERATE, RETAIL_GAMEFRAME, RETAIL_PLAYPT, RETAIL_PLROTZ, RETAIL_POOL,
+    RETAIL_SOUND_EFFECT_EVENTS, RETAIL_SOUND_EFFECT_WRITE_CURSOR, RETAIL_VIEW_POSITION_X,
+    RETAIL_VIEW_POSITION_Y, RETAIL_VIEW_POSITION_Z,
 };
 use sf_render::renderer::{config_from_repo_root, Renderer};
+use std::collections::VecDeque;
 
 const WORK_RAM: u32 = 0x7E_0000;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
@@ -34,6 +35,9 @@ const BANK_PROBE_LAST_GAME_FRAME: u16 = 337;
 const SOURCE_FRAME_WIDTH: usize = 256;
 const SOURCE_FRAME_HEIGHT: usize = 224;
 const PLAYER_LASER_SOUND: u8 = 53;
+const SOURCE_PRESENTATION_RETENTION_PREROLL_GAME_FRAME: u16 = 190;
+const SOURCE_VIDEO_FIRST_FRAME_ENV: &str = "SF1_SOURCE_VIDEO_FIRST_GAME_FRAME";
+const SOURCE_VIDEO_LAST_FRAME_ENV: &str = "SF1_SOURCE_VIDEO_LAST_GAME_FRAME";
 const SOUND_EVENT_CAPACITY: u8 = 16;
 const SOURCE_PLAYER_LASER_SHAPE: u16 = 0xB369;
 const NATIVE_PLAYER_LASER_SHAPE: u16 = 511;
@@ -94,6 +98,7 @@ const SOURCE_BITMAP_TILE_BYTES: usize = SOURCE_BITMAP_COLOR_DEPTH * SOURCE_BITMA
 const SOURCE_BITMAP_BASE_UNIT_BYTES: usize = 1_024;
 const SOURCE_BITMAP_LAYOUT_HEIGHT_192: usize = 2;
 const SOURCE_BITMAP_MODE_4BPP: u8 = 1;
+const SOURCE_BITMAP_INDEX_MASK: u8 = 15;
 const SOURCE_BITMAP_WIDTH: usize = 224;
 const SOURCE_BITMAP_HEIGHT: usize = 192;
 const SOURCE_BITMAP_LEFT: usize = 16;
@@ -143,6 +148,67 @@ struct LaserDraw {
     position: Position,
     rotation: [u8; 3],
     animation: u8,
+}
+
+struct PendingSourceVideo {
+    game_frame: u16,
+    native_rgb: Vec<u8>,
+    retail_bitmap: Vec<u8>,
+}
+
+fn completed_raster_contains_bitmap(raster: &CompletedRaster, bitmap: &[u8]) -> bool {
+    if raster.bg1_indices.len() != SOURCE_FRAME_WIDTH * SOURCE_FRAME_HEIGHT
+        || bitmap.len() != SOURCE_BITMAP_WIDTH * SOURCE_BITMAP_HEIGHT
+    {
+        return false;
+    }
+    (0..SOURCE_BITMAP_HEIGHT).all(|y| {
+        (0..SOURCE_BITMAP_WIDTH).all(|x| {
+            let source = bitmap[y * SOURCE_BITMAP_WIDTH + x];
+            let completed = raster.bg1_indices
+                [(y + SOURCE_BITMAP_TOP) * SOURCE_FRAME_WIDTH + x + SOURCE_BITMAP_LEFT];
+            let completed = if completed == u8::MAX {
+                0
+            } else {
+                completed & SOURCE_BITMAP_INDEX_MASK
+            };
+            source == completed
+        })
+    })
+}
+
+fn completed_raster_bitmap_differences(raster: &CompletedRaster, bitmap: &[u8]) -> Option<usize> {
+    (raster.bg1_indices.len() == SOURCE_FRAME_WIDTH * SOURCE_FRAME_HEIGHT
+        && bitmap.len() == SOURCE_BITMAP_WIDTH * SOURCE_BITMAP_HEIGHT)
+        .then(|| {
+            (0..SOURCE_BITMAP_HEIGHT)
+                .flat_map(|y| (0..SOURCE_BITMAP_WIDTH).map(move |x| (x, y)))
+                .filter(|(x, y)| {
+                    let source = bitmap[*y * SOURCE_BITMAP_WIDTH + *x];
+                    let completed = raster.bg1_indices
+                        [(*y + SOURCE_BITMAP_TOP) * SOURCE_FRAME_WIDTH + *x + SOURCE_BITMAP_LEFT];
+                    let completed = if completed == u8::MAX {
+                        0
+                    } else {
+                        completed & SOURCE_BITMAP_INDEX_MASK
+                    };
+                    source != completed
+                })
+                .count()
+        })
+}
+
+fn completed_raster_rgb(raster: &CompletedRaster) -> Vec<u8> {
+    assert_eq!(
+        raster.rgba.len(),
+        SOURCE_FRAME_WIDTH * SOURCE_FRAME_HEIGHT * 4,
+        "completed retail raster dimensions"
+    );
+    raster
+        .rgba
+        .chunks_exact(4)
+        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect()
 }
 
 fn trace_input(tick: u32, bank_probe: bool) -> u16 {
@@ -494,8 +560,38 @@ fn main() {
     let mut first_bank_divergence = None;
     let probe_game_frame = std::env::var("SF1_WEAPON_PROBE_GAME_FRAME")
         .ok()
-        .map(|value| value.parse::<u16>().expect("probe game frame must be decimal"))
+        .map(|value| {
+            value
+                .parse::<u16>()
+                .expect("probe game frame must be decimal")
+        })
         .unwrap_or(support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME);
+    let source_video_first_game_frame = std::env::var(SOURCE_VIDEO_FIRST_FRAME_ENV)
+        .ok()
+        .map(|value| {
+            value
+                .parse::<u16>()
+                .expect("source video first game frame must be decimal")
+        })
+        .unwrap_or(support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME);
+    let source_video_last_game_frame = std::env::var(SOURCE_VIDEO_LAST_FRAME_ENV)
+        .ok()
+        .map(|value| {
+            value
+                .parse::<u16>()
+                .expect("source video last game frame must be decimal")
+        })
+        .unwrap_or(support::WEAPON_VIDEO_CAPTURE_LAST_GAME_FRAME);
+    assert!(
+        source_video_first_game_frame <= source_video_last_game_frame,
+        "source video game-frame range must be ordered"
+    );
+    let source_video_presentation_last_game_frame = source_video_last_game_frame
+        .checked_add(1)
+        .expect("source video presentation game frame must fit");
+    let source_video_preroll_first_game_frame = source_video_first_game_frame
+        .saturating_sub(2)
+        .min(SOURCE_PRESENTATION_RETENTION_PREROLL_GAME_FRAME);
     let probed_local_x = std::env::var("SF1_WEAPON_PROBE_LOCAL_X")
         .ok()
         .map(|value| value.parse::<u16>().expect("probe local X must be decimal"))
@@ -521,6 +617,10 @@ fn main() {
         Vec<support::NativeProjection>,
         Vec<u8>,
     )> = None;
+    let mut completed_presentations = CompletedPresentationQueue::new();
+    let mut completed_raster_capture_enabled = false;
+    let mut completed_rasters = VecDeque::new();
+    let mut pending_source_video = VecDeque::<PendingSourceVideo>::new();
     let mut first_bitmap_divergence = None;
     let mut sampled_bitmap_updates = 0u32;
     let mut first_internal_video_divergence: Option<SourceVideoDivergence> = None;
@@ -529,6 +629,8 @@ fn main() {
     let video_dump_directory: Option<std::path::PathBuf> =
         std::env::var_os("SF1_WEAPON_VIDEO_DUMP_DIR").map(Into::into);
     let dump_all_video = std::env::var_os("SF1_WEAPON_VIDEO_DUMP_ALL").is_some();
+    let probe_raster_association =
+        std::env::var_os("SF1_WEAPON_RASTER_ASSOCIATION_PROBE").is_some();
     if let Some(directory) = video_dump_directory.as_ref() {
         std::fs::create_dir_all(directory).expect("create weapon video dump directory");
     }
@@ -753,6 +855,13 @@ fn main() {
             retail.capture_completed_bg1_indices();
             compositor_capture_enabled = true;
         }
+        if !completed_raster_capture_enabled
+            && native_level_active
+            && native.game.vars.gameframe >= source_video_preroll_first_game_frame
+        {
+            retail.capture_completed_rasters();
+            completed_raster_capture_enabled = true;
+        }
         let align_completed_level_frame =
             native_level_active && tick >= COMPLETED_FRAME_ALIGNMENT_TICK;
         let mut retail_draws_for_update = None;
@@ -886,6 +995,9 @@ fn main() {
                 .tick_video_frames(input, VIDEO_FRAMES_PER_NATIVE_TICK)
                 .expect("retail front-end update");
         }
+        if completed_raster_capture_enabled {
+            completed_rasters.extend(retail.take_completed_rasters());
+        }
         let retail_level_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
         let retail_completed_level_update = align_completed_level_frame
             || previous_retail_level_frame
@@ -1001,22 +1113,23 @@ fn main() {
             .map(support::render_entry)
             .collect();
         if native_level_active
-            && (support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME
-                ..=support::WEAPON_VIDEO_PRESENTATION_LAST_GAME_FRAME)
+            && (source_video_preroll_first_game_frame..=source_video_presentation_last_game_frame)
                 .contains(&native.game.vars.gameframe)
         {
             let game_frame = native.game.vars.gameframe;
-            let captures_native_frame = (support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME
-                ..=support::WEAPON_VIDEO_CAPTURE_LAST_GAME_FRAME)
+            let prepares_native_frame = (source_video_preroll_first_game_frame
+                ..=source_video_last_game_frame)
+                .contains(&game_frame);
+            let captures_native_frame = (source_video_first_game_frame
+                ..=source_video_last_game_frame)
                 .contains(&game_frame);
             if probe_boundaries && captures_native_frame {
                 let frame = retail_video_for_update
                     .as_ref()
                     .expect("retail presentation at gameplay boundary");
                 let bg_indices = retail.ppu_snapshot_bg_indices(0);
-                let pixel_offset = (TARGET_DISPLAY_PIXEL[1] * SOURCE_FRAME_WIDTH
-                    + TARGET_DISPLAY_PIXEL[0])
-                    * 3;
+                let pixel_offset =
+                    (TARGET_DISPLAY_PIXEL[1] * SOURCE_FRAME_WIDTH + TARGET_DISPLAY_PIXEL[0]) * 3;
                 println!(
                     "boundary_probe native_game_frame={game_frame} retail_game_frame={} video_frame={} live_bg_pixel={} completed_color={:?} completed_hash={:016X} ppu_hofs={} source_scroll={} view_yaw={} player_turn={} background_base={}",
                     retail.peek16(WORK_RAM | RETAIL_GAMEFRAME),
@@ -1031,7 +1144,7 @@ fn main() {
                     retail.peek16(WORK_RAM | 0x1F30) as i16,
                 );
             }
-            if probe_grid && game_frame == support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME {
+            if probe_grid && game_frame == source_video_first_game_frame {
                 let camera = native.frame().camera;
                 println!(
                     "grid_probe native_camera={camera:?} native_pixels={:?}",
@@ -1318,7 +1431,7 @@ fn main() {
                 println!("sprite_plot_probe captures={}", captures.len());
                 return;
             }
-            if probe_presentation && game_frame == support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME {
+            if probe_presentation && game_frame == source_video_first_game_frame {
                 for step in 0..=PRESENTATION_PROBE_VIDEO_FRAMES {
                     let frame = retail.ppu_frame();
                     let target = [usize::from(probed_local_x), usize::from(probed_local_y)];
@@ -1392,8 +1505,7 @@ fn main() {
                 pending_draw_list,
                 pending_projections,
                 retail_bitmap,
-            )) =
-                pending_native_video.take()
+            )) = pending_native_video.take()
             {
                 assert_eq!(
                     game_frame,
@@ -1435,6 +1547,17 @@ fn main() {
                     &pending_draw_list,
                     &mut renderer,
                 );
+                let releases_completed_scene = pending_frame.display_forced_blank
+                    && !presentation_frame.display_forced_blank
+                    && pending_frame.screen_wipe.active;
+                let presented_native_rgb = completed_presentations
+                    .advance(
+                        native_rgb,
+                        releases_completed_scene,
+                        presentation_frame.windowmode != 0,
+                    )
+                    .expect("completed source presentation")
+                    .value;
                 if probe_compositor && pending_game_frame == probe_game_frame {
                     let ppu = retail.ppu_frame();
                     let bg1 = retail.ppu_snapshot_bg_indices(0);
@@ -1535,12 +1658,15 @@ fn main() {
                         }
                     }
                 }
-                if probe_grid && pending_game_frame == support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME {
+                if probe_grid && pending_game_frame == source_video_first_game_frame {
                     println!(
                         "grid_probe upper_scene_differing_pixels={upper_scene_differing_pixels} first_upper_scene_pixel={first_upper_scene_pixel:?}"
                     );
                 }
-                if first_bitmap_divergence.is_none() && differing_pixels != 0 {
+                if pending_game_frame >= source_video_first_game_frame
+                    && first_bitmap_divergence.is_none()
+                    && differing_pixels != 0
+                {
                     let first_pixel = first_pixel.expect("bitmap divergence pixel");
                     let owner_draw = pending_draw_list
                         .iter()
@@ -1567,56 +1693,16 @@ fn main() {
                         ),
                     ));
                 }
-                sampled_bitmap_updates += 1;
-                let (retail_video_frame, retail_rgb) = retail_video_for_update
-                    .as_ref()
-                    .expect("presentation-aligned retail source frame");
-                if dump_all_video {
-                    let dump_directory = video_dump_directory
-                        .as_ref()
-                        .expect("SF1_WEAPON_VIDEO_DUMP_ALL requires a dump directory");
-                    write_source_rgb_ppm(
-                        dump_directory.join(format!("retail-{pending_game_frame:03}.ppm")),
-                        retail_rgb,
-                    )
-                    .expect("write retail weapon video census");
-                    write_source_rgb_ppm(
-                        dump_directory.join(format!("native-{pending_game_frame:03}.ppm")),
-                        &native_rgb,
-                    )
-                    .expect("write native weapon video census");
+                if pending_game_frame >= source_video_first_game_frame {
+                    sampled_bitmap_updates += 1;
+                    pending_source_video.push_back(PendingSourceVideo {
+                        game_frame: pending_game_frame,
+                        native_rgb: presented_native_rgb,
+                        retail_bitmap: retail_bitmap.clone(),
+                    });
                 }
-                if first_internal_video_divergence.is_none() {
-                    let divergence = compare_source_rgb(
-                        u64::from(
-                            pending_game_frame - support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME,
-                        ),
-                        *retail_video_frame,
-                        retail_rgb,
-                        &native_rgb,
-                    )
-                    .expect("compare weapon source video");
-                    if divergence.is_some() {
-                        if let Some(dump_directory) = video_dump_directory.as_ref() {
-                            write_source_rgb_ppm(
-                                dump_directory
-                                    .join(format!("retail-{pending_game_frame:03}.ppm")),
-                                retail_rgb,
-                            )
-                            .expect("write retail weapon video diagnostic");
-                            write_source_rgb_ppm(
-                                dump_directory
-                                    .join(format!("native-{pending_game_frame:03}.ppm")),
-                                &native_rgb,
-                            )
-                            .expect("write native weapon video diagnostic");
-                        }
-                    }
-                    first_internal_video_divergence = divergence;
-                }
-                sampled_internal_video_updates += 1;
             }
-            if captures_native_frame {
+            if prepares_native_frame {
                 pending_native_video = Some((
                     game_frame,
                     native.frame(),
@@ -1625,6 +1711,84 @@ fn main() {
                     retail_bitmap_indices(&retail),
                 ));
             }
+        }
+
+        while let Some(candidate) = pending_source_video.front() {
+            let Some(matched_position) = completed_rasters.iter().position(|raster| {
+                completed_raster_contains_bitmap(raster, &candidate.retail_bitmap)
+            }) else {
+                if probe_raster_association {
+                    println!(
+                        "raster_association_probe game_frame={} candidates={:?}",
+                        candidate.game_frame,
+                        completed_rasters
+                            .iter()
+                            .map(|raster| (
+                                raster.video_frame,
+                                completed_raster_bitmap_differences(
+                                    raster,
+                                    &candidate.retail_bitmap,
+                                )
+                            ))
+                            .collect::<Vec<_>>(),
+                    );
+                }
+                completed_rasters.clear();
+                break;
+            };
+            for _ in 0..matched_position {
+                completed_rasters.pop_front();
+            }
+            let raster = completed_rasters
+                .pop_front()
+                .expect("matched completed retail raster");
+            let candidate = pending_source_video
+                .pop_front()
+                .expect("matched pending source video");
+            let retail_rgb = completed_raster_rgb(&raster);
+            if dump_all_video {
+                let dump_directory = video_dump_directory
+                    .as_ref()
+                    .expect("SF1_WEAPON_VIDEO_DUMP_ALL requires a dump directory");
+                write_source_rgb_ppm(
+                    dump_directory.join(format!("retail-{:03}.ppm", candidate.game_frame)),
+                    &retail_rgb,
+                )
+                .expect("write retail weapon video census");
+                write_source_rgb_ppm(
+                    dump_directory.join(format!("native-{:03}.ppm", candidate.game_frame)),
+                    &candidate.native_rgb,
+                )
+                .expect("write native weapon video census");
+            }
+            if first_internal_video_divergence.is_none() {
+                let divergence = compare_source_rgb(
+                    u64::from(candidate.game_frame - source_video_first_game_frame),
+                    raster.video_frame,
+                    &retail_rgb,
+                    &candidate.native_rgb,
+                )
+                .expect("compare weapon source video");
+                if divergence.is_some() {
+                    if let Some(dump_directory) = video_dump_directory.as_ref() {
+                        write_source_rgb_ppm(
+                            dump_directory.join(format!("retail-{:03}.ppm", candidate.game_frame)),
+                            &retail_rgb,
+                        )
+                        .expect("write retail weapon video diagnostic");
+                        write_source_rgb_ppm(
+                            dump_directory.join(format!("native-{:03}.ppm", candidate.game_frame)),
+                            &candidate.native_rgb,
+                        )
+                        .expect("write native weapon video diagnostic");
+                    }
+                }
+                first_internal_video_divergence = divergence;
+            }
+            sampled_internal_video_updates += 1;
+        }
+        if pending_source_video.is_empty() {
+            completed_rasters.clear();
         }
 
         let sounds = native.drain_sound();
@@ -1731,16 +1895,8 @@ fn main() {
     }
     assert_eq!(
         sampled_internal_video_updates,
-        u32::from(
-            support::WEAPON_VIDEO_CAPTURE_LAST_GAME_FRAME
-                - support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME
-                + 1,
-        ),
+        u32::from(source_video_last_game_frame - source_video_first_game_frame + 1),
         "authoritative source video duration"
-    );
-    assert_eq!(
-        first_internal_video_divergence, None,
-        "authoritative composed retail/native source video diverged"
     );
     if let Some((
         game_frame,
@@ -1761,11 +1917,21 @@ fn main() {
         );
     }
     assert_eq!(
-        sampled_bitmap_updates,
-        sampled_internal_video_updates,
+        sampled_bitmap_updates, sampled_internal_video_updates,
         "source bitmap diagnostic duration"
     );
-    assert!(pending_native_video.is_none(), "uncertified native video frame");
+    assert_eq!(
+        first_internal_video_divergence, None,
+        "authoritative composed retail/native source video diverged"
+    );
+    assert!(
+        pending_native_video.is_none(),
+        "uncertified native video frame"
+    );
+    assert!(
+        pending_source_video.is_empty(),
+        "unmatched completed retail raster"
+    );
     println!(
         "sf1_weapon certified_updates={certified_weapon_updates} first_divergence=none first_weapon_tick={first_weapon_tick} sound_events={native_laser_sound_count} retail_presentation_cadence={:?} native_gameplay_cadence={} source_coverage=playerfire,fire_elaser,pelaser",
         retail_frame_rate_range.expect("retail presentation cadence coverage"),

@@ -5,11 +5,26 @@
 //! compositor for the ordinary tiled modes plus Mode 7.  Timing remains in
 //! `RetailBootBus`; this module owns only state that persists across writes.
 
+use std::collections::VecDeque;
+
 const VRAM_SIZE: usize = 0x1_0000;
 const CGRAM_SIZE: usize = 0x0200;
 const OAM_SIZE: usize = 544;
 pub const FRAME_WIDTH: usize = 256;
 pub const FRAME_HEIGHT: usize = 224;
+const COMPLETED_RASTER_HISTORY_LIMIT: usize = 256;
+
+/// One raster completed by the retail PPU while oracle capture is armed.
+///
+/// This intentionally retains only the evidence needed to associate a game
+/// update with its observable scanout. CPU-visible memories remain available
+/// through [`PpuFrame`] and are not duplicated in the history.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletedRaster {
+    pub video_frame: u64,
+    pub rgba: Vec<u8>,
+    pub bg1_indices: Vec<u8>,
+}
 
 /// A complete CPU-visible PPU snapshot and its composited native-resolution
 /// frame.  The raw memories remain available for independent oracle tests.
@@ -62,6 +77,8 @@ pub(crate) struct Ppu {
     completed_bg1_indices: Vec<u8>,
     scanout_bg_priority: Vec<u8>,
     completed_bg_priority: Vec<u8>,
+    capture_completed_rasters: bool,
+    completed_rasters: VecDeque<CompletedRaster>,
     /// Last non-forced-blank display value.  The CPU commonly sets forced
     /// blank during vblank after the visible frame has already been scanned;
     /// a snapshot compositor must retain that completed frame's brightness.
@@ -99,12 +116,14 @@ impl Ppu {
             completed_bg1_indices: Vec::new(),
             scanout_bg_priority: vec![0; FRAME_WIDTH * FRAME_HEIGHT],
             completed_bg_priority: Vec::new(),
+            capture_completed_rasters: false,
+            completed_rasters: VecDeque::new(),
             last_visible_inidisp: None,
         }
     }
 
     /// Finish the prior raster frame and clear the new scanout buffer.
-    pub(crate) fn begin_frame(&mut self) {
+    pub(crate) fn begin_frame(&mut self, video_frame: u64) {
         self.completed_rgba.clone_from(&self.scanout_rgba);
         self.completed_bg_hofs = self.scanout_bg_hofs;
         self.scanout_bg_hofs.fill([0; 4]);
@@ -115,6 +134,16 @@ impl Ppu {
             self.completed_bg_priority
                 .clone_from(&self.scanout_bg_priority);
             self.scanout_bg_priority.fill(0);
+        }
+        if self.capture_completed_rasters {
+            self.completed_rasters.push_back(CompletedRaster {
+                video_frame,
+                rgba: self.completed_rgba.clone(),
+                bg1_indices: self.completed_bg1_indices.clone(),
+            });
+            if self.completed_rasters.len() > COMPLETED_RASTER_HISTORY_LIMIT {
+                self.completed_rasters.pop_front();
+            }
         }
         for pixel in self.scanout_rgba.chunks_exact_mut(4) {
             pixel.copy_from_slice(&[0, 0, 0, 255]);
@@ -127,6 +156,18 @@ impl Ppu {
         self.completed_bg1_indices = vec![u8::MAX; FRAME_WIDTH * FRAME_HEIGHT];
         self.scanout_bg_priority.fill(0);
         self.completed_bg_priority = vec![0; FRAME_WIDTH * FRAME_HEIGHT];
+    }
+
+    pub(crate) fn capture_completed_rasters(&mut self) {
+        if !self.capture_bg1_indices {
+            self.capture_completed_bg1_indices();
+        }
+        self.capture_completed_rasters = true;
+        self.completed_rasters.clear();
+    }
+
+    pub(crate) fn take_completed_rasters(&mut self) -> Vec<CompletedRaster> {
+        self.completed_rasters.drain(..).collect()
     }
 
     #[inline]
@@ -917,5 +958,22 @@ mod tests {
         ppu.write(0x2112, 224);
         ppu.write(0x2112, 0);
         assert_eq!(ppu.bg_vofs[2], 224);
+    }
+
+    #[test]
+    fn completed_raster_capture_retains_content_and_sequence() {
+        let mut ppu = Ppu::new();
+        ppu.capture_completed_rasters();
+        ppu.scanout_rgba[..4].copy_from_slice(&[12, 34, 56, 255]);
+        ppu.scanout_bg1_indices[0] = 47;
+
+        ppu.begin_frame(91);
+
+        let rasters = ppu.take_completed_rasters();
+        assert_eq!(rasters.len(), 1);
+        assert_eq!(rasters[0].video_frame, 91);
+        assert_eq!(&rasters[0].rgba[..4], &[12, 34, 56, 255]);
+        assert_eq!(rasters[0].bg1_indices[0], 47);
+        assert!(ppu.take_completed_rasters().is_empty());
     }
 }
