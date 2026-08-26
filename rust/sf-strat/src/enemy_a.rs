@@ -15220,7 +15220,7 @@ fn friendexitbase_strat(g: &mut Game, idx: u16) {
             al.snd1 = 0x51; // left-channel sound
         }
         al.worldz = al.worldz.wrapping_add(PEXITBASE_SPEED);
-        al.sflags &= !ASF_INVISIBLE;
+        al.sflags4 &= !ASF4_INVISIBLE;
         al.count = al.count.wrapping_sub(1);
         if al.count == 0 {
             g.objs.aldead = 1;
@@ -15236,7 +15236,7 @@ pub fn strat_friendexitbase_init(g: &mut Game, idx: u16) {
     al.count = (1500 / PEXITBASE_SPEED) as u8;
     al.stratptr = Some(s);
     al.sflags |= ASF_SHADOW;
-    al.sflags |= ASF_INVISIBLE;
+    al.sflags4 |= ASF4_INVISIBLE;
     al.sbyte2 = 11;
     // The initializer is immediately followed by friendexitbase_strat in the
     // source and therefore performs its first countdown/movement pass now.
@@ -15260,6 +15260,27 @@ mod friend_exit_base_tests {
         assert_eq!(friend.sbyte1, 1);
         assert_eq!(friend.worldz, -350);
         assert_eq!(friend.count, 29);
+    }
+
+    #[test]
+    fn friend_stays_hidden_until_its_launch_countdown_finishes() {
+        let mut game = Game::new();
+        let object = game.objs.alloc().expect("friend object");
+        game.objs.aliens[object as usize].sbyte1 = 2;
+        game.objs.aliens[object as usize].worldz = -400;
+
+        strat_friendexitbase_init(&mut game, object);
+
+        let waiting = game.objs.aliens[object as usize];
+        assert_eq!(waiting.sbyte1, 1);
+        assert_eq!(waiting.worldz, -400);
+        assert_ne!(waiting.sflags4 & ASF4_INVISIBLE, 0);
+
+        friendexitbase_strat(&mut game, object);
+
+        let launched = game.objs.aliens[object as usize];
+        assert_eq!(launched.worldz, -350);
+        assert_eq!(launched.sflags4 & ASF4_INVISIBLE, 0);
     }
 
     #[test]
