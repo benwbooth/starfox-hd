@@ -1715,7 +1715,7 @@ fn main() {
     );
     match &first_internal_video_divergence {
         Some(divergence) => println!(
-            "internal_ppu_video_diagnostic sampled_updates={} first_divergence={} retail_video_frame={} differing_pixels={} first_position={},{} retail_color={:?} native_color={:?} status=non_comparable_asynchronous_display_phase",
+            "source_video_gate sampled_updates={} first_divergence={} retail_video_frame={} differing_pixels={} first_position={},{} retail_color={:?} native_color={:?} status=strict",
             sampled_internal_video_updates,
             divergence.sequence,
             divergence.retail_video_frame,
@@ -1726,7 +1726,7 @@ fn main() {
             divergence.native_color,
         ),
         None => println!(
-            "internal_ppu_video_diagnostic sampled_updates={sampled_internal_video_updates} first_divergence=none status=non_comparable_asynchronous_display_phase"
+            "source_video_gate sampled_updates={sampled_internal_video_updates} first_divergence=none status=strict"
         ),
     }
     assert_eq!(
@@ -1736,7 +1736,11 @@ fn main() {
                 - support::WEAPON_VIDEO_CAPTURE_FIRST_GAME_FRAME
                 + 1,
         ),
-        "internal PPU video diagnostic duration"
+        "authoritative source video duration"
+    );
+    assert_eq!(
+        first_internal_video_divergence, None,
+        "authoritative composed retail/native source video diverged"
     );
     if let Some((
         game_frame,

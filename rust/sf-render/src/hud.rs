@@ -129,7 +129,7 @@ const UNIT_QUAD: [Vertex2; 4] = [
 /// the 256x224 presentation raster.
 const BITMAP_X_OFS: i32 = 16;
 const BITMAP_Y_OFS: i32 = 16;
-const SOURCE_OAM_Y_ADJUSTMENT: i32 = 1;
+const SOURCE_OAM_Y_ADJUSTMENT: i32 = 0;
 
 /// The retail flight-meter tile rows select a fixed presentation palette,
 /// independently of the BGS-selected polygon palette used by the scene.

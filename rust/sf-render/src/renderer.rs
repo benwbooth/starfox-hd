@@ -893,7 +893,7 @@ impl Renderer {
         const SOURCE_FRAME_WIDTH: f32 = 256.0;
         const SOURCE_FRAME_HEIGHT: f32 = 224.0;
         const PLAYFIELD_LEFT: f32 = 16.0;
-        const PLAYFIELD_TOP: f32 = 17.0;
+        const PLAYFIELD_TOP: f32 = 16.0;
         const PLAYFIELD_WIDTH: f32 = 224.0;
         // The flight window exposes 190 of the 192 bitmap rows. Its final two
         // rows are black before HUD/OAM composition.
