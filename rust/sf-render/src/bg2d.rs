@@ -102,6 +102,12 @@ fn interpolate_offset_table<const LENGTH: usize>(
     })
 }
 const COLORS_PER_PALETTE: usize = 16;
+const BACKGROUND_ID_MASK: u16 = 63;
+/// The source BG1 tilemap selects row 2 for the shield and boost meter tiles.
+/// Those tiles can expose scene-bitmap pixels through the meter interiors, so
+/// their presentation colors come from the active background's authored COL
+/// asset rather than the independently loaded polygon palette in row 7.
+const GAMEPLAY_METER_PALETTE: usize = 2;
 const BACKGROUND_FADE_PALETTE: usize = 4;
 /// Native polygon materials for the pre-rendered title presentation use the
 /// authored CP-US row 6 ramp.
@@ -662,6 +668,11 @@ fn cgram_palette(col: &[u8], palette: usize) -> [u16; COLORS_PER_PALETTE] {
     std::array::from_fn(|index| cgram_word(col, palette * COLORS_PER_PALETTE + index))
 }
 
+/// Return the authored palette selected by the source flight-meter tiles.
+pub fn gameplay_meter_palette(col: &[u8]) -> [u16; COLORS_PER_PALETTE] {
+    cgram_palette(col, GAMEPLAY_METER_PALETTE)
+}
+
 /// Return the authored palette used by native title polygon materials.
 pub fn title_polygon_palette(col: &[u8]) -> [u16; COLORS_PER_PALETTE] {
     cgram_palette(col, TITLE_POLYGON_PALETTE)
@@ -1091,6 +1102,7 @@ pub struct Bg2d {
     def_base_rgba: Vec<Option<Vec<u8>>>,
     def_palette_four_pixels: Vec<Option<Vec<u8>>>,
     def_palette_four_base: Vec<Option<[u16; COLORS_PER_PALETTE]>>,
+    def_gameplay_meter_palette: Vec<Option<[u16; COLORS_PER_PALETTE]>>,
     /// Tilemap pixel size for sky (camera-coupled) textures; 0 for static
     /// pre-baked 256x224 composites.
     def_map_w: Vec<i32>,
@@ -1126,6 +1138,7 @@ impl Bg2d {
             def_base_rgba: vec![None; n],
             def_palette_four_pixels: vec![None; n],
             def_palette_four_base: vec![None; n],
+            def_gameplay_meter_palette: vec![None; n],
             def_map_w: vec![0; n],
             def_map_h: vec![0; n],
             warned_bgs: 0,
@@ -1169,6 +1182,13 @@ impl Bg2d {
 
     pub fn title_polygon_palette(&self) -> &[u16; COLORS_PER_PALETTE] {
         &self.title_polygon_palette
+    }
+
+    /// Palette selected by the active source BG1 flight-meter tiles.
+    pub fn gameplay_meter_palette_for_bg(&self, id: u16) -> Option<&[u16; COLORS_PER_PALETTE]> {
+        let id = (id & BACKGROUND_ID_MASK) as u8;
+        let index = BG_DEFS.iter().position(|definition| definition.id == id)?;
+        self.def_gameplay_meter_palette[index].as_ref()
     }
 
     fn build_title_texture(&mut self, gpu: &mut Gpu) {
@@ -1223,6 +1243,7 @@ impl Bg2d {
             );
             return;
         };
+        self.def_gameplay_meter_palette[idx] = Some(gameplay_meter_palette(&col));
 
         match compose_bg_with_palette_trace(
             &cgx,
@@ -1740,7 +1761,7 @@ impl Bg2d {
             }
             GameState::Ending => {
                 draw = true;
-                let id = (inputs.currentbg & 63) as u8;
+                let id = (inputs.currentbg & BACKGROUND_ID_MASK) as u8;
                 idx = self.layer_index_for_id(gpu, id);
                 display_id = Some(id);
             }
@@ -1754,7 +1775,7 @@ impl Bg2d {
                 // The native game publishes the exact flat background selected
                 // by the opening declaration and every later setbg operation.
                 draw = true;
-                let id = (inputs.currentbg & 63) as u8;
+                let id = (inputs.currentbg & BACKGROUND_ID_MASK) as u8;
 
                 if id == BG2D_ID_TITLE {
                     tex = self.title_tex;

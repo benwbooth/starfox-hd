@@ -10,7 +10,8 @@
 use std::path::PathBuf;
 
 use sf_render::bg2d::{
-    compose_bg, compose_title, compose_title_layers, title_polygon_palette, BG2D_H, BG2D_W,
+    compose_bg, compose_title, compose_title_layers, gameplay_meter_palette, title_polygon_palette,
+    BG2D_H, BG2D_W,
 };
 
 mod common;
@@ -48,6 +49,17 @@ fn bg_1_1c_sky_top_row_is_corneria_blue() {
             "bg_1_1c map row 232, column {x}: expected uniform sky blue"
         );
     }
+}
+
+#[test]
+fn corneria_meter_tiles_use_the_authored_palette_row() {
+    const SOURCE_METER_PALETTE: [u16; 16] = [
+        0x4A17, 0x0013, 0x0017, 0x001B, 0x001F, 0x4C66, 0x5CEA, 0x6D6E, 0x7DF2, 0x59DF, 0x663F,
+        0x729F, 0x7EFF, 0x6739, 0x7FFF, 0x0C03,
+    ];
+    let col = read("data/bg/BG2-D.COL");
+
+    assert_eq!(gameplay_meter_palette(&col), SOURCE_METER_PALETTE);
 }
 
 #[test]

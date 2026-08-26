@@ -359,6 +359,34 @@ impl SourceRaster {
         }
     }
 
+    /// Apply the palette selected by the source BG1 tilemap beneath the
+    /// shield and boost meters. The source changes the palette bank on the
+    /// complete 8-pixel-high tile run, so scene pixels visible through meter
+    /// gaps must be recolored along with the meter pixels themselves.
+    pub fn apply_gameplay_meter_palette(&mut self, palette: &[[f32; 3]; 16]) {
+        const METER_TILE_TOP: usize = PLAYFIELD_TOP as usize + 176;
+        const METER_TILE_HEIGHT: usize = 8;
+        const DAMAGE_METER_LEFT: usize = PLAYFIELD_LEFT as usize + 8;
+        const BOOST_METER_LEFT: usize = PLAYFIELD_LEFT as usize + 176;
+        const METER_WIDTH: usize = 40;
+
+        for left in [DAMAGE_METER_LEFT, BOOST_METER_LEFT] {
+            for y in METER_TILE_TOP..METER_TILE_TOP + METER_TILE_HEIGHT {
+                for x in left..left + METER_WIDTH {
+                    let pixel = y * WIDTH + x;
+                    let palette_index = usize::from(self.indices[pixel]);
+                    if palette_index == 0 {
+                        continue;
+                    }
+                    let color = palette[palette_index.min(palette.len() - 1)];
+                    let rgba = pixel * CHANNELS;
+                    self.rgba[rgba..rgba + CHANNELS]
+                        .copy_from_slice(&rgba8([color[0], color[1], color[2], 1.0]));
+                }
+            }
+        }
+    }
+
     pub(crate) fn clear_rect(&mut self, rect: SourceBitmapRect) {
         let right = rect.left.saturating_add(rect.width).min(WIDTH);
         let bottom = rect.top.saturating_add(rect.height).min(HEIGHT);
@@ -1017,6 +1045,46 @@ impl Default for SourceRaster {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gameplay_meter_tiles_recolor_exposed_scene_pixels() {
+        const COLOR_INDEX: u8 = 14;
+        const INSIDE_METER: PointPixel = PointPixel {
+            x: 9,
+            y: 181,
+            palette_index: COLOR_INDEX,
+        };
+        const ABOVE_METER: PointPixel = PointPixel {
+            x: 9,
+            y: 175,
+            palette_index: COLOR_INDEX,
+        };
+        const POLYGON_COLOR: [f32; 3] = [239.0 / 255.0, 1.0, 1.0];
+        const METER_COLOR: [f32; 3] = [1.0; 3];
+
+        let mut polygon_palette = [[0.0; 3]; 16];
+        polygon_palette[usize::from(COLOR_INDEX)] = POLYGON_COLOR;
+        let mut meter_palette = polygon_palette;
+        meter_palette[usize::from(COLOR_INDEX)] = METER_COLOR;
+        let mut raster = SourceRaster::new();
+        raster.draw_point_field(&[INSIDE_METER, ABOVE_METER], &polygon_palette);
+        raster.apply_gameplay_meter_palette(&meter_palette);
+
+        assert_eq!(
+            raster.diagnostic_pixel(
+                usize::from(INSIDE_METER.x) + PLAYFIELD_LEFT as usize,
+                usize::from(INSIDE_METER.y) + PLAYFIELD_TOP as usize,
+            ),
+            rgba8([METER_COLOR[0], METER_COLOR[1], METER_COLOR[2], 1.0]),
+        );
+        assert_eq!(
+            raster.diagnostic_pixel(
+                usize::from(ABOVE_METER.x) + PLAYFIELD_LEFT as usize,
+                usize::from(ABOVE_METER.y) + PLAYFIELD_TOP as usize,
+            ),
+            rgba8([POLYGON_COLOR[0], POLYGON_COLOR[1], POLYGON_COLOR[2], 1.0,]),
+        );
+    }
 
     #[test]
     fn smooth_palette_pairs_replace_checkerboards_with_the_average_color() {

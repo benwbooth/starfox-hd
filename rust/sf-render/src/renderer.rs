@@ -795,6 +795,15 @@ impl Renderer {
                 inputs.scene_style.game_palette,
             ))
         };
+        let source_gameplay_meter_palette = (inputs.source_resolution
+            && inputs.game_state == GameState::Playing
+            && inputs.meters != 0)
+            .then(|| {
+                self.bg2d
+                    .gameplay_meter_palette_for_bg(inputs.currentbg)
+                    .map(crate::shapes::decode_shape_palette)
+            })
+            .flatten();
         if !inputs.source_resolution {
             self.ui.render_point_field(
                 &mut self.gpu,
@@ -846,6 +855,7 @@ impl Renderer {
             self.hud.source_bitmap_clear(inputs),
             inputs.source_scene_camera,
             inputs.point_pixels,
+            source_gameplay_meter_palette.as_ref(),
             self.shadow_style,
         );
         self.particles.render(&mut self.gpu, &self.transform);

@@ -568,6 +568,7 @@ impl DrawListRenderer {
         source_bitmap_clear: Option<SourceBitmapRect>,
         source_scene_camera: Option<SourceSceneCamera>,
         source_point_pixels: &[PointPixel],
+        source_gameplay_meter_palette: Option<&crate::shapes::ShapePaletteRgb>,
         shadow_style: ShadowStyle,
     ) {
         // Interpolation presents the interval from `prev` to `curr`. Keep the
@@ -837,6 +838,9 @@ impl DrawListRenderer {
         let (output_width, output_height) = gpu.size();
         if let Some(rect) = source_bitmap_clear {
             source_raster.clear_rect(rect);
+        }
+        if let Some(palette) = source_gameplay_meter_palette {
+            source_raster.apply_gameplay_meter_palette(palette);
         }
         self.last_source_indices
             .clone_from_slice(source_raster.indices());
