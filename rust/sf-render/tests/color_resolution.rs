@@ -352,9 +352,12 @@ fn depth_bank_selection() {
     assert_eq!(select_depth_bank(3328.0, DEPTHZ_NORMAL), 2);
     assert_eq!(select_depth_bank(3840.0, DEPTHZ_NORMAL), 3);
     assert_eq!(select_depth_bank(1e9, DEPTHZ_NORMAL), 3);
-    // Tunnel/mist share 500/750/1000.
-    assert_eq!(select_depth_bank(750.0, DEPTHZ_TUNNEL), 2);
-    assert_eq!(select_depth_bank(750.0, DEPTHZ_MIST), 2);
+    // Decimal tunnel/mist values are stored as negative high bytes, yielding
+    // effective 512/768/1024 boundaries.
+    assert_eq!(select_depth_bank(750.0, DEPTHZ_TUNNEL), 1);
+    assert_eq!(select_depth_bank(750.0, DEPTHZ_MIST), 1);
+    assert_eq!(select_depth_bank(768.0, DEPTHZ_TUNNEL), 2);
+    assert_eq!(select_depth_bank(768.0, DEPTHZ_MIST), 2);
     // Stage1 keeps band 2 out to $3f00.
     assert_eq!(select_depth_bank(5000.0, DEPTHZ_STAGE1), 2);
     assert_eq!(select_depth_bank(16128.0, DEPTHZ_STAGE1), 3);

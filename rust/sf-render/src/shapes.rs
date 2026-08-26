@@ -173,16 +173,21 @@ pub const DEPTHZ_TUNNEL: usize = 1;
 pub const DEPTHZ_MIST: usize = 2;
 pub const DEPTHZ_STAGE1: usize = 3;
 pub const DEPTHZ_COUNT: usize = 4;
+const NORMAL_DEPTH_THRESHOLDS: [f32; 3] = [2_560.0, 3_328.0, 3_840.0];
+const TUNNEL_DEPTH_THRESHOLDS: [f32; 3] = [512.0, 768.0, 1_024.0];
+const MIST_DEPTH_THRESHOLDS: [f32; 3] = TUNNEL_DEPTH_THRESHOLDS;
+const STAGE_ONE_DEPTH_THRESHOLDS: [f32; 3] = [2_560.0, 3_328.0, 16_128.0];
 
 /// Per-level depth-band threshold records, transcribed from the `def_depthz`
 /// entries in ASM/COLTABS.ASM:1488-1491 (`depthtables`). Compared against the
-/// object's view-space Z (`bigz`); the hardware keeps only the high byte, so
-/// values are multiples of 256 by construction where the ASM used hex.
+/// object's view-space depth. The source stores negative high bytes, so its
+/// signed assembler division rounds decimal thresholds outward to the next
+/// multiple of 256.
 pub static DEPTHZ_TABLES: [[f32; 3]; DEPTHZ_COUNT] = [
-    [2560.0, 3328.0, 3840.0],  // NORMAL: $a00/$d00/$f00
-    [500.0, 750.0, 1000.0],    // TUNNEL
-    [500.0, 750.0, 1000.0],    // MIST
-    [2560.0, 3328.0, 16128.0], // STAGE1: $a00/$d00/$3f00
+    NORMAL_DEPTH_THRESHOLDS,
+    TUNNEL_DEPTH_THRESHOLDS,
+    MIST_DEPTH_THRESHOLDS,
+    STAGE_ONE_DEPTH_THRESHOLDS,
 ];
 
 // ---------------------------------------------------------------------------
@@ -981,9 +986,9 @@ mod depth_blend_tests {
 
     #[test]
     fn hd_depth_colors_are_continuous_at_tunnel_boundaries() {
-        const FIRST_TUNNEL_BOUNDARY: f32 = 500.0;
-        const SECOND_TUNNEL_MIDPOINT: f32 = 625.0;
-        const FINAL_TUNNEL_BOUNDARY: f32 = 1_000.0;
+        const FIRST_TUNNEL_BOUNDARY: f32 = 512.0;
+        const SECOND_TUNNEL_MIDPOINT: f32 = 640.0;
+        const FINAL_TUNNEL_BOUNDARY: f32 = 1_024.0;
 
         assert_eq!(
             blend_depth_banks(0.0, DEPTHZ_TUNNEL),
@@ -1024,6 +1029,21 @@ mod depth_blend_tests {
                 far_bank: DepthBank::Farthest,
                 amount: 0.0,
             }
+        );
+    }
+
+    #[test]
+    fn source_tunnel_threshold_keeps_frame_55_wingman_in_far_bank() {
+        const RETAIL_WINGMAN_DEPTH: f32 = 1_018.0;
+        const STORED_FINAL_TUNNEL_BOUNDARY: f32 = 1_024.0;
+
+        assert_eq!(
+            select_object_depth_bank(RETAIL_WINGMAN_DEPTH, DEPTHZ_TUNNEL, 0),
+            DepthBank::Far.source_index(),
+        );
+        assert_eq!(
+            select_object_depth_bank(STORED_FINAL_TUNNEL_BOUNDARY, DEPTHZ_TUNNEL, 0),
+            DepthBank::Farthest.source_index(),
         );
     }
 }
