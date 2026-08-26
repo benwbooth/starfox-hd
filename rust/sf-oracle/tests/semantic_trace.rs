@@ -203,6 +203,7 @@ const NATIVE_SHAPE_ZACO_6: u16 = 52;
 const NATIVE_SHAPE_KAMIKAZE: u16 = 9;
 const NATIVE_SHAPE_ROBOT_0: u16 = 420;
 const NATIVE_SHAPE_PILLAR3_NS: u16 = 452;
+const RETAIL_PLAYER_PRESENTATION_BYTES: u32 = 0x1551;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct LevelObjectSnapshot {
@@ -245,6 +246,7 @@ struct LevelSnapshot {
     last_depth_change: i16,
     player_hit_timer: u8,
     player_hit_flags: u8,
+    player_presentation_bytes: [u8; 3],
     active_order: Vec<u16>,
     free_order: Vec<u16>,
     objects: Vec<LevelObjectSnapshot>,
@@ -277,6 +279,15 @@ impl ObjectIdentityTracker {
             .with_field("player.last_depth_change", snapshot.last_depth_change)
             .with_field("player.hit_timer", snapshot.player_hit_timer)
             .with_field("player.hit_flags", snapshot.player_hit_flags)
+            .with_field(
+                "opening.rotation_phase",
+                snapshot.player_presentation_bytes[0],
+            )
+            .with_field(
+                "opening.vertical_phase",
+                snapshot.player_presentation_bytes[1],
+            )
+            .with_field("opening.boost_delay", snapshot.player_presentation_bytes[2])
             .with_field("random.byte_0", random_state[0])
             .with_field("random.byte_1", random_state[1])
             .with_field("random.byte_2", random_state[2])
@@ -933,6 +944,11 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
         player_hit_timer: retail.peek8(WORK_RAM | RETAIL_POOL.base + AL_SBYTE1),
         player_hit_flags: retail
             .peek8(WORK_RAM | RETAIL_POOL.base + RETAIL_OBJECT_HIT_FLAGS_OFFSET),
+        player_presentation_bytes: [
+            retail.peek8(WORK_RAM | RETAIL_PLAYER_PRESENTATION_BYTES),
+            retail.peek8(WORK_RAM | RETAIL_PLAYER_PRESENTATION_BYTES + 1),
+            retail.peek8(WORK_RAM | RETAIL_PLAYER_PRESENTATION_BYTES + 2),
+        ],
         active_order,
         free_order,
         objects: active
@@ -1020,6 +1036,7 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
         last_depth_change: native.game.world.lastzchange,
         player_hit_timer: native.game.objs.aliens[0].sbyte1,
         player_hit_flags: native.game.objs.aliens[0].hitflags,
+        player_presentation_bytes: native.game.vars.strategy.player_bytes,
         active_order,
         free_order,
         objects: active
@@ -1304,6 +1321,22 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             }
             None => native_frame,
         });
+        if let Some(divergence) = first_divergence(
+            std::slice::from_ref(
+                retail_scenario_frames
+                    .last()
+                    .expect("retail scenario frame"),
+            ),
+            std::slice::from_ref(
+                native_scenario_frames
+                    .last()
+                    .expect("native scenario frame"),
+            ),
+        )
+        .expect("live scenario frames must be valid")
+        {
+            panic!("live retail/native divergence: {divergence}");
+        }
         record_front_end_transition(
             &mut retail_trace,
             &mut previous_retail,
