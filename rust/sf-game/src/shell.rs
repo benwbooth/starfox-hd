@@ -121,6 +121,8 @@ pub const INTRO_EXIT_FADE_START: u8 = 11;
 pub const TITLE_TO_BRIEFING_BLACK_HOLD_TICKS: u16 = 22;
 /// Native sound-catalog identity loaded by both attract-intro entry points.
 pub const MUSIC_ATTRACT_INTRO_TRACK: u8 = 1;
+/// Native sound-catalog identity loaded by the retail title background.
+pub const MUSIC_TITLE_TRACK: u8 = 2;
 /// Driver cue used while leaving the title.
 pub const MUSIC_FADE_OUT_CUE: u8 = 241;
 /// Native sound-catalog identity used by the controller/training screen.
@@ -2733,6 +2735,21 @@ impl Shell {
         // reached its first authored wait; deferring it to `run_strategies`
         // makes every title/intro object one simulation update late.
         self.game.map_exec();
+        if map_id == sf_map::catalog::map_id::TITLE {
+            // BGS.ASM `bg_title_1` uses `bgm title`, which boots the title
+            // package and starts its catalog cue. The recovered map blob
+            // represents that background action as `setbgm 2`; promote that
+            // one presentation command back to its typed package operation.
+            let mut state = self.state.borrow_mut();
+            let command = state
+                .sound
+                .iter_mut()
+                .rev()
+                .find(|command| **command == SoundCmd::StartMusicCue(MUSIC_TITLE_TRACK));
+            if let Some(command) = command {
+                *command = SoundCmd::BootMusicTrack(MUSIC_TITLE_TRACK);
+            }
+        }
         {
             // The presentation loop performs its first black-window step
             // before entering the first strategy update. Subsequent steps run

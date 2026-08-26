@@ -241,6 +241,14 @@ impl NativePlayer {
                 );
             }
         }
+        for cue in catalog::PLANET_SELECTION_MUSIC_CUES {
+            required.push(
+                state
+                    .asset_root
+                    .join("music")
+                    .join(format!("track_{:02}_cue_{cue:02X}.wav", catalog::SND_MAP)),
+            );
+        }
         required.extend([
             state.asset_root.join("music/track_07_cue_F4.wav"),
             state.asset_root.join("music/track_07_cue_F5.wav"),
@@ -658,6 +666,29 @@ mod tests {
             player.start_music(18),
             Err(NativeAudioError::MissingAsset(_))
         ));
+    }
+
+    #[test]
+    fn planet_selection_assets_are_required_at_startup() {
+        let asset_root = temporary_asset_dir("planet-selection-assets");
+        let player = NativePlayer::with_asset_root(&asset_root);
+        let error = player
+            .validate_star_fox_assets()
+            .expect_err("an empty catalog must fail validation");
+        let NativeAudioError::MissingAsset(paths) = error else {
+            panic!("empty catalog returned the wrong error type");
+        };
+
+        for cue in catalog::PLANET_SELECTION_MUSIC_CUES {
+            let expected = asset_root
+                .join("music")
+                .join(format!("track_05_cue_{cue:02X}.wav"));
+            assert!(
+                paths.contains(&expected),
+                "missing required {}",
+                expected.display()
+            );
+        }
     }
 
     #[test]

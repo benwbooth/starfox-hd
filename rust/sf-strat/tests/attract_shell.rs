@@ -9,7 +9,7 @@ use sf_game::shell::{
     GameState, GameplayEntryPhase, Shell, SoundCmd, BOOT_TO_ATTRACT_DELAY_TICKS,
     BRIEFING_CONFIRM_SOUND, BRIEFING_INPUT_DELAY_TICKS, BRIEFING_MOVE_SOUND,
     INTRO_INPUT_DELAY_TICKS, MUSIC_ATTRACT_INTRO_TRACK, MUSIC_CONTROLLER_SCREEN_TRACK,
-    MUSIC_FADE_OUT_CUE, TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS,
+    MUSIC_FADE_OUT_CUE, MUSIC_TITLE_TRACK, TITLE_ATTRACT_DURATION_TICKS, TITLE_INPUT_DELAY_TICKS,
     TITLE_PRESENTATION_INPUT_READY_TICKS, TRAINING_INPUT_DELAY_TICKS,
 };
 use sf_map::catalog::map_id;
@@ -145,6 +145,9 @@ fn intro_skip_gate_and_title_start_gate_reach_the_controller_screen() {
     let mut shell = make_shell();
     skip_boot_intro(&mut shell);
     assert_eq!(shell.game.world.loaded_map_id, Some(map_id::TITLE));
+    let title_sounds = shell.drain_sound();
+    assert!(title_sounds.contains(&SoundCmd::BootMusicTrack(MUSIC_TITLE_TRACK)));
+    assert!(!title_sounds.contains(&SoundCmd::StartMusicCue(MUSIC_TITLE_TRACK)));
 
     shell.tick(pad::START);
     assert_eq!(shell.state(), GameState::Title);

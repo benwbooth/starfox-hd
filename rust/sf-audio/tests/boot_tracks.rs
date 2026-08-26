@@ -38,9 +38,9 @@ struct RenderStats {
     samples: Vec<i16>,
 }
 
-/// Boot `track_id`, send its start command through the handshake, render
-/// ~5 s of stereo audio and collect stats.
-fn boot_and_render(track_id: u8) -> Option<RenderStats> {
+/// Boot `track_id`, send `cue` through the handshake, render about five
+/// seconds of stereo audio and collect stats.
+fn boot_and_render_cue(track_id: u8, cue: u8) -> Option<RenderStats> {
     let dir = asset_dir()?;
 
     let player = SpcPlayer::new();
@@ -48,10 +48,9 @@ fn boot_and_render(track_id: u8) -> Option<RenderStats> {
         .load_track(track_id, &dir)
         .unwrap_or_else(|e| panic!("boot track {track_id}: {e}"));
 
-    // startmus: queue the sndtbl start command; the "audio thread" (our
-    // generate loop) performs the port-0 write/echo/clear handshake.
-    let cmd = boot::track_command(track_id);
-    player.start_bgm(cmd);
+    // startmus: queue the command; the "audio thread" (our generate loop)
+    // performs the port-0 write/echo/clear handshake.
+    player.start_bgm(cue);
 
     let callbacks = SECONDS * SAMPLE_RATE / FRAMES_PER_CALLBACK;
     let mut buf = vec![0i16; FRAMES_PER_CALLBACK * 2];
@@ -76,13 +75,16 @@ fn boot_and_render(track_id: u8) -> Option<RenderStats> {
     })
 }
 
-fn assert_audible(track_id: u8, stats: &RenderStats) {
-    let cmd = boot::track_command(track_id);
+fn boot_and_render(track_id: u8) -> Option<RenderStats> {
+    boot_and_render_cue(track_id, boot::track_command(track_id))
+}
+
+fn assert_cue_audible(track_id: u8, cue: u8, stats: &RenderStats) {
     // (a) the driver echoed the start command back on port 0
     assert_eq!(
         stats.echoed,
-        Some(cmd),
-        "track {track_id}: driver never echoed start cmd ${cmd:02X}"
+        Some(cue),
+        "track {track_id}: driver never echoed start cue ${cue:02X}"
     );
     // (b) real signal level
     assert!(
@@ -102,6 +104,35 @@ fn assert_audible(track_id: u8, stats: &RenderStats) {
         stats.distinct,
         stats.echoed.unwrap()
     );
+}
+
+fn assert_audible(track_id: u8, stats: &RenderStats) {
+    assert_cue_audible(track_id, boot::track_command(track_id), stats);
+}
+
+fn assert_shipping_pcm_prefix(path: &std::path::Path, samples: &[i16], label: &str) {
+    let wave =
+        std::fs::read(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    let pcm = wave
+        .get(44..)
+        .unwrap_or_else(|| panic!("{} has no PCM payload", path.display()));
+    let expected_bytes = samples.len() * std::mem::size_of::<i16>();
+    assert!(
+        pcm.len() >= expected_bytes,
+        "{} is shorter than the oracle prefix",
+        path.display()
+    );
+    for (sample_index, (actual, expected)) in samples
+        .iter()
+        .zip(pcm[..expected_bytes].chunks_exact(2))
+        .enumerate()
+    {
+        assert_eq!(
+            actual.to_le_bytes(),
+            [expected[0], expected[1]],
+            "{label} PCM diverged at sample {sample_index}"
+        );
+    }
 }
 
 /// Minimal RIFF/WAVE writer (16-bit stereo PCM) for optional human listens.
@@ -168,27 +199,17 @@ fn map_track_shipping_pcm_prefix_matches_the_oracle() {
 
     let dir = asset_dir().expect("sound data used by the oracle render");
     let path = dir.join("native_audio/music/track_05_cue_01.wav");
-    let wave =
-        std::fs::read(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    let pcm = wave
-        .get(44..)
-        .unwrap_or_else(|| panic!("{} has no PCM payload", path.display()));
-    let expected_bytes = stats.samples.len() * std::mem::size_of::<i16>();
-    assert!(
-        pcm.len() >= expected_bytes,
-        "{} is shorter than the oracle prefix",
-        path.display()
-    );
-    for (frame, (actual, expected)) in stats
-        .samples
-        .iter()
-        .zip(pcm[..expected_bytes].chunks_exact(2))
-        .enumerate()
-    {
-        assert_eq!(
-            actual.to_le_bytes(),
-            [expected[0], expected[1]],
-            "map music PCM diverged at sample {frame}"
-        );
+    assert_shipping_pcm_prefix(&path, &stats.samples, "map music");
+}
+
+#[test]
+fn planet_selection_zoom_cues_match_the_oracle() {
+    let dir = asset_dir().expect("sound data required for planet-selection cue verification");
+    for cue in sf_audio::catalog::PLANET_SELECTION_MUSIC_CUES {
+        let stats = boot_and_render_cue(boot::SND_MAP, cue)
+            .expect("sound data required for planet-selection cue verification");
+        assert_cue_audible(boot::SND_MAP, cue, &stats);
+        let path = dir.join(format!("native_audio/music/track_05_cue_{cue:02X}.wav"));
+        assert_shipping_pcm_prefix(&path, &stats.samples, "planet-selection zoom");
     }
 }

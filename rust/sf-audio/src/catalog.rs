@@ -37,6 +37,9 @@ pub const SND_GAMEOVER: u8 = 33;
 pub const SND_SPECIAL: u8 = 34;
 pub const SND_TRACK_COUNT: u8 = 35;
 
+/// Route-map zoom cues selected by the two authored planet presentation paths.
+pub const PLANET_SELECTION_MUSIC_CUES: [u8; 2] = [11, 13];
+
 /// Driver command that stops the current song.
 pub const MUSIC_STOP: u8 = 0;
 /// Driver command that starts the catalog's level-clear music.
