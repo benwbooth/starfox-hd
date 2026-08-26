@@ -280,11 +280,12 @@ const LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE: i16 = 63;
 /// Runtime random state left by the retail 3D setup and game-frame-zero
 /// strategy initialization. Gameplay then advances it once per logic frame.
 const LEVEL_INITIALIZATION_RANDOM_STATE: [u8; 4] = [114, 239, 178, 245];
-/// Fixed native gameplay cadence. Retail's similarly named value counts how
-/// many display refreshes its machine-specific transfer/render path consumed;
-/// importing that fluctuating counter would make the modern port depend on
-/// source hardware execution time.
-const GAMEPLAY_PLAYER_FRAME_RATE: u8 = 6;
+/// Elapsed 60 Hz display refreshes represented by one fixed 20 Hz native tick.
+/// Retail measures this value from its variable transfer/render workload and
+/// uses it only to keep player X/Y motion stable in real time. The modern port
+/// has no source-hardware stalls, so its typed elapsed-time field is fixed at
+/// the exact 60/20 ratio instead of reproducing machine execution time.
+const GAMEPLAY_PLAYER_FRAME_RATE: u8 = RETAIL_VIDEO_FRAMES_PER_GAME_TICK as u8;
 /// The ordinary level transfer completes two additional player color-cycle
 /// advances before its first active strategy update.
 const STANDARD_GAMEPLAY_PLAYER_COLOR_FRAME: u8 = 131;
@@ -4748,6 +4749,15 @@ mod tests {
         );
         assert_eq!(shell.game.world.loaded_map_id, Some(map_id::M1_1));
         assert_eq!(shell.frame().gameframe, 0);
+    }
+
+    #[test]
+    fn native_player_motion_cadence_matches_the_fixed_tick_duration() {
+        assert_eq!(
+            u16::from(GAMEPLAY_PLAYER_FRAME_RATE),
+            RETAIL_VIDEO_FRAMES_PER_GAME_TICK,
+            "one native player update must represent exactly one fixed tick in retail display time"
+        );
     }
 
     fn assert_planet_phase_duration(
