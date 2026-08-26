@@ -15,7 +15,11 @@ const WORLD_FRACTIONAL_BITS: u32 = 16;
 const RGB_CHANNELS: usize = 3;
 const FRACTIONAL_PHASES: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
 const CORRIDOR_DEPTH_TRANSITION_FRAME: u16 = 97;
-const MAXIMUM_FRACTIONAL_RMSE: f64 = 0.085;
+/// A depth-bank flash produces a single outlying fractional step. Corridor
+/// motion itself can legitimately change many pixels, especially with the
+/// source-authored bright fixed bank, so compare neighboring step magnitudes
+/// instead of imposing an absolute image-difference ceiling.
+const MAXIMUM_NEIGHBORING_RMSE_DELTA: f64 = 0.03;
 
 fn is_corridor(entry: &DrawListEntry) -> bool {
     matches!(
@@ -156,9 +160,9 @@ fn run_probe(first_game_frame: u16, last_game_frame: u16, output_directory: Opti
             if current_frame.gameframe == CORRIDOR_DEPTH_TRANSITION_FRAME {
                 assert!(
                     root_mean_square_errors
-                        .iter()
-                        .all(|error| *error <= MAXIMUM_FRACTIONAL_RMSE),
-                    "Corneria corridor fractional-frame discontinuity returned: {root_mean_square_errors:?}"
+                        .windows(2)
+                        .all(|pair| (pair[0] - pair[1]).abs() <= MAXIMUM_NEIGHBORING_RMSE_DELTA),
+                    "Corneria corridor fractional-frame step spike returned: {root_mean_square_errors:?}"
                 );
                 depth_transition_verified = true;
             }

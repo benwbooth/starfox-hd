@@ -3,6 +3,7 @@ use sf_render::renderer::{config_from_repo_root, FrameInputs, GameState, Rendere
 
 const WIDTH: i32 = 224;
 const HEIGHT: i32 = 192;
+const VISIBLE_TEST_BACKGROUND: u16 = 4;
 const MASK_COLOR: [u8; 3] = [0, 0, 0];
 
 fn render(wipe: ScreenWipeState) -> Option<Vec<u8>> {
@@ -18,6 +19,7 @@ fn render(wipe: ScreenWipeState) -> Option<Vec<u8>> {
     let inputs = FrameInputs {
         game_state: GameState::Playing,
         newmap: 1,
+        currentbg: VISIBLE_TEST_BACKGROUND,
         screen_wipe: wipe,
         ..Default::default()
     };

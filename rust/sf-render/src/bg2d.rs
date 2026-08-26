@@ -166,6 +166,7 @@ fn bhole_line_offsets(phase: i16) -> [i16; BG2D_H] {
 }
 
 /// Background ids from levels.c map bytecode (setbg opcode operand).
+const BG2D_ID_ONE_ONE_INTERIOR: u8 = 0;
 pub const BG2D_ID_TITLE: u8 = 41;
 /// Source controller-layout background.
 pub const BG2D_ID_CONTINUE: u8 = 42;
@@ -175,6 +176,21 @@ pub const BG2D_ID_MAP: u8 = 63;
 pub const BG2D_ID_SPECIAL: u8 = 62;
 /// Width and height of each CONT-2 controller-layout quadrant.
 const CONTROLLER_PANEL_SIZE: usize = 256;
+
+const ONE_ONE_INTERIOR_TILES: &[u8] =
+    include_bytes!("../../../reference/ultrastarfox/SF/DATA/B.CGX");
+const ONE_ONE_INTERIOR_TILEMAP: &[u8] =
+    include_bytes!("../../../reference/ultrastarfox/SF/DATA/B.SCR");
+const ONE_ONE_INTERIOR_PALETTE: &[u8] =
+    include_bytes!("../../../reference/ultrastarfox/SF/DATA/COL/BG2-B.COL");
+const ONE_ONE_INTERIOR_VERTICAL_OFFSET: i32 = 24;
+
+#[derive(Clone, Copy)]
+struct EmbeddedBgAssets {
+    tiles: &'static [u8],
+    tilemap: &'static [u8],
+    palette: &'static [u8],
+}
 
 /// BGS.ASM bg_* block -> data files (mirror of `s_bg_defs`).
 pub struct BgDef {
@@ -188,6 +204,7 @@ pub struct BgDef {
     pub scr3: Option<&'static str>,
     pub vofs3: i32,
     pub sky: bool,
+    embedded: Option<EmbeddedBgAssets>,
 }
 
 macro_rules! bgdef {
@@ -203,6 +220,7 @@ macro_rules! bgdef {
             scr3: None,
             vofs3: 0,
             sky: $sky,
+            embedded: None,
         }
     };
     ($id:expr, $name:expr, $cgx:expr, $scr:expr, $col:expr, $vofs:expr,
@@ -218,11 +236,33 @@ macro_rules! bgdef {
             scr3: Some($scr3),
             vofs3: $vofs3,
             sky: $sky,
+            embedded: None,
         }
     };
 }
 
 pub static BG_DEFS: &[BgDef] = &[
+    // Corneria hangar/corridor. The retail map selects this before its
+    // scramble submap and does not select the outdoor sky until that submap
+    // returns. These tiny source assets are embedded because B.CGX/B.SCR are
+    // part of the disassembly but not the extracted runtime data directory.
+    BgDef {
+        id: BG2D_ID_ONE_ONE_INTERIOR,
+        name: "bg_1_1i",
+        cgx: "",
+        scr: "",
+        col: "",
+        vofs: ONE_ONE_INTERIOR_VERTICAL_OFFSET,
+        cgx3: None,
+        scr3: None,
+        vofs3: 0,
+        sky: false,
+        embedded: Some(EmbeddedBgAssets {
+            tiles: ONE_ONE_INTERIOR_TILES,
+            tilemap: ONE_ONE_INTERIOR_TILEMAP,
+            palette: ONE_ONE_INTERIOR_PALETTE,
+        }),
+    },
     // Corneria family (ST-P sky + mountain horizon + ground gradient)
     bgdef!(
         4,
@@ -549,38 +589,6 @@ pub static BG_DEFS: &[BgDef] = &[
         448,
         true
     ),
-];
-
-/// Default bg id per loaded map (mirror of `s_map_default_bg`; map ids are
-/// the port's levels.h MAP_ID_* values).
-pub static MAP_DEFAULT_BG: &[(u32, u8)] = &[
-    (1, 4),                // MAP_ID_1_1
-    (2, 5),                // MAP_ID_1_2
-    (3, 6),                // MAP_ID_1_3
-    (4, 13),               // MAP_ID_1_4
-    (5, 14),               // MAP_ID_1_5
-    (6, 15),               // MAP_ID_1_6
-    (7, 4),                // MAP_ID_2_1
-    (8, 22),               // MAP_ID_2_2
-    (9, 23),               // MAP_ID_2_3
-    (10, 26),              // MAP_ID_2_4
-    (11, 14),              // MAP_ID_2_5
-    (12, 27),              // MAP_ID_2_6
-    (13, 3),               // MAP_ID_3_1
-    (14, 30),              // MAP_ID_3_2
-    (15, 31),              // MAP_ID_3_3
-    (16, 33),              // MAP_ID_3_4
-    (17, 36),              // MAP_ID_3_5
-    (18, 37),              // MAP_ID_3_6
-    (19, 38),              // MAP_ID_3_7
-    (20, 39),              // MAP_ID_BLACKHOLE
-    (21, BG2D_ID_SPECIAL), // MAP_ID_SPECIAL
-    (22, 17),              // MAP_ID_FINAL
-    (23, 40),              // MAP_ID_INTRO
-    (24, BG2D_ID_TITLE),   // MAP_ID_TITLE
-    (25, 42),              // MAP_ID_CONTINUE
-    (28, 43),              // MAP_ID_CREDITS
-    (29, 44),              // MAP_ID_TRAINING
 ];
 
 /// Per-bg `shadowheight` (BGS.ASM set_bg blocks): the SNES-world Y of the
@@ -1088,9 +1096,6 @@ pub struct Bg2d {
     def_map_w: Vec<i32>,
     def_map_h: Vec<i32>,
     warned_bgs: u64,
-    // g_currentbg staleness workaround state (statics in Bg2d_Render).
-    prev_map: u32,
-    bg_at_map_start: u16,
     /// `mbhole` BGS-init state: testk2/testk3/testk4 reset whenever a bhole
     /// background is entered, including re-entering the same id on a new map.
     bhole_key: Option<(u32, u8)>,
@@ -1124,8 +1129,6 @@ impl Bg2d {
             def_map_w: vec![0; n],
             def_map_h: vec![0; n],
             warned_bgs: 0,
-            prev_map: 0xFFFF_FFFF,
-            bg_at_map_start: 0,
             bhole_key: None,
             bhole_start_frame: 0,
             palette_four_key: None,
@@ -1197,9 +1200,19 @@ impl Bg2d {
 
     fn build_bg_texture(&mut self, gpu: &mut Gpu, idx: usize) {
         let def = &BG_DEFS[idx];
-        let cgx = load_file(&self.base_dir, def.cgx);
-        let scr = load_file(&self.base_dir, def.scr);
-        let col = load_file(&self.base_dir, def.col);
+        let (cgx, scr, col) = if let Some(assets) = def.embedded {
+            (
+                Some(assets.tiles.to_vec()),
+                Some(assets.tilemap.to_vec()),
+                Some(assets.palette.to_vec()),
+            )
+        } else {
+            (
+                load_file(&self.base_dir, def.cgx),
+                load_file(&self.base_dir, def.scr),
+                load_file(&self.base_dir, def.col),
+            )
+        };
         let cgx3 = def.cgx3.and_then(|p| load_file(&self.base_dir, p));
         let scr3 = def.scr3.and_then(|p| load_file(&self.base_dir, p));
 
@@ -1737,24 +1750,11 @@ impl Bg2d {
                     GameState::AttractIntro | GameState::Playing | GameState::Tally
                 ) =>
             {
-                // BGF_BG is transient, so also key off the playing state;
-                // g_currentbg holds the last setbg operand. Snapshot it at
-                // map load and use the per-map default until the map issues
-                // its own setbg.
-                if inputs.newmap != self.prev_map {
-                    self.prev_map = inputs.newmap;
-                    self.bg_at_map_start = inputs.currentbg;
-                }
-
+                // BGF_BG is transient, so also key off the playing state.
+                // The native game publishes the exact flat background selected
+                // by the opening declaration and every later setbg operation.
                 draw = true;
-                let mut id = (inputs.currentbg & 63) as u8;
-                if inputs.currentbg == self.bg_at_map_start {
-                    // No setbg from this map yet -> level's opening bg.
-                    if let Some(&(_, bg)) = MAP_DEFAULT_BG.iter().find(|(m, _)| *m == inputs.newmap)
-                    {
-                        id = bg;
-                    }
-                }
+                let id = (inputs.currentbg & 63) as u8;
 
                 if id == BG2D_ID_TITLE {
                     tex = self.title_tex;
@@ -1903,6 +1903,27 @@ impl Bg2d {
 #[cfg(test)]
 mod bhole_tests {
     use super::*;
+
+    #[test]
+    fn corneria_corridor_background_is_the_source_black_tile_window() {
+        let composed = compose_bg_with_palette_trace(
+            ONE_ONE_INTERIOR_TILES,
+            ONE_ONE_INTERIOR_TILEMAP,
+            ONE_ONE_INTERIOR_PALETTE,
+            None,
+            None,
+            ONE_ONE_INTERIOR_VERTICAL_OFFSET,
+            0,
+            false,
+        )
+        .expect("compose Corneria corridor background");
+
+        assert_eq!((composed.width, composed.height), (BG2D_W, BG2D_H));
+        assert!(composed
+            .rgba
+            .chunks_exact(4)
+            .all(|pixel| pixel == [0, 0, 0, 255]));
+    }
 
     #[test]
     fn strict_camera_scroll_keeps_source_integer_quantization() {

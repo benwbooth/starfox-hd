@@ -1132,6 +1132,7 @@ impl ShapeStore {
         animation_frame: u8,
         col_frame: u8,
         color_table: u16,
+        object_depth_table: u8,
         texture_scroll: [u8; 2],
         pose: SourcePose,
         palette: &shapes::ShapePaletteRgb,
@@ -1164,8 +1165,11 @@ impl ShapeStore {
         if source_projection::shape_is_outside_playfield(&projected.points) {
             return true;
         }
-        let depth_bank =
-            shapes::select_depth_bank(f32::from(projected.object_depth), self.depthz_table);
+        let depth_bank = shapes::select_object_depth_bank(
+            f32::from(projected.object_depth),
+            self.depthz_table,
+            object_depth_table,
+        );
 
         let texture_palette: [[f32; 4]; 16] = std::array::from_fn(|index| {
             [palette[index][0], palette[index][1], palette[index][2], 1.0]
@@ -1279,6 +1283,7 @@ impl ShapeStore {
         animation_frame: u8,
         col_frame: u8,
         color_table: u16,
+        object_depth_table: u8,
         texture_scroll: [u8; 2],
         explosion_state: u8,
         pose: SourcePose,
@@ -1309,8 +1314,11 @@ impl ShapeStore {
             metrics.coordinate_shift,
             pose,
         );
-        let depth_bank =
-            shapes::select_depth_bank(f32::from(base_projection.object_depth), self.depthz_table);
+        let depth_bank = shapes::select_object_depth_bank(
+            f32::from(base_projection.object_depth),
+            self.depthz_table,
+            object_depth_table,
+        );
         let texture_palette: [[f32; 4]; 16] = std::array::from_fn(|index| {
             [palette[index][0], palette[index][1], palette[index][2], 1.0]
         });
@@ -1531,6 +1539,7 @@ impl ShapeStore {
         anim_frame: u8,
         col_frame: u8,
         color_table: u16,
+        object_depth_table: u8,
         texture_scroll: [u8; 2],
         explosion_state: u8,
         model_matrix: &[f32; 16],
@@ -1572,8 +1581,9 @@ impl ShapeStore {
         let mut projection_view_model = [0.0; 16];
         crate::transform::multiply(&mut projection_view_model, &projection_view, model_matrix);
         let object_depth = Self::object_depth(&view, model_matrix);
-        let depth_bank = shapes::select_depth_bank(object_depth, self.depthz_table);
-        let depth_blend = if shape.is_sf2 {
+        let depth_bank =
+            shapes::select_object_depth_bank(object_depth, self.depthz_table, object_depth_table);
+        let depth_blend = if shape.is_sf2 || object_depth_table != 0 {
             shapes::DepthBankBlend {
                 near_bank: shapes::DepthBank::from_source_index(depth_bank),
                 far_bank: shapes::DepthBank::from_source_index(depth_bank),
@@ -1592,6 +1602,7 @@ impl ShapeStore {
                     anim_frame,
                     col_frame,
                     color_table,
+                    object_depth_table,
                     texture_scroll,
                     pose,
                     palette,
@@ -1604,6 +1615,7 @@ impl ShapeStore {
                     anim_frame,
                     col_frame,
                     color_table,
+                    object_depth_table,
                     texture_scroll,
                     explosion_state,
                     pose,

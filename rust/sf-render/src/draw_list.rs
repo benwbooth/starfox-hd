@@ -813,6 +813,7 @@ impl DrawListRenderer {
                 interp.anim_frame,
                 interp.col_frame,
                 color_table,
+                interp.depth_offset,
                 [interp.tscroll_x, interp.tscroll_y],
                 interp.explosion_cnt,
                 &model,

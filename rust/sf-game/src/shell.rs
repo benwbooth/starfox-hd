@@ -1217,7 +1217,9 @@ impl ShellState {
             self.begin_screen_wipe(
                 kind,
                 if is_launch_sequence {
-                    0
+                    // The retail HDMA aperture holds its first record across
+                    // three logical wipe updates before the star reveal moves.
+                    SCRAMBLE_WIPE_BLACK_HOLD_TICKS
                 } else {
                     OPENING_WIPE_BLACK_HOLD_TICKS
                 },
@@ -4108,6 +4110,13 @@ mod tests {
         let mut shell = Shell::new();
         shell.load_map(map_id::M1_1);
         assert_eq!(shell.frame().screen_wipe.kind, StarReveal);
+
+        for _ in 0..SCRAMBLE_WIPE_BLACK_HOLD_TICKS {
+            assert!(shell.state.borrow_mut().step_screen_wipe());
+            assert_eq!(shell.frame().screen_wipe.frame, 0);
+        }
+        assert!(shell.state.borrow_mut().step_screen_wipe());
+        assert_eq!(shell.frame().screen_wipe.frame, 1);
 
         // LEVEL1_1's first marker is the post-fade blackout. The following
         // `wipein mscramwipe_circle` marker owns the typed reveal.

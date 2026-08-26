@@ -42,9 +42,9 @@ const SF2_REFERENCE_HEIGHT: i32 = 224;
 const SF1_TITLE_VISIBLE_SCANLINES: i32 = 207;
 const SF1_TITLE_BLANK_SCANLINES: i32 = SF2_REFERENCE_HEIGHT - SF1_TITLE_VISIBLE_SCANLINES;
 const SF1_TITLE_BLANK_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-/// The HDMA window table and the bottom-origin GPU presentation differ by one
-/// scanline. This phase reproduces the source capture's window edge exactly.
-const SF1_SOURCE_WIPE_VERTICAL_PHASE: f32 = 1.0;
+/// The source HDMA table holds its first aperture record for the top 15 screen
+/// rows. Account for that phase when placing the 192-row source bitmap.
+const SF1_SOURCE_WIPE_VERTICAL_PHASE: f32 = -1.0;
 const SF2_OPAQUE_BLACK_PIXEL: [u8; 4] = [0, 0, 0, u8::MAX];
 const SF2_GAME_OVER_CONTINUE_END_RETAIL_FRAME: u16 = 172;
 const SF2_GAME_OVER_RESULTS_END_RETAIL_FRAME: u16 = 76;
@@ -4121,7 +4121,7 @@ impl Ui {
             let source_height = SOURCE_HEIGHT as f32;
             let output_width = screen_width as f32;
             let output_height = screen_height as f32;
-            let (origin_x, origin_y, wipe_width, wipe_height) = if inputs.source_resolution {
+            let (origin_x, origin_top, wipe_width, wipe_height) = if inputs.source_resolution {
                 (
                     (output_width - source_width) * 0.5,
                     (output_height - source_height) * 0.5 + SF1_SOURCE_WIPE_VERTICAL_PHASE,
@@ -4131,36 +4131,47 @@ impl Ui {
             } else {
                 (0.0, 0.0, output_width, output_height)
             };
-            if origin_y > 0.0 {
+            if origin_top > 0.0 {
+                let render_top = output_height - origin_top;
                 self.quad_px(
                     gpu,
                     [0.0, 0.0, 0.0, 1.0],
                     0.0,
-                    0.0,
+                    render_top,
                     output_width,
-                    0.0,
+                    render_top,
                     output_width,
-                    origin_y,
+                    output_height,
                     0.0,
-                    origin_y,
+                    output_height,
                 );
-                let bottom = origin_y + wipe_height;
+                let bottom = origin_top + wipe_height;
+                let render_bottom = output_height - bottom;
                 self.quad_px(
                     gpu,
                     [0.0, 0.0, 0.0, 1.0],
                     0.0,
-                    bottom,
-                    output_width,
-                    bottom,
-                    output_width,
-                    output_height,
                     0.0,
-                    output_height,
+                    output_width,
+                    0.0,
+                    output_width,
+                    render_bottom,
+                    0.0,
+                    render_bottom,
                 );
             }
             for (row, span) in spans.iter().enumerate() {
-                let y0 = origin_y + row as f32 * wipe_height / source_height;
-                let y1 = origin_y + (row + 1) as f32 * wipe_height / source_height;
+                let source_y0 = origin_top + row as f32 * wipe_height / source_height;
+                let source_y1 = origin_top + (row + 1) as f32 * wipe_height / source_height;
+                let (y0, y1) = if inputs.source_resolution {
+                    // Source captures preserve the SNES top-origin scanline
+                    // order while the GPU capture surface is bottom-origin.
+                    (output_height - source_y1, output_height - source_y0)
+                } else {
+                    // Normal output geometry already follows the viewport's
+                    // presentation convention; retain its authored row order.
+                    (source_y0, source_y1)
+                };
                 let Some(span) = span else {
                     self.quad_px(
                         gpu,

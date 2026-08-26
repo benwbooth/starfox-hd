@@ -20,6 +20,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use sf_map::catalog::{background_id, map_id};
 use sf_render::draw_list::{DrawListEntry, DL_FLAG_VISIBLE};
 use sf_render::gpu::{Gpu, Vertex3};
 use sf_render::renderer::{
@@ -112,6 +113,7 @@ fn gl_runtime_suite() {
     };
 
     check_title_golden(&mut renderer);
+    check_corneria_corridor_background(&mut renderer);
     check_bg_1_1c_sky(&mut renderer);
     check_sf1_tally(&mut renderer);
     check_arwing(&mut renderer);
@@ -395,7 +397,8 @@ fn check_sf1_ending_recap(config: &RendererConfig) {
 fn check_sf1_tally(renderer: &mut Renderer) {
     let inputs = FrameInputs {
         game_state: GameState::Tally,
-        newmap: 1,
+        newmap: map_id::M1_1,
+        currentbg: background_id::ONE_ONE_OUTDOOR,
         meters: 1,
         score: 0,
         tally_active: true,
@@ -1210,14 +1213,41 @@ fn check_title_golden(renderer: &mut Renderer) {
     println!("title source-asset grid: max region delta {max_delta}");
 }
 
+// Corneria's opening background remains black behind the polygon corridor
+// until LEVEL1_1.ASM selects bg_1_1c after map1_1a returns.
+fn check_corneria_corridor_background(renderer: &mut Renderer) {
+    let inputs = FrameInputs {
+        game_state: GameState::Playing,
+        newmap: map_id::M1_1,
+        currentbg: background_id::ONE_ONE_INTERIOR,
+        ..Default::default()
+    };
+    renderer.begin_frame();
+    renderer.submit(&[], &[], 1.0, &inputs);
+    renderer.end_frame();
+
+    let pixels = renderer.read_pixels_rgb();
+    let non_black = pixels
+        .chunks_exact(3)
+        .enumerate()
+        .filter(|(_, pixel)| **pixel != SF1_CLEAR_RGB)
+        .collect::<Vec<_>>();
+    assert!(
+        non_black.is_empty(),
+        "Corneria corridor background had {} non-black pixels; first={:?}",
+        non_black.len(),
+        non_black.first().map(|(offset, pixel)| (*offset, *pixel)),
+    );
+}
+
 // (b) bg_1_1c: playing state on map 1_1 with a level camera at rx=0. The
 // Authored linear camera coupling windows a uniform sky-blue row at the top.
 fn check_bg_1_1c_sky(renderer: &mut Renderer) {
     renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
     let inputs = FrameInputs {
         game_state: GameState::Playing,
-        newmap: 1, // MAP_ID_1_1 -> default bg 4 (bg_1_1c)
-        currentbg: 0,
+        newmap: map_id::M1_1,
+        currentbg: background_id::ONE_ONE_OUTDOOR,
         ..Default::default()
     };
     renderer.begin_frame();

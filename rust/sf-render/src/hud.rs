@@ -10,8 +10,6 @@
 //!  - The C clears `g_boostcnt` when the boost gauge drains; inputs here are
 //!    read-only, so an internal latch treats the unchanged input value as
 //!    cleared until the game writes a new one.
-//!  - The C forces `g_meters = 1` on entering gameplay / stage advance
-//!    (MAIN.ASM:105 stand-in); mirrored with an internal flag.
 
 use crate::font::{source_message_advance, Font};
 use crate::gpu::{Gpu, Vertex2, WHITE_TEX};
@@ -290,10 +288,7 @@ pub struct Hud {
     screen_w: f32,
     screen_h: f32,
 
-    // Read-only-input workarounds (see module docs).
-    was_playing: bool,
-    last_stage: u32,
-    force_meters: bool,
+    // Read-only-input workaround for the source boost counter (see module docs).
     boostcnt_zeroed: bool,
     boostcnt_seen: u8,
 
@@ -309,9 +304,6 @@ impl Default for Hud {
             last_gameframe: 0xFFFF_FFFF,
             screen_w: 0.0,
             screen_h: 0.0,
-            was_playing: false,
-            last_stage: 0xFFFF_FFFF,
-            force_meters: false,
             boostcnt_zeroed: false,
             boostcnt_seen: 0,
             pending_sounds: Vec::new(),
@@ -656,30 +648,18 @@ impl Hud {
     ) {
         let tally = inputs.tally_active;
         if inputs.game_state != GameState::Playing && !tally {
-            self.was_playing = false;
             return;
         }
 
         self.screen_w = screen_width as f32;
         self.screen_h = screen_height as f32;
 
-        // MAIN.ASM:105 m_meters=1 stand-in (see module docs).
-        if !self.was_playing || inputs.stage as u32 != self.last_stage {
-            self.was_playing = true;
-            self.last_stage = inputs.stage as u32;
-            self.force_meters = true;
-        }
-
         sprites.set_screen_size(screen_width, screen_height);
         font.set_screen_size(screen_width, screen_height);
 
         // do_sprites_l gate: m_meters set, screen not blacked out.
-        let hud_on = (inputs.meters != 0 || self.force_meters) && inputs.stayblack == -1;
-        // The source calls do_arrows, including its warning beep, only under
-        // the real m_meters/stayblack gate. `force_meters` is an HD fallback
-        // for incomplete presentation state and must not synthesize audio.
-        let source_hud_visible = inputs.meters != 0 && inputs.stayblack == -1;
-        self.tick_animations(inputs, source_hud_visible);
+        let hud_on = inputs.meters != 0 && inputs.stayblack == -1;
+        self.tick_animations(inputs, hud_on);
 
         if hud_on {
             // --- Super FX bitmap meters (MDRAWLIS.MC), bitmap y + 16 ---

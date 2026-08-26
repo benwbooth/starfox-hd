@@ -611,6 +611,58 @@ impl Ppu {
         best
     }
 
+    /// Evaluate the main-screen window for one background or object layer.
+    /// Star Fox drives WH0/WH1 through HDMA for opening apertures while
+    /// WH2/WH3 retain the fixed flight window. Applying the active values per
+    /// scanline keeps the retail oracle's completed video faithful to what the
+    /// console presents instead of exposing the unwindowed bitmap underneath.
+    fn main_screen_window_masked(&self, layer: usize, x: usize) -> bool {
+        const WINDOW_ENABLE: u8 = 2;
+        const WINDOW_INVERT: u8 = 1;
+        const WINDOW_LOGIC_OR: u8 = 0;
+        const WINDOW_LOGIC_AND: u8 = 1;
+        const WINDOW_LOGIC_XOR: u8 = 2;
+
+        if layer > 4 || self.registers[0x2E] & (1 << layer) == 0 {
+            return false;
+        }
+
+        let (selection, selection_shift, logic, logic_shift) = match layer {
+            0 => (self.registers[0x23], 0, self.registers[0x2A], 0),
+            1 => (self.registers[0x23], 4, self.registers[0x2A], 2),
+            2 => (self.registers[0x24], 0, self.registers[0x2A], 4),
+            3 => (self.registers[0x24], 4, self.registers[0x2A], 6),
+            4 => (self.registers[0x25], 0, self.registers[0x2B], 0),
+            _ => unreachable!(),
+        };
+        let membership = |pair: u8, left: u8, right: u8| {
+            (pair & WINDOW_ENABLE != 0).then(|| {
+                let inside = left <= right && (usize::from(left)..=usize::from(right)).contains(&x);
+                inside ^ (pair & WINDOW_INVERT != 0)
+            })
+        };
+        let window_one = membership(
+            (selection >> selection_shift) & 3,
+            self.registers[0x26],
+            self.registers[0x27],
+        );
+        let window_two = membership(
+            (selection >> (selection_shift + 2)) & 3,
+            self.registers[0x28],
+            self.registers[0x29],
+        );
+        match (window_one, window_two) {
+            (Some(one), Some(two)) => match (logic >> logic_shift) & 3 {
+                WINDOW_LOGIC_OR => one || two,
+                WINDOW_LOGIC_AND => one && two,
+                WINDOW_LOGIC_XOR => one ^ two,
+                _ => !(one ^ two),
+            },
+            (Some(value), None) | (None, Some(value)) => value,
+            (None, None) => false,
+        }
+    }
+
     /// Evaluate OAM once for an entire scanline. The old per-pixel path walked
     /// all 128 sprites 57,344 times per frame; this produces identical ordering
     /// (lower OAM index wins equal priority) with only the covered pixels.
@@ -676,15 +728,19 @@ impl Ppu {
     fn background_color_index(&self, mode: u8, x: usize, y: usize) -> u8 {
         let mut color = 0u8;
         if mode == 7 {
-            if let Some(value) = self.mode7_pixel(x, y) {
-                color = value;
+            if !self.main_screen_window_masked(0, x) {
+                if let Some(value) = self.mode7_pixel(x, y) {
+                    color = value;
+                }
             }
         } else {
             for high in [false, true] {
                 for bg in (0..4).rev() {
-                    if let Some((value, priority)) = self.bg_pixel(bg, x, y) {
-                        if priority == high {
-                            color = value;
+                    if !self.main_screen_window_masked(bg, x) {
+                        if let Some((value, priority)) = self.bg_pixel(bg, x, y) {
+                            if priority == high {
+                                color = value;
+                            }
                         }
                     }
                 }
@@ -695,8 +751,10 @@ impl Ppu {
 
     fn pixel_color_index(&self, mode: u8, x: usize, y: usize) -> u8 {
         let mut color = self.background_color_index(mode, x, y);
-        if let Some((sprite, _priority)) = self.sprite_pixel(x, y) {
-            color = sprite;
+        if !self.main_screen_window_masked(4, x) {
+            if let Some((sprite, _priority)) = self.sprite_pixel(x, y) {
+                color = sprite;
+            }
         }
         color
     }
@@ -714,18 +772,25 @@ impl Ppu {
         for x in 0..FRAME_WIDTH {
             if self.capture_bg1_indices {
                 let pixel = y * FRAME_WIDTH + x;
-                let bg1 = self.bg_pixel(0, x, y);
+                let bg1 = (!self.main_screen_window_masked(0, x))
+                    .then(|| self.bg_pixel(0, x, y))
+                    .flatten();
                 self.scanout_bg1_indices[pixel] = bg1.map_or(u8::MAX, |(color, _)| color);
-                let bg2 = self.bg_pixel(1, x, y);
-                self.scanout_bg_priority[pixel] = bg1.map_or(0, |(_, high)| 1 | (u8::from(high) << 1))
+                let bg2 = (!self.main_screen_window_masked(1, x))
+                    .then(|| self.bg_pixel(1, x, y))
+                    .flatten();
+                self.scanout_bg_priority[pixel] = bg1
+                    .map_or(0, |(_, high)| 1 | (u8::from(high) << 1))
                     | bg2.map_or(0, |(_, high)| 4 | (u8::from(high) << 3));
             }
             let output = if forced_blank {
                 [0, 0, 0, 255]
             } else {
                 let mut color = self.background_color_index(mode, x, y);
-                if let Some((sprite, _priority)) = sprites[x] {
-                    color = sprite;
+                if !self.main_screen_window_masked(4, x) {
+                    if let Some((sprite, _priority)) = sprites[x] {
+                        color = sprite;
+                    }
                 }
                 self.color(usize::from(color))
             };
@@ -759,6 +824,26 @@ impl Ppu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn star_fox_wipe_window_masks_only_outside_the_active_aperture() {
+        let mut ppu = Ppu::new();
+        ppu.registers[0x23] = 0xBB;
+        ppu.registers[0x26] = 80;
+        ppu.registers[0x27] = 176;
+        ppu.registers[0x28] = 16;
+        ppu.registers[0x29] = 240;
+        ppu.registers[0x2A] = 0x55;
+        ppu.registers[0x2E] = 1;
+
+        assert!(ppu.main_screen_window_masked(0, 50));
+        assert!(!ppu.main_screen_window_masked(0, 128));
+        assert!(!ppu.main_screen_window_masked(0, 8));
+
+        ppu.registers[0x26] = 128;
+        ppu.registers[0x27] = 127;
+        assert!(ppu.main_screen_window_masked(0, 128));
+    }
 
     #[test]
     fn vram_ports_follow_increment_mode() {

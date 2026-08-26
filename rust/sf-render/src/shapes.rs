@@ -848,6 +848,30 @@ pub fn select_depth_bank(depth: f32, depthz_table: usize) -> u8 {
     bank
 }
 
+/// Select a polygon object's distance-color bank, including its authored
+/// per-object depth-table override. A zero override uses the active scene
+/// table. Values one through four select a fixed bank, while five through
+/// eight select the normal, tunnel, mist, or stage-one threshold table.
+pub fn select_object_depth_bank(
+    depth: f32,
+    scene_depth_table: usize,
+    object_depth_table: u8,
+) -> u8 {
+    const FIXED_BANK_FIRST: u8 = 1;
+    const FIXED_BANK_LAST: u8 = 4;
+    const THRESHOLD_TABLE_FIRST: u8 = 5;
+    const THRESHOLD_TABLE_LAST: u8 = 8;
+
+    match object_depth_table {
+        FIXED_BANK_FIRST..=FIXED_BANK_LAST => object_depth_table - FIXED_BANK_FIRST,
+        THRESHOLD_TABLE_FIRST..=THRESHOLD_TABLE_LAST => select_depth_bank(
+            depth,
+            usize::from(object_depth_table - THRESHOLD_TABLE_FIRST),
+        ),
+        _ => select_depth_bank(depth, scene_depth_table),
+    }
+}
+
 /// Continuous HD counterpart of the source's four discrete COLDEPTH bands.
 /// The source-resolution renderer still uses [`select_depth_bank`] exactly;
 /// this blend prevents a close polygon from flashing as its interpolated pose
@@ -925,7 +949,35 @@ pub fn blend_depth_banks(depth: f32, depthz_table: usize) -> DepthBankBlend {
 
 #[cfg(test)]
 mod depth_blend_tests {
-    use super::{blend_depth_banks, DepthBank, DepthBankBlend, DEPTHZ_TUNNEL};
+    use super::{
+        blend_depth_banks, select_object_depth_bank, DepthBank, DepthBankBlend, DEPTHZ_NORMAL,
+        DEPTHZ_TUNNEL,
+    };
+
+    #[test]
+    fn object_depth_table_override_selects_authored_fixed_bank() {
+        const CORRIDOR_SEGMENT_DEPTH: f32 = 3_204.0;
+
+        assert_eq!(
+            select_object_depth_bank(CORRIDOR_SEGMENT_DEPTH, DEPTHZ_TUNNEL, 0),
+            DepthBank::Farthest.source_index(),
+        );
+        for (object_table, expected) in [
+            (1, DepthBank::Nearest),
+            (2, DepthBank::Near),
+            (3, DepthBank::Far),
+            (4, DepthBank::Farthest),
+        ] {
+            assert_eq!(
+                select_object_depth_bank(CORRIDOR_SEGMENT_DEPTH, DEPTHZ_TUNNEL, object_table,),
+                expected.source_index(),
+            );
+        }
+        assert_eq!(
+            select_object_depth_bank(CORRIDOR_SEGMENT_DEPTH, DEPTHZ_TUNNEL, 5),
+            select_object_depth_bank(CORRIDOR_SEGMENT_DEPTH, DEPTHZ_NORMAL, 0),
+        );
+    }
 
     #[test]
     fn hd_depth_colors_are_continuous_at_tunnel_boundaries() {
