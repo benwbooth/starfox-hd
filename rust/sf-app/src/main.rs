@@ -26,7 +26,8 @@ use sdl3::keyboard::Keycode;
 use sdl3::video::FullscreenType;
 
 use sf_core::{DrawListEntry as CoreEntry, GAME_TICK_MS, MAX_DRAW_LIST};
-use sf_game::shell::Shell;
+use sf_game::presentation::SourcePresentationQueue;
+use sf_game::shell::{GameplayEntryPhase, Shell};
 use sf_render::draw_list::{
     DrawListEntry as RenderEntry, DL_FLAG_HIGHLIGHT, DL_FLAG_SHADOW, DL_FLAG_VISIBLE,
 };
@@ -971,6 +972,11 @@ fn main() {
 
     let mut prev_list: Vec<RenderEntry> = Vec::with_capacity(MAX_DRAW_LIST);
     let mut curr_list: Vec<RenderEntry> = Vec::with_capacity(MAX_DRAW_LIST);
+    let mut presented_prev_list: Vec<RenderEntry> = Vec::with_capacity(MAX_DRAW_LIST);
+    let mut presented_curr_list: Vec<RenderEntry> = Vec::with_capacity(MAX_DRAW_LIST);
+    let mut source_presentations = SourcePresentationQueue::new();
+    let mut frame = shell.frame();
+    let mut presented_frame = frame.clone();
     let mut total_ticks: u64 = 0;
     let mut running = true;
     let (mut fb_w, mut fb_h) = (cfg.window_width, cfg.window_height);
@@ -1038,7 +1044,6 @@ fn main() {
         }
 
         // --- Fixed timestep game ticks (main.c:177-189) ---
-        let mut frame = shell.frame();
         while accumulator >= tick_duration {
             prev_list.clear();
             prev_list.extend_from_slice(&curr_list);
@@ -1184,20 +1189,39 @@ fn main() {
                     );
                 }
 
-                // Camera for the render pass (nmi.c GameCamera_Update ->
-                // Transform_SetCamera / Transform_SnapCamera).
-                let cam = frame.camera;
+                let presented = if frame.gameplay_entry_phase == GameplayEntryPhase::ActiveLevel {
+                    source_presentations.advance(frame.clone(), curr_list.clone())
+                } else {
+                    source_presentations.reset();
+                    None
+                };
+                let (cam, snap_scene) = if let Some(presented) = presented {
+                    presented_prev_list.clone_from(&presented_curr_list);
+                    let cam = presented.scene.camera;
+                    let snap_scene = presented.snap_scene;
+                    presented_frame = presented.frame();
+                    presented_curr_list = presented.content;
+                    (cam, snap_scene)
+                } else {
+                    presented_prev_list.clone_from(&prev_list);
+                    presented_curr_list.clone_from(&curr_list);
+                    presented_frame = frame.clone();
+                    (frame.camera, false)
+                };
+
+                // Camera and background tables belong to the completed scene,
+                // while fades and windows in `presented_frame` remain live.
                 renderer.advance_background_offset_tables(
-                    frame.bg2_vertical_offsets,
-                    frame.bg2_horizontal_offsets,
+                    presented_frame.bg2_vertical_offsets,
+                    presented_frame.bg2_horizontal_offsets,
                 );
                 renderer
                     .transform
                     .set_camera_fine(cam.x, cam.y, cam.z, cam.rotation);
-                if cam.snap {
+                if cam.snap || snap_scene {
                     renderer.transform.snap_camera();
                     renderer.snap_background_offset_tables();
-                    prev_list.clone_from(&curr_list);
+                    presented_prev_list.clone_from(&presented_curr_list);
                 }
             }
 
@@ -1230,6 +1254,7 @@ fn main() {
             inputs.stage = u16::from(game.mission().is_some());
             inputs
         } else {
+            let frame = &presented_frame;
             let mut windows = [WindowState::default(); WINDOWARRAY_SIZE];
             for (dst, src) in windows.iter_mut().zip(frame.windows.iter()) {
                 *dst = WindowState {
@@ -1322,7 +1347,11 @@ fn main() {
 
         // Render interpolated frame (main.c:195-200).
         renderer.begin_frame();
-        renderer.submit(&prev_list, &curr_list, alpha, &inputs);
+        if sf2.is_some() {
+            renderer.submit(&prev_list, &curr_list, alpha, &inputs);
+        } else {
+            renderer.submit(&presented_prev_list, &presented_curr_list, alpha, &inputs);
+        }
         // HUD do_arrows wrap queues SE $8A into Hud::pending_sounds — drain
         // into the audio ring (SPRITES.ASM:872 trigse $8a).
         for id in renderer.take_pending_hud_sounds() {

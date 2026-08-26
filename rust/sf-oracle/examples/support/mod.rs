@@ -595,45 +595,7 @@ pub fn presentation_aligned_source_frame(
     scene: &FrameSnapshot,
     presentation: &FrameSnapshot,
 ) -> FrameSnapshot {
-    let mut aligned = presentation.clone();
-    let presentation_palette = aligned.scene_style.game_palette;
-    aligned.scene_style = scene.scene_style;
-    aligned.scene_style.game_palette = presentation_palette;
-    aligned.point_pixels.clone_from(&scene.point_pixels);
-    aligned.meters = scene.meters;
-    aligned.stayblack = scene.stayblack;
-    aligned.gameflags = scene.gameflags;
-    aligned.gameframe = scene.gameframe;
-    // Display brightness is live presentation state: the launch fade can
-    // advance between completion of the source bitmap and its later scanout.
-    // Aperture geometry remains committed with the completed scene transfer.
-    aligned.display_forced_blank = scene.display_forced_blank;
-    aligned.display_black_subtraction = scene.display_black_subtraction;
-    aligned.screen_wipe = scene.screen_wipe;
-    aligned.boostcnt = scene.boostcnt;
-    aligned.arrows = scene.arrows;
-    aligned.player_view_mode = scene.player_view_mode;
-    aligned.stage = scene.stage;
-    aligned.stage_banner = scene.stage_banner;
-    aligned.scramble_banner = scene.scramble_banner;
-    aligned.shield_cur = scene.shield_cur;
-    aligned.shield_max = scene.shield_max;
-    aligned.boss_hp_cur = scene.boss_hp_cur;
-    aligned.boss_hp_max = scene.boss_hp_max;
-    aligned.lives = scene.lives;
-    aligned.bombs = scene.bombs;
-    aligned.specflash = scene.specflash;
-    aligned.shieldup = scene.shieldup;
-    aligned.msg_count1 = scene.msg_count1;
-    aligned.msg_count2 = scene.msg_count2;
-    aligned.radio_face_frame = scene.radio_face_frame;
-    aligned.whichfriend = scene.whichfriend;
-    aligned.friends_meter = scene.friends_meter;
-    aligned.message_text.clone_from(&scene.message_text);
-    aligned
-        .radio_presentation
-        .clone_from(&scene.radio_presentation);
-    aligned
+    sf_game::presentation::compose_source_presentation(scene, presentation)
 }
 
 #[cfg(test)]
@@ -656,6 +618,21 @@ mod presentation_alignment_tests {
 
         let aligned = presentation_aligned_source_frame(&scene, &presentation);
         assert_eq!(aligned.display_brightness, PRESENTATION_BRIGHTNESS);
+    }
+
+    #[test]
+    fn source_bitmap_uses_the_live_presentation_blank_state() {
+        let scene = FrameSnapshot {
+            display_forced_blank: true,
+            ..FrameSnapshot::default()
+        };
+        let presentation = FrameSnapshot {
+            display_forced_blank: false,
+            ..FrameSnapshot::default()
+        };
+
+        let aligned = presentation_aligned_source_frame(&scene, &presentation);
+        assert!(!aligned.display_forced_blank);
     }
 }
 
