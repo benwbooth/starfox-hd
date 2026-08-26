@@ -645,6 +645,8 @@ pub mod wm {
     pub const NUMPLASERS: u16 = 0x0313;
     /// Typed map operand for the circular-wipe request.
     pub const CIRCULAR_WIPE: u16 = 0x0317;
+    /// Typed import operand for the source one-byte `scramble` countdown.
+    pub const SCRAMBLE_COUNT: u16 = 0x0318;
     /// Retail Rev 2 background-swap player-strategy preservation latch.
     pub const PRESERVE_PLAYER_STRATEGY: u16 = 0x1F05;
     pub const HPOSJMP: u16 = 0x1AE6; // 2 bytes, SYMBOLS.TXT

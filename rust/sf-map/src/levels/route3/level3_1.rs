@@ -19,6 +19,7 @@ pub(crate) fn build() -> Route3Level {
 
     // LEVEL3_1.ASM through the first handoff into MAP3_1B.
     b.mapwait(100);
+    b.setvarb(wm::SCRAMBLE_COUNT, 50);
     b.mapjsr("map1_1a");
     b.qfadedown();
     b.waitfade();

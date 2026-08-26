@@ -1274,6 +1274,7 @@ fn main() {
                 player_view_mode: frame.player_view_mode,
                 stage: frame.stage,
                 stage_banner: frame.stage_banner,
+                scramble_banner: frame.scramble_banner,
                 shield_cur: frame.shield_cur,
                 shield_max: frame.shield_max,
                 boss_hp_cur: frame.boss_hp_cur,

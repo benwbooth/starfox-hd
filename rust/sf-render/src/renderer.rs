@@ -34,7 +34,7 @@ use sf_core::{
     screen_wipe::ScreenWipeState,
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
     sf1_planets::PlanetPresentation,
-    stage_banner::StageBannerState,
+    stage_banner::{ScrambleBannerState, StageBannerState},
 };
 
 const SOURCE_POLYGON_GAMEPLAY_PRESENTATION_OFFSET: [i16; 2] = [0, 0];
@@ -448,6 +448,8 @@ pub struct FrameInputs<'a> {
     pub stage: u16,
     /// Typed stage announcement selected and timed by the native game.
     pub stage_banner: Option<StageBannerState>,
+    /// Typed launch warning selected and timed by the native game.
+    pub scramble_banner: Option<ScrambleBannerState>,
     /// Hud_SetShield current value (player HP).
     pub shield_cur: i32,
     pub shield_max: i32,
@@ -544,6 +546,7 @@ impl<'a> Default for FrameInputs<'a> {
             player_view_mode: PlayerViewMode::Exterior,
             stage: 0,
             stage_banner: None,
+            scramble_banner: None,
             shield_cur: 40,
             shield_max: 40,
             boss_hp_cur: 0,
@@ -867,6 +870,7 @@ impl Renderer {
             &shape_palette,
             self.width,
             self.height,
+            alpha,
         );
         if inputs.source_resolution && inputs.game_state == GameState::Playing {
             // The flight window is applied after bitmap-resident meters and

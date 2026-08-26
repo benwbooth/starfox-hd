@@ -618,6 +618,7 @@ pub fn presentation_aligned_source_frame(
     aligned.player_view_mode = scene.player_view_mode;
     aligned.stage = scene.stage;
     aligned.stage_banner = scene.stage_banner;
+    aligned.scramble_banner = scene.scramble_banner;
     aligned.shield_cur = scene.shield_cur;
     aligned.shield_max = scene.shield_max;
     aligned.boss_hp_cur = scene.boss_hp_cur;
@@ -733,6 +734,7 @@ pub fn frame_inputs(frame: &FrameSnapshot, game_state: RenderGameState) -> Frame
         player_view_mode: frame.player_view_mode,
         stage: frame.stage,
         stage_banner: frame.stage_banner,
+        scramble_banner: frame.scramble_banner,
         shield_cur: frame.shield_cur,
         shield_max: frame.shield_max,
         boss_hp_cur: frame.boss_hp_cur,

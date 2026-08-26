@@ -312,6 +312,24 @@ impl Ppu {
         rgba
     }
 
+    pub(crate) fn snapshot_obj_rgba(&self) -> Vec<u8> {
+        let mut rgba = vec![0; FRAME_WIDTH * FRAME_HEIGHT * 4];
+        for y in 0..FRAME_HEIGHT {
+            let sprites = self.sprite_scanline(y);
+            for (x, sprite) in sprites.into_iter().enumerate() {
+                if self.main_screen_window_masked(4, x) {
+                    continue;
+                }
+                let Some((color, _priority)) = sprite else {
+                    continue;
+                };
+                let offset = (y * FRAME_WIDTH + x) * 4;
+                rgba[offset..offset + 4].copy_from_slice(&self.color(usize::from(color)));
+            }
+        }
+        rgba
+    }
+
     pub(crate) fn snapshot_bg_indices(&self, bg: usize) -> Vec<u8> {
         let mut indices = vec![u8::MAX; FRAME_WIDTH * FRAME_HEIGHT];
         for y in 0..FRAME_HEIGHT {

@@ -42,7 +42,10 @@ use sf_core::{
         PLANET_NAME_CHARACTER_TICKS, PLANET_NAME_TERMINATION_TICKS, PLANET_ZOOM_TICKS,
         RETAIL_VIDEO_FRAMES_PER_GAME_TICK, SHIP_FLASH_TICKS,
     },
-    stage_banner::{StageBannerKind, StageBannerState},
+    stage_banner::{
+        ScrambleBannerState, StageBannerKind, StageBannerState,
+        PRESENTATION_FRAMES_PER_GAMEPLAY_TICK,
+    },
     DrawListEntry,
 };
 
@@ -1093,6 +1096,8 @@ pub struct FrameSnapshot {
     pub stage: u16,
     /// Active flight-stage announcement, if its countdown has not expired.
     pub stage_banner: Option<StageBannerState>,
+    /// Active launch warning, with the source gameplay-frame blink phase.
+    pub scramble_banner: Option<ScrambleBannerState>,
     pub shield_cur: i32,
     pub shield_max: i32,
     pub boss_hp_cur: i32,
@@ -1667,6 +1672,9 @@ impl Shell {
         if wipe_was_active && !wipe_active && self.game.vars.circleanim == 1 {
             self.game.vars.circleanim = 0;
         }
+        if self.game_state == GameState::Playing {
+            self.consume_hud_presentation_interval(wipe_was_active);
+        }
 
         // IRQ.ASM `getcont0` maps the physical pad through the selected
         // controller layout before every consumer sees held/edge state.
@@ -1824,6 +1832,24 @@ impl Shell {
         }
     }
 
+    /// Consume the source sprite lane's 60 Hz countdowns for the presentation
+    /// interval completed since the preceding 20 Hz game update.
+    fn consume_hud_presentation_interval(&mut self, wipe_was_active: bool) {
+        self.game.vars.stagecnt = self
+            .game
+            .vars
+            .stagecnt
+            .saturating_sub(i16::from(PRESENTATION_FRAMES_PER_GAMEPLAY_TICK))
+            .max(0);
+        if !wipe_was_active {
+            self.game.vars.scramble_count = self
+                .game
+                .vars
+                .scramble_count
+                .saturating_sub(PRESENTATION_FRAMES_PER_GAMEPLAY_TICK);
+        }
+    }
+
     pub fn state(&self) -> GameState {
         self.game_state
     }
@@ -1900,6 +1926,10 @@ impl Shell {
                 },
                 ticks_remaining,
             });
+        let scramble_banner = (v.scramble_count != 0).then_some(ScrambleBannerState {
+            ticks_remaining: v.scramble_count,
+            game_frame: v.gameframe,
+        });
 
         FrameSnapshot {
             game_state_code: self.game_state.code(),
@@ -1940,6 +1970,7 @@ impl Shell {
             player_view_mode: v.player_view_mode,
             stage: self.planets.stage,
             stage_banner,
+            scramble_banner,
             shield_cur,
             shield_max,
             boss_hp_cur: v.bosshp as i32,
@@ -3102,12 +3133,6 @@ impl Shell {
         if flash > 0 {
             self.game.vars.shared.special_flash = flash.wrapping_sub(1);
         }
-        // `do_stage` consumes one announcement tick after the map update that
-        // may have started it, before the sprite message is assembled.
-        if self.game.vars.stagecnt > 0 {
-            self.game.vars.stagecnt -= 1;
-        }
-
         // showview_l (nmi.c:96). Cull anchor = camera viewpos (published by
         // getview above), sh_zmax margin from the coldet shape-extents table.
         draw::build_list(
@@ -3845,6 +3870,30 @@ mod tests {
     use super::*;
     use sf_core::screen_wipe::ScreenWipeKind::{HorizontalReveal, StarReveal};
     use sf_map::catalog::map_id;
+
+    #[test]
+    fn hud_countdowns_consume_three_presentation_frames_per_game_tick() {
+        let mut shell = Shell::new();
+        shell.game.vars.stagecnt = 50;
+        shell.game.vars.scramble_count = 50;
+
+        shell.consume_hud_presentation_interval(false);
+        assert_eq!(shell.game.vars.stagecnt, 47);
+        assert_eq!(shell.game.vars.scramble_count, 47);
+
+        shell.consume_hud_presentation_interval(true);
+        assert_eq!(shell.game.vars.stagecnt, 44);
+        assert_eq!(
+            shell.game.vars.scramble_count, 47,
+            "the source skips prt_scramble while its aperture wipe is active"
+        );
+
+        shell.game.vars.stagecnt = 2;
+        shell.game.vars.scramble_count = 1;
+        shell.consume_hud_presentation_interval(false);
+        assert_eq!(shell.game.vars.stagecnt, 0);
+        assert_eq!(shell.game.vars.scramble_count, 0);
+    }
 
     #[test]
     fn shield_meter_reads_the_retained_body_proxy_through_death() {

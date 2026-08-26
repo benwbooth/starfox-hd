@@ -1,5 +1,8 @@
 //! Typed flight-stage announcement state shared by the game and renderer.
 
+/// Source presentation refreshes spanned by one fixed 20 Hz game update.
+pub const PRESENTATION_FRAMES_PER_GAMEPLAY_TICK: u8 = 3;
+
 /// Message selected when a stage announcement begins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StageBannerKind {
@@ -7,7 +10,7 @@ pub enum StageBannerKind {
     Training,
 }
 
-/// Remaining source gameplay ticks and the message presented during them.
+/// Source presentation frames remaining at the start of a 20 Hz game interval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StageBannerState {
     pub kind: StageBannerKind,
@@ -16,13 +19,38 @@ pub struct StageBannerState {
 
 impl StageBannerState {
     pub const fn is_visible(self) -> bool {
-        self.ticks_remaining & 7 >= 3
+        self.is_visible_at_phase(0)
+    }
+
+    pub const fn is_visible_at_phase(self, presentation_phase: u8) -> bool {
+        let remaining = self
+            .ticks_remaining
+            .saturating_sub(presentation_phase.saturating_add(1));
+        remaining != 0 && remaining & 7 >= 3
+    }
+}
+
+/// Source presentation frames remaining and gameplay blink phase for the
+/// launch `SCRAMBLE` warning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrambleBannerState {
+    pub ticks_remaining: u8,
+    pub game_frame: u16,
+}
+
+impl ScrambleBannerState {
+    pub const fn is_visible(self) -> bool {
+        self.is_visible_at_phase(0)
+    }
+
+    pub const fn is_visible_at_phase(self, presentation_phase: u8) -> bool {
+        self.ticks_remaining > presentation_phase && self.game_frame & 7 < 3
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{StageBannerKind, StageBannerState};
+    use super::{ScrambleBannerState, StageBannerKind, StageBannerState};
 
     #[test]
     fn source_blink_window_is_five_ticks_on_and_three_ticks_off() {
@@ -31,7 +59,54 @@ mod tests {
                 kind: StageBannerKind::Training,
                 ticks_remaining,
             };
-            assert_eq!(state.is_visible(), ticks_remaining & 7 >= 3);
+            let remaining_after_source_decrement = ticks_remaining.saturating_sub(1);
+            assert_eq!(
+                state.is_visible(),
+                remaining_after_source_decrement != 0 && remaining_after_source_decrement & 7 >= 3
+            );
         }
+    }
+
+    #[test]
+    fn presentation_phase_consumes_one_source_frame_per_refresh() {
+        let state = StageBannerState {
+            kind: StageBannerKind::Training,
+            ticks_remaining: 6,
+        };
+        assert!(state.is_visible_at_phase(0));
+        assert!(state.is_visible_at_phase(1));
+        assert!(state.is_visible_at_phase(2));
+
+        let ending = StageBannerState {
+            kind: StageBannerKind::Training,
+            ticks_remaining: 2,
+        };
+        assert!(!ending.is_visible_at_phase(0));
+        assert!(!ending.is_visible_at_phase(1));
+        assert!(!ending.is_visible_at_phase(2));
+    }
+
+    #[test]
+    fn scramble_warning_blinks_three_ticks_on_and_five_ticks_off() {
+        for game_frame in 0..16 {
+            let state = ScrambleBannerState {
+                ticks_remaining: 3,
+                game_frame,
+            };
+            assert_eq!(state.is_visible(), game_frame & 7 < 3);
+        }
+        assert!(!ScrambleBannerState {
+            ticks_remaining: 0,
+            game_frame: 0,
+        }
+        .is_visible());
+
+        let ending = ScrambleBannerState {
+            ticks_remaining: 2,
+            game_frame: 0,
+        };
+        assert!(ending.is_visible_at_phase(0));
+        assert!(ending.is_visible_at_phase(1));
+        assert!(!ending.is_visible_at_phase(2));
     }
 }

@@ -20,6 +20,7 @@ pub fn build() -> Route2Level {
     let mut b = MapBuilder::new();
 
     b.mapwait(100);
+    b.setvarb(wm::SCRAMBLE_COUNT, 50);
     b.mapjsr("map1_1a");
     b.qfadedown();
     b.waitfade();

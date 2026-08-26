@@ -45,6 +45,7 @@ pub const SPR_VFLIP: u8 = 0x02;
 pub const SPR_PAL_DEFAULT: u8 = 0;
 pub const SPR_PAL_BLUE: u8 = 1;
 pub const SPR_PAL_FOX: u8 = 2;
+pub const SPR_PAL_WARNING: u8 = 2;
 pub const SPR_PAL_CROSS: u8 = 4;
 
 const ATLAS_COLS: usize = 16;

@@ -1,9 +1,9 @@
-length 2516
+length 2521
 native 0x01f101
 native 0x01f102
 native 0x01f104
-inline 8
-inline 712
-inline 2246
-inline 2257
-inline 2258
+inline 13
+inline 717
+inline 2251
+inline 2262
+inline 2263

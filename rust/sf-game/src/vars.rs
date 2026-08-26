@@ -577,6 +577,8 @@ pub struct GameVars {
     pub mapptr: u16,
     /// C `g_stagecnt` (setstage opcode).
     pub stagecnt: i16,
+    /// Source `scramble`, the launch-warning countdown consumed by sprites.
+    pub scramble_count: u8,
     /// C `g_dotsflag` (-1 space dust, 0 none, 1 ground dots).
     pub dotsflag: i16,
     /// Typed point-field declaration selected by the active background.
@@ -722,6 +724,7 @@ impl Default for GameVars {
             mapcnt: 0,
             mapptr: 0,
             stagecnt: 0,
+            scramble_count: 0,
             dotsflag: 0,
             point_field_mode: PointFieldMode::None,
             space_dust_uses_reduced_speed: false,
@@ -916,6 +919,7 @@ impl GameVars {
             0x030D => self.map.palette_length,
             0x030E => low(self.map.player_position_x as u16),
             0x030F => high(self.map.player_position_x as u16),
+            0x0318 => self.scramble_count,
             0x0310 => self.map.global_strategy_byte,
             0x0311 => self.map.trigger,
             0x0312 => self.numendok,
@@ -1135,6 +1139,7 @@ impl GameVars {
             0x0312 => self.numendok = value,
             0x0313 => self.strategy.player_laser_count = value,
             0x0317 => self.circleanim = i16::from(value),
+            0x0318 => self.scramble_count = value,
             0x0320 => self.map.variable1 = (self.map.variable1 & 0xFFFF_FF00) | u32::from(value),
             0x0321 => {
                 self.map.variable1 = (self.map.variable1 & 0xFFFF_00FF) | (u32::from(value) << 8)

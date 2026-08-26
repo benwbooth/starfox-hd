@@ -272,6 +272,9 @@ pub const RETAIL_MAPJSR_DEPTH: u32 = 0x1732;
 /// Built: dozrot `$1776`, stagecnt `$163E`, currentbg `$17C6`, bgflags `$1A17`,
 /// specialobjtotal `$17C1`.
 pub const RETAIL_DOZROT: u32 = 0x16F1;
+/// Retail one-byte launch-warning countdown, immediately before stageclear
+/// and the two-byte stage counter in the source allocation record.
+pub const RETAIL_SCRAMBLE_COUNT: u32 = 0x15B7;
 pub const RETAIL_STAGECNT: u32 = 0x15B9;
 pub const RETAIL_CURRENTBG: u32 = 0x1741;
 pub const RETAIL_BGFLAGS: u32 = 0x1F13;
@@ -1728,6 +1731,10 @@ impl RetailBootBus {
         self.ppu.snapshot_bg_rgba(bg)
     }
 
+    pub fn ppu_snapshot_obj_rgba(&self) -> Vec<u8> {
+        self.ppu.snapshot_obj_rgba()
+    }
+
     pub fn ppu_snapshot_bg_indices(&self, bg: usize) -> Vec<u8> {
         self.ppu.snapshot_bg_indices(bg)
     }
@@ -2561,6 +2568,10 @@ impl RetailMachine {
 
     pub fn ppu_snapshot_bg_rgba(&self, bg: usize) -> Vec<u8> {
         self.bus.ppu_snapshot_bg_rgba(bg)
+    }
+
+    pub fn ppu_snapshot_obj_rgba(&self) -> Vec<u8> {
+        self.bus.ppu_snapshot_obj_rgba()
     }
 
     pub fn ppu_snapshot_bg_indices(&self, bg: usize) -> Vec<u8> {

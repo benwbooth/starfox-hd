@@ -17,17 +17,26 @@ use crate::renderer::{FrameInputs, GameState};
 use crate::shapes::ShapePaletteRgb;
 use crate::source_raster::SourceBitmapRect;
 use crate::sprites::{
-    Sprites, FACE_H, FACE_W, SPR_HFLIP, SPR_PAL_CROSS, SPR_PAL_DEFAULT, SPR_VFLIP,
+    Sprites, FACE_H, FACE_W, SPR_HFLIP, SPR_PAL_CROSS, SPR_PAL_DEFAULT, SPR_PAL_WARNING, SPR_VFLIP,
 };
-use sf_core::stage_banner::{StageBannerKind, StageBannerState};
+use sf_core::stage_banner::{
+    ScrambleBannerState, StageBannerKind, StageBannerState, PRESENTATION_FRAMES_PER_GAMEPLAY_TICK,
+};
 
 const STAGE_BANNER_Y: i32 = 72;
 const STAGE_BANNER_STAGE_X: i32 = 80;
 const STAGE_BANNER_TRAINING_X: i32 = 72;
 const STAGE_BANNER_PALETTE: u8 = SPR_PAL_DEFAULT;
+const SCRAMBLE_BANNER_X: i32 = 72;
+const SCRAMBLE_BANNER_PALETTE: u8 = SPR_PAL_WARNING;
 const MESSAGE_GLYPH_COLUMN_WIDTH: i32 = 8;
 const MESSAGE_GLYPH_ROW_HEIGHT: i32 = 8;
 const SOURCE_MESSAGE_TILE_BANK: i32 = 128;
+
+fn presentation_phase(alpha: f32) -> u8 {
+    ((alpha.clamp(0.0, 1.0) * f32::from(PRESENTATION_FRAMES_PER_GAMEPLAY_TICK)) as u8)
+        .min(PRESENTATION_FRAMES_PER_GAMEPLAY_TICK - 1)
+}
 
 #[derive(Clone, Copy)]
 enum MessageGlyph {
@@ -49,9 +58,13 @@ const fn narrow_glyph(a: i32, b: i32) -> MessageGlyph {
 }
 
 const MESSAGE_A: MessageGlyph = full_glyph(8, 9, 10, 11);
+const MESSAGE_B: MessageGlyph = full_glyph(87, 88, 95, 96);
+const MESSAGE_C: MessageGlyph = full_glyph(80, 81, 82, 83);
 const MESSAGE_E: MessageGlyph = full_glyph(16, 17, 18, 19);
 const MESSAGE_G: MessageGlyph = full_glyph(12, 13, 14, 15);
 const MESSAGE_I: MessageGlyph = narrow_glyph(22, 23);
+const MESSAGE_L: MessageGlyph = full_glyph(84, 79, 85, 86);
+const MESSAGE_M: MessageGlyph = full_glyph(91, 92, 93, 94);
 const MESSAGE_N: MessageGlyph = full_glyph(66, 67, 68, 69);
 const MESSAGE_R: MessageGlyph = full_glyph(87, 88, 89, 90);
 const MESSAGE_S: MessageGlyph = full_glyph(0, 1, 2, 3);
@@ -67,6 +80,9 @@ const STAGE_MESSAGE: [MessageGlyph; 6] = [
     MESSAGE_G,
     MESSAGE_E,
     MESSAGE_DASH,
+];
+const SCRAMBLE_MESSAGE: [MessageGlyph; 8] = [
+    MESSAGE_S, MESSAGE_C, MESSAGE_R, MESSAGE_A, MESSAGE_M, MESSAGE_B, MESSAGE_L, MESSAGE_E,
 ];
 const DIGIT_MESSAGES: [MessageGlyph; 10] = [
     full_glyph(56, 57, 58, 59),
@@ -312,64 +328,82 @@ impl Default for Hud {
 }
 
 impl Hud {
-    fn draw_message_glyph(sprites: &mut Sprites, glyph: MessageGlyph, x: i32, y: i32) -> i32 {
+    fn draw_message_glyph(
+        sprites: &mut Sprites,
+        glyph: MessageGlyph,
+        x: i32,
+        y: i32,
+        palette: u8,
+    ) -> i32 {
         match glyph {
             MessageGlyph::Full(tiles) => {
-                sprites.draw8(tiles[0], x, y, STAGE_BANNER_PALETTE, 0);
-                sprites.draw8(
-                    tiles[1],
-                    x + MESSAGE_GLYPH_COLUMN_WIDTH,
-                    y,
-                    STAGE_BANNER_PALETTE,
-                    0,
-                );
-                sprites.draw8(
-                    tiles[2],
-                    x,
-                    y + MESSAGE_GLYPH_ROW_HEIGHT,
-                    STAGE_BANNER_PALETTE,
-                    0,
-                );
+                sprites.draw8(tiles[0], x, y, palette, 0);
+                sprites.draw8(tiles[1], x + MESSAGE_GLYPH_COLUMN_WIDTH, y, palette, 0);
+                sprites.draw8(tiles[2], x, y + MESSAGE_GLYPH_ROW_HEIGHT, palette, 0);
                 sprites.draw8(
                     tiles[3],
                     x + MESSAGE_GLYPH_COLUMN_WIDTH,
                     y + MESSAGE_GLYPH_ROW_HEIGHT,
-                    STAGE_BANNER_PALETTE,
+                    palette,
                     0,
                 );
                 x + MESSAGE_GLYPH_COLUMN_WIDTH * 2
             }
             MessageGlyph::Narrow(tiles) => {
-                sprites.draw8(tiles[0], x, y, STAGE_BANNER_PALETTE, 0);
-                sprites.draw8(
-                    tiles[1],
-                    x,
-                    y + MESSAGE_GLYPH_ROW_HEIGHT,
-                    STAGE_BANNER_PALETTE,
-                    0,
-                );
+                sprites.draw8(tiles[0], x, y, palette, 0);
+                sprites.draw8(tiles[1], x, y + MESSAGE_GLYPH_ROW_HEIGHT, palette, 0);
                 x + MESSAGE_GLYPH_COLUMN_WIDTH
             }
         }
     }
 
-    fn draw_message(sprites: &mut Sprites, glyphs: &[MessageGlyph], mut x: i32) -> i32 {
+    fn draw_message(
+        sprites: &mut Sprites,
+        glyphs: &[MessageGlyph],
+        mut x: i32,
+        palette: u8,
+    ) -> i32 {
         for glyph in glyphs {
-            x = Self::draw_message_glyph(sprites, *glyph, x, STAGE_BANNER_Y);
+            x = Self::draw_message_glyph(sprites, *glyph, x, STAGE_BANNER_Y, palette);
         }
         x
     }
 
-    fn draw_stage_banner(sprites: &mut Sprites, banner: StageBannerState) {
-        if !banner.is_visible() {
+    fn draw_scramble_banner(
+        sprites: &mut Sprites,
+        banner: ScrambleBannerState,
+        presentation_phase: u8,
+    ) {
+        if banner.is_visible_at_phase(presentation_phase) {
+            Self::draw_message(
+                sprites,
+                &SCRAMBLE_MESSAGE,
+                SCRAMBLE_BANNER_X,
+                SCRAMBLE_BANNER_PALETTE,
+            );
+        }
+    }
+
+    fn draw_stage_banner(sprites: &mut Sprites, banner: StageBannerState, presentation_phase: u8) {
+        if !banner.is_visible_at_phase(presentation_phase) {
             return;
         }
         match banner.kind {
             StageBannerKind::Training => {
-                Self::draw_message(sprites, &TRAINING_MESSAGE, STAGE_BANNER_TRAINING_X);
+                Self::draw_message(
+                    sprites,
+                    &TRAINING_MESSAGE,
+                    STAGE_BANNER_TRAINING_X,
+                    STAGE_BANNER_PALETTE,
+                );
             }
             StageBannerKind::Stage(stage) => {
-                let mut x = Self::draw_message(sprites, &STAGE_MESSAGE, STAGE_BANNER_STAGE_X);
+                let mut x = Self::draw_message(
+                    sprites,
+                    &STAGE_MESSAGE,
+                    STAGE_BANNER_STAGE_X,
+                    STAGE_BANNER_PALETTE,
+                );
                 let displayed_stage = stage.saturating_add(1);
                 if displayed_stage >= 10 {
                     x = Self::draw_message_glyph(
@@ -377,6 +411,7 @@ impl Hud {
                         DIGIT_MESSAGES[usize::from(displayed_stage / 10)],
                         x,
                         STAGE_BANNER_Y,
+                        STAGE_BANNER_PALETTE,
                     );
                 }
                 Self::draw_message_glyph(
@@ -384,6 +419,7 @@ impl Hud {
                     DIGIT_MESSAGES[usize::from(displayed_stage % 10)],
                     x,
                     STAGE_BANNER_Y,
+                    STAGE_BANNER_PALETTE,
                 );
             }
         }
@@ -645,6 +681,7 @@ impl Hud {
         shape_palette: &ShapePaletteRgb,
         screen_width: i32,
         screen_height: i32,
+        alpha: f32,
     ) {
         let tally = inputs.tally_active;
         if inputs.game_state != GameState::Playing && !tally {
@@ -842,8 +879,12 @@ impl Hud {
             }
         }
 
+        let presentation_phase = presentation_phase(alpha);
+        if let Some(scramble_banner) = inputs.scramble_banner {
+            Self::draw_scramble_banner(sprites, scramble_banner, presentation_phase);
+        }
         if let Some(stage_banner) = inputs.stage_banner {
-            Self::draw_stage_banner(sprites, stage_banner);
+            Self::draw_stage_banner(sprites, stage_banner, presentation_phase);
         }
 
         sprites.render_hud(

@@ -28,6 +28,7 @@ pub fn build() -> BuiltLevel {
     // `initlevel 1_1i` runs `pstrat playeropening` (started from boot),
     // then the wrapper jsrs into the shared MAP1_1A submap (appended below).
     b.mapwait(100);
+    b.setvarb(wm::SCRAMBLE_COUNT, 50);
     b.mapjsr("map1_1a");
     b.fadedown();
     let fade_wait_ptr = b.mapcode65816_inline();
