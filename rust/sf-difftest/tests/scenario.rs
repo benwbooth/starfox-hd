@@ -1,7 +1,7 @@
 use sf_difftest::{
     compare_scenario, CaptureChannel, EvidenceProducer, HashObservation, NonStrictEvidence,
-    ScenarioEvidence, ScenarioInputRun, ScenarioManifest, SemanticEvent, SemanticFrame,
-    EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
+    ScenarioClock, ScenarioEvidence, ScenarioInputRun, ScenarioManifest, SemanticEvent,
+    SemanticFrame, EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
 };
 use std::collections::BTreeSet;
 
@@ -10,6 +10,8 @@ const IDLE_INPUT: u32 = 0;
 const FIRE_INPUT: u32 = 1;
 const IDLE_FRAMES: u64 = 2;
 const FIRE_FRAMES: u64 = 1;
+const PRESENTATION_REFRESH_RATE_NUMERATOR: u32 = 60;
+const PRESENTATION_REFRESH_RATE_DENOMINATOR: u32 = 1;
 
 fn all_channels() -> BTreeSet<CaptureChannel> {
     [
@@ -30,6 +32,7 @@ fn manifest() -> ScenarioManifest {
         id: "pilot".to_owned(),
         description: "strict conformance pilot".to_owned(),
         retail_rom_sha256: RETAIL_ROM_SHA256.to_owned(),
+        clock: ScenarioClock::logical_update(),
         input_runs: vec![
             ScenarioInputRun {
                 frames: IDLE_FRAMES,
@@ -82,6 +85,7 @@ fn evidence(producer: EvidenceProducer) -> ScenarioEvidence {
         scenario_id: "pilot".to_owned(),
         producer,
         retail_rom_sha256: RETAIL_ROM_SHA256.to_owned(),
+        clock: ScenarioClock::logical_update(),
         channels: all_channels(),
         coverage,
         non_strict: NonStrictEvidence::default(),
@@ -148,4 +152,45 @@ fn manifest_input_and_coverage_are_enforced() {
     let report = compare_scenario(&manifest(), &retail, &native).expect("valid structure");
     assert!(!report.strict_pass);
     assert_eq!(report.missing_native_coverage, ["native:title"]);
+}
+
+#[test]
+fn evidence_clock_must_match_the_manifest() {
+    let retail = evidence(EvidenceProducer::Retail);
+    let mut native = evidence(EvidenceProducer::Native);
+    native.clock = ScenarioClock::presentation_frame(
+        PRESENTATION_REFRESH_RATE_NUMERATOR,
+        PRESENTATION_REFRESH_RATE_DENOMINATOR,
+    );
+
+    let error = compare_scenario(&manifest(), &retail, &native)
+        .expect_err("mismatched evidence clocks must fail");
+    assert!(error.to_string().contains("evidence clock"));
+}
+
+#[test]
+fn presentation_clock_requires_output_and_contiguous_refreshes() {
+    let mut presentation = manifest();
+    presentation.clock = ScenarioClock::presentation_frame(
+        PRESENTATION_REFRESH_RATE_NUMERATOR,
+        PRESENTATION_REFRESH_RATE_DENOMINATOR,
+    );
+    presentation.required_channels = [CaptureChannel::SemanticState].into_iter().collect();
+    let error = compare_scenario(
+        &presentation,
+        &evidence(EvidenceProducer::Retail),
+        &evidence(EvidenceProducer::Native),
+    )
+    .expect_err("presentation scenarios must observe output");
+    assert!(error.to_string().contains("source video or audio"));
+
+    presentation.required_channels = all_channels();
+    let mut retail = evidence(EvidenceProducer::Retail);
+    let mut native = evidence(EvidenceProducer::Native);
+    retail.clock = presentation.clock;
+    native.clock = presentation.clock;
+    native.frames[1].source_frame = native.frames[1].source_frame.saturating_add(1);
+    let error = compare_scenario(&presentation, &retail, &native)
+        .expect_err("presentation refreshes must be contiguous");
+    assert!(error.to_string().contains("elapsed source frame"));
 }

@@ -5,8 +5,8 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
-pub const SCENARIO_SCHEMA_VERSION: u32 = 1;
-pub const EVIDENCE_SCHEMA_VERSION: u32 = 1;
+pub const SCENARIO_SCHEMA_VERSION: u32 = 2;
+pub const EVIDENCE_SCHEMA_VERSION: u32 = 2;
 const SHA256_TEXT_LENGTH: usize = 64;
 
 #[derive(Clone, Copy, Debug, Deserialize, Ord, PartialOrd, Eq, PartialEq, Serialize)]
@@ -27,6 +27,52 @@ pub enum EvidenceProducer {
     Native,
 }
 
+/// The independently observed boundary represented by one evidence frame.
+///
+/// Logical updates may consume a variable number of source display refreshes.
+/// Presentation frames instead use a contiguous elapsed-refresh clock, so
+/// pixels and audio cannot be compared at adapter-selected logic boundaries.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "domain", rename_all = "snake_case")]
+pub enum ScenarioClock {
+    LogicalUpdate,
+    PresentationFrame {
+        refresh_rate_numerator: u32,
+        refresh_rate_denominator: u32,
+    },
+}
+
+impl ScenarioClock {
+    pub const fn logical_update() -> Self {
+        Self::LogicalUpdate
+    }
+
+    pub const fn presentation_frame(
+        refresh_rate_numerator: u32,
+        refresh_rate_denominator: u32,
+    ) -> Self {
+        Self::PresentationFrame {
+            refresh_rate_numerator,
+            refresh_rate_denominator,
+        }
+    }
+
+    fn validate(self, scenario_id: &str) -> Result<(), TraceError> {
+        if let Self::PresentationFrame {
+            refresh_rate_numerator,
+            refresh_rate_denominator,
+        } = self
+        {
+            if refresh_rate_numerator == 0 || refresh_rate_denominator == 0 {
+                return Err(TraceError::new(format!(
+                    "scenario {scenario_id:?}: presentation refresh rate must be nonzero"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ScenarioInputRun {
     pub frames: u64,
@@ -39,6 +85,7 @@ pub struct ScenarioManifest {
     pub id: String,
     pub description: String,
     pub retail_rom_sha256: String,
+    pub clock: ScenarioClock,
     pub input_runs: Vec<ScenarioInputRun>,
     pub required_channels: BTreeSet<CaptureChannel>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
@@ -107,6 +154,20 @@ impl ScenarioManifest {
                 self.id
             )));
         }
+        self.clock.validate(&self.id)?;
+        if matches!(self.clock, ScenarioClock::PresentationFrame { .. })
+            && !self
+                .required_channels
+                .contains(&CaptureChannel::SourceResolutionVideo)
+            && !self
+                .required_channels
+                .contains(&CaptureChannel::AudioEvents)
+        {
+            return Err(TraceError::new(format!(
+                "scenario {:?}: presentation-frame evidence must require source video or audio",
+                self.id
+            )));
+        }
         let _ = self.expected_frames()?;
         Ok(())
     }
@@ -147,6 +208,7 @@ pub struct ScenarioEvidence {
     pub scenario_id: String,
     pub producer: EvidenceProducer,
     pub retail_rom_sha256: String,
+    pub clock: ScenarioClock,
     pub channels: BTreeSet<CaptureChannel>,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub coverage: BTreeSet<String>,
@@ -188,10 +250,17 @@ impl ScenarioEvidence {
                 manifest.id
             )));
         }
+        if self.clock != manifest.clock {
+            return Err(TraceError::new(format!(
+                "scenario {:?} {expected_producer:?}: evidence clock {:?}, expected {:?}",
+                manifest.id, self.clock, manifest.clock
+            )));
+        }
         validate_trace(
             &self.frames,
             &format!("scenario {:?} {expected_producer:?} evidence", manifest.id),
         )?;
+        let mut previous_source_frame = None;
         for (index, frame) in self.frames.iter().enumerate() {
             let sequence = index as u64;
             if frame.sequence != sequence {
@@ -212,6 +281,21 @@ impl ScenarioEvidence {
                     manifest.id, frame.input
                 )));
             }
+            if previous_source_frame.is_some_and(|previous| previous >= frame.source_frame) {
+                return Err(TraceError::new(format!(
+                    "scenario {:?} {expected_producer:?}: source frame {} at sequence {sequence} is not strictly increasing",
+                    manifest.id, frame.source_frame
+                )));
+            }
+            if matches!(manifest.clock, ScenarioClock::PresentationFrame { .. })
+                && frame.source_frame != sequence
+            {
+                return Err(TraceError::new(format!(
+                    "scenario {:?} {expected_producer:?}: presentation sequence {sequence} has elapsed source frame {}, expected {sequence}",
+                    manifest.id, frame.source_frame
+                )));
+            }
+            previous_source_frame = Some(frame.source_frame);
         }
         Ok(())
     }

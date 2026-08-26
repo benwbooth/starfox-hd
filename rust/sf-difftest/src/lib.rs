@@ -18,7 +18,7 @@ mod source_video;
 pub use scenario::{
     compare_scenario, read_scenario_evidence, read_scenario_manifest, write_scenario_evidence,
     write_scenario_manifest, CaptureChannel, ConformanceReport, EvidenceProducer,
-    NonStrictEvidence, ScenarioEvidence, ScenarioInputRun, ScenarioManifest,
+    NonStrictEvidence, ScenarioClock, ScenarioEvidence, ScenarioInputRun, ScenarioManifest,
     EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
 };
 pub use source_video::{

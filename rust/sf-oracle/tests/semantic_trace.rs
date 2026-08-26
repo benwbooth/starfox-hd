@@ -4,8 +4,8 @@
 use sf_core::{pad, sf1_controls::BriefingPhase, sf1_planets::PlanetSequencePhase};
 use sf_difftest::{
     compare_scenario, first_divergence, CaptureChannel, EvidenceProducer, NonStrictEvidence,
-    ScenarioEvidence, ScenarioInputRun, ScenarioManifest, SemanticEvent, SemanticFrame,
-    SemanticObject, EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
+    ScenarioClock, ScenarioEvidence, ScenarioInputRun, ScenarioManifest, SemanticEvent,
+    SemanticFrame, SemanticObject, EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
 };
 use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
@@ -608,6 +608,7 @@ fn front_end_manifest() -> ScenarioManifest {
         id: FRONT_END_SCENARIO_ID.to_owned(),
         description: "Retail boot through the first Corneria corridor updates".to_owned(),
         retail_rom_sha256: RETAIL_ROM_SHA256.to_owned(),
+        clock: ScenarioClock::logical_update(),
         input_runs: front_end_input_runs(),
         required_channels: [
             CaptureChannel::SemanticState,
@@ -1381,6 +1382,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         scenario_id: FRONT_END_SCENARIO_ID.to_owned(),
         producer: EvidenceProducer::Retail,
         retail_rom_sha256: retail_rom_sha256.clone(),
+        clock: ScenarioClock::logical_update(),
         channels: channels.clone(),
         coverage: [
             "retail:front-end-phases".to_owned(),
@@ -1397,6 +1399,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         scenario_id: FRONT_END_SCENARIO_ID.to_owned(),
         producer: EvidenceProducer::Native,
         retail_rom_sha256,
+        clock: ScenarioClock::logical_update(),
         channels,
         coverage: [
             "native:front-end-phases".to_owned(),
