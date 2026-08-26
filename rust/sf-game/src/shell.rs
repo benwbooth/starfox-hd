@@ -50,6 +50,7 @@ use crate::alien::{ASF3_REALOBJ, ASF4_DONESND};
 use crate::camera::GameCamera;
 use crate::charmap::CharMap;
 use crate::game::{Game, Hooks, PosSndFamilyId};
+use crate::gameplay_timing::{self, GameplayTickTiming};
 use crate::obj::Objects;
 use crate::planets::{Planets, RouteSelectionResult, DEFAULT_LIVES};
 use crate::point_field::PointField;
@@ -280,12 +281,6 @@ const LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE: i16 = 63;
 /// Runtime random state left by the retail 3D setup and game-frame-zero
 /// strategy initialization. Gameplay then advances it once per logic frame.
 const LEVEL_INITIALIZATION_RANDOM_STATE: [u8; 4] = [114, 239, 178, 245];
-/// Elapsed 60 Hz display refreshes represented by one fixed 20 Hz native tick.
-/// Retail measures this value from its variable transfer/render workload and
-/// uses it only to keep player X/Y motion stable in real time. The modern port
-/// has no source-hardware stalls, so its typed elapsed-time field is fixed at
-/// the exact 60/20 ratio instead of reproducing machine execution time.
-const GAMEPLAY_PLAYER_FRAME_RATE: u8 = RETAIL_VIDEO_FRAMES_PER_GAME_TICK as u8;
 /// The ordinary level transfer completes two additional player color-cycle
 /// advances before its first active strategy update.
 const STANDARD_GAMEPLAY_PLAYER_COLOR_FRAME: u8 = 131;
@@ -1623,11 +1618,16 @@ impl Shell {
         Some(player)
     }
 
-    /// One full C `Game_Tick` (boot.c:222) at 20 Hz. Caller passes the
-    /// latched pad; pad1_new is computed from the previous tick's pad
-    /// (SfRtl_BeginFrame edge semantics, sf_rtl.c:142-147) and pad1 is
-    /// stored into `game.vars.pad1`.
+    /// One full C `Game_Tick` (boot.c:222). The caller schedules front-end
+    /// updates at 20 Hz and active gameplay through
+    /// [`Self::next_tick_presentation_refreshes`]. The latched pad produces
+    /// source-compatible edge state before being stored in `game.vars.pad1`.
     pub fn tick(&mut self, pad1: u16) {
+        if self.game_state == GameState::Playing
+            && self.gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
+        {
+            self.game.vars.strategy.frame_rate = self.next_gameplay_timing().motion_refreshes;
+        }
         // TRANS.ASM runs the background transfer from the previous player
         // roll before `dostrats` advances the current game update.
         let transfer_player_x = {
@@ -1842,6 +1842,23 @@ impl Shell {
 
     pub fn state(&self) -> GameState {
         self.game_state
+    }
+
+    fn next_gameplay_timing(&self) -> GameplayTickTiming {
+        gameplay_timing::timing_for_update(self.planets.newmap, self.game.vars.gameframe)
+    }
+
+    /// Source display refreshes represented by the next native shell update.
+    /// Front-end phases retain their fixed 20 Hz cadence; active gameplay uses
+    /// typed scene timing so real-time pacing matches the authored source.
+    pub fn next_tick_presentation_refreshes(&self) -> u8 {
+        if self.game_state == GameState::Playing
+            && self.gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
+        {
+            self.next_gameplay_timing().presentation_refreshes
+        } else {
+            RETAIL_VIDEO_FRAMES_PER_GAME_TICK as u8
+        }
     }
 
     /// ROM `dopause` latch — true while gameplay is frozen on START pause.
@@ -2984,7 +3001,8 @@ impl Shell {
             self.initialize_player_for_map(self.planets.newmap, player);
             self.game.objs.aliens[usize::from(player)].colframe = profile.player_color_frame;
             self.game.vars.rng = profile.random_state;
-            self.game.vars.strategy.frame_rate = GAMEPLAY_PLAYER_FRAME_RATE;
+            self.game.vars.strategy.frame_rate =
+                gameplay_timing::timing_for_update(self.planets.newmap, 0).motion_refreshes;
             self.game.vars.mapcnt = profile.map_countdown;
             self.game.world.lastplayz = previous_player_depth;
             self.game.world.lastzchange = profile.last_depth_change;
@@ -4749,15 +4767,6 @@ mod tests {
         );
         assert_eq!(shell.game.world.loaded_map_id, Some(map_id::M1_1));
         assert_eq!(shell.frame().gameframe, 0);
-    }
-
-    #[test]
-    fn native_player_motion_cadence_matches_the_fixed_tick_duration() {
-        assert_eq!(
-            u16::from(GAMEPLAY_PLAYER_FRAME_RATE),
-            RETAIL_VIDEO_FRAMES_PER_GAME_TICK,
-            "one native player update must represent exactly one fixed tick in retail display time"
-        );
     }
 
     fn assert_planet_phase_duration(

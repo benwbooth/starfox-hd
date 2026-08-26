@@ -46,6 +46,7 @@ pub mod debug_draw;
 pub mod dma;
 pub mod draw;
 pub mod foxy;
+pub mod gameplay_timing;
 pub mod heap;
 pub mod planets;
 pub mod point_field;

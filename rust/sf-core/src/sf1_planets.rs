@@ -4,8 +4,11 @@
 //! The Rust port keeps the same game-domain values as ordinary flat struct
 //! fields and exposes semantic phases to the renderer.
 
-/// The native Star Fox game advances at 20 Hz while the retail display runs
-/// at 60 Hz.
+/// Source display refresh rate used to convert authored presentation spans to
+/// real time.
+pub const SOURCE_DISPLAY_REFRESHES_PER_SECOND: u16 = 60;
+/// The native Star Fox front end advances at 20 Hz while the source display
+/// runs at 60 Hz.
 pub const RETAIL_VIDEO_FRAMES_PER_GAME_TICK: u16 = 3;
 
 /// Whole-machine duration from controller-screen ownership handoff until the

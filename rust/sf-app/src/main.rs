@@ -1,7 +1,7 @@
 //! Star Fox HD — Rust application shell (the RIIR integration binary).
 //!
 //! Port (C oracle): `src/main.c` — SDL init, GL 3.3 core context, fixed
-//! 50 ms (20 Hz) tick accumulator with render interpolation, SF_STATE_DUMP.
+//! source-timed tick accumulator with render interpolation, SF_STATE_DUMP.
 //! Game-side state machine and frame-input producers live in
 //! `sf_game::shell`; rendering in `sf_render`; audio in `sf_audio`.
 //!
@@ -25,7 +25,9 @@ use sdl3::event::{Event, WindowEvent};
 use sdl3::keyboard::Keycode;
 use sdl3::video::FullscreenType;
 
-use sf_core::{DrawListEntry as CoreEntry, GAME_TICK_MS, MAX_DRAW_LIST};
+use sf_core::{
+    sf1_planets::SOURCE_DISPLAY_REFRESHES_PER_SECOND, DrawListEntry as CoreEntry, MAX_DRAW_LIST,
+};
 use sf_game::presentation::SourcePresentationQueue;
 use sf_game::shell::{GameplayEntryPhase, Shell};
 use sf_render::draw_list::{
@@ -961,11 +963,12 @@ fn main() {
         .unwrap_or(false);
     let presentation_trace = std::env::var_os("SF_PRESENTATION_TRACE").is_some();
 
-    // --- Fixed timestep game loop with interpolation (main.c:153-201) ---
-    let tick_duration = if sf2.is_some() {
+    // --- Authored-timestep game loop with interpolation (main.c:153-201) ---
+    let mut tick_duration = if sf2.is_some() {
         1.0 / STAR_FOX_2_TICKS_PER_SECOND
     } else {
-        GAME_TICK_MS as f64 / 1_000.0
+        f64::from(shell.next_tick_presentation_refreshes())
+            / f64::from(SOURCE_DISPLAY_REFRESHES_PER_SECOND)
     };
     let mut prev_time = Instant::now();
     let mut accumulator = 0.0f64;
@@ -1043,8 +1046,9 @@ fn main() {
             }
         }
 
-        // --- Fixed timestep game ticks (main.c:177-189) ---
+        // --- Authored timestep game ticks (main.c:177-189) ---
         while accumulator >= tick_duration {
+            let elapsed_tick_duration = tick_duration;
             prev_list.clear();
             prev_list.extend_from_slice(&curr_list);
 
@@ -1225,7 +1229,13 @@ fn main() {
                 }
             }
 
-            accumulator -= tick_duration;
+            accumulator -= elapsed_tick_duration;
+            tick_duration = if sf2.is_some() {
+                1.0 / STAR_FOX_2_TICKS_PER_SECOND
+            } else {
+                f64::from(shell.next_tick_presentation_refreshes())
+                    / f64::from(SOURCE_DISPLAY_REFRESHES_PER_SECOND)
+            };
             total_ticks += 1;
             if let Some(max) = max_ticks {
                 if total_ticks >= max {
