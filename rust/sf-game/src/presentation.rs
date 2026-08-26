@@ -67,6 +67,7 @@ impl<T: Clone> CompletedPresentationQueue<T> {
         &mut self,
         candidate: T,
         releases_completed_scene: bool,
+        retains_delayed_scene: bool,
     ) -> Option<CompletedPresentation<T>> {
         let (value, snap_scene) = if releases_completed_scene {
             self.delayed = true;
@@ -81,13 +82,20 @@ impl<T: Clone> CompletedPresentationQueue<T> {
                     .or_else(|| self.queued.as_ref().map(|queued| queued.value.clone()))?,
                 false,
             )
-        } else if self.delayed {
+        } else if self.delayed && retains_delayed_scene {
             let queued = self.queued.replace(CompletedPresentation {
                 value: candidate,
                 snap_scene: self.snap_after_release,
             })?;
             self.snap_after_release = false;
             (queued.value, queued.snap_scene)
+        } else if self.delayed {
+            // Once the authored transition ends, the source resumes its
+            // normal completed-frame cadence and drops the obsolete queued
+            // scene instead of carrying a permanent extra frame of latency.
+            self.queued = None;
+            self.delayed = false;
+            (candidate, std::mem::take(&mut self.snap_after_release))
         } else {
             (candidate, false)
         };
@@ -141,10 +149,11 @@ impl<T: Clone> SourcePresentationQueue<T> {
         let releases_completed_scene = candidate.scene.display_forced_blank
             && !candidate.presentation.display_forced_blank
             && candidate.scene.screen_wipe.active;
+        let retains_delayed_scene = candidate.presentation.windowmode != 0;
 
-        let completed = self
-            .completed
-            .advance(candidate, releases_completed_scene)?;
+        let completed =
+            self.completed
+                .advance(candidate, releases_completed_scene, retains_delayed_scene)?;
         let mut presented = completed.value;
         presented.snap_scene = completed.snap_scene;
         Some(presented)
@@ -210,6 +219,7 @@ mod tests {
                 frame: gameframe as u8,
                 active: true,
             },
+            windowmode: 1,
             ..FrameSnapshot::default()
         }
     }
@@ -249,18 +259,30 @@ mod tests {
             .advance(frame(12, 6, false), 12)
             .expect("released presentation");
         assert_eq!(released.scene.gameframe, 10);
+        assert_eq!(released.content, 10);
         assert!(!released.snap_scene);
 
         let cut = queue
             .advance(frame(13, 9, false), 13)
             .expect("first post-release scene");
         assert_eq!(cut.scene.gameframe, 11);
+        assert_eq!(cut.content, 11);
         assert!(cut.snap_scene);
 
+        let mut transition_complete = frame(14, 12, false);
+        transition_complete.screen_wipe.active = false;
+        transition_complete.windowmode = 0;
+        let caught_up = queue
+            .advance(transition_complete, 14)
+            .expect("first scene after the transition");
+        assert_eq!(caught_up.scene.gameframe, 13);
+        assert_eq!(caught_up.content, 13);
+        assert!(!caught_up.snap_scene);
+
         let following = queue
-            .advance(frame(14, 12, false), 14)
+            .advance(frame(15, 15, false), 15)
             .expect("following scene");
-        assert_eq!(following.scene.gameframe, 12);
+        assert_eq!(following.scene.gameframe, 14);
         assert!(!following.snap_scene);
     }
 }
