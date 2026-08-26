@@ -570,8 +570,11 @@ pub fn project_near_clipped_face(view_points: &[[i16; 3]], indices: &[u16]) -> V
             (false, true) => Some([near_plane_intersection(*first, *second), *second]),
             (false, false) => None,
         };
-        return clipped
+        let projected = clipped
             .map(|points| points.map(project_individual_point).to_vec())
+            .unwrap_or_default();
+        return (!individually_projected_face_is_outside_playfield(&projected))
+            .then_some(projected)
             .unwrap_or_default();
     }
     let mut clipped = Vec::with_capacity(input.len() + 2);
@@ -593,10 +596,25 @@ pub fn project_near_clipped_face(view_points: &[[i16; 3]], indices: &[u16]) -> V
     if clipped.len() < 3 {
         return Vec::new();
     }
-    clipped
+    let projected = clipped
         .into_iter()
         .map(project_individual_point)
-        .collect()
+        .collect::<Vec<_>>();
+    (!individually_projected_face_is_outside_playfield(&projected))
+        .then_some(projected)
+        .unwrap_or_default()
+}
+
+/// The independent projection path performs a whole-face outcode test before
+/// 2D clipping. Its minimum X/Y comparisons include the boundary, while its
+/// maximum comparisons do not. Preserve that authored asymmetry so a
+/// camera-plane-clipped face cannot leave a pixel on a rejected minimum edge.
+fn individually_projected_face_is_outside_playfield(points: &[ProjectedPoint]) -> bool {
+    points.is_empty()
+        || points.iter().all(|point| point.x <= PLAYFIELD_LEFT)
+        || points.iter().all(|point| point.x > PLAYFIELD_RIGHT)
+        || points.iter().all(|point| point.y <= PLAYFIELD_TOP)
+        || points.iter().all(|point| point.y > PLAYFIELD_BOTTOM)
 }
 
 /// Near-clipped and exploding faces are projected independently after their
@@ -1081,6 +1099,56 @@ mod tests {
                 },
             ],
         );
+    }
+
+    #[test]
+    fn corneria_camera_plane_line_rejects_the_retail_minimum_edge() {
+        let corridor = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|entry| entry.shape_id == crate::shape_data::SHAPE_EXT_OP_0)
+            .expect("compiled Corneria corridor frame");
+        let projected = project_shape(
+            corridor.vertices,
+            corridor.reflected_pair_starts,
+            3,
+            SourcePose {
+                world_position: [0, 0, 7_761],
+                rotation: [0; 3],
+                view_position: [-13, -139, 7_528],
+                view_rotation: [61_456, 352, 0],
+            },
+        );
+        assert_eq!(
+            [projected.view_points[8], projected.view_points[0]],
+            [[-116, 39, 263], [-100, 221, -181]],
+        );
+        let intersection = near_plane_intersection(
+            projected.view_points[0],
+            projected.view_points[8],
+        );
+        let individually_projected = [
+            project_individual_point(projected.view_points[8]),
+            project_individual_point(intersection),
+        ];
+        assert_eq!(
+            individually_projected,
+            [
+                ProjectedPoint {
+                    x: 16,
+                    y: 149,
+                    depth: 263,
+                },
+                ProjectedPoint {
+                    x: -11_961,
+                    y: 16_495,
+                    depth: 0,
+                },
+            ],
+        );
+        assert!(individually_projected_face_is_outside_playfield(
+            &individually_projected,
+        ));
+        assert!(project_near_clipped_face(&projected.view_points, &[8, 0]).is_empty());
     }
 
     #[test]
