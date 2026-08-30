@@ -23,3 +23,15 @@ sf2-data = { workspace = true, features = ["oracle-data"] }
 sf2-path.workspace = true
 sf-difftest.workspace = true
 sha2 = "0.10"
+
+[[example]]
+name = "sf1_weapon_trace"
+path = "examples/sf1_weapon_trace.rs"
+test = true
+harness = false
+
+[[example]]
+name = "sf1_training_trace"
+path = "examples/sf1_training_trace.rs"
+test = true
+harness = false

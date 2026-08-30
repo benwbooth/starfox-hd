@@ -91,9 +91,8 @@ impl ClipBoundary {
         }
     }
 
-    /// The source's dedicated two-point clipper tests its maximum clip
-    /// coordinates after subtracting one, so the final column and row are
-    /// inclusive for lines even though polygon outcodes remain exclusive.
+    /// Crossing intersections may land on the maximum edge even though an
+    /// authored primitive entirely on that edge is rejected before clipping.
     fn contains_line_endpoint(self, point: ProjectedPoint) -> bool {
         match self {
             Self::Right => point.x <= PLAYFIELD_RIGHT,
@@ -473,6 +472,9 @@ impl SourceRaster {
         ) else {
             return;
         };
+        if line_is_outside_playfield(*first, *second) {
+            return;
+        }
         let Some([first, second]) = clip_line(*first, *second) else {
             return;
         };
@@ -1019,6 +1021,14 @@ fn clip_line(first: ProjectedPoint, second: ProjectedPoint) -> Option<[Projected
     Some([input[0], input[1]])
 }
 
+fn line_is_outside_playfield(first: ProjectedPoint, second: ProjectedPoint) -> bool {
+    let points = [first, second];
+    points.iter().all(|point| point.x < PLAYFIELD_LEFT)
+        || points.iter().all(|point| point.x >= PLAYFIELD_RIGHT)
+        || points.iter().all(|point| point.y < PLAYFIELD_TOP)
+        || points.iter().all(|point| point.y >= PLAYFIELD_BOTTOM)
+}
+
 fn rgba8(color: [f32; 4]) -> [u8; 4] {
     color.map(|component| (component.clamp(0.0, 1.0) * 255.0).round() as u8)
 }
@@ -1494,6 +1504,33 @@ mod tests {
         }
         assert_eq!(raster.indices()[88 * WIDTH + 78], 0);
         assert_eq!(raster.indices()[114 * WIDTH + 78], 0);
+    }
+
+    #[test]
+    fn line_lying_on_exclusive_right_boundary_is_discarded() {
+        const POINTS: [ProjectedPoint; 2] = [
+            ProjectedPoint {
+                x: PLAYFIELD_RIGHT,
+                y: 61,
+                depth: 5_896,
+            },
+            ProjectedPoint {
+                x: PLAYFIELD_RIGHT,
+                y: 115,
+                depth: 5_896,
+            },
+        ];
+        const COLOR_INDEX: u8 = 3;
+
+        let mut raster = SourceRaster::new();
+        raster.draw_palette_line(
+            &POINTS,
+            &[0, 1],
+            &[[1.0; 4]; 16],
+            [COLOR_INDEX, COLOR_INDEX],
+        );
+
+        assert!(raster.indices().iter().all(|index| *index == 0));
     }
 
     #[test]
