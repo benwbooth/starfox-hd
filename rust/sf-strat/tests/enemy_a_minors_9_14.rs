@@ -2,7 +2,7 @@
 //! flashplayer no colframe seed; gate bank $7E; gate touch→spin same frame;
 //! explode special→gate2 + inviewpl gate. (#13 already FIXED via Medium #36.)
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_SPECIAL};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ, ASF_SPECIAL};
 use sf_game::draw::AF_INVIEW_PL;
 use sf_game::game::{Game, Hooks};
 use sf_strat::enemy_a::{
@@ -96,6 +96,11 @@ fn gate_init_stores_flat_map_cursor() {
     g.vars.mapptr = 0x1234;
     strat_gate_init(&mut g, idx);
     assert_eq!(g.vars.shared.map_restart_temporary, 0x1234);
+    assert_ne!(
+        g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE,
+        0,
+        "gate collision-disable belongs to the source second flag byte"
+    );
 }
 
 /// Minor #12: gate touch falls through into spin the same frame (sbyte1 bumps).

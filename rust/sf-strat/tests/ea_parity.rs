@@ -29,6 +29,9 @@
 //! the start of every completed strategy frame. The retired C translation did
 //! not run that scheduler-level draw, so its later generated positions and
 //! facing values were shifted relative to the cartridge.
+//! The gate, radar, and boss traces encode `colldisable` in the second source
+//! flag byte. `STRATEQU.INC` assigns it bit 8; the retired C translation placed
+//! it in the first byte, where it incorrectly aliased `partobj`.
 //!
 //! Regenerate (from the repo root, harness source in the session
 //! scratchpad; strip the Obj_Init banner line):
@@ -41,7 +44,7 @@
 
 mod support;
 
-use sf_game::alien::{ACF_FIRSTFRAME, ASF_COLLDISABLE, ASF_COLLIDE};
+use sf_game::alien::{ACF_FIRSTFRAME, ASF2_COLLDISABLE, ASF_COLLIDE};
 use sf_game::game::{Game, StrategyFn};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemy_a::{self, wm};
@@ -260,7 +263,7 @@ fn parity_gate2() {
     g.vars.write_ext16(wm::VIEWCY, (-30i16) as u16);
     let e2 = spawn(&mut g, 0, 0, 0, 0); // player collision box (heal target)
     g.objs.aliens[e2 as usize].hp = 10;
-    g.objs.aliens[e2 as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[e2 as usize].sflags2 |= ASF2_COLLDISABLE;
     g.vars.write_ext16(wm::PCBOXOBJ_B, e2);
     let e1 = spawn(&mut g, 0, -20, 1500, 14);
     assign_istrat(&mut g, e1, enemy_a::strat_gate2_init);

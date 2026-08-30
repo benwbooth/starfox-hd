@@ -2,11 +2,11 @@
 //! Medium #36 leftover Minor). ROM `pillar3fall_i` (DSTRATS.ASM:804-809) and
 //! `pillar3ffall_i` (KSTRATS.ASM:655-658).
 
-use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF_SHADOW};
 use sf_game::game::{Game, Hooks};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::enemies_ground::pillar3f_istrat;
-use sf_strat::enemy_a::{strat_pillar3_init, AF_LEFT_PL, SH_BOUNCYBALL};
+use sf_strat::enemy_a::{strat_hit_flash, strat_pillar3_init, AF_LEFT_PL, SH_BOUNCYBALL};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -87,9 +87,29 @@ fn pillar3_fall_spawns_bouncyball_at_z_minus_10() {
     assert!(child.expstratptr.is_some());
     assert_eq!(pillar.next, Some(ball));
     assert_eq!(child.prev, Some(idx));
-    assert_ne!(pillar.sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(pillar.sflags3 & ASF3_NOHITAFFECT, 0);
     assert_ne!(pillar.sflags & ASF_SHADOW, 0);
     assert_eq!(pillar.sbyte2, 16);
+}
+
+#[test]
+fn falling_pillar_ignores_collision_damage() {
+    let mut g = Game::new();
+    spawn_player(&mut g, 0, -40, 100);
+    g.objs.aliens[0].ap = 8;
+    let pillar = spawn_obj(&mut g, 50, 0, 200);
+    strat_pillar3_init(&mut g, pillar);
+
+    let durability = g.objs.aliens[pillar as usize].hp;
+    g.objs.aliens[pillar as usize].collobjptr = 0;
+    strat_hit_flash(&mut g, pillar);
+
+    assert_eq!(g.objs.aliens[pillar as usize].hp, durability);
+    assert_ne!(
+        g.objs.aliens[pillar as usize].sflags3 & ASF3_NOHITAFFECT,
+        0,
+        "falling pillar must retain the source third-byte immunity flag"
+    );
 }
 
 /// Far enough that scaled `xzdiffs` ≥ pillar3DIST (avoid i16 overflow that
@@ -154,10 +174,11 @@ fn pillar3_stay_plays_se_49() {
         "stay must trigse $49, got {:?}",
         *shared.borrow()
     );
+    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_SHADOW, 0);
     assert_eq!(
-        g.objs.aliens[idx as usize].sflags & (ASF_NOHITAFFECT | ASF_SHADOW),
+        g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT,
         0,
-        "stay clears nohitaffect+shadow"
+        "stay clears the source third-byte immunity flag"
     );
 }
 
@@ -172,6 +193,12 @@ fn pillar3_explosion_children_follow_the_pillar_in_source_order() {
         .expstratptr
         .expect("pillar explosion strategy");
     g.call_strat(explode, pillar);
+
+    assert_ne!(
+        g.objs.aliens[pillar as usize].sflags2 & ASF2_COLLDISABLE,
+        0,
+        "exploding pillar parent uses the source second-byte collision-disable flag"
+    );
 
     assert_eq!(
         g.objs.active_indices(),

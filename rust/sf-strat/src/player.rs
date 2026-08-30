@@ -37,18 +37,18 @@ use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
 use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME,
-    ACF_WEAPON, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_INVISIBLE, ASF4_PLAYEROBJ,
-    ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE,
-    NUMBER_AL,
+    ACF_WEAPON, AFONFIRE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_INVISIBLE,
+    ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_SHADOW, ATGND, ATLASER,
+    ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
 use sf_game::vars::{
     CLOSE_VIEW_DISTANCE, GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, GF_STRATDONE1,
-    GF_STRATDONE2, GF_VIEWROT, HARD_AP, HARD_HP, OUTVIEWDIST, PFM_SHADOWS, PFM_WOBBLE,
-    PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0, PSF3_ENGINESND, PSF3_INTUNNEL,
-    PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE, PSTF_NOVDISTC, SPACE_MODE,
-    STAY_BLACK_INACTIVE, WATER_MODE,
+    GF_STRATDONE2, GF_VIEWROT, HARD_AP, HARD_HP, OUTVIEWDIST, PFM_DIEFALL, PFM_DIEYROT,
+    PFM_SHADOWS, PFM_WOBBLE, PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0, PSF3_ENGINESND,
+    PSF3_INTUNNEL, PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE,
+    PSTF_NOVDISTC, SPACE_MODE, STAY_BLACK_INACTIVE, WATER_MODE,
 };
 use sf_game::Game;
 
@@ -78,8 +78,6 @@ const PSTF_NOVIEWMOVE: u8 = 4;
 /// `pstf_firstframeLcol` — first-frame player laser collision (GILESALC.INC).
 const PSTF_FIRSTFRAMELCOL: u8 = 16;
 
-const PFM_DIEFALL: u8 = 1;
-const PFM_DIEYROT: u8 = 2;
 const PFM_WATER: u8 = 4;
 
 const PML_LWLEFT: u8 = 1;
@@ -533,11 +531,21 @@ const PLAYER_DEATH_FLASH_FRAMES: u8 = 15;
 const PLAYER_DEATH_ROLL_ACCELERATION: u8 = 4;
 const PLAYER_DEATH_PITCH_TARGET: i16 = 5000;
 const PLAYER_DEATH_GROUND_PITCH: i16 = -2000;
+const PLAYER_DEATH_SMOKE_CADENCE_BITS: u16 = 2;
+const PLAYER_DEATH_YAW_STEP: i16 = 128;
+const SLOW_PLAYER_DEATH_YAW_STEP: i16 = 42;
+const SLOW_PLAYER_DEATH_DIFFICULTY: u8 = 2;
+const SLOW_PLAYER_DEATH_STAGE: u8 = 1;
 const SHIPINTRO_LIFE: u8 = 40;
 const SHIPINTRO_BOOST_Z: i16 = 50;
 /// Effective straight-ahead distance produced by the retail fixed-point
 /// vector path during the two transfer-bound base-player updates.
 const LEVEL_INITIALIZATION_FORWARD_STEP: i16 = 63;
+/// Forward edge of `viewmove_srou`'s authored player-view depth window.
+const PLAYER_VIEW_FORWARD_LIMIT: i16 = 50;
+/// Proportional easing applied after player-view depth is clipped to its
+/// authored window.
+const PLAYER_VIEW_DEPTH_CHASE_SHIFT: u32 = 3;
 
 // --- ExitBase constants (STRATEQU.INC:305,350,581-597) ---
 const PEXITBASE_SPEED: i16 = 50;
@@ -978,6 +986,9 @@ fn player_explode_istrat(g: &mut Game, idx: u16) {
 
     let ship = g.objs.aliens[idx as usize];
     if let Some(anchor) = strat_make_obj(g, 0) {
+        // `s_make_obj` preserves the current ship as the list anchor. The
+        // inert death target therefore runs immediately after the ship.
+        g.objs.active_move_after(anchor, idx);
         {
             let object = &mut g.objs.aliens[anchor as usize];
             object.sflags3 &= !ASF3_REALOBJ;
@@ -992,9 +1003,11 @@ fn player_explode_istrat(g: &mut Game, idx: u16) {
         }
 
         // The source writes viewpt, playpt, viewtoobj, and internalPLAYPT to
-        // this same object. The flat port keeps one authoritative player
-        // object plus the independently named camera/circle targets.
+        // this same object. Keep the live player and gameplay-target roles as
+        // distinct flat fields because the preceding crash deliberately
+        // redirects only the latter to the inert follower.
         g.vars.internal_playpt = anchor as i16;
+        g.vars.player_object = anchor as i16;
         g.vars.strategy.view_target_object = anchor as i16;
         g.vars.strategy.circle_object = anchor as i16;
         g.vars.screen_fill_circle.begin_red(
@@ -1016,6 +1029,9 @@ fn player_explode_istrat(g: &mut Game, idx: u16) {
     }
 
     if let Some(particle) = strat_make_obj(g, 0) {
+        // This second source allocation is also inserted after the current
+        // ship, placing it before the earlier inert target.
+        g.objs.active_move_after(particle, idx);
         let particle_init = ea_sid(g, bigparticleexplode_istrat);
         let object = &mut g.objs.aliens[particle as usize];
         object.worldx = ship.worldx;
@@ -1059,14 +1075,30 @@ fn playerdead_strat(g: &mut Game, idx: u16) {
     }
 
     // sbyte1 < 15: blink hitflash every other frame (PSTRATS:3297-3301).
-    if g.objs.aliens[i].sbyte1 < PLAYER_DEATH_FLASH_FRAMES && g.vars.gameframe & 1 == 0 {
+    let flashing_this_frame =
+        g.objs.aliens[i].sbyte1 < PLAYER_DEATH_FLASH_FRAMES && g.vars.gameframe & 1 == 0;
+    if flashing_this_frame {
         g.objs.aliens[i].sflags |= ASF_HITFLASH;
+    }
+
+    // The rotating crash path emits a smoke object every fourth frame until
+    // the ship owns a persistent fire child. During the opening flash window,
+    // a lit blink jumps past this branch in the source; the unlit frames cannot
+    // satisfy the even fourth-frame cadence (PSTRATS.ASM:3297-3307).
+    if !flashing_this_frame
+        && g.vars.playerflymode & PFM_DIEYROT != 0
+        && g.objs.aliens[i].flags & AFONFIRE == 0
+        && notdelay(g, PLAYER_DEATH_SMOKE_CADENCE_BITS)
+    {
+        let _ = crate::common::makesmoke_srou(g, idx);
     }
 
     // Die-fall (pfm_diefall): nose over + roll spin while airborne; slam flat
     // at the ground plane (PSTRATS:3321-3341). SNES +y is down; ground = 0.
     if g.vars.playerflymode & PFM_DIEFALL != 0 {
         if g.objs.aliens[i].worldy < 0 {
+            // Airborne frames re-arm the one-shot ground-impact burst.
+            g.objs.aliens[i].sflags2 &= !ASF2_SFLAG1;
             // s_jmp_NOTdelay 1 / s_Achase_var W,plrotx,#5000,4 — nose down.
             if g.vars.gameframe & 1 == 0 {
                 let rx = strat_chase_proportional(
@@ -1083,20 +1115,29 @@ fn playerdead_strat(g: &mut Game, idx: u16) {
                 .wrapping_add(PLAYER_DEATH_ROLL_ACCELERATION);
             g.vars.set_sv_u8(sv::PLAYER_ZSTRATADD, zadd);
         } else {
-            // Ground slam: plrotx=-2000, pin to the deck (sparks in ROM).
+            // Ground slam: plrotx=-2000, pin to the deck, then emit the four
+            // authored line sparks once on contact.
             g.vars.set_sv_i16(sv::PLROTX, PLAYER_DEATH_GROUND_PITCH);
             g.objs.aliens[i].worldy = 0;
+            if g.objs.aliens[i].sflags2 & ASF2_SFLAG1 == 0 {
+                g.objs.aliens[i].sflags2 |= ASF2_SFLAG1;
+                for _ in 0..4 {
+                    sgen_spark(g, idx);
+                }
+            }
         }
     }
 
     // Every 4th frame: forward speed decays toward 0 (s_Fchase_var rate 1).
     let mut speed = g.vars.sv_i16(sv::PLAYER_SPEED);
     if g.vars.gameframe & 3 == 0 && speed > 0 {
-        speed = strat_chase_proportional(speed, 0, 1);
+        speed = strat_chase(speed, 0, 1);
         g.vars.set_sv_i16(sv::PLAYER_SPEED, speed);
     }
 
-    // Rots from the pl* accumulators + the spin; then move the ship.
+    // Rots from the pl* accumulators + the spin. The source eases the camera
+    // toward the ship's pre-movement Y after generating this frame's vector,
+    // then applies that vector to the ship.
     {
         let rotx = (g.vars.sv_i16(sv::PLROTX) >> 8) as u8;
         let roty = (g.vars.sv_i16(sv::PLROTY) >> 8) as u8;
@@ -1108,21 +1149,23 @@ fn playerdead_strat(g: &mut Game, idx: u16) {
         al.rotz = rotz.wrapping_add(zadd);
         al.vel = clamp16(speed, 0, MAX_PSPEED) as u8;
         strat_gen_vecs_3d(al);
+    }
+
+    // PSTRATS.ASM performs this chase before `s_add_vecs2pos`; targeting the
+    // post-movement Y introduces a one-unit drift once the crash pitches.
+    if g.vars.playerflymode & PFM_DIEYROT != 0 {
+        let py = strat_chase_proportional(g.vars.sv_i16(sv::PVIEWPOSY), g.objs.aliens[i].worldy, 3);
+        g.vars.set_sv_i16(sv::PVIEWPOSY, py);
+    }
+
+    {
+        let al = &mut g.objs.aliens[i];
         al.vx = 0; // s_set_alvar W,x,al_vx,#0
         strat_apply_velocity(al);
     }
 
-    // Camera: pviewposz follows the crashing ship; Y eases after it in
-    // dieYrot mode (s_achase_var2alvar W,x,pviewposY,al_worldy,3).
-    let (wy, wz) = {
-        let al = &g.objs.aliens[i];
-        (al.worldy, al.worldz)
-    };
-    g.vars.set_sv_i16(sv::PVIEWPOSZ, wz);
-    if g.vars.playerflymode & PFM_DIEYROT != 0 {
-        let py = strat_chase_proportional(g.vars.sv_i16(sv::PVIEWPOSY), wy, 3);
-        g.vars.set_sv_i16(sv::PVIEWPOSY, py);
-    }
+    // Camera depth follows the post-movement crashing ship.
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, g.objs.aliens[i].worldz);
 }
 
 /// C `playerdead_istrat` (strat_player.c:237).
@@ -1141,9 +1184,11 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     }
 
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
-    g.vars.pstratflags |= PSTF_INSEQ;
-    g.vars.pshipflags3 &= !PSF3_ENGINESND;
     g.vars.gameflags &= !GF_PLAYERDEAD;
+    // PSTRATS.ASM redirects `playpt` to the frozen follower before entering
+    // either the cockpit-ejection or crash path. `internalPLAYPT` continues
+    // to identify the moving ship for the per-frame player-position mirror.
+    g.vars.player_object = g.vars.dummyobj;
 
     // PSTRATS.ASM:3031-3045 disables and detaches the three HP proxies.
     g.pcbox_detach();
@@ -1153,6 +1198,9 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
         player.hp = 10;
         player.ap = 0;
         player.sflags &= !ASF_COLLIDE;
+        // The source explicitly re-arms the one-shot ground-impact burst
+        // before falling through into the first crash update.
+        player.sflags2 &= !ASF2_SFLAG1;
         player.collflags = (player.collflags
             & !(sf_game::alien::ACF_COLLTYPE1
                 | sf_game::alien::ACF_COLLTYPE2
@@ -1191,6 +1239,11 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
         player.expstratptr = Some(exp);
     }
     g.vars.gameflags |= GF_PLAYERDYING;
+    if g.vars.shared.difficulty_level == SLOW_PLAYER_DEATH_DIFFICULTY
+        && g.vars.shared.stage == SLOW_PLAYER_DEATH_STAGE
+    {
+        g.vars.strategy.player_death_yaw_step = SLOW_PLAYER_DEATH_YAW_STEP;
+    }
 
     // The initializer falls through into `playerdead_strat` in the source.
     playerdead_strat(g, idx);
@@ -1400,16 +1453,72 @@ pub fn refresh_player_collision_proxies(g: &mut Game) {
 pub fn advance_player_during_level_initialization(g: &mut Game, idx: u16) {
     g.vars.gameframe = g.vars.gameframe.wrapping_add(1);
     let _ = g.sync_player_snapshot();
+    // The transfer-bound player-credit initializer installs the ordinary
+    // camera pullback before its first forward movement. The following map
+    // opening may use a fixed camera, but the live distance remains authored
+    // state for the later handoff back to player flight.
+    g.vars.viewdist = OUTVIEWDIST;
+    g.vars.set_sv_i16(sv::OUTDIST, OUTVIEWDIST);
     g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
         .worldz
         .wrapping_add(LEVEL_INITIALIZATION_FORWARD_STEP);
-    // The source player-credit strategy generates the same 63-depth forward
-    // vector and then runs viewmove_srou on each of these two transfer-bound
-    // updates. Its rate-one chase therefore takes pviewvelz 65 -> 64 -> 63
-    // before the map-specific opening begins.
+    // The retail handoff enters with the preceding route presentation's view
+    // depth beyond `viewmove_srou`'s forward window. Its first player pass
+    // advances the view velocity; the second clips that inherited depth to
+    // player_posz + 50 and applies the authored rate-three ease, leaving 107
+    // when the Corneria opening takes ownership. The native shell does not
+    // retain the obsolete route-map coordinate system, so represent that
+    // compressed handoff by its semantic forward-bound state instead.
+    let player_depth = g.vars.player_posz;
+    let bounded_view_depth = player_depth.wrapping_add(PLAYER_VIEW_FORWARD_LIMIT);
+    let player_view_depth = if g.vars.dummyobj > 0 {
+        strat_chase_proportional(
+            bounded_view_depth,
+            player_depth,
+            PLAYER_VIEW_DEPTH_CHASE_SHIFT,
+        )
+    } else {
+        bounded_view_depth
+    };
+    g.vars.set_sv_i16(sv::PVIEWPOSZ, player_view_depth);
+
+    // Its rate-one velocity chase takes pviewvelz 65 -> 64 -> 63 before the
+    // map-specific opening begins.
     g.vars.pviewvelz = strat_chase(g.vars.pviewvelz, LEVEL_INITIALIZATION_FORWARD_STEP, 1);
     if g.vars.dummyobj > 0 {
         refresh_player_collision_proxies(g);
+    }
+}
+
+#[cfg(test)]
+mod level_initialization_tests {
+    use super::*;
+
+    #[test]
+    fn transfer_initializer_installs_the_authored_camera_pullback() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+        assert_eq!(game.vars.sv_i16(sv::OUTDIST), 0);
+
+        advance_player_during_level_initialization(&mut game, player);
+
+        assert_eq!(game.vars.viewdist, OUTVIEWDIST);
+        assert_eq!(game.vars.sv_i16(sv::OUTDIST), OUTVIEWDIST);
+    }
+
+    #[test]
+    fn transfer_initializer_reproduces_the_clipped_player_view_handoff() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+
+        advance_player_during_level_initialization(&mut game, player);
+        assert_eq!(game.vars.sv_i16(sv::PVIEWPOSZ), PLAYER_VIEW_FORWARD_LIMIT);
+        assert_eq!(game.vars.pviewvelz, 64);
+
+        let _ = game.create_player_dummy();
+        advance_player_during_level_initialization(&mut game, player);
+        assert_eq!(game.vars.sv_i16(sv::PVIEWPOSZ), 107);
+        assert_eq!(game.vars.pviewvelz, LEVEL_INITIALIZATION_FORWARD_STEP);
     }
 }
 
@@ -1474,7 +1583,7 @@ fn pcbox_coll_strat(g: &mut Game, idx: u16) {
             } else if let Some(player) = g.coldet.pcbox.player {
                 // `s_kill_obj y`: the player's own exp strategy runs on its
                 // next strategy pass and performs the full detach/death init.
-                g.objs.aliens[player as usize].hp = 0;
+                kill_obj(&mut g.objs.aliens[player as usize]);
             }
         }
         PcboxKind::LWing | PcboxKind::RWing => {
@@ -3035,6 +3144,7 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     v.set_sv_u8(sv::PLAYER_TOSPEED, MED_PSPEED as u8);
     v.set_sv_u8(sv::PLAYER_MEDSPEED, MED_PSPEED as u8);
     v.set_sv_i16(sv::PLAYER_SPEED, MED_PSPEED);
+    v.strategy.player_death_yaw_step = PLAYER_DEATH_YAW_STEP;
     v.playervel_z = MED_PSPEED;
     v.pviewvelz = MED_PSPEED;
     v.set_sv_i16(sv::PVIEWPOSX, 0);
@@ -3099,6 +3209,7 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     v.pshipflags3 &= !(PSF3_INTUNNEL | PSF3_FORCEBRAKE | PSF3_NOCOLLISIONS);
     v.pshipflags3 |= PSF3_ENGINESND;
     v.internal_playpt = idx as i16;
+    v.player_object = idx as i16;
 
     // ROM select_ship_l #pshipnum_norm — fills playershape{,L,R,LR}.
     select_ship(g, PSHIPNUM_NORM);
@@ -7101,8 +7212,10 @@ pub fn player_move_init(g: &mut Game, idx: u16) {
     g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
     g.vars.set_sv_i16(sv::VIEWTOOBJ, idx as i16);
     g.vars.internal_playpt = idx as i16;
+    g.vars.player_object = idx as i16;
     g.vars.viewdist = OUTVIEWDIST;
     g.vars.set_sv_i16(sv::OUTDIST, OUTVIEWDIST);
+    g.vars.strategy.player_death_yaw_step = PLAYER_DEATH_YAW_STEP;
 }
 
 /// ROM `playerCHASE2_init` — dup + silence engines; continue as space.

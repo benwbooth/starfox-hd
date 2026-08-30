@@ -142,7 +142,12 @@ pub fn build_list(
         let mut remove_after_draw = false;
         {
             let al = &objs.aliens[idx];
-            let zmax = shape_extents(al.shape).map_or(0, |(_, _, z)| z);
+            let zmax = match al.visual_kind {
+                ObjectVisualKind::ExplosionEnvelope(size) => size.source_extent(),
+                ObjectVisualKind::Mesh | ObjectVisualKind::ScaledSprite => {
+                    shape_extents(al.shape).map_or(0, |(_, _, z)| z)
+                }
+            };
             // ROM MAIN.ASM:2030-2032 evaluates the behind test as a chained
             // 16-bit addition: carry from the previous draw-list iteration
             // participates in the next wrapped sum. The sign bit selects the
@@ -311,6 +316,37 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].shape_id, 0);
         assert_eq!(out[0].flags & dl_flags::SCALED_SPRITE, 0);
+    }
+
+    #[test]
+    fn explosion_envelope_culling_uses_its_source_header_extent() {
+        let mut objs = Objects::init();
+        let idx = objs.alloc().expect("explosion envelope");
+        {
+            let object = &mut objs.aliens[idx as usize];
+            object.shape = 0;
+            object.visual_kind = ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Medium);
+            object.worldz = -91;
+            object.type_ |= ATZREMOVE;
+            object.collflags &= !ACF_FIRSTFRAME;
+        }
+
+        let mut out = Vec::new();
+        build_list(
+            &mut objs,
+            0,
+            0,
+            CullView::default(),
+            0,
+            &|shape| (shape == 0).then_some((136, 136, 144)),
+            &mut out,
+        );
+
+        assert_eq!(out.len(), 1, "retail emits the final behind draw command");
+        assert!(
+            !objs.aliens[idx as usize].active,
+            "medium envelope retires at depth -91 from its authored extent 90"
+        );
     }
 
     /// A synthetic alien must produce exactly the DrawListEntry the C

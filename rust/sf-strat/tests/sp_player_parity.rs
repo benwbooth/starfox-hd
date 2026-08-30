@@ -31,6 +31,13 @@
 //!     callbacks on the ship, and removes that ship on the following strategy
 //!     pass (`PSTRATS.ASM:3228-3273`). The frozen C port only set the shell's
 //!     dead flag and left the ship alive as the sole player object.
+//!   * the crash keeps the source engine-sound state and does not invent an
+//!     `inseq` latch. Its forward speed uses the authored fixed-step chase,
+//!     while the ship and death camera keep moving through the full countdown
+//!     (`PSTRATS.ASM:3104-3142`, `GSTRATS.ASM:311-340`). The frozen C port
+//!     cleared the engine flag, set `inseq`, and used proportional speed decay.
+//!     Retail/native semantic coexecution certifies the resulting positions,
+//!     rotations, camera state, terminal objects, and active-list order.
 //!   * the ordinary lower-screen clamp runs when `pml_Bbottom` is clear; when
 //!     set, the detailed body-collision lane owns the floor
 //!     (`PSTRATS.ASM:1912-1922`). The deleted C port inverted that condition.

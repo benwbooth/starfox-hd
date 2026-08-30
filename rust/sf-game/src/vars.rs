@@ -54,6 +54,8 @@ pub const PSTF_INSEQ: u8 = 8;
 pub const PSTF_NOTDIE: u8 = 32;
 
 // playerflymode
+pub const PFM_DIEFALL: u8 = 1;
+pub const PFM_DIEYROT: u8 = 2;
 pub const PFM_SHADOWS: u8 = 8;
 pub const PFM_WOBBLE: u8 = 16;
 
@@ -311,6 +313,8 @@ pub struct StrategyVariables {
     pub player_speed: i16,
     pub player_target_speed: u8,
     pub player_medium_speed: u8,
+    /// Source `playerdieYrotspeed`, the per-tick death-camera yaw step.
+    pub player_death_yaw_step: i16,
     pub player_turn_rotation: i16,
     pub player_depth_shake: i16,
     pub player_depth_shake_velocity: i16,
@@ -552,6 +556,11 @@ pub struct GameVars {
     pub freezestrats: u8,
     /// C `g_internalPLAYPT` — authoritative player alien index.
     pub internal_playpt: i16,
+    /// Source `playpt` — the object other gameplay systems currently target
+    /// as the player. This normally names the live ship, but death redirects
+    /// it to the inert position follower while `internal_playpt` continues to
+    /// track the crashing ship.
+    pub player_object: i16,
     /// Source `timeuntilfade` as a named countdown rather than a memory slot.
     pub player_death_fade_delay: u8,
     /// Source-ordered Training player-mode handoff.
@@ -712,6 +721,7 @@ impl Default for GameVars {
             gameframe: 0,
             freezestrats: 0,
             internal_playpt: 0,
+            player_object: 0,
             player_death_fade_delay: 0,
             training_player_startup: TrainingPlayerStartupPhase::Inactive,
             dummyobj: 0,

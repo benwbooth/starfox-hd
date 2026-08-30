@@ -31,6 +31,20 @@ pub enum ExplosionSize {
     Oversized,
 }
 
+impl ExplosionSize {
+    /// Retail face-less `ShapeHdr` depth/visual extent for this control shape.
+    /// Explosion envelopes are not meshes, but `alienflags_l` still uses this
+    /// authored value for behind-camera retirement.
+    pub const fn source_extent(self) -> i16 {
+        match self {
+            Self::Small => 50,
+            Self::Medium => 90,
+            Self::Large => 200,
+            Self::Oversized => 1_000,
+        }
+    }
+}
+
 /// Semantic presentation selected by strategy code. This replaces packed
 /// source flags and face-less control shapes with typed flat fields.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

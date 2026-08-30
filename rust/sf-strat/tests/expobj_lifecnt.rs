@@ -5,7 +5,9 @@
 //! When lifecnt IS set (boss8_bigexplode 1..5), survive count+1 ticks — the
 //! old `if count>0{--}; if==0{die}` fired one frame early.
 
-use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF_HITFLASH};
+use sf_game::alien::{
+    ExplosionSize, ObjectVisualKind, ACF_FIRSTFRAME, ASF2_COLLDISABLE, ASF_HITFLASH,
+};
 use sf_game::Game;
 use sf_strat::bosses::{b8_make_exp_obj, boss8_bigexplode, boss8_delayexplode_strat};
 use sf_strat::enemy_a::{
@@ -44,6 +46,31 @@ fn makeexpobj_default_count_zero_explodes_first_tick() {
     assert_eq!(g.objs.aldead, 0, "expiry is a death signal, not removal");
     assert_eq!(g.objs.aliens[med as usize].hp, 0, "kill_obj zeroed HP");
     assert_eq!(g.objs.aliens[med as usize].shape, 466, "polygon mesh");
+}
+
+#[test]
+fn explosion_envelopes_never_enter_the_collision_list() {
+    let mut g = Game::new();
+    let parent = spawn(&mut g);
+    let envelopes = [
+        make_small_exp_obj(&mut g, parent).expect("small"),
+        make_medium_exp_obj(&mut g, parent).expect("medium"),
+        make_large_exp_obj(&mut g, parent).expect("large"),
+    ];
+
+    for slot in envelopes {
+        let object = &mut g.objs.aliens[slot as usize];
+        assert_ne!(object.sflags2 & ASF2_COLLDISABLE, 0);
+        object.collflags &= !ACF_FIRSTFRAME;
+    }
+
+    g.coldet_generate_list();
+    for slot in envelopes {
+        assert!(
+            g.coldet.list.iter().all(|entry| entry.alien != slot),
+            "abstract explosion envelope slot {slot} entered the collision list"
+        );
+    }
 }
 
 /// boss8 makeexpobj same default (boss8die per-tick barrage).

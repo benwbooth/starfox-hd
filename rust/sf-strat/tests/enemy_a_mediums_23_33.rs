@@ -2,7 +2,7 @@
 //! up1man sbyte3 gate, clship cont/warp, zaco1 spiral retain, friendexitbase
 //! beqdec snd, gate2 rangexy, skillfly behind no-dec.
 
-use sf_game::alien::ASF3_REALOBJ;
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ};
 use sf_game::vars::{PFM_SHADOWS, PSF2_PLAYERHP0};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
@@ -222,6 +222,11 @@ fn gate2_touch_uses_combined_rangexy() {
     // Keep far during init (init falls into gate2_strat same frame).
     g.objs.aliens[idx as usize].worldz = 10_000;
     strat_gate2_init(&mut g, idx);
+    assert_ne!(
+        g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE,
+        0,
+        "gate2 collision-disable belongs to the source second flag byte"
+    );
     g.objs.aliens[idx as usize].sflags2 &= !0x40;
     g.objs.aliens[idx as usize].worldy = -40;
     g.objs.aliens[idx as usize].worldz = 0; // |dz|<60

@@ -403,6 +403,40 @@ mod registration_tests {
         );
         assert_eq!(game.objs.aliens[load as usize].pbyte1 as i8, -50);
     }
+
+    #[test]
+    fn carrier_behind_check_uses_the_source_player_object_role() {
+        const LEFT_CARRIER_CHILD: u8 = 2;
+        const RIGHT_CARRIER_CHILD: u8 = 3;
+        const CARRIED_LOAD_CHILD: u8 = 1;
+        const CRASHING_SHIP_DEPTH: i16 = 110;
+        const FROZEN_PLAYER_DEPTH: i16 = 90;
+        const CARRIER_DEPTH: i16 = 100;
+
+        let mut game = Game::new();
+        let init = register(&mut game).path_init;
+        let ship = game.objs.alloc().expect("crashing ship slot");
+        strat_init_obj_vars(&mut game.objs.aliens[ship as usize]);
+        game.objs.aliens[ship as usize].worldz = CRASHING_SHIP_DEPTH;
+        game.vars.internal_playpt = ship as i16;
+
+        let follower = game.objs.alloc().expect("player follower slot");
+        strat_init_obj_vars(&mut game.objs.aliens[follower as usize]);
+        game.objs.aliens[follower as usize].worldz = FROZEN_PLAYER_DEPTH;
+        game.vars.player_object = follower as i16;
+
+        let carrier = allocate_path_object(&mut game, PATH_ID_ROBOTSWITHLOG);
+        game.objs.aliens[carrier as usize].worldz = CARRIER_DEPTH;
+        game.call_strat(init, carrier);
+
+        assert!(
+            game.objs.aliens[carrier as usize].active,
+            "carrier must compare against the frozen gameplay target, not the moving wreck"
+        );
+        assert!(child_with_number(&game, carrier, LEFT_CARRIER_CHILD) < NUMBER_AL as u16);
+        assert!(child_with_number(&game, carrier, RIGHT_CARRIER_CHILD) < NUMBER_AL as u16);
+        assert!(child_with_number(&game, carrier, CARRIED_LOAD_CHILD) < NUMBER_AL as u16);
+    }
 }
 
 // ============================================================
@@ -979,12 +1013,10 @@ impl PathHost for Adapter<'_> {
     }
 
     fn player(&mut self, _world: &PathWorld) -> Option<u16> {
-        // C Obj_GetPlayer — slot 0 when active.
-        if self.g.objs.aliens[0].active {
-            Some(0)
-        } else {
-            None
-        }
+        // Source `s_set_objtobeplayer` reads `playpt`. Death redirects that
+        // gameplay target to the inert follower while the crashing ship
+        // remains the independently tracked internal player object.
+        self.g.player_object()
     }
 
     fn run_inline(&mut self, world: &mut PathWorld, self_idx: u16, callback: u16) {

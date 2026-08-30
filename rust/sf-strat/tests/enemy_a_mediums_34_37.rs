@@ -4,6 +4,7 @@
 
 use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF2_COLLDISABLE, ASF3_REALOBJ};
 use sf_game::game::{Game, Hooks};
+use sf_game::vars::{HARD_AP, HARD_HP};
 use sf_strat::enemy_a::{
     delayexplode_strat, strat_hard180yr_init, strat_hard90yr_init, strat_houdai_init,
     strat_pillar3_init, strat_skillfly_init, strat_spacebarshoot_init, strat_zaco1l_init,
@@ -136,6 +137,11 @@ fn pillar3explode_spawns_eight_silent_children() {
         g.objs.aliens[idx as usize].count, 6,
         "pillar lifecnt 7 minus the inline first delayremove decrement"
     );
+    assert_eq!(
+        g.objs.aliens[idx as usize].hp, HARD_HP,
+        "delayremove_Istrat makes the exploding parent indestructible"
+    );
+    assert_eq!(g.objs.aliens[idx as usize].ap, HARD_AP);
     assert!(g.objs.aliens[idx as usize].stratptr.is_some()); // delayremove
 }
 

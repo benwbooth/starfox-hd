@@ -7,7 +7,7 @@
 //! (`Game::tick` -> coldet_generate + coldet_run -> box collide-strat).
 
 use sf_game::alien::{ACF_COLLTYPE1, ACF_FIRSTFRAME, ASF2_COLLDISABLE, ASF_COLLIDE};
-use sf_game::vars::{GameVars, GF_PLAYERDYING, HARD_AP, HARD_HP, SPACE_MODE};
+use sf_game::vars::{GameVars, GF_PLAYERDYING, HARD_AP, HARD_HP, PSF3_ENGINESND, SPACE_MODE};
 use sf_game::{Game, Hooks};
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{pcbox_attach, strat_spawn_player};
@@ -274,6 +274,7 @@ fn enemy_shot_at_body_box_routes_hit_to_player() {
 #[test]
 fn body_box_destroyed_triggers_death_and_detaches_boxes() {
     let (mut g, p) = spawn_with_boxes();
+    g.vars.pshipflags3 |= PSF3_ENGINESND;
     let body = g.coldet.pcbox.body.unwrap();
     let lwing = g.coldet.pcbox.lwing.unwrap();
     // Prime the body so one hit is lethal and spawn the shot at its centre.
@@ -293,15 +294,37 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
     // over an explosion callback while LCOLLIDE drains, so allow those exact
     // handoff frames before pcolBexp kills the player.
     g.objs.aliens[shot as usize].sflags2 |= ASF2_COLLDISABLE;
+    let mut saw_killed_player_handoff = false;
     for _ in 0..8 {
         g.tick();
+        if g.objs.aliens[p as usize].hp == 0 {
+            saw_killed_player_handoff = true;
+            assert_ne!(
+                g.objs.aliens[p as usize].sflags2 & ASF2_COLLDISABLE,
+                0,
+                "pcolBexp uses the source kill transition before the next player pass"
+            );
+        }
         if g.vars.gameflags & GF_PLAYERDYING != 0 {
             break;
         }
     }
+    assert!(
+        saw_killed_player_handoff,
+        "body destruction must expose the source one-pass killed-player state"
+    );
 
     // Death sequence engaged.
     assert_eq!(g.vars.gameflags & GF_PLAYERDYING, GF_PLAYERDYING);
+    assert_ne!(
+        g.vars.pshipflags3 & PSF3_ENGINESND,
+        0,
+        "playerdead_Istrat preserves the authored engine-sound route"
+    );
+    assert_eq!(
+        g.vars.pstratflags, 0,
+        "playerdead_Istrat does not invent a cutscene strategy flag"
+    );
     // Collision routing is detached, while the source pcbox pointers remain
     // addressable for `calcmeters` during the death presentation.
     assert!(!g.coldet.pcbox.attached());

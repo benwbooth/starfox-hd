@@ -7,19 +7,22 @@ use sf_difftest::{
     ScenarioClock, ScenarioEvidence, ScenarioInputRun, ScenarioManifest, SemanticEvent,
     SemanticFrame, SemanticObject, EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
 };
+use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF2_COLLDISABLE, ASF3_NOHITAFFECT};
+use sf_game::camera::{VIEWTYPE_FPOS, VIEWTYPE_TOOBJ};
 use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
-    call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_PTR, AL_ROTX,
-    AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE3, AL_SWORD2, AL_VEL, AL_VX, AL_VY, AL_VZ,
-    RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
+    call, load_retail_rom, snapshot_objects, Entry, RetailMachine, SnesBus, AL_HP, AL_PTR, AL_ROTX,
+    AL_ROTY, AL_ROTZ, AL_SBYTE1, AL_SBYTE3, AL_SFLAGS2, AL_SFLAGS3, AL_SWORD2, AL_VEL, AL_VX,
+    AL_VY, AL_VZ, RETAIL_BRIEFING_CHOICE, RETAIL_CURRENTBG, RETAIL_CURRENT_PLANET, RETAIL_DOSTRATS,
     RETAIL_DOSTRATS_COMPLETE, RETAIL_GAMEFRAME, RETAIL_LASTPLAYZ, RETAIL_LASTZCHANGE,
     RETAIL_MAPCNT, RETAIL_PEPPER_CHARACTERS, RETAIL_PLANET_BRIEFING_PREP_ENTRY,
     RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY,
     RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
     RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
-    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_POOL,
-    RETAIL_PSHIPFLAGS, RETAIL_PSHIPFLAGS2, RETAIL_PSHIPFLAGS3, RETAIL_PSTRATFLAGS,
-    RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_WHICH_ROUTE,
+    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_PLAYPT,
+    RETAIL_POOL, RETAIL_PSHIPFLAGS, RETAIL_PSHIPFLAGS2, RETAIL_PSHIPFLAGS3, RETAIL_PSTRATFLAGS,
+    RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_VIEW_POSITION_X,
+    RETAIL_VIEW_POSITION_Y, RETAIL_VIEW_POSITION_Z, RETAIL_WHICH_ROUTE,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -37,14 +40,26 @@ const PRIMARY_ENEMY: &str = "primary-enemy";
 const RETAIL_ROM_SHA256: &str = "82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548";
 const FRONT_END_SCENARIO_ID: &str = "sf1-front-end-corneria-opening";
 /// Exclusive strict boundary for the currently certified Corneria scenario.
-const CORNERIA_SCENARIO_TICKS: u32 = 1_700;
-const CERTIFIED_CORNERIA_LEVEL_FRAME: u16 = 800;
+const CORNERIA_SCENARIO_TICKS: u32 = 1_877;
+const CERTIFIED_CORNERIA_LEVEL_FRAME: u16 = 983;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
 const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
 const CORNERIA_AUDIO_UPLOAD_TICK: u32 = 1_080;
 const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
 const WORK_RAM: u32 = 0x7E_0000;
+const RETAIL_EFFECTIVE_VIEW_YAW: u32 = 0x1635;
+const RETAIL_PLAYER_VIEW_X: u32 = 0x14F6;
+const RETAIL_PLAYER_VIEW_Y: u32 = 0x14F8;
+const RETAIL_PLAYER_VIEW_Z: u32 = 0x14FA;
+const RETAIL_PLAYER_FLY_MODE: u32 = 0x14DA;
+const RETAIL_VIEW_FLOAT_X: u32 = 0x14E6;
+const RETAIL_VIEW_FLOAT_Y: u32 = 0x14E8;
+const RETAIL_VIEW_KIND: u32 = 0x15CA;
+const RETAIL_VIEW_PITCH: u32 = 0x18C5;
+const RETAIL_VIEW_SHAKE_X: u32 = 0x1595;
+const RETAIL_VIEW_YAW: u32 = 0x18C7;
+const RETAIL_VIEW_DISTANCE: u32 = 0x18CB;
 const RETAIL_OBJECT_LIFETIME_OFFSET: u32 = 0x0A;
 const RETAIL_OBJECT_DELAY_OFFSET: u32 = 0x22;
 const RETAIL_OBJECT_HIT_FLAGS_OFFSET: u32 = 0x35;
@@ -161,6 +176,7 @@ const STARTUP_CHECKPOINTS: [(u32, StartupSnapshot); 5] = [
 ];
 const FIRST_LEVEL_STATE_COMPARISON_TICK: u32 = 892;
 const STARTUP_ROLE_SLOTS: u16 = 6;
+const PLAYER_BODY_SLOT: usize = 1;
 const RETAIL_DIRECT_SHAPE_OP_0: u16 = 0xBB48;
 const RETAIL_DIRECT_SHAPE_OP_1: u16 = 0xBB64;
 const RETAIL_DIRECT_SHAPE_OP_2: u16 = 0xBB80;
@@ -179,7 +195,10 @@ const RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_SPRITE: u16 = 0xB101;
 const RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_POLYGONS: u16 = 0xB587;
 const RETAIL_DIRECT_SHAPE_BOUNCYBALL: u16 = 0xAEED;
 const RETAIL_DIRECT_SHAPE_TOWER_CHILD: u16 = 0xBD78;
+const RETAIL_DIRECT_SHAPE_OVERSIZED_EXPLOSION_ENVELOPE: u16 = 0xACBD;
+const RETAIL_DIRECT_SHAPE_LARGE_EXPLOSION_ENVELOPE: u16 = 0xACD9;
 const RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_ENVELOPE: u16 = 0xACF5;
+const RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_ENVELOPE: u16 = 0xAD11;
 const RETAIL_DIRECT_SHAPE_SMOKE: u16 = 0xADD5;
 const RETAIL_DIRECT_SHAPE_ROBOT_0: u16 = 0xBB9C;
 const RETAIL_DIRECT_SHAPE_PILLAR3_NS: u16 = 0xB882;
@@ -195,7 +214,6 @@ const NATIVE_SHAPE_SMALL_EXPLOSION_SPRITE: u16 = 461;
 const NATIVE_SHAPE_SMALL_EXPLOSION_POLYGONS: u16 = 465;
 const NATIVE_SHAPE_BOUNCYBALL: u16 = 405;
 const NATIVE_SHAPE_TOWER_CHILD: u16 = 447;
-const NATIVE_SHAPE_MEDIUM_EXPLOSION_ENVELOPE: u16 = 2;
 const NATIVE_SHAPE_SMOKE: u16 = 357;
 const NATIVE_SHAPE_BOMBER: u16 = 48;
 const NATIVE_SHAPE_ZACO_A: u16 = 217;
@@ -210,6 +228,11 @@ struct LevelObjectSnapshot {
     slot: u16,
     shape: Option<u16>,
     position: Position,
+    explosion_size: Option<ExplosionSize>,
+    durability: u8,
+    hit_flags: u8,
+    collision_disabled: bool,
+    damage_immune: bool,
     departure_lifetime: Option<u8>,
     departure_delay: Option<u8>,
     path_wait: Option<u8>,
@@ -240,12 +263,24 @@ struct LevelSnapshot {
     game_flags: u8,
     player_ship_flags: [u8; 3],
     player_strategy_flags: u8,
+    player_fly_mode: u8,
+    player_object: u16,
     map_countdown: u16,
+    view_kind: u8,
+    player_view_position: Position,
+    view_float: [i16; 2],
+    view_shake: [i8; 3],
+    view_position: Position,
+    view_pitch: i16,
+    view_yaw: i16,
+    effective_view_yaw: i16,
+    view_distance: i16,
     forward_velocity: i16,
     previous_player_depth: i16,
     last_depth_change: i16,
     player_hit_timer: u8,
     player_hit_flags: u8,
+    player_body_durability: u8,
     player_presentation_bytes: [u8; 3],
     active_order: Vec<u16>,
     free_order: Vec<u16>,
@@ -273,12 +308,25 @@ impl ObjectIdentityTracker {
             .with_field("player.ship_flags_2", snapshot.player_ship_flags[1])
             .with_field("player.ship_flags_3", snapshot.player_ship_flags[2])
             .with_field("player.strategy_flags", snapshot.player_strategy_flags)
+            .with_field("player.fly_mode", snapshot.player_fly_mode)
+            .with_field("player.object", snapshot.player_object)
             .with_field("map.countdown", snapshot.map_countdown)
+            .with_field("view.kind", snapshot.view_kind)
+            .with_field("view.player_position.x", snapshot.player_view_position.0)
+            .with_field("view.player_position.y", snapshot.player_view_position.1)
+            .with_field("view.player_position.z", snapshot.player_view_position.2)
+            .with_field("view.float.x", snapshot.view_float[0])
+            .with_field("view.float.y", snapshot.view_float[1])
+            .with_field("view.shake.x", snapshot.view_shake[0])
+            .with_field("view.shake.y", snapshot.view_shake[1])
+            .with_field("view.shake.z", snapshot.view_shake[2])
+            .with_field("view.distance", snapshot.view_distance)
             .with_field("view.forward_velocity", snapshot.forward_velocity)
             .with_field("player.previous_depth", snapshot.previous_player_depth)
             .with_field("player.last_depth_change", snapshot.last_depth_change)
             .with_field("player.hit_timer", snapshot.player_hit_timer)
             .with_field("player.hit_flags", snapshot.player_hit_flags)
+            .with_field("player.body_durability", snapshot.player_body_durability)
             .with_field(
                 "opening.rotation_phase",
                 snapshot.player_presentation_bytes[0],
@@ -300,6 +348,21 @@ impl ObjectIdentityTracker {
                 "object_pool.free_order",
                 format!("{:?}", snapshot.free_order),
             );
+
+        // Fixed/look-at phases expose their camera object as the authored
+        // logical state; its slot and position are compared below. The final
+        // transform is produced later in the retail presentation pipeline.
+        // Normal flight derives the transform in the same logical update as
+        // the native shell, so compare its position and angles directly.
+        if snapshot.view_kind & (VIEWTYPE_FPOS | VIEWTYPE_TOOBJ) == 0 {
+            frame = frame
+                .with_field("view.position.x", snapshot.view_position.0)
+                .with_field("view.position.y", snapshot.view_position.1)
+                .with_field("view.position.z", snapshot.view_position.2)
+                .with_field("view.pitch", snapshot.view_pitch)
+                .with_field("view.yaw", snapshot.view_yaw)
+                .with_field("view.effective_yaw", snapshot.effective_view_yaw);
+        }
 
         let current: BTreeSet<_> = snapshot.objects.iter().map(|object| object.slot).collect();
         for slot in self.active.difference(&current) {
@@ -343,6 +406,14 @@ impl ObjectIdentityTracker {
             if let Some(shape) = object.shape {
                 semantic = semantic.with_field("shape", shape);
             }
+            if let Some(size) = object.explosion_size {
+                semantic = semantic.with_field("visual.explosion_size", explosion_size_name(size));
+            }
+            semantic = semantic
+                .with_field("collision.durability", object.durability)
+                .with_field("collision.hit_flags", object.hit_flags)
+                .with_field("collision.disabled", object.collision_disabled)
+                .with_field("collision.damage_immune", object.damage_immune);
             if let Some(lifetime) = object.departure_lifetime {
                 semantic = semantic.with_field("departure.lifetime", lifetime);
             }
@@ -377,6 +448,15 @@ impl ObjectIdentityTracker {
             frame.objects.push(semantic);
         }
         frame
+    }
+}
+
+fn explosion_size_name(size: ExplosionSize) -> &'static str {
+    match size {
+        ExplosionSize::Small => "small",
+        ExplosionSize::Medium => "medium",
+        ExplosionSize::Large => "large",
+        ExplosionSize::Oversized => "oversized",
     }
 }
 const RETAIL_PHASE_ENTRIES: [u32; 12] = [
@@ -606,7 +686,7 @@ fn front_end_manifest() -> ScenarioManifest {
     ScenarioManifest {
         schema_version: SCENARIO_SCHEMA_VERSION,
         id: FRONT_END_SCENARIO_ID.to_owned(),
-        description: "Retail boot through the Corneria corridor and first combat wave".to_owned(),
+        description: "Retail boot through Corneria frame 983 and natural player damage".to_owned(),
         retail_rom_sha256: RETAIL_ROM_SHA256.to_owned(),
         clock: ScenarioClock::logical_update(),
         input_runs: front_end_input_runs(),
@@ -621,6 +701,7 @@ fn front_end_manifest() -> ScenarioManifest {
             "retail:front-end-phases".to_owned(),
             "retail:corneria-level-state".to_owned(),
             "retail:corneria-kamikaze-wave".to_owned(),
+            "retail:player-body-damage".to_owned(),
             "retail:object-lifecycle".to_owned(),
         ]
         .into_iter()
@@ -629,6 +710,7 @@ fn front_end_manifest() -> ScenarioManifest {
             "native:front-end-phases".to_owned(),
             "native:corneria-level-state".to_owned(),
             "native:corneria-kamikaze-wave".to_owned(),
+            "native:player-body-damage".to_owned(),
             "native:object-lifecycle".to_owned(),
         ]
         .into_iter()
@@ -861,6 +943,26 @@ fn retail_object_list(retail: &RetailMachine, head_address: u32) -> Vec<u16> {
     slots
 }
 
+fn retail_object_slot(object: u16) -> u16 {
+    let object = u32::from(object);
+    assert!(
+        object >= RETAIL_POOL.base,
+        "retail object pointer precedes pool: {object:#06X}"
+    );
+    let offset = object - RETAIL_POOL.base;
+    assert_eq!(
+        offset % RETAIL_POOL.stride,
+        0,
+        "retail object pointer is not aligned: {object:#06X}"
+    );
+    let slot = offset / RETAIL_POOL.stride;
+    assert!(
+        slot < RETAIL_POOL.count,
+        "retail object pointer exceeds pool: {object:#06X}"
+    );
+    slot as u16
+}
+
 fn native_free_order(native: &Shell) -> Vec<u16> {
     let mut slots = Vec::new();
     let mut current = native.game.objs.free_head;
@@ -878,7 +980,17 @@ fn native_free_order(native: &Shell) -> Vec<u16> {
 fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
     const SOURCE_SHAPE_CATALOG_ENTRIES: u16 = 512;
 
-    let flat_shape = |source_word| {
+    let flat_visual = |source_word| {
+        let explosion_size = match source_word {
+            RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_ENVELOPE => Some(ExplosionSize::Small),
+            RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_ENVELOPE => Some(ExplosionSize::Medium),
+            RETAIL_DIRECT_SHAPE_LARGE_EXPLOSION_ENVELOPE => Some(ExplosionSize::Large),
+            RETAIL_DIRECT_SHAPE_OVERSIZED_EXPLOSION_ENVELOPE => Some(ExplosionSize::Oversized),
+            _ => None,
+        };
+        if let Some(size) = explosion_size {
+            return (0, Some(size));
+        }
         let direct_shape = match source_word {
             RETAIL_DIRECT_SHAPE_OP_0 => Some(sf_map::consts::sh::OP_0),
             RETAIL_DIRECT_SHAPE_OP_1 => Some(sf_map::consts::sh::OP_1),
@@ -904,23 +1016,21 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             }
             RETAIL_DIRECT_SHAPE_BOUNCYBALL => Some(NATIVE_SHAPE_BOUNCYBALL),
             RETAIL_DIRECT_SHAPE_TOWER_CHILD => Some(NATIVE_SHAPE_TOWER_CHILD),
-            RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_ENVELOPE => {
-                Some(NATIVE_SHAPE_MEDIUM_EXPLOSION_ENVELOPE)
-            }
             RETAIL_DIRECT_SHAPE_SMOKE => Some(NATIVE_SHAPE_SMOKE),
             RETAIL_DIRECT_SHAPE_ROBOT_0 => Some(NATIVE_SHAPE_ROBOT_0),
             RETAIL_DIRECT_SHAPE_PILLAR3_NS => Some(NATIVE_SHAPE_PILLAR3_NS),
             _ => None,
         };
         if let Some(shape) = direct_shape {
-            return sf_core::shape::resolve_shape_word(shape);
+            return (sf_core::shape::resolve_shape_word(shape), None);
         }
-        (0..SOURCE_SHAPE_CATALOG_ENTRIES)
+        let shape = (0..SOURCE_SHAPE_CATALOG_ENTRIES)
             .find(|catalog_id| {
                 retail.peek16(RETAIL_SHAPES + u32::from(*catalog_id) * 2) == source_word
             })
             .map(sf_core::shape::resolve_shape_word)
-            .unwrap_or_else(|| sf_core::shape::resolve_shape_word(source_word))
+            .unwrap_or_else(|| sf_core::shape::resolve_shape_word(source_word));
+        (shape, None)
     };
     let objects = retail.object_snapshot();
     let active_order = retail_object_list(retail, RETAIL_POOL.active_head);
@@ -940,13 +1050,46 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             retail.peek8(WORK_RAM | RETAIL_PSHIPFLAGS3),
         ],
         player_strategy_flags: retail.peek8(WORK_RAM | RETAIL_PSTRATFLAGS),
+        player_fly_mode: retail.peek8(WORK_RAM | RETAIL_PLAYER_FLY_MODE),
+        player_object: retail_object_slot(retail.peek16(WORK_RAM | RETAIL_PLAYPT)),
         map_countdown: retail.peek16(WORK_RAM | RETAIL_MAPCNT),
+        view_kind: retail.peek8(WORK_RAM | RETAIL_VIEW_KIND),
+        player_view_position: Position(
+            retail.peek16(WORK_RAM | RETAIL_PLAYER_VIEW_X) as i16,
+            retail.peek16(WORK_RAM | RETAIL_PLAYER_VIEW_Y) as i16,
+            retail.peek16(WORK_RAM | RETAIL_PLAYER_VIEW_Z) as i16,
+        ),
+        view_float: [
+            retail.peek16(WORK_RAM | RETAIL_VIEW_FLOAT_X) as i16,
+            retail.peek16(WORK_RAM | RETAIL_VIEW_FLOAT_Y) as i16,
+        ],
+        view_shake: [
+            retail.peek8(WORK_RAM | RETAIL_VIEW_SHAKE_X) as i8,
+            retail.peek8(WORK_RAM | RETAIL_VIEW_SHAKE_X + 1) as i8,
+            retail.peek8(WORK_RAM | RETAIL_VIEW_SHAKE_X + 2) as i8,
+        ],
+        view_position: Position(
+            retail.peek16(WORK_RAM | RETAIL_VIEW_POSITION_X) as i16,
+            retail.peek16(WORK_RAM | RETAIL_VIEW_POSITION_Y) as i16,
+            retail.peek16(WORK_RAM | RETAIL_VIEW_POSITION_Z) as i16,
+        ),
+        view_pitch: retail.peek16(WORK_RAM | RETAIL_VIEW_PITCH) as i16,
+        view_yaw: retail.peek16(WORK_RAM | RETAIL_VIEW_YAW) as i16,
+        effective_view_yaw: retail.peek16(WORK_RAM | RETAIL_EFFECTIVE_VIEW_YAW) as i16,
+        view_distance: retail.peek16(WORK_RAM | RETAIL_VIEW_DISTANCE) as i16,
         forward_velocity: retail.peek16(WORK_RAM | RETAIL_PVIEWVELZ) as i16,
         previous_player_depth: retail.peek16(WORK_RAM | RETAIL_LASTPLAYZ) as i16,
         last_depth_change: retail.peek16(WORK_RAM | RETAIL_LASTZCHANGE) as i16,
         player_hit_timer: retail.peek8(WORK_RAM | RETAIL_POOL.base + AL_SBYTE1),
         player_hit_flags: retail
             .peek8(WORK_RAM | RETAIL_POOL.base + RETAIL_OBJECT_HIT_FLAGS_OFFSET),
+        player_body_durability: retail.peek8(
+            WORK_RAM
+                | (RETAIL_POOL.base
+                    + u32::try_from(PLAYER_BODY_SLOT).expect("player body slot")
+                        * RETAIL_POOL.stride
+                    + AL_HP),
+        ),
         player_presentation_bytes: [
             retail.peek8(WORK_RAM | RETAIL_PLAYER_PRESENTATION_BYTES),
             retail.peek8(WORK_RAM | RETAIL_PLAYER_PRESENTATION_BYTES + 1),
@@ -958,9 +1101,10 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
             .into_iter()
             .map(|slot| {
                 let object = objects[slot as usize];
-                let flat_object_shape = flat_shape(object.shape);
+                let (flat_object_shape, explosion_size) = flat_visual(object.shape);
                 let shape = (slot >= STARTUP_ROLE_SLOTS).then_some(flat_object_shape);
-                let departure = shape == Some(sf_map::consts::sh::MYSHIP_4);
+                let departure =
+                    explosion_size.is_none() && shape == Some(sf_map::consts::sh::MYSHIP_4);
                 let path_driven = shape == Some(sf_map::consts::sh::FRIENDSHIP_4);
                 let fighter = shape == Some(sf_map::consts::sh::ZACO_5);
                 let authored_motion = matches!(
@@ -977,6 +1121,16 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
                     slot,
                     shape,
                     position: object_position(object),
+                    explosion_size,
+                    durability: retail.peek8(WORK_RAM | object_base + AL_HP),
+                    hit_flags: retail
+                        .peek8(WORK_RAM | object_base + RETAIL_OBJECT_HIT_FLAGS_OFFSET),
+                    collision_disabled: retail.peek8(WORK_RAM | object_base + AL_SFLAGS2)
+                        & ASF2_COLLDISABLE
+                        != 0,
+                    damage_immune: retail.peek8(WORK_RAM | object_base + AL_SFLAGS3)
+                        & ASF3_NOHITAFFECT
+                        != 0,
                     departure_lifetime: departure.then(|| {
                         retail.peek8(WORK_RAM | object_base + RETAIL_OBJECT_LIFETIME_OFFSET)
                     }),
@@ -1019,6 +1173,7 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
 }
 
 fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
+    let camera = native.frame().camera;
     let active_order = native.game.objs.active_indices();
     let free_order = native_free_order(native);
     let mut active = active_order.clone();
@@ -1033,12 +1188,39 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
             native.game.vars.pshipflags3,
         ],
         player_strategy_flags: native.game.vars.pstratflags,
+        player_fly_mode: native.game.vars.playerflymode,
+        player_object: native.game.vars.player_object as u16,
         map_countdown: native.game.vars.mapcnt,
+        view_kind: native.game.vars.strategy.view_kind,
+        player_view_position: Position(
+            native.game.vars.strategy.player_view_position[0],
+            native.game.vars.strategy.player_view_position[1],
+            native.game.vars.strategy.player_view_position[2],
+        ),
+        view_float: [
+            native.game.vars.strategy.view_float_x,
+            native.game.vars.strategy.view_float_y,
+        ],
+        view_shake: [
+            native.game.vars.strategy.view_shake[0] as i8,
+            native.game.vars.strategy.view_shake[1] as i8,
+            native.game.vars.strategy.view_shake[2] as i8,
+        ],
+        view_position: Position(
+            (camera.x >> 16) as i16,
+            (camera.y >> 16) as i16,
+            (camera.z >> 16) as i16,
+        ),
+        view_pitch: native.game.vars.strategy.view_pitch,
+        view_yaw: native.game.vars.strategy.view_yaw,
+        effective_view_yaw: camera.rotation[1] as i16,
+        view_distance: native.game.vars.strategy.view_distance,
         forward_velocity: native.game.vars.pviewvelz,
         previous_player_depth: native.game.world.lastplayz,
         last_depth_change: native.game.world.lastzchange,
         player_hit_timer: native.game.objs.aliens[0].sbyte1,
         player_hit_flags: native.game.objs.aliens[0].hitflags,
+        player_body_durability: native.game.objs.aliens[PLAYER_BODY_SLOT].hp,
         player_presentation_bytes: native.game.vars.strategy.player_bytes,
         active_order,
         free_order,
@@ -1046,8 +1228,13 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
             .into_iter()
             .map(|slot| {
                 let object = native.game.objs.aliens[slot as usize];
-                let departure =
-                    slot >= STARTUP_ROLE_SLOTS && object.shape == sf_map::consts::sh::MYSHIP_4;
+                let explosion_size = match object.visual_kind {
+                    ObjectVisualKind::ExplosionEnvelope(size) => Some(size),
+                    ObjectVisualKind::Mesh | ObjectVisualKind::ScaledSprite => None,
+                };
+                let departure = explosion_size.is_none()
+                    && slot >= STARTUP_ROLE_SLOTS
+                    && object.shape == sf_map::consts::sh::MYSHIP_4;
                 let path_driven =
                     slot >= STARTUP_ROLE_SLOTS && object.shape == sf_map::consts::sh::FRIENDSHIP_4;
                 let fighter =
@@ -1065,6 +1252,11 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
                     slot,
                     shape: (slot >= STARTUP_ROLE_SLOTS).then_some(object.shape),
                     position: Position(object.worldx, object.worldy, object.worldz),
+                    explosion_size,
+                    durability: object.hp,
+                    hit_flags: object.hitflags,
+                    collision_disabled: object.sflags2 & ASF2_COLLDISABLE != 0,
+                    damage_immune: object.sflags3 & ASF3_NOHITAFFECT != 0,
                     departure_lifetime: departure.then_some(object.count),
                     departure_delay: departure.then_some(object.sbyte1),
                     path_wait: path_driven.then_some(object.sbyte3),
@@ -1156,6 +1348,43 @@ fn retail_direct_explosion_headers_match_small_native_shapes() {
     };
     let retail = RetailMachine::new(rom);
 
+    for (retail_shape, expected_size, expected_extent) in [
+        (
+            RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_ENVELOPE,
+            ExplosionSize::Small,
+            50,
+        ),
+        (
+            RETAIL_DIRECT_SHAPE_MEDIUM_EXPLOSION_ENVELOPE,
+            ExplosionSize::Medium,
+            90,
+        ),
+        (
+            RETAIL_DIRECT_SHAPE_LARGE_EXPLOSION_ENVELOPE,
+            ExplosionSize::Large,
+            200,
+        ),
+        (
+            RETAIL_DIRECT_SHAPE_OVERSIZED_EXPLOSION_ENVELOPE,
+            ExplosionSize::Oversized,
+            1_000,
+        ),
+    ] {
+        let retail_shape = u32::from(retail_shape);
+        assert_eq!(
+            retail.peek8(retail_shape + RETAIL_SHAPE_COORDINATE_SHIFT_OFFSET),
+            0,
+            "retail {:?} envelope coordinate shift changed at {retail_shape:#06X}",
+            expected_size
+        );
+        assert_eq!(
+            retail.peek16(retail_shape + RETAIL_SHAPE_VISUAL_EXTENT_OFFSET),
+            expected_extent,
+            "retail {:?} envelope visual extent changed at {retail_shape:#06X}",
+            expected_size
+        );
+    }
+
     for (retail_shape, native_shape) in [
         (
             RETAIL_DIRECT_SHAPE_SMALL_EXPLOSION_SPRITE,
@@ -1220,6 +1449,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     let mut previous_retail_level_frame = None;
     let mut retail_level_boundary_aligned = false;
     let mut saw_authored_kamikaze_pair = false;
+    let mut saw_player_body_damage = false;
 
     for tick in 0..CORNERIA_SCENARIO_TICKS {
         let input = front_end_input(tick);
@@ -1304,6 +1534,11 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 .count();
             if retail_kamikazes == 2 && native_kamikazes == 2 {
                 saw_authored_kamikaze_pair = true;
+            }
+            if retail_snapshot.player_body_durability < sf_game::coldet::PCBOX_BODY_HP
+                && native_snapshot.player_body_durability < sf_game::coldet::PCBOX_BODY_HP
+            {
+                saw_player_body_damage = true;
             }
             let retail_random_state = [
                 retail.peek8(WORK_RAM | RETAIL_RAND),
@@ -1404,6 +1639,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             "retail:front-end-phases".to_owned(),
             "retail:corneria-level-state".to_owned(),
             "retail:corneria-kamikaze-wave".to_owned(),
+            "retail:player-body-damage".to_owned(),
             "retail:object-lifecycle".to_owned(),
         ]
         .into_iter()
@@ -1422,6 +1658,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             "native:front-end-phases".to_owned(),
             "native:corneria-level-state".to_owned(),
             "native:corneria-kamikaze-wave".to_owned(),
+            "native:player-body-damage".to_owned(),
             "native:object-lifecycle".to_owned(),
         ]
         .into_iter()
@@ -1453,5 +1690,9 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     assert!(
         saw_authored_kamikaze_pair,
         "trace must observe the authored two-kamikaze Corneria wave on both sides"
+    );
+    assert!(
+        saw_player_body_damage,
+        "trace must observe natural player body damage on both sides"
     );
 }

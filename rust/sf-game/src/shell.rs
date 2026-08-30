@@ -2943,6 +2943,7 @@ impl Shell {
         v.player_view_options = PlayerViewOptions::Unconfigured;
         v.freezestrats = 0;
         v.dummyobj = 0;
+        v.player_object = 0;
         v.bossmaxhp = 0;
         v.meters = 0;
         self.paused = false;

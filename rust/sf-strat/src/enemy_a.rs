@@ -1256,12 +1256,7 @@ fn explosion_presentation_from_extent(
 
 fn explosion_presentation(source: Alien) -> Option<ExplosionPresentation> {
     let (visual_extent, coordinate_shift) = match source.visual_kind {
-        ObjectVisualKind::ExplosionEnvelope(size) => match size {
-            ExplosionSize::Small => (50, 0),
-            ExplosionSize::Medium => (90, 0),
-            ExplosionSize::Large => (200, 0),
-            ExplosionSize::Oversized => (1000, 0),
-        },
+        ObjectVisualKind::ExplosionEnvelope(size) => (size.source_extent() as u16, 0),
         ObjectVisualKind::Mesh | ObjectVisualKind::ScaledSprite => {
             let metrics = sf1_shape_metrics(source.shape)?;
             (metrics.visual_extent, metrics.coordinate_shift)
@@ -7231,7 +7226,8 @@ fn pillar3stay_init(g: &mut Game, idx: u16) {
     let s = sid(g, pillar3stay_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags &= !(ASF_NOHITAFFECT | ASF_SHADOW);
+        al.sflags &= !ASF_SHADOW;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
         al.stratptr = Some(s);
     }
     g.hooks.play_se(0x49);
@@ -7257,7 +7253,8 @@ fn pillar3_enter_fall(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(s);
-        al.sflags |= ASF_NOHITAFFECT | ASF_SHADOW;
+        al.sflags |= ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         // s_rightview_strat: leftpl clear (right of view) keeps +4; left → -4.
         al.sbyte1 = 4;
         if al.flags & AF_LEFT_PL != 0 {
@@ -7334,7 +7331,12 @@ pub(crate) fn pillar3explode_strat(g: &mut Game, idx: u16) {
     let s = sid(g, delayremove_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        // `delayremove_Istrat` runs `s_hardvars` before installing its tick.
+        // The exploding parent must therefore become indestructible while its
+        // authored child sequence completes.
+        al.hp = HARD_HP;
+        al.ap = HARD_AP;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.collflags = 0;
         al.stratptr = Some(s);
         al.collstratptr = None;
@@ -7606,7 +7608,8 @@ pub fn strat_gate_init(g: &mut Game, idx: u16) {
         al.stratptr = Some(s);
         al.hp = 1;
         al.ap = 0;
-        al.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
+        al.sflags |= ASF_SHADOW;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.colframe = 0;
     }
     g.vars.shared.enemy_path.roll1 = 0;
@@ -7682,7 +7685,8 @@ pub fn strat_gate2_init(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(s);
-        al.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
+        al.sflags |= ASF_SHADOW;
+        al.sflags2 |= ASF2_COLLDISABLE;
     }
     gate2_strat(g, idx);
 }
@@ -16644,8 +16648,7 @@ pub(crate) fn make_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     {
         let al = &mut g.objs.aliens[child as usize];
         al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags |= ASF_COLLDISABLE;
-        al.sflags2 |= ASF2_NOEXPSND | ASF2_RELEXPLODE;
+        al.sflags2 |= ASF2_COLLDISABLE | ASF2_NOEXPSND | ASF2_RELEXPLODE;
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.stratptr = Some(s_tick);

@@ -9,13 +9,13 @@ use sf_core::screen_fill_circle::{
     EXPANDING_INITIAL_RADIUS_SPEED, INITIAL_COLOR_LEVEL,
 };
 use sf_game::alien::{
-    ObjectVisualKind, ACF_COLLTYPE1, AFEXP, ASF2_COLLDISABLE, ASF3_REALOBJ, ASF4_PLAYEROBJ,
-    ASF_SHADOW,
+    ObjectVisualKind, ACF_COLLTYPE1, AFEXP, AFONFIRE, ASF2_COLLDISABLE, ASF3_REALOBJ,
+    ASF4_PLAYEROBJ, ASF_SHADOW,
 };
 use sf_game::draw::AF_INVIEW_PL;
 use sf_game::vars::{
-    GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0,
-    SPACE_MODE,
+    GameVars, GF_PLAYERDEAD, GF_PLAYERDYING, PFM_DIEFALL, PFM_DIEYROT,
+    PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0, SPACE_MODE,
 };
 use sf_game::{Game, Hooks};
 use sf_strat::common::{sv, StratRam};
@@ -51,6 +51,17 @@ const MEDIUM_EXPLOSION_POLYGON_SHAPE: u16 = 466;
 const MEDIUM_EXPLOSION_SPRITE_TICKS: u8 = 6;
 const POLYGON_EXPLOSION_TICKS: u8 = 12;
 const PLAYER_SPRITE_SCALE_ADJUSTMENT: u8 = 253;
+const DEFAULT_PLAYER_DEATH_YAW_STEP: i16 = 128;
+const SLOW_PLAYER_DEATH_YAW_STEP: i16 = 42;
+const SLOW_PLAYER_DEATH_DIFFICULTY: u8 = 2;
+const SLOW_PLAYER_DEATH_STAGE: u8 = 1;
+const DEATH_SMOKE_SHAPE: u16 = 357;
+const FIRST_SMOKE_CRASH_TICK: u16 = 16;
+const CRASH_CAMERA_START_Y: i16 = -200;
+const CRASH_SHIP_START_Y: i16 = -100;
+const CRASH_CAMERA_EXPECTED_Y: i16 = -188;
+const CRASH_TEST_PITCH: i16 = 32 * 256;
+const PLAYER_GROUND_IMPACT_SPARKS: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Ev {
@@ -396,6 +407,205 @@ fn cockpit_death_finishes_the_authored_ejection_before_crashing() {
 }
 
 #[test]
+fn crash_speed_uses_the_source_fixed_step_cadence() {
+    const INITIAL_SPEED: i16 = 65;
+
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut g = new_game(log);
+    let player = strat_spawn_player(&mut g).expect("player");
+    g.vars.set_sv_i16(sv::PLAYER_SPEED, INITIAL_SPEED);
+    g.vars.gameframe = 1;
+
+    let death_init = g.objs.aliens[player as usize]
+        .expstratptr
+        .expect("player death initializer");
+    g.call_strat(death_init, player);
+    let crash = g.objs.aliens[player as usize]
+        .stratptr
+        .expect("player crash callback");
+
+    for frame in [2, 3] {
+        g.vars.gameframe = frame;
+        g.call_strat(crash, player);
+        assert_eq!(g.vars.sv_i16(sv::PLAYER_SPEED), INITIAL_SPEED);
+    }
+
+    g.vars.gameframe = 4;
+    g.call_strat(crash, player);
+    assert_eq!(g.vars.sv_i16(sv::PLAYER_SPEED), INITIAL_SPEED - 1);
+    assert_eq!(g.objs.aliens[player as usize].vel, 64);
+}
+
+#[test]
+fn rotating_crash_camera_chases_the_pre_movement_ship_height() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut g = new_game(log);
+    let player = strat_spawn_player(&mut g).expect("player");
+    g.vars.playerflymode = PFM_DIEYROT;
+    g.vars.gameframe = 1;
+
+    let death_init = g.objs.aliens[player as usize]
+        .expstratptr
+        .expect("player death initializer");
+    g.call_strat(death_init, player);
+    let crash = g.objs.aliens[player as usize]
+        .stratptr
+        .expect("player crash callback");
+
+    g.objs.aliens[player as usize].worldy = CRASH_SHIP_START_Y;
+    g.vars.set_sv_i16(sv::PVIEWPOSY, CRASH_CAMERA_START_Y);
+    g.vars.set_sv_i16(sv::PLROTX, CRASH_TEST_PITCH);
+    g.call_strat(crash, player);
+
+    assert_ne!(
+        g.objs.aliens[player as usize].worldy, CRASH_SHIP_START_Y,
+        "test pitch must move the ship vertically"
+    );
+    assert_eq!(g.vars.sv_i16(sv::PVIEWPOSY), CRASH_CAMERA_EXPECTED_Y);
+}
+
+#[test]
+fn falling_crash_emits_four_sparks_once_on_ground_contact() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut g = new_game(log);
+    let player = strat_spawn_player(&mut g).expect("player");
+    g.vars.playerflymode = PFM_DIEFALL;
+    g.objs.aliens[player as usize].worldy = -20;
+
+    let death_init = g.objs.aliens[player as usize]
+        .expstratptr
+        .expect("player death initializer");
+    g.call_strat(death_init, player);
+    let crash = g.objs.aliens[player as usize]
+        .stratptr
+        .expect("player crash callback");
+
+    g.objs.aliens[player as usize].worldy = 0;
+    let before_impact = g.objs.active_indices().len();
+    g.call_strat(crash, player);
+    assert_eq!(
+        g.objs.active_indices().len(),
+        before_impact + PLAYER_GROUND_IMPACT_SPARKS
+    );
+
+    g.call_strat(crash, player);
+    assert_eq!(
+        g.objs.active_indices().len(),
+        before_impact + PLAYER_GROUND_IMPACT_SPARKS,
+        "ground-impact sparks must not respawn while the ship remains grounded"
+    );
+}
+
+#[test]
+fn death_initializer_rearms_a_grounded_ship_impact_burst() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut g = new_game(log);
+    let player = strat_spawn_player(&mut g).expect("player");
+    let follower = g.create_player_dummy().expect("player follower");
+    g.vars.playerflymode = PFM_DIEFALL;
+    g.objs.aliens[player as usize].worldy = 0;
+    g.objs.aliens[player as usize].sflags2 |= ASF2_SFLAG1;
+    let before_impact = g.objs.active_indices().len();
+
+    let death_init = g.objs.aliens[player as usize]
+        .expstratptr
+        .expect("player death initializer");
+    g.call_strat(death_init, player);
+
+    assert_eq!(g.vars.internal_playpt, player as i16);
+    assert_eq!(g.vars.player_object, follower as i16);
+
+    assert_eq!(
+        g.objs.active_indices().len(),
+        before_impact + PLAYER_GROUND_IMPACT_SPARKS
+    );
+}
+
+#[test]
+fn death_yaw_step_uses_the_authored_stage_specific_speed() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut ordinary = new_game(log.clone());
+    let _ordinary_player = strat_spawn_player(&mut ordinary).expect("ordinary player");
+    assert_eq!(
+        ordinary.vars.strategy.player_death_yaw_step,
+        DEFAULT_PLAYER_DEATH_YAW_STEP
+    );
+
+    let mut slow = new_game(log);
+    slow.vars.shared.difficulty_level = SLOW_PLAYER_DEATH_DIFFICULTY;
+    slow.vars.shared.stage = SLOW_PLAYER_DEATH_STAGE;
+    let slow_player = strat_spawn_player(&mut slow).expect("slow-turning player");
+    let death_init = slow.objs.aliens[slow_player as usize]
+        .expstratptr
+        .expect("player death initializer");
+    slow.call_strat(death_init, slow_player);
+    assert_eq!(
+        slow.vars.strategy.player_death_yaw_step,
+        SLOW_PLAYER_DEATH_YAW_STEP
+    );
+}
+
+#[test]
+fn rotating_crash_waits_for_the_flash_window_before_emitting_smoke() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut g = new_game(log);
+    let player = strat_spawn_player(&mut g).expect("player");
+    g.vars.playerflymode = PFM_DIEYROT;
+    g.vars.gameframe = 1;
+
+    let death_init = g.objs.aliens[player as usize]
+        .expstratptr
+        .expect("player death initializer");
+    g.call_strat(death_init, player);
+    let crash = g.objs.aliens[player as usize]
+        .stratptr
+        .expect("player crash callback");
+
+    for frame in 2..FIRST_SMOKE_CRASH_TICK {
+        g.vars.gameframe = frame;
+        g.call_strat(crash, player);
+        assert_eq!(
+            g.objs
+                .active_indices()
+                .into_iter()
+                .filter(|slot| g.objs.aliens[*slot as usize].shape == DEATH_SMOKE_SHAPE)
+                .count(),
+            0
+        );
+    }
+
+    g.vars.gameframe = FIRST_SMOKE_CRASH_TICK;
+    g.call_strat(crash, player);
+    let smoke = g.objs.aliens[player as usize]
+        .next
+        .expect("smoke linked immediately after the player");
+    assert_eq!(g.objs.aliens[smoke as usize].shape, DEATH_SMOKE_SHAPE);
+}
+
+#[test]
+fn rotating_crash_does_not_emit_smoke_after_fire_attaches() {
+    let log = Rc::new(RefCell::new(Vec::new()));
+    let mut g = new_game(log);
+    let player = strat_spawn_player(&mut g).expect("player");
+    g.vars.playerflymode = PFM_DIEYROT;
+    g.vars.gameframe = 1;
+
+    let death_init = g.objs.aliens[player as usize]
+        .expstratptr
+        .expect("player death initializer");
+    g.call_strat(death_init, player);
+    let crash = g.objs.aliens[player as usize]
+        .stratptr
+        .expect("player crash callback");
+    g.objs.aliens[player as usize].flags |= AFONFIRE;
+    g.objs.aliens[player as usize].sbyte1 = (FIRST_SMOKE_CRASH_TICK - 1) as u8;
+
+    g.vars.gameframe = FIRST_SMOKE_CRASH_TICK;
+    g.call_strat(crash, player);
+    assert!(g.objs.aliens[player as usize].next.is_none());
+}
+
+#[test]
 fn terminal_explosion_builds_the_retail_anchor_particle_and_fade_state() {
     let log = Rc::new(RefCell::new(Vec::new()));
     let mut g = new_game(log.clone());
@@ -502,6 +712,11 @@ fn terminal_explosion_builds_the_retail_anchor_particle_and_fade_state() {
         TERMINAL_SHIP_POSITION
     );
     assert!(particle_object.stratptr.is_some());
+    assert_eq!(
+        &g.objs.active_indices()[..3],
+        &[player, particle, anchor],
+        "source allocations must remain linked immediately after the crashing ship"
+    );
 
     // The retail draw pass marks the visible ship before the following
     // strategy sweep; that gate selects the live mesh/sprite explosion.

@@ -37,10 +37,32 @@ const VIEW_FLOAT_ENTRY_BYTES: u16 = 2;
 const VIEW_FLOAT_TABLE_BYTE_LENGTH: u16 = 72;
 const PLAYER_COLOR_CYCLE_FRAME_COUNT: u8 = 4;
 const FIXED_COLOR_FRAME_FLAG: u8 = 0x80;
+const PLAYER_DEATH_VIEW_PITCH_CHASE_SHIFT: u32 = 3;
+const PLAYER_DEATH_ROLL_CHASE_SHIFT: u32 = 2;
+const PLAYER_DEATH_VIEW_DISTANCE_CHASE_SHIFT: u32 = 4;
+const PLAYER_DEATH_VIEW_DISTANCE_TARGET: i16 = 500;
 const VIEW_FLOAT_TABLE: [i16; 36] = [
     0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 5, 5, 4, 4, 3, 2, 1, 0, -1, -2, -3, -4, -4, -5, -5, -6, -6,
     -6, -5, -5, -4, -4, -3, -2, -1,
 ];
+
+/// Source proportional chase: signed division rounds toward zero and a
+/// nonzero difference always advances by at least one unit.
+fn chase_proportionally(current: i16, target: i16, shift: u32) -> i16 {
+    if current == target {
+        return current;
+    }
+    let difference = target.wrapping_sub(current);
+    let mut step = if difference >= 0 {
+        difference >> shift
+    } else {
+        -((-(difference as i32) >> shift) as i16)
+    };
+    if step == 0 {
+        step = if difference > 0 { 1 } else { -1 };
+    }
+    current.wrapping_add(step)
+}
 
 /// Strategy function type — replaces C `StrategyFunc`
 /// (`void (*)(Alien *self)`, src/game/obj.h). The alien is passed by slot
@@ -351,6 +373,18 @@ impl Game {
         Some(idx)
     }
 
+    /// Object currently exposed as the player to map/path/gameplay systems.
+    ///
+    /// This is the flat native form of the source `playpt` relationship. It
+    /// deliberately remains distinct from `internal_playpt`: during the
+    /// crash sequence the former names the frozen follower and the latter
+    /// names the still-moving ship.
+    pub fn player_object(&self) -> Option<u16> {
+        let player = self.vars.player_object;
+        (player >= 0 && (player as usize) < NUMBER_AL && self.objs.aliens[player as usize].active)
+            .then_some(player as u16)
+    }
+
     /// Refresh the typed player snapshot and the inert follower used by
     /// strategy code. Returns the active player slot when one exists.
     pub fn sync_player_snapshot(&mut self) -> Option<u16> {
@@ -433,14 +467,34 @@ impl Game {
                 self.vars.strategy.view_float_cursor = 0;
             }
         }
-        // GSTRATS.ASM init_strats_l player-camera block (bank-$06 copy):
-        // entered only while GF_PLAYERDYING is set; unless GF_PLAYERDEAD is
-        // also set (fade-countdown path), OUTDIST proportionally chases 500
-        // at rate 4 — the deepening pull-back through the corridor curve.
-        if self.vars.gameflags & GF_PLAYERDYING != 0 && self.vars.gameflags & GF_PLAYERDEAD == 0 {
-            let od = self.vars.strategy.view_distance;
-            let delta = (500 - od as i32) >> 4;
-            self.vars.strategy.view_distance = (od as i32 + delta) as i16;
+        // GSTRATS.ASM `init_strats_l` death-camera block. The camera levels
+        // its pitch and ship roll, optionally turns around the crash, and
+        // pulls back until the terminal fade begins.
+        if self.vars.gameflags & GF_PLAYERDYING != 0 {
+            self.vars.strategy.view_pitch = chase_proportionally(
+                self.vars.strategy.view_pitch,
+                0,
+                PLAYER_DEATH_VIEW_PITCH_CHASE_SHIFT,
+            );
+            self.vars.strategy.player_rotation[2] = chase_proportionally(
+                self.vars.strategy.player_rotation[2],
+                0,
+                PLAYER_DEATH_ROLL_CHASE_SHIFT,
+            );
+            if self.vars.playerflymode & PFM_DIEYROT != 0 {
+                self.vars.strategy.view_yaw = self
+                    .vars
+                    .strategy
+                    .view_yaw
+                    .wrapping_sub(self.vars.strategy.player_death_yaw_step);
+            }
+            if self.vars.gameflags & GF_PLAYERDEAD == 0 {
+                self.vars.strategy.view_distance = chase_proportionally(
+                    self.vars.strategy.view_distance,
+                    PLAYER_DEATH_VIEW_DISTANCE_TARGET,
+                    PLAYER_DEATH_VIEW_DISTANCE_CHASE_SHIFT,
+                );
+            }
         }
         // GSTRATS.ASM `init_strats_l` advances the runtime stream once after
         // its player/view bookkeeping, before any object strategy executes.
@@ -508,14 +562,9 @@ impl Game {
         if !self.world.map_loaded || self.world.levelfinished != 0 {
             return;
         }
-        let player = if self.vars.internal_playpt >= 0
-            && (self.vars.internal_playpt as usize) < NUMBER_AL
-            && self.objs.aliens[self.vars.internal_playpt as usize].active
-        {
-            Some(self.objs.aliens[self.vars.internal_playpt as usize])
-        } else {
-            self.objs.player().copied()
-        };
+        let player = self
+            .player_object()
+            .map(|player| self.objs.aliens[player as usize]);
         if let Some(player) = player {
             let player_z = player.worldz;
             // Preserve the signed depth delta from the previous map object.
@@ -573,11 +622,9 @@ impl Game {
         strat_init_obj_vars(&mut self.objs.aliens[idx as usize]);
         // Obj_GetPlayer() AFTER alloc, exactly like C: if the new object
         // took slot 0 it sees itself (worldz just zeroed).
-        let player_z = if self.objs.aliens[0].active {
-            Some(self.objs.aliens[0].worldz)
-        } else {
-            None
-        };
+        let player_z = self
+            .player_object()
+            .map(|player| self.objs.aliens[player as usize].worldz);
         let al = &mut self.objs.aliens[idx as usize];
         al.worldx = x;
         al.worldy = y;
@@ -2167,6 +2214,35 @@ mod tests {
 
         assert_eq!(game.vars.strategy.view_float_y, 6);
         assert_eq!(game.vars.strategy.view_float_cursor, 18);
+    }
+
+    #[test]
+    fn dying_camera_applies_the_complete_authored_motion() {
+        const INITIAL_VIEW_PITCH: i16 = 80;
+        const INITIAL_PLAYER_ROLL: i16 = 80;
+        const INITIAL_VIEW_YAW: i16 = 0;
+        const INITIAL_VIEW_DISTANCE: i16 = 120;
+        const DEATH_YAW_STEP: i16 = 128;
+        const EXPECTED_VIEW_PITCH: i16 = 70;
+        const EXPECTED_PLAYER_ROLL: i16 = 60;
+        const EXPECTED_VIEW_YAW: i16 = -128;
+        const EXPECTED_VIEW_DISTANCE: i16 = 143;
+
+        let mut game = game_with_player();
+        game.vars.gameflags |= GF_PLAYERDYING;
+        game.vars.playerflymode |= PFM_DIEYROT;
+        game.vars.strategy.view_pitch = INITIAL_VIEW_PITCH;
+        game.vars.strategy.player_rotation[2] = INITIAL_PLAYER_ROLL;
+        game.vars.strategy.view_yaw = INITIAL_VIEW_YAW;
+        game.vars.strategy.view_distance = INITIAL_VIEW_DISTANCE;
+        game.vars.strategy.player_death_yaw_step = DEATH_YAW_STEP;
+
+        game.run_strategies();
+
+        assert_eq!(game.vars.strategy.view_pitch, EXPECTED_VIEW_PITCH);
+        assert_eq!(game.vars.strategy.player_rotation[2], EXPECTED_PLAYER_ROLL);
+        assert_eq!(game.vars.strategy.view_yaw, EXPECTED_VIEW_YAW);
+        assert_eq!(game.vars.strategy.view_distance, EXPECTED_VIEW_DISTANCE);
     }
 
     #[test]
