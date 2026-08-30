@@ -9,9 +9,9 @@ license.workspace = true
 [dependencies]
 w65c816 = "0.1"
 sf-spc.workspace = true
+sf-core.workspace = true
 
 [dev-dependencies]
-sf-core.workspace = true
 sf-strat.workspace = true
 sf-game.workspace = true
 sf-map.workspace = true

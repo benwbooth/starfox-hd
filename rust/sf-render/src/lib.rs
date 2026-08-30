@@ -22,6 +22,9 @@ pub mod shape_data;
 pub mod shapes;
 pub mod source_projection;
 mod source_raster;
+pub use source_raster::{
+    SourceFrameWorkload, HEIGHT as SOURCE_FRAME_HEIGHT, WIDTH as SOURCE_FRAME_WIDTH,
+};
 
 pub mod bg2d;
 pub mod builtin_shapes;

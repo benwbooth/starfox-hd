@@ -11,6 +11,7 @@
 pub mod gsu;
 mod ppu;
 mod retail;
+pub mod sf1_input;
 pub use ppu::{CompletedRaster, PpuFrame};
 pub use retail::*;
 

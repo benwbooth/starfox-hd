@@ -3918,6 +3918,10 @@ fn locate_n3dvecs_l(rom: &[u8]) -> (u32, u32, u32, u32, u32, u32, u32) {
 /// over the same spread of yaw/pitch/speed as tests/gen_3dvecs.rs.
 #[test]
 fn retail_gen_3dvecs_vs_port() {
+    const CORNERIA_ROUTE_YAW: u8 = 3;
+    const CORNERIA_ROUTE_PITCH: u8 = 252;
+    const CORNERIA_ROUTE_SPEED: u8 = 54;
+
     let Some(rom) = retail() else { return };
     let (n3dvecs, troty_addr, trotx_addr, x1, y1, z1, tmpz) = locate_n3dvecs_l(&rom);
     eprintln!(
@@ -3950,6 +3954,11 @@ fn retail_gen_3dvecs_vs_port() {
         (128, 0, 100),
         (10, 5, 120),
         (250, 8, 90),
+        (
+            CORNERIA_ROUTE_YAW,
+            CORNERIA_ROUTE_PITCH,
+            CORNERIA_ROUTE_SPEED,
+        ),
     ];
     let mut bad = 0;
     for &(roty, rotx, vel) in &cases {

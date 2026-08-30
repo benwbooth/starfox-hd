@@ -441,6 +441,7 @@ pub struct DrawListRenderer {
     last_source_rgba: Vec<u8>,
     last_source_owners: Vec<u16>,
     last_source_faces: Vec<u16>,
+    last_source_workload: crate::source_raster::SourceFrameWorkload,
 }
 
 impl DrawListRenderer {
@@ -460,6 +461,7 @@ impl DrawListRenderer {
                 crate::source_raster::NO_FACE;
                 crate::source_raster::WIDTH * crate::source_raster::HEIGHT
             ],
+            last_source_workload: crate::source_raster::SourceFrameWorkload::default(),
         }
     }
 
@@ -477,6 +479,10 @@ impl DrawListRenderer {
 
     pub fn source_bitmap_faces(&self) -> &[u16] {
         &self.last_source_faces
+    }
+
+    pub fn source_frame_workload(&self) -> crate::source_raster::SourceFrameWorkload {
+        self.last_source_workload
     }
 
     /// Mirror of `RenderShadow` (MARIO/MDRAWLIS.MC shadow pass): project the
@@ -582,6 +588,7 @@ impl DrawListRenderer {
         // corridor segments disappear almost one tick before the camera
         // reached their cull boundary, exposing seams as a 20 Hz flicker.
         let (presenting_previous, presented) = presentation_entries(prev, curr, alpha);
+        self.last_source_workload = crate::source_raster::SourceFrameWorkload::default();
         if presented.is_empty() {
             return;
         }
@@ -852,6 +859,7 @@ impl DrawListRenderer {
             .clone_from_slice(source_raster.owners());
         self.last_source_faces
             .clone_from_slice(source_raster.faces());
+        self.last_source_workload = source_raster.workload();
         source_raster.submit(
             gpu,
             &mut self.source_texture,

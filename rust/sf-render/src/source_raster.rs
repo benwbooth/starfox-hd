@@ -38,6 +38,36 @@ const TEXTURE_BANK_MASK: usize = 32_767;
 const SOURCE_PALETTE_MAX_INDEX: u8 = 15;
 const SOURCE_CLEAR_INDEX: u8 = 0;
 pub const NO_FACE: u16 = u16::MAX;
+
+/// Deterministic work performed while producing one source-grid scene.
+///
+/// These are semantic renderer operations, not processor cycles or machine
+/// state.  They let the gameplay timing model preserve the source game's
+/// workload-sensitive motion cadence without exposing the oracle or original
+/// hardware implementation to the shipping port.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SourceFrameWorkload {
+    pub object_passes: u32,
+    pub face_selections: u32,
+    pub point_samples: u32,
+    pub point_writes: u32,
+    pub polygon_candidates: u32,
+    pub polygons_drawn: u32,
+    pub polygon_samples: u32,
+    pub polygon_writes: u32,
+    pub line_candidates: u32,
+    pub lines_drawn: u32,
+    pub line_samples: u32,
+    pub line_writes: u32,
+    pub textured_polygon_candidates: u32,
+    pub textured_polygons_drawn: u32,
+    pub texture_samples: u32,
+    pub texture_writes: u32,
+    pub scaled_sprite_candidates: u32,
+    pub scaled_sprites_drawn: u32,
+    pub scaled_sprite_samples: u32,
+    pub scaled_sprite_writes: u32,
+}
 const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
 ];
@@ -63,6 +93,7 @@ pub struct SourceRaster {
     current_face: u16,
     has_pixels: bool,
     palette_pair_style: PalettePairStyle,
+    workload: SourceFrameWorkload,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -301,6 +332,7 @@ impl SourceRaster {
             current_face: NO_FACE,
             has_pixels: false,
             palette_pair_style: PalettePairStyle::RetailDithered,
+            workload: SourceFrameWorkload::default(),
         }
     }
 
@@ -327,12 +359,18 @@ impl SourceRaster {
         &self.faces
     }
 
+    pub fn workload(&self) -> SourceFrameWorkload {
+        self.workload
+    }
+
     pub fn set_owner(&mut self, owner: u16) {
         self.current_owner = owner;
+        self.workload.object_passes = self.workload.object_passes.saturating_add(1);
     }
 
     pub fn set_face(&mut self, face: u16) {
         self.current_face = face;
+        self.workload.face_selections = self.workload.face_selections.saturating_add(1);
     }
 
     /// Seed the cartridge bitmap with the source-projected point field. The
@@ -340,6 +378,7 @@ impl SourceRaster {
     /// so later source-raster writes intentionally replace them.
     pub fn draw_point_field(&mut self, pixels: &[PointPixel], palette: &[[f32; 3]; 16]) {
         for point in pixels {
+            self.workload.point_samples = self.workload.point_samples.saturating_add(1);
             let x = usize::from(point.x) + PLAYFIELD_LEFT as usize;
             let y = usize::from(point.y) + PLAYFIELD_TOP as usize;
             if x >= WIDTH || y >= HEIGHT {
@@ -355,6 +394,7 @@ impl SourceRaster {
             self.owners[pixel] = 0;
             self.faces[pixel] = NO_FACE;
             self.has_pixels = true;
+            self.workload.point_writes = self.workload.point_writes.saturating_add(1);
         }
     }
 
@@ -463,6 +503,7 @@ impl SourceRaster {
         indices: &[u16],
         mut color_at: impl FnMut(usize, usize) -> Option<([u8; 4], u8)>,
     ) {
+        self.workload.line_candidates = self.workload.line_candidates.saturating_add(1);
         let [first_index, second_index] = indices else {
             return;
         };
@@ -478,6 +519,7 @@ impl SourceRaster {
         let Some([first, second]) = clip_line(*first, *second) else {
             return;
         };
+        self.workload.lines_drawn = self.workload.lines_drawn.saturating_add(1);
         let (mut x, mut y) = (i32::from(first.x), i32::from(first.y));
         let (end_x, end_y) = (i32::from(second.x), i32::from(second.y));
         let delta_x = (end_x - x).abs();
@@ -492,6 +534,7 @@ impl SourceRaster {
             if x >= WIDTH || y >= HEIGHT {
                 return;
             }
+            self.workload.line_samples = self.workload.line_samples.saturating_add(1);
             let Some((color, index)) = color_at(x, y) else {
                 return;
             };
@@ -502,6 +545,7 @@ impl SourceRaster {
             self.owners[pixel] = self.current_owner;
             self.faces[pixel] = self.current_face;
             self.has_pixels |= color[3] != 0;
+            self.workload.line_writes = self.workload.line_writes.saturating_add(1);
         };
 
         if delta_x >= delta_y {
@@ -543,9 +587,12 @@ impl SourceRaster {
         high_nibble: bool,
         palette: &[[f32; 4]; 16],
     ) {
+        self.workload.scaled_sprite_candidates =
+            self.workload.scaled_sprite_candidates.saturating_add(1);
         if projected_size == 0 || source_size == 0 {
             return;
         }
+        self.workload.scaled_sprites_drawn = self.workload.scaled_sprites_drawn.saturating_add(1);
         let projected_size_u32 = u32::from(projected_size);
         let source_size_u32 = u32::from(source_size);
         let reduction_step = (source_size_u32 << 8) / projected_size_u32;
@@ -579,6 +626,8 @@ impl SourceRaster {
                 if !(PLAYFIELD_LEFT..=PLAYFIELD_RIGHT).contains(&screen_x) {
                     continue;
                 }
+                self.workload.scaled_sprite_samples =
+                    self.workload.scaled_sprite_samples.saturating_add(1);
                 let address = (usize::from(texture_offset)
                     + source_y as usize * TEXTURE_ROW_STRIDE
                     + source_x as usize)
@@ -599,6 +648,8 @@ impl SourceRaster {
                 self.owners[y * WIDTH + x] = self.current_owner;
                 self.faces[y * WIDTH + x] = self.current_face;
                 self.has_pixels = true;
+                self.workload.scaled_sprite_writes =
+                    self.workload.scaled_sprite_writes.saturating_add(1);
             }
         }
     }
@@ -616,6 +667,8 @@ impl SourceRaster {
         texture_scroll: [u8; 2],
         palette: &[[f32; 4]; 16],
     ) {
+        self.workload.textured_polygon_candidates =
+            self.workload.textured_polygon_candidates.saturating_add(1);
         if indices.len() < 3 || indices.len() != texture_coordinates.len() {
             return;
         }
@@ -654,6 +707,8 @@ impl SourceRaster {
         if minimum_y == maximum_y {
             return;
         }
+        self.workload.textured_polygons_drawn =
+            self.workload.textured_polygons_drawn.saturating_add(1);
 
         let mut forward = TexturedEdgeWalker::new(
             minimum_vertex,
@@ -688,6 +743,7 @@ impl SourceRaster {
                     ((i64::from(difference) * i64::from(reciprocal) * 2) >> 16) as i32
                 });
                 for source_x in left..=right {
+                    self.workload.texture_samples = self.workload.texture_samples.saturating_add(1);
                     let texture_coordinate: [usize; 2] = std::array::from_fn(|axis| {
                         let scrolled = (fixed_texture[axis] as i16)
                             .wrapping_add(i16::from(texture_scroll[axis]) << EDGE_FRACTION_BITS);
@@ -714,6 +770,8 @@ impl SourceRaster {
                                 self.owners[pixel] = self.current_owner;
                                 self.faces[pixel] = self.current_face;
                                 self.has_pixels = true;
+                                self.workload.texture_writes =
+                                    self.workload.texture_writes.saturating_add(1);
                             }
                         }
                     }
@@ -733,6 +791,7 @@ impl SourceRaster {
         indices: &[u16],
         mut color_at: impl FnMut(usize, usize) -> Option<([u8; 4], u8)>,
     ) {
+        self.workload.polygon_candidates = self.workload.polygon_candidates.saturating_add(1);
         if indices.len() < 3 {
             return;
         }
@@ -758,6 +817,7 @@ impl SourceRaster {
         if minimum_y == maximum_y {
             return;
         }
+        self.workload.polygons_drawn = self.workload.polygons_drawn.saturating_add(1);
 
         let mut forward = EdgeWalker::new(
             minimum_vertex,
@@ -792,6 +852,7 @@ impl SourceRaster {
                     if x >= WIDTH {
                         continue;
                     }
+                    self.workload.polygon_samples = self.workload.polygon_samples.saturating_add(1);
                     let Some((color, index)) = color_at(x, y) else {
                         continue;
                     };
@@ -801,6 +862,7 @@ impl SourceRaster {
                     self.owners[y * WIDTH + x] = self.current_owner;
                     self.faces[y * WIDTH + x] = self.current_face;
                     self.has_pixels |= color[3] != 0;
+                    self.workload.polygon_writes = self.workload.polygon_writes.saturating_add(1);
                 }
             }
             forward.advance();
@@ -1963,5 +2025,49 @@ mod tests {
         raster.draw_palette_pair(&points, &[0, 1, 2, 3], &[[1.0; 4]; 16], [13, 13]);
 
         assert!(raster.indices().iter().all(|index| *index == 0));
+    }
+
+    #[test]
+    fn source_workload_records_semantic_raster_operations() {
+        const OWNER: u16 = 7;
+        const FACE: u16 = 3;
+        const COLOR: [f32; 4] = [1.0; 4];
+        let points = [
+            ProjectedPoint {
+                x: 32,
+                y: 32,
+                depth: 1_000,
+            },
+            ProjectedPoint {
+                x: 40,
+                y: 32,
+                depth: 1_000,
+            },
+            ProjectedPoint {
+                x: 40,
+                y: 40,
+                depth: 1_000,
+            },
+            ProjectedPoint {
+                x: 32,
+                y: 40,
+                depth: 1_000,
+            },
+        ];
+        let mut raster = SourceRaster::new();
+        raster.set_owner(OWNER);
+        raster.set_face(FACE);
+        raster.draw_solid(&points, &[0, 3, 2, 1], COLOR);
+
+        let workload = raster.workload();
+        assert_eq!(workload.object_passes, 1);
+        assert_eq!(workload.face_selections, 1);
+        assert_eq!(workload.polygon_candidates, 1);
+        assert_eq!(workload.polygons_drawn, 1);
+        assert!(workload.polygon_samples > 0);
+        assert_eq!(workload.polygon_writes, workload.polygon_samples);
+        assert_eq!(workload.line_candidates, 0);
+        assert_eq!(workload.texture_samples, 0);
+        assert_eq!(workload.scaled_sprite_samples, 0);
     }
 }

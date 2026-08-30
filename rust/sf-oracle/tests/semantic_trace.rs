@@ -25,6 +25,7 @@ use sf_oracle::{
     RETAIL_STRAIGHT_STRAT, RETAIL_VIEW_POSITION_X, RETAIL_VIEW_POSITION_Y, RETAIL_VIEW_POSITION_Z,
     RETAIL_WHICH_ROUTE,
 };
+use sf_strat::common::StratRam;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,8 +41,11 @@ const NO_INPUT: u32 = 0;
 const PRIMARY_ENEMY: &str = "primary-enemy";
 const RETAIL_ROM_SHA256: &str = "82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548";
 const FRONT_END_SCENARIO_ID: &str = "sf1-front-end-corneria-opening";
+const ATTACK_CARRIER_SCENARIO_ID: &str = "sf1-front-end-corneria-attack-carrier";
+const ATTACK_CARRIER_TRACE_ENV: &str = "SF1_CORNERIA_ATTACK_CARRIER_TRACE";
 /// Exclusive strict boundary for the currently certified Corneria scenario.
 const CORNERIA_SCENARIO_TICKS: u32 = 1_877;
+const ATTACK_CARRIER_SCENARIO_TICKS: u32 = 3_075;
 const CERTIFIED_CORNERIA_LEVEL_FRAME: u16 = 983;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
@@ -57,6 +61,7 @@ const RETAIL_PLAYER_VIEW_X: u32 = 0x14F6;
 const RETAIL_PLAYER_VIEW_Y: u32 = 0x14F8;
 const RETAIL_PLAYER_VIEW_Z: u32 = 0x14FA;
 const RETAIL_PLAYER_FLY_MODE: u32 = 0x14DA;
+const RETAIL_PLAYER_DEPTH_TILT: u32 = 0x1507;
 const RETAIL_VIEW_FLOAT_X: u32 = 0x14E6;
 const RETAIL_VIEW_FLOAT_Y: u32 = 0x14E8;
 const RETAIL_VIEW_KIND: u32 = 0x15CA;
@@ -800,12 +805,24 @@ fn front_end_input(tick: u32) -> u16 {
             0
         };
     }
+    if attack_carrier_trace_enabled() && tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
+        let paused_updates = NATIVE_REPLAY_LEVEL_UPDATE_PAUSE_TICKS
+            .iter()
+            .filter(|pause| **pause < tick)
+            .count() as u32;
+        let level_frame = tick
+            .saturating_sub(FIRST_LEVEL_STATE_COMPARISON_TICK)
+            .saturating_sub(paused_updates);
+        return sf_oracle::sf1_input::corneria_attack_carrier_input(
+            u16::try_from(level_frame).expect("Corneria route frame must fit"),
+        );
+    }
     0
 }
 
 fn front_end_input_runs() -> Vec<ScenarioInputRun> {
     let mut runs = Vec::<ScenarioInputRun>::new();
-    for tick in 0..CORNERIA_SCENARIO_TICKS {
+    for tick in 0..corneria_scenario_ticks() {
         let input = u32::from(front_end_input(tick));
         if let Some(run) = runs.last_mut().filter(|run| run.input == input) {
             run.frames += 1;
@@ -829,8 +846,12 @@ fn front_end_manifest() -> ScenarioManifest {
 
     ScenarioManifest {
         schema_version: SCENARIO_SCHEMA_VERSION,
-        id: FRONT_END_SCENARIO_ID.to_owned(),
-        description: "Retail boot through Corneria frame 983 and natural player damage".to_owned(),
+        id: corneria_scenario_id().to_owned(),
+        description: if attack_carrier_trace_enabled() {
+            "Retail boot through the controller-only Corneria Attack Carrier approach".to_owned()
+        } else {
+            "Retail boot through Corneria frame 983 and natural player damage".to_owned()
+        },
         retail_rom_sha256: RETAIL_ROM_SHA256.to_owned(),
         clock: ScenarioClock::logical_update(),
         input_runs: front_end_input_runs(),
@@ -843,6 +864,26 @@ fn front_end_manifest() -> ScenarioManifest {
         .collect(),
         required_retail_coverage,
         required_native_coverage,
+    }
+}
+
+fn attack_carrier_trace_enabled() -> bool {
+    std::env::var_os(ATTACK_CARRIER_TRACE_ENV).is_some()
+}
+
+fn corneria_scenario_ticks() -> u32 {
+    if attack_carrier_trace_enabled() {
+        ATTACK_CARRIER_SCENARIO_TICKS
+    } else {
+        CORNERIA_SCENARIO_TICKS
+    }
+}
+
+fn corneria_scenario_id() -> &'static str {
+    if attack_carrier_trace_enabled() {
+        ATTACK_CARRIER_SCENARIO_ID
+    } else {
+        FRONT_END_SCENARIO_ID
     }
 }
 
@@ -1636,8 +1677,9 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     let mut retail_coverage = BTreeSet::new();
     let mut native_coverage = BTreeSet::new();
 
-    for tick in 0..CORNERIA_SCENARIO_TICKS {
+    for tick in 0..corneria_scenario_ticks() {
         let input = front_end_input(tick);
+        let retail_entry_motion_refreshes = retail.peek8(WORK_RAM | sf_oracle::RETAIL_FRAMERATE);
         let native_level_active = native.state() == GameState::Playing
             && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel;
         let align_completed_level_frame =
@@ -1811,10 +1853,47 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         )
         .expect("live scenario frames must be valid")
         {
+            if attack_carrier_trace_enabled() {
+                let retail_snapshot = retail_level_evidence
+                    .as_ref()
+                    .expect("retail level evidence at route divergence");
+                let native_snapshot = native_level_snapshot(&native);
+                let retail_player = retail_snapshot
+                    .objects
+                    .iter()
+                    .find(|object| object.slot == retail_snapshot.player_object);
+                let native_player = native_snapshot
+                    .objects
+                    .iter()
+                    .find(|object| object.slot == native_snapshot.player_object);
+                eprintln!(
+                    "attack_carrier_route_divergence tick={tick} input={input} retail_frame={} native_frame={} retail_entry_motion_refreshes={retail_entry_motion_refreshes} retail_next_motion_refreshes={} native_motion_refreshes={} retail_player={retail_player:?} native_player={native_player:?} retail_pview={:?} native_pview={:?} retail_plroty={} native_plroty={} retail_plrotz={} native_plrotz={} retail_ztilt={} native_ztilt={} retail_gsu_runs={:?}",
+                    retail_snapshot.game_frame,
+                    native_snapshot.game_frame,
+                    retail.peek8(WORK_RAM | sf_oracle::RETAIL_FRAMERATE),
+                    native.game.vars.strategy.frame_rate,
+                    retail_snapshot.player_view_position,
+                    native_snapshot.player_view_position,
+                    retail.peek16(WORK_RAM | sf_oracle::RETAIL_PLROTY) as i16,
+                    native.game.vars.sv_i16(sf_strat::common::sv::PLROTY),
+                    retail.peek16(WORK_RAM | sf_oracle::RETAIL_PLROTZ) as i16,
+                    native.game.vars.sv_i16(sf_strat::common::sv::PLROTZ),
+                    retail.peek8(WORK_RAM | RETAIL_PLAYER_DEPTH_TILT) as i8,
+                    native.game.vars.sv_u8(sf_strat::common::sv::PLAYER_ZTILT) as i8,
+                    retail
+                        .gsu_recent_runs()
+                        .into_iter()
+                        .rev()
+                        .take(8)
+                        .collect::<Vec<_>>(),
+                );
+            }
             panic!("live retail/native divergence: {divergence}");
         }
-        if let Some((_, expected)) = CORNERIA_SEMANTIC_CHECKPOINTS
-            .iter()
+        if let Some((_, expected)) = (!attack_carrier_trace_enabled())
+            .then_some(&CORNERIA_SEMANTIC_CHECKPOINTS)
+            .into_iter()
+            .flatten()
             .find(|(checkpoint, _)| *checkpoint == tick)
         {
             assert_semantic_checkpoint(
@@ -1875,7 +1954,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     .collect();
     let retail_evidence = ScenarioEvidence {
         schema_version: EVIDENCE_SCHEMA_VERSION,
-        scenario_id: FRONT_END_SCENARIO_ID.to_owned(),
+        scenario_id: corneria_scenario_id().to_owned(),
         producer: EvidenceProducer::Retail,
         retail_rom_sha256: retail_rom_sha256.clone(),
         clock: ScenarioClock::logical_update(),
@@ -1886,7 +1965,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     };
     let native_evidence = ScenarioEvidence {
         schema_version: EVIDENCE_SCHEMA_VERSION,
-        scenario_id: FRONT_END_SCENARIO_ID.to_owned(),
+        scenario_id: corneria_scenario_id().to_owned(),
         producer: EvidenceProducer::Native,
         retail_rom_sha256,
         clock: ScenarioClock::logical_update(),
@@ -1916,4 +1995,17 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         previous_retail_level_frame >= Some(CERTIFIED_CORNERIA_LEVEL_FRAME),
         "trace must compare Corneria through certified level frame {CERTIFIED_CORNERIA_LEVEL_FRAME}"
     );
+    if attack_carrier_trace_enabled() {
+        assert!(
+            native.game.objs.aliens.iter().any(|object| object.active
+                && object.shape == sf_oracle::sf1_input::CORNERIA_ATTACK_CARRIER_SHAPE),
+            "native controller tape did not reach the Corneria Attack Carrier"
+        );
+        assert!(
+            retail_level_snapshot(&retail).objects.iter().any(|object| {
+                object.shape == Some(sf_oracle::sf1_input::CORNERIA_ATTACK_CARRIER_SHAPE)
+            }),
+            "retail controller tape did not reach the Corneria Attack Carrier"
+        );
+    }
 }

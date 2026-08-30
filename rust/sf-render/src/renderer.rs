@@ -1210,6 +1210,10 @@ impl Renderer {
         self.draw_list.source_bitmap_faces()
     }
 
+    pub fn source_frame_workload(&self) -> crate::source_raster::SourceFrameWorkload {
+        self.draw_list.source_frame_workload()
+    }
+
     /// Mirror of `Renderer_Shutdown` (wgpu frees GPU resources on drop).
     pub fn shutdown(&mut self) {
         println!("Renderer shut down");
