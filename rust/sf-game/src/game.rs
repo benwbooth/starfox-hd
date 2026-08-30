@@ -882,9 +882,16 @@ impl Game {
                 self.clear_map_objects(true);
                 true
             }
-            // world_cb_setrestart_l (world.c:507).
+            // MAPMACS `setrestart` expands to `set_restart_position_l` with
+            // the instruction immediately following the inline callback as
+            // its resume point.  This saves a checkpoint; it does not request
+            // an immediate restart.
             _ if id == cb::SETRESTART_L => {
-                self.vars.bgflags |= BGF_RESTART;
+                self.world.set_restart_position(
+                    self.vars.mapptr,
+                    self.vars.currentbg,
+                    self.vars.shared.last_palette_fade,
+                );
                 true
             }
             // Record the completed map's semantic encounter for the ending
@@ -960,6 +967,7 @@ impl Game {
                         self.call_strat(sid, 0);
                     }
                 }
+                self.remember_checkpoint_player_behavior(id);
                 true
             }
             // world_cb_set_player_onplanet_l (world.c:610).
@@ -1139,15 +1147,51 @@ impl Game {
         let idx = self.vars.internal_playpt;
         let idx = if idx >= 0 && (idx as usize) < NUMBER_AL && self.objs.aliens[idx as usize].active
         {
-            idx as u16
+            Some(idx as u16)
         } else if self.objs.aliens[0].active {
-            0
+            Some(0)
         } else {
-            return;
+            None
         };
-        if let Some(sid) = self.world.find_strategy_address(key) {
-            self.call_strat(sid, idx);
+        if let Some(idx) = idx {
+            if let Some(sid) = self.world.find_strategy_address(key) {
+                self.call_strat(sid, idx);
+            }
         }
+        self.remember_checkpoint_player_behavior(key);
+    }
+
+    /// Publish the semantic behavior selected by a map `mapplayermode` block.
+    /// This is the typed flat-state equivalent of retail's saved player code
+    /// pointer and is intentionally updated only when that block executes.
+    fn remember_checkpoint_player_behavior(&mut self, key: u32) {
+        use CheckpointPlayerBehavior as Behavior;
+
+        self.vars.checkpoint_player_behavior = match key {
+            cb::SET_PLAYER_EXITBASE_L => Behavior::ExitBase,
+            cb::SET_PLAYER_ONPLANET_L => Behavior::OnPlanet,
+            cb::SET_PLAYER_CLEARDEMO_L => Behavior::ClearDemo,
+            cb::SET_PLAYER_WARP_L => Behavior::Warp,
+            cb::SET_PLAYER_CLEAR_EARTH_L => Behavior::ClearEarth,
+            cb::SET_PLAYER_CLEAR_CHASE_L => Behavior::ClearChase,
+            cb::SET_PLAYER_CLEAR_SHIP2_L => Behavior::ClearShip,
+            cb::SET_PLAYER_CLEAR_UNDER_L => Behavior::ClearUnderwater,
+            cb::SET_PLAYER_DIVE_L => Behavior::Dive,
+            cb::SET_PLAYER_CLEAR_BRIDGE_L => Behavior::ClearBridge,
+            cb::SET_PLAYER_CLEAR_TURN_L => Behavior::ClearTurn,
+            cb::SET_PLAYER_WARPOUT_L => Behavior::WarpOut,
+            cb::SET_PLAYER_ONWATER_L => Behavior::OnWater,
+            cb::SET_PLAYER_TOCSLOW_L => Behavior::ControlledSlowFlight,
+            cb::SET_PLAYER_INMTEXIT_L => Behavior::MediumTunnelExit,
+            cb::SET_PLAYER_INLTEXIT_L => Behavior::LongTunnelExit,
+            cb::SET_PLAYER_INSPACE_L => Behavior::InSpace,
+            cb::SET_PLAYER_INTOLB1_L => Behavior::EnterLastBase,
+            cb::SET_PLAYER_OUTOFLB2A_L => Behavior::ExitLastBase,
+            cb::SET_PLAYER_ESCAPENUCLEUS_L => Behavior::EscapeNucleus,
+            cb::SET_PLAYER_WASHENT_L => Behavior::WashEntrance,
+            cb::SET_PLAYER_CLEAR_COLONY_L => Behavior::ClearColony,
+            _ => return,
+        };
     }
 
     /// Run an inline CODE65816 callback (C `WorldInlineMapFunc` impls in
@@ -1183,6 +1227,13 @@ impl Game {
                 // levels.c:1690.
                 self.vars.pshipflags3 |= PSF3_KEEPPSTRAT;
                 *mapptr = mapptr.wrapping_add(1);
+            }
+            InlineCb::SkipPlayerModeIfDead { skip_ptr } => {
+                if self.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+                    *mapptr = skip_ptr;
+                } else {
+                    *mapptr = mapptr.wrapping_add(1);
+                }
             }
             InlineCb::SkillflyGuard { skip_ptr } => {
                 // levels.c:1671.
@@ -2005,10 +2056,13 @@ impl Game {
                         let raw_key = ((func_bank as u32) << 16) | func_addr as u32;
                         self.find_native_callback(raw_key)
                     });
+                    // Rust-authored maps encode the source inline `setrestart`
+                    // block as CODEJSL. Publish the continuation first so that
+                    // callback snapshots the source label after that block.
+                    self.vars.mapptr = p.wrapping_add(4);
                     if let Some(cbk) = cbk {
                         self.dispatch_native(cbk);
                     }
-                    self.vars.mapptr = p.wrapping_add(4);
                 }
                 // 124-128: conditional jumps on external byte var
                 // (WORLD.ASM:287-364).

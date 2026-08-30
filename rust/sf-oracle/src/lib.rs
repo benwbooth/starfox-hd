@@ -29,8 +29,8 @@ pub struct GsuRunEvent {
     pub ram_probe: [u16; 4],
     pub exit_ram_probe: [u16; 4],
     pub entry_regs: [u16; 16],
-    pub entry_tick: u64,
-    pub exit_tick: u64,
+    pub entry_master_clock: u64,
+    pub exit_master_clock: u64,
     pub steps: u64,
     pub hit_limit: bool,
     pub exit_pbr: u8,
@@ -48,7 +48,7 @@ struct ActiveGsuRun {
     pc: u16,
     ram_probe: [u16; 4],
     entry_regs: [u16; 16],
-    entry_tick: u64,
+    entry_master_clock: u64,
 }
 
 /// LoROM + WRAM bus over the retail ROM.
@@ -86,7 +86,7 @@ pub struct SnesBus {
     gsu_step_limit_hits: u64,
     gsu_recent_runs: Vec<GsuRunEvent>,
     gsu_active_run: Option<ActiveGsuRun>,
-    gsu_ticks: u64,
+    gsu_master_clocks: u64,
     gsu_first_cd99_entry_ram: Option<Vec<u8>>,
     gsu_first_cd99_exit_ram: Option<Vec<u8>>,
     gsu_first_cd99_pc_trace: Option<Vec<u32>>,
@@ -120,7 +120,7 @@ impl SnesBus {
             gsu_step_limit_hits: 0,
             gsu_recent_runs: Vec::new(),
             gsu_active_run: None,
-            gsu_ticks: 0,
+            gsu_master_clocks: 0,
             gsu_first_cd99_entry_ram: None,
             gsu_first_cd99_exit_ram: None,
             gsu_first_cd99_pc_trace: None,
@@ -396,14 +396,14 @@ impl SnesBus {
             pc,
             ram_probe: self.gsu_last_entry_ram_probe,
             entry_regs,
-            entry_tick: self.gsu_ticks,
+            entry_master_clock: self.gsu_master_clocks,
         });
     }
 
     /// Advance an in-flight Super FX job by a bounded master-clock slice.
     pub fn tick_gsu(&mut self, master_clocks: u64) {
         const JOB_INSTRUCTION_LIMIT: u64 = 10_000_000;
-        self.gsu_ticks = self.gsu_ticks.wrapping_add(1);
+        self.gsu_master_clocks = self.gsu_master_clocks.wrapping_add(master_clocks);
         if self.gsu_active_run.is_none() {
             return;
         }
@@ -462,8 +462,8 @@ impl SnesBus {
             ram_probe: active.ram_probe,
             exit_ram_probe,
             entry_regs: active.entry_regs,
-            entry_tick: active.entry_tick,
-            exit_tick: self.gsu_ticks,
+            entry_master_clock: active.entry_master_clock,
+            exit_master_clock: self.gsu_master_clocks,
             steps: g.last_run_steps,
             hit_limit: g.last_run_hit_limit,
             exit_pbr,

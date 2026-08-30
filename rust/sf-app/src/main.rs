@@ -933,6 +933,9 @@ fn main() {
     ));
     shell.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
     shell.set_prepare_presentation_player(Box::new(sf_strat::player::prepare_presentation_player));
+    shell.set_prepare_restart_player(Box::new(
+        sf_strat::player::prepare_checkpoint_restart_player,
+    ));
     shell.set_ending_score_part(Box::new(sf_strat::endscore::spawn_final_score_part));
     shell.set_ending_boss_replay(Box::new(sf_strat::endseq::spawn_replay_boss));
     // Wire real per-shape collision half-extents (C load_collision_extents)

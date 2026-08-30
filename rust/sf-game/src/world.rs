@@ -147,6 +147,8 @@ pub enum InlineCb {
     Level1_1WaitFade,
     /// C `level_scramble_keep_player_strat` (src/map/levels.c:1690).
     LevelScrambleKeepPlayerStrat,
+    /// Inline `mapgotoifplayerdead` around a map-selected player mode.
+    SkipPlayerModeIfDead { skip_ptr: u16 },
     /// C `level1_1_skillfly_bonus_guard` (src/map/levels.c:1671).
     SkillflyGuard { skip_ptr: u16 },
     /// Inlined `mapif chkstratdone1,<target>` used by route maps whose old
@@ -645,6 +647,11 @@ impl World {
         match id {
             InlineCallback::Level1_1WaitFade => InlineCb::Level1_1WaitFade,
             InlineCallback::LevelScrambleKeepPlayerStrat => InlineCb::LevelScrambleKeepPlayerStrat,
+            InlineCallback::Level1_1SkipOnPlanetIfPlayerDead => InlineCb::SkipPlayerModeIfDead {
+                skip_ptr: level
+                    .label_offset("level1_1.after_onplanet_setup")
+                    .unwrap_or(0),
+            },
             InlineCallback::Level1_1SkillflyBonusGuard => InlineCb::SkillflyGuard {
                 // C `s_level1_1_skillfly_bonus_skip_ptr` = label lookup at
                 // registration time (src/map/levels.c register fn).

@@ -1479,6 +1479,9 @@ fn configured_native_shell() -> Shell {
     ));
     native.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
     native.set_prepare_presentation_player(Box::new(sf_strat::player::prepare_presentation_player));
+    native.set_prepare_restart_player(Box::new(
+        sf_strat::player::prepare_checkpoint_restart_player,
+    ));
     native.set_shape_extents(sf_render::shapes::sf1_shape_half_extents());
     native
 }

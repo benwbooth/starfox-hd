@@ -28,6 +28,7 @@ const MASTER_CLOCKS_PER_PPU_DOT: u64 = 4;
 const VIDEO_FRAME_MASTER_CLOCKS: u64 =
     PPU_DOTS_PER_LINE * VIDEO_LINES_PER_FRAME * MASTER_CLOCKS_PER_PPU_DOT;
 const RETAIL_TRANSFER_STATE: u32 = 0x0000;
+const RETAIL_TRANSFER_COUNTER: u32 = 0x18BB;
 const RETAIL_FRAME_COUNTER: u32 = 0x1200;
 const RETAIL_FRAME_COUNTER_RESET: u32 = 0x02_D960;
 const RETAIL_FRAME_COUNTER_RESET_COMPLETE: u32 = 0x02_D963;
@@ -64,7 +65,8 @@ fn frame_bound(name: &str, default: u16) -> u16 {
 }
 
 fn largest_job(jobs: &[GsuRunEvent]) -> Option<&GsuRunEvent> {
-    jobs.iter().max_by_key(|job| job.exit_tick - job.entry_tick)
+    jobs.iter()
+        .max_by_key(|job| job.exit_master_clock - job.entry_master_clock)
 }
 
 fn lorom_offset(address: u32) -> usize {
@@ -220,6 +222,11 @@ fn main() {
         };
         let entry_motion = retail.peek8(WORK_RAM | RETAIL_FRAMERATE);
         let pending_transfer_stages_at_reset = pending_transfer_stages(&retail);
+        let trace_transfer_counter = (first_scene..=last_scene).contains(&scene_frame)
+            && std::env::var_os("SF1_RETAIL_TRANSFER_COUNTER_TRACE").is_some();
+        if trace_transfer_counter {
+            retail.arm_wram_write_watch(RETAIL_TRANSFER_COUNTER);
+        }
         let start_master_clock = retail.master_clock();
         let start_cpu_cycles = retail.cycles();
         let start_video_frame = retail.video_frame();
@@ -460,6 +467,11 @@ fn main() {
         let sampled_motion = retail.peek8(WORK_RAM | RETAIL_FRAMERATE);
         let frame_counter_at_sample = retail.peek8(WORK_RAM | RETAIL_FRAME_COUNTER);
         let pending_transfer_stages_at_sample = pending_transfer_stages(&retail);
+        if trace_transfer_counter {
+            for (source, value) in retail.take_wram_write_watch() {
+                println!("transfer_counter,source={source:06X},value={value}");
+            }
+        }
         assert_eq!(
             sampled_motion, frame_counter_at_sample,
             "retail framerate must copy the live frame counter",
@@ -476,7 +488,9 @@ fn main() {
             .into_iter()
             .filter(|job| job.sequence > previous_job_sequence)
             .collect::<Vec<_>>();
-        if scene_frame == 321 && std::env::var_os("SF1_RETAIL_GSU_JOB_TRACE").is_some() {
+        if (first_scene..=last_scene).contains(&scene_frame)
+            && std::env::var_os("SF1_RETAIL_GSU_JOB_TRACE").is_some()
+        {
             for job in &jobs {
                 println!(
                     "gsu_job,sequence={},entry={:02X}:{:04X},steps={},duration={},program_fetch={},memory_wait={},asset_wait={},multiply={},pixel={}",
@@ -484,7 +498,7 @@ fn main() {
                     job.pbr,
                     job.pc,
                     job.steps,
-                    job.exit_tick - job.entry_tick,
+                    job.exit_master_clock - job.entry_master_clock,
                     job.timing_breakdown[0],
                     job.timing_breakdown[1],
                     job.timing_breakdown[2],
@@ -504,7 +518,7 @@ fn main() {
             );
             let job_master_clocks = jobs
                 .iter()
-                .map(|job| job.exit_tick - job.entry_tick)
+                .map(|job| job.exit_master_clock - job.entry_master_clock)
                 .sum::<u64>();
             let timing = std::array::from_fn::<_, 5, _>(|category| {
                 jobs.iter()
@@ -512,7 +526,8 @@ fn main() {
                     .sum::<u64>()
             });
             let largest = largest_job(&jobs);
-            let largest_master_clocks = largest.map_or(0, |job| job.exit_tick - job.entry_tick);
+            let largest_master_clocks =
+                largest.map_or(0, |job| job.exit_master_clock - job.entry_master_clock);
             let largest_timing = largest.map_or([0; 5], |job| job.timing_breakdown);
             println!(
                 "{},{scene_frame},{input},{entry_motion},{sampled_motion},{frame_counter_at_sample},{pending_transfer_stages_at_reset},{pending_transfer_stages_at_sample},{elapsed_master_clocks},{elapsed_cpu_cycles},{},{start_irq_scanline},{start_irq_phase},{},{},{elapsed_display_frames},{transfer_slot_ready},{transfer_started},{circle_effect_complete},{background_scroll_complete},{vertical_offsets_complete},{horizontal_offsets_begin},{horizontal_offsets_complete},{horizontal_safe_window_ready},{horizontal_dma_complete},{horizontal_transfer_complete},{window_priority_complete},{strategies_begin},{strategies_complete},{pre_transfer_work_complete},{first_transfer_ready},{second_transfer_wait_begin},{second_transfer_ready},{scene_render_begin},{scene_render_complete},{},{job_master_clocks},{},{},{},{},{},{largest_master_clocks},{},{},{},{},{}",

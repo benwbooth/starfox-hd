@@ -19,7 +19,7 @@ fn main() {
     let mut last_sequence = 0;
 
     println!(
-        "sequence frame pbr pc steps entry_tick exit_tick hit_limit program ram rom multiply pixel"
+        "sequence frame pbr pc steps entry_master_clock exit_master_clock hit_limit program ram rom multiply pixel"
     );
     for frame in 1..=frames {
         machine
@@ -34,8 +34,8 @@ fn main() {
                     event.pbr,
                     event.pc,
                     event.steps,
-                    event.entry_tick,
-                    event.exit_tick,
+                    event.entry_master_clock,
+                    event.exit_master_clock,
                     event.hit_limit,
                     event.timing_breakdown[0],
                     event.timing_breakdown[1],

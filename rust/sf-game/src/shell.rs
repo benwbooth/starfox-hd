@@ -60,7 +60,7 @@ use crate::vars::{
     BossEncounter, GameVars, GF_PLAYERDEAD, HARD_HP, PFM_SHADOWS, PLAYER_DEATH_FADE_DELAY_TICKS,
     PSF2_PLAYERHP0, PSF3_ENGINESND, PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, STAY_BLACK_INACTIVE,
 };
-use crate::windows::{MapFadeRate, Windows, BLACK_FADE_MAX};
+use crate::windows::{MapFadeRate, Windows, DISPLAY_BRIGHTNESS_MAX};
 use crate::world::World;
 use crate::{bgs, draw};
 
@@ -80,10 +80,10 @@ pub const TALLY_BONUS_DELAY_STEPS: u8 = 20;
 pub const TALLY_BONUS_AWARD_STEPS: u8 = 9;
 /// Native unattended safeguard once every retail tally operation is complete.
 pub const TALLY_READY_AUTO_TICKS: u16 = 60;
-/// Terminal explosion frame plus the retail delay and the native unit-speed
-/// black fade before respawn/game-over dispatch.
+/// Terminal explosion frame, retail hold, source display fade, and the
+/// following transfer-bound restart dispatch.
 pub const DEATH_RESPAWN_TICKS: i32 =
-    1 + PLAYER_DEATH_FADE_DELAY_TICKS as i32 + BLACK_FADE_MAX as i32;
+    2 + PLAYER_DEATH_FADE_DELAY_TICKS as i32 + DISPLAY_BRIGHTNESS_MAX as i32;
 /// `wipein` holds black for `mapwait 300`. The no-player map lane crosses the
 /// distance on its fifth update, and the window generated from that crossing
 /// remains closed for the completed scene; the first aperture step is the
@@ -283,6 +283,9 @@ const LEVEL_INITIALIZATION_LAST_DEPTH_CHANGE: i16 = 63;
 /// Runtime random state left by the retail 3D setup and game-frame-zero
 /// strategy initialization. Gameplay then advances it once per logic frame.
 const LEVEL_INITIALIZATION_RANDOM_STATE: [u8; 4] = [114, 239, 178, 245];
+/// Vanilla `setuprng` seed installed by `initgame3d_l -> init3d1` whenever
+/// 3D gameplay is initialized (`rngmode = 0`).
+const SOURCE_3D_RANDOM_SEED: [u8; 4] = [58, 167, 85, 127];
 /// The ordinary level transfer completes two additional player color-cycle
 /// advances before its first active strategy update.
 const STANDARD_GAMEPLAY_PLAYER_COLOR_FRAME: u8 = 131;
@@ -327,7 +330,7 @@ const TRAINING_GAMEPLAY_INITIALIZATION: GameplayInitializationProfile =
         player_color_frame: TRAINING_GAMEPLAY_PLAYER_COLOR_FRAME,
         map_countdown: 288,
         last_depth_change: 0,
-        random_state: [58, 167, 85, 127],
+        random_state: SOURCE_3D_RANDOM_SEED,
         previous_player_depth: InitialPlayerDepth::Zero,
     };
 
@@ -1469,6 +1472,7 @@ pub struct Shell {
     /// Map-specific player initializer injected by the strategy lane.
     initialize_player: Option<Box<dyn Fn(&mut Game, u32, u16)>>,
     prepare_presentation_player: Option<Box<dyn Fn(&mut Game, u16)>>,
+    prepare_restart_player: Option<Box<dyn Fn(&mut Game, u16)>>,
     /// Presentation-map background declaration waiting for its post-strategy
     /// handoff. This is the typed equivalent of the source background program
     /// publishing `newplayerstrat` after the first scene update.
@@ -1520,6 +1524,7 @@ impl Shell {
             advance_startup_player: None,
             initialize_player: None,
             prepare_presentation_player: None,
+            prepare_restart_player: None,
             pending_presentation_player: None,
             ending_score_part: None,
             ending_boss_replay: None,
@@ -1559,6 +1564,10 @@ impl Shell {
 
     pub fn set_prepare_presentation_player(&mut self, hook: Box<dyn Fn(&mut Game, u16)>) {
         self.prepare_presentation_player = Some(hook);
+    }
+
+    pub fn set_prepare_restart_player(&mut self, hook: Box<dyn Fn(&mut Game, u16)>) {
+        self.prepare_restart_player = Some(hook);
     }
 
     /// Install the source 3D final-score object producer.
@@ -1604,6 +1613,13 @@ impl Shell {
         if let Some(hook) = self.prepare_presentation_player.take() {
             hook(&mut self.game, player);
             self.prepare_presentation_player = Some(hook);
+        }
+    }
+
+    fn prepare_restart_player(&mut self, player: u16) {
+        if let Some(hook) = self.prepare_restart_player.take() {
+            hook(&mut self.game, player);
+            self.prepare_restart_player = Some(hook);
         }
     }
 
@@ -1727,6 +1743,15 @@ impl Shell {
                     self.try_toggle_pause();
                     if !self.paused {
                         self.nmi_game_tick();
+                        // TRANS.ASM `transswap` services background requests
+                        // after strategies, camera, drawing, and collision for
+                        // the completed transfer.  A death restart therefore
+                        // publishes initgame's restored checkpoint this frame;
+                        // its first restored strategy pass is the next frame.
+                        let requests = bgs::trans_swap(&mut self.game.vars);
+                        if requests.restart {
+                            self.restart_gameplay_from_checkpoint();
+                        }
                         self.gameplay_progress_tick();
                     }
                 }
@@ -3225,13 +3250,19 @@ impl Shell {
             if self.game.vars.player_death_fade_delay == 0 {
                 self.state.borrow_mut().windows.fade_to_black(1);
             }
-            if self.death_ticks < DEATH_RESPAWN_TICKS {
+            // GSTRATS.ASM tests the source display-brightness field after
+            // arming `fadedown`; the 5-bit black color window is not the
+            // completion authority.  Dispatch on the typed equivalent.
+            if self.game.vars.player_death_fade_delay != 0
+                || !self.state.borrow().windows.display_forced_blank()
+            {
                 return;
             }
             if self.planets.lives > 0 {
-                // Reload the current map; route/stage/newmap untouched.
-                self.game.vars.reset_player_run_state();
-                self.begin_gameplay_from_planet_select();
+                // `clearmap_l` keeps only player-role objects, then the next
+                // completed transfer consumes BGF_RESTART and calls
+                // `restart_l`.  Keep that one-frame boundary explicit.
+                self.game.vars.bgflags |= crate::vars::BGF_RESTART;
             } else {
                 self.death_ticks = 0;
                 // ROM CONTINUE.ASM:55-56 — no credits skips the continue screen.
@@ -3291,6 +3322,107 @@ impl Shell {
             // record this stage's score, hand off to GameState::Tally; the
             // stage advance happens on tally exit.
             _ => self.enter_tally(),
+        }
+    }
+
+    /// ROM `restart_l` (DSTRATS.ASM:1845), entered by TRANS.ASM before the
+    /// next strategy pass.  This is a checkpoint restart inside the current
+    /// level: gameplay frame continues, while initgame rebuilds the flat typed
+    /// object pool, resets the vanilla 3D random seed, and resumes the map VM
+    /// from its saved cursor.
+    fn restart_gameplay_from_checkpoint(&mut self) {
+        let game_frame = self.game.vars.gameframe;
+        let lives = self.game.vars.strategy.lives;
+        let (restart_background, _restart_palette_fade) =
+            self.game.world.apply_restart(&mut self.game.vars.mapptr);
+
+        {
+            let vars = &mut self.game.vars;
+            vars.strategy.lives = lives;
+            vars.gameflags = 0;
+            vars.pstratflags = 0;
+            vars.playerflymode = PFM_SHADOWS;
+            vars.player_view_mode = PlayerViewMode::Exterior;
+            vars.player_view_options = PlayerViewOptions::Unconfigured;
+            // MAIN.ASM `initgame_l` clears the complete current controller
+            // word (`cont0l` + `cont0`) while A is 16-bit.  The restored
+            // player's synchronous initializers must therefore observe no
+            // held direction or action from the death-transfer frame.
+            vars.pad1 = 0;
+            vars.freezestrats = 0;
+            vars.dummyobj = 0;
+            vars.player_object = 0;
+            vars.bossmaxhp = 0;
+            vars.meters = 1;
+            vars.map.trigger = 0;
+            vars.mapcnt = 0;
+            vars.circleanim = 0;
+            vars.training_player_startup = crate::vars::TrainingPlayerStartupPhase::Inactive;
+            vars.oncewipe = 0;
+            vars.strategy.wipe_active = 0;
+            vars.gameframe = game_frame;
+            vars.rng = SOURCE_3D_RANDOM_SEED;
+        }
+        self.paused = false;
+        self.levelclear_ticks = 0;
+        self.death_ticks = 0;
+
+        self.game.objs = Objects::init();
+        self.camera.init(&mut self.game.vars);
+        // `initgame_l` clears the published view depth and rotations but does
+        // not rewrite the preceding transfer's X/Y camera coordinates.
+        self.cam_snapshot.z = 0;
+        self.cam_snapshot.rx = 0;
+        self.cam_snapshot.ry = 0;
+        self.cam_snapshot.rz = 0;
+        self.cam_snapshot.rotation = [0; 3];
+        self.point_field = PointField::new();
+        self.presented_point_pixels.clear();
+        self.radio_presentation = RadioPresentation::default();
+        self.game.world.lastplayz = 0;
+        self.game.world.lastzchange = 0;
+        self.game.world.last_obj = None;
+        self.game.world.lastmapobj = 0;
+        self.game.world.specialobjtotal = 0;
+        self.game.world.total_specials = 0;
+        self.game.world.levelfinished = 0;
+
+        {
+            let mut state = self.state.borrow_mut();
+            state.windows.init_for_forced_black_map_load();
+            state.windows.fade_from_black(1);
+            state.screen_wipe = ScreenWipeState::inactive();
+            state.screen_wipe_hold = 0;
+            state.pending_init_black_wipe = None;
+            state.pending_init_black_calls = 0;
+            state.suppress_next_init_black = false;
+        }
+
+        let player = self.spawn_base_player();
+        if let Some(player) = player {
+            self.game.pcbox_attach_player(player);
+            let _ = self.game.create_player_dummy();
+            // The source MAPP stream executes `player_Istrat` before
+            // `initgame_l` resumes the restored level map.  Its initializer
+            // must therefore publish the base player state before any
+            // `set_player*` callback runs below.
+            self.prepare_restart_player(player);
+        }
+        // MAIN.ASM `initgame_l` invokes `newobjs_l` synchronously after the
+        // base player objects and strategy globals have been initialized.
+        // A checkpoint restart must therefore consume its map callbacks and
+        // first wait before the normal strategy pass in this same tick.
+        self.game.map_exec();
+        if player.is_some() {
+            // DSTRATS.ASM calls `playerstart_init_l` after `initgame_l` has
+            // synchronously executed both MAPP and the restored map stream.
+            self.game.vars.reset_player_run_state();
+        }
+        self.game.vars.stagecnt = 50;
+        bgs::set_bg(&mut self.game.vars, restart_background);
+        bgs::set_bg_info_req(&mut self.game.vars);
+        if let Some(info) = sf_map::catalog::background_info(restart_background) {
+            bgs::apply_background_info(&mut self.game.vars, info);
         }
     }
 
@@ -4646,16 +4778,12 @@ mod tests {
             window.mode == crate::windows::WINDOW_MODE_MAPFADE && window.wm_val == 1
         }));
 
-        for _ in 1..BLACK_FADE_MAX {
+        for _ in 1..DISPLAY_BRIGHTNESS_MAX {
             sh.tick(0);
         }
         assert_eq!(sh.state(), GameState::Playing);
-        assert!(sh.frame().windows.iter().any(|window| {
-            window.mode == crate::windows::WINDOW_MODE_MAPFADE && window.wm_val == BLACK_FADE_MAX
-        }));
+        assert!(sh.state.borrow().windows.display_forced_blank());
 
-        sh.tick(0);
-        assert_eq!(sh.state(), GameState::Playing);
         sh.tick(0);
         assert_eq!(sh.state(), GameState::Continue);
     }

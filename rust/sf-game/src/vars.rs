@@ -104,6 +104,39 @@ pub enum TrainingPlayerStartupPhase {
     ActivatePlanetMode,
 }
 
+/// Player behavior selected by the most recent map `mapplayermode` command.
+///
+/// Retail keeps this selection across a checkpoint object-pool rebuild and
+/// installs it on the newly created player.  The port stores the behavior as
+/// typed flat game state rather than retaining a source-machine code pointer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CheckpointPlayerBehavior {
+    #[default]
+    None,
+    ExitBase,
+    OnPlanet,
+    ClearDemo,
+    Warp,
+    ClearEarth,
+    ClearChase,
+    ClearShip,
+    ClearUnderwater,
+    Dive,
+    ClearBridge,
+    ClearTurn,
+    WarpOut,
+    OnWater,
+    ControlledSlowFlight,
+    MediumTunnelExit,
+    LongTunnelExit,
+    InSpace,
+    EnterLastBase,
+    ExitLastBase,
+    EscapeNucleus,
+    WashEntrance,
+    ClearColony,
+}
+
 // Enemy strategy constants (C `src/strat/strat_enemy.h`)
 pub const HARD_HP: u8 = 0xFF;
 pub const HARD_AP: u8 = 8;
@@ -520,6 +553,8 @@ pub struct GameVars {
     /// Retail Rev 2 `keeppstrat`: preserve the current player strategy across
     /// the next background-information request.
     pub preserve_player_strategy: bool,
+    /// Typed checkpoint-resume behavior selected by the level map.
+    pub checkpoint_player_behavior: CheckpointPlayerBehavior,
     /// C `g_playerflymode` (PFM_*).
     pub playerflymode: u8,
     /// ROM `splayerflymode`, represented as typed player-camera state.
@@ -708,6 +743,7 @@ impl Default for GameVars {
             pshipflags3: 0,
             pstratflags: 0,
             preserve_player_strategy: false,
+            checkpoint_player_behavior: CheckpointPlayerBehavior::None,
             playerflymode: 0,
             player_view_mode: PlayerViewMode::Exterior,
             player_view_options: PlayerViewOptions::Unconfigured,

@@ -66,6 +66,8 @@ pub struct Gsu {
     master_clock_credit: i64,
     timing_active: bool,
     current_timing_cost: u64,
+    instruction_executed: bool,
+    prefetched_instruction: Option<u8>,
     /// Per-job clocks: program fetch, RAM wait, ROM wait, multiply, pixel bus.
     timing_breakdown: [u64; 5],
     ram_delay: u8,
@@ -144,6 +146,8 @@ impl Gsu {
             master_clock_credit: 0,
             timing_active: false,
             current_timing_cost: 0,
+            instruction_executed: false,
+            prefetched_instruction: None,
             timing_breakdown: [0; 5],
             ram_delay: 0,
             rom_delay: 0,
@@ -344,6 +348,7 @@ impl Gsu {
         self.master_clock_credit = 0;
         self.pending_branch = None;
         self.pending_cache_reset = false;
+        self.prefetched_instruction = None;
         self.set_flag(sfr::G, true);
         self.last_run_steps = 0;
         self.last_run_hit_limit = false;
@@ -373,21 +378,24 @@ impl Gsu {
         let reset_cache = std::mem::take(&mut self.pending_cache_reset);
         self.timing_active = timed;
         self.current_timing_cost = 0;
+        self.instruction_executed = false;
         self.step(redirect, reset_cache);
         self.timing_active = false;
-        self.last_run_steps += 1;
-        if self.last_run_steps % 100_000 == 0 {
-            self.last_run_samples.push((
-                self.last_run_steps,
-                self.pbr,
-                self.r[15],
-                self.r[0],
-                self.r[1],
-                self.r[12],
-                self.r[13],
-                self.r[14],
-                self.sfr,
-            ));
+        if self.instruction_executed {
+            self.last_run_steps += 1;
+            if self.last_run_steps % 100_000 == 0 {
+                self.last_run_samples.push((
+                    self.last_run_steps,
+                    self.pbr,
+                    self.r[15],
+                    self.r[0],
+                    self.r[1],
+                    self.r[12],
+                    self.r[13],
+                    self.r[14],
+                    self.sfr,
+                ));
+            }
         }
         self.current_timing_cost
     }
@@ -915,7 +923,30 @@ impl Gsu {
                 );
             }
         }
-        let op = self.fetch();
+        let op = if let Some(prefetched) = self.prefetched_instruction.take() {
+            // The denied fetch already filled the one-byte program buffer and
+            // advanced the semantic PC. Retire that byte without fetching or
+            // charging it a second time once SCMR restores access.
+            self.r[15] = self.r[15].wrapping_add(1);
+            prefetched
+        } else {
+            let fetched = self.fetch();
+            if self.timing_active && (self.waiting_for_ram_access || self.waiting_for_rom_access) {
+                // A denied program-bus fetch fills the one-byte read buffer but
+                // cannot retire the fetched opcode. Keep the semantic PC at
+                // that opcode until SCMR restores access. This is observable
+                // in SF1's bitmap clear: an IRQ revokes ROM access just before
+                // the final cache-line fill, so STOP remains pending until the
+                // next IRQ.
+                self.r[15] = address as u16;
+                self.prefetched_instruction = Some(fetched);
+                self.pending_branch = redirect;
+                self.pending_cache_reset = reset_cache;
+                return;
+            }
+            fetched
+        };
+        self.instruction_executed = true;
         if let Some((pbr, pc)) = redirect {
             if reset_cache || self.pbr != pbr {
                 self.pbr = pbr;

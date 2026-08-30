@@ -7,6 +7,7 @@ import argparse
 import concurrent.futures
 import hashlib
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ RUNNER = ROOT / "tools" / "sf2" / "run_mesen_oracle.py"
 SCRIPT = Path(__file__).with_name("mesen_corneria_timing_oracle.lua")
 ROM = ROOT / "Star Fox (USA) (Rev 2).sfc"
 RETAIL_ROM_SHA256 = "82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548"
+RUST_INPUT = ROOT / "rust" / "sf-oracle" / "src" / "sf1_input.rs"
 FIRST_SCENE = 315
 LAST_SCENE = 322
 
@@ -71,6 +73,25 @@ EXPECTED = {
         "safe_wait": [2_562, 3_394, 634, 3_234, 546, 2_098, 674, 4_666],
     },
 }
+
+
+def verify_route_tape() -> None:
+    rust = RUST_INPUT.read_text(encoding="utf-8")
+    rust_block = rust.split("pub const CORNERIA_ATTACK_CARRIER_TAPE", 1)[1].split(
+        "];", 1
+    )[0]
+    rust_actions = [
+        re.sub(r"(?<!^)(?=[A-Z])", "_", action).lower()
+        for action in re.findall(r"PilotAction::(\w+)", rust_block)
+    ]
+    lua = SCRIPT.read_text(encoding="utf-8")
+    lua_block = lua.split("local corneria_route_tape = {", 1)[1].split("}", 1)[0]
+    lua_actions = re.findall(r"pilot_input\.(\w+)", lua_block)
+    if lua_actions != rust_actions:
+        raise RuntimeError(
+            "Mesen route tape differs from sf_oracle::sf1_input "
+            f"(Lua={len(lua_actions)}, Rust={len(rust_actions)})"
+        )
 
 
 def retail_rom_sha256() -> str:
@@ -173,6 +194,7 @@ def main() -> int:
         parser.error("--timeout must be positive")
     if not ROM.is_file():
         parser.error(f"retail ROM not found: {ROM}")
+    verify_route_tape()
     actual_sha256 = retail_rom_sha256()
     if actual_sha256 != RETAIL_ROM_SHA256:
         parser.error(

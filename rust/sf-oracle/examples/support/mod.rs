@@ -478,6 +478,9 @@ pub fn configured_shell() -> Shell {
     ));
     shell.set_initialize_player(Box::new(sf_strat::player::initialize_player_for_map));
     shell.set_prepare_presentation_player(Box::new(sf_strat::player::prepare_presentation_player));
+    shell.set_prepare_restart_player(Box::new(
+        sf_strat::player::prepare_checkpoint_restart_player,
+    ));
     shell.set_shape_extents(sf_render::shapes::sf1_shape_half_extents());
     shell
 }

@@ -94,7 +94,9 @@ pub fn build() -> BuiltLevel {
 
     b.pathobj(0, 0, -400, -100, sh::FRIENDSHIP_4, path::FROG1_1, 10, 10);
     b.mapcodejsl_builtin(cb::SETRESTART_L);
+    let onplanet_dead_guard_ptr = b.mapcode65816_inline();
     b.mapcodejsl_builtin(cb::SET_PLAYER_ONPLANET_L);
+    b.label("level1_1.after_onplanet_setup");
     b.mapjsr("level1_1.map1_1b");
 
     b.mapobj(500, 1000, 0, 8000, sh::BU_6, is::HARD180YR);
@@ -412,6 +414,10 @@ pub fn build() -> BuiltLevel {
         (
             skillfly_bonus_guard_ptr,
             InlineCallback::Level1_1SkillflyBonusGuard,
+        ),
+        (
+            onplanet_dead_guard_ptr,
+            InlineCallback::Level1_1SkipOnPlanetIfPlayerDead,
         ),
         (
             mapwaitboss_trigse_ptr,

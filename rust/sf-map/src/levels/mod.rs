@@ -39,6 +39,8 @@ pub enum InlineCallback {
     Level1_1WaitFade,
     /// C `level_scramble_keep_player_strat`
     LevelScrambleKeepPlayerStrat,
+    /// LEVEL1_1 `mapgotoifplayerdead` guard around on-planet mode setup.
+    Level1_1SkipOnPlanetIfPlayerDead,
     /// C `level1_1_skillfly_bonus_guard`
     Level1_1SkillflyBonusGuard,
     /// C `level1_1_mapwaitboss_trigse`

@@ -277,6 +277,11 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
     g.vars.pshipflags3 |= PSF3_ENGINESND;
     let body = g.coldet.pcbox.body.unwrap();
     let lwing = g.coldet.pcbox.lwing.unwrap();
+    let rwing = g.coldet.pcbox.rwing.unwrap();
+    let left_spark = g.objs.alloc().expect("left wing spark slot");
+    let right_spark = g.objs.alloc().expect("right wing spark slot");
+    g.objs.aliens[lwing as usize].sword1 = left_spark as i16;
+    g.objs.aliens[rwing as usize].sword1 = right_spark as i16;
     // Prime the body so one hit is lethal and spawn the shot at its centre.
     g.tick();
     let (bx, by, bz) = {
@@ -332,6 +337,10 @@ fn body_box_destroyed_triggers_death_and_detaches_boxes() {
     assert_eq!(g.coldet.pcbox.lwing, Some(lwing));
     assert!(g.objs.aliens[body as usize].sflags2 & ASF2_COLLDISABLE != 0);
     assert!(g.objs.aliens[lwing as usize].sflags2 & ASF2_COLLDISABLE != 0);
+    assert_eq!(g.objs.aliens[lwing as usize].sword1, 0);
+    assert_eq!(g.objs.aliens[rwing as usize].sword1, 0);
+    assert!(!g.objs.aliens[left_spark as usize].active);
+    assert!(!g.objs.aliens[right_spark as usize].active);
 
     // A fresh overlapping shot must NOT re-damage the detached boxes nor
     // re-enter the crash (no panic, still dying).

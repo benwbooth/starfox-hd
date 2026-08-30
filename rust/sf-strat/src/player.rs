@@ -44,11 +44,11 @@ use sf_game::alien::{
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
 use sf_game::game::StrategyFn;
 use sf_game::vars::{
-    CLOSE_VIEW_DISTANCE, GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING, GF_STAGEDONE, GF_STRATDONE1,
-    GF_STRATDONE2, GF_VIEWROT, HARD_AP, HARD_HP, OUTVIEWDIST, PFM_DIEFALL, PFM_DIEYROT,
-    PFM_SHADOWS, PFM_WOBBLE, PLAYER_DEATH_FADE_DELAY_TICKS, PSF2_PLAYERHP0, PSF3_ENGINESND,
-    PSF3_INTUNNEL, PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE, PSTF_INSEQ, PSTF_NOTDIE,
-    PSTF_NOVDISTC, SPACE_MODE, STAY_BLACK_INACTIVE, WATER_MODE,
+    CheckpointPlayerBehavior, CLOSE_VIEW_DISTANCE, GF_NOZREMOVE, GF_PLAYERDEAD, GF_PLAYERDYING,
+    GF_STAGEDONE, GF_STRATDONE1, GF_STRATDONE2, GF_VIEWROT, HARD_AP, HARD_HP, OUTVIEWDIST,
+    PFM_DIEFALL, PFM_DIEYROT, PFM_SHADOWS, PFM_WOBBLE, PLAYER_DEATH_FADE_DELAY_TICKS,
+    PSF2_PLAYERHP0, PSF3_ENGINESND, PSF3_INTUNNEL, PSF3_NOCOLLISIONS, PSF_NOCTRL, PSF_NOFIRE,
+    PSTF_INSEQ, PSTF_NOTDIE, PSTF_NOVDISTC, SPACE_MODE, STAY_BLACK_INACTIVE, WATER_MODE,
 };
 use sf_game::Game;
 
@@ -342,6 +342,30 @@ mod player_wobble_tests {
     fn broken_wing_uses_unscaled_sample() {
         assert_eq!(player_wobble_sample(5, true), 5);
         assert_eq!(player_wobble_sample(-5, true), -5);
+    }
+}
+
+#[cfg(test)]
+mod player_collision_bank_order_tests {
+    use super::*;
+
+    #[test]
+    fn retail_applies_new_wing_contact_after_current_lateral_step() {
+        const RETAIL_FIRST_CONTACT_ROLL: i16 = -480;
+        const RETAIL_FIRST_CONTACT_TILT: i8 = -7;
+
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+        game.vars.pshipflags = PSF_NOCTRL | PSF_LWINGCOLL;
+
+        playermove_srou(&mut game, player);
+
+        assert_eq!(game.objs.aliens[player as usize].worldx, 0);
+        assert_eq!(game.vars.sv_i16(sv::PLROTZ), RETAIL_FIRST_CONTACT_ROLL);
+        assert_eq!(
+            game.vars.sv_u8(sv::PLAYER_ZTILT) as i8,
+            RETAIL_FIRST_CONTACT_TILT
+        );
     }
 }
 
@@ -1225,6 +1249,24 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
         g.vars.player_view_mode = PlayerViewMode::LeavingCockpit;
         set_player_out_of_cock(g, idx);
         return;
+    }
+
+    // PSTRATS.ASM:3068-3086 removes the collision sparks attached to both
+    // wing proxies before the ordinary death strategy starts.  Keeping one
+    // alive changes the free-list head and therefore every later source-order
+    // object allocation, even though the visible death state is otherwise
+    // identical.
+    for wing in [g.coldet.pcbox.lwing, g.coldet.pcbox.rwing]
+        .into_iter()
+        .flatten()
+    {
+        let spark = g.objs.aliens[wing as usize].sword1;
+        if spark > 0 {
+            g.objs.aliens[wing as usize].sword1 = 0;
+            if (spark as usize) < g.objs.aliens.len() && g.objs.aliens[spark as usize].active {
+                g.objs.free(spark as u16);
+            }
+        }
     }
 
     let dead = sid(g, K_PLAYERDEAD_STRAT);
@@ -2187,9 +2229,35 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     let mut plrotz = g.vars.sv_i16(sv::PLROTZ);
     let mut ztilt = g.vars.sv_u8(sv::PLAYER_ZTILT);
 
+    // Banking -> lateral world-X shove. The Rev 2 retail execution trace
+    // reads the roll carried into this update before applying a new wing-hit
+    // response: at the checkpoint restart it leaves X at zero, then writes
+    // the collision roll and tilt used by the ship pose. This ordering is
+    // observable and differs from a literal reading of the leaked source.
+    // `adiv2` is a signed /2 that rounds toward zero (STRATMAC.INC:712).
+    {
+        let lr_held = pad1(g) & (pad::LEFT | pad::RIGHT) != 0;
+        let ztilt_term = if lr_held {
+            (ztilt as i8 as i16) >> 3
+        } else {
+            0
+        };
+        let s7 = plrotz >> 7;
+        let plrotz_term = if s7 >= 0 { s7 >> 1 } else { -((-s7) >> 1) };
+        let shove = plrotz_term.wrapping_add(ztilt_term);
+        // ROM negates the shove before applying it. Turn-180 flight reverses
+        // that lateral direction.
+        let turn180 = g.vars.pshipflags2 & PSF2_TURN180 != 0;
+        let al = &mut g.objs.aliens[i];
+        if turn180 {
+            al.worldx = al.worldx.wrapping_add(shove);
+        } else {
+            al.worldx = al.worldx.wrapping_sub(shove);
+        }
+    }
+
     // Retail `player_collmove` (enabled in STRATEQU.INC) banks the ship away
-    // from a colliding wing before the lateral shove and ordinary roll decay.
-    // Both bits are evaluated in source order: right first, then left.
+    // from a colliding wing. Both bits are evaluated right first, then left.
     const ANGLE_FRACTION_SCALE: i16 = 256;
     const COLLISION_ROLL_TARGET: i16 = DEG45 as i16 * ANGLE_FRACTION_SCALE;
     const COLLISION_TILT_TARGET: i16 = DEG45 as i16 / 2;
@@ -2212,36 +2280,6 @@ fn playermove_srou(g: &mut Game, idx: u16) {
                 direction.wrapping_mul(COLLISION_TILT_TARGET),
                 COLLISION_TILT_CHASE_SHIFT,
             ) as u8;
-        }
-    }
-
-    // Banking -> lateral worldx shove (PSTRATS.ASM:2278-2317). Each tick the
-    // ship's roll directly nudges its X position; this is what makes steering
-    // responsive and gives the sideways glide as `plrotz` decays after you let
-    // go. Missing from the C port (and thus the RIIR copy) — steering felt
-    // sluggish without it. Uses the pre-increment plrotz/ztilt (this frame's
-    // roll carried from last frame). `adiv2` is a signed /2 that rounds toward
-    // zero (STRATMAC.INC:712), so plrotz is `(plrotz>>7)` then toward-zero /2.
-    {
-        let lr_held = pad1(g) & (pad::LEFT | pad::RIGHT) != 0;
-        let ztilt_term = if lr_held {
-            (ztilt as i8 as i16) >> 3
-        } else {
-            0
-        };
-        let s7 = plrotz >> 7;
-        let plrotz_term = if s7 >= 0 { s7 >> 1 } else { -((-s7) >> 1) };
-        let shove = plrotz_term.wrapping_add(ztilt_term);
-        // ROM negates the shove (`nega`, PSTRATS.ASM:2306) then normal flight
-        // ADDs it (worldx -= shove) and turn180 SUBs it (worldx += shove).
-        // LEFT raises plrotz (+), so worldx must DECREASE (= screen-left). An
-        // earlier port of this dropped the nega, inverting left/right.
-        let turn180 = g.vars.pshipflags2 & PSF2_TURN180 != 0;
-        let al = &mut g.objs.aliens[i];
-        if turn180 {
-            al.worldx = al.worldx.wrapping_add(shove);
-        } else {
-            al.worldx = al.worldx.wrapping_sub(shove);
         }
     }
 
@@ -3225,6 +3263,54 @@ pub fn prepare_presentation_player(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].stratptr = Some(initializer);
 }
 
+/// Execute the source MAPP `player_Istrat` during checkpoint initialization.
+/// This runs before the restored level stream selects its `set_player*`
+/// behavior, exactly like the first `newobjs_l` call in `initgame_l`.
+pub fn prepare_checkpoint_restart_player(g: &mut Game, idx: u16) {
+    player_move_init(g, idx);
+    player_cred_istrat(g, idx);
+    {
+        let player = &mut g.objs.aliens[idx as usize];
+        player.sflags4 &= !ASF4_INVISIBLE;
+        player.sflags2 &= !ASF2_COLLDISABLE;
+    }
+    g.vars.space_dust_uses_reduced_speed = false;
+    if g.vars.checkpoint_player_behavior != CheckpointPlayerBehavior::None {
+        let initializer = ea_sid(g, resume_checkpoint_player_behavior);
+        g.objs.aliens[idx as usize].stratptr = Some(initializer);
+    }
+}
+
+/// Install the typed map-selected player behavior on the first live strategy
+/// pass after a checkpoint object-pool rebuild.
+fn resume_checkpoint_player_behavior(g: &mut Game, idx: u16) {
+    match g.vars.checkpoint_player_behavior {
+        CheckpointPlayerBehavior::None => player_cred_istrat(g, idx),
+        CheckpointPlayerBehavior::ExitBase => strat_player_exit_base(g, idx),
+        CheckpointPlayerBehavior::OnPlanet => set_player_on_planet(g, idx),
+        CheckpointPlayerBehavior::ClearDemo => player_clear_demo_istrat(g, idx),
+        CheckpointPlayerBehavior::Warp => player_warp_istrat(g, idx),
+        CheckpointPlayerBehavior::ClearEarth => player_clear_earth2_istrat(g, idx),
+        CheckpointPlayerBehavior::ClearChase => player_clear_chase_istrat(g, idx),
+        CheckpointPlayerBehavior::ClearShip => player_clear_ship2_istrat(g, idx),
+        CheckpointPlayerBehavior::ClearUnderwater => player_clear_under_istrat(g, idx),
+        CheckpointPlayerBehavior::Dive => player_dive_istrat(g, idx),
+        CheckpointPlayerBehavior::ClearBridge => strat_player_clear_bridge_init(g, idx),
+        CheckpointPlayerBehavior::ClearTurn => player_clear_turn_istrat(g, idx),
+        CheckpointPlayerBehavior::WarpOut => player_warp_out_istrat(g, idx),
+        CheckpointPlayerBehavior::OnWater => set_player_on_water(g, idx),
+        CheckpointPlayerBehavior::ControlledSlowFlight => set_player_to_cslow(g, idx),
+        CheckpointPlayerBehavior::MediumTunnelExit => set_player_in_mtexit(g, idx),
+        CheckpointPlayerBehavior::LongTunnelExit => set_player_in_ltexit(g, idx),
+        CheckpointPlayerBehavior::InSpace => set_player_in_space(g, idx),
+        CheckpointPlayerBehavior::EnterLastBase => set_player_into_lb1(g, idx),
+        CheckpointPlayerBehavior::ExitLastBase => set_player_out_of_lb2a(g, idx),
+        CheckpointPlayerBehavior::EscapeNucleus => set_player_escape_nucleus(g, idx),
+        CheckpointPlayerBehavior::WashEntrance => player_washent_istrat(g, idx),
+        CheckpointPlayerBehavior::ClearColony => player_clear_colony_istrat(g, idx),
+    }
+}
+
 /// Source `player_Istrat`: establish the ordinary camera/player state, run
 /// the credits movement initializer and its fall-through body once, then make
 /// the shared player visible. The retail Rev 2 title keeps collision disabled
@@ -3490,6 +3576,7 @@ mod player_on_planet_tests {
             game.objs.aliens[player as usize].stratptr,
             Some(normal_flight)
         );
+        assert_ne!(game.vars.pshipflags3 & PSF3_ENGINESND, 0);
     }
 }
 
@@ -3521,6 +3608,8 @@ pub fn initialize_planet_flight(g: &mut Game, idx: u16) {
     v.set_sv_u8(sv::MISSBOUNDFLAGS, MB_BOTTOM);
     v.gameflags |= GF_VIEWROT; // planet_gameflagsON
                                // planet_macro
+    v.pstratflags &= !PSTF_NOVIEWMOVE;
+    v.pshipflags3 |= PSF3_ENGINESND;
     v.pshipflags2 &= !PSF2_NOSPARK;
     v.pstratflags &= !(PSTF_INSEQ | PSTF_NOTDIE);
     g.objs.aliens[idx as usize].sflags |= ASF_SHADOW;
