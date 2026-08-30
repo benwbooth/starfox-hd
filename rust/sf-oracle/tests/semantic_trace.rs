@@ -19,10 +19,11 @@ use sf_oracle::{
     RETAIL_PLANET_CENTER_ENTRY, RETAIL_PLANET_DISMISS_ENTRY, RETAIL_PLANET_EXIT_FADE_ENTRY,
     RETAIL_PLANET_GAME_START_ENTRY, RETAIL_PLANET_INTERRUPT, RETAIL_PLANET_ISOLATION_ENTRY,
     RETAIL_PLANET_MAP_FADE_ENTRY, RETAIL_PLANET_MESSAGE_ENTRY, RETAIL_PLANET_NAME_ENTRY,
-    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_STAGE, RETAIL_PLANET_ZOOM_ENTRY, RETAIL_PLAYPT,
-    RETAIL_POOL, RETAIL_PSHIPFLAGS, RETAIL_PSHIPFLAGS2, RETAIL_PSHIPFLAGS3, RETAIL_PSTRATFLAGS,
-    RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES, RETAIL_STRAIGHT_STRAT, RETAIL_VIEW_POSITION_X,
-    RETAIL_VIEW_POSITION_Y, RETAIL_VIEW_POSITION_Z, RETAIL_WHICH_ROUTE,
+    RETAIL_PLANET_SHIP_FLASH, RETAIL_PLANET_SHIP_FLASH_ENTRY, RETAIL_PLANET_STAGE,
+    RETAIL_PLANET_ZOOM_ENTRY, RETAIL_PLAYPT, RETAIL_POOL, RETAIL_PSHIPFLAGS, RETAIL_PSHIPFLAGS2,
+    RETAIL_PSHIPFLAGS3, RETAIL_PSTRATFLAGS, RETAIL_PVIEWVELZ, RETAIL_RAND, RETAIL_SHAPES,
+    RETAIL_STRAIGHT_STRAT, RETAIL_VIEW_POSITION_X, RETAIL_VIEW_POSITION_Y, RETAIL_VIEW_POSITION_Z,
+    RETAIL_WHICH_ROUTE,
 };
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -259,6 +260,7 @@ const NATIVE_SHAPE_BOMBER: u16 = 48;
 const NATIVE_SHAPE_ZACO_A: u16 = 217;
 const NATIVE_SHAPE_ZACO_6: u16 = 52;
 const NATIVE_SHAPE_KAMIKAZE: u16 = 9;
+const AUTHORED_KAMIKAZE_COUNT: usize = 2;
 const NATIVE_SHAPE_ROBOT_0: u16 = 420;
 const NATIVE_SHAPE_PILLAR3_NS: u16 = 452;
 const RETAIL_PLAYER_PRESENTATION_BYTES: u32 = 0x1551;
@@ -499,21 +501,29 @@ fn explosion_size_name(size: ExplosionSize) -> &'static str {
         ExplosionSize::Oversized => "oversized",
     }
 }
-const RETAIL_PHASE_ENTRIES: [u32; 12] = [
-    RETAIL_PLANET_MAP_FADE_ENTRY,
-    RETAIL_PLANET_ISOLATION_ENTRY,
-    RETAIL_PLANET_CENTER_ENTRY,
-    RETAIL_PLANET_BRIEFING_PREP_ENTRY,
-    RETAIL_PLANET_ZOOM_ENTRY,
-    RETAIL_PLANET_NAME_ENTRY,
-    RETAIL_PLANET_MESSAGE_ENTRY,
-    RETAIL_PLANET_DISMISS_ENTRY,
-    RETAIL_PLANET_EXIT_FADE_ENTRY,
-    RETAIL_PLANET_GAME_START_ENTRY,
-    RETAIL_DOSTRATS,
-    RETAIL_DOSTRATS_COMPLETE,
+const RETAIL_SOURCE_EDGE_COVERAGE: [(u32, &str); 13] = [
+    (RETAIL_PLANET_SHIP_FLASH_ENTRY, "source:planet.ship-flash"),
+    (RETAIL_PLANET_MAP_FADE_ENTRY, "source:planet.fade-map"),
+    (RETAIL_PLANET_ISOLATION_ENTRY, "source:planet.isolate"),
+    (RETAIL_PLANET_CENTER_ENTRY, "source:planet.center"),
+    (
+        RETAIL_PLANET_BRIEFING_PREP_ENTRY,
+        "source:planet.prepare-briefing",
+    ),
+    (RETAIL_PLANET_ZOOM_ENTRY, "source:planet.zoom"),
+    (RETAIL_PLANET_NAME_ENTRY, "source:planet.reveal-name"),
+    (RETAIL_PLANET_MESSAGE_ENTRY, "source:planet.message"),
+    (RETAIL_PLANET_DISMISS_ENTRY, "source:planet.dismiss"),
+    (RETAIL_PLANET_EXIT_FADE_ENTRY, "source:planet.exit-fade"),
+    (RETAIL_PLANET_GAME_START_ENTRY, "source:planet.start-game"),
+    (RETAIL_DOSTRATS, "source:gameplay.strategies-begin"),
+    (
+        RETAIL_DOSTRATS_COMPLETE,
+        "source:gameplay.strategies-complete",
+    ),
 ];
-const RETAIL_PLANET_PHASE_ENTRY_OPCODES: [(u32, u8); 10] = [
+const RETAIL_PLANET_PHASE_ENTRY_OPCODES: [(u32, u8); 11] = [
+    (RETAIL_PLANET_SHIP_FLASH_ENTRY, 0xA9),
     (RETAIL_PLANET_MAP_FADE_ENTRY, 0xA2),
     (RETAIL_PLANET_ISOLATION_ENTRY, 0x20),
     (RETAIL_PLANET_CENTER_ENTRY, 0xA2),
@@ -670,6 +680,90 @@ impl FrontEndPhase {
     }
 }
 
+const REQUIRED_FRONT_END_PHASES: [FrontEndPhase; 18] = [
+    FrontEndPhase::AttractIntro,
+    FrontEndPhase::Title,
+    FrontEndPhase::BriefingControl,
+    FrontEndPhase::BriefingDestination,
+    FrontEndPhase::PlanetMapSetup,
+    FrontEndPhase::RouteSelection,
+    FrontEndPhase::ShipFlash,
+    FrontEndPhase::FadingMap,
+    FrontEndPhase::IsolatingPlanet,
+    FrontEndPhase::CenteringPlanet,
+    FrontEndPhase::PreparingBriefing,
+    FrontEndPhase::ZoomingPlanet,
+    FrontEndPhase::RevealingPlanetName,
+    FrontEndPhase::Briefing,
+    FrontEndPhase::DismissingBriefing,
+    FrontEndPhase::FadingOut,
+    FrontEndPhase::LevelInitialization,
+    FrontEndPhase::CorneriaOpening,
+];
+const RETAIL_COVERAGE_PRODUCER: &str = "retail";
+const NATIVE_COVERAGE_PRODUCER: &str = "native";
+const COVERAGE_CORNERIA_LEVEL_STATE: &str = "corneria-level-state";
+const COVERAGE_CORNERIA_KAMIKAZE_WAVE: &str = "corneria-kamikaze-wave";
+const COVERAGE_PLAYER_BODY_DAMAGE: &str = "player-body-damage";
+const COVERAGE_OBJECT_BIRTH: &str = "event:object-birth";
+const COVERAGE_OBJECT_DEATH: &str = "event:object-death";
+const CORNERIA_SCENARIO_COVERAGE: [&str; 5] = [
+    COVERAGE_CORNERIA_LEVEL_STATE,
+    COVERAGE_CORNERIA_KAMIKAZE_WAVE,
+    COVERAGE_PLAYER_BODY_DAMAGE,
+    COVERAGE_OBJECT_BIRTH,
+    COVERAGE_OBJECT_DEATH,
+];
+
+fn coverage_point(producer: &str, point: &str) -> String {
+    format!("{producer}:{point}")
+}
+
+fn phase_coverage_point(producer: &str, phase: FrontEndPhase) -> String {
+    coverage_point(producer, &format!("phase:{}", phase.name()))
+}
+
+fn required_phase_coverage(producer: &str) -> BTreeSet<String> {
+    REQUIRED_FRONT_END_PHASES
+        .into_iter()
+        .map(|phase| phase_coverage_point(producer, phase))
+        .collect()
+}
+
+fn required_corneria_coverage(producer: &str) -> BTreeSet<String> {
+    CORNERIA_SCENARIO_COVERAGE
+        .into_iter()
+        .map(|point| coverage_point(producer, point))
+        .collect()
+}
+
+fn record_phase_coverage(
+    coverage: &mut BTreeSet<String>,
+    producer: &str,
+    phase: Option<FrontEndPhase>,
+) {
+    if let Some(phase) = phase {
+        coverage.insert(phase_coverage_point(producer, phase));
+    }
+}
+
+fn record_retail_source_edge_coverage(coverage: &mut BTreeSet<String>, execution_entries: &[u32]) {
+    for entry in execution_entries {
+        if let Some((_, point)) = RETAIL_SOURCE_EDGE_COVERAGE
+            .iter()
+            .find(|(address, _)| address == entry)
+        {
+            coverage.insert(coverage_point(RETAIL_COVERAGE_PRODUCER, point));
+        }
+    }
+}
+
+fn record_event_coverage(coverage: &mut BTreeSet<String>, producer: &str, frame: &SemanticFrame) {
+    for event in &frame.events {
+        coverage.insert(coverage_point(producer, &format!("event:{}", event.kind)));
+    }
+}
+
 #[derive(Default)]
 struct RetailPhaseTracker {
     route_selection_seen: bool,
@@ -723,6 +817,16 @@ fn front_end_input_runs() -> Vec<ScenarioInputRun> {
 }
 
 fn front_end_manifest() -> ScenarioManifest {
+    let mut required_retail_coverage = required_phase_coverage(RETAIL_COVERAGE_PRODUCER);
+    required_retail_coverage.extend(required_corneria_coverage(RETAIL_COVERAGE_PRODUCER));
+    required_retail_coverage.extend(
+        RETAIL_SOURCE_EDGE_COVERAGE
+            .iter()
+            .map(|(_, point)| coverage_point(RETAIL_COVERAGE_PRODUCER, point)),
+    );
+    let mut required_native_coverage = required_phase_coverage(NATIVE_COVERAGE_PRODUCER);
+    required_native_coverage.extend(required_corneria_coverage(NATIVE_COVERAGE_PRODUCER));
+
     ScenarioManifest {
         schema_version: SCENARIO_SCHEMA_VERSION,
         id: FRONT_END_SCENARIO_ID.to_owned(),
@@ -737,24 +841,8 @@ fn front_end_manifest() -> ScenarioManifest {
         ]
         .into_iter()
         .collect(),
-        required_retail_coverage: [
-            "retail:front-end-phases".to_owned(),
-            "retail:corneria-level-state".to_owned(),
-            "retail:corneria-kamikaze-wave".to_owned(),
-            "retail:player-body-damage".to_owned(),
-            "retail:object-lifecycle".to_owned(),
-        ]
-        .into_iter()
-        .collect(),
-        required_native_coverage: [
-            "native:front-end-phases".to_owned(),
-            "native:corneria-level-state".to_owned(),
-            "native:corneria-kamikaze-wave".to_owned(),
-            "native:player-body-damage".to_owned(),
-            "native:object-lifecycle".to_owned(),
-        ]
-        .into_iter()
-        .collect(),
+        required_retail_coverage,
+        required_native_coverage,
     }
 }
 
@@ -779,6 +867,7 @@ fn retail_front_end_phase(
             continue;
         }
         tracker.planet_phase = Some(match *entry {
+            RETAIL_PLANET_SHIP_FLASH_ENTRY => FrontEndPhase::ShipFlash,
             RETAIL_PLANET_MAP_FADE_ENTRY => FrontEndPhase::FadingMap,
             RETAIL_PLANET_ISOLATION_ENTRY => FrontEndPhase::IsolatingPlanet,
             RETAIL_PLANET_CENTER_ENTRY => FrontEndPhase::CenteringPlanet,
@@ -1524,7 +1613,11 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             "retail planet phase entry moved at {entry:#08X}"
         );
     }
-    retail.watch_cpu_execution(&RETAIL_PHASE_ENTRIES);
+    let retail_source_entries: Vec<_> = RETAIL_SOURCE_EDGE_COVERAGE
+        .iter()
+        .map(|(entry, _)| *entry)
+        .collect();
+    retail.watch_cpu_execution(&retail_source_entries);
 
     let mut native = configured_native_shell();
     let mut retail_trace = Vec::new();
@@ -1540,8 +1633,8 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     let mut retail_phase_tracker = RetailPhaseTracker::default();
     let mut previous_retail_level_frame = None;
     let mut retail_level_boundary_aligned = false;
-    let mut saw_authored_kamikaze_pair = false;
-    let mut saw_player_body_damage = false;
+    let mut retail_coverage = BTreeSet::new();
+    let mut native_coverage = BTreeSet::new();
 
     for tick in 0..CORNERIA_SCENARIO_TICKS {
         let input = front_end_input(tick);
@@ -1580,6 +1673,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 .expect("retail front-end trace");
         }
         let retail_execution_entries = retail.take_cpu_execution_watch_hits();
+        record_retail_source_edge_coverage(&mut retail_coverage, &retail_execution_entries);
         let retail_level_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
         let retail_completed_level_update = align_completed_level_frame
             || previous_retail_level_frame
@@ -1613,6 +1707,14 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         if tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
             let native_snapshot = native_level_snapshot(&native);
             let retail_snapshot = retail_level_snapshot(&retail);
+            retail_coverage.insert(coverage_point(
+                RETAIL_COVERAGE_PRODUCER,
+                COVERAGE_CORNERIA_LEVEL_STATE,
+            ));
+            native_coverage.insert(coverage_point(
+                NATIVE_COVERAGE_PRODUCER,
+                COVERAGE_CORNERIA_LEVEL_STATE,
+            ));
             let retail_kamikazes = retail_snapshot
                 .objects
                 .iter()
@@ -1623,13 +1725,29 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 .iter()
                 .filter(|object| object.shape == Some(NATIVE_SHAPE_KAMIKAZE))
                 .count();
-            if retail_kamikazes == 2 && native_kamikazes == 2 {
-                saw_authored_kamikaze_pair = true;
+            if retail_kamikazes == AUTHORED_KAMIKAZE_COUNT {
+                retail_coverage.insert(coverage_point(
+                    RETAIL_COVERAGE_PRODUCER,
+                    COVERAGE_CORNERIA_KAMIKAZE_WAVE,
+                ));
             }
-            if retail_snapshot.player_body_durability < sf_game::coldet::PCBOX_BODY_HP
-                && native_snapshot.player_body_durability < sf_game::coldet::PCBOX_BODY_HP
-            {
-                saw_player_body_damage = true;
+            if native_kamikazes == AUTHORED_KAMIKAZE_COUNT {
+                native_coverage.insert(coverage_point(
+                    NATIVE_COVERAGE_PRODUCER,
+                    COVERAGE_CORNERIA_KAMIKAZE_WAVE,
+                ));
+            }
+            if retail_snapshot.player_body_durability < sf_game::coldet::PCBOX_BODY_HP {
+                retail_coverage.insert(coverage_point(
+                    RETAIL_COVERAGE_PRODUCER,
+                    COVERAGE_PLAYER_BODY_DAMAGE,
+                ));
+            }
+            if native_snapshot.player_body_durability < sf_game::coldet::PCBOX_BODY_HP {
+                native_coverage.insert(coverage_point(
+                    NATIVE_COVERAGE_PRODUCER,
+                    COVERAGE_PLAYER_BODY_DAMAGE,
+                ));
             }
             let retail_random_state = [
                 retail.peek8(WORK_RAM | RETAIL_RAND),
@@ -1647,6 +1765,8 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             &retail_execution_entries,
         );
         let native_phase = native_front_end_phase(&native);
+        record_phase_coverage(&mut retail_coverage, RETAIL_COVERAGE_PRODUCER, retail_phase);
+        record_phase_coverage(&mut native_coverage, NATIVE_COVERAGE_PRODUCER, native_phase);
         let retail_frame = scenario_frame(tick, input, retail_phase);
         retail_scenario_frames.push(
             match (retail_level_evidence.as_ref(), retail_random_evidence) {
@@ -1663,6 +1783,20 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
             input,
             native_phase,
         ));
+        record_event_coverage(
+            &mut retail_coverage,
+            RETAIL_COVERAGE_PRODUCER,
+            retail_scenario_frames
+                .last()
+                .expect("retail scenario frame"),
+        );
+        record_event_coverage(
+            &mut native_coverage,
+            NATIVE_COVERAGE_PRODUCER,
+            native_scenario_frames
+                .last()
+                .expect("native scenario frame"),
+        );
         if let Some(divergence) = first_divergence(
             std::slice::from_ref(
                 retail_scenario_frames
@@ -1746,15 +1880,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         retail_rom_sha256: retail_rom_sha256.clone(),
         clock: ScenarioClock::logical_update(),
         channels: channels.clone(),
-        coverage: [
-            "retail:front-end-phases".to_owned(),
-            "retail:corneria-level-state".to_owned(),
-            "retail:corneria-kamikaze-wave".to_owned(),
-            "retail:player-body-damage".to_owned(),
-            "retail:object-lifecycle".to_owned(),
-        ]
-        .into_iter()
-        .collect(),
+        coverage: retail_coverage,
         non_strict: NonStrictEvidence::default(),
         frames: retail_scenario_frames,
     };
@@ -1765,15 +1891,7 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         retail_rom_sha256,
         clock: ScenarioClock::logical_update(),
         channels,
-        coverage: [
-            "native:front-end-phases".to_owned(),
-            "native:corneria-level-state".to_owned(),
-            "native:corneria-kamikaze-wave".to_owned(),
-            "native:player-body-damage".to_owned(),
-            "native:object-lifecycle".to_owned(),
-        ]
-        .into_iter()
-        .collect(),
+        coverage: native_coverage,
         non_strict: NonStrictEvidence::default(),
         frames: native_scenario_frames,
     };
@@ -1797,13 +1915,5 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
     assert!(
         previous_retail_level_frame >= Some(CERTIFIED_CORNERIA_LEVEL_FRAME),
         "trace must compare Corneria through certified level frame {CERTIFIED_CORNERIA_LEVEL_FRAME}"
-    );
-    assert!(
-        saw_authored_kamikaze_pair,
-        "trace must observe the authored two-kamikaze Corneria wave on both sides"
-    );
-    assert!(
-        saw_player_body_damage,
-        "trace must observe natural player body damage on both sides"
     );
 }
