@@ -1,6 +1,6 @@
 use sf_difftest::{
-    first_divergence, read_jsonl_from, HashObservation, SemanticEvent, SemanticFrame,
-    SemanticObject,
+    first_divergence, read_jsonl_from, semantic_frame_sha256, HashObservation, SemanticEvent,
+    SemanticFrame, SemanticObject,
 };
 use std::io::Cursor;
 
@@ -76,4 +76,25 @@ fn parser_reports_line_and_rejects_duplicate_object_identity() {
     let error = read_jsonl_from(Cursor::new("{}\nnot-json\n"), "broken.jsonl")
         .expect_err("invalid JSON must fail");
     assert!(error.to_string().contains("broken.jsonl:1:"));
+}
+
+#[test]
+fn semantic_frame_fingerprint_covers_named_state_and_is_stable() {
+    let expected = frame(1);
+    let changed = frame(1).with_field("camera.yaw", 91i16);
+    let mut reordered = expected.clone();
+    reordered.objects.reverse();
+
+    assert_eq!(
+        semantic_frame_sha256(&expected).expect("fingerprint"),
+        semantic_frame_sha256(&expected).expect("repeat fingerprint")
+    );
+    assert_eq!(
+        semantic_frame_sha256(&expected).expect("fingerprint"),
+        semantic_frame_sha256(&reordered).expect("reordered fingerprint")
+    );
+    assert_ne!(
+        semantic_frame_sha256(&expected).expect("fingerprint"),
+        semantic_frame_sha256(&changed).expect("changed fingerprint")
+    );
 }

@@ -6,6 +6,7 @@
 //! of the port while still allowing frame-by-frame comparison.
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::File;
@@ -261,6 +262,23 @@ pub fn write_jsonl(path: impl AsRef<Path>, frames: &[SemanticFrame]) -> Result<(
     writer
         .flush()
         .map_err(|error| TraceError::new(format!("{}: {error}", path.display())))
+}
+
+/// Stable fingerprint of one complete semantic frame.
+///
+/// `SemanticFrame` stores named fields in ordered maps, so its compact JSON
+/// encoding is canonical for a given trace schema. Checkpoint tests can use
+/// this digest to cover the entire observable frame without duplicating a
+/// large, implementation-specific state fixture.
+pub fn semantic_frame_sha256(frame: &SemanticFrame) -> Result<String, TraceError> {
+    validate_trace(std::slice::from_ref(frame), "semantic checkpoint")?;
+    let mut canonical = frame.clone();
+    canonical
+        .objects
+        .sort_by(|left, right| left.identity.cmp(&right.identity));
+    let bytes = serde_json::to_vec(&canonical)
+        .map_err(|error| TraceError::new(format!("semantic frame: {error}")))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
 pub fn first_divergence(

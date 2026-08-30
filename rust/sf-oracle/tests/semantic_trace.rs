@@ -3,9 +3,9 @@
 
 use sf_core::{pad, sf1_controls::BriefingPhase, sf1_planets::PlanetSequencePhase};
 use sf_difftest::{
-    compare_scenario, first_divergence, CaptureChannel, EvidenceProducer, NonStrictEvidence,
-    ScenarioClock, ScenarioEvidence, ScenarioInputRun, ScenarioManifest, SemanticEvent,
-    SemanticFrame, SemanticObject, EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
+    compare_scenario, first_divergence, semantic_frame_sha256, CaptureChannel, EvidenceProducer,
+    NonStrictEvidence, ScenarioClock, ScenarioEvidence, ScenarioInputRun, ScenarioManifest,
+    SemanticEvent, SemanticFrame, SemanticObject, EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
 };
 use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF2_COLLDISABLE, ASF3_NOHITAFFECT};
 use sf_game::camera::{VIEWTYPE_FPOS, VIEWTYPE_TOOBJ};
@@ -44,6 +44,9 @@ const CORNERIA_SCENARIO_TICKS: u32 = 1_877;
 const CERTIFIED_CORNERIA_LEVEL_FRAME: u16 = 983;
 const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = PLANET_DISMISS_END_TICK;
+/// The retail front end produces two video-only ticks while handing control to
+/// the first level. A standalone replay must preserve those logical pauses.
+const NATIVE_REPLAY_LEVEL_UPDATE_PAUSE_TICKS: [u32; 2] = [895, 898];
 const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
 const CORNERIA_AUDIO_UPLOAD_TICK: u32 = 1_080;
 const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
@@ -85,6 +88,43 @@ const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
 const FRONT_END_TRANSITIONS: usize = 18;
 const PEPPER_CURSOR_CHECKPOINTS: [(u32, u8); 5] =
     [(654, 0), (656, 1), (657, 2), (761, 64), (839, 103)];
+/// Full semantic-frame anchors certified by the paired retail run. The native
+/// replay test reaches these in well under a second, providing a fast first
+/// gate while the direct cartridge trace remains the final authority.
+const CORNERIA_SEMANTIC_CHECKPOINTS: [(u32, &str); 8] = [
+    (
+        892,
+        "e4c928c8285ed9bbbb312b089f689b7a48f4d555a52b6e52d8dc82a270df581e",
+    ),
+    (
+        1_080,
+        "8f40d5f1a873dbea20b6122df41a299dbe5d071c98917233c929e431a758628a",
+    ),
+    (
+        1_200,
+        "b5aea1deb228974183adbd75c3b600fe4eeac73442a83b64bb7cd6a4c7fba8fa",
+    ),
+    (
+        1_500,
+        "b585eff5eedf1183b156e6df21a01a7cd57a0a96b54ba8309c7d86fa07f90941",
+    ),
+    (
+        1_700,
+        "eefede6ebe9700ad79f568bc1d446d8f27ae39abfd5bee8680206f8a06daf378",
+    ),
+    (
+        1_800,
+        "f3e2c04597003256a3f0d923c8c76f09ccfaf32d361fa43394caa90aa3a46160",
+    ),
+    (
+        1_841,
+        "ca6f58d3f811b83bf9e18d12824292cbce9f76f84d64e178b0fde79ecb0e13f2",
+    ),
+    (
+        1_876,
+        "d0cc108da73cc3a112a85e59d16119fded0aceb52f566c593d8d70df84e0f29b",
+    ),
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Position(i16, i16, i16);
@@ -1278,6 +1318,28 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
     }
 }
 
+fn native_scenario_frame(
+    native: &Shell,
+    identities: &mut ObjectIdentityTracker,
+    tick: u32,
+    input: u16,
+    phase: Option<FrontEndPhase>,
+) -> SemanticFrame {
+    let frame = scenario_frame(tick, input, phase);
+    if tick < FIRST_LEVEL_STATE_COMPARISON_TICK {
+        return frame;
+    }
+    identities.record_level(frame, &native_level_snapshot(native), native.game.vars.rng)
+}
+
+fn assert_semantic_checkpoint(producer: &str, tick: u32, frame: &SemanticFrame, expected: &str) {
+    let actual = semantic_frame_sha256(frame).expect("semantic checkpoint fingerprint");
+    assert_eq!(
+        actual, expected,
+        "{producer} semantic checkpoint changed at tick {tick}"
+    );
+}
+
 fn configured_native_shell() -> Shell {
     let mut native = Shell::new();
     native.set_register_strats(Box::new(sf_strat::table::register_all));
@@ -1306,6 +1368,36 @@ fn native_corneria_startup_retains_certified_checkpoints() {
                 *expected,
                 "native startup tick {tick}"
             );
+        }
+    }
+}
+
+#[test]
+fn native_corneria_retains_certified_semantic_checkpoints() {
+    let mut native = configured_native_shell();
+    let mut identities = ObjectIdentityTracker::default();
+    let final_tick = CORNERIA_SEMANTIC_CHECKPOINTS
+        .last()
+        .expect("semantic checkpoints")
+        .0;
+
+    for tick in 0..=final_tick {
+        let input = front_end_input(tick);
+        if !NATIVE_REPLAY_LEVEL_UPDATE_PAUSE_TICKS.contains(&tick) {
+            native.tick(input);
+        }
+        let frame = native_scenario_frame(
+            &native,
+            &mut identities,
+            tick,
+            input,
+            native_front_end_phase(&native),
+        );
+        if let Some((_, expected)) = CORNERIA_SEMANTIC_CHECKPOINTS
+            .iter()
+            .find(|(checkpoint, _)| *checkpoint == tick)
+        {
+            assert_semantic_checkpoint("native replay", tick, &frame, expected);
         }
     }
 }
@@ -1517,7 +1609,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         }
 
         let mut retail_level_evidence = None;
-        let mut native_level_evidence = None;
         let mut retail_random_evidence = None;
         if tick >= FIRST_LEVEL_STATE_COMPARISON_TICK {
             let native_snapshot = native_level_snapshot(&native);
@@ -1547,7 +1638,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 retail.peek8(WORK_RAM | RETAIL_RAND + 3),
             ];
             retail_level_evidence = Some(retail_snapshot);
-            native_level_evidence = Some(native_snapshot);
             retail_random_evidence = Some(retail_random_state);
         }
 
@@ -1558,7 +1648,6 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         );
         let native_phase = native_front_end_phase(&native);
         let retail_frame = scenario_frame(tick, input, retail_phase);
-        let native_frame = scenario_frame(tick, input, native_phase);
         retail_scenario_frames.push(
             match (retail_level_evidence.as_ref(), retail_random_evidence) {
                 (Some(snapshot), Some(random_state)) => {
@@ -1567,12 +1656,13 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
                 _ => retail_frame,
             },
         );
-        native_scenario_frames.push(match native_level_evidence.as_ref() {
-            Some(snapshot) => {
-                native_identities.record_level(native_frame, snapshot, native.game.vars.rng)
-            }
-            None => native_frame,
-        });
+        native_scenario_frames.push(native_scenario_frame(
+            &native,
+            &mut native_identities,
+            tick,
+            input,
+            native_phase,
+        ));
         if let Some(divergence) = first_divergence(
             std::slice::from_ref(
                 retail_scenario_frames
@@ -1588,6 +1678,27 @@ fn retail_front_end_and_corneria_opening_match_native_semantic_state() {
         .expect("live scenario frames must be valid")
         {
             panic!("live retail/native divergence: {divergence}");
+        }
+        if let Some((_, expected)) = CORNERIA_SEMANTIC_CHECKPOINTS
+            .iter()
+            .find(|(checkpoint, _)| *checkpoint == tick)
+        {
+            assert_semantic_checkpoint(
+                "native",
+                tick,
+                native_scenario_frames
+                    .last()
+                    .expect("native scenario frame"),
+                expected,
+            );
+            assert_semantic_checkpoint(
+                "retail",
+                tick,
+                retail_scenario_frames
+                    .last()
+                    .expect("retail scenario frame"),
+                expected,
+            );
         }
         record_front_end_transition(
             &mut retail_trace,
