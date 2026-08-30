@@ -21,16 +21,31 @@ const CORNERIA_AUDIO_UPLOAD_FRAME: u16 = 186;
 const MAX_HANDOFF_BOUNDARIES: usize = 4;
 const DEFAULT_FIRST_COMPLETED_SCENE: u16 = 315;
 const DEFAULT_LAST_COMPLETED_SCENE: u16 = 322;
+const HORIZONTAL_POLL_TRACE_ITERATIONS: usize = 64;
 const PPU_DOTS_PER_LINE: u64 = 341;
 const VIDEO_LINES_PER_FRAME: u64 = 262;
 const MASTER_CLOCKS_PER_PPU_DOT: u64 = 4;
 const VIDEO_FRAME_MASTER_CLOCKS: u64 =
     PPU_DOTS_PER_LINE * VIDEO_LINES_PER_FRAME * MASTER_CLOCKS_PER_PPU_DOT;
+const RETAIL_TRANSFER_STATE: u32 = 0x0000;
 const RETAIL_FRAME_COUNTER: u32 = 0x1200;
 const RETAIL_FRAME_COUNTER_RESET: u32 = 0x02_D960;
 const RETAIL_FRAME_COUNTER_RESET_COMPLETE: u32 = 0x02_D963;
 const RETAIL_FRAME_COUNTER_SAMPLE: u32 = 0x02_DA78;
 const RETAIL_FRAME_RATE_SAMPLE_COMPLETE: u32 = 0x02_DA7E;
+const RETAIL_TRANSFER_SLOT_READY: u32 = 0x02_D967;
+const RETAIL_TRANSFER_STARTED: u32 = 0x02_D96E;
+const RETAIL_CIRCLE_EFFECT_COMPLETE: u32 = 0x02_D971;
+const RETAIL_BACKGROUND_SCROLL_COMPLETE: u32 = 0x02_D975;
+const RETAIL_VERTICAL_OFFSETS_COMPLETE: u32 = 0x02_D978;
+const RETAIL_HORIZONTAL_OFFSETS_BEGIN: u32 = 0x02_D9E5;
+const RETAIL_HORIZONTAL_OFFSETS_COMPLETE: u32 = 0x02_D9E8;
+const RETAIL_HORIZONTAL_POLL_BEGIN: u32 = 0x02_DCC5;
+const RETAIL_HORIZONTAL_POSITION_SAMPLE: u32 = 0x02_DCC8;
+const RETAIL_HORIZONTAL_SAFE_WINDOW_READY: u32 = 0x02_DCDA;
+const RETAIL_HORIZONTAL_DMA_COMPLETE: u32 = 0x02_DD04;
+const RETAIL_HORIZONTAL_TRANSFER_COMPLETE: u32 = 0x02_D9EB;
+const RETAIL_WINDOW_PRIORITY_COMPLETE: u32 = 0x02_D9EF;
 const RETAIL_STRATEGIES_COMPLETE: u32 = 0x02_DA08;
 const RETAIL_PRE_TRANSFER_WORK_COMPLETE: u32 = 0x02_DA3B;
 const RETAIL_FIRST_TRANSFER_READY: u32 = 0x02_DA40;
@@ -93,6 +108,16 @@ fn reach_timeline_marker(
         "retail did not reach {marker_name}",
     );
     retail.master_clock() - start_master_clock
+}
+
+fn pending_transfer_stages(retail: &RetailMachine) -> u8 {
+    match retail.peek8(WORK_RAM | RETAIL_TRANSFER_STATE) {
+        0 => 0,
+        2 => 3,
+        4 => 2,
+        6 => 1,
+        state => panic!("unexpected retail transfer state {state}"),
+    }
 }
 
 fn main() {
@@ -181,7 +206,7 @@ fn main() {
     );
 
     println!(
-        "route,scene_frame,input,entry_motion,sampled_motion,frame_counter_at_sample,elapsed_master_clocks,start_display_phase,start_irq_scanline,start_irq_phase,irq_pending_at_reset,irq_masked_at_reset,elapsed_display_frames,strategies_begin_clock,strategies_complete_clock,pre_transfer_work_complete_clock,first_transfer_ready_clock,second_transfer_wait_begin_clock,second_transfer_ready_clock,scene_render_begin_clock,scene_render_complete_clock,job_count,job_master_clocks,job_program_fetch_clocks,job_memory_wait_clocks,job_asset_wait_clocks,job_multiply_clocks,job_pixel_clocks,largest_job_master_clocks,largest_job_program_fetch_clocks,largest_job_memory_wait_clocks,largest_job_asset_wait_clocks,largest_job_multiply_clocks,largest_job_pixel_clocks"
+        "route,scene_frame,input,entry_motion,sampled_motion,frame_counter_at_sample,pending_transfer_stages_at_reset,pending_transfer_stages_at_sample,elapsed_master_clocks,elapsed_cpu_cycles,start_display_phase,start_irq_scanline,start_irq_phase,irq_pending_at_reset,irq_masked_at_reset,elapsed_display_frames,transfer_slot_ready_clock,transfer_started_clock,circle_effect_complete_clock,background_scroll_complete_clock,vertical_offsets_complete_clock,horizontal_offsets_begin_clock,horizontal_offsets_complete_clock,horizontal_safe_window_ready_clock,horizontal_dma_complete_clock,horizontal_transfer_complete_clock,window_priority_complete_clock,strategies_begin_clock,strategies_complete_clock,pre_transfer_work_complete_clock,first_transfer_ready_clock,second_transfer_wait_begin_clock,second_transfer_ready_clock,scene_render_begin_clock,scene_render_complete_clock,job_count,job_master_clocks,job_program_fetch_clocks,job_memory_wait_clocks,job_asset_wait_clocks,job_multiply_clocks,job_pixel_clocks,largest_job_master_clocks,largest_job_program_fetch_clocks,largest_job_memory_wait_clocks,largest_job_asset_wait_clocks,largest_job_multiply_clocks,largest_job_pixel_clocks"
     );
     loop {
         let reset_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
@@ -194,7 +219,9 @@ fn main() {
             0
         };
         let entry_motion = retail.peek8(WORK_RAM | RETAIL_FRAMERATE);
+        let pending_transfer_stages_at_reset = pending_transfer_stages(&retail);
         let start_master_clock = retail.master_clock();
+        let start_cpu_cycles = retail.cycles();
         let start_video_frame = retail.video_frame();
         let (
             _,
@@ -220,6 +247,138 @@ fn main() {
         } else {
             MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE
         };
+        let transfer_slot_ready = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_TRANSFER_SLOT_READY,
+            max_video_frames,
+            start_master_clock,
+            "presentation transfer slot readiness",
+        );
+        let transfer_started = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_TRANSFER_STARTED,
+            max_video_frames,
+            start_master_clock,
+            "presentation transfer start",
+        );
+        let circle_effect_complete = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_CIRCLE_EFFECT_COMPLETE,
+            max_video_frames,
+            start_master_clock,
+            "circle effect completion",
+        );
+        let background_scroll_complete = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_BACKGROUND_SCROLL_COMPLETE,
+            max_video_frames,
+            start_master_clock,
+            "background scroll completion",
+        );
+        let vertical_offsets_complete = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_VERTICAL_OFFSETS_COMPLETE,
+            max_video_frames,
+            start_master_clock,
+            "vertical background offset completion",
+        );
+        let horizontal_offsets_begin = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_HORIZONTAL_OFFSETS_BEGIN,
+            max_video_frames,
+            start_master_clock,
+            "horizontal background offsets start",
+        );
+        let horizontal_offsets_complete = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_HORIZONTAL_OFFSETS_COMPLETE,
+            max_video_frames,
+            start_master_clock,
+            "horizontal background offsets completion",
+        );
+        if routed
+            && scene_frame == 321
+            && std::env::var_os("SF1_RETAIL_HORIZONTAL_POLL_TRACE").is_some()
+        {
+            assert!(
+                retail
+                    .tick_until_cpu_execution(
+                        input,
+                        RETAIL_HORIZONTAL_POLL_BEGIN,
+                        max_video_frames,
+                    )
+                    .expect("initial horizontal safe-window poll"),
+                "retail did not begin horizontal safe-window polling",
+            );
+            for iteration in 0..HORIZONTAL_POLL_TRACE_ITERATIONS {
+                let poll_start = retail.master_clock();
+                assert!(
+                    retail
+                        .tick_until_cpu_execution(
+                            input,
+                            RETAIL_HORIZONTAL_POSITION_SAMPLE,
+                            max_video_frames,
+                        )
+                        .expect("horizontal position sample"),
+                    "retail did not sample the horizontal position",
+                );
+                let (_, _, _, _, _, horizontal, vertical, _) = retail.timing_debug_state();
+                assert!(
+                    retail
+                        .tick_until_cpu_execution(
+                            input,
+                            RETAIL_HORIZONTAL_POLL_BEGIN,
+                            max_video_frames,
+                        )
+                        .expect("next horizontal safe-window poll"),
+                    "known long routed poll ended before the diagnostic budget",
+                );
+                println!(
+                    "horizontal_poll,{iteration},{},{},{horizontal},{vertical}",
+                    poll_start - start_master_clock,
+                    retail.master_clock() - poll_start,
+                );
+            }
+        }
+        let horizontal_safe_window_ready = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_HORIZONTAL_SAFE_WINDOW_READY,
+            max_video_frames,
+            start_master_clock,
+            "horizontal background safe-window readiness",
+        );
+        let horizontal_dma_complete = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_HORIZONTAL_DMA_COMPLETE,
+            max_video_frames,
+            start_master_clock,
+            "horizontal background transfer DMA completion",
+        );
+        let horizontal_transfer_complete = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_HORIZONTAL_TRANSFER_COMPLETE,
+            max_video_frames,
+            start_master_clock,
+            "horizontal background transfer completion",
+        );
+        let window_priority_complete = reach_timeline_marker(
+            &mut retail,
+            input,
+            RETAIL_WINDOW_PRIORITY_COMPLETE,
+            max_video_frames,
+            start_master_clock,
+            "window priority completion",
+        );
         let strategies_begin = reach_timeline_marker(
             &mut retail,
             input,
@@ -292,6 +451,7 @@ fn main() {
             start_master_clock,
             "frame-rate sample completion",
         );
+        let elapsed_cpu_cycles = retail.cycles() - start_cpu_cycles;
         assert_eq!(
             retail.peek16(WORK_RAM | RETAIL_GAMEFRAME),
             scene_frame,
@@ -299,6 +459,7 @@ fn main() {
         );
         let sampled_motion = retail.peek8(WORK_RAM | RETAIL_FRAMERATE);
         let frame_counter_at_sample = retail.peek8(WORK_RAM | RETAIL_FRAME_COUNTER);
+        let pending_transfer_stages_at_sample = pending_transfer_stages(&retail);
         assert_eq!(
             sampled_motion, frame_counter_at_sample,
             "retail framerate must copy the live frame counter",
@@ -315,6 +476,23 @@ fn main() {
             .into_iter()
             .filter(|job| job.sequence > previous_job_sequence)
             .collect::<Vec<_>>();
+        if scene_frame == 321 && std::env::var_os("SF1_RETAIL_GSU_JOB_TRACE").is_some() {
+            for job in &jobs {
+                println!(
+                    "gsu_job,sequence={},entry={:02X}:{:04X},steps={},duration={},program_fetch={},memory_wait={},asset_wait={},multiply={},pixel={}",
+                    job.sequence,
+                    job.pbr,
+                    job.pc,
+                    job.steps,
+                    job.exit_tick - job.entry_tick,
+                    job.timing_breakdown[0],
+                    job.timing_breakdown[1],
+                    job.timing_breakdown[2],
+                    job.timing_breakdown[3],
+                    job.timing_breakdown[4],
+                );
+            }
+        }
         if (first_scene..=last_scene).contains(&scene_frame) {
             let elapsed_display_frames = retail.video_frame() - start_video_frame;
             let crossed_irq_boundaries =
@@ -337,7 +515,7 @@ fn main() {
             let largest_master_clocks = largest.map_or(0, |job| job.exit_tick - job.entry_tick);
             let largest_timing = largest.map_or([0; 5], |job| job.timing_breakdown);
             println!(
-                "{},{scene_frame},{input},{entry_motion},{sampled_motion},{frame_counter_at_sample},{elapsed_master_clocks},{},{start_irq_scanline},{start_irq_phase},{},{},{elapsed_display_frames},{strategies_begin},{strategies_complete},{pre_transfer_work_complete},{first_transfer_ready},{second_transfer_wait_begin},{second_transfer_ready},{scene_render_begin},{scene_render_complete},{},{job_master_clocks},{},{},{},{},{},{largest_master_clocks},{},{},{},{},{}",
+                "{},{scene_frame},{input},{entry_motion},{sampled_motion},{frame_counter_at_sample},{pending_transfer_stages_at_reset},{pending_transfer_stages_at_sample},{elapsed_master_clocks},{elapsed_cpu_cycles},{},{start_irq_scanline},{start_irq_phase},{},{},{elapsed_display_frames},{transfer_slot_ready},{transfer_started},{circle_effect_complete},{background_scroll_complete},{vertical_offsets_complete},{horizontal_offsets_begin},{horizontal_offsets_complete},{horizontal_safe_window_ready},{horizontal_dma_complete},{horizontal_transfer_complete},{window_priority_complete},{strategies_begin},{strategies_complete},{pre_transfer_work_complete},{first_transfer_ready},{second_transfer_wait_begin},{second_transfer_ready},{scene_render_begin},{scene_render_complete},{},{job_master_clocks},{},{},{},{},{},{largest_master_clocks},{},{},{},{},{}",
                 u8::from(routed),
                 start_master_clock % VIDEO_FRAME_MASTER_CLOCKS,
                 u8::from(irq_pending_at_reset),
