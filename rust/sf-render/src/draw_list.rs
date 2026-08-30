@@ -352,7 +352,10 @@ fn lerp_angle8_f(from: i16, to: i16, t: f32) -> f32 {
 
 /// Mirror of `InterpolateEntry`.
 fn interpolate_entry(a: &DrawListEntry, b: &DrawListEntry, alpha: f32) -> DrawListEntry {
-    let mut out = *b;
+    // Positions and rotations are continuous presentation values. Animation,
+    // material, topology, and flags are fixed-update state and remain on the
+    // preceding snapshot throughout the open interval.
+    let mut out = if alpha < 1.0 { *a } else { *b };
     out.x = (a.x as f32 + (b.x as f32 - a.x as f32) * alpha) as i32;
     out.y = (a.y as f32 + (b.y as f32 - a.y as f32) * alpha) as i32;
     out.z = (a.z as f32 + (b.z as f32 - a.z as f32) * alpha) as i32;
@@ -880,7 +883,7 @@ impl DrawListRenderer {
 #[cfg(test)]
 mod interpolation_tests {
     use super::{
-        can_interpolate, launch_corridor_depth_layers, presentation_entries,
+        can_interpolate, interpolate_entry, launch_corridor_depth_layers, presentation_entries,
         source_safe_interpolation_alpha, DrawListEntry,
     };
     use crate::shapes::{SHAPE_ALIAS_OP_0, SHAPE_ALIAS_OP_1};
@@ -952,6 +955,38 @@ mod interpolation_tests {
         assert!(at_endpoint
             .iter()
             .any(|entry| entry.obj_id == NEW_OBJECT_ID));
+    }
+
+    #[test]
+    fn discrete_presentation_state_advances_only_at_the_endpoint() {
+        const PREVIOUS_ANIMATION: u8 = 14;
+        const CURRENT_ANIMATION: u8 = 15;
+        const PREVIOUS_POSITION: i32 = 100;
+        const CURRENT_POSITION: i32 = 200;
+        const HALF_TICK: f32 = 0.5;
+
+        let previous = DrawListEntry {
+            x: PREVIOUS_POSITION,
+            anim_frame: PREVIOUS_ANIMATION,
+            col_frame: PREVIOUS_ANIMATION,
+            ..DrawListEntry::default()
+        };
+        let current = DrawListEntry {
+            x: CURRENT_POSITION,
+            anim_frame: CURRENT_ANIMATION,
+            col_frame: CURRENT_ANIMATION,
+            ..previous
+        };
+
+        let between = interpolate_entry(&previous, &current, HALF_TICK);
+        assert_eq!(between.x, 150);
+        assert_eq!(between.anim_frame, PREVIOUS_ANIMATION);
+        assert_eq!(between.col_frame, PREVIOUS_ANIMATION);
+
+        let endpoint = interpolate_entry(&previous, &current, 1.0);
+        assert_eq!(endpoint.x, CURRENT_POSITION);
+        assert_eq!(endpoint.anim_frame, CURRENT_ANIMATION);
+        assert_eq!(endpoint.col_frame, CURRENT_ANIMATION);
     }
 
     #[test]

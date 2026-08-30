@@ -39,6 +39,25 @@ use sf_core::{
 
 const SOURCE_POLYGON_GAMEPLAY_PRESENTATION_OFFSET: [i16; 2] = [0, 0];
 const SOURCE_POLYGON_DEFAULT_PRESENTATION_OFFSET: [i16; 2] = [0, 0];
+const SOURCE_BITMAP_LEFT: f32 = 16.0;
+const SOURCE_BITMAP_WIDTH: f32 = 224.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SourceBitmapAperture {
+    top: f32,
+    height: f32,
+}
+
+const SF1_TITLE_SOURCE_APERTURE: SourceBitmapAperture = SourceBitmapAperture {
+    // The title unblanks immediately after line 16 and blanks immediately
+    // after line 206, so its completed source scanout exposes lines 17..=206.
+    top: 17.0,
+    height: 190.0,
+};
+const SF1_FLIGHT_SOURCE_APERTURE: SourceBitmapAperture = SourceBitmapAperture {
+    top: 16.0,
+    height: 190.0,
+};
 
 /// Semantic presentation state shared by the native game and renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -400,6 +419,9 @@ pub struct FrameInputs<'a> {
     pub scene_style: SceneStyle,
     /// Source-resolution pixels emitted by the native point-field simulation.
     pub point_pixels: &'a [PointPixel],
+    /// Preceding fixed-update point field used during the open interpolation
+    /// interval. `None` means the caller has no presentation history.
+    pub previous_point_pixels: Option<&'a [PointPixel]>,
 
     // Background palette-row fade (map-VM FADETOSEA/FADETOGROUND,
     // WORLD.ASM:371-394; consumer fadepalto_l MAIN.ASM:2762).
@@ -525,6 +547,7 @@ impl<'a> Default for FrameInputs<'a> {
             nomax_bg2_yscroll: false,
             scene_style: SceneStyle::default(),
             point_pixels: &[],
+            previous_point_pixels: None,
             pal_target: None,
             palfade_num: 0,
             windowmode: 0,
@@ -804,10 +827,15 @@ impl Renderer {
                     .map(crate::shapes::decode_shape_palette)
             })
             .flatten();
+        let presented_point_pixels = if alpha < 1.0 {
+            inputs.previous_point_pixels.unwrap_or(inputs.point_pixels)
+        } else {
+            inputs.point_pixels
+        };
         if !inputs.source_resolution {
             self.ui.render_point_field(
                 &mut self.gpu,
-                inputs.point_pixels,
+                presented_point_pixels,
                 &shape_palette,
                 self.width,
                 self.height,
@@ -854,7 +882,7 @@ impl Renderer {
                 }),
             self.hud.source_bitmap_clear(inputs),
             inputs.source_scene_camera,
-            inputs.point_pixels,
+            presented_point_pixels,
             source_gameplay_meter_palette.as_ref(),
             self.shadow_style,
         );
@@ -882,11 +910,17 @@ impl Renderer {
             self.height,
             alpha,
         );
-        if inputs.source_resolution && inputs.game_state == GameState::Playing {
-            // The flight window is applied after bitmap-resident meters and
-            // radio portraits. This clips the portrait's final two source
-            // rows just as the retail layer window does.
-            self.render_source_flight_mask();
+        if inputs.source_resolution {
+            let aperture = match inputs.game_state {
+                GameState::Title => Some(SF1_TITLE_SOURCE_APERTURE),
+                GameState::Playing => Some(SF1_FLIGHT_SOURCE_APERTURE),
+                _ => None,
+            };
+            if let Some(aperture) = aperture {
+                // Apply the completed source scanout aperture after the scene
+                // and bitmap-resident HUD have been composed.
+                self.render_source_bitmap_mask(aperture);
+            }
         }
         self.ui.render(
             &mut self.gpu,
@@ -900,18 +934,11 @@ impl Renderer {
             .render_fade(&mut self.gpu, inputs, self.width, self.height);
     }
 
-    /// Mask the source's 224-by-192 flight bitmap after scene drawing and
-    /// before HUD/OAM presentation. The logic-aligned retail PPU scanout fixes
-    /// its authored first visible line at output line 16.
-    fn render_source_flight_mask(&mut self) {
+    /// Mask a completed 224-pixel-wide source bitmap after scene drawing and
+    /// before HUD/OAM presentation.
+    fn render_source_bitmap_mask(&mut self, aperture: SourceBitmapAperture) {
         const SOURCE_FRAME_WIDTH: f32 = 256.0;
         const SOURCE_FRAME_HEIGHT: f32 = 224.0;
-        const PLAYFIELD_LEFT: f32 = 16.0;
-        const PLAYFIELD_TOP: f32 = 16.0;
-        const PLAYFIELD_WIDTH: f32 = 224.0;
-        // The flight window exposes 190 of the 192 bitmap rows. Its final two
-        // rows are black before HUD/OAM composition.
-        const PLAYFIELD_HEIGHT: f32 = 190.0;
         const IDENTITY: [f32; 16] = [
             1.0, 0.0, 0.0, 0.0, //
             0.0, 1.0, 0.0, 0.0, //
@@ -923,10 +950,10 @@ impl Renderer {
         let output_height = self.height as f32;
         let scale = output_height / SOURCE_FRAME_HEIGHT;
         let source_left = (output_width - SOURCE_FRAME_WIDTH * scale) * 0.5;
-        let left = source_left + PLAYFIELD_LEFT * scale;
-        let top = PLAYFIELD_TOP * scale;
-        let right = left + PLAYFIELD_WIDTH * scale;
-        let bottom = top + PLAYFIELD_HEIGHT * scale;
+        let left = source_left + SOURCE_BITMAP_LEFT * scale;
+        let top = aperture.top * scale;
+        let right = left + SOURCE_BITMAP_WIDTH * scale;
+        let bottom = top + aperture.height * scale;
         let projection = [
             2.0 / output_width,
             0.0,

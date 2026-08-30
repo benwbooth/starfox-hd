@@ -132,10 +132,12 @@ local function record_display_write(address, value)
   if frame + 1 < first_capture_frame or frame > last_capture_frame then
     return
   end
+  local state = emu.getState()
   presentation_state_lines[#presentation_state_lines + 1] = string.format(
-    "display_write_frame=%d game_frame=%d value=%02X\n",
+    "display_write_frame=%d game_frame=%d scanline=%s value=%02X\n",
     frame,
     work_word(game_frame),
+    tostring(state["ppu.scanline"]),
     value)
 end
 
@@ -149,6 +151,19 @@ local function record_fixed_color_write(address, value)
     "fixed_color_write_frame=%d game_frame=%d value=%02X\n",
     frame,
     work_word(game_frame),
+    value)
+end
+
+local function record_bg_character_base_write(address, value)
+  if frame + 1 < first_capture_frame or frame > last_capture_frame then
+    return
+  end
+  local state = emu.getState()
+  presentation_state_lines[#presentation_state_lines + 1] = string.format(
+    "bg_character_base_write_frame=%d game_frame=%d scanline=%s value=%02X\n",
+    frame,
+    work_word(game_frame),
+    tostring(state["ppu.scanline"]),
     value)
 end
 
@@ -424,7 +439,9 @@ local function end_frame()
     local presentation_fields = {}
     for key, value in pairs(state) do
       local lower = string.lower(key)
-      if string.find(lower, "brightness", 1, true)
+      if string.find(lower, "ppu", 1, true)
+        or string.find(lower, "bg", 1, true)
+        or string.find(lower, "brightness", 1, true)
         or string.find(lower, "inidisp", 1, true)
         or string.find(lower, "forcedblank", 1, true) then
         presentation_fields[#presentation_fields + 1] =
@@ -500,6 +517,13 @@ emu.addMemoryCallback(
   emu.callbackType.write,
   0x2132,
   0x2132,
+  emu.cpuType.snes,
+  emu.memType.snesMemory)
+emu.addMemoryCallback(
+  record_bg_character_base_write,
+  emu.callbackType.write,
+  0x210B,
+  0x210B,
   emu.cpuType.snes,
   emu.memType.snesMemory)
 emu.addMemoryCallback(

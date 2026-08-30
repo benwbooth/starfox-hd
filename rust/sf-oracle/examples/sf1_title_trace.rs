@@ -440,6 +440,7 @@ fn to_render_entry(entry: &sf_core::DrawListEntry) -> RenderDrawListEntry {
 fn native_video_hash(
     shell: &Shell,
     previous_draw_list: &[RenderDrawListEntry],
+    previous_point_pixels: &[sf_core::point_field::PointPixel],
     renderer: &mut Renderer,
     include_scene_objects: bool,
     render_alpha: f32,
@@ -464,6 +465,7 @@ fn native_video_hash(
         nomax_bg2_yscroll: frame.nomax_bg2_yscroll,
         scene_style: frame.scene_style,
         point_pixels: &frame.point_pixels,
+        previous_point_pixels: Some(previous_point_pixels),
         pal_target: frame.pal_target,
         palfade_num: frame.palfade_num,
         windowmode: frame.windowmode,
@@ -548,6 +550,7 @@ fn main() {
     let mesen_directory: Option<std::path::PathBuf> =
         std::env::var_os("SF1_TITLE_MESEN_DIR").map(Into::into);
     let mut previous_native_draw_list = Vec::new();
+    let mut previous_native_point_pixels = native.frame().point_pixels;
     let debug_video = std::env::var_os("SF_TITLE_TRACE_DEBUG").is_some();
     let debug_dump_tick = std::env::var("SF_TITLE_TRACE_DUMP_TICK")
         .ok()
@@ -752,6 +755,7 @@ fn main() {
             native_video_hash(
                 &native,
                 &previous_native_draw_list,
+                &previous_native_point_pixels,
                 &mut renderer,
                 true,
                 render_alpha,
@@ -858,8 +862,14 @@ fn main() {
                 .collect();
             std::fs::write("/tmp/starfox-title-retail.graphics-state", graphics_ram)
                 .expect("write title trace graphics state");
-            let (_, _, _, native_background_rgb) =
-                native_video_hash(&native, &[], &mut renderer, false, render_alpha);
+            let (_, _, _, native_background_rgb) = native_video_hash(
+                &native,
+                &[],
+                &previous_native_point_pixels,
+                &mut renderer,
+                false,
+                render_alpha,
+            );
             write_ppm(
                 "/tmp/starfox-title-native-background.ppm",
                 &native_background_rgb,
@@ -882,6 +892,7 @@ fn main() {
                 frame.windows,
             );
         }
+        previous_native_point_pixels = native.frame().point_pixels;
         if retail_video != native_video && first_embedded_video_divergence.is_none() {
             first_embedded_video_divergence =
                 Some((tick, retail.video_frame(), retail_video, native_video));

@@ -20,6 +20,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use sf_core::point_field::PointPixel;
 use sf_map::catalog::{background_id, map_id};
 use sf_render::draw_list::{DrawListEntry, DL_FLAG_VISIBLE};
 use sf_render::gpu::{Gpu, Vertex3};
@@ -56,8 +57,18 @@ const SF2_PILOT_SELECTION_FOX_FNV1A: u32 = 0xC2AC3D23;
 const DITHER_TEST_WIDTH: u32 = 512;
 const DITHER_TEST_HEIGHT: u32 = 448;
 const DISPLAY_SOURCE_RGB: [u8; 3] = [41, 16, 173];
-const DISPLAY_DIMMED_RGB: [u8; 3] = [38, 15, 162];
+const DISPLAY_DIMMED_RGB: [u8; 3] = [33, 8, 156];
 const DISPLAY_DIMMED_LEVEL: u8 = 14;
+const TITLE_FADE_SOURCE_RGB: [u8; 3] = [222, 181, 115];
+const TITLE_LOW_BRIGHTNESS_SOURCE_RGB: [u8; 3] = [231, 222, 140];
+const TITLE_LOW_BRIGHTNESS_EXPECTED_RGB: [u8; 3] = [0, 0, 0];
+const TITLE_FADE_SEQUENCE: [(u8, u8, [u8; 3]); 5] = [
+    (3, 24, [0, 0, 0]),
+    (6, 22, [16, 0, 0]),
+    (9, 20, [33, 8, 0]),
+    (12, 18, [57, 24, 0]),
+    (15, 16, [90, 49, 0]),
+];
 const FNV_OFFSET_BASIS: u32 = 0x811C9DC5;
 const FNV_PRIME: u32 = 0x01000193;
 const FIRST_RETURN_FNV1A: u32 = 0x92CFDF43;
@@ -130,6 +141,7 @@ fn gl_runtime_suite() {
     check_player_laser(&mut renderer);
 
     renderer.shutdown();
+    check_title_source_aperture(&config);
     check_sf2_intro_exact(&config);
     check_sf2_ending_exact(&config);
     check_sf1_ending_recap(&config);
@@ -138,6 +150,114 @@ fn gl_runtime_suite() {
     check_sf2_opening_overview_exact(&config);
     check_sf2_pilot_selection_exact(&config);
     check_sf2_strategic_returns_exact(&config);
+}
+
+fn check_title_source_aperture(config: &RendererConfig) {
+    const SOURCE_WIDTH: i32 = 256;
+    const SOURCE_HEIGHT: i32 = 224;
+    const PLAYFIELD_LEFT: usize = 16;
+    const BLANKED_TITLE_LINE: usize = 16;
+    const FIRST_VISIBLE_TITLE_LINE: usize = 17;
+    const LAST_VISIBLE_TITLE_LINE: usize = 206;
+    const FIRST_TRAILING_BLANK_LINE: usize = 207;
+    const LAST_VISIBLE_SAMPLE_X: usize = 86;
+    const POINT_COLOR: u8 = 3;
+
+    let mut renderer = match Renderer::new_headless(SOURCE_WIDTH, SOURCE_HEIGHT, config) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("skipping title source aperture check: no wgpu adapter ({error})");
+            return;
+        }
+    };
+    let points = [
+        PointPixel {
+            x: 0,
+            y: 0,
+            palette_index: POINT_COLOR,
+        },
+        PointPixel {
+            x: 1,
+            y: 1,
+            palette_index: POINT_COLOR,
+        },
+    ];
+    let input = FrameInputs {
+        source_resolution: true,
+        game_state: GameState::Title,
+        point_pixels: &points,
+        ..FrameInputs::default()
+    };
+    let draw = [DrawListEntry {
+        flags: DL_FLAG_VISIBLE,
+        obj_id: 1,
+        ..DrawListEntry::default()
+    }];
+    renderer.begin_frame();
+    renderer.submit(&draw, &draw, 1.0, &input);
+    renderer.end_frame();
+
+    let pixels = renderer.read_pixels_rgb();
+    let pixel = |x: usize, y: usize| {
+        let offset = (y * SOURCE_WIDTH as usize + x) * 3;
+        &pixels[offset..offset + 3]
+    };
+    assert_eq!(
+        pixel(PLAYFIELD_LEFT, BLANKED_TITLE_LINE),
+        SF1_CLEAR_RGB,
+        "the title scanout must retain the blanked line before unblanking"
+    );
+    assert_ne!(
+        pixel(PLAYFIELD_LEFT + 1, FIRST_VISIBLE_TITLE_LINE),
+        SF1_CLEAR_RGB,
+        "the first completed title line after unblanking must remain visible"
+    );
+    assert_ne!(
+        pixel(LAST_VISIBLE_SAMPLE_X, LAST_VISIBLE_TITLE_LINE),
+        SF1_CLEAR_RGB,
+        "the last completed title line before blanking must remain visible"
+    );
+    assert_eq!(
+        pixel(LAST_VISIBLE_SAMPLE_X, FIRST_TRAILING_BLANK_LINE),
+        SF1_CLEAR_RGB,
+        "the title scanout must blank the line after its completed aperture"
+    );
+
+    let previous_points = [PointPixel {
+        x: 4,
+        y: 1,
+        palette_index: POINT_COLOR,
+    }];
+    let current_points = [PointPixel {
+        x: 5,
+        y: 1,
+        palette_index: POINT_COLOR,
+    }];
+    let interpolated_input = FrameInputs {
+        source_resolution: true,
+        game_state: GameState::Title,
+        point_pixels: &current_points,
+        previous_point_pixels: Some(&previous_points),
+        ..FrameInputs::default()
+    };
+    renderer.begin_frame();
+    renderer.submit(&draw, &draw, 0.0, &interpolated_input);
+    renderer.end_frame();
+    let interpolated = renderer.read_pixels_rgb();
+    let interpolated_pixel = |x: usize| {
+        let offset = (FIRST_VISIBLE_TITLE_LINE * SOURCE_WIDTH as usize + x) * 3;
+        &interpolated[offset..offset + 3]
+    };
+    assert_ne!(
+        interpolated_pixel(PLAYFIELD_LEFT + 4),
+        SF1_CLEAR_RGB,
+        "the preceding point field must remain visible within the open interpolation interval"
+    );
+    assert_eq!(
+        interpolated_pixel(PLAYFIELD_LEFT + 5),
+        SF1_CLEAR_RGB,
+        "the current point field must advance with the fixed-update endpoint"
+    );
 }
 
 fn check_sf2_ending_exact(config: &RendererConfig) {
@@ -528,6 +648,40 @@ fn check_palette_pair_dither() {
         &pixels[..DISPLAY_DIMMED_RGB.len()],
         DISPLAY_DIMMED_RGB,
         "display brightness must match the retail launch-fade sample"
+    );
+
+    for (brightness, black_subtraction, expected) in TITLE_FADE_SEQUENCE {
+        gpu.begin_frame();
+        gpu.set_clear_color(
+            f32::from(TITLE_FADE_SOURCE_RGB[0]) / 255.0,
+            f32::from(TITLE_FADE_SOURCE_RGB[1]) / 255.0,
+            f32::from(TITLE_FADE_SOURCE_RGB[2]) / 255.0,
+            1.0,
+        );
+        gpu.set_display_presentation(brightness, false, black_subtraction);
+        gpu.end_frame();
+        let (_, _, pixels) = gpu.read_pixels().expect("title fade readback");
+        assert_eq!(
+            &pixels[..expected.len()],
+            expected,
+            "title fade must scale five-bit source components before expansion"
+        );
+    }
+
+    gpu.begin_frame();
+    gpu.set_clear_color(
+        f32::from(TITLE_LOW_BRIGHTNESS_SOURCE_RGB[0]) / 255.0,
+        f32::from(TITLE_LOW_BRIGHTNESS_SOURCE_RGB[1]) / 255.0,
+        f32::from(TITLE_LOW_BRIGHTNESS_SOURCE_RGB[2]) / 255.0,
+        1.0,
+    );
+    gpu.set_display_presentation(3, false, 24);
+    gpu.end_frame();
+    let (_, _, pixels) = gpu.read_pixels().expect("low-brightness title readback");
+    assert_eq!(
+        &pixels[..TITLE_LOW_BRIGHTNESS_EXPECTED_RGB.len()],
+        TITLE_LOW_BRIGHTNESS_EXPECTED_RGB,
+        "source brightness must divide five-bit components by the full level-15 range"
     );
 }
 

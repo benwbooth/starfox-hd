@@ -980,6 +980,7 @@ fn main() {
     let mut source_presentations = SourcePresentationQueue::new();
     let mut frame = shell.frame();
     let mut presented_frame = frame.clone();
+    let mut previous_presented_frame = presented_frame.clone();
     let mut total_ticks: u64 = 0;
     let mut running = true;
     let (mut fb_w, mut fb_h) = (cfg.window_width, cfg.window_height);
@@ -1199,6 +1200,7 @@ fn main() {
                     source_presentations.reset();
                     None
                 };
+                previous_presented_frame.clone_from(&presented_frame);
                 let (cam, snap_scene) = if let Some(presented) = presented {
                     presented_prev_list.clone_from(&presented_curr_list);
                     let cam = presented.scene.camera;
@@ -1226,6 +1228,9 @@ fn main() {
                     renderer.transform.snap_camera();
                     renderer.snap_background_offset_tables();
                     presented_prev_list.clone_from(&presented_curr_list);
+                    previous_presented_frame
+                        .point_pixels
+                        .clone_from(&presented_frame.point_pixels);
                 }
             }
 
@@ -1288,6 +1293,7 @@ fn main() {
                 nomax_bg2_yscroll: frame.nomax_bg2_yscroll,
                 scene_style: frame.scene_style,
                 point_pixels: &frame.point_pixels,
+                previous_point_pixels: Some(&previous_presented_frame.point_pixels),
                 pal_target: frame.pal_target,
                 palfade_num: frame.palfade_num,
                 windowmode: frame.windowmode,
