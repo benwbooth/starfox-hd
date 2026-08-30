@@ -35,3 +35,9 @@ name = "sf1_training_trace"
 path = "examples/sf1_training_trace.rs"
 test = true
 harness = false
+
+[[example]]
+name = "sf1_title_trace"
+path = "examples/sf1_title_trace.rs"
+test = true
+harness = false
