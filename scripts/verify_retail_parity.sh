@@ -23,6 +23,11 @@ cd "$project_root"
 nix develop --command bash -c '
   set -euo pipefail
 
+  python3 -m unittest discover -s tools/sf1 -p "test_*.py"
+  python3 tools/sf1/verify_corneria_semantic_oracle.py \
+    --mesen-bin "${MESEN_BIN:?Set MESEN_BIN to the independent Mesen executable}" \
+    --timeout 600
+
   cd rust
   cargo fmt --all -- --check
   cargo test --workspace

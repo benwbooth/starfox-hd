@@ -24,6 +24,9 @@
           stdenv.cc.cc.lib  # libstdc++ (SDL3 / GL drivers)
           zlib              # rustup rustc's dynamically linked LLVM runtime
         ];
+        # The independent Mesen oracle needs these even in its headless test
+        # runner. Keep them in the development environment only.
+        oracleRuntimeLibs = with pkgs; [ libx11 icu ];
       in
       {
         devShells.default = pkgs.mkShell {
@@ -59,7 +62,7 @@
           ];
 
           shellHook = ''
-            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath runtimeLibs}:$LD_LIBRARY_PATH"
+            export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (runtimeLibs ++ oracleRuntimeLibs)}:$LD_LIBRARY_PATH"
             echo "Star Fox HD dev shell ready (Rust)"
             echo "  cd rust && cargo build"
             echo "  ./scripts/run.sh        # launch from the repo root"

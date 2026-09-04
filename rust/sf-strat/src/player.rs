@@ -350,22 +350,68 @@ mod player_collision_bank_order_tests {
     use super::*;
 
     #[test]
-    fn retail_applies_new_wing_contact_after_current_lateral_step() {
+    fn retail_applies_new_wing_contact_before_current_lateral_step() {
         const RETAIL_FIRST_CONTACT_ROLL: i16 = -480;
         const RETAIL_FIRST_CONTACT_TILT: i8 = -7;
+        const RETAIL_FIRST_CONTACT_LATERAL_STEP: i16 = 2;
 
         let mut game = Game::new();
         let player = strat_spawn_player(&mut game).expect("player");
-        game.vars.pshipflags = PSF_NOCTRL | PSF_LWINGCOLL;
+        game.vars.pshipflags = PSF_LWINGCOLL;
 
         playermove_srou(&mut game, player);
 
-        assert_eq!(game.objs.aliens[player as usize].worldx, 0);
+        assert_eq!(
+            game.objs.aliens[player as usize].worldx,
+            RETAIL_FIRST_CONTACT_LATERAL_STEP
+        );
         assert_eq!(game.vars.sv_i16(sv::PLROTZ), RETAIL_FIRST_CONTACT_ROLL);
         assert_eq!(
             game.vars.sv_u8(sv::PLAYER_ZTILT) as i8,
             RETAIL_FIRST_CONTACT_TILT
         );
+    }
+
+    #[test]
+    fn control_locks_keep_collision_bank_without_lateral_steering() {
+        const CONTACT_ROLL_AFTER_CHASE: i16 = -480;
+        const CONTACT_TILT_AFTER_CHASE: i8 = -7;
+
+        enum ControlLock {
+            Ship,
+            BlackScreen,
+            Wipe,
+            Recovery,
+        }
+        for lock in [
+            ControlLock::Ship,
+            ControlLock::BlackScreen,
+            ControlLock::Wipe,
+            ControlLock::Recovery,
+        ] {
+            let mut game = Game::new();
+            let player = strat_spawn_player(&mut game).expect("player");
+            game.vars.pshipflags = PSF_LWINGCOLL;
+            match lock {
+                ControlLock::Ship => game.vars.pshipflags |= PSF_NOCTRL,
+                ControlLock::BlackScreen => game.vars.set_sv_i8(sv::STAYBLACK, 0),
+                ControlLock::Wipe => game.vars.set_sv_u8(sv::DOINGWIPE, 1),
+                ControlLock::Recovery => game.vars.set_sv_u8(sv::PLAYER_NOCTRLCNT, 1),
+            }
+
+            playermove_srou(&mut game, player);
+
+            assert_eq!(game.objs.aliens[usize::from(player)].worldx, 0);
+            assert_eq!(
+                game.vars.strategy.player_rotation[2],
+                CONTACT_ROLL_AFTER_CHASE
+            );
+            assert_eq!(
+                game.vars.strategy.player_depth_tilt,
+                CONTACT_TILT_AFTER_CHASE
+            );
+            assert_ne!(game.vars.pshipflags & PSF_LWINGCOLL, 0);
+        }
     }
 }
 
@@ -2229,33 +2275,6 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     let mut plrotz = g.vars.sv_i16(sv::PLROTZ);
     let mut ztilt = g.vars.sv_u8(sv::PLAYER_ZTILT);
 
-    // Banking -> lateral world-X shove. The Rev 2 retail execution trace
-    // reads the roll carried into this update before applying a new wing-hit
-    // response: at the checkpoint restart it leaves X at zero, then writes
-    // the collision roll and tilt used by the ship pose. This ordering is
-    // observable and differs from a literal reading of the leaked source.
-    // `adiv2` is a signed /2 that rounds toward zero (STRATMAC.INC:712).
-    {
-        let lr_held = pad1(g) & (pad::LEFT | pad::RIGHT) != 0;
-        let ztilt_term = if lr_held {
-            (ztilt as i8 as i16) >> 3
-        } else {
-            0
-        };
-        let s7 = plrotz >> 7;
-        let plrotz_term = if s7 >= 0 { s7 >> 1 } else { -((-s7) >> 1) };
-        let shove = plrotz_term.wrapping_add(ztilt_term);
-        // ROM negates the shove before applying it. Turn-180 flight reverses
-        // that lateral direction.
-        let turn180 = g.vars.pshipflags2 & PSF2_TURN180 != 0;
-        let al = &mut g.objs.aliens[i];
-        if turn180 {
-            al.worldx = al.worldx.wrapping_add(shove);
-        } else {
-            al.worldx = al.worldx.wrapping_sub(shove);
-        }
-    }
-
     // Retail `player_collmove` (enabled in STRATEQU.INC) banks the ship away
     // from a colliding wing. Both bits are evaluated right first, then left.
     const ANGLE_FRACTION_SCALE: i16 = 256;
@@ -2280,6 +2299,32 @@ fn playermove_srou(g: &mut Game, idx: u16) {
                 direction.wrapping_mul(COLLISION_TILT_TARGET),
                 COLLISION_TILT_CHASE_SHIFT,
             ) as u8;
+        }
+    }
+
+    // Banking -> lateral world-X shove. PSTRATS applies a new wing-contact
+    // roll above before evaluating this movement block, then processes fresh
+    // directional input below. Its control gate skips both lateral movement
+    // and directional input, while the collision bank above still runs.
+    // `adiv2` is signed /2 toward zero.
+    if !no_ctrl {
+        let lr_held = pad1(g) & (pad::LEFT | pad::RIGHT) != 0;
+        let ztilt_term = if lr_held {
+            (ztilt as i8 as i16) >> 3
+        } else {
+            0
+        };
+        let s7 = plrotz >> 7;
+        let plrotz_term = if s7 >= 0 { s7 >> 1 } else { -((-s7) >> 1) };
+        let shove = plrotz_term.wrapping_add(ztilt_term);
+        // ROM negates the shove before applying it. Turn-180 flight reverses
+        // that lateral direction.
+        let turn180 = g.vars.pshipflags2 & PSF2_TURN180 != 0;
+        let al = &mut g.objs.aliens[i];
+        if turn180 {
+            al.worldx = al.worldx.wrapping_add(shove);
+        } else {
+            al.worldx = al.worldx.wrapping_sub(shove);
         }
     }
 

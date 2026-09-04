@@ -94,17 +94,25 @@ and coverage gate above.
 
 ## Unattended gate
 
+See `FINISHING_AUDIT.md` for the current verified scope and release blockers.
+The current regression gate is not by itself a full-game certificate.
+
 Run the complete current gate from the repository root:
 
 ```sh
+export MESEN_BIN=/absolute/path/to/Mesen
 ./scripts/verify_retail_parity.sh
 ```
 
-It fails if required retail/audio evidence is missing, then checks formatting,
+It fails if required retail/audio evidence is missing, then runs comparator
+rejection tests and independent Mesen/native semantic capture for every
+Corneria scene 1–983. Both captures are retained for diagnosis. It then checks formatting,
 the full Rust workspace, the feature-gated SPC oracle suite, native architecture
 rules, and byte-exact reconstruction of both supported retail ROMs. As the
 scenario corpus expands, its top-level test targets remain behind this command
 so local and automated runs cannot accidentally exercise different gates.
+Unverified path-instruction mappings and incomplete object captures are hard
+failures. Passing only selected diagnostic scenes is not a release gate.
 
 ## Release stop condition
 
