@@ -20,7 +20,6 @@ use crate::renderer::{
 };
 use crate::sprites::decode_4bpp_tile;
 use sf_core::{
-    point_field::PointPixel,
     screen_wipe::{SOURCE_HEIGHT, SOURCE_WIDTH},
     sf1_controls::{BriefingChoice, BriefingPhase},
     sf1_planets::{
@@ -1610,7 +1609,7 @@ impl Ui {
     pub(crate) fn render_point_field(
         &mut self,
         gpu: &mut Gpu,
-        pixels: &[PointPixel],
+        pixels: &[crate::point_field::PresentedPoint],
         palette: &[[f32; 3]; 16],
         screen_width: i32,
         screen_height: i32,
@@ -1625,16 +1624,14 @@ impl Ui {
         self.begin_2d(screen_width, screen_height);
         for pixel in pixels {
             let color = palette[usize::from(pixel.palette_index)];
-            let source_top = PLAYFIELD_TOP + i32::from(pixel.y);
-            let logical_bottom = SOURCE_FRAME_HEIGHT - source_top - 1;
-            self.quad_snes(
-                gpu,
-                [color[0], color[1], color[2], 1.0],
-                PLAYFIELD_LEFT + i32::from(pixel.x),
-                logical_bottom,
-                1,
-                1,
-            );
+            let source_top = PLAYFIELD_TOP as f32 + pixel.y;
+            let logical_bottom = SOURCE_FRAME_HEIGHT as f32 - source_top - 1.0;
+            let x0 = (PLAYFIELD_LEFT as f32 + pixel.x + self.ox as f32) * self.scale;
+            let y0 = logical_bottom * self.scale;
+            let x1 = x0 + self.scale;
+            let y1 = y0 + self.scale;
+            self.quad_px(gpu, [color[0], color[1], color[2], 1.0],
+                x0, y0, x1, y0, x1, y1, x0, y1);
         }
     }
 

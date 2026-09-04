@@ -175,11 +175,13 @@ fn check_title_source_aperture(config: &RendererConfig) {
             x: 0,
             y: 0,
             palette_index: POINT_COLOR,
+            identity: Default::default(),
         },
         PointPixel {
             x: 1,
             y: 1,
             palette_index: POINT_COLOR,
+            identity: Default::default(),
         },
     ];
     let input = FrameInputs {
@@ -227,11 +229,13 @@ fn check_title_source_aperture(config: &RendererConfig) {
         x: 4,
         y: 1,
         palette_index: POINT_COLOR,
+        identity: Default::default(),
     }];
     let current_points = [PointPixel {
         x: 5,
         y: 1,
         palette_index: POINT_COLOR,
+        identity: Default::default(),
     }];
     let interpolated_input = FrameInputs {
         source_resolution: true,
@@ -1352,6 +1356,83 @@ fn check_corneria_base_insignia(renderer: &mut Renderer) {
         insignia_light_pixels >= MINIMUM_INSIGNIA_LIGHT_PIXELS,
         "Corneria base insignia was hidden by its coplanar backing face ({insignia_light_pixels} light pixels)"
     );
+}
+
+#[test]
+fn corneria_base_insignia_visible_at_sampled_poses() {
+    let _guard = GPU_TEST_LOCK.lock().unwrap();
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let config = config_from_repo_root(&repo_root);
+    let mut renderer = Renderer::new_headless(W as i32, H as i32, &config)
+        .expect("GPU required for moving insignia regression");
+    const BASE_HEIGHT: i32 = -320;
+    const INSIGNIA_COLOR: [u8; 3] = [247, 255, 255];
+    const MINIMUM_VISIBLE_PIXELS: usize = 100;
+    const TEST_DEPTHS: [i32; 4] = [2_200, 2_700, 3_000, 3_200];
+    const TEST_YAWS: [i16; 5] = [120, 124, 128, 132, 136];
+    for depth in TEST_DEPTHS {
+        for yaw in TEST_YAWS {
+            renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+            let draw = [DrawListEntry {
+                shape_id: SHAPE_EXT_MYBASE_0,
+                y: BASE_HEIGHT << 16,
+                z: depth << 16,
+                ry: yaw,
+                flags: DL_FLAG_VISIBLE,
+                obj_id: 1,
+                ..Default::default()
+            }];
+            renderer.begin_frame();
+            renderer.submit(&draw, &draw, 1.0, &FrameInputs::default());
+            renderer.end_frame();
+            let count = renderer.read_pixels_rgb().chunks_exact(3)
+                .filter(|pixel| color_near(pixel, INSIGNIA_COLOR, 2)).count();
+            assert!(count >= MINIMUM_VISIBLE_PIXELS,
+                "insignia lost at depth {depth}, yaw {yaw}: {count} pixels");
+        }
+    }
+}
+
+#[test]
+fn hd_point_field_moves_between_simulation_updates() {
+    use sf_core::point_field::PointIdentity;
+    let _guard = GPU_TEST_LOCK.lock().unwrap();
+    let config = config_from_repo_root(&repo_root());
+    let mut renderer = Renderer::new_headless(W as i32, H as i32, &config)
+        .expect("GPU required for HD point interpolation regression");
+    const START_X: u8 = 100;
+    const END_X: u8 = 110;
+    const POINT_Y: u8 = 100;
+    const POINT_COLOR: u8 = 14;
+    let point = |x| PointPixel {
+        x,
+        y: POINT_Y,
+        palette_index: POINT_COLOR,
+        identity: PointIdentity::Ground { column: 1, row: 1, lower: false },
+    };
+    let previous = [point(START_X)];
+    let current = [point(END_X)];
+    let input = FrameInputs {
+        point_pixels: &current,
+        previous_point_pixels: Some(&previous),
+        ..FrameInputs::default()
+    };
+    let centers = [0.0, 0.5, 1.0].map(|alpha| {
+        renderer.begin_frame();
+        renderer.submit(&[], &[], alpha, &input);
+        renderer.end_frame();
+        let pixels = renderer.read_pixels_rgb();
+        let visible: Vec<_> = pixels.chunks_exact(3).enumerate()
+            .filter(|(_, pixel)| !color_near(pixel, SF1_CLEAR_RGB, 2))
+            .map(|(index, _)| (index % W as usize) as f32).collect();
+        assert!(!visible.is_empty(), "point must be drawn at alpha {alpha}");
+        visible.iter().sum::<f32>() / visible.len() as f32
+    });
+    assert!(centers[0] < centers[1] && centers[1] < centers[2],
+        "HD point must move on intermediate render frames: {centers:?}");
+    const RASTER_ROUNDING_TOLERANCE: f32 = 1.0;
+    assert!((centers[1] - (centers[0] + centers[2]) * 0.5).abs()
+        <= RASTER_ROUNDING_TOLERANCE);
 }
 
 // (c) Full composed title frame vs source-asset region averages.

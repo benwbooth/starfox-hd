@@ -297,28 +297,21 @@ fn compute_object_light(model_matrix: &[f32; 16]) -> [f32; 3] {
     out
 }
 
-/// Project one source visibility point into normalized device coordinates.
-/// Faces crossing the camera plane are left to GPU clipping instead of being
-/// rejected from an unstable pre-divide winding.
-fn project_visibility_point(vertex: &ShapeVertex, pvm: &[f32; 16]) -> Option<[f32; 2]> {
-    const MIN_POSITIVE_CLIP_W: f32 = 0.0001;
-
+/// Keep homogeneous coordinates for face orientation. Dividing by depth
+/// changes winding when a selector crosses the eye plane; accepting every
+/// such face instead draws back faces over the inside of a corridor.
+fn project_visibility_point(vertex: &ShapeVertex, pvm: &[f32; 16]) -> Option<[f64; 3]> {
     let clip_x = pvm[0] * vertex.x + pvm[4] * vertex.y + pvm[8] * vertex.z + pvm[12];
     let clip_y = pvm[1] * vertex.x + pvm[5] * vertex.y + pvm[9] * vertex.z + pvm[13];
     let clip_w = pvm[3] * vertex.x + pvm[7] * vertex.y + pvm[11] * vertex.z + pvm[15];
     if !clip_x.is_finite()
         || !clip_y.is_finite()
         || !clip_w.is_finite()
-        || clip_w <= MIN_POSITIVE_CLIP_W
     {
         return None;
     }
 
-    let projected = [clip_x / clip_w, clip_y / clip_w];
-    projected[0]
-        .is_finite()
-        .then_some(())
-        .and_then(|()| projected[1].is_finite().then_some(projected))
+    Some([f64::from(clip_x), f64::from(clip_y), f64::from(clip_w)])
 }
 
 /// Source `msh_vizis` records one independently selected triangle per face.
@@ -352,7 +345,12 @@ fn face_is_camera_visible(shape: &GpuShape, face: &ShapeFace, pvm: &[f32; 16]) -
         return true;
     };
 
-    let signed_area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    // This determinant has the same sign as projected winding when all
+    // points are in front, and remains defined at zero or mixed-sign depth.
+    // GPU clipping still decides which part of the selected face is visible.
+    let signed_area = a[0] * (b[1] * c[2] - b[2] * c[1])
+        - a[1] * (b[0] * c[2] - b[2] * c[0])
+        + a[2] * (b[0] * c[1] - b[1] * c[0]);
     signed_area > 0.0
 }
 
@@ -1573,8 +1571,7 @@ impl ShapeStore {
         // depth buffer otherwise produces moving moire strips as the camera
         // enters a seam. Keep screen projection unchanged and give the later
         // painter layer a tiny, deterministic normalized-depth preference.
-        const DEPTH_LAYER_STEP: f32 = 0.000_001;
-        proj[10] += f32::from(depth_layer) * DEPTH_LAYER_STEP;
+        apply_depth_layer_bias(&mut proj, depth_layer);
         let view = *transform.view();
         let mut projection_view = [0.0; 16];
         crate::transform::multiply(&mut projection_view, &proj, &view);
@@ -1803,6 +1800,17 @@ impl ShapeStore {
     }
 }
 
+/// Give later source painter layers a constant normalized-depth preference.
+/// For the perspective matrix used by [`Transform`], `clip.w = -z` and the
+/// coefficient at index 10 multiplies the same camera-space z.  Adjusting
+/// that coefficient therefore changes `clip.z / clip.w` by exactly the same
+/// amount at every distance, unlike adding a constant to clip-z.
+const DEPTH_LAYER_STEP: f32 = 0.000_001;
+
+fn apply_depth_layer_bias(projection: &mut [f32; 16], depth_layer: u8) {
+    projection[10] += f32::from(depth_layer) * DEPTH_LAYER_STEP;
+}
+
 impl Default for ShapeStore {
     fn default() -> Self {
         Self::new()
@@ -1815,6 +1823,7 @@ mod tests {
         face_is_camera_visible, resolve_registered_face_material,
         resolve_registered_face_palette_pair, sf1_animation_frame_index,
         source_explosion_face_indices, source_lod_index, texture_address, texture_material_fields,
+        apply_depth_layer_bias, DEPTH_LAYER_STEP,
         ShapeStore, RETAIL_REVISION_2_PILLAR_TEXEL, RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS,
         SOURCE_TEX_BANK_01, TEXTURE_XY, TEX_BANK_01,
     };
@@ -1983,6 +1992,33 @@ mod tests {
     }
 
     #[test]
+    fn corridor_back_face_stays_culled_when_selector_crosses_eye_plane() {
+        // Side wall: moving past its end must not make both sides visible.
+        let mut front = visibility_test_shape(Some([0, 1, 2]));
+        front.vertices = vec![
+            ShapeVertex { x: -1.0, y: -1.0, z: 1.0 },
+            ShapeVertex { x: -1.0, y: 1.0, z: 1.0 },
+            ShapeVertex { x: -1.0, y: 1.0, z: 3.0 },
+        ];
+        let mut back = front.faces[0].clone();
+        back.visibility_vertices = Some([0, 2, 1]);
+        for eye_depth in [0.0, 0.5, 1.0, 1.5, 2.0] {
+            let projection = [
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 1.0,
+                0.0, 0.0, 0.0, -eye_depth,
+            ];
+            let front_visible = face_is_camera_visible(&front, &front.faces[0], &projection);
+            let back_visible = face_is_camera_visible(&front, &back, &projection);
+            assert_ne!(front_visible, back_visible,
+                "opposite side-wall selectors must not both draw at eye depth {eye_depth}");
+            assert!(!front_visible);
+            assert!(back_visible);
+        }
+    }
+
+    #[test]
     fn sf2_catalog_uses_native_tokens_scale_and_material_pointers() {
         let mut store = ShapeStore::new();
         store.register_sf2_shapes();
@@ -2095,5 +2131,37 @@ mod tests {
         assert_eq!(texture_material_fields(true, 0x409A), (0, 154, true));
         assert_eq!(texture_material_fields(true, 0x401E), (0, 30, false));
         assert_eq!(texture_material_fields(true, 0x45A0), (5, 160, true));
+    }
+
+    #[test]
+    fn tunnel_depth_bias_is_constant_in_normalized_perspective_depth() {
+        let mut projection = [0.0; 16];
+        projection[10] = -1.0;
+        projection[11] = -1.0;
+        projection[14] = -1.0;
+        let base = projection;
+        apply_depth_layer_bias(&mut projection, 3);
+
+        for camera_z in [-64.0f32, -512.0, -4096.0] {
+            let base_ndc = (base[10] * camera_z + base[14]) / (base[11] * camera_z);
+            let biased_ndc =
+                (projection[10] * camera_z + projection[14]) / (projection[11] * camera_z);
+            assert!((biased_ndc - base_ndc + 3.0 * DEPTH_LAYER_STEP).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn tunnel_depth_bias_orders_later_coplanar_layer_first() {
+        let mut far_layer = [0.0; 16];
+        let mut near_layer = [0.0; 16];
+        apply_depth_layer_bias(&mut far_layer, 1);
+        apply_depth_layer_bias(&mut near_layer, 2);
+        assert!(near_layer[10] > far_layer[10]);
+        // With clip.w = -z, the larger coefficient produces the smaller
+        // normalized depth and wins the GPU Less comparison.
+        let z = -100.0;
+        let far_ndc = far_layer[10] * z / -z;
+        let near_ndc = near_layer[10] * z / -z;
+        assert!(near_ndc < far_ndc);
     }
 }

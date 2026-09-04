@@ -34,6 +34,7 @@ pub mod font;
 pub mod gpu;
 pub mod hud;
 pub mod particles;
+mod point_field;
 pub mod renderer;
 mod sf1_briefing;
 mod sf1_planets;

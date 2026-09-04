@@ -833,9 +833,14 @@ impl Renderer {
             inputs.point_pixels
         };
         if !inputs.source_resolution {
+            let points = crate::point_field::interpolate_points(
+                inputs.previous_point_pixels,
+                inputs.point_pixels,
+                alpha,
+            );
             self.ui.render_point_field(
                 &mut self.gpu,
-                presented_point_pixels,
+                &points,
                 &shape_palette,
                 self.width,
                 self.height,

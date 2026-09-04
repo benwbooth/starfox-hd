@@ -178,7 +178,7 @@ impl NativePlayer {
 
     /// Construct a mixer for a game-specific native PCM catalog.
     pub fn with_asset_root(asset_root: impl AsRef<Path>) -> Self {
-        Self {
+        let player = Self {
             inner: Arc::new(Mutex::new(MixerState {
                 asset_root: asset_root.as_ref().to_path_buf(),
                 loaded_track: None,
@@ -196,6 +196,34 @@ impl NativePlayer {
                 music_target_gain: UNITY_GAIN,
                 music_fade_remaining: 0,
             })),
+        };
+        // Decode the finite one-shot effect catalog before the SDL callback
+        // can contend with the game thread. Music remains lazy because the
+        // shipped music catalog is large. Runtime commands retain their
+        // normal missing/invalid-asset errors: preload only caches files that
+        // decode successfully, and deliberately ignores all other entries.
+        player.preload_available_effects();
+        player
+    }
+
+    fn preload_available_effects(&self) {
+        let Ok(mut state) = self.inner.lock() else {
+            return;
+        };
+        let path = state.asset_root.join("effects");
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("wav") {
+                continue;
+            }
+            // Do not record failures in `missing`: a later command must
+            // still report InvalidWave/IO with the same source path.
+            if let Ok(clip) = read_wave(&path) {
+                state.cache.insert(path, Arc::new(clip));
+            }
         }
     }
 
@@ -666,6 +694,34 @@ mod tests {
             player.start_music(18),
             Err(NativeAudioError::MissingAsset(_))
         ));
+    }
+
+    #[test]
+    fn available_effect_is_decoded_before_runtime_commands() {
+        const TEST_EFFECT: u8 = 0x35;
+        let asset_dir = temporary_asset_dir("preload");
+        let native_dir = asset_dir.join("native_audio");
+        let effects_dir = native_dir.join("effects");
+        if asset_dir.exists() {
+            std::fs::remove_dir_all(&asset_dir).unwrap();
+        }
+        std::fs::create_dir_all(&effects_dir).unwrap();
+        let effect_path = effects_dir.join(format!("{TEST_EFFECT:02X}.wav"));
+        write_constant_wave(&effect_path, TEST_SAMPLE);
+
+        let player = NativePlayer::new(&asset_dir);
+        let state = player.inner.lock().unwrap();
+        assert!(state.cache.contains_key(&effect_path));
+        assert!(state.cache.keys().all(|path| path.starts_with(&effects_dir)));
+        drop(state);
+
+        // The runtime command must use the decoded clip, not reopen the file.
+        std::fs::remove_file(&effect_path).unwrap();
+        player.play_effect(TEST_EFFECT).unwrap();
+        let mut output = [0i16; 2];
+        player.generate(&mut output);
+        assert_eq!(output, [TEST_SAMPLE, TEST_SAMPLE]);
+        std::fs::remove_dir_all(asset_dir).unwrap();
     }
 
     #[test]

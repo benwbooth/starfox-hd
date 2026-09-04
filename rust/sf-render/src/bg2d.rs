@@ -101,6 +101,37 @@ fn interpolate_offset_table<const LENGTH: usize>(
         )
     })
 }
+
+/// Sample a column offset at a fractional column boundary.  The HD path
+/// treats the 32 source columns as samples of a continuous affine field;
+/// source-resolution rendering deliberately continues to use the authored
+/// step values below.
+fn spatial_offset_sample(offsets: &[f32], position: f32, period: f32) -> f32 {
+    debug_assert!(!offsets.is_empty());
+    if offsets.len() == 1 {
+        return offsets[0];
+    }
+    let position = position.clamp(0.0, (offsets.len() - 1) as f32);
+    let left = position.floor() as usize;
+    let right = (left + 1).min(offsets.len() - 1);
+    let mut delta = (offsets[right] - offsets[left]).rem_euclid(period);
+    if delta > period * 0.5 {
+        delta -= period;
+    }
+    offsets[left] + delta * (position - left as f32)
+}
+
+fn unwrap_spatial_offsets<const LENGTH: usize>(offsets: &[f32; LENGTH], period: f32) -> [f32; LENGTH] {
+    let mut unwrapped = *offsets;
+    for index in 1..LENGTH {
+        let mut delta = (offsets[index] - offsets[index - 1]).rem_euclid(period);
+        if delta > period * 0.5 {
+            delta -= period;
+        }
+        unwrapped[index] = unwrapped[index - 1] + delta;
+    }
+    unwrapped
+}
 const COLORS_PER_PALETTE: usize = 16;
 const BACKGROUND_ID_MASK: u16 = 63;
 /// The source BG1 tilemap selects row 2 for the shield and boost meter tiles.
@@ -1476,6 +1507,7 @@ impl Bg2d {
         map_height: f32,
         vertical_offsets: [f32; BG2_VERTICAL_OFFSET_COLUMNS],
         horizontal_offsets: [f32; BG2_HORIZONTAL_OFFSET_ROWS],
+        smooth_spatial: bool,
     ) {
         let uniform_vertical_offset = vertical_offsets
             .iter()
@@ -1485,58 +1517,89 @@ impl Bg2d {
         } else {
             BG2_VERTICAL_OFFSET_COLUMNS
         };
+        let spatial_vertical_offsets = unwrap_spatial_offsets(&vertical_offsets, map_height);
+        let spatial_horizontal_offsets = unwrap_spatial_offsets(&horizontal_offsets, map_width);
         let mut vertices = Vec::with_capacity(BG2_HORIZONTAL_OFFSET_ROWS * column_count * 6);
         // Overlay coordinates are bottom-up; walk the authored top-down
         // display rows in reverse so each value remains attached to its
         // original raster line.
         for (row, horizontal_offset) in horizontal_offsets.into_iter().rev().enumerate() {
+            let source_row = BG2_HORIZONTAL_OFFSET_ROWS - 1 - row;
+            let (horizontal_top, horizontal_bottom) = if smooth_spatial {
+                (
+                    spatial_horizontal_offsets[source_row],
+                    spatial_horizontal_offsets[source_row.saturating_sub(1)],
+                )
+            } else {
+                (horizontal_offset, horizontal_offset)
+            };
             let top_fraction = row as f32 / BG2_HORIZONTAL_OFFSET_ROWS as f32;
             let bottom_fraction = (row + 1) as f32 / BG2_HORIZONTAL_OFFSET_ROWS as f32;
             let y0 = h as f32 * top_fraction;
             let y1 = h as f32 * bottom_fraction;
             let row_v0 = v0 + (v1 - v0) * top_fraction;
             let row_v1 = v0 + (v1 - v0) * bottom_fraction;
-            let horizontal_uv = horizontal_offset / map_width;
+            let horizontal_uv_top = horizontal_top / map_width;
+            let horizontal_uv_bottom = horizontal_bottom / map_width;
 
             for column in 0..column_count {
-                let vertical_offset = if uniform_vertical_offset {
-                    vertical_offsets[0]
+                let (vertical_left, vertical_right) = if uniform_vertical_offset {
+                    (vertical_offsets[0], vertical_offsets[0])
+                } else if smooth_spatial {
+                    // Use the same value on both sides of adjacent cells so
+                    // there is no UV discontinuity at a 32-column boundary.
+                    let left = spatial_offset_sample(
+                        &spatial_vertical_offsets,
+                        column as f32,
+                        map_height,
+                    );
+                    let right = spatial_offset_sample(
+                        &spatial_vertical_offsets,
+                        (column + 1).min(column_count - 1) as f32,
+                        map_height,
+                    );
+                    (left, right)
                 } else {
-                    vertical_offsets[column]
+                    (vertical_offsets[column], vertical_offsets[column])
                 };
                 let left_fraction = column as f32 / column_count as f32;
                 let right_fraction = (column + 1) as f32 / column_count as f32;
                 let x0 = w as f32 * left_fraction;
                 let x1 = w as f32 * right_fraction;
-                let column_u0 = u0 + (u1 - u0) * left_fraction + horizontal_uv;
-                let column_u1 = u0 + (u1 - u0) * right_fraction + horizontal_uv;
-                let vertical_uv = -vertical_offset / map_height;
-                let cell_v0 = row_v0 + vertical_uv;
-                let cell_v1 = row_v1 + vertical_uv;
+                let column_u0_top = u0 + (u1 - u0) * left_fraction + horizontal_uv_top;
+                let column_u1_top = u0 + (u1 - u0) * right_fraction + horizontal_uv_top;
+                let column_u0_bottom = u0 + (u1 - u0) * left_fraction + horizontal_uv_bottom;
+                let column_u1_bottom = u0 + (u1 - u0) * right_fraction + horizontal_uv_bottom;
+                let vertical_uv_left = -vertical_left / map_height;
+                let vertical_uv_right = -vertical_right / map_height;
+                let cell_v0_left = row_v0 + vertical_uv_left;
+                let cell_v0_right = row_v0 + vertical_uv_right;
+                let cell_v1_left = row_v1 + vertical_uv_left;
+                let cell_v1_right = row_v1 + vertical_uv_right;
                 vertices.extend_from_slice(&[
                     Vertex2 {
                         pos: [x0, y0],
-                        uv: [column_u0, cell_v0],
+                        uv: [column_u0_top, cell_v0_left],
                     },
                     Vertex2 {
                         pos: [x1, y0],
-                        uv: [column_u1, cell_v0],
+                        uv: [column_u1_top, cell_v0_right],
                     },
                     Vertex2 {
                         pos: [x1, y1],
-                        uv: [column_u1, cell_v1],
+                        uv: [column_u1_bottom, cell_v1_right],
                     },
                     Vertex2 {
                         pos: [x0, y0],
-                        uv: [column_u0, cell_v0],
+                        uv: [column_u0_top, cell_v0_left],
                     },
                     Vertex2 {
                         pos: [x1, y1],
-                        uv: [column_u1, cell_v1],
+                        uv: [column_u1_bottom, cell_v1_right],
                     },
                     Vertex2 {
                         pos: [x0, y1],
-                        uv: [column_u0, cell_v1],
+                        uv: [column_u0_bottom, cell_v1_left],
                     },
                 ]);
             }
@@ -1913,6 +1976,7 @@ impl Bg2d {
                     map_height,
                     vertical_offsets,
                     horizontal_offsets,
+                    !inputs.source_resolution,
                 );
                 return;
             }
@@ -2091,5 +2155,40 @@ mod bhole_tests {
             assert_eq!(hofs[111 - y], hofs[112 + y]);
         }
         assert_ne!(hofs[0], hofs[111], "phase creates radial shear");
+    }
+
+    #[test]
+    fn spatial_offset_sample_is_affine_at_shared_column_edges() {
+        let offsets = [0.0, 10.0, 20.0];
+        assert_eq!(spatial_offset_sample(&offsets, 1.0, 256.0), 10.0);
+        assert_eq!(spatial_offset_sample(&offsets, 1.5, 256.0), 15.0);
+        assert_eq!(
+            spatial_offset_sample(&offsets, 1.0, 256.0),
+            spatial_offset_sample(&offsets, 0.5, 256.0) + 5.0
+        );
+    }
+
+    #[test]
+    fn spatial_offset_sample_uses_shortest_wrapped_ramp() {
+        let offsets = [250.0, 2.0];
+        assert_eq!(spatial_offset_sample(&offsets, 0.5, 256.0), 254.0);
+    }
+
+    #[test]
+    fn spatial_offset_endpoints_unwrap_before_gpu_affine_interpolation() {
+        let offsets = [250.0, 2.0, 10.0];
+        let unwrapped = unwrap_spatial_offsets(&offsets, 256.0);
+        assert_eq!(unwrapped, [250.0, 258.0, 266.0]);
+        assert_eq!(spatial_offset_sample(&unwrapped, 0.5, 256.0), 254.0);
+    }
+
+    #[test]
+    fn horizontal_row_offsets_share_the_same_uv_at_adjacent_row_edges() {
+        let offsets = [10.0, 14.0, 20.0];
+        let unwrapped = unwrap_spatial_offsets(&offsets, 1_024.0);
+        // The bottom edge of row 1 is the top edge of row 2 in the reversed
+        // display walk; both resolve to the same source-row sample.
+        assert_eq!(unwrapped[1], 14.0);
+        assert_eq!(unwrapped[1], spatial_offset_sample(&unwrapped, 1.0, 1_024.0));
     }
 }

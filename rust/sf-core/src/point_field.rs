@@ -22,6 +22,28 @@ pub struct PointPixel {
     pub x: u8,
     pub y: u8,
     pub palette_index: u8,
+    /// Presentation correspondence only; never used by the source raster or
+    /// simulation. Clipping can change the output list's indices each tick.
+    pub identity: PointIdentity,
+}
+
+/// Stable identity of a projected point, including the second pixel of a
+/// near point. Grid cells wrap with the source world's coordinate range;
+/// respawned dust gets a new lifetime instead of streaking across the screen.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum PointIdentity {
+    #[default]
+    Untracked,
+    Ground {
+        column: u8,
+        row: u8,
+        lower: bool,
+    },
+    Dust {
+        slot: u8,
+        generation: u64,
+        lower: bool,
+    },
 }
 
 impl PointFieldMode {

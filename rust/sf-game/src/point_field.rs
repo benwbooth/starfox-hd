@@ -1,6 +1,6 @@
 //! Native typed implementation of the source background point fields.
 
-use sf_core::point_field::{PointFieldMode, PointPixel};
+use sf_core::point_field::{PointFieldMode, PointIdentity, PointPixel};
 use sf_core::snes_trig::{gsu_fmult_q15, matrix_rotate_q15};
 
 const DUST_POINT_COUNT: usize = 120;
@@ -44,6 +44,7 @@ struct DustPoint {
 #[derive(Debug, Clone)]
 pub struct PointField {
     dust: [DustPoint; DUST_POINT_COUNT],
+    dust_generations: [u64; DUST_POINT_COUNT],
     random_state: u16,
     pixels: Vec<PointPixel>,
 }
@@ -66,6 +67,7 @@ impl PointField {
         }
         Self {
             dust,
+            dust_generations: [0; DUST_POINT_COUNT],
             // The source initializer publishes its seed before filling the
             // points; the local initialization stream is intentionally not
             // retained as the respawn stream.
@@ -92,11 +94,12 @@ impl PointField {
         }
 
         let mut rotated = [DustPoint::default(); DUST_POINT_COUNT];
-        for (point, output) in self.dust.iter_mut().zip(&mut rotated) {
+        for (index, (point, output)) in self.dust.iter_mut().zip(&mut rotated).enumerate() {
             let mut relative = relative_point(*point, view_position);
             let mut transformed = matrix_rotate_q15(matrix, relative.x, relative.y, relative.z);
             if !within_dust_volume(relative) || transformed.2 < 0 {
                 *point = respawn_point(&mut self.random_state, view_position, matrix);
+                self.dust_generations[index] = self.dust_generations[index].wrapping_add(1);
                 relative = relative_point(*point, view_position);
                 transformed = matrix_rotate_q15(matrix, relative.x, relative.y, relative.z);
             }
@@ -140,10 +143,17 @@ impl PointField {
         let z_step = axis_step(2);
 
         let mut row_start = [start.0, start.1, start.2];
-        for _ in 0..GROUND_GRID_POINTS_PER_AXIS {
+        // Identify world cells, not positions in the clipped output vector.
+        // The grid recenters whenever the camera crosses a spacing boundary.
+        let cell = |position: i16| position.div_euclid(GROUND_GRID_WORLD_SPACING) as u8;
+        for row in 0..GROUND_GRID_POINTS_PER_AXIS {
             let mut point = row_start;
-            for _ in 0..GROUND_GRID_POINTS_PER_AXIS {
-                self.project_ground_point(point);
+            for column in 0..GROUND_GRID_POINTS_PER_AXIS {
+                self.project_ground_point(
+                    point,
+                    cell(view_position[0]).wrapping_add(column as u8),
+                    cell(view_position[2]).wrapping_add(row as u8),
+                );
                 point[0] = point[0].wrapping_add(x_step[0]);
                 point[1] = point[1].wrapping_add(x_step[1]);
                 point[2] = point[2].wrapping_add(x_step[2]);
@@ -154,7 +164,7 @@ impl PointField {
         }
     }
 
-    fn project_ground_point(&mut self, point: [i16; 3]) {
+    fn project_ground_point(&mut self, point: [i16; 3], column: u8, row: u8) {
         if point[2] < PROJECTION_NEAR_Z {
             return;
         }
@@ -169,12 +179,22 @@ impl PointField {
             x: x as u8,
             y: y as u8,
             palette_index: GROUND_GRID_COLOR,
+            identity: PointIdentity::Ground {
+                column,
+                row,
+                lower: false,
+            },
         });
         if point[2] < GROUND_GRID_DOUBLE_PIXEL_Z && y + 1 < PROJECTION_HEIGHT {
             self.pixels.push(PointPixel {
                 x: x as u8,
                 y: (y + 1) as u8,
                 palette_index: GROUND_GRID_COLOR,
+                identity: PointIdentity::Ground {
+                    column,
+                    row,
+                    lower: true,
+                },
             });
         }
     }
@@ -209,6 +229,11 @@ impl PointField {
             x: x as u8,
             y: y as u8,
             palette_index,
+            identity: PointIdentity::Dust {
+                slot: index as u8,
+                generation: self.dust_generations[index],
+                lower: false,
+            },
         });
         if point.z < DUST_NEAR_DOUBLE_PIXEL_Z && y + 1 < PROJECTION_HEIGHT {
             // The source PLOT operation advances its horizontal coordinate.
@@ -218,6 +243,11 @@ impl PointField {
                 x: x as u8,
                 y: (y + 1) as u8,
                 palette_index,
+                identity: PointIdentity::Dust {
+                    slot: index as u8,
+                    generation: self.dust_generations[index],
+                    lower: true,
+                },
             });
         }
     }
@@ -371,6 +401,54 @@ mod tests {
             .iter()
             .all(|pixel| pixel.palette_index == GROUND_GRID_COLOR));
         assert_eq!(field.random_state, random_state);
+    }
+
+    #[test]
+    fn ground_point_identity_survives_cell_recentering_and_clipping() {
+        let matrix = zxy_matrix_q15_fine(0, 0, 0);
+        let mut field = PointField::new();
+        field.update(PointFieldMode::GroundGrid, [0, -128, 255], matrix);
+        let previous = field.pixels.clone();
+        field.update(PointFieldMode::GroundGrid, [0, -128, 256], matrix);
+        let matched: Vec<_> = previous
+            .iter()
+            .filter_map(|previous| {
+                field
+                    .pixels
+                    .iter()
+                    .find(|current| current.identity == previous.identity)
+                    .map(|current| (previous, current))
+            })
+            .collect();
+        assert!(
+            matched.len() > 1,
+            "same world cells must survive recentering"
+        );
+        for (previous, current) in matched {
+            assert!(previous.x.abs_diff(current.x) <= 1);
+            assert!(previous.y.abs_diff(current.y) <= 1);
+        }
+    }
+
+    #[test]
+    fn point_identities_are_unique_and_dust_lifetimes_change_only_on_respawn() {
+        let matrix = zxy_matrix_q15_fine(0, 0, 0);
+        let mut field = PointField::new();
+        for mode in [PointFieldMode::GroundGrid, PointFieldMode::SpaceDust] {
+            field.update(mode, [0, -128, 0], matrix);
+            let identities: std::collections::HashSet<_> =
+                field.pixels.iter().map(|pixel| pixel.identity).collect();
+            assert_eq!(identities.len(), field.pixels.len());
+        }
+        let generations = field.dust_generations;
+        field.update(PointFieldMode::SpaceDust, [0, -128, 0], matrix);
+        assert_eq!(field.dust_generations, generations);
+        field.update(PointFieldMode::SpaceDust, [0, -128, 10_000], matrix);
+        assert!(field
+            .dust_generations
+            .iter()
+            .zip(generations)
+            .all(|(current, previous)| *current > previous));
     }
 
     #[test]

@@ -1125,11 +1125,13 @@ mod tests {
             x: 9,
             y: 181,
             palette_index: COLOR_INDEX,
+            identity: sf_core::point_field::PointIdentity::Untracked,
         };
         const ABOVE_METER: PointPixel = PointPixel {
             x: 9,
             y: 175,
             palette_index: COLOR_INDEX,
+            identity: sf_core::point_field::PointIdentity::Untracked,
         };
         const POLYGON_COLOR: [f32; 3] = [239.0 / 255.0, 1.0, 1.0];
         const METER_COLOR: [f32; 3] = [1.0; 3];
