@@ -44,6 +44,35 @@ impl ObjectId {
     }
 }
 
+/// Identity of one allocation in the object pool.
+///
+/// `ObjectId` intentionally remains the source-semantic slot index: links,
+/// ordering, and gameplay state all use it.  This token is only for the
+/// presentation bridge, where a slot reused by a later allocation must not
+/// be treated as the same object for interpolation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ObjectLifetimeId {
+    slot: ObjectId,
+    generation: u32,
+}
+
+impl ObjectLifetimeId {
+    const SLOT_BITS: u32 = u16::BITS;
+
+    pub const fn slot(self) -> ObjectId {
+        self.slot
+    }
+
+    pub const fn generation(self) -> u32 {
+        self.generation
+    }
+
+    /// Compact presentation identity consumed by the shared draw list.
+    pub const fn render_id(self) -> u64 {
+        (self.generation as u64) << Self::SLOT_BITS | self.slot.stable_render_id() as u64
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpatialLoop {
     CapitalEngine,
@@ -978,6 +1007,7 @@ pub struct ObjectStore {
     slots: Vec<Option<Object>>,
     free: Vec<ObjectId>,
     active: Vec<ObjectId>,
+    generations: Vec<u32>,
 }
 
 impl ObjectStore {
@@ -987,11 +1017,14 @@ impl ObjectStore {
             slots: vec![None; OBJECT_CAPACITY],
             free,
             active: Vec::with_capacity(OBJECT_CAPACITY),
+            generations: vec![0; OBJECT_CAPACITY],
         }
     }
 
     pub fn allocate(&mut self, object: Object) -> Option<ObjectId> {
         let id = self.free.pop()?;
+        let generation = &mut self.generations[id.index()];
+        *generation = generation.wrapping_add(1).max(1);
         let old_head = self.active.first().copied();
         self.slots[id.index()] = Some(object);
         if let Some(value) = self.slots[id.index()].as_mut() {
@@ -1028,6 +1061,13 @@ impl ObjectStore {
 
     pub fn get(&self, id: ObjectId) -> Option<&Object> {
         self.slots.get(id.index())?.as_ref()
+    }
+
+    pub fn lifetime_id(&self, id: ObjectId) -> Option<ObjectLifetimeId> {
+        self.get(id).map(|_| ObjectLifetimeId {
+            slot: id,
+            generation: self.generations[id.index()],
+        })
     }
 
     pub fn get_mut(&mut self, id: ObjectId) -> Option<&mut Object> {
@@ -1094,5 +1134,39 @@ mod tests {
             assert_eq!(objects.allocate(effect()).unwrap().index(), expected);
         }
         assert!(objects.allocate(effect()).is_none());
+    }
+
+    #[test]
+    fn pool_reuse_gets_a_distinct_lifetime_identity() {
+        let mut objects = ObjectStore::new();
+        let first = objects.allocate(effect()).unwrap();
+        let first_lifetime = objects.lifetime_id(first).unwrap();
+        objects.remove(first).unwrap();
+        let replacement = objects.allocate(effect()).unwrap();
+        let replacement_lifetime = objects.lifetime_id(replacement).unwrap();
+
+        assert_eq!(
+            first, replacement,
+            "the source slot is intentionally reused"
+        );
+        assert_ne!(first_lifetime, replacement_lifetime);
+        assert_ne!(first_lifetime.render_id(), replacement_lifetime.render_id());
+        assert_eq!(first_lifetime.slot(), replacement_lifetime.slot());
+        assert_eq!(replacement_lifetime.generation(), 2);
+    }
+
+    #[test]
+    fn clearing_a_scene_preserves_lifetime_barrier_for_next_scene() {
+        let mut objects = ObjectStore::new();
+        let old_scene = objects.allocate(effect()).unwrap();
+        let old_lifetime = objects.lifetime_id(old_scene).unwrap();
+        for id in objects.active_ids().to_vec() {
+            objects.remove(id).unwrap();
+        }
+
+        let new_scene = objects.allocate(effect()).unwrap();
+        let new_lifetime = objects.lifetime_id(new_scene).unwrap();
+        assert_eq!(old_scene, new_scene);
+        assert_ne!(old_lifetime, new_lifetime);
     }
 }

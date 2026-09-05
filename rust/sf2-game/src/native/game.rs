@@ -20128,6 +20128,11 @@ impl Game {
             });
             self.render_objects.push(RenderObject {
                 object: id,
+                lifetime: self
+                    .state
+                    .objects
+                    .lifetime_id(id)
+                    .expect("active render object has a pool lifetime"),
                 shape,
                 material_set,
                 position: object.base.position,

@@ -1044,6 +1044,105 @@ fn sf2_inputs(mode: Sf2Mode) -> FrameInputs<'static> {
     }
 }
 
+#[test]
+fn sf2_frontend_fits_tall_windows_without_cropping() {
+    let _gpu_test_guard = GPU_TEST_LOCK.lock().expect("GPU test lock poisoned");
+    const SOURCE_WIDTH: i32 = 256;
+    const SOURCE_HEIGHT: i32 = 224;
+    const TALL_HEIGHT: i32 = SOURCE_HEIGHT * 2;
+    const LETTERBOX_HEIGHT: usize = SOURCE_HEIGHT as usize / 2;
+    const RGB_CHANNELS: usize = 3;
+    let config = config_from_repo_root(&repo_root());
+    let inputs = sf2_inputs(Sf2Mode::Title);
+    let render = |height| {
+        let mut renderer = Renderer::new_headless(SOURCE_WIDTH, height, &config)
+            .expect("SF2 presentation regression requires a wgpu adapter");
+        renderer.begin_frame();
+        renderer.submit(&[], &[], 1.0, &inputs);
+        renderer.end_frame();
+        renderer.read_pixels_rgb()
+    };
+    let source = render(SOURCE_HEIGHT);
+    let tall = render(TALL_HEIGHT);
+    let first_pixel = LETTERBOX_HEIGHT * SOURCE_WIDTH as usize * RGB_CHANNELS;
+    assert_eq!(
+        &tall[first_pixel..first_pixel + source.len()],
+        source,
+        "the complete SF2 canvas must survive a narrow window unchanged"
+    );
+    let clear = &tall[..RGB_CHANNELS];
+    assert_eq!(&clear[..2], &[0, 0]);
+    assert!(tall[..first_pixel]
+        .chunks_exact(RGB_CHANNELS)
+        .all(|pixel| pixel == clear));
+    assert!(tall[first_pixel + source.len()..]
+        .chunks_exact(RGB_CHANNELS)
+        .all(|pixel| pixel == clear));
+}
+
+#[test]
+fn sf2_native_geometry_is_hd_and_camera_interpolates_between_ticks() {
+    let _gpu_test_guard = GPU_TEST_LOCK.lock().expect("GPU test lock poisoned");
+    const SOURCE_WIDTH: i32 = 256;
+    const SOURCE_HEIGHT: i32 = 224;
+    const HD_SCALE: i32 = 2;
+    const CRAFT_DEPTH: i32 = 500;
+    const CAMERA_STEP: i32 = 40;
+    const FIXED_POSITION_SHIFT: u32 = 16;
+    const RGB_CHANNELS: usize = 3;
+    const CRAFT: u16 = sf_core::shape::sf2_shape_id(415);
+    let mut config = config_from_repo_root(&repo_root());
+    config.shadow_style = sf_render::draw_list::ShadowStyle::Smooth;
+    let entries = [DrawListEntry {
+        z: CRAFT_DEPTH << FIXED_POSITION_SHIFT,
+        shape_id: CRAFT,
+        flags: DL_FLAG_VISIBLE,
+        obj_id: 1,
+        interpolation_id: 1,
+        ..Default::default()
+    }];
+    // Exercise the native SF2 mesh pass without a full-screen captured UI
+    // obscuring it. This test must not certify captured playback as HD.
+    let inputs = FrameInputs::default();
+    let render = |renderer: &mut Renderer, alpha| {
+        renderer.begin_frame();
+        renderer.submit(&entries, &entries, alpha, &inputs);
+        renderer.end_frame();
+        renderer.read_pixels_rgb()
+    };
+    let mut source = Renderer::new_headless(SOURCE_WIDTH, SOURCE_HEIGHT, &config)
+        .expect("SF2 presentation regression requires a wgpu adapter");
+    source.transform.set_camera(0, 0, 0, 0, 0, 0);
+    let source_pixels = render(&mut source, 1.0);
+    let mut hd = Renderer::new_headless(SOURCE_WIDTH * HD_SCALE, SOURCE_HEIGHT * HD_SCALE, &config)
+        .expect("SF2 presentation regression requires a wgpu adapter");
+    hd.transform.set_camera(0, 0, 0, 0, 0, 0);
+    let hd_pixels = render(&mut hd, 1.0);
+    assert!(source_pixels.iter().any(|channel| *channel != 0));
+    let mut enlarged = Vec::with_capacity(hd_pixels.len());
+    for y in 0..SOURCE_HEIGHT * HD_SCALE {
+        for x in 0..SOURCE_WIDTH * HD_SCALE {
+            let pixel = ((y / HD_SCALE * SOURCE_WIDTH + x / HD_SCALE) as usize) * RGB_CHANNELS;
+            enlarged.extend_from_slice(&source_pixels[pixel..pixel + RGB_CHANNELS]);
+        }
+    }
+    assert_ne!(
+        hd_pixels, enlarged,
+        "HD must rerasterize geometry, not enlarge source pixels"
+    );
+
+    hd.transform
+        .set_camera(CAMERA_STEP << FIXED_POSITION_SHIFT, 0, 0, 0, 0, 0);
+    let first = render(&mut hd, 0.25);
+    let middle = render(&mut hd, 0.5);
+    let last = render(&mut hd, 0.75);
+    assert_ne!(first, middle, "camera must move between simulation ticks");
+    assert_ne!(
+        middle, last,
+        "camera must continue moving between simulation ticks"
+    );
+}
+
 fn check_sf2_native_frontend(renderer: &mut Renderer) {
     const MIN_VISIBLE_PIXELS: usize = 10_000;
     const MIN_DISTINCT_COLORS: usize = 8;
@@ -1385,10 +1484,15 @@ fn corneria_base_insignia_visible_at_sampled_poses() {
             renderer.begin_frame();
             renderer.submit(&draw, &draw, 1.0, &FrameInputs::default());
             renderer.end_frame();
-            let count = renderer.read_pixels_rgb().chunks_exact(3)
-                .filter(|pixel| color_near(pixel, INSIGNIA_COLOR, 2)).count();
-            assert!(count >= MINIMUM_VISIBLE_PIXELS,
-                "insignia lost at depth {depth}, yaw {yaw}: {count} pixels");
+            let count = renderer
+                .read_pixels_rgb()
+                .chunks_exact(3)
+                .filter(|pixel| color_near(pixel, INSIGNIA_COLOR, 2))
+                .count();
+            assert!(
+                count >= MINIMUM_VISIBLE_PIXELS,
+                "insignia lost at depth {depth}, yaw {yaw}: {count} pixels"
+            );
         }
     }
 }
@@ -1408,7 +1512,11 @@ fn hd_point_field_moves_between_simulation_updates() {
         x,
         y: POINT_Y,
         palette_index: POINT_COLOR,
-        identity: PointIdentity::Ground { column: 1, row: 1, lower: false },
+        identity: PointIdentity::Ground {
+            column: 1,
+            row: 1,
+            lower: false,
+        },
     };
     let previous = [point(START_X)];
     let current = [point(END_X)];
@@ -1422,17 +1530,21 @@ fn hd_point_field_moves_between_simulation_updates() {
         renderer.submit(&[], &[], alpha, &input);
         renderer.end_frame();
         let pixels = renderer.read_pixels_rgb();
-        let visible: Vec<_> = pixels.chunks_exact(3).enumerate()
+        let visible: Vec<_> = pixels
+            .chunks_exact(3)
+            .enumerate()
             .filter(|(_, pixel)| !color_near(pixel, SF1_CLEAR_RGB, 2))
-            .map(|(index, _)| (index % W as usize) as f32).collect();
+            .map(|(index, _)| (index % W as usize) as f32)
+            .collect();
         assert!(!visible.is_empty(), "point must be drawn at alpha {alpha}");
         visible.iter().sum::<f32>() / visible.len() as f32
     });
-    assert!(centers[0] < centers[1] && centers[1] < centers[2],
-        "HD point must move on intermediate render frames: {centers:?}");
+    assert!(
+        centers[0] < centers[1] && centers[1] < centers[2],
+        "HD point must move on intermediate render frames: {centers:?}"
+    );
     const RASTER_ROUNDING_TOLERANCE: f32 = 1.0;
-    assert!((centers[1] - (centers[0] + centers[2]) * 0.5).abs()
-        <= RASTER_ROUNDING_TOLERANCE);
+    assert!((centers[1] - (centers[0] + centers[2]) * 0.5).abs() <= RASTER_ROUNDING_TOLERANCE);
 }
 
 #[test]
@@ -1457,10 +1569,15 @@ fn launch_boost_billboard_draws_both_authored_texture_frames() {
         renderer.begin_frame();
         renderer.submit(&draw, &draw, 1.0, &FrameInputs::default());
         renderer.end_frame();
-        let visible = renderer.read_pixels_rgb().chunks_exact(3)
-            .filter(|pixel| !color_near(pixel, SF1_CLEAR_RGB, 2)).count();
-        assert!(visible > 0,
-            "launch boost texture frame {color_frame} was entirely culled");
+        let visible = renderer
+            .read_pixels_rgb()
+            .chunks_exact(3)
+            .filter(|pixel| !color_near(pixel, SF1_CLEAR_RGB, 2))
+            .count();
+        assert!(
+            visible > 0,
+            "launch boost texture frame {color_frame} was entirely culled"
+        );
     }
 }
 

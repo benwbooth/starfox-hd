@@ -1,4 +1,4 @@
-use super::object::{Angle, ObjectId, ShapeId, Vector3};
+use super::object::{Angle, ObjectId, ObjectLifetimeId, ShapeId, Vector3};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Rotation {
@@ -45,6 +45,7 @@ pub struct RenderFlags {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RenderObject {
     pub object: ObjectId,
+    pub lifetime: ObjectLifetimeId,
     pub shape: ShapeId,
     pub material_set: MaterialSetId,
     pub position: Vector3,

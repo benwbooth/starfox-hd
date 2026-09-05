@@ -763,8 +763,13 @@ impl Renderer {
         // Screen artwork shares one square-source-pixel canvas. Only active
         // HD flight expands its world view; window aspect must never stretch
         // portraits, fonts, sprites, menus, or the HUD.
-        let canvas = if inputs.sf2.is_some() {
-            // SF2's native screens already own their fitted presentation.
+        // SF2 already centers its UI horizontally in wide targets. Preserve
+        // that authored placement, but fit narrow targets before composing:
+        // its source-height scale alone otherwise crops the left/right edges.
+        let canvas = if inputs.sf2.is_some()
+            && i64::from(self.width) * i64::from(SOURCE_FRAME_HEIGHT)
+                >= i64::from(self.height) * i64::from(SOURCE_FRAME_WIDTH)
+        {
             RenderViewport {
                 x: 0,
                 y: 0,

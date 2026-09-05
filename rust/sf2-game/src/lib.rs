@@ -21,7 +21,7 @@ pub use native::{
     MaterialSetId, MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus,
     MissionMessage, MissionMessageIrisFrame, MissionMessagePhase, MissionMessageState,
     MissionPhase, MissionState, MissionVisit, Object, ObjectFlags, ObjectId, ObjectKind,
-    ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass, PilotCraftProfile,
+    ObjectLifetimeId, ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass, PilotCraftProfile,
     PilotSelectionCursor, PilotSelectionPhase, PilotSelectionState, PlanetObjectiveStatus,
     PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
     PlayerCraftTransformationDirection, PlayerDamageState, PlayerWalkerState, RandomState,

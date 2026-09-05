@@ -1680,7 +1680,11 @@ impl ShapeStore {
         let object_depth = Self::object_depth(&view, model_matrix);
         let depth_bank =
             shapes::select_object_depth_bank(object_depth, self.depthz_table, object_depth_table);
-        let depth_blend = if shape.is_sf2 || object_depth_table != 0 {
+        // Both games use the same HD distance-color interpolation. An
+        // authored object override remains discrete; game identity is not
+        // a reason to bypass smooth shading. The retail branch below still
+        // consumes the exact selected bank, independently of this blend.
+        let depth_blend = if object_depth_table != 0 {
             shapes::DepthBankBlend {
                 near_bank: shapes::DepthBank::from_source_index(depth_bank),
                 far_bank: shapes::DepthBank::from_source_index(depth_bank),

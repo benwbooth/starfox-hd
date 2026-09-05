@@ -21,9 +21,9 @@ pub use campaign_world_assignments::{
 pub use game::{Error, Game};
 pub use input::{Button, Buttons, InputState};
 pub use object::{
-    Angle, Behavior, CollisionClass, Object, ObjectFlags, ObjectId, ObjectKind, ObjectStore,
-    PathCursor, PathId, ShapeId, SpatialDistance, SpatialLoop, SpatialSound, StereoPosition,
-    Vector3, WeaponKind, OBJECT_CAPACITY,
+    Angle, Behavior, CollisionClass, Object, ObjectFlags, ObjectId, ObjectKind, ObjectLifetimeId,
+    ObjectStore, PathCursor, PathId, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
+    StereoPosition, Vector3, WeaponKind, OBJECT_CAPACITY,
 };
 pub use render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 pub use state::{

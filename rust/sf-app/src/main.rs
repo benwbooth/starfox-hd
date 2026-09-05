@@ -171,7 +171,7 @@ fn to_sf2_render_entry(object: &sf2_game::RenderObject) -> RenderEntry {
         tscroll_x: object.texture_scroll_x,
         tscroll_y: object.texture_scroll_y,
         obj_id: object.object.stable_render_id(),
-        interpolation_id: u64::from(object.object.stable_render_id()),
+        interpolation_id: object.lifetime.render_id(),
     }
 }
 
@@ -1112,6 +1112,13 @@ fn main() {
                     i16::from(cam.rotation.yaw.units()),
                     i16::from(cam.rotation.roll.units()),
                 );
+                if game.mode() != previous_mode {
+                    // A scene handoff is a cut, not a camera flight between
+                    // unrelated scenes. Retire the old draw-list endpoint
+                    // with the old camera, including reused pool slots.
+                    renderer.transform.snap_camera();
+                    prev_list.clone_from(&curr_list);
+                }
             } else {
                 shell.tick(input.pad1);
                 curr_list.extend(
