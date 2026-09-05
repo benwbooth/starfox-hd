@@ -460,9 +460,57 @@ controller and event ordering at a cue boundary.
 
 This verifier deliberately does **not** execute the spawned child strategies.
 It proves the root's event producer, not their behavior or the complete scene
-scheduler. The flyby rig and trails (`$FD5C`, `$FDAB`), craft/formation paths
-(`$FCF2`, `$FCC5`, `$FBD0`, `$FDC2`) and later target (`$FB08`) still need native
-consumers before this root can replace the recorded production scene.
+scheduler. The flyby rig and streaks now have the native consumer described
+below. Craft/formation paths (`$FCF2`, `$FCC5`, `$FBD0`, `$FDC2`) and the later
+target (`$FB08`) still need native consumers before this root can replace the
+recorded production scene.
+
+## Native flyby rig and streak family
+
+`intro_flyby::OpeningFlybyEffects` implements `$44:FD5C..FDC1` as a typed rig
+and three separately scheduled streak actors. After 96 updates the rig spawns
+them at local depths -500, -1884 and -3268. It retreats by 20 for 15 iterations,
+chases local X toward -400 for eight iterations, then waits for the opening
+cue to change and yields once before ending. The final iteration of each loop
+falls through to the next phase in the same update. A simultaneous scheduled
+pitch decrement stops only at angle 10, with byte wrapping preserved.
+
+Each streak waits one update before selecting catalog mesh 119. It takes 80
+local-depth steps of 100, switches to far sorting after the first 35 steps,
+and ends after the remaining 45. The source schedule stores 81 but decrements
+before executing and suppresses the callback on zero; End also bypasses the
+common callback pass. It must not take an 81st motion step.
+
+The far phase changes **sort depth, not visibility**. Original draw-record
+code `$7F:122C..123F` reads the flag and writes 15000 rather than the normal
+zero/no-override marker. Its exact instructions are guarded in the verifier.
+The original mesh is four intersecting narrow polygons, not a captured frame
+or a replacement smoke bitmap.
+
+Full-family verification exposed two important scheduling distinctions:
+
+- The streaks are members of the common parent's flat attachment list, but
+  their transform owner is the rig. `$7F:2229` prefers the separate owner
+  link when present. Publication visits the rig first and then transforms
+  streaks through that freshly published pose, before the rig's local motion.
+- A removal request does not cancel the current strategy update. Its final
+  publication, local motion, schedule and even newly due spawns still run
+  before cleanup. Removing the rig does not delete its sibling-list streaks;
+  their owner pose is retained while those existing effects finish.
+
+`sf2_intro_flyby` executes the unmodified original actor-list update, resume,
+all rig/streak strategies and cleanup. **200 complete family runs** combine
+five starting pitches, four cue timings, moving/rotating parent poses, and
+natural versus four externally requested removal times. Comparisons cover
+creation order, local/world poses, transform-owner and parent/group links,
+shape selection, sort policy, active-list removal and path phase (except the
+discarded final cursor on externally requested removal). Three ROM-free tests
+protect the exact visible/motion lifetime, publication order and removal on
+the spawn update. Completed native actors retain identity and cannot restart.
+
+This closes the rig/streak dependency, not the entire opening. Renderer
+integration, remaining craft/target behavior, root-wide scheduling, palette
+initialization and later scenes remain outstanding.
 
 ## Reproduce without manual play
 
@@ -481,7 +529,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
