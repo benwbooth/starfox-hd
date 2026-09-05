@@ -1,8 +1,10 @@
 //! Execute the retail routines independently of the typed attract kernels.
 //! Machine addresses and the dispatcher-return harness stay oracle-only.
 
+use sf2_game::intro_camera::IntroCameraView;
 use sf2_game::intro_motion::{
-    chase_fine_angle, settle_title_view_yaw, AttractCameraAngles, IntroPlayerAnchor,
+    chase_fine_angle, chase_intro_coordinate, settle_intro_camera_roll, settle_title_view_yaw,
+    AttractCameraAngles, IntroPlayerAnchor,
 };
 use sf2_game::{Angle, Rotation, Vector3};
 use sf_oracle::{call, Entry, SnesBus};
@@ -38,7 +40,117 @@ fn bus() -> SnesBus {
     // and its pose-copy helpers are unmodified; no next path command runs.
     bus.write8(0x7FCAE8, 0x6B);
     bus.write8(0x7FCABE, 0x6B);
+    bus.write8(0x7FCAA9, 0x6B);
     bus
+}
+
+#[test]
+fn every_intro_camera_roll_matches_retail_quarter_settling() {
+    let mut bus = bus();
+    for roll in u16::MIN..=u16::MAX {
+        bus.write16(DATA + 0x3A, roll);
+        call(
+            &mut bus,
+            0x7F2567,
+            &Entry {
+                dbr: 0x7E,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            settle_intro_camera_roll(roll),
+            bus.read16(DATA + 0x3A),
+            "roll={roll}"
+        );
+    }
+}
+
+#[test]
+fn every_coordinate_matches_retail_camera_easing_to_both_authored_targets() {
+    const COMMAND: u32 = DATA + 0x0300;
+    let mut bus = bus();
+    bus.write16(DATA + 0xF9, COMMAND as u16);
+    bus.write8(DATA + 0xFB, (COMMAND >> 16) as u8);
+    bus.write8(COMMAND, 0x82);
+    bus.write8(COMMAND + 3, 0x0C);
+    for target in [150, 100] {
+        bus.write16(COMMAND + 1, target as u16);
+        for current in i16::MIN..=i16::MAX {
+            bus.write16(DATA + u32::from(CURRENT) + 0x0C, current as u16);
+            invoke(&mut bus, 0x7FA054, CURRENT);
+            assert_eq!(
+                chase_intro_coordinate(current, target),
+                bus.read16(DATA + u32::from(CURRENT) + 0x0C) as i16,
+                "target={target} current={current}",
+            );
+        }
+    }
+}
+
+#[test]
+fn opening_camera_aim_matches_complete_retail_handler() {
+    const CAMERA: u16 = 0x033F;
+    const COMMAND: u32 = DATA + 0x0300;
+    const TARGET_POINTER: u32 = DATA + 0x1DFF;
+    const EDGE_VALUES: [i16; 9] = [i16::MIN, -16_385, -8_193, -1, 0, 1, 8_191, 16_384, i16::MAX];
+    let mut bus = bus();
+    bus.write16(DATA + 0xF9, COMMAND as u16);
+    bus.write8(DATA + 0xFB, (COMMAND >> 16) as u8);
+    bus.write8(COMMAND, 0x38);
+    bus.write16(COMMAND + 1, CAMERA);
+    bus.write8(COMMAND + 3, 1);
+    bus.write16(TARGET_POINTER, CURRENT);
+    for origin in [
+        Vector3::default(),
+        Vector3 {
+            x: i16::MAX,
+            y: i16::MIN,
+            z: -71,
+        },
+    ] {
+        for dx in EDGE_VALUES {
+            for dy in EDGE_VALUES {
+                for dz in EDGE_VALUES {
+                    let target = Vector3 {
+                        x: origin.x.wrapping_add(dx),
+                        y: origin.y.wrapping_add(dy),
+                        z: origin.z.wrapping_add(dz),
+                    };
+                    for (object, position) in [(CAMERA, origin), (CURRENT, target)] {
+                        for (field, value) in OBJECT_POSITION
+                            .into_iter()
+                            .zip([position.x, position.y, position.z])
+                        {
+                            bus.write16(DATA + u32::from(object + field), value as u16);
+                        }
+                    }
+                    let mut view = IntroCameraView {
+                        position: Vector3::default(),
+                        angles: AttractCameraAngles {
+                            pitch: 7,
+                            yaw: 19,
+                            roll: dx as u16,
+                        },
+                    };
+                    bus.write16(DATA + u32::from(CAMERA) + 0x16, view.angles.roll);
+                    invoke(&mut bus, 0x7FBE38, SELECTED);
+                    view.track_opening_target(origin, target);
+                    for (field, expected) in OBJECT_ROTATION.into_iter().zip([
+                        view.angles.pitch,
+                        view.angles.yaw,
+                        view.angles.roll,
+                    ]) {
+                        assert_eq!(
+                            bus.read16(DATA + u32::from(CAMERA + field)),
+                            expected,
+                            "origin={origin:?} delta=({dx},{dy},{dz}) field={field}"
+                        );
+                    }
+                    assert_eq!(view.position, origin);
+                }
+            }
+        }
+    }
 }
 
 #[test]

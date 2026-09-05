@@ -10,6 +10,7 @@ use super::render::Rotation;
 const ANGLE_FRACTION_BITS: u32 = 8;
 const TITLE_VIEW_FINE_YAW: u16 = 49_152;
 const ANGLE_CHASE_DIVISOR: i16 = 8;
+const INTRO_ROLL_CHASE_DIVISOR: i16 = 4;
 
 /// The attract camera keeps a fractional angle for every axis. This is
 /// distinct from the selected player's retained, integral-roll orientation.
@@ -48,16 +49,31 @@ impl AttractCameraAngles {
 /// Move one eighth of the shortest signed angular displacement, rounding
 /// toward zero, with a minimum nonzero step of one fractional-angle unit.
 pub fn chase_fine_angle(current: u16, target: u16) -> u16 {
+    chase_wrapping_value(current, target, ANGLE_CHASE_DIVISOR)
+}
+
+/// Level the opening camera's roll by one quarter of its signed displacement,
+/// rounding toward zero with a minimum nonzero step of one fractional unit.
+pub fn settle_intro_camera_roll(roll: u16) -> u16 {
+    chase_wrapping_value(roll, 0, INTRO_ROLL_CHASE_DIVISOR)
+}
+
+/// Source scene coordinate easing shares the wrapped one-eighth arithmetic.
+pub fn chase_intro_coordinate(current: i16, target: i16) -> i16 {
+    chase_wrapping_value(current as u16, target as u16, ANGLE_CHASE_DIVISOR) as i16
+}
+
+fn chase_wrapping_value(current: u16, target: u16, divisor: i16) -> u16 {
     let displacement = target.wrapping_sub(current) as i16;
     if displacement == 0 {
         return current;
     }
     let numerator = if displacement < 0 {
-        displacement.min(-ANGLE_CHASE_DIVISOR)
+        displacement.min(-divisor)
     } else {
-        displacement.max(ANGLE_CHASE_DIVISOR)
+        displacement.max(divisor)
     };
-    current.wrapping_add((numerator / ANGLE_CHASE_DIVISOR) as u16)
+    current.wrapping_add((numerator / divisor) as u16)
 }
 
 /// The retained orientation has fractional pitch/yaw but an integral roll.

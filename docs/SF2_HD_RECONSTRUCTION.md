@@ -289,6 +289,42 @@ scene scheduling, and camera integration.
 The current application still displays the recorded intro; these verified
 components do not yet constitute a visible HD-intro fix.
 
+## Native opening camera rig
+
+`sf2-game/src/native/intro_camera.rs` implements the complete `$44:FB4C`
+camera path as typed state, with five source-authored position cuts and scene
+cue equality gates. It preserves the one-update startup wait, the 18-update
+slow-flight loop, its five-update wait, the 20-update coordinate chase and the
+final indefinite tracking hold. The last loop iteration falls through into
+the next command in the same update. A scene cue arriving early is consumed
+when its gate is reached; a missed cue does not silently skip the gate.
+
+The scheduled `$FBB1` view update copies the rig's position, aims at a separate
+target actor, negates the complete fractional pitch before an arithmetic half,
+and levels roll by a signed quarter step with a minimum fractional-unit step.
+Yaw retains its fractional part. The existing one-eighth angle chase is not
+the roll-leveling rule.
+
+The rig **does not opt into global scene scrolling**. Source `$9F16` gates
+that addition on an actor flag absent from this rig's spawn and path. Instead,
+the rig imports the scene depth velocity while following, retains it through
+the first cut, and clears it on the second. Adding both motions would double
+the opening camera speed. View publication occurs after movement, including
+on the update when the scheduled handler is installed; the initial wait does
+not publish anything.
+
+Automated verification executes the unmodified original camera path and
+scheduled handler through the retail actor-list update. Twelve 180-update runs
+vary cut spacing, early/late final cues and changing signed scene scroll.
+Every update compares position, velocity, fine view angles, waypoint index and
+the exact suspended path location. Authored waypoints are checked directly
+against the ROM tables. Separate tests cover all 65,536 roll values, every
+signed coordinate toward both authored chase targets, and 1,458 combined aim
+edge cases, including subtraction overflow and coincident positions.
+
+This reconstructs the camera rig, not its surrounding target actor, scene
+controller or renderer. The shipping intro still uses the recorded track.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -305,7 +341,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   /path/to/sf2_intro_scene_trace.txt \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
