@@ -151,12 +151,52 @@ identity, child roles 19/20, positions, sweep creation and release timing.
 The parent-only test intentionally does not advance its children: child
 motion is independently tested by the arrival test.
 
-This does **not** yet reconstruct the full logo presentation. Actor setup,
-material/visibility scheduling, the outline's additional child, sweep motion,
-release-driven dispersal and scene camera remain to be integrated. These
-controllers are not called by the shipping scene scheduler yet, so the
-application still displays its recorded intro. Passing these tests is a
-bounded source-behavior result, not an HD-intro or full-SF2 completion claim.
+### Complete glyph and sweep lifecycles
+
+`NintendoLogoActor` now reconstructs the complete `$93F0` glyph path, including
+setup, visibility, material override, texture scrolling, release and removal:
+
+- Primary and secondary layers have depth offsets one and three. The primary
+  starts invisible, overrides the material table, and becomes visible after
+  ten updates. The secondary is visible immediately. Their distinct drawing
+  policies are typed as `LogoDrawStyle`, but their GSU rasterization remains
+  an explicit renderer-side integration gate.
+- `$9427`'s scheduled target is `$944E`. Its condition kind is 17, and its
+  countdown starts at 11. The scheduler decrements before testing; condition
+  17 fires at one, giving the ten-update reveal. Neither 17 nor 11 is itself
+  the number of hidden updates.
+- `$948C` increments texture-scroll Y by four per yielded update. Its target
+  variable is `$9A`, resolving to the object's `$1CDB` extension. It does
+  **not** advance the palette or color-animation frame.
+- Release removes the secondary layer without consuming random values. The
+  primary normally consumes exactly four: departure pitch/yaw, then two spin
+  increments. It preserves the source's exchange of retained pitch/yaw. An
+  explicit exit policy also reproduces the source's no-dispersal branch.
+- Forty departure rotations accompany thirty-nine translations: the final
+  iteration reaches `End` without the common movement or texture-scroll pass.
+  An ended native actor is not drawable and subsequent ticks do nothing.
+- Scene scrolling is independent of actor velocity. The selected player's
+  horizontal-lock policy suppresses X scrolling, not depth scrolling.
+
+`NintendoLogoSweep` reconstructs `$9378`: initial X/Z offsets, fixed roll,
+19-update delay, 13 horizontal advances, then release-controlled removal.
+Its final advance can reach removal before the usual scene-scroll pass.
+
+`rust/sf-oracle/tests/sf2_intro_logo_actor.rs` checks **672 glyph cases**:
+seven random seeds, both layers, ordinary/outline meshes, three release
+times, four initial pitches and both exit policies. Every update compares
+position, rotation, velocity, visibility, material, texture scroll, draw
+policy, suspended path, all random-state bytes and completion. It verifies
+the outline child's spawn without advancing that separate child. Another
+15 cases check the complete sweep path at release and wrapping boundaries.
+These tests execute unmodified retail handlers and continuations.
+
+This does **not** yet reconstruct the full logo presentation. The outline
+child's attachment/material lifecycle, special drawing policies, actor-pool
+scheduling and scene camera still need integration. These controllers are
+not called by the shipping scene scheduler yet, so the application still
+displays its recorded intro. Passing these tests is a bounded source-behavior
+result, not an HD-intro or full-SF2 completion claim.
 
 ## Reproduce without manual play
 
@@ -174,7 +214,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   /path/to/sf2_intro_scene_trace.txt \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_logo'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_logo --test sf2_intro_logo_actor'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 

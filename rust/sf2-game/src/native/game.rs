@@ -22976,7 +22976,7 @@ fn visible_pitch_from_lean(pitch_lean: i8) -> Angle {
 /// Exact signed-logarithmic direction vector shared by retail flight paths.
 /// `position_scale` expresses the source path's world-step multiplier as an
 /// ordinary gameplay unit rather than exposing encoded path operands.
-fn flight_velocity(pitch: Angle, yaw: Angle, speed: u8, position_scale: i16) -> Vector3 {
+pub(super) fn flight_velocity(pitch: Angle, yaw: Angle, speed: u8, position_scale: i16) -> Vector3 {
     let source_yaw = yaw.units().wrapping_neg();
     let source_pitch = pitch.units();
     let signed_speed = speed as i8;
