@@ -895,9 +895,45 @@ missing-cue behavior and the completed path's persistent hold.
 
 This is a parent-only comparison: children are constructed by the original
 code but their strategies are deliberately not executed. Recursive attached
-children, wing departures, formation destruction composition and native scene
+children, formation destruction composition and native scene
 scheduling/rendering remain unfinished. The shipping intro still uses recorded
 frames; this component does not establish a completed native intro or SF2 port.
+
+## Later flyby wings and destruction lifetimes reconstructed
+
+`intro_second_flyby_wings` implements the attached wing at `44:FF45..FF62`
+and independent departing wing at `44:FF63..FF8C`, with typed actor/parent
+identities. The original spawn commands at `44:FEA8` and `44:FEC4` construct
+both with shape 89. The first actor waits 27 updates under parent publication,
+then unlinks attachment group 6 and drifts `(5, 0, 40)` while rotating eighteen
+times. Its final counted body configures the departure auxiliary effect and
+zeros velocity before motion. The second actor replaces its inherited pose
+using placement 19, enables its trail, turns while hidden and then visible,
+and rolls away. It recomputes flight velocity after each turn, including the
+last update that requests destruction.
+
+Static handler review is important here: opcode `04` enables per-update flight
+velocity recalculation; it is not a one-update wait. The two auxiliary calls
+also differ: the attached wing invokes `07:B746` with range zero, while the
+departing wing invokes `07:B6EF` with range one (low-byte doubled to two).
+Neither path's final health write is an immediate hide or End.
+
+`OpeningWingSequence` composes both paths with the existing common destruction
+consumer through final effect cleanup. Initial and recursive effect birth
+timing is explicit: allocation behind a live parent can miss this traversal,
+whereas a dying list-head actor's children can run immediately. Insufficient
+allocation capacity is an explicit error and preserves the pending handoff.
+
+Sixteen original-spawn/actor-list comparisons cover both paths, rotating and
+wrapping parent poses, frozen/unfrozen auxiliary state and existing ownership.
+They check position, rotation, velocity, local attachment data, detachment,
+visibility, trail state, path continuation and the next-update destruction
+boundary. Eight more comparisons cover complete lifetimes, both allocation
+birth timings, scroll compensation, ordered explosion audio and final removal.
+Independent construction checks all inherited position and rotation channels.
+Three ROM-free tests protect boundary timing, terminal idempotence and capacity
+failure. These isolated families do not yet compose the entire flyby scene;
+the recursive attached chain, full scheduler and rendering remain required.
 
 ## Reproduce without manual play
 
@@ -919,6 +955,7 @@ uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_camera_target'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby_craft'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby_wings'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_formation --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
