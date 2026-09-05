@@ -6,6 +6,7 @@
 
 mod game;
 mod input;
+pub mod intro_logo;
 pub mod intro_motion;
 mod object;
 mod render;

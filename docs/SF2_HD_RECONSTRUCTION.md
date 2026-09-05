@@ -119,10 +119,44 @@ to `sf-oracle`; the native types have no machine-state container.
 
 These kernels are **not yet wired into a native attract scene scheduler**.
 They do not change the recorded intro currently shown by the application.
-Next integration work includes the source `$9284/$93F0` Nintendo glyph layout
-and actor paths: the spacing byte 186 must become signed -70 before scaling
-by eight, and the paired child roles 19/20 have distinct visibility/material
-behavior. Host timing, layers and cut/skip transitions must also be recovered.
+The next section describes the newly reconstructed Nintendo assembly and
+arrival segments. Host timing, layers and cut/skip transitions still require
+integration and verification.
+
+## Native Nintendo-logo assembly and arrival
+
+`rust/sf2-game/src/native/intro_logo.rs` contains domain-state controllers,
+not a script interpreter or sampled animation track:
+
+- `NintendoLogoAssembly` reproduces `$9284`'s nine sequential paired glyph
+  spawns, signed spacing, final sweep spawn and release timing. The first
+  spacing is -70 scaled by eight, not unsigned 186. The sweep's X coordinate
+  is an absolute -750, independent of the original parent X.
+- The ninth pair, sweep spawn and first hold update occur in the same scene
+  update. With the initial update numbered zero, release occurs on update
+  100. No wall-clock or display-frame duration is inferred from that count.
+- `NintendoLogoArrival` reproduces the shared `$943D..$9456` approach and
+  settling segment. Twenty translations add 50 depth units each. Each also
+  adds eight pitch units, but the final loop iteration immediately enters
+  settling and can add another eight in that same update. Settling tests for
+  zero before rotating; it does not snap an arbitrary angle to zero.
+
+`rust/sf-oracle/tests/sf2_intro_logo.rs` executes the original paths, including
+their allocation, dispatch, loop and yield handlers, without patching those
+handlers or their continuations. It checks all 256 initial pitches across
+64 updates each, comparing position, all rotation axes and the suspended
+path. Four parent origins exercise signed spacing and coordinate wrapping
+through the complete spawn-and-release path. Every update checks mesh
+identity, child roles 19/20, positions, sweep creation and release timing.
+The parent-only test intentionally does not advance its children: child
+motion is independently tested by the arrival test.
+
+This does **not** yet reconstruct the full logo presentation. Actor setup,
+material/visibility scheduling, the outline's additional child, sweep motion,
+release-driven dispersal and scene camera remain to be integrated. These
+controllers are not called by the shipping scene scheduler yet, so the
+application still displays its recorded intro. Passing these tests is a
+bounded source-behavior result, not an HD-intro or full-SF2 completion claim.
 
 ## Reproduce without manual play
 
@@ -140,7 +174,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   /path/to/sf2_intro_scene_trace.txt \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_logo'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
