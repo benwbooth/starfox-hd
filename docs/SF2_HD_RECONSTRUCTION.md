@@ -461,10 +461,10 @@ controller and event ordering at a cue boundary.
 This verifier deliberately does **not** execute the spawned child strategies.
 It proves the root's event producer, not their behavior or the complete scene
 scheduler. The flyby rig and streaks now have the native consumer described
-below. The independent craft (`$FCC5`) now has a native path through its
-destruction request, also described below. Its common destruction consumer,
-remaining craft/formation paths (`$FCF2`, `$FBD0`, `$FDC2`) and the later target
-(`$FB08`) are still gates before this root can replace the recorded scene.
+below. The independent craft (`$FCC5`) now has a native path and composed
+destruction lifetime, also described below. Remaining craft/formation paths
+(`$FCF2`, `$FBD0`, `$FDC2`) and the later target (`$FB08`) are still gates before
+this root can replace the recorded scene.
 
 ## Native flyby rig and streak family
 
@@ -542,7 +542,7 @@ the craft path; it must not silently substitute disappearance or endless
 invisible movement for the destruction consumer. An original-only regression
 extends through that handoff and cleanup: this fixture produces two new
 effects (catalog shapes 0 and 12, strategy `$03:A279`) and removes the craft.
-Native reconstruction of that common destruction family is still required.
+The composed native consumer below now continues through their full lifetimes.
 
 The path comparison uses **64 cases** covering authored, early, missed and
 revisited cue schedules, alternate inherited headings, all frozen/tracking
@@ -557,9 +557,75 @@ exercise low-byte carry/wrapping and frozen ownership. Three ROM-free tests
 protect event order, missed gates and the frozen-owner behavior.
 
 This is not a completed native opening or a demonstrated visible improvement.
-The auxiliary effect's downstream presentation/update service, common death
-effects, other craft/formation actors, complete scene scheduling and native
-renderer integration remain necessary before replacing recorded frames.
+The auxiliary effect's downstream presentation/update service, other
+craft/formation actors, complete scene scheduling and native renderer
+integration remain necessary before replacing recorded frames.
+
+## Native destruction effects and complete independent-craft lifetime
+
+`intro_destruction::IntroDestructionEffects` reconstructs the standard
+destruction-effect constructor `$03:A055`, companion constructor `$03:A62A`
+and applicable `$03:A279` animation behavior. It consumes typed shape bounds,
+positions, view/listener context and available actor capacity. The independent
+craft now composes this consumer through `OpeningFreeCraftSequence`: its
+health-zero request completes one movement update, the next scene update
+retires the craft and creates the effects, and the sequence remains active
+until every effect has been cleaned up.
+
+The constructor chooses catalog sprite 9, 10, 11 or 12 using twice the larger
+X/Y bound, with 4, 6, 8 or 8 animation updates. Smaller variants preserve the
+source's wrapped subtraction and logical shifts when deriving their extra
+sprite-size byte. **All 577 catalog profiles** match the original constructor,
+including selected mesh, size byte, initial pose, timing and allocation order.
+
+Full-family execution found an important distinction from reading the
+animation routine alone. Large effects also create a meshless companion with
+style channels (30, 30, 7), but that constructor leaves its health at zero.
+Its one-time newborn exemption permits the first animation update. On the
+next update the actor-list dispatcher runs common destruction instead of the
+animation routine's apparent 64-update continuation. This creates a third,
+small explosion sprite and another sound request, then removes the companion.
+The small sprite runs its first update immediately, before the older main
+sprite. The source can reuse the original craft's freed slot for that sprite;
+native completed entries are retained as distinct lifetimes and never reused.
+
+The animation pass compensates for scene scrolling only in the original
+selected-view mode, subtracting twice the horizontal/depth scroll using signed
+word wrapping. Common destruction itself does not apply that compensation a
+second time to the retiring companion. Sound requests are emitted for the
+secondary listener first, if enabled, then the primary listener. Their three
+attenuation bands use the original wrapped X/Z approximation and signed
+comparison behavior, not Euclidean distance. A separate test compares
+**65,536 signed-axis distances**, including translated coordinate wrapping,
+height independence and audio-queue wraparound, with `$06:8000`.
+
+Allocation failure is not silently successful: `$7F:2925` enters the original
+console diagnostic when no slot is available (the headless executor reaches
+its cycle guard there). Signature checks protect that branch. The modern
+consumer returns an explicit `IntroDestructionCapacityError` instead of
+omitting sprites or emulating the diagnostic console. Capacity is measured
+before cleanup; the retiring actor's slot becomes available only afterward.
+Scene-wide reclamation of other effects under pressure remains an integration
+responsibility, not something certified by these isolated family tests.
+
+Verification now includes **90 complete source/native effect-family runs**
+covering eight representative shapes, available capacity, effect suppression
+and moving scroll context, plus **eight complete independent-craft runs** with
+authored/early cuts and scrolling. Both use the unmodified original actor-list
+update, resume and cleanup. Every update compares new-actor order, positions,
+sprite/frame/style state, sound queue, removal and independently calculated
+free-slot counts, including reuse of the old craft slot. The latter tests begin
+with the craft created by the original root/QuickSpawn and end only when all
+three effect lifetimes finish. Three ROM-free tests protect the companion
+handoff, capacity errors and suppression.
+
+This closes the independent craft's standard destruction **behavior**; it
+does not yet render that native sequence in the shipping intro. Sprite and
+companion-style rendering, the auxiliary effect's downstream services, other
+craft, whole-scene allocation/scheduling, and rendering integration remain.
+Attached-child detachment, custom death callbacks and gameplay score/pickup
+policies are outside this independent-craft consumer and still require their
+own source-backed integration where applicable.
 
 ## Reproduce without manual play
 
@@ -578,7 +644,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 

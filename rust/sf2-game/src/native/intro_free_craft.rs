@@ -3,6 +3,10 @@
 
 use super::game::flight_velocity;
 use super::intro_camera::OpeningCameraCue;
+use super::intro_destruction::{
+    IntroDestructionCapacityError, IntroDestructionContext, IntroDestructionEffects,
+    IntroExplosionActor, IntroExplosionProfile, IntroExplosionVolume,
+};
 use super::intro_motion::IntroScenePose;
 use super::object::{ObjectId, ShapeId, Vector3};
 
@@ -194,6 +198,75 @@ impl OpeningFreeCraft {
         self.pose.position.y = self.pose.position.y.wrapping_add(self.velocity.y);
         self.pose.position.z = self.pose.position.z.wrapping_add(self.velocity.z);
         events
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct OpeningFreeCraftSequenceEvents {
+    pub queue_departure_audio: bool,
+    pub explosion_audio: Vec<IntroExplosionVolume>,
+}
+
+/// Complete independent-craft lifetime, including the common destruction
+/// effects which take over on the update after its health reaches zero.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpeningFreeCraftSequence {
+    pub craft: OpeningFreeCraft,
+    destruction: Option<IntroDestructionEffects>,
+}
+
+impl OpeningFreeCraftSequence {
+    pub fn new(actor: ObjectId, pose: IntroScenePose) -> Self {
+        Self {
+            craft: OpeningFreeCraft::new(actor, pose),
+            destruction: None,
+        }
+    }
+
+    pub fn craft_is_visible(&self) -> bool {
+        self.destruction.is_none() && self.craft.is_visible()
+    }
+
+    pub fn craft_has_retired(&self) -> bool {
+        self.destruction.is_some()
+    }
+
+    pub fn effects(&self) -> impl Iterator<Item = &IntroExplosionActor> {
+        self.destruction
+            .iter()
+            .flat_map(IntroDestructionEffects::actors)
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.destruction
+            .as_ref()
+            .is_some_and(IntroDestructionEffects::is_finished)
+    }
+
+    pub fn tick(
+        &mut self,
+        cue: OpeningCameraCue,
+        auxiliary: &mut IntroAuxiliaryEffect,
+        context: &IntroDestructionContext,
+    ) -> Result<OpeningFreeCraftSequenceEvents, IntroDestructionCapacityError> {
+        let mut events = OpeningFreeCraftSequenceEvents::default();
+        if self.destruction.is_none() {
+            if self.craft.phase() == OpeningFreeCraftPhase::AwaitingDestruction {
+                let profile = IntroExplosionProfile::for_shape(self.craft.shape())
+                    .expect("opening craft belongs to the validated shape catalog");
+                let (effects, audio) =
+                    IntroDestructionEffects::spawn(profile, self.craft.pose.position, context)?;
+                self.destruction = Some(effects);
+                events.explosion_audio = audio;
+            } else {
+                events.queue_departure_audio =
+                    self.craft.tick(cue, auxiliary).queue_departure_audio;
+            }
+        }
+        if let Some(effects) = &mut self.destruction {
+            events.explosion_audio.extend(effects.tick(context)?);
+        }
+        Ok(events)
     }
 }
 
