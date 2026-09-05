@@ -461,9 +461,10 @@ controller and event ordering at a cue boundary.
 This verifier deliberately does **not** execute the spawned child strategies.
 It proves the root's event producer, not their behavior or the complete scene
 scheduler. The flyby rig and streaks now have the native consumer described
-below. Craft/formation paths (`$FCF2`, `$FCC5`, `$FBD0`, `$FDC2`) and the later
-target (`$FB08`) still need native consumers before this root can replace the
-recorded production scene.
+below. The independent craft (`$FCC5`) now has a native path through its
+destruction request, also described below. Its common destruction consumer,
+remaining craft/formation paths (`$FCF2`, `$FBD0`, `$FDC2`) and the later target
+(`$FB08`) are still gates before this root can replace the recorded scene.
 
 ## Native flyby rig and streak family
 
@@ -512,6 +513,54 @@ This closes the rig/streak dependency, not the entire opening. Renderer
 integration, remaining craft/target behavior, root-wide scheduling, palette
 initialization and later scenes remain outstanding.
 
+## Native independent opening craft and auxiliary effect
+
+`intro_free_craft::OpeningFreeCraft` reconstructs `$44:FCC5..FCF1` and its
+position-table helper `$44:FBBB..FBCF`. It flies from (-1700, 200, -2300),
+waits for the first camera cut before becoming invisible, then reappears at
+(200, 800, -2100) only at the third cut. It retains velocity across both
+position resets. The source uses speed 20 through its fixed-point heading
+calculation, then overrides vertical velocity with -5; speed is not a raw
+world-depth step. Invisible updates continue moving. The far-sort override
+remains 15000, separate from visibility.
+
+After 14 reappearance updates it configures the selected-player auxiliary
+effect and requests audio marker 139, class 2. The effect origin captures the
+craft's **pre-movement** pose. `IntroAuxiliaryEffect` implements the complete
+configuration service `$07:B6EF`, including its called origin/ownership,
+axis-mode and control-field setters. The source doubles only the low byte of
+the supplied range, not the whole signed word. It clears tracking even when
+configuration is frozen, and its final separate origin refresh still runs
+when the frozen effect already belongs to this actor. That final distinction
+is absent from the older compatibility helper; verification executes the
+original machine code, not that helper.
+
+The final command is **not a hide operation**: it sets health to zero. After
+one last movement update, `$7F:3596` transfers the craft to the common death
+handler `$03:A055`. Native code emits `request_destruction` and stops running
+the craft path; it must not silently substitute disappearance or endless
+invisible movement for the destruction consumer. An original-only regression
+extends through that handoff and cleanup: this fixture produces two new
+effects (catalog shapes 0 and 12, strategy `$03:A279`) and removes the craft.
+Native reconstruction of that common destruction family is still required.
+
+The path comparison uses **64 cases** covering authored, early, missed and
+revisited cue schedules, alternate inherited headings, all frozen/tracking
+policies and owned/unowned effects. Each case starts with a craft created by
+the original root and QuickSpawn, preserving its real constructor flags.
+Other scene actors are excluded from execution for this isolated comparison.
+Missed-gate cases run 4000 updates to cover signed-coordinate wrapping;
+completed paths are compared through the explicit destruction boundary.
+Every update checks pose, velocity, visibility, shape, path phase, marker
+request and all configured auxiliary fields. **72 separate service cases**
+exercise low-byte carry/wrapping and frozen ownership. Three ROM-free tests
+protect event order, missed gates and the frozen-owner behavior.
+
+This is not a completed native opening or a demonstrated visible improvement.
+The auxiliary effect's downstream presentation/update service, common death
+effects, other craft/formation actors, complete scene scheduling and native
+renderer integration remain necessary before replacing recorded frames.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -529,7 +578,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
