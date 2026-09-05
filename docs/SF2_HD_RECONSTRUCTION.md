@@ -742,6 +742,73 @@ whole-scene cancellation/reclamation under pressure. The formation craft,
 second flyby craft, downstream auxiliary presentation, global scene scheduling
 and renderer integration still gate removing the shipping recorded intro.
 
+## Formation craft reconstructed through their authored path lifetimes
+
+`intro_formation` reconstructs all three opening formation members from the
+original `FBD0` strategy and its indexed placement/impulse tables. Their four
+shots use distinct authored coordinates, headings and durations. Motion is
+typed world position, rotation, flight velocity and a separate decaying
+impulse; there is no native machine state or captured animation track.
+
+The reconstruction preserves initial roll, per-member speed, first-member
+trail toggles, equality-only camera gates, smooth linked-target tracking,
+climb/reappearance timing, and the final eighteen movement updates before
+End. The final action of one counted maneuver may execute alongside the
+first action of the next maneuver, before a single common flight update.
+Treating every maneuver boundary as an extra frame delays the choreography.
+
+The third member's zero-duration reappearance entry configures the departure
+auxiliary effect, then still performs its last impulse/motion/elapsed update.
+It exposes an explicit next-update common-destruction handoff, not immediate
+invisibility or an invented normal exit. The scene consumer must compose that
+handoff with the existing destruction family and correct actor-list birth
+timing; this checkpoint does not claim that scene integration is complete.
+
+Pursuit audio retains its pre-flight source position and the original
+fixed-range listener policy. It is not the burst service: there is no distance
+attenuation, and its signed wrapped range comparison is retained even at
+extreme coordinates. Final output-channel routing belongs to the scene audio
+consumer.
+
+Verification covers **180 source-created member runs**, with original update
+and resume routines, three cue schedules (including a missing required cue),
+four inherited rolls and five target configurations. The comparisons check
+every pose, impulse, flight vector, speed, trail/visibility flag, elapsed word,
+selected target identity, path continuation, audio request/payload and
+end/destruction transition. Target cases include motion, equal-distance ties,
+out-of-range rejection and signed-wrap extremes. All twelve placement entries
+are checked directly against the original tables. Independent original-code
+tests cover **65,536 heading pairs**, **65,536 combined impulse cases**, and
+**3,584 spatial sound cases**. Four ROM-free tests protect shared-frame maneuver
+boundaries, missing-cue/timer wrapping, End idempotence and the destruction
+handoff's final movement.
+
+The second flyby craft, formation destruction/scene composition, downstream
+auxiliary/trail presentation and renderer integration remain required before
+the shipping recorded opening can be removed.
+
+### Assembly-to-Rust review map for the formation
+
+These are original code/data locations, not observation timestamps. Read the
+script together with its actual instruction handlers; opcode labels alone do
+not specify operand order or update boundaries.
+
+| Original source | Native translation and reviewed invariant |
+| --- | --- |
+| `44:FBD0..FC76` | `OpeningFormationCraft::tick`: all four shot phases, equality gates and terminal paths |
+| `44:FC7B..FC9F`, `07:FB83..FBEE` | `opening_formation_placement`: member/shot-indexed position, pitch, yaw and duration; placement does not overwrite roll |
+| `44:FCA0..FCB8`, `07:FBEF..FC2D` | `load_impulse`: three impulse components and roll; the exit shot deliberately does not reload these |
+| `44:FBDD`, handler `7F:89A8` | Initial roll is 246: SetByte takes the value first and destination second, unlike AddByte's operand order |
+| `06:FA04..FA65`, `7F:27B5`, `7F:25A3` | `advance_formation_impulse`: coarse roll chase, add current impulse, then decay each signed coordinate toward zero |
+| `7F:89EF`, `7F:1EF8`, `7F:21A5`, `7F:2188` | `select_target` / `aim`: nearest eligible X/Z target, first-active tie retention, pitch and coarse-negated yaw followed by shortest-arc easing |
+| `7F:9DDE..9F15`, `7F:855F` | Recompute flight from current heading before world integration; no extra integration at End |
+| `44:FC19`, `7F:A52A` | `OpeningFormationAudio::spatial`: fixed-range request, integer Euclidean X/Z distance and unattenuated panning |
+| `44:FC51..FC62`, `07:B746` | Third-member departure effect precedes its final movement; common destruction begins on the next dispatcher update |
+
+Runtime differential checks supplement this mapping by detecting translation
+mistakes. They do not define the choreography, supply sampled poses, or
+replace static review of unobserved branches.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -759,7 +826,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_formation --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
