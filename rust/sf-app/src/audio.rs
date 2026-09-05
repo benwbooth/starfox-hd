@@ -534,6 +534,7 @@ impl AudioSys {
             pad1: shell.game.vars.pad1,
             pviewposx: frame.pviewposx,
             new_map: frame.newmap,
+            current_bg: frame.currentbg,
             mapped_forcesnd_shapes: mapped,
         }
     }

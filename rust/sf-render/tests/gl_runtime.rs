@@ -1435,6 +1435,35 @@ fn hd_point_field_moves_between_simulation_updates() {
         <= RASTER_ROUNDING_TOLERANCE);
 }
 
+#[test]
+fn launch_boost_billboard_draws_both_authored_texture_frames() {
+    let _guard = GPU_TEST_LOCK.lock().unwrap();
+    let mut config = config_from_repo_root(&repo_root());
+    config.shadow_style = sf_render::draw_list::ShadowStyle::Disabled;
+    let mut renderer = Renderer::new_headless(W as i32, H as i32, &config)
+        .expect("GPU required for launch boost regression");
+    const BOOST_SHAPE: u16 = sf_render::shape_data::SHAPE_EXT_BOOSTSHAPE;
+    const BOOST_DISTANCE: i32 = 300;
+    for color_frame in [0, 1] {
+        let draw = [DrawListEntry {
+            shape_id: BOOST_SHAPE,
+            z: BOOST_DISTANCE << 16,
+            flags: DL_FLAG_VISIBLE | sf_render::draw_list::DL_FLAG_SCALED_SPRITE,
+            col_frame: color_frame,
+            obj_id: 1,
+            ..Default::default()
+        }];
+        renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+        renderer.begin_frame();
+        renderer.submit(&draw, &draw, 1.0, &FrameInputs::default());
+        renderer.end_frame();
+        let visible = renderer.read_pixels_rgb().chunks_exact(3)
+            .filter(|pixel| !color_near(pixel, SF1_CLEAR_RGB, 2)).count();
+        assert!(visible > 0,
+            "launch boost texture frame {color_frame} was entirely culled");
+    }
+}
+
 // (c) Full composed title frame vs source-asset region averages.
 fn check_title_golden(renderer: &mut Renderer) {
     let inputs = FrameInputs {

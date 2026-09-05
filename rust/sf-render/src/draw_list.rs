@@ -6,7 +6,7 @@
 use crate::font::Font;
 use crate::gpu::{Gpu, TextureId};
 use crate::shapes::{SHAPE_ALIAS_OP_0, SHAPE_ALIAS_OP_1, SHAPE_ALIAS_OP_2};
-use crate::shapes_gl::ShapeStore;
+use crate::shapes_gl::{FaceCulling, ShapeStore};
 use crate::source_projection::SourcePose;
 use crate::source_raster::{SourceBitmapRect, SourceRaster};
 use crate::transform::Transform;
@@ -305,7 +305,15 @@ fn launch_corridor_depth_layers(entries: &[DrawListEntry]) -> [u8; MAX_DRAW_LIST
     // shape identity are authored, stable tie-breakers for this one corridor.
     tunnel_order.sort_by_key(|index| {
         let entry = &entries[*index];
-        (entry.z, entry.shape_id, entry.interpolation_id)
+        // MAP1_1A creates the OP_0 outline before its OP_1 backing at equal
+        // depth. MDRAWLIS inserts later equal-depth objects first, so the
+        // outline is painted last. Preserve that ownership in HD depth too:
+        // sorting flat shape ids upward instead buried coplanar floor lines.
+        (
+            entry.z,
+            std::cmp::Reverse(entry.shape_id),
+            entry.interpolation_id,
+        )
     });
     let mut layers = [0; MAX_DRAW_LIST];
     for (layer, index) in tunnel_order.into_iter().enumerate() {
@@ -406,6 +414,7 @@ fn source_safe_interpolation_alpha(
 fn apply_scaled_sprite_model(
     model: &mut [f32; 16],
     view: &[f32; 16],
+    shapes: &ShapeStore,
     shape_id: u16,
     size_adjustment: u8,
 ) {
@@ -425,13 +434,47 @@ fn apply_scaled_sprite_model(
     model[10] = view[10];
     model[11] = 0.0;
 
-    let scale = sf_core::sf1_shape_metrics::sf1_shape_metrics(shape_id).map_or(1.0, |metrics| {
-        let adjustment = i32::from(size_adjustment as i8) << u32::from(metrics.coordinate_shift);
-        let adjusted_extent = (i32::from(metrics.visual_extent) + adjustment).max(1);
-        adjusted_extent as f32 / f32::from(metrics.visual_extent.max(1))
-    });
-    for index in [0, 1, 2, 4, 5, 6, 8, 9, 10] {
-        model[index] *= scale;
+    if let (Some(metrics), Some(shape)) = (
+        sf_core::sf1_shape_metrics::sf1_shape_metrics(shape_id),
+        shapes.get(shape_id),
+    ) {
+        // MDSPRITE.MC doubles sh_size before adding the signed, shifted
+        // strategy adjustment. This is the complete square's width, not
+        // a multiplier for the unrelated polygon mesh's authored extent.
+        let adjustment =
+            i16::from(size_adjustment as i8).wrapping_shl(u32::from(metrics.coordinate_shift));
+        let world_size = (metrics.visual_extent as i16)
+            .wrapping_mul(2)
+            .wrapping_add(adjustment);
+        let world_size = if world_size == 0 {
+            1
+        } else {
+            world_size.max(0)
+        };
+        let bounds = shape.vertices.iter().fold(
+            [
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+                f32::INFINITY,
+                f32::NEG_INFINITY,
+            ],
+            |[left, right, top, bottom], vertex| {
+                [
+                    left.min(vertex.x),
+                    right.max(vertex.x),
+                    top.min(vertex.y),
+                    bottom.max(vertex.y),
+                ]
+            },
+        );
+        for (column, span) in [(0, bounds[1] - bounds[0]), (4, bounds[3] - bounds[2])] {
+            if span > 0.0 {
+                let scale = f32::from(world_size) / span;
+                for index in column..column + 3 {
+                    model[index] *= scale;
+                }
+            }
+        }
     }
 }
 
@@ -739,7 +782,13 @@ impl DrawListRenderer {
             transform.build_model_matrix_f(&mut model, interp.x, interp.y, interp.z, frx, fry, frz);
 
             if interp.flags & DL_FLAG_SCALED_SPRITE != 0 {
-                apply_scaled_sprite_model(&mut model, &view, interp.shape_id, interp.tscroll_x);
+                apply_scaled_sprite_model(
+                    &mut model,
+                    &view,
+                    shapes,
+                    interp.shape_id,
+                    interp.tscroll_x,
+                );
             }
 
             // MARIO MDRAWLIS.MC handles ASF_TEXTOBJ before shape lookup.
@@ -814,6 +863,10 @@ impl DrawListRenderer {
                         pose,
                         shape_palette,
                     );
+                    // The source sprite path owns this draw, including its
+                    // clipping decision. Never add a second HD quad behind
+                    // its transparent pixels in strict source output.
+                    continue;
                 }
             }
             shapes.render(
@@ -829,6 +882,11 @@ impl DrawListRenderer {
                 interp.explosion_cnt,
                 &model,
                 corridor_depth_layers[entry_index],
+                if scaled_sprite {
+                    FaceCulling::Billboard
+                } else {
+                    FaceCulling::Authored
+                },
                 source_pose,
                 shape_palette,
                 palette_pair_style,
@@ -1126,6 +1184,28 @@ mod interpolation_tests {
 
         assert_eq!(&with_later_pair[..2], &initial[..2]);
     }
+
+    #[test]
+    fn corridor_outline_keeps_source_priority_over_its_backing() {
+        const SEGMENT_DEPTH: i32 = 250 << 16;
+        let entries = [
+            DrawListEntry {
+                shape_id: SHAPE_ALIAS_OP_0,
+                z: SEGMENT_DEPTH,
+                ..DrawListEntry::default()
+            },
+            DrawListEntry {
+                shape_id: SHAPE_ALIAS_OP_1,
+                z: SEGMENT_DEPTH,
+                ..DrawListEntry::default()
+            },
+        ];
+        let layers = launch_corridor_depth_layers(&entries);
+        assert!(layers[0] > layers[1], "outline must win coplanar backing");
+        let reversed = launch_corridor_depth_layers(&[entries[1], entries[0]]);
+        assert_eq!(layers[0], reversed[1]);
+        assert_eq!(layers[1], reversed[0]);
+    }
 }
 
 impl Default for DrawListRenderer {
@@ -1149,7 +1229,7 @@ mod projection_tests {
     const DESTROYED_X: i32 = 100 << 16;
     const DESTROYED_Y: i32 = -50 << 16;
     const DESTROYED_Z: i32 = 500 << 16;
-    const EXPECTED_PLAYER_SPRITE_SCALE: f32 = 0.25;
+    const EXPECTED_PLAYER_SPRITE_SCALE: f32 = 0.625;
     const MATRIX_EPSILON: f32 = 0.000_01;
 
     #[test]
@@ -1244,6 +1324,12 @@ mod projection_tests {
 
     #[test]
     fn scaled_sprite_cancels_a_rotated_camera_basis() {
+        let mut shapes = ShapeStore::new();
+        let mesh = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|shape| shape.shape_id == MEDIUM_EXPLOSION_SPRITE_SHAPE)
+            .unwrap();
+        assert!(shapes.register(mesh.shape_id, mesh.vertices, mesh.faces));
         let mut transform = Transform::new();
         transform.set_camera(0, 0, 0, CAMERA_PITCH, CAMERA_YAW, CAMERA_ROLL);
         let view = *transform.view();
@@ -1261,6 +1347,7 @@ mod projection_tests {
         apply_scaled_sprite_model(
             &mut model,
             &view,
+            &shapes,
             MEDIUM_EXPLOSION_SPRITE_SHAPE,
             PLAYER_SPRITE_SCALE_ADJUSTMENT,
         );
@@ -1276,13 +1363,44 @@ mod projection_tests {
             (6, 0.0),
             (8, 0.0),
             (9, 0.0),
-            (10, EXPECTED_PLAYER_SPRITE_SCALE),
+            (10, 1.0),
         ] {
             assert!(
                 (camera_space[index] - expected).abs() <= MATRIX_EPSILON,
                 "matrix[{index}]={} expected {expected}",
                 camera_space[index]
             );
+        }
+    }
+
+    #[test]
+    fn launch_sprite_width_uses_doubled_extent_and_signed_adjustment() {
+        const BOOST_SHAPE: u16 = crate::shape_data::SHAPE_EXT_BOOSTSHAPE;
+        const BOOST_SIZE_CASES: [(u8, f32); 3] = [(0, 40.0), (255, 38.0), (251, 30.0)];
+        let mesh = crate::shape_data::SHAPE_DATA
+            .iter()
+            .find(|shape| shape.shape_id == BOOST_SHAPE)
+            .unwrap();
+        let mut shapes = ShapeStore::new();
+        assert!(shapes.register(mesh.shape_id, mesh.vertices, mesh.faces));
+        let mut view = [0.0; 16];
+        crate::transform::identity(&mut view);
+        for (adjustment, expected_width) in BOOST_SIZE_CASES {
+            let mut model = view;
+            apply_scaled_sprite_model(&mut model, &view, &shapes, BOOST_SHAPE, adjustment);
+            for (axis, scale) in [(0, model[0]), (1, model[5])] {
+                let coordinates: Vec<_> = mesh
+                    .vertices
+                    .iter()
+                    .map(|vertex| if axis == 0 { vertex.x } else { vertex.y })
+                    .collect();
+                let span = coordinates
+                    .iter()
+                    .copied()
+                    .fold(f32::NEG_INFINITY, f32::max)
+                    - coordinates.iter().copied().fold(f32::INFINITY, f32::min);
+                assert!((span * scale - expected_width).abs() <= MATRIX_EPSILON);
+            }
         }
     }
 }

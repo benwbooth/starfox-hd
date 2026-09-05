@@ -17,6 +17,14 @@ use sf_core::scene::{DepthColors, SceneStyle};
 use std::collections::HashMap;
 
 pub const MAX_SHAPES: usize = 512;
+
+/// Source scaled sprites are screen-facing images, not polygons selected
+/// by a model-space visibility triangle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaceCulling {
+    Authored,
+    Billboard,
+}
 const SOURCE_LOCAL_FACE_INDICES: [u16; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const SOURCE_LOD_DEPTH_THRESHOLDS: [i16; 3] = [1_000, 2_000, 3_000];
 const SOURCE_ANIMATION_COUNTER_MASK: u8 = 63;
@@ -1542,6 +1550,7 @@ impl ShapeStore {
         explosion_state: u8,
         model_matrix: &[f32; 16],
         depth_layer: u8,
+        face_culling: FaceCulling,
         source_pose: Option<SourcePose>,
         palette: &shapes::ShapePaletteRgb,
         palette_pair_style: shapes::PalettePairStyle,
@@ -1633,6 +1642,7 @@ impl ShapeStore {
             // Both visible and hidden source faces become separate shards
             // during an explosion (`mexpfacesvis` / `mexpfacesnvis`).
             if explosion_state == 0
+                && face_culling == FaceCulling::Authored
                 && tri_count > 0
                 && !face_is_camera_visible(shape, face, &projection_view_model)
             {

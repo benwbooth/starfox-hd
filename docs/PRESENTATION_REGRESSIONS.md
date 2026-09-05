@@ -13,9 +13,36 @@ evidence. Passing native rendering tests is not retail certification.
 | Gray tower/base insignia blinks | Open. `mybase_0` insignia stays visible in GPU samples at four depths and five yaw angles. That rules out a completely missing texture, not intermittent occlusion during gameplay. The separate rotating `tower_2` has no logo texture or color animation. Capture the actual affected object/lifetime before altering its material. |
 | Arch acknowledgment sound | Source reviewed: `hard_Istrat` creates the solid arch; its three collision boxes can trigger impact audio. Paired `skillfly` markers change a skill counter but have no sound trigger. Separate healing gates explicitly trigger sounds 15/16. No invented arch sound added. |
 | General animation smoothing | Object/camera transforms already interpolate. Point fields now do too. Shape-frame switches, palette animation, spawning, destruction and dialogue are discrete; blending all of them indiscriminately would invent invalid geometry/events. Compatible vertex animation needs an explicit topology contract and separate tests. |
-| Missing intro siren and emergency voice | Under source/audio-event investigation. |
-| Missing rectangular tunnel outline | Under source shape/draw-list investigation. |
-| Missing blue smoke when wingmen launch | Under source strategy/asset investigation. |
+| Missing intro siren and emergency voice | Fixed a statically proven omission: the audio layer explicitly skipped BGS `bgm 10` and booted the later Corneria bank. It now receives the live background id, starts SND_10/cue 16 for the scramble, and switches once to SND_11/cue 3 on ground background 4. Blink backgrounds do not restart music; a ground checkpoint restart does not replay the announcement. The existing intro audio asset is present. Bank/cue tests pass; live acoustic presentation has not been rechecked. |
+| Missing rectangular tunnel outline | OP_0 already contains the authored wireframe and is spawned in the proper map order. Fixed inverted HD depth priority: the outline now wins its coplanar OP_1 backing, matching the source equal-depth painter ordering. A test pins this priority independently of draw-list order. Full moving-scene appearance remains to be confirmed. |
+| Missing blue smoke when wingmen launch | Fixed two renderer defects. The authored boost billboard was completely discarded by ordinary polygon back-face culling; a GPU regression failed before the fix and passes for both texture frames afterward. Its HD size also omitted the source's doubled extent and used the header extent instead of actual mesh width as a denominator. Tests pin world widths 40, 38 and 30 for the relevant signed adjustments. Strict source sprites no longer fall through into a duplicate HD quad. |
+
+## Static Corneria launch audit
+
+This pass follows the call/data flow from map commands through strategies to
+rendering and audio consumers. Finding a spawn in Rust is insufficient: the
+boost object existed but its renderer discarded it. The scope is the Corneria
+launch corridor, not all title/attract sequences or the entire game.
+
+Paths below are relative to `reference/ultrastarfox/SF/` for assembly and
+`rust/` for Rust.
+
+| Contract reviewed | Source | Rust and result |
+| --- | --- | --- |
+| Tunnel pairs, wingman positions/delays, eight corridor extensions, strategy-complete exit | `MAPS/MAP1_1A.ASM`; `INC/MAPMACS.INC` | `sf-map/src/levels/level1_1.rs::append_map1_1a_submap`: checked object order, waits, loop and exit. `mapobjnomem` is a source macro alias, not missing memory behavior. |
+| Wingman launch and lifetime | `STRAT/GISTRATS.ASM::shipintro_Istrat/shipintro_strat` | `sf-strat/src/player.rs`: checked signed delay, boost allocation, speed increase, shadow/float/removal flags and lifetime. No additional strategy discrepancy established. |
+| Player opening, camera handoff and boost | `STRAT/PISTRATS.ASM::playeropening_Istrat/playeropening_strat`; `STRAT/GISTRATS.ASM::viewopening` | `sf-strat/src/player.rs`, `sf-game/src/camera.rs`: checked control flags, completion latch, 70-tick wait, boost and camera position/target handling. No new discrepancy established. This does not certify wall-clock pacing. |
+| Intro soundtrack and exit transition | `ASM/BGS.ASM::bg_1_1i_1/bg_1_1c_1`; `ASM/SOUND.ASM::sndtbl` | `sf-app/src/audio.rs`, `sf-audio/src/sound.rs`: repaired missing intro bank and checked the application-to-native-player path for overriding commands. |
+| Outline and solid backing ordering | `SHAPES/SHAPES.ASM::op_0/op_1`; `MARIO/MDRAWLIS.MC` | `sf-render/src/draw_list.rs`: repaired coplanar priority. |
+| Boost visibility, texture frames and signed square size | `SHAPES/USHAPES.ASM::boostshape`; `STRAT/GSTRATS.ASM::boost_Istrat/boost_strat`; `MARIO/MDRAWLIS.MC`, `MARIO/MDSPRITE.MC::mssprite` | `sf-render/src/draw_list.rs`, `shapes_gl.rs`: repaired billboard culling and sizing. The source uses twice the header extent plus the signed adjustment shifted by the shape's coordinate scale. |
+
+Repeatable workflow: identify an assembly entry point and its reachable
+consumers; enumerate effects and branch conditions; compare typed Rust state
+and operations; encode each demonstrated discrepancy as a focused regression;
+repair it; retain ambiguous timing, rendering or source-version questions as
+open evidence gaps. Use independent oracle samples for those gaps, not a full
+playthrough after every statically provable correction. Static review plus
+self-consistency tests alone cannot certify complete retail equivalence.
 
 ## Unattended HD capture
 
@@ -40,6 +67,10 @@ of reporting successful capture. The probe deliberately does not run audio.
 
 ## Verification
 
+- After the static intro repairs, `cargo test -p sf-render -p sf-audio`
+  passed 258 tests, including five GPU/runtime tests, and `cargo build
+  -p sf-app` passed. Log: `/tmp/sf1-static-intro-tests-20260904.log`.
+  The native architecture check and `git diff --check` also passed.
 - Before the final culling change, `cargo test -p sf-game -p sf-render
   -p sf-audio` passed 453 tests, including four GPU/runtime tests; app build
   passed. Log: `/tmp/sf1-presentation-package-tests-20260904.log`.

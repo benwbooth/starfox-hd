@@ -272,6 +272,10 @@ pub struct SoundGameState {
     pub pviewposx: i16,
     /// `g_newmap` — current map id (drives the level BGM boot)
     pub new_map: u32,
+    /// Current BGS background id (`g_currentbg`). The Corneria scramble
+    /// starts in `bg_1_1i` (id 0) and switches to `bg_1_1c` (id 4), which
+    /// carries the source's SND_10 -> SND_11 music-bank transition.
+    pub current_bg: u16,
     /// `g_shapes_table[i]` for the five FORCESND_SHAPE_IDS indices
     /// (21, 23, 107, 109, 110), 0 when unmapped — feeds
     /// `sound_shape_matches_mapped`.
@@ -329,6 +333,7 @@ pub struct Sound {
     // Level-entry BGM boot latch (C s_music_map / s_music_booted).
     music_map: u32,
     music_booted: bool,
+    music_track: Option<u8>,
 }
 
 impl Default for Sound {
@@ -337,10 +342,12 @@ impl Default for Sound {
     }
 }
 
-/// BGS.ASM bg_* -> `bgm N` mapping, ground/main variant per level
-/// (C `sound_track_for_map`).  bg_x_1c uses `bgm 11` for all Corneria
-/// levels; the tunnel intro bank (`bgm 10`, sound5) is skipped because the
-/// port can't observe BG switches.  Returns None for maps with no auto boot.
+const CORNERIA_INTRO_BG: u16 = 0;
+const CORNERIA_GROUND_BG: u16 = 4;
+
+/// BGS.ASM bg_* -> `bgm N` mapping after level-entry intro handling.
+/// `bg_x_1c` uses `bgm 11` for all Corneria levels. Returns None for maps
+/// with no auto boot.
 pub fn sound_track_for_map(map_id: u32) -> Option<u8> {
     match map_id {
         MAP_ID_1_1 | MAP_ID_2_1 | MAP_ID_3_1 => Some(catalog::SND_11),
@@ -367,6 +374,11 @@ pub fn sound_track_for_map(map_id: u32) -> Option<u8> {
         MAP_ID_FINAL => Some(catalog::SND_16),
         _ => None, // no auto boot
     }
+}
+
+#[inline]
+fn is_corneria_scramble_map(map_id: u32) -> bool {
+    matches!(map_id, MAP_ID_1_1 | MAP_ID_2_1 | MAP_ID_3_1)
 }
 
 /// C `sound_pan_from_angle`.
@@ -410,6 +422,7 @@ impl Sound {
             tpa: 0,
             music_map: 0xFFFF_FFFF,
             music_booted: false,
+            music_track: None,
         }
     }
 
@@ -425,6 +438,7 @@ impl Sound {
         self.port1bolox = 0;
         self.music_map = 0xFFFF_FFFF;
         self.music_booted = false;
+        self.music_track = None;
         backend.set_engine_sound(0);
         backend.set_ambient_sound(0);
     }
@@ -568,15 +582,39 @@ impl Sound {
             return;
         }
 
-        if self.music_booted && self.music_map == state.new_map {
+        let map_changed = self.music_map != state.new_map;
+        if map_changed {
+            self.music_map = state.new_map;
+            self.music_booted = false;
+        }
+
+        if !self.music_booted {
+            self.music_booted = true;
+
+            let track = if is_corneria_scramble_map(state.new_map)
+                && state.current_bg == CORNERIA_INTRO_BG
+            {
+                Some(catalog::SND_10)
+            } else {
+                sound_track_for_map(state.new_map)
+            };
+
+            if let Some(track) = track {
+                self.music_track = Some(track);
+                self.boot_music_track(backend, track);
+            }
             return;
         }
 
-        self.music_map = state.new_map;
-        self.music_booted = true;
-
-        if let Some(track) = sound_track_for_map(state.new_map) {
-            self.boot_music_track(backend, track);
+        // BGS.ASM bg_1_1i_1 starts SND_10/cue $10, then bg_1_1c_1
+        // switches to SND_11/cue $03.  This transition is observable from
+        // the live background id; it must happen once, not once per tick.
+        if is_corneria_scramble_map(state.new_map)
+            && self.music_track == Some(catalog::SND_10)
+            && state.current_bg == CORNERIA_GROUND_BG
+        {
+            self.music_track = Some(catalog::SND_11);
+            self.boot_music_track(backend, catalog::SND_11);
         }
     }
 
@@ -1028,19 +1066,70 @@ mod tests {
         };
 
         snd.update(&st, None, &mut [], &mut be);
-        assert_eq!(be.booted, vec![catalog::SND_11]);
-        assert_eq!(be.bgm, vec![catalog::track_start_cue(catalog::SND_11)]);
+        assert_eq!(be.booted, vec![catalog::SND_10]);
+        assert_eq!(be.bgm, vec![catalog::track_start_cue(catalog::SND_10)]);
 
         // Same map again: latched, no reboot.
         snd.update(&st, None, &mut [], &mut be);
         assert_eq!(be.booted.len(), 1);
 
+        // A checkpoint restart occurs after the intro, on bg_1_1c_1.
+        st.current_bg = CORNERIA_GROUND_BG;
         // Death drops the latch; respawn reboots the level bank.
         st.player_dead = true;
         snd.update(&st, None, &mut [], &mut be);
         st.player_dead = false;
         snd.update(&st, None, &mut [], &mut be);
-        assert_eq!(be.booted, vec![catalog::SND_11, catalog::SND_11]);
+        assert_eq!(
+            be.booted,
+            vec![catalog::SND_10, catalog::SND_11],
+            "checkpoint restart must not replay the scramble announcement"
+        );
+    }
+
+    #[test]
+    fn corneria_scramble_switches_from_intro_bank_at_ground_background() {
+        let mut snd = Sound::new();
+        let mut be = FakeBackend::default();
+        let mut st = SoundGameState {
+            new_map: MAP_ID_1_1,
+            current_bg: CORNERIA_INTRO_BG,
+            ..Default::default()
+        };
+
+        snd.update(&st, None, &mut [], &mut be);
+        assert_eq!(be.booted, vec![catalog::SND_10]);
+
+        st.current_bg = CORNERIA_GROUND_BG;
+        snd.update(&st, None, &mut [], &mut be);
+        assert_eq!(be.booted, vec![catalog::SND_10, catalog::SND_11]);
+        assert_eq!(
+            be.bgm,
+            vec![
+                catalog::track_start_cue(catalog::SND_10),
+                catalog::track_start_cue(catalog::SND_11)
+            ]
+        );
+
+        // The background remains ground for subsequent ticks; do not reboot.
+        snd.update(&st, None, &mut [], &mut be);
+        assert_eq!(be.booted, vec![catalog::SND_10, catalog::SND_11]);
+    }
+
+    #[test]
+    fn corneria_blink_background_does_not_switch_music_bank() {
+        let mut snd = Sound::new();
+        let mut be = FakeBackend::default();
+        let mut st = SoundGameState {
+            new_map: MAP_ID_1_1,
+            current_bg: CORNERIA_INTRO_BG,
+            ..Default::default()
+        };
+
+        snd.update(&st, None, &mut [], &mut be);
+        st.current_bg = 1; // bg_1_1a_1: blink-only, no BGM command
+        snd.update(&st, None, &mut [], &mut be);
+        assert_eq!(be.booted, vec![catalog::SND_10]);
     }
 
     #[test]
