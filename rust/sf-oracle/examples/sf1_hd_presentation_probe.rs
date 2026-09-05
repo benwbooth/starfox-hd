@@ -49,7 +49,7 @@ fn main() {
     let mut config = config_from_repo_root(root);
     // The oracle helper deliberately defaults to retail checkerboards; this
     // probe instead uses the shipping application's default HD presentation.
-    config.shadow_style = ShadowStyle::Disabled;
+    config.shadow_style = ShadowStyle::Smooth;
     let attack = std::env::var_os("SF1_HD_PRESENTATION_ATTACK").is_some();
     let mut renderer = Renderer::new_headless(WIDTH, HEIGHT, &config).expect("headless renderer");
     let mut shell = support::configured_shell();

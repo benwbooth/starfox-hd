@@ -6,7 +6,7 @@
 use crate::font::Font;
 use crate::gpu::{Gpu, TextureId};
 use crate::shapes::{SHAPE_ALIAS_OP_0, SHAPE_ALIAS_OP_1, SHAPE_ALIAS_OP_2};
-use crate::shapes_gl::{FaceCulling, ShapeStore};
+use crate::shapes_gl::{ShapeRenderMode, ShapeStore};
 use crate::source_projection::SourcePose;
 use crate::source_raster::{SourceBitmapRect, SourceRaster};
 use crate::transform::Transform;
@@ -26,9 +26,9 @@ pub const DL_FLAG_SCALED_SPRITE: u8 = 0x20;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ShadowStyle {
     /// Do not draw projected ground shadows; average polygon shade pairs.
-    #[default]
     Disabled,
     /// Draw smooth shadows and average polygon shade pairs.
+    #[default]
     Smooth,
     /// Preserve retail alternating-pixel shadows and polygon shade pairs.
     RetailDithered,
@@ -883,9 +883,9 @@ impl DrawListRenderer {
                 &model,
                 corridor_depth_layers[entry_index],
                 if scaled_sprite {
-                    FaceCulling::Billboard
+                    ShapeRenderMode::ScaledSprite
                 } else {
-                    FaceCulling::Authored
+                    ShapeRenderMode::Polygons
                 },
                 source_pose,
                 shape_palette,
@@ -1205,6 +1205,23 @@ mod interpolation_tests {
         let reversed = launch_corridor_depth_layers(&[entries[1], entries[0]]);
         assert_eq!(layers[0], reversed[1]);
         assert_eq!(layers[1], reversed[0]);
+    }
+}
+
+#[cfg(test)]
+mod shadow_style_tests {
+    use super::ShadowStyle;
+
+    #[test]
+    fn default_shadow_setting_renders_smooth_shadows() {
+        assert_eq!(ShadowStyle::default(), ShadowStyle::Smooth);
+        assert_ne!(ShadowStyle::default(), ShadowStyle::Disabled);
+    }
+
+    #[test]
+    fn shadow_opt_outs_remain_explicit() {
+        assert_eq!(ShadowStyle::from_config_value(0), ShadowStyle::Disabled);
+        assert_eq!(ShadowStyle::from_config_value(2), ShadowStyle::RetailDithered);
     }
 }
 

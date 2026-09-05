@@ -49,7 +49,7 @@ impl Default for Config {
             msaa: 4,
             crt_filter: 0,
             bloom_enabled: 0,
-            shadow_style: ShadowStyle::Disabled,
+            shadow_style: ShadowStyle::Smooth,
             sample_rate: 48000,
             buffer_size: 1024,
             volume: 100,
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(c.window_width, 1280);
         assert_eq!(c.window_height, 720);
         assert_eq!(c.msaa, 4);
-        assert_eq!(c.shadow_style, ShadowStyle::Disabled);
+        assert_eq!(c.shadow_style, ShadowStyle::Smooth);
         assert_eq!(c.sample_rate, 48000);
         assert_eq!(c.volume, 100);
         assert!(!c.pepper_briefing_sounds);

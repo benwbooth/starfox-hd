@@ -21,13 +21,53 @@ pub const MAX_SHAPES: usize = 512;
 /// Source scaled sprites are screen-facing images, not polygons selected
 /// by a model-space visibility triangle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FaceCulling {
-    Authored,
-    Billboard,
+pub enum ShapeRenderMode {
+    Polygons,
+    ScaledSprite,
 }
 const SOURCE_LOCAL_FACE_INDICES: [u16; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const SOURCE_LOD_DEPTH_THRESHOLDS: [i16; 3] = [1_000, 2_000, 3_000];
 const SOURCE_ANIMATION_COUNTER_MASK: u8 = 63;
+
+/// A scaled sprite is one upright square image. MDSPRITE derives both
+/// dimensions from the low byte of the texture mask, ignoring polygon UV
+/// layout and scroll fields (the latter carry the sprite size adjustment).
+fn scaled_sprite_mesh(
+    shape: &GpuShape,
+    source_size: u16,
+    texture_offset: u16,
+) -> Option<[Vertex3Tex; 6]> {
+    let first = shape.vertices.first()?;
+    let mut left = first.x;
+    let mut right = first.x;
+    let mut bottom = first.y;
+    let mut top = first.y;
+    for vertex in &shape.vertices {
+        left = left.min(vertex.x);
+        right = right.max(vertex.x);
+        bottom = bottom.min(vertex.y);
+        top = top.max(vertex.y);
+    }
+    if left == right || bottom == top || source_size == 0 {
+        return None;
+    }
+    let edge = f32::from(source_size);
+    let coordinate_mask = source_size - 1;
+    let square_mask = coordinate_mask | (coordinate_mask << 8);
+    let corners = [
+        ([left, top, 0.0], [0.0, 0.0]),
+        ([right, top, 0.0], [edge, 0.0]),
+        ([right, bottom, 0.0], [edge, edge]),
+        ([left, bottom, 0.0], [0.0, edge]),
+    ];
+    Some([0, 1, 2, 0, 2, 3].map(|index| {
+        let (pos, [x, y]) = corners[index];
+        Vertex3Tex {
+            pos,
+            tex_info: [x, y, f32::from(texture_offset), f32::from(square_mask)],
+        }
+    }))
+}
 
 fn sf1_animation_frame_index(animation_frame: u8, frame_count: usize) -> usize {
     usize::from(animation_frame & SOURCE_ANIMATION_COUNTER_MASK) % frame_count
@@ -1114,6 +1154,49 @@ impl ShapeStore {
         true
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn render_hd_scaled_sprite(
+        &self,
+        gpu: &mut Gpu,
+        shape: &GpuShape,
+        col_frame: u8,
+        color_table: u16,
+        material_index: u8,
+        projection: &[f32; 16],
+        view: &[f32; 16],
+        model: &[f32; 16],
+        palette: &[[f32; 4]; 16],
+    ) {
+        let Some(material) =
+            resolve_registered_face_material(shape, material_index, col_frame, color_table)
+        else {
+            return;
+        };
+        let (layout_index, descriptor_index, high_nibble) =
+            texture_material_fields(false, material);
+        let Some(layout) = TEXTURE_XY.get(layout_index) else {
+            return;
+        };
+        let Some(descriptor) = crate::color_data::TEXTURE_SPRITES.get(descriptor_index) else {
+            return;
+        };
+        let Some(texture) = self
+            .sf1_texture_banks
+            .get(usize::from(descriptor.bank))
+            .copied()
+            .flatten()
+        else {
+            return;
+        };
+        let source_size = (layout.mask & u16::from(u8::MAX)) + 1;
+        let Some(vertices) = scaled_sprite_mesh(shape, source_size, descriptor.offset) else {
+            return;
+        };
+        gpu.push_textured_tris(
+            &vertices, projection, view, model, palette, high_nibble, texture,
+        );
+    }
+
     fn source_shape_for_depth<'a>(
         &'a self,
         shape_id: u16,
@@ -1550,7 +1633,7 @@ impl ShapeStore {
         explosion_state: u8,
         model_matrix: &[f32; 16],
         depth_layer: u8,
-        face_culling: FaceCulling,
+        render_mode: ShapeRenderMode,
         source_pose: Option<SourcePose>,
         palette: &shapes::ShapePaletteRgb,
         palette_pair_style: shapes::PalettePairStyle,
@@ -1635,6 +1718,24 @@ impl ShapeStore {
         let texture_palette: [[f32; 4]; 16] =
             std::array::from_fn(|i| [palette[i][0], palette[i][1], palette[i][2], 1.0]);
 
+        // MDRAWLIS dispatches scaled sprites before the polygon face loop.
+        // depth_offset selects the sprite material, and tscroll_x controls
+        // size only. Neither is a polygon depth/scroll value on this path.
+        if render_mode == ShapeRenderMode::ScaledSprite && !shape.is_sf2 {
+            self.render_hd_scaled_sprite(
+                gpu,
+                shape,
+                col_frame,
+                color_table,
+                object_depth_table,
+                &proj,
+                &view,
+                model_matrix,
+                &texture_palette,
+            );
+            return;
+        }
+
         for (i, face) in shape.faces.iter().enumerate() {
             let tri_start = shape.face_tri_start[i];
             let tri_count = shape.face_tri_count[i];
@@ -1642,7 +1743,7 @@ impl ShapeStore {
             // Both visible and hidden source faces become separate shards
             // during an explosion (`mexpfacesvis` / `mexpfacesnvis`).
             if explosion_state == 0
-                && face_culling == FaceCulling::Authored
+                && render_mode == ShapeRenderMode::Polygons
                 && tri_count > 0
                 && !face_is_camera_visible(shape, face, &projection_view_model)
             {

@@ -16,6 +16,8 @@ evidence. Passing native rendering tests is not retail certification.
 | Missing intro siren and emergency voice | Fixed a statically proven omission: the audio layer explicitly skipped BGS `bgm 10` and booted the later Corneria bank. It now receives the live background id, starts SND_10/cue 16 for the scramble, and switches once to SND_11/cue 3 on ground background 4. Blink backgrounds do not restart music; a ground checkpoint restart does not replay the announcement. The existing intro audio asset is present. Bank/cue tests pass; live acoustic presentation has not been rechecked. |
 | Missing rectangular tunnel outline | OP_0 already contains the authored wireframe and is spawned in the proper map order. Fixed inverted HD depth priority: the outline now wins its coplanar OP_1 backing, matching the source equal-depth painter ordering. A test pins this priority independently of draw-list order. Full moving-scene appearance remains to be confirmed. |
 | Missing blue smoke when wingmen launch | Fixed two renderer defects. The authored boost billboard was completely discarded by ordinary polygon back-face culling; a GPU regression failed before the fix and passes for both texture frames afterward. Its HD size also omitted the source's doubled extent and used the header extent instead of actual mesh width as a denominator. Tests pin world widths 40, 38 and 30 for the relevant signed adjustments. Strict source sprites no longer fall through into a duplicate HD quad. |
+| Launch blast squashed and repeated horizontally | Follow-up testing exposed a further bitmap-mapping defect: the size byte was still consumed as polygon texture scrolling, wrapping across the quad. SF1 HD sprites now take a dedicated single-image path, with upright square UVs, no polygon scrolling/layout, and the source's sprite material selector. An asset-driven GPU test checks the image for both animation frames at size bytes 0, 255 and 251. The old path failed with 5,481 of 10,816 checked pixels differing at size byte 255; the corrected path passes all six cases. This checks rendering against source texture assets, without running a ROM oracle. |
+| Arwing shadows absent in tunnel and elsewhere | The previous request to disable checkerboards had selected `Disabled`, suppressing all projected shadows. Application defaults and `starfox.ini` now select `Smooth`; explicit disabled and retail-checkerboard options remain available. A GPU regression renders an Arwing above a neutral lit floor, verifies darkening versus disabled shadows, and requires solid 2-by-2 covered blocks rather than checkerboard gaps. The diagnostic HD probe follows the updated shipping default. |
 
 ## Static Corneria launch audit
 
@@ -49,7 +51,7 @@ self-consistency tests alone cannot certify complete retail equivalence.
 `sf1_hd_presentation_probe` is a native diagnostic, not an independent oracle.
 It drives legal controller input, preserves the completed-scene queue and
 camera/background/point histories, and samples five render phases per requested
-gameplay interval. It uses the shipping default of disabled shadows and smooth
+gameplay interval. It uses the shipping default of smooth shadows and smooth
 polygon shading at 1280 by 720. It does not read custom `starfox.ini` settings.
 
 ```sh
@@ -67,6 +69,12 @@ of reporting successful capture. The probe deliberately does not run audio.
 
 ## Verification
 
+- After the bitmap/shadow follow-up, all 232 `sf-render` tests passed,
+  including the six-case bitmap readback regression and the smooth-shadow
+  test. The shadow test also passed after strengthening its spatial coverage
+  assertion. App config tests (2), app build, HD probe compile check, native
+  architecture check and `git diff --check` passed. Renderer suite log:
+  `/tmp/sf1-bitmap-shadow-tests-20260904.log`.
 - After the static intro repairs, `cargo test -p sf-render -p sf-audio`
   passed 258 tests, including five GPU/runtime tests, and `cargo build
   -p sf-app` passed. Log: `/tmp/sf1-static-intro-tests-20260904.log`.
