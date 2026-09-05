@@ -11,6 +11,7 @@ pub mod intro_controller;
 pub mod intro_destruction;
 pub mod intro_flyby;
 pub mod intro_free_craft;
+pub mod intro_late_target;
 pub mod intro_logo;
 pub mod intro_motion;
 pub mod intro_root;

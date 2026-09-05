@@ -627,6 +627,49 @@ Attached-child detachment, custom death callbacks and gameplay score/pickup
 policies are outside this independent-craft consumer and still require their
 own source-backed integration where applicable.
 
+## Later opening camera target and attached effect
+
+`intro_late_target.rs` now reconstructs the root's second camera target
+(`$44:FB08`) and its attached effect (`$44:FF98`) as a typed two-actor family.
+The target's authored table entry 15 supplies position `(-550, -220, 150)`
+and rotation `(20, 128, 0)`, replacing every inherited pose component. It
+selects itself as the camera's rotation target, spawns catalog shape 118 at
+local offset `(-500, 0, -3936)`, flies for 17 updates and holds for 30 before
+ending. Shape 118 is an original crossed-polygon flight effect, not a bitmap
+or a sampled animation track.
+
+Both actors double the already-truncated source flight velocity at speed 127;
+doubling the speed before direction conversion would not be equivalent. The
+effect retains zero local rotation and waits 15 updates before moving in its
+local frame. The parent publishes its world pose after its own movement and
+before the effect's local movement, preserving the one-update publication
+delay. Only equality with the fourth camera cut ends the effect: an earlier
+cut during the initial wait is not remembered, and a later cue is not treated
+as an implicit match.
+
+Parent End bypasses its motion/publication pass. Its surviving child still
+runs its strategy that update, then both are removed by cleanup. An external
+parent-removal request likewise does not cancel the current strategy, spawn,
+publication or child update. Finished state is retained but inert. The source
+keeps the last selected camera-target identity after removal, so the native
+family emits no invented target-clear event; resolving that retained identity
+belongs to the scene consumer.
+
+`sf2_intro_late_target` executes **176 full family comparisons**: eleven
+fourth-cut timings (including absent), sustained versus one-update cues, and
+eight parent-removal timings (including natural End). The parent is created
+by the original root/QuickSpawn with subtype 15 before isolation. Every update
+executes the unmodified original actor-list update, resume, attachment pass
+and cleanup, comparing both poses, local transforms, velocity, speed, shape,
+ownership, camera selection and lifetimes. Ambient scroll is varied to check
+that these actors do not consume it. Three ROM-free tests additionally protect
+publication lag, cue equality and final cleanup/idempotence.
+
+This verifies successful-allocation behavior of this family, not whole-scene
+capacity policy or its final rendered appearance. Root-wide scheduling,
+remaining craft/effect services and rendering integration still gate replacing
+the shipping recorded intro.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -644,7 +687,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
