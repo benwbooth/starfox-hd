@@ -835,8 +835,8 @@ target in isolation, not the surrounding craft's choreography or rendering.
 
 The second flyby's statically decoded graph has 299 reachable commands with
 no decoder failures, including its recursive attached actors, animation,
-auxiliary services and departures. The remaining parent/children must still
-be translated and composed; this graph count is reachability evidence, not
+auxiliary services and departures. The remaining children must still
+be translated and composed with the parent; this graph count is reachability evidence, not
 a completion certificate.
 
 ## Later flyby authored placements and attached trail
@@ -869,8 +869,35 @@ the primary attachment link. The remaining recursive-child implementation
 must preserve both relationships as typed identities; treating every link as
 the attachment owner would change subsequent linked-object selection.
 
-This checkpoint does not implement the second flyby parent's full state
-machine, its recursive attached children, departures or their scene rendering.
+## Later flyby parent choreography reconstructed
+
+`intro_second_flyby_craft::OpeningSecondFlybyCraft` translates the complete
+parent path `44:FDC2..FF43`: initial rocking, exact camera-cue gates, counted
+pitch/yaw/roll maneuvers, animation, speed approach, authored pose replacements
+and the persistent final hold. Counted-loop boundaries execute the final body
+and following commands in the same update. Speed approach retains its step
+for one additional update when subtraction reaches exactly zero.
+
+Ordered typed events describe six child constructions, two parent camera
+selections, child-control initialization and pitch settling, and seven sound
+markers. Attached construction preserves separate attachment groups and the
+chain's secondary parent relationship. Independent camera/wing constructions
+inherit the pose at the command, before common motion. The first sound kind
+uses the class-two spatial service; the remaining kinds use direct queuing.
+
+The focused parent comparison constructs this actor through the original root
+path, then executes its original strategy for 600 updates across five cue
+schedules and three listener configurations. It checks all pose and velocity
+channels, speed/approach state, animation, continuations, ordered child
+construction and attachment metadata, camera selection, child controls and
+ordered audio payloads. Three ROM-free tests protect immediate-cut ordering,
+missing-cue behavior and the completed path's persistent hold.
+
+This is a parent-only comparison: children are constructed by the original
+code but their strategies are deliberately not executed. Recursive attached
+children, wing departures, formation destruction composition and native scene
+scheduling/rendering remain unfinished. The shipping intro still uses recorded
+frames; this component does not establish a completed native intro or SF2 port.
 
 ## Reproduce without manual play
 
@@ -891,6 +918,7 @@ uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_camera_target'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby_craft'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_formation --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```

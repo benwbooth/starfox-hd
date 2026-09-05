@@ -19,6 +19,7 @@ pub mod intro_motion;
 pub mod intro_root;
 pub mod intro_second_camera_target;
 pub mod intro_second_flyby;
+pub mod intro_second_flyby_craft;
 pub mod intro_target;
 mod object;
 mod render;
