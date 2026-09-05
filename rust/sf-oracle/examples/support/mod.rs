@@ -62,7 +62,7 @@ const DIRECT_SHAPE_IDS: [(u16, u16); 21] = [
     (0xB101, 461),
     (0xB587, 465),
     (0xACF5, 2),
-    (0xADD5, 357),
+    (0xADD5, sf_render::shape_data::SHAPE_EXT_SMOKE),
     (0xAEED, sf_render::shape_data::SHAPE_EXT_BOUNCYBALL),
     (0xBB9C, 420),
     (0xBD78, sf_render::shape_data::SHAPE_EXT_TOW_1),

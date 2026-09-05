@@ -408,6 +408,23 @@ fn source_safe_interpolation_alpha(
     }
 }
 
+const SOURCE_SPRITE_FOCAL_LENGTH: f32 = 256.0;
+
+fn hd_sprite_world_size(world_size: f32, camera_depth: f32) -> Option<f32> {
+    if !camera_depth.is_finite()
+        || camera_depth <= f32::from(crate::source_projection::SCALED_SPRITE_NEAR_DEPTH)
+        || world_size <= 0.0
+    {
+        return None;
+    }
+    // MDSPRITE caps the projected square at 240 source pixels. Express the
+    // same limit in world units so HD output retains smooth positioning.
+    let maximum_world_size = camera_depth
+        * f32::from(crate::source_projection::SCALED_SPRITE_MAX_SIZE)
+        / SOURCE_SPRITE_FOCAL_LENGTH;
+    Some(world_size.min(maximum_world_size))
+}
+
 /// Build the camera-facing basis used by MARIO's `mssprite` path, then apply
 /// its signed source-size adjustment. Scaled sprites are screen-facing visual
 /// objects, so their object rotation is intentionally ignored.
@@ -417,7 +434,7 @@ fn apply_scaled_sprite_model(
     shapes: &ShapeStore,
     shape_id: u16,
     size_adjustment: u8,
-) {
+) -> bool {
     // The view basis is orthonormal (including the SNES-to-GL reflection), so
     // its transpose is the exact inverse. `view * model` therefore has an
     // identity rotation and the source XY sprite plane always faces camera.
@@ -451,6 +468,11 @@ fn apply_scaled_sprite_model(
         } else {
             world_size.max(0)
         };
+        let camera_depth =
+            -(view[2] * model[12] + view[6] * model[13] + view[10] * model[14] + view[14]);
+        let Some(world_size) = hd_sprite_world_size(f32::from(world_size), camera_depth) else {
+            return false;
+        };
         let bounds = shape.vertices.iter().fold(
             [
                 f32::INFINITY,
@@ -469,13 +491,14 @@ fn apply_scaled_sprite_model(
         );
         for (column, span) in [(0, bounds[1] - bounds[0]), (4, bounds[3] - bounds[2])] {
             if span > 0.0 {
-                let scale = f32::from(world_size) / span;
+                let scale = world_size / span;
                 for index in column..column + 3 {
                     model[index] *= scale;
                 }
             }
         }
     }
+    true
 }
 
 pub struct DrawListRenderer {
@@ -782,13 +805,15 @@ impl DrawListRenderer {
             transform.build_model_matrix_f(&mut model, interp.x, interp.y, interp.z, frx, fry, frz);
 
             if interp.flags & DL_FLAG_SCALED_SPRITE != 0 {
-                apply_scaled_sprite_model(
+                if !apply_scaled_sprite_model(
                     &mut model,
                     &view,
                     shapes,
                     interp.shape_id,
                     interp.tscroll_x,
-                );
+                ) {
+                    continue;
+                }
             }
 
             // MARIO MDRAWLIS.MC handles ASF_TEXTOBJ before shape lookup.
@@ -1221,7 +1246,10 @@ mod shadow_style_tests {
     #[test]
     fn shadow_opt_outs_remain_explicit() {
         assert_eq!(ShadowStyle::from_config_value(0), ShadowStyle::Disabled);
-        assert_eq!(ShadowStyle::from_config_value(2), ShadowStyle::RetailDithered);
+        assert_eq!(
+            ShadowStyle::from_config_value(2),
+            ShadowStyle::RetailDithered
+        );
     }
 }
 
@@ -1341,6 +1369,7 @@ mod projection_tests {
 
     #[test]
     fn scaled_sprite_cancels_a_rotated_camera_basis() {
+        const CAMERA_FORWARD_DISTANCE: f32 = 500.0;
         let mut shapes = ShapeStore::new();
         let mesh = crate::shape_data::SHAPE_DATA
             .iter()
@@ -1361,13 +1390,18 @@ mod projection_tests {
             DESTROYED_ROLL,
         );
 
-        apply_scaled_sprite_model(
+        // Put the sprite in front of this rotated camera. A world-space
+        // positive Z alone is not sufficient when yaw points backward.
+        model[12] = -view[2] * CAMERA_FORWARD_DISTANCE;
+        model[13] = -view[6] * CAMERA_FORWARD_DISTANCE;
+        model[14] = -view[10] * CAMERA_FORWARD_DISTANCE;
+        assert!(apply_scaled_sprite_model(
             &mut model,
             &view,
             &shapes,
             MEDIUM_EXPLOSION_SPRITE_SHAPE,
             PLAYER_SPRITE_SCALE_ADJUSTMENT,
-        );
+        ));
         let mut camera_space = [0.0; 16];
         crate::transform::multiply(&mut camera_space, &view, &model);
 
@@ -1393,6 +1427,7 @@ mod projection_tests {
     #[test]
     fn launch_sprite_width_uses_doubled_extent_and_signed_adjustment() {
         const BOOST_SHAPE: u16 = crate::shape_data::SHAPE_EXT_BOOSTSHAPE;
+        const SPRITE_DEPTH: f32 = 300.0;
         const BOOST_SIZE_CASES: [(u8, f32); 3] = [(0, 40.0), (255, 38.0), (251, 30.0)];
         let mesh = crate::shape_data::SHAPE_DATA
             .iter()
@@ -1404,7 +1439,14 @@ mod projection_tests {
         crate::transform::identity(&mut view);
         for (adjustment, expected_width) in BOOST_SIZE_CASES {
             let mut model = view;
-            apply_scaled_sprite_model(&mut model, &view, &shapes, BOOST_SHAPE, adjustment);
+            model[14] = -SPRITE_DEPTH;
+            assert!(apply_scaled_sprite_model(
+                &mut model,
+                &view,
+                &shapes,
+                BOOST_SHAPE,
+                adjustment
+            ));
             for (axis, scale) in [(0, model[0]), (1, model[5])] {
                 let coordinates: Vec<_> = mesh
                     .vertices
@@ -1419,5 +1461,30 @@ mod projection_tests {
                 assert!((span * scale - expected_width).abs() <= MATRIX_EPSILON);
             }
         }
+    }
+
+    #[test]
+    fn hd_sprite_limits_match_source_near_rejection_and_size_cap() {
+        const ORDINARY_SMOKE_WIDTH: f32 = 80.0;
+        const LARGE_SMOKE_WIDTH: f32 = 640.0;
+        const NEAR_DEPTH: f32 = 128.0;
+        const FAR_DEPTH: f32 = 1024.0;
+        const SAMPLE_DEPTH: f32 = 256.0;
+        const MAXIMUM_PROJECTED_SIZE: f32 = 240.0;
+        for depth in [-NEAR_DEPTH, 0.0, NEAR_DEPTH, f32::NAN] {
+            assert_eq!(hd_sprite_world_size(ORDINARY_SMOKE_WIDTH, depth), None);
+        }
+        assert_eq!(
+            hd_sprite_world_size(ORDINARY_SMOKE_WIDTH, NEAR_DEPTH + 1.0),
+            Some(ORDINARY_SMOKE_WIDTH)
+        );
+        assert_eq!(
+            hd_sprite_world_size(LARGE_SMOKE_WIDTH, SAMPLE_DEPTH),
+            Some(MAXIMUM_PROJECTED_SIZE)
+        );
+        assert_eq!(
+            hd_sprite_world_size(LARGE_SMOKE_WIDTH, FAR_DEPTH),
+            Some(LARGE_SMOKE_WIDTH)
+        );
     }
 }

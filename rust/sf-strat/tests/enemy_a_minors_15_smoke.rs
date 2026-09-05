@@ -5,9 +5,8 @@ use sf_game::alien::ASF3_REALOBJ;
 use sf_game::game::Game;
 use sf_strat::enemy_a::{strat_szaco2_init, strat_zaco3_init, ASF2_RELEXPLODE, SH_ZACO_8P};
 
-// Retail's runtime #smoke word ($ADD5) resolves to flat id 357 — same flat
-// id as fire (see sf-strat common::SH_SMOKE and the Corneria replay).
-const SH_SMOKE: u16 = 357;
+// Generated USHAPES.ASM smoke, distinct from the fire/burn-mark shape.
+const SH_SMOKE: u16 = 358;
 const SH_HOUDAI_0: u16 = 54; // zaco3 needs a houdai_0 target
 
 fn spawn_player(g: &mut Game, x: i16, y: i16, z: i16) {

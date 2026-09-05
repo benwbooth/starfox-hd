@@ -108,3 +108,50 @@ fn hd_launch_boost_matches_one_complete_upright_bitmap_at_each_size() {
         }
     }
 }
+
+#[test]
+fn hd_smoke_obeys_source_near_visibility_and_maximum_image_size() {
+    const SMOKE_COLOR_FRAME: u8 = 2;
+    const SOURCE_MAXIMUM_IMAGE_SIZE: f32 = 240.0;
+    const SOURCE_FRAME_HEIGHT: f32 = 224.0;
+    const EDGE_ROUNDING_ALLOWANCE: usize = 2;
+    const DEPTH_CASES: [(i32, bool); 4] = [(64, false), (128, false), (129, true), (256, true)];
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let config = config_from_repo_root(&root);
+    let mut renderer = Renderer::new_headless(WIDTH, HEIGHT, &config)
+        .expect("GPU required for smoke-size regression");
+    for (depth, visible) in DEPTH_CASES {
+        let draw = [DrawListEntry {
+            shape_id: shape_data::SHAPE_EXT_FOLSMOKE,
+            z: depth << 16,
+            flags: DL_FLAG_VISIBLE | DL_FLAG_SCALED_SPRITE,
+            col_frame: SMOKE_COLOR_FRAME,
+            obj_id: 1,
+            ..Default::default()
+        }];
+        renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+        renderer.begin_frame();
+        renderer.submit(&draw, &draw, 1.0, &FrameInputs::default());
+        renderer.end_frame();
+        let image = renderer.read_pixels_rgb();
+        let columns: Vec<_> = image
+            .chunks_exact(3)
+            .enumerate()
+            .filter(|(_, pixel)| *pixel != [0, 0, 0])
+            .map(|(index, _)| index % WIDTH as usize)
+            .collect();
+        assert_eq!(
+            !columns.is_empty(),
+            visible,
+            "smoke visibility at depth {depth}"
+        );
+        if let (Some(left), Some(right)) = (columns.iter().min(), columns.iter().max()) {
+            let maximum_width =
+                (SOURCE_MAXIMUM_IMAGE_SIZE * HEIGHT as f32 / SOURCE_FRAME_HEIGHT).ceil() as usize;
+            assert!(
+                right - left + 1 <= maximum_width + EDGE_ROUNDING_ALLOWANCE,
+                "smoke exceeded source image limit at depth {depth}"
+            );
+        }
+    }
+}

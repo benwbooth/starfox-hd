@@ -57,7 +57,7 @@ use crate::point_field::PointField;
 use crate::score;
 use crate::strings::Strings;
 use crate::vars::{
-    BossEncounter, GameVars, GF_PLAYERDEAD, HARD_HP, PFM_SHADOWS, PLAYER_DEATH_FADE_DELAY_TICKS,
+    BossEncounter, GameVars, BGF_RESTART, GF_PLAYERDEAD, HARD_HP, PFM_SHADOWS, PLAYER_DEATH_FADE_DELAY_TICKS,
     PSF2_PLAYERHP0, PSF3_ENGINESND, PSF_STAGE_DAMAGE, PSTF_NOTDIE, SPACE_MODE, STAY_BLACK_INACTIVE,
 };
 use crate::windows::{MapFadeRate, Windows, DISPLAY_BRIGHTNESS_MAX};
@@ -1872,7 +1872,13 @@ impl Shell {
     }
 
     fn next_gameplay_timing(&self) -> GameplayTickTiming {
-        gameplay_timing::timing_for_update(self.planets.newmap, self.game.vars.gameframe)
+        let restart_pending = self.game.vars.gameflags & GF_PLAYERDEAD != 0
+            || self.game.vars.bgflags & BGF_RESTART != 0;
+        gameplay_timing::timing_for_update_with_restart_context(
+            self.planets.newmap,
+            self.game.vars.gameframe,
+            restart_pending,
+        )
     }
 
     /// Source display refreshes represented by the next native shell update.
@@ -4913,6 +4919,25 @@ mod tests {
         );
         assert_eq!(shell.game.world.loaded_map_id, Some(map_id::M1_1));
         assert_eq!(shell.frame().gameframe, 0);
+    }
+
+    #[test]
+    fn live_shell_does_not_replay_neutral_death_wait_for_an_alive_player() {
+        let mut shell = into_gameplay();
+        shell.game.vars.gameframe = gameplay_timing::CORNERIA_CHECKPOINT_RESTART_FRAME;
+        shell.game.vars.gameflags &= !GF_PLAYERDEAD;
+        shell.game.vars.bgflags &= !BGF_RESTART;
+        let recorded = gameplay_timing::timing_for_update(
+            shell.planets.newmap,
+            shell.game.vars.gameframe,
+        );
+        assert!(recorded.presentation_refreshes > recorded.motion_refreshes);
+        assert_eq!(shell.next_tick_presentation_refreshes(), recorded.motion_refreshes);
+        shell.game.vars.gameflags |= GF_PLAYERDEAD;
+        assert_eq!(shell.next_tick_presentation_refreshes(), recorded.presentation_refreshes);
+        shell.game.vars.gameflags &= !GF_PLAYERDEAD;
+        shell.game.vars.bgflags |= BGF_RESTART;
+        assert_eq!(shell.next_tick_presentation_refreshes(), recorded.presentation_refreshes);
     }
 
     fn assert_planet_phase_duration(

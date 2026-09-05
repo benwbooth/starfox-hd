@@ -721,11 +721,9 @@ pub fn null_strat(_g: &mut Game, _idx: u16) {}
 
 // Stable extended-bank ids generated from the retail ShapeHdr records.
 const SH_FIRE: u16 = 357;
-// Retail's runtime `#smoke` shape word is $ADD5 (read off live smoke puffs,
-// semantic_trace RETAIL_DIRECT_SHAPE_SMOKE), which the certified direct map
-// resolves to flat id 357 — the same flat id as `fire` ($95A8). Retail
-// distinguishes the two effects by strategy/colanim, not by mesh word.
-const SH_SMOKE: u16 = 357;
+// USHAPES.ASM smoke uses smoke_C and extent 40 after coordinate scaling.
+// The neighboring fire/burn-mark shape has extent 188 and is not an alias.
+const SH_SMOKE: u16 = 358;
 
 /// Source-authored `s_make_smoke` / `s_damagesmoke` cadence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -128,7 +128,7 @@ const DIRECT_SHAPE_IDS: [(u16, u16); 14] = [
     (0xB101, 461), // small explosion sprite
     (0xB587, 465), // small explosion polygons
     (0xACF5, 2),   // medium explosion envelope
-    (0xADD5, 357), // smoke
+    (0xADD5, sf_render::shape_data::SHAPE_EXT_SMOKE),
     (0xBB9C, 420), // robot_0
     (0xC360, 351), // my_w
 ];

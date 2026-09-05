@@ -9,6 +9,9 @@ use sf_map::catalog::map_id;
 
 /// Source-authored baseline: one gameplay update every four 60 Hz refreshes.
 pub const BASELINE_GAMEPLAY_REFRESHES: u8 = 4;
+/// The recorded 103-refresh interval is the checkpoint-restart boundary.
+/// It is valid only when the live game is actually in its death/restart path.
+pub const CORNERIA_CHECKPOINT_RESTART_FRAME: u16 = 943;
 const CORNERIA_NEUTRAL_FIRST_MEASURED_FRAME: u16 = 0;
 const CORNERIA_NEUTRAL_LAST_MEASURED_FRAME: u16 = 982;
 const CORNERIA_NEUTRAL_MEASURED_FRAMES: usize =
@@ -117,6 +120,26 @@ pub fn timing_for_update(map: u32, game_frame: u16) -> GameplayTickTiming {
     GameplayTickTiming {
         motion_refreshes: CORNERIA_NEUTRAL_MOTION_REFRESHES[index],
         presentation_refreshes: CORNERIA_NEUTRAL_PRESENTATION_REFRESHES[index],
+    }
+}
+
+/// Apply the recorded restart-only presentation interval only when the live
+/// state is entering a checkpoint restart. The oracle arrays remain unchanged;
+/// this separates their neutral recording from other input paths that are
+/// alive at the same game-frame number.
+pub fn timing_for_update_with_restart_context(
+    map: u32,
+    game_frame: u16,
+    restart_pending: bool,
+) -> GameplayTickTiming {
+    let timing = timing_for_update(map, game_frame);
+    if map == map_id::M1_1 && game_frame == CORNERIA_CHECKPOINT_RESTART_FRAME && !restart_pending {
+        GameplayTickTiming {
+            presentation_refreshes: timing.motion_refreshes,
+            ..timing
+        }
+    } else {
+        timing
     }
 }
 

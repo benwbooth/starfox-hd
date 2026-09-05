@@ -12,8 +12,8 @@ use sf_strat::intro::{
     zaco_leader_intro_init, zaco_leader_intro_tick,
 };
 
-// Retail's runtime #smoke word ($ADD5) resolves to flat id 357.
-const SMOKE_SHAPE: u16 = 357;
+// Generated USHAPES.ASM smoke, distinct from the fire/burn-mark shape.
+const SMOKE_SHAPE: u16 = 358;
 const OLD_TYPE_SHAPE: u16 = 323;
 const NULL_SHAPE: u16 = 0;
 const CENTER_CRAFT_DAMAGED_PHASE: u8 = 2;

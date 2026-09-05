@@ -352,10 +352,7 @@ fn project_visibility_point(vertex: &ShapeVertex, pvm: &[f32; 16]) -> Option<[f6
     let clip_x = pvm[0] * vertex.x + pvm[4] * vertex.y + pvm[8] * vertex.z + pvm[12];
     let clip_y = pvm[1] * vertex.x + pvm[5] * vertex.y + pvm[9] * vertex.z + pvm[13];
     let clip_w = pvm[3] * vertex.x + pvm[7] * vertex.y + pvm[11] * vertex.z + pvm[15];
-    if !clip_x.is_finite()
-        || !clip_y.is_finite()
-        || !clip_w.is_finite()
-    {
+    if !clip_x.is_finite() || !clip_y.is_finite() || !clip_w.is_finite() {
         return None;
     }
 
@@ -396,8 +393,7 @@ fn face_is_camera_visible(shape: &GpuShape, face: &ShapeFace, pvm: &[f32; 16]) -
     // This determinant has the same sign as projected winding when all
     // points are in front, and remains defined at zero or mixed-sign depth.
     // GPU clipping still decides which part of the selected face is visible.
-    let signed_area = a[0] * (b[1] * c[2] - b[2] * c[1])
-        - a[1] * (b[0] * c[2] - b[2] * c[0])
+    let signed_area = a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
         + a[2] * (b[0] * c[1] - b[1] * c[0]);
     signed_area > 0.0
 }
@@ -972,11 +968,17 @@ impl ShapeStore {
                 let vi = face.vertex_indices[ordinal] as usize;
                 let v = shape.vertices.get(vi)?;
                 let [x, y] = coords[ordinal];
-                let x = x.wrapping_add(texture_scroll[0]);
-                let y = y.wrapping_add(texture_scroll[1]);
+                // Keep the scroll in the continuous vertex domain. The
+                // fragment shader applies the authored mask after linear
+                // interpolation; wrapping each endpoint as u8 first turns a
+                // small seam-crossing span (e.g. 250..258) into a long
+                // backward ramp (250..2), which makes textured faces shimmer
+                // as the scroll crosses a byte boundary.
+                let x = continuous_texture_coord(x, texture_scroll[0]);
+                let y = continuous_texture_coord(y, texture_scroll[1]);
                 out.push(Vertex3Tex {
                     pos: [v.x, v.y, v.z],
-                    tex_info: [x as f32, y as f32, offset as f32, mask as f32],
+                    tex_info: [x, y, offset as f32, mask as f32],
                 });
             }
         }
@@ -1193,7 +1195,13 @@ impl ShapeStore {
             return;
         };
         gpu.push_textured_tris(
-            &vertices, projection, view, model, palette, high_nibble, texture,
+            &vertices,
+            projection,
+            view,
+            model,
+            palette,
+            high_nibble,
+            texture,
         );
     }
 
@@ -1838,9 +1846,29 @@ impl ShapeStore {
                 if let Some((verts, texture, high_nibble)) =
                     self.textured_face_vertices(shape, face, material.unwrap(), texture_scroll)
                 {
+                    // BU_7 embeds its logo inside a larger coplanar wall;
+                    // MYBASE_0 uses matching outlines. Keep the backing
+                    // (texel zero is transparent),
+                    // but give only the later decal a tiny normalized-depth
+                    // preference so camera quantization cannot alternate
+                    // ownership between the two surfaces.
+                    let decal_over_backing = explosion_state == 0
+                        && i > 0
+                        && coplanar_decal_is_contained(&shape.vertices, face, &shape.faces[i - 1])
+                        && resolve_registered_face_material(
+                            shape,
+                            shape.faces[i - 1].color_index,
+                            col_frame,
+                            color_table,
+                        )
+                        .is_some_and(|word| word & 0xC000 != shapes::MATERIAL_COLTEXT_FLAG);
+                    let mut decal_proj = proj;
+                    if decal_over_backing {
+                        apply_depth_layer_bias(&mut decal_proj, 1);
+                    }
                     gpu.push_textured_tris(
                         &verts,
-                        &proj,
+                        &decal_proj,
                         &view,
                         &model,
                         &texture_palette,
@@ -1911,6 +1939,74 @@ impl ShapeStore {
     }
 }
 
+#[inline]
+fn continuous_texture_coord(authored: u8, scroll: u8) -> f32 {
+    f32::from(authored) + f32::from(scroll)
+}
+
+fn coplanar_decal_is_contained(
+    vertices: &[ShapeVertex],
+    decal: &ShapeFace,
+    backing: &ShapeFace,
+) -> bool {
+    if decal.normal != backing.normal
+        || !(3..=4).contains(&decal.num_verts)
+        || !(3..=4).contains(&backing.num_verts)
+    {
+        return false;
+    }
+    fn subtract(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+        std::array::from_fn(|axis| a[axis] - b[axis])
+    }
+    fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    }
+    fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+        a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    }
+    let point = |index: u16| {
+        let vertex = vertices[usize::from(index)];
+        [
+            f64::from(vertex.x),
+            f64::from(vertex.y),
+            f64::from(vertex.z),
+        ]
+    };
+    let wall = &backing.vertex_indices[..usize::from(backing.num_verts)];
+    let logo = &decal.vertex_indices[..usize::from(decal.num_verts)];
+    if wall
+        .iter()
+        .chain(logo)
+        .any(|&index| usize::from(index) >= vertices.len())
+    {
+        return false;
+    }
+    let origin = point(wall[0]);
+    let normal = cross(
+        subtract(point(wall[1]), origin),
+        subtract(point(wall[2]), origin),
+    );
+    if normal == [0.0; 3] {
+        return false;
+    }
+    // Generated source coordinates are exact integers. Test the authored
+    // plane before camera transforms, without a distance-based tolerance
+    // that could incorrectly promote a nearby but separate surface.
+    logo.iter().all(|&index| {
+        let vertex = point(index);
+        dot(normal, subtract(vertex, origin)) == 0.0
+            && (0..wall.len()).all(|edge| {
+                let start = point(wall[edge]);
+                let end = point(wall[(edge + 1) % wall.len()]);
+                dot(normal, cross(subtract(end, start), subtract(vertex, start))) >= 0.0
+            })
+    })
+}
+
 /// Give later source painter layers a constant normalized-depth preference.
 /// For the perspective matrix used by [`Transform`], `clip.w = -z` and the
 /// coefficient at index 10 multiplies the same camera-space z.  Adjusting
@@ -1931,13 +2027,13 @@ impl Default for ShapeStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        face_is_camera_visible, resolve_registered_face_material,
+        apply_depth_layer_bias, face_is_camera_visible, resolve_registered_face_material,
         resolve_registered_face_palette_pair, sf1_animation_frame_index,
         source_explosion_face_indices, source_lod_index, texture_address, texture_material_fields,
-        apply_depth_layer_bias, DEPTH_LAYER_STEP,
-        ShapeStore, RETAIL_REVISION_2_PILLAR_TEXEL, RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS,
-        SOURCE_TEX_BANK_01, TEXTURE_XY, TEX_BANK_01,
+        ShapeStore, DEPTH_LAYER_STEP, RETAIL_REVISION_2_PILLAR_TEXEL,
+        RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS, SOURCE_TEX_BANK_01, TEXTURE_XY, TEX_BANK_01,
     };
+    use super::{continuous_texture_coord, coplanar_decal_is_contained};
     use crate::shape_data::{ShapeFace, ShapeVertex};
     use crate::shapes;
     use sf_core::shape::sf2_shape_id;
@@ -2107,23 +2203,35 @@ mod tests {
         // Side wall: moving past its end must not make both sides visible.
         let mut front = visibility_test_shape(Some([0, 1, 2]));
         front.vertices = vec![
-            ShapeVertex { x: -1.0, y: -1.0, z: 1.0 },
-            ShapeVertex { x: -1.0, y: 1.0, z: 1.0 },
-            ShapeVertex { x: -1.0, y: 1.0, z: 3.0 },
+            ShapeVertex {
+                x: -1.0,
+                y: -1.0,
+                z: 1.0,
+            },
+            ShapeVertex {
+                x: -1.0,
+                y: 1.0,
+                z: 1.0,
+            },
+            ShapeVertex {
+                x: -1.0,
+                y: 1.0,
+                z: 3.0,
+            },
         ];
         let mut back = front.faces[0].clone();
         back.visibility_vertices = Some([0, 2, 1]);
         for eye_depth in [0.0, 0.5, 1.0, 1.5, 2.0] {
             let projection = [
-                1.0, 0.0, 0.0, 0.0,
-                0.0, 1.0, 0.0, 0.0,
-                0.0, 0.0, 1.0, 1.0,
-                0.0, 0.0, 0.0, -eye_depth,
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,
+                -eye_depth,
             ];
             let front_visible = face_is_camera_visible(&front, &front.faces[0], &projection);
             let back_visible = face_is_camera_visible(&front, &back, &projection);
-            assert_ne!(front_visible, back_visible,
-                "opposite side-wall selectors must not both draw at eye depth {eye_depth}");
+            assert_ne!(
+                front_visible, back_visible,
+                "opposite side-wall selectors must not both draw at eye depth {eye_depth}"
+            );
             assert!(!front_visible);
             assert!(back_visible);
         }
@@ -2223,6 +2331,38 @@ mod tests {
         // `add rspdata` does.  The old atlas-UV implementation returned
         // (0x17, row 0) instead of address 0x0117 here.
         assert_eq!(texture_address(0x00f8, 0x1f1f, 31, 0), 0x0117);
+    }
+
+    #[test]
+    fn hd_texture_scroll_keeps_vertex_span_continuous_across_byte_wrap() {
+        assert_eq!(continuous_texture_coord(0, 250), 250.0);
+        assert_eq!(continuous_texture_coord(8, 250), 258.0);
+        assert_eq!(
+            continuous_texture_coord(8, 250) - continuous_texture_coord(0, 250),
+            8.0
+        );
+    }
+
+    #[test]
+    fn authored_logo_decals_recognize_contained_and_matching_backings() {
+        const LOGO_PAIRS: &[(u16, &[usize])] = &[
+            (crate::shape_data::SHAPE_EXT_MYBASE_0, &[48, 50]),
+            (sf_map::consts::sh::BU_7, &[7]),
+        ];
+        for &(shape_id, backing_indices) in LOGO_PAIRS {
+            let shape = crate::shape_data::SHAPE_DATA
+                .iter()
+                .find(|shape| shape.shape_id == shape_id)
+                .unwrap();
+            for &index in backing_indices {
+                let backing = &shape.faces[index];
+                let decal = &shape.faces[index + 1];
+                assert!(coplanar_decal_is_contained(shape.vertices, decal, backing));
+                let mut displaced = shape.vertices.to_vec();
+                displaced[usize::from(decal.vertex_indices[0])].z += 1.0;
+                assert!(!coplanar_decal_is_contained(&displaced, decal, backing));
+            }
+        }
     }
 
     #[test]
