@@ -5,6 +5,9 @@ use sf2_game::intro_camera::{
     IntroCameraView, OpeningCameraCue, OpeningCameraPhase, OpeningCameraRig,
     OPENING_CAMERA_WAYPOINTS,
 };
+use sf2_game::intro_controller::{
+    IntroColor, OpeningSceneController, OpeningScenePalette, INTRO_PALETTE_COLORS,
+};
 use sf2_game::intro_logo::LogoSceneScroll;
 use sf2_game::intro_motion::AttractCameraAngles;
 use sf2_game::object::{allocate, CURRENT_OBJECT, FIELD_PATH, FIELD_STRATEGY, PLAYER_ONE};
@@ -28,6 +31,11 @@ const DEPTH_SCROLL: u16 = 0x1E20;
 const HORIZONTAL_POLICY: u16 = 0x6B77 + SELECTED_AUX;
 const WAYPOINT_INDEX: u16 = 0x2E;
 const MAX_UPDATES: usize = 180;
+const AUTHORED_UPDATES: usize = 460;
+const AUTHORED_SCHEDULE: usize = 0;
+const SCENE_DISPATCH: u32 = 0x0DBCCF;
+const SCENE_SCRIPT: u32 = 0x0DBEDF;
+const SCRIPT_POINTER: u16 = 0x6C13 + SELECTED_AUX;
 
 fn retail() -> Vec<u8> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -65,7 +73,9 @@ fn camera_waypoints_are_authored_rom_coordinates() {
 #[test]
 fn complete_opening_camera_path_matches_retail_cuts_waits_and_view_publication() {
     let rom = retail();
-    for cut_spacing in [1, 7, 20] {
+    // Zero selects the actual parallel controller, not a hand-seeded cue
+    // sequence. The remaining schedules deliberately stress equality gates.
+    for cut_spacing in [AUTHORED_SCHEDULE, 1, 7, 20] {
         for final_cut_early in [false, true] {
             for scrolling in [false, true] {
                 let origin = Vector3 {
@@ -99,6 +109,14 @@ fn complete_opening_camera_path_matches_retail_cuts_waits_and_view_publication()
                 exact.memory.write_word(PLAYER_ONE, VIEW);
                 exact.memory.write_word(VIEW + FIELD_PATH, SELECTED_AUX);
                 exact.memory.write_word(ROTATION_TARGET, TARGET);
+                let mut controller = OpeningSceneController::default();
+                let mut palette =
+                    OpeningScenePalette::new([IntroColor::default(); INTRO_PALETTE_COLORS]);
+                exact.memory.write_word(SCRIPT_POINTER, SCENE_SCRIPT as u16);
+                exact
+                    .memory
+                    .write_byte(SCRIPT_POINTER + 2, (SCENE_SCRIPT >> 16) as u8);
+                exact.memory.write_byte(SCENE_CUE, 1);
                 write_vector(&mut exact, object, POSITION, origin);
                 write_vector(&mut exact, VIEW, POSITION, view.position);
                 for (field, value) in
@@ -108,18 +126,33 @@ fn complete_opening_camera_path_matches_retail_cuts_waits_and_view_publication()
                 {
                     exact.memory.write_word(VIEW + field, value);
                 }
-                for update in 0..MAX_UPDATES {
-                    let cut = update.saturating_sub(2) / cut_spacing;
-                    let (cue, source_cue) = match cut {
-                        0 => (OpeningCameraCue::Opening, 1),
-                        1 => (OpeningCameraCue::FirstCut, 2),
-                        2 => (OpeningCameraCue::SecondCut, 3),
-                        3 => (OpeningCameraCue::ThirdCut, 4),
-                        _ if !final_cut_early && update < MAX_UPDATES - 20 => {
-                            (OpeningCameraCue::FourthCut, 5)
-                        }
-                        4 => (OpeningCameraCue::FourthCut, 5),
-                        _ => (OpeningCameraCue::FinalCut, 6),
+                let max_updates = if cut_spacing == AUTHORED_SCHEDULE {
+                    AUTHORED_UPDATES
+                } else {
+                    MAX_UPDATES
+                };
+                for update in 0..max_updates {
+                    let cue = if cut_spacing == AUTHORED_SCHEDULE {
+                        exact
+                            .run_retail_oracle_routine(SCENE_DISPATCH, VIEW)
+                            .unwrap();
+                        controller.tick(&mut palette);
+                        controller.cue()
+                    } else {
+                        let cut = update.saturating_sub(2) / cut_spacing;
+                        let (cue, source_cue) = match cut {
+                            0 => (OpeningCameraCue::Opening, 1),
+                            1 => (OpeningCameraCue::FirstCut, 2),
+                            2 => (OpeningCameraCue::SecondCut, 3),
+                            3 => (OpeningCameraCue::ThirdCut, 4),
+                            _ if !final_cut_early && update < MAX_UPDATES - 20 => {
+                                (OpeningCameraCue::FourthCut, 5)
+                            }
+                            4 => (OpeningCameraCue::FourthCut, 5),
+                            _ => (OpeningCameraCue::FinalCut, 6),
+                        };
+                        exact.memory.write_byte(SCENE_CUE, source_cue);
+                        cue
                     };
                     let scroll = if scrolling {
                         LogoSceneScroll {
@@ -135,7 +168,6 @@ fn complete_opening_camera_path_matches_retail_cuts_waits_and_view_publication()
                         y: (update as i16).wrapping_mul(-409),
                         z: (update as i16).wrapping_mul(149),
                     };
-                    exact.memory.write_byte(SCENE_CUE, source_cue);
                     exact
                         .memory
                         .write_word(HORIZONTAL_SCROLL, scroll.horizontal as u16);

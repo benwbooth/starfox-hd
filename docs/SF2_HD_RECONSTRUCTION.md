@@ -384,10 +384,42 @@ The opening stream contains 14 service records:
 - Intervals 169..185, 314..318 and 409..413 run the palette flash step;
   185..217, 324..356 and 417..449 restore toward the saved palette.
 
-Source `$0D:BCCF` dispatches the stream and advances its timer. The controller
-and palette services are recovered dependencies, **not yet implemented or
-integrated** into the shipping native intro. The new target and attachment
-components likewise do not replace the recorded production scene on their own.
+`intro_controller::OpeningSceneController` now implements the complete
+14-record stream with typed actions and the original ordering. It advances
+source-update counters, not display frames, emits the five camera cues and
+scene-transition request, and freezes both counters when the main timer
+saturates instead of wrapping and replaying the opening. The caller must
+withhold scene updates while the controller is suspended.
+
+`OpeningScenePalette` retains typed five-bit artwork colors, the saved palette,
+refresh request and three effect-policy booleans. It implements the logo ramp,
+warm flash and single/double restoration steps. Two easily missed source
+details are preserved: flash skips each palette row's first color but restore
+does not, and restoration clears policy flags only on the first **unchanged**
+step, not the step that first reaches the saved colors. The warm flash clamps
+green and blue to 28, including input values already above that limit.
+
+`sf2_intro_controller` independently executes unmodified source `$0D:BCCF`
+and its palette services. Verification includes:
+
+- All authored records and action order read directly from the ROM.
+- 24 complete 460-update runs: three palette patterns and all eight effect
+  policies, comparing every live/saved color, refresh and transition flags,
+  camera cue and both counters after each update.
+- Every one of the 32,768 valid BGR555 artwork colors through the flash.
+- All 1,024 source/target component pairs on each color channel through
+  restoration and its completion step.
+- A continuous 65,538-update run checking timer saturation and no replay.
+
+The camera differential suite also consumes the actual source controller
+alongside the typed controller over four 460-update cases, in addition to its
+12 adversarial cue schedules. This verifies component composition with the
+authored timings, not the complete scene's global actor scheduling.
+
+These controller, palette, target and attachment components are **implemented
+and tested but not integrated into the shipping native intro**. They do not
+replace the recorded production scene on their own. Root actor choreography,
+palette initialization, global scheduling and native rendering remain open.
 
 ## Reproduce without manual play
 
@@ -406,7 +438,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
