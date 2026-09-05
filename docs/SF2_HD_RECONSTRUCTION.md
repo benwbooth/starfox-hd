@@ -1136,6 +1136,11 @@ strategies together under two RNG seeds. The diagnostic example
 `sf2_opening_order_probe` prints boot-created list topology without replacing
 child strategies.
 
+Boot also retains player two (`$03FC`) at the active-list tail with a null
+strategy. The boot test checks that reservation at every sampled controller
+boundary. A native opening must retain both player slots in its capacity
+accounting, even though only player one dispatches the opening controller.
+
 Verification:
 
 ```sh

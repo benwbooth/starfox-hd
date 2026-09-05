@@ -20,6 +20,7 @@ fn main() {
         let word =
             |address: u16| u16::from_le_bytes([byte(address), byte(address.wrapping_add(1))]);
         let player = word(0x12C3);
+        let player_two = word(sf2_game::object::PLAYER_TWO);
         let auxiliary = word(player.wrapping_add(0x2B));
         let script = word(auxiliary.wrapping_add(0x6C13));
         let elapsed = word(auxiliary.wrapping_add(0x6C16));
@@ -47,7 +48,7 @@ fn main() {
             assert!(actors.len() <= 64);
             cursor = word(cursor);
         }
-        println!("video={frame} clock={} player={player:04X} aux={auxiliary:04X} elapsed={elapsed} cue={} saved_cursor={:04X} player_strategy={:02X}:{:04X} actors={actors:04X?}", byte(0xC4), byte(0x1D72), word(0x1942), byte(player.wrapping_add(0x1B)), word(player.wrapping_add(0x19)));
+        println!("video={frame} clock={} player={player:04X} player_two={player_two:04X} aux={auxiliary:04X} elapsed={elapsed} cue={} saved_cursor={:04X} player_strategy={:02X}:{:04X} actors={actors:04X?}", byte(0xC4), byte(0x1D72), word(0x1942), byte(player.wrapping_add(0x1B)), word(player.wrapping_add(0x19)));
         observed += 1;
         if observed == 20 {
             return;

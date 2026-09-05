@@ -56,6 +56,13 @@ fn boot_dispatches_opening_controller_from_the_shared_actor_pool() {
             previous = cursor;
             cursor = word(cursor);
         }
+        // Boot retains the inactive second player in the shared pool. It
+        // consumes a slot even though it has no opening strategy to dispatch.
+        let player_two = word(sf2_game::object::PLAYER_TWO);
+        assert_ne!(player_two, player);
+        assert_eq!(previous, player_two);
+        assert_eq!(word(player_two + FIELD_STRATEGY), 0);
+        assert_eq!(machine.peek8(0x7E0000 + u32::from(player_two) + 0x1B), 0);
         cursor = word(FREE_LIST);
         while cursor != 0 {
             assert!(sf2_game::object::object_index(cursor).is_some());
