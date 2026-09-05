@@ -13,6 +13,7 @@
 //! - `SF_DUMP_PPM=<path>` write one RGB PPM frame readback (at tick
 //!   `SF_DUMP_PPM_TICK`, default 220).
 
+mod app_icon;
 mod audio;
 mod config;
 mod input;
@@ -797,6 +798,7 @@ fn main() {
     let mut saved_sf2_progress = sf2.as_ref().map(|game| game.state().progress);
 
     // --- SDL init (main.c Init) ---
+    app_icon::configure_identity();
     let sdl = match sdl3::init() {
         Ok(s) => s,
         Err(e) => {
@@ -834,6 +836,8 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    app_icon::apply(&mut window);
 
     // wgpu renders into the SDL3 window's surface via raw-window-handle.
     // SAFETY: `window` outlives `gpu` (drop order is reverse of declaration),

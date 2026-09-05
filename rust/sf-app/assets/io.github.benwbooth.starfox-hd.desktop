@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Star Fox HD
+Comment=HD Rust port of the SNES Star Fox games
+Exec=starfox-hd-rs
+Icon=io.github.benwbooth.starfox-hd
+StartupWMClass=io.github.benwbooth.starfox-hd
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=Star Fox;Arwing;SNES;

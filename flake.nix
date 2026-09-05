@@ -83,6 +83,10 @@
           doCheck = false;
 
           postInstall = ''
+            install -Dm644 sf-app/assets/starfox-hd.png \
+              $out/share/icons/hicolor/512x512/apps/io.github.benwbooth.starfox-hd.png
+            install -Dm644 sf-app/assets/io.github.benwbooth.starfox-hd.desktop \
+              $out/share/applications/io.github.benwbooth.starfox-hd.desktop
             mkdir -p $out/share/starfox-hd/shaders
             cp sf-render/shaders/*.glsl $out/share/starfox-hd/shaders/ 2>/dev/null || true
           '';
