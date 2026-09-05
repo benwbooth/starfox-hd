@@ -683,6 +683,16 @@ first attached Arwing family: craft `$44:FCF2`, independently moving copy
 random sound helper `$44:DC00` and particle animation `$44:C520`. It composes
 common destruction instead of dropping actors when their health reaches zero.
 
+Each member now also exposes an individual actor update: attached craft and
+departing copy return split, burst or common-destruction requests, while flare
+publication and its timer are separate operations. Burst particles can be
+visited independently. The family wrapper uses these same actor methods, so
+the existing retail scheduler comparison covers their behavior. This removes
+the nested-family scheduling dependency for integration into a shared scene;
+it does not yet connect the first family to the whole-opening object pool or
+replace the production presentation path. The scene must allocate and visit
+requested children in source order and handle common death on its own visit.
+
 Updates below are relative to the attached craft's first strategy update:
 
 | Update | Source behavior |

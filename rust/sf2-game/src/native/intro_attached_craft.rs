@@ -113,7 +113,9 @@ impl OpeningBurstParticle {
         self.updates_left == 0
     }
 
-    fn tick(&mut self) {
+    /// Run one particle visit; the caller chooses whether its birth is visited
+    /// in this traversal or the next one.
+    pub fn tick(&mut self) {
         if !self.is_finished() {
             self.color_frame = (self.color_frame + 1) % BURST_UPDATES;
             self.updates_left -= 1;
@@ -209,7 +211,96 @@ pub struct OpeningAttachedCraft {
     pub phase: OpeningAttachedCraftPhase,
 }
 
+/// Requests made by one attached-craft strategy visit. The scene owns child
+/// allocation, burst callbacks and common destruction; none run implicitly.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct OpeningAttachedCraftStep {
+    pub split: bool,
+    pub emit_burst: bool,
+    pub request_destruction: bool,
+}
+
 impl OpeningAttachedCraft {
+    pub fn new(attachment: IntroAttachment) -> Self {
+        Self {
+            pose: IntroScenePose::default(),
+            attachment,
+            velocity: Vector3 {
+                x: 0,
+                y: 0,
+                z: ATTACHED_DEPTH_STEP,
+            },
+            style: OpeningCraftStyle::Initial,
+            phase: OpeningAttachedCraftPhase::WaitingForSplit {
+                updates_left: SPLIT_WAIT,
+            },
+        }
+    }
+
+    pub fn publish_from_parent(&mut self, parent: IntroScenePose) {
+        if self.is_visible() {
+            self.pose = self.attachment.world_pose(parent);
+        }
+    }
+
+    /// Advance only this actor. A split requests two children, without visiting
+    /// either; their birth-update scheduling belongs to the scene traversal.
+    /// Common destruction is requested on its own following strategy visit.
+    pub fn tick(
+        &mut self,
+        actor: ObjectId,
+        auxiliary: &mut IntroAuxiliaryEffect,
+    ) -> OpeningAttachedCraftStep {
+        let mut step = OpeningAttachedCraftStep::default();
+        loop {
+            match self.phase {
+                OpeningAttachedCraftPhase::WaitingForSplit { updates_left } if updates_left > 0 => {
+                    self.phase = OpeningAttachedCraftPhase::WaitingForSplit {
+                        updates_left: updates_left - 1,
+                    };
+                    break;
+                }
+                OpeningAttachedCraftPhase::WaitingForSplit { .. } => {
+                    self.style = OpeningCraftStyle::AttachedDeparture;
+                    self.phase = OpeningAttachedCraftPhase::Holding {
+                        updates_left: ATTACHED_HOLD,
+                    };
+                    step.split = true;
+                }
+                OpeningAttachedCraftPhase::Holding { updates_left } if updates_left > 0 => {
+                    self.phase = OpeningAttachedCraftPhase::Holding {
+                        updates_left: updates_left - 1,
+                    };
+                    break;
+                }
+                OpeningAttachedCraftPhase::Holding { .. } => {
+                    self.phase = OpeningAttachedCraftPhase::Emitting {
+                        updates_left: ATTACHED_BURSTS,
+                    };
+                }
+                OpeningAttachedCraftPhase::Emitting { updates_left } => {
+                    step.emit_burst = true;
+                    if updates_left == 0 {
+                        auxiliary.configure_flyby(actor, self.pose, FLYBY_EFFECT_RANGE);
+                        self.phase = OpeningAttachedCraftPhase::AwaitingDestruction;
+                    } else {
+                        self.phase = OpeningAttachedCraftPhase::Emitting {
+                            updates_left: updates_left - 1,
+                        };
+                    }
+                    break;
+                }
+                OpeningAttachedCraftPhase::AwaitingDestruction => {
+                    step.request_destruction = true;
+                    return step;
+                }
+                OpeningAttachedCraftPhase::Finished => return step,
+            }
+        }
+        self.attachment.advance(self.velocity);
+        step
+    }
+
     pub fn is_visible(&self) -> bool {
         self.phase != OpeningAttachedCraftPhase::Finished
     }
@@ -227,6 +318,30 @@ pub struct OpeningCraftFlare {
 }
 
 impl OpeningCraftFlare {
+    pub fn new() -> Self {
+        Self {
+            pose: IntroScenePose::default(),
+            attachment: FLARE_ATTACHMENT,
+            updates_left: FLARE_UPDATES,
+            finished: false,
+        }
+    }
+
+    pub fn publish_from_owner(&mut self, owner: IntroScenePose) {
+        if self.is_visible() {
+            self.pose = self.attachment.world_pose(owner);
+        }
+    }
+
+    /// Only the strategy timer advances here, never attachment publication.
+    pub fn tick(&mut self) {
+        if self.updates_left == 0 {
+            self.finished = true;
+        } else {
+            self.updates_left -= 1;
+        }
+    }
+
     pub fn is_visible(&self) -> bool {
         !self.finished
     }
@@ -235,6 +350,12 @@ impl OpeningCraftFlare {
     }
     pub const fn sort_depth_override(&self) -> Option<i16> {
         Some(FAR_SORT_DEPTH)
+    }
+}
+
+impl Default for OpeningCraftFlare {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -247,7 +368,92 @@ pub struct OpeningDepartingCraft {
     drift_left: u8,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct OpeningDepartingCraftStep {
+    /// Burst callbacks use the post-flight pose exposed by this visit.
+    pub emit_burst: bool,
+    pub request_destruction: bool,
+}
+
 impl OpeningDepartingCraft {
+    pub fn new(pose: IntroScenePose) -> Self {
+        Self {
+            pose,
+            velocity: Vector3 {
+                x: 0,
+                y: 0,
+                z: DEPARTURE_DEPTH_STEP,
+            },
+            shape: CRAFT_SHAPE,
+            phase: OpeningDepartingCraftPhase::Waiting {
+                updates_left: DEPARTURE_WAIT,
+            },
+            drift_left: 0,
+        }
+    }
+
+    pub fn tick(
+        &mut self,
+        actor: ObjectId,
+        auxiliary: &mut IntroAuxiliaryEffect,
+    ) -> OpeningDepartingCraftStep {
+        let mut step = OpeningDepartingCraftStep::default();
+        loop {
+            match self.phase {
+                OpeningDepartingCraftPhase::Waiting { updates_left } if updates_left > 0 => {
+                    self.phase = OpeningDepartingCraftPhase::Waiting {
+                        updates_left: updates_left - 1,
+                    };
+                    break;
+                }
+                OpeningDepartingCraftPhase::Waiting { .. } => {
+                    self.drift_left = DRIFT_CALLBACKS;
+                    self.phase = OpeningDepartingCraftPhase::Drifting {
+                        updates_left: DEPARTURE_DRIFT,
+                    };
+                }
+                OpeningDepartingCraftPhase::Drifting { updates_left } if updates_left > 0 => {
+                    self.phase = OpeningDepartingCraftPhase::Drifting {
+                        updates_left: updates_left - 1,
+                    };
+                    break;
+                }
+                OpeningDepartingCraftPhase::Drifting { .. } => {
+                    self.shape = NO_MESH;
+                    self.pose.position.x =
+                        self.pose.position.x.wrapping_add(DEPARTURE_LATERAL_SHIFT);
+                    auxiliary.configure_departure(actor, self.pose, DEPARTURE_EFFECT_RANGE);
+                    self.phase = OpeningDepartingCraftPhase::Emitting {
+                        updates_left: DEPARTURE_BURSTS,
+                    };
+                }
+                OpeningDepartingCraftPhase::Emitting { updates_left } => {
+                    step.emit_burst = true;
+                    self.phase = if updates_left == 0 {
+                        OpeningDepartingCraftPhase::AwaitingDestruction
+                    } else {
+                        OpeningDepartingCraftPhase::Emitting {
+                            updates_left: updates_left - 1,
+                        }
+                    };
+                    break;
+                }
+                OpeningDepartingCraftPhase::AwaitingDestruction => {
+                    step.request_destruction = true;
+                    return step;
+                }
+                OpeningDepartingCraftPhase::Finished => return step,
+            }
+        }
+        self.pose.position.z = self.pose.position.z.wrapping_add(self.velocity.z);
+        if self.drift_left > 0 {
+            self.pose.position.x = self.pose.position.x.wrapping_add(DRIFT_STEP.x);
+            self.pose.position.y = self.pose.position.y.wrapping_add(DRIFT_STEP.y);
+            self.drift_left -= 1;
+        }
+        step
+    }
+
     pub fn is_visible(&self) -> bool {
         self.shape != NO_MESH && !self.is_finished()
     }
@@ -288,19 +494,7 @@ pub struct OpeningAttachedCraftSequence {
 impl OpeningAttachedCraftSequence {
     pub fn new(craft_id: ObjectId, departing_id: ObjectId, attachment: IntroAttachment) -> Self {
         Self {
-            craft: OpeningAttachedCraft {
-                pose: IntroScenePose::default(),
-                attachment,
-                velocity: Vector3 {
-                    x: 0,
-                    y: 0,
-                    z: ATTACHED_DEPTH_STEP,
-                },
-                style: OpeningCraftStyle::Initial,
-                phase: OpeningAttachedCraftPhase::WaitingForSplit {
-                    updates_left: SPLIT_WAIT,
-                },
-            },
+            craft: OpeningAttachedCraft::new(attachment),
             departing: None,
             flare: None,
             craft_id,
@@ -401,13 +595,9 @@ impl OpeningAttachedCraftSequence {
         }
         let mut events = OpeningAttachedCraftEvents::default();
         let mut context = *context;
-        if self.craft.is_visible() {
-            self.craft.pose = self.craft.attachment.world_pose(parent);
-        }
+        self.craft.publish_from_parent(parent);
         if let Some(flare) = &mut self.flare {
-            if flare.is_visible() {
-                flare.pose = flare.attachment.world_pose(self.craft.pose);
-            }
+            flare.publish_from_owner(self.craft.pose);
         }
         // Existing common-death actors precede both craft in the active list.
         for family in self.destruction.iter_mut().rev() {
@@ -421,171 +611,55 @@ impl OpeningAttachedCraftSequence {
             burst.tick();
         }
 
-        let mut emit_attached = false;
-        loop {
-            match self.craft.phase {
-                OpeningAttachedCraftPhase::WaitingForSplit { updates_left } if updates_left > 0 => {
-                    self.craft.phase = OpeningAttachedCraftPhase::WaitingForSplit {
-                        updates_left: updates_left - 1,
-                    };
-                    break;
-                }
-                OpeningAttachedCraftPhase::WaitingForSplit { .. } => {
-                    Self::reserve(&mut context, 2)?;
-                    self.flare = Some(OpeningCraftFlare {
-                        pose: IntroScenePose::default(),
-                        attachment: FLARE_ATTACHMENT,
-                        updates_left: FLARE_UPDATES,
-                        finished: false,
-                    });
-                    self.departing = Some(OpeningDepartingCraft {
-                        pose: self.craft.pose,
-                        velocity: Vector3 {
-                            x: 0,
-                            y: 0,
-                            z: DEPARTURE_DEPTH_STEP,
-                        },
-                        shape: CRAFT_SHAPE,
-                        phase: OpeningDepartingCraftPhase::Waiting {
-                            updates_left: DEPARTURE_WAIT,
-                        },
-                        drift_left: 0,
-                    });
-                    self.craft.style = OpeningCraftStyle::AttachedDeparture;
-                    self.craft.phase = OpeningAttachedCraftPhase::Holding {
-                        updates_left: ATTACHED_HOLD,
-                    };
-                    events.split = true;
-                }
-                OpeningAttachedCraftPhase::Holding { updates_left } if updates_left > 0 => {
-                    self.craft.phase = OpeningAttachedCraftPhase::Holding {
-                        updates_left: updates_left - 1,
-                    };
-                    break;
-                }
-                OpeningAttachedCraftPhase::Holding { .. } => {
-                    self.craft.phase = OpeningAttachedCraftPhase::Emitting {
-                        updates_left: ATTACHED_BURSTS,
-                    };
-                }
-                OpeningAttachedCraftPhase::Emitting { updates_left } => {
-                    emit_attached = true;
-                    if updates_left == 0 {
-                        auxiliary.configure_flyby(
-                            self.craft_id,
-                            self.craft.pose,
-                            FLYBY_EFFECT_RANGE,
-                        );
-                        self.craft.phase = OpeningAttachedCraftPhase::AwaitingDestruction;
-                    } else {
-                        self.craft.phase = OpeningAttachedCraftPhase::Emitting {
-                            updates_left: updates_left - 1,
-                        };
-                    }
-                    break;
-                }
-                OpeningAttachedCraftPhase::AwaitingDestruction => {
-                    self.destroy(
-                        CRAFT_SHAPE,
-                        self.craft.pose.position,
-                        &mut context,
-                        &mut events,
-                    )?;
-                    self.craft.phase = OpeningAttachedCraftPhase::Finished;
-                    events.attached_retired = true;
-                    break;
-                }
-                OpeningAttachedCraftPhase::Finished => break,
-            }
+        // Reserve the split before advancing the strategy, preserving the
+        // wrapper's no-half-family behavior on insufficient capacity.
+        if self.craft.phase == (OpeningAttachedCraftPhase::WaitingForSplit { updates_left: 0 }) {
+            Self::reserve(&mut context, 2)?;
         }
-        if emit_attached {
-            self.emit(
+        let attachment_before = self.craft.attachment;
+        let step = self.craft.tick(self.craft_id, auxiliary);
+        if step.split {
+            self.flare = Some(OpeningCraftFlare::new());
+            self.departing = Some(OpeningDepartingCraft::new(self.craft.pose));
+            events.split = true;
+        }
+        if step.request_destruction {
+            self.destroy(
+                CRAFT_SHAPE,
+                self.craft.pose.position,
+                &mut context,
+                &mut events,
+            )?;
+            self.craft.phase = OpeningAttachedCraftPhase::Finished;
+            events.attached_retired = true;
+        }
+        if step.emit_burst {
+            if let Err(error) = self.emit(
                 self.craft.pose,
                 scene_phase,
                 random,
                 &mut context,
                 &mut events,
-            )?;
+            ) {
+                // The wrapper historically stops before local motion when
+                // its burst allocation fails. Preserve that error boundary.
+                self.craft.attachment = attachment_before;
+                return Err(error);
+            }
         }
-        if self.craft.is_visible() {
-            self.craft.attachment.advance(self.craft.velocity);
-        }
-
         if let Some(mut departing) = self.departing {
-            let mut emit_departing = false;
-            loop {
-                match departing.phase {
-                    OpeningDepartingCraftPhase::Waiting { updates_left } if updates_left > 0 => {
-                        departing.phase = OpeningDepartingCraftPhase::Waiting {
-                            updates_left: updates_left - 1,
-                        };
-                        break;
-                    }
-                    OpeningDepartingCraftPhase::Waiting { .. } => {
-                        departing.drift_left = DRIFT_CALLBACKS;
-                        departing.phase = OpeningDepartingCraftPhase::Drifting {
-                            updates_left: DEPARTURE_DRIFT,
-                        };
-                    }
-                    OpeningDepartingCraftPhase::Drifting { updates_left } if updates_left > 0 => {
-                        departing.phase = OpeningDepartingCraftPhase::Drifting {
-                            updates_left: updates_left - 1,
-                        };
-                        break;
-                    }
-                    OpeningDepartingCraftPhase::Drifting { .. } => {
-                        departing.shape = NO_MESH;
-                        departing.pose.position.x = departing
-                            .pose
-                            .position
-                            .x
-                            .wrapping_add(DEPARTURE_LATERAL_SHIFT);
-                        auxiliary.configure_departure(
-                            self.departing_id,
-                            departing.pose,
-                            DEPARTURE_EFFECT_RANGE,
-                        );
-                        departing.phase = OpeningDepartingCraftPhase::Emitting {
-                            updates_left: DEPARTURE_BURSTS,
-                        };
-                    }
-                    OpeningDepartingCraftPhase::Emitting { updates_left } => {
-                        emit_departing = true;
-                        departing.phase = if updates_left == 0 {
-                            OpeningDepartingCraftPhase::AwaitingDestruction
-                        } else {
-                            OpeningDepartingCraftPhase::Emitting {
-                                updates_left: updates_left - 1,
-                            }
-                        };
-                        break;
-                    }
-                    OpeningDepartingCraftPhase::AwaitingDestruction => {
-                        self.destroy(
-                            departing.shape,
-                            departing.pose.position,
-                            &mut context,
-                            &mut events,
-                        )?;
-                        departing.phase = OpeningDepartingCraftPhase::Finished;
-                        events.departing_retired = true;
-                        break;
-                    }
-                    OpeningDepartingCraftPhase::Finished => break,
-                }
+            let step = departing.tick(self.departing_id, auxiliary);
+            if step.request_destruction {
+                self.destroy(
+                    departing.shape,
+                    departing.pose.position,
+                    &mut context,
+                    &mut events,
+                )?;
+                departing.phase = OpeningDepartingCraftPhase::Finished;
+                events.departing_retired = true;
             }
-            if !departing.is_finished() {
-                departing.pose.position.z =
-                    departing.pose.position.z.wrapping_add(departing.velocity.z);
-                if departing.drift_left > 0 {
-                    departing.pose.position.x =
-                        departing.pose.position.x.wrapping_add(DRIFT_STEP.x);
-                    departing.pose.position.y =
-                        departing.pose.position.y.wrapping_add(DRIFT_STEP.y);
-                    departing.drift_left -= 1;
-                }
-            }
-            if emit_departing {
+            if step.emit_burst {
                 self.emit(
                     departing.pose,
                     scene_phase,
@@ -597,11 +671,7 @@ impl OpeningAttachedCraftSequence {
             self.departing = Some(departing);
         }
         if let Some(flare) = &mut self.flare {
-            if flare.updates_left == 0 {
-                flare.finished = true;
-            } else {
-                flare.updates_left -= 1;
-            }
+            flare.tick();
         }
         Ok(events)
     }
@@ -696,6 +766,123 @@ mod tests {
     };
 
     #[test]
+    fn standalone_attached_actor_requests_children_and_defers_common_death() {
+        let mut family = sequence();
+        let actor = family.craft_id;
+        let craft = &mut family.craft;
+        let mut auxiliary = IntroAuxiliaryEffect::default();
+        for _ in 0..SPLIT_WAIT {
+            craft.publish_from_parent(TARGET_TEST_POSE);
+            assert_eq!(
+                craft.tick(actor, &mut auxiliary),
+                OpeningAttachedCraftStep::default()
+            );
+        }
+        let published = craft.attachment.world_pose(TARGET_TEST_POSE);
+        craft.publish_from_parent(TARGET_TEST_POSE);
+        let step = craft.tick(actor, &mut auxiliary);
+        assert_eq!(
+            step,
+            OpeningAttachedCraftStep {
+                split: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!(craft.pose, published);
+        assert_eq!(
+            craft.phase,
+            OpeningAttachedCraftPhase::Holding {
+                updates_left: ATTACHED_HOLD - 1
+            }
+        );
+        assert!(family.departing.is_none() && family.flare.is_none());
+        for _ in 0..ATTACHED_HOLD - 1 {
+            assert_eq!(
+                craft.tick(actor, &mut auxiliary),
+                OpeningAttachedCraftStep::default()
+            );
+        }
+        for _ in 0..=ATTACHED_BURSTS {
+            assert_eq!(
+                craft.tick(actor, &mut auxiliary),
+                OpeningAttachedCraftStep {
+                    emit_burst: true,
+                    ..Default::default()
+                }
+            );
+        }
+        assert_eq!(craft.phase, OpeningAttachedCraftPhase::AwaitingDestruction);
+        let before = (*craft, auxiliary);
+        assert_eq!(
+            craft.tick(actor, &mut auxiliary),
+            OpeningAttachedCraftStep {
+                request_destruction: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!((*craft, auxiliary), before);
+    }
+
+    #[test]
+    fn standalone_departing_actor_emits_after_motion_and_defers_common_death() {
+        let actor = sequence().departing_id;
+        let mut craft = OpeningDepartingCraft::new(TARGET_TEST_POSE);
+        let mut auxiliary = IntroAuxiliaryEffect::default();
+        for _ in 0..DEPARTURE_WAIT + DEPARTURE_DRIFT {
+            assert_eq!(
+                craft.tick(actor, &mut auxiliary),
+                OpeningDepartingCraftStep::default()
+            );
+        }
+        assert_eq!(craft.shape, CRAFT_SHAPE);
+        for _ in 0..=DEPARTURE_BURSTS {
+            let before = craft.pose.position;
+            assert_eq!(
+                craft.tick(actor, &mut auxiliary),
+                OpeningDepartingCraftStep {
+                    emit_burst: true,
+                    ..Default::default()
+                }
+            );
+            assert_eq!(
+                craft.pose.position.z,
+                before.z.wrapping_add(DEPARTURE_DEPTH_STEP)
+            );
+            assert_eq!(craft.shape, NO_MESH);
+        }
+        assert_eq!(craft.phase, OpeningDepartingCraftPhase::AwaitingDestruction);
+        let before = (craft, auxiliary);
+        assert_eq!(
+            craft.tick(actor, &mut auxiliary),
+            OpeningDepartingCraftStep {
+                request_destruction: true,
+                ..Default::default()
+            }
+        );
+        assert_eq!((craft, auxiliary), before);
+    }
+
+    #[test]
+    fn standalone_flare_keeps_publication_separate_from_its_lifetime() {
+        let mut flare = OpeningCraftFlare::new();
+        flare.tick();
+        assert_eq!(flare.pose, IntroScenePose::default());
+        flare.publish_from_owner(TARGET_TEST_POSE);
+        let pose = flare.pose;
+        for _ in 1..FLARE_UPDATES {
+            flare.tick();
+            assert!(flare.is_visible());
+            assert_eq!(flare.pose, pose);
+        }
+        flare.tick();
+        assert!(!flare.is_visible());
+        let before = flare;
+        flare.publish_from_owner(IntroScenePose::default());
+        flare.tick();
+        assert_eq!(flare, before);
+    }
+
+    #[test]
     fn insufficient_split_capacity_is_an_error_without_half_a_family() {
         let mut sequence = sequence();
         let mut random = RandomState::default();
@@ -720,6 +907,48 @@ mod tests {
             }
         );
         assert!(sequence.flare.is_none() && sequence.departing.is_none());
+    }
+
+    #[test]
+    fn failed_attached_burst_stops_before_local_motion_and_randomness() {
+        let mut sequence = sequence();
+        sequence.craft.phase = OpeningAttachedCraftPhase::Emitting { updates_left: 0 };
+        let attachment = sequence.craft.attachment;
+        let mut random = RandomState::default();
+        let original_random = random;
+        let mut auxiliary = IntroAuxiliaryEffect::default();
+        let error = sequence
+            .tick(
+                TARGET_TEST_POSE,
+                0,
+                &mut random,
+                &mut auxiliary,
+                &IntroDestructionContext {
+                    available_slots: 0,
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert_eq!(
+            error,
+            IntroDestructionCapacityError {
+                required_slots: 1,
+                available_slots: 0
+            }
+        );
+        assert_eq!(sequence.craft.attachment, attachment);
+        assert_eq!(random, original_random);
+        assert_eq!(
+            sequence.craft.phase,
+            OpeningAttachedCraftPhase::AwaitingDestruction
+        );
+        let mut expected_auxiliary = IntroAuxiliaryEffect::default();
+        expected_auxiliary.configure_flyby(
+            sequence.craft_id,
+            sequence.craft.pose,
+            FLYBY_EFFECT_RANGE,
+        );
+        assert_eq!(auxiliary, expected_auxiliary);
     }
 
     #[test]
