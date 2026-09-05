@@ -325,6 +325,70 @@ edge cases, including subtraction overflow and coincident positions.
 This reconstructs the camera rig, not its surrounding target actor, scene
 controller or renderer. The shipping intro still uses the recorded track.
 
+## Native opening camera target and attached poses
+
+`intro_motion::IntroAttachment` publishes a world pose from retained local
+coordinates using the complete source attachment transform. Source `$7F:2229`
+calls the GSU matrix builder `$01:92BC`, **not** the view-matrix builder
+`$01:9191`. Negating/transposing the existing camera matrix, or successively
+rotating a point, is not equivalent under the source's per-product rounding.
+All 1,280 combined-rotation/offset cases match the complete original routine,
+including its matrix construction, point transform, translation wrapping and
+local rotation addition.
+
+`intro_target::OpeningCameraTarget` reconstructs the complete `$44:FAB2`
+attached target path through its removal at `$FB07`:
+
+- Select itself as the camera target and wait 100 updates at local depth 300.
+- Find the nearest eligible catalog-64 actor using the source X/Z distance
+  approximation, a strict 7,000-unit upper limit and active-list tie order.
+  Height affects aim but not target selection; negative overflowed distances
+  are excluded. Missing targets preserve the source orientation behavior.
+- Retain the attachment parent while temporarily aiming at the chosen actor,
+  copy the coarse pitch/yaw into the local orientation, fly at speed 50 with
+  an additional -5 lateral velocity for 20 updates, then stop.
+- Once the opening cue changes, replace the local offset with (-500, 0, 300),
+  wait five updates and aim at a catalog-338 actor. The final iteration of its
+  30-update flight loop falls through into the cue gate immediately.
+- Removal skips local-velocity integration. Parent pose publication occurs
+  before the child's own update; local movement becomes visible on the next
+  parent pass, not immediately after the child moves.
+
+The full actor-list differential test covers 32 lifetimes with rotating/static
+parents, early/late cues, absent, tied, differently spaced and out-of-range
+targets. Each update compares world/local poses, speed, velocity, retained
+aim identity, parent link, camera selection, path cursor and removal.
+
+## Recovered parallel scene controller
+
+The eight-byte scene installer record contains more than an actor path.
+`$06:A94A..A955` copies the neighboring three-byte pointer into the selected
+player's timed controller. For boot record six the complete record is
+`11 FA DF BE 0D 00 00 00`: actor path `$44:FA11` and companion stream
+`$0D:BEDF`. The actor path graph cannot establish coverage of this stream.
+
+`tools/sf2/disasm/extract_intro_controller.py` now decodes that companion
+directly from the source table, with installer and dispatcher signature
+checks, explicit condition kinds and stream bounds. It preserves service
+order and unsigned comparisons; intervals have exclusive upper bounds.
+Unknown conditions and invalid/truncated pointers fail closed.
+
+The opening stream contains 14 service records:
+
+- At update 14, `$0D:CF2A` saves the current palette and replaces four authored
+  color-ramp entries. Updates 107..139 call the palette-restore step twice.
+- At updates **182, 249, 293, 327 and 416**, `$0D:C82F` increments the scene
+  cue and resets its local timer. These are authored timings, not Mesen pose
+  samples or values invented by a differential harness.
+- At update 441, `$0D:CA18` sets the scene-transition request.
+- Intervals 169..185, 314..318 and 409..413 run the palette flash step;
+  185..217, 324..356 and 417..449 restore toward the saved palette.
+
+Source `$0D:BCCF` dispatches the stream and advances its timer. The controller
+and palette services are recovered dependencies, **not yet implemented or
+integrated** into the shipping native intro. The new target and attachment
+components likewise do not replace the recorded production scene on their own.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -341,7 +405,8 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   /path/to/sf2_intro_scene_trace.txt \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 

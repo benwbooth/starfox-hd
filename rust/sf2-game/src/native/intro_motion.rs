@@ -6,11 +6,97 @@
 
 use super::object::{Angle, Vector3};
 use super::render::Rotation;
+use sf_core::snes_trig::{cos_q15, gsu_fmult_q15 as multiply_q15, matrix_rotate_q15, sin_q15};
 
 const ANGLE_FRACTION_BITS: u32 = 8;
 const TITLE_VIEW_FINE_YAW: u16 = 49_152;
 const ANGLE_CHASE_DIVISOR: i16 = 8;
 const INTRO_ROLL_CHASE_DIVISOR: i16 = 4;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct IntroScenePose {
+    pub position: Vector3,
+    pub rotation: Rotation,
+}
+
+/// Retained attachment coordinates are independent of the published world
+/// pose. Their velocity is integrated after the parent's pose publication.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct IntroAttachment {
+    pub offset: Vector3,
+    pub rotation: Rotation,
+}
+
+impl IntroAttachment {
+    pub fn world_pose(self, parent: IntroScenePose) -> IntroScenePose {
+        let (x, y, z) = matrix_rotate_q15(
+            attachment_matrix(parent.rotation),
+            self.offset.x,
+            self.offset.y,
+            self.offset.z,
+        );
+        IntroScenePose {
+            position: Vector3 {
+                x: parent.position.x.wrapping_add(x),
+                y: parent.position.y.wrapping_add(y),
+                z: parent.position.z.wrapping_add(z),
+            },
+            rotation: Rotation {
+                pitch: parent
+                    .rotation
+                    .pitch
+                    .wrapping_add(self.rotation.pitch.units() as i8),
+                yaw: parent
+                    .rotation
+                    .yaw
+                    .wrapping_add(self.rotation.yaw.units() as i8),
+                roll: parent
+                    .rotation
+                    .roll
+                    .wrapping_add(self.rotation.roll.units() as i8),
+            },
+        }
+    }
+
+    pub fn advance(&mut self, velocity: Vector3) {
+        self.offset.x = self.offset.x.wrapping_add(velocity.x);
+        self.offset.y = self.offset.y.wrapping_add(velocity.y);
+        self.offset.z = self.offset.z.wrapping_add(velocity.z);
+    }
+}
+
+/// Attachment rotation uses a different composition from view rotation.
+/// Build the complete fixed-point matrix before transforming the point;
+/// separate successive rotations have different truncation.
+fn attachment_matrix(rotation: Rotation) -> [[i16; 3]; 3] {
+    let pitch_sine = sin_q15(rotation.pitch.units());
+    let pitch_cosine = cos_q15(rotation.pitch.units());
+    let yaw_sine = sin_q15(rotation.yaw.units());
+    let yaw_cosine = cos_q15(rotation.yaw.units());
+    let roll_sine = sin_q15(rotation.roll.units());
+    let roll_cosine = cos_q15(rotation.roll.units());
+    let cosine_sine = multiply_q15(roll_cosine, yaw_sine);
+    let cosine_cosine = multiply_q15(roll_cosine, yaw_cosine);
+    let sine_sine = multiply_q15(roll_sine, yaw_sine);
+    let sine_cosine = multiply_q15(roll_sine, yaw_cosine);
+    [
+        [
+            cosine_cosine.wrapping_sub(multiply_q15(sine_sine, pitch_sine)),
+            multiply_q15(pitch_cosine, roll_sine).wrapping_neg(),
+            multiply_q15(sine_cosine, pitch_sine).wrapping_add(cosine_sine),
+        ],
+        [
+            multiply_q15(cosine_sine, pitch_sine).wrapping_add(sine_cosine),
+            multiply_q15(pitch_cosine, roll_cosine),
+            sine_sine.wrapping_sub(multiply_q15(cosine_cosine, pitch_sine)),
+        ],
+        [
+            multiply_q15(pitch_cosine, yaw_sine).wrapping_neg(),
+            pitch_sine,
+            multiply_q15(pitch_cosine, yaw_cosine),
+        ],
+    ]
+}
 
 /// The attract camera keeps a fractional angle for every axis. This is
 /// distinct from the selected player's retained, integral-roll orientation.

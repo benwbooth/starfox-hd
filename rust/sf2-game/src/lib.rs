@@ -6,7 +6,7 @@
 
 mod native;
 
-pub use native::{intro_camera, intro_logo, intro_motion};
+pub use native::{intro_camera, intro_logo, intro_motion, intro_target};
 pub use native::{
     Angle, AnimationState, AstropolisBranch, AstropolisCoreSpike, AstropolisEye, AstropolisEyes,
     AstropolisMissionState, AstropolisPhase, AudioOutput, AudioState, Behavior, Button, Buttons,
