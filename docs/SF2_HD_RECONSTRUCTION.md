@@ -839,6 +839,39 @@ auxiliary services and departures. The remaining parent/children must still
 be translated and composed; this graph count is reachability evidence, not
 a completion certificate.
 
+## Later flyby authored placements and attached trail
+
+`intro_second_flyby` now contains the four typed placements used by the parent
+and its departing craft: source indices 16–19 from `44:BDAA..BDCE`, backed by
+the six position/rotation tables at `07:FECC`, `07:FF0A`, `07:FF48`, `07:FF86`,
+`07:FFA5` and `07:FFC4`. All six pose channels are replaced by that helper,
+including roll; this differs from the formation helper, which leaves roll
+alone. The tests check each channel directly against the original tables.
+
+The attached trail spawned at `44:FE58` is a separate native actor with shape
+119, local offset `(0, 30, -984)` and the source depth offset 5. Its script
+`44:FF8D..FF97` adds 100 to local depth twenty times, then Ends in the same
+update as the final increment. World pose publication belongs to the parent's
+earlier attachment pass, so local motion does not immediately redraw a new
+world pose. The completed actor neither republishes nor restarts.
+
+Four focused comparisons execute the original spawn command, constructor,
+parent waiting loop and child path with stationary/rotating and ordinary/
+wrapping parent inputs. They verify all local/world pose channels, shape,
+depth policy, path continuation and End timing. A ROM-free test additionally
+protects birth-before-publication and terminal idempotence. Birth ordering in
+the complete naturally scheduled flyby still needs scene-level verification.
+
+Static review of the inline code at `44:FDDC` and `44:F9A1` identifies an
+additional required relationship: both write the current actor as the newly
+spawned child's secondary link (original child field `1C`), independently of
+the primary attachment link. The remaining recursive-child implementation
+must preserve both relationships as typed identities; treating every link as
+the attachment owner would change subsequent linked-object selection.
+
+This checkpoint does not implement the second flyby parent's full state
+machine, its recursive attached children, departures or their scene rendering.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -857,6 +890,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_camera_target'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_formation --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
