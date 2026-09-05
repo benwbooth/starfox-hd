@@ -53,7 +53,10 @@ pub struct DrawRecord {
     pub depth_offset: u8,
     pub texture_scroll_x: u8,
     pub texture_scroll_y: u8,
-    /// New SF2 object extension `$1CEF`; its GSU consumer is not yet named.
+    /// Clipping-plane selector from object extension `$1CEF`. Zero disables
+    /// clipping; nonzero selects a scene plane (including shape command `$68`).
+    /// The GSU copies it to `$24DE` at `$01:D1BD` and applies the plane in
+    /// `$01:F2FA/$01:F379/$01:F3A6` before polygon rasterization.
     pub field_1e: u8,
     /// Byte `$1F`; not written by the list builder.
     pub reserved_1f: u8,

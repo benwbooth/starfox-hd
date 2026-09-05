@@ -219,14 +219,14 @@ pub enum LogoLayer {
     Secondary,
 }
 
-/// The source selects two special drawing policies during assembly, then
-/// restores normal drawing for the departing primary layer. Their GSU
-/// rasterization still needs a renderer-side reconstruction.
+/// Each assembly layer keeps one side of the sweep object's clipping plane.
+/// Departure removes clipping from the surviving primary layer. These are
+/// geometric clipping selections, independent of the material override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LogoDrawStyle {
+pub enum LogoClipping {
     PrimaryAssembly,
     SecondaryAssembly,
-    Normal,
+    Unclipped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -352,7 +352,7 @@ pub struct NintendoLogoActor {
     pub depth_offset: u8,
     pub material_override: Option<MaterialSetId>,
     pub texture_scroll_y: u8,
-    pub draw_style: LogoDrawStyle,
+    pub clipping: LogoClipping,
     pub exit_policy: LogoExitPolicy,
     phase: LogoActorPhase,
     reveal_updates_left: u8,
@@ -378,10 +378,10 @@ impl NintendoLogoActor {
             },
             material_override: primary.then_some(LOGO_MATERIAL),
             texture_scroll_y: 0,
-            draw_style: if primary {
-                LogoDrawStyle::PrimaryAssembly
+            clipping: if primary {
+                LogoClipping::PrimaryAssembly
             } else {
-                LogoDrawStyle::SecondaryAssembly
+                LogoClipping::SecondaryAssembly
             },
             exit_policy: LogoExitPolicy::Disperse,
             phase: LogoActorPhase::Arriving(LogoArrivalPhase::Approaching {
@@ -438,7 +438,7 @@ impl NintendoLogoActor {
                 self.pitch_spin =
                     (random.next_byte() & SPIN_RANDOM_MASK) as i8 + SPIN_RANDOM_ORIGIN;
                 self.yaw_spin = (random.next_byte() & SPIN_RANDOM_MASK) as i8 + SPIN_RANDOM_ORIGIN;
-                self.draw_style = LogoDrawStyle::Normal;
+                self.clipping = LogoClipping::Unclipped;
                 self.phase = LogoActorPhase::Dispersing {
                     updates_left: DEPARTURE_UPDATES,
                 };

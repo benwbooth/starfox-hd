@@ -42,6 +42,7 @@ mod sf2_aim_sight;
 mod sf2_backdrop;
 mod sf2_briefing;
 mod sf2_carrier_backdrop;
+pub mod sf2_clipping;
 mod sf2_eladard_interior_backdrop;
 mod sf2_eladard_surface_backdrop;
 mod sf2_ending;

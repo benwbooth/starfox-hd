@@ -62,8 +62,11 @@ MVAL_QUIT = 0x48
 MVAL_VNORMALS = 0x4C
 MVAL_SPRITE = 0x50
 MVAL_SPRITEVIS = 0x54
-# SF2 procedural one-point effect command.  It has no polygon face records.
-MVAL_PROCEDURAL = 0x68
+# SF2 shape command installs a clipping plane from two local-space points.
+# Dispatch $01:8068 jumps to $01:F0AD; it consumes slot + six signed words.
+MVAL_CLIP_PLANE = 0x68
+CLIP_PLANE_RECORD_SIZE = 14
+CLIP_PLANE_SLOT_COUNT = 8
 
 
 class ShapeParseError(RuntimeError):
@@ -85,6 +88,13 @@ class Face:
     color_index: int
     normal: tuple[int, int, int]
     vertex_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class ClipPlane:
+    slot: int
+    origin: Vertex
+    direction_point: Vertex
 
 
 @dataclass(frozen=True)
@@ -113,7 +123,7 @@ class Shape:
     vertices: tuple[Vertex, ...]
     animation_frames: tuple[tuple[Vertex, ...], ...]
     faces: tuple[Face, ...]
-    procedural: bool
+    clipping_planes: tuple[ClipPlane, ...]
 
 
 def s8(value: int) -> int:
@@ -285,9 +295,9 @@ def _face_program_target(data: bytes, bank: int, pointer: int) -> int:
     return gsu_to_file(data, (bank << 16) | (pointer & 0xFFFF))
 
 
-def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], bool]:
+def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], tuple[ClipPlane, ...]]:
     if address == 0:
-        return (), False
+        return (), ()
 
     bank = (address >> 16) & 0xFF
     pending: list[
@@ -295,11 +305,13 @@ def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], bool]:
     ] = [(gsu_to_file(data, address), None)]
     visited: set[int] = set()
     faces: list[Face] = []
-    procedural = False
+    clipping_planes: list[ClipPlane] = []
 
     while pending:
         cursor, visibility_tests = pending.pop()
         while cursor not in visited:
+            if not 0 <= cursor < len(data):
+                raise ShapeParseError(f"unterminated face program from ${address:06X}")
             if len(visited) >= 65536:
                 raise ShapeParseError(f"face program from ${address:06X} exceeded step limit")
             visited.add(cursor)
@@ -393,28 +405,39 @@ def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], bool]:
             if opcode == MVAL_SPRITEVIS:
                 cursor += 5
                 continue
-            if opcode == MVAL_PROCEDURAL:
-                # Two retail one-point effect shapes use this non-polygon
-                # renderer.  Preserve that classification instead of
-                # fabricating faces.
-                procedural = True
-                break
+            if opcode == MVAL_CLIP_PLANE:
+                if cursor + CLIP_PLANE_RECORD_SIZE > len(data):
+                    raise ShapeParseError(f"truncated clipping plane at ROM file ${cursor:06X}")
+                slot = data[cursor + 1]
+                if not 1 <= slot <= CLIP_PLANE_SLOT_COUNT:
+                    raise ShapeParseError(f"invalid clipping-plane slot {slot} at ROM file ${cursor:06X}")
+                clipping_planes.append(ClipPlane(
+                    slot,
+                    Vertex(*(s16(data, cursor + offset) for offset in (2, 4, 6))),
+                    Vertex(*(s16(data, cursor + offset) for offset in (8, 10, 12))),
+                ))
+                # This is a continuing command. Stopping here discarded the
+                # paired opposing plane and could conceal unknown tail code.
+                cursor += CLIP_PLANE_RECORD_SIZE
+                continue
 
             raise ShapeParseError(
                 f"unknown face opcode ${opcode:02X} at ROM file ${cursor:06X} "
                 f"(root ${address:06X})"
             )
 
-    return tuple(faces), procedural
+    return tuple(faces), tuple(clipping_planes)
 
 
 def extract_shapes(data: bytes) -> list[Shape]:
+    if data[0x8068:0x806C] != bytes.fromhex("ffadf001"):
+        raise ShapeParseError("clipping-plane dispatch signature mismatch")
     shapes: list[Shape] = []
     for header in parse_headers(data):
         vertex_frames = parse_vertex_frames(data, header.points_address)
         vertices = vertex_frames[0]
         animation_frames = vertex_frames if len(vertex_frames) > 1 else ()
-        faces, procedural = parse_faces(data, header.faces_address)
+        faces, clipping_planes = parse_faces(data, header.faces_address)
         for frame_index, frame in enumerate(vertex_frames):
             for face_index, face in enumerate(faces):
                 for vertex_index in face.vertex_indices:
@@ -424,7 +447,7 @@ def extract_shapes(data: bytes) -> list[Shape]:
                             f"{face_index} references vertex {vertex_index}, but only "
                             f"{len(frame)} exist"
                         )
-        shapes.append(Shape(header, vertices, animation_frames, faces, procedural))
+        shapes.append(Shape(header, vertices, animation_frames, faces, clipping_planes))
     return shapes
 
 
@@ -455,6 +478,15 @@ def emit_rust(shapes: list[Shape]) -> None:
         "    pub normal: [i8; 3],",
         "}",
         "",
+        "/// Authored clipping-plane command. Both points are in local shape",
+        "/// coordinates; direction_point is an endpoint, not a unit normal.",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
+        "pub struct ShapeClipPlane {",
+        "    pub slot: u8,",
+        "    pub origin: ShapeVertex,",
+        "    pub direction_point: ShapeVertex,",
+        "}",
+        "",
         "#[derive(Debug, Clone, Copy)]",
         "pub struct ShapeDataEntry {",
         "    pub header_index: u16,",
@@ -469,7 +501,7 @@ def emit_rust(shapes: list[Shape]) -> None:
         "    pub size: u16,",
         "    pub color_table: u16,",
         "    pub lods: [u16; 4],",
-        "    pub procedural: bool,",
+        "    pub clipping_planes: &'static [ShapeClipPlane],",
         "    pub vertices: &'static [ShapeVertex],",
         "    pub animation_frames: &'static [&'static [ShapeVertex]],",
         "    pub faces: &'static [ShapeFace],",
@@ -526,6 +558,14 @@ def emit_rust(shapes: list[Shape]) -> None:
                 f"{visibility}, [{normal}]),"
             )
         lines.append("];")
+        if shape.clipping_planes:
+            lines.append(f"static SHAPE_{address:04X}_CLIP_PLANES: [ShapeClipPlane; {len(shape.clipping_planes)}] = [")
+            for plane in shape.clipping_planes:
+                origin, point = plane.origin, plane.direction_point
+                lines.append(f"    ShapeClipPlane {{ slot: {plane.slot}, "
+                             f"origin: v({origin.x}, {origin.y}, {origin.z}), "
+                             f"direction_point: v({point.x}, {point.y}, {point.z}) }},")
+            lines.append("];")
         lines.append("")
 
     lines.extend([
@@ -536,7 +576,7 @@ def emit_rust(shapes: list[Shape]) -> None:
     ])
     for shape in shapes:
         h = shape.header
-        procedural = "true" if shape.procedural else "false"
+        clipping_planes = f"&SHAPE_{h.address:04X}_CLIP_PLANES" if shape.clipping_planes else "&[]"
         animation_frames = (
             f"&SHAPE_{h.address:04X}_ANIMATION_FRAMES"
             if shape.animation_frames else "&[]"
@@ -549,7 +589,7 @@ def emit_rust(shapes: list[Shape]) -> None:
             f"bounds: [{h.xmax}, {h.ymax}, {h.zmax}], size: {h.size}, "
             f"color_table: 0x{h.color_table:04X}, "
             f"lods: [0x{h.shadow:04X}, 0x{h.simple1:04X}, 0x{h.simple2:04X}, 0x{h.simple3:04X}], "
-            f"procedural: {procedural}, vertices: &SHAPE_{h.address:04X}_VERTS, "
+            f"clipping_planes: {clipping_planes}, vertices: &SHAPE_{h.address:04X}_VERTS, "
             f"animation_frames: {animation_frames}, "
             f"faces: &SHAPE_{h.address:04X}_FACES, name: \"sf2_shape_{h.address:04x}\" "
             "},"
@@ -580,12 +620,12 @@ def extract(data: bytes) -> list[Shape]:
     vertex_count = sum(len(shape.vertices) for shape in shapes)
     animation_frame_count = sum(len(shape.animation_frames) for shape in shapes)
     face_count = sum(len(shape.faces) for shape in shapes)
-    procedural_count = sum(shape.procedural for shape in shapes)
+    clipping_plane_count = sum(len(shape.clipping_planes) for shape in shapes)
     print(
         f"  shape_data.rs: {len(shapes)} verified ShapeHdrs, "
         f"{vertex_count} vertices, {face_count} faces, "
         f"{animation_frame_count} animation frames, "
-        f"{procedural_count} procedural shapes"
+        f"{clipping_plane_count} clipping-plane definitions"
     )
     return shapes
 

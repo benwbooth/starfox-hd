@@ -2,7 +2,7 @@
 //! code executes these source bytes; no path handlers are patched here.
 
 use sf2_game::intro_logo::{
-    LogoActorEvents, LogoActorPhase, LogoArrivalPhase, LogoDrawStyle, LogoExitPolicy, LogoGlyph,
+    LogoActorEvents, LogoActorPhase, LogoArrivalPhase, LogoClipping, LogoExitPolicy, LogoGlyph,
     LogoGlyphPair, LogoLayer, LogoSceneScroll, LogoSweepPhase, NintendoLogoActor,
     NintendoLogoSweep,
 };
@@ -35,7 +35,7 @@ const DEPTH_OFFSET: u16 = 0x1CC8;
 const MATERIAL: u16 = 0x1CCD;
 const TEXTURE_SCROLL: u16 = 0x1CDB;
 const EXIT_POLICY: u16 = 0x1CE2;
-const DRAW_STYLE: u16 = 0x1CEF;
+const CLIPPING_SELECTOR: u16 = 0x1CEF;
 const RANDOM_START: u16 = 0xE0;
 const SELECTED_PLAYER: u16 = 0x033F;
 const SELECTED_AUX_SLOT: u16 = 0x0140;
@@ -266,14 +266,14 @@ fn complete_actor_lifetimes_match_retail_across_layers_release_and_random_seeds(
                                     native.texture_scroll_y,
                                     exact.memory.read_byte(object + TEXTURE_SCROLL)
                                 );
-                                let source_style = match native.draw_style {
-                                    LogoDrawStyle::PrimaryAssembly => 4,
-                                    LogoDrawStyle::SecondaryAssembly => 5,
-                                    LogoDrawStyle::Normal => 0,
+                                let source_clipping = match native.clipping {
+                                    LogoClipping::PrimaryAssembly => 4,
+                                    LogoClipping::SecondaryAssembly => 5,
+                                    LogoClipping::Unclipped => 0,
                                 };
                                 assert_eq!(
-                                    source_style,
-                                    exact.memory.read_byte(object + DRAW_STYLE)
+                                    source_clipping,
+                                    exact.memory.read_byte(object + CLIPPING_SELECTOR)
                                 );
                                 let source_path = match native.phase() {
                                     LogoActorPhase::Arriving(LogoArrivalPhase::Approaching {

@@ -158,9 +158,10 @@ setup, visibility, material override, texture scrolling, release and removal:
 
 - Primary and secondary layers have depth offsets one and three. The primary
   starts invisible, overrides the material table, and becomes visible after
-  ten updates. The secondary is visible immediately. Their distinct drawing
-  policies are typed as `LogoDrawStyle`, but their GSU rasterization remains
-  an explicit renderer-side integration gate.
+  ten updates. The secondary is visible immediately. Their distinct geometric
+  clipping selections are typed as `LogoClipping`, independent of material.
+  Plane construction is now reconstructed below; clipping the submitted
+  geometry remains a renderer-side integration gate.
 - `$9427`'s scheduled target is `$944E`. Its condition kind is 17, and its
   countdown starts at 11. The scheduler decrements before testing; condition
   17 fires at one, giving the ten-update reveal. Neither 17 nor 11 is itself
@@ -192,11 +193,59 @@ the outline child's spawn without advancing that separate child. Another
 These tests execute unmodified retail handlers and continuations.
 
 This does **not** yet reconstruct the full logo presentation. The outline
-child's attachment/material lifecycle, special drawing policies, actor-pool
+child's attachment/material lifecycle, polygon clipping integration, actor-pool
 scheduling and scene camera still need integration. These controllers are
 not called by the shipping scene scheduler yet, so the application still
 displays its recorded intro. Passing these tests is a bounded source-behavior
 result, not an HD-intro or full-SF2 completion claim.
+
+### Authored clipping planes: corrected extraction and native math
+
+The formerly unidentified draw-record field `$1E` is a clipping-plane
+selector, not a shading mode. Retail `$01:D1BB` reads its byte and stores it
+at `$24DE`. `$01:F2FA` selects the plane, rebases it for the current object,
+and computes signed vertex distances. `$01:F379` classifies faces and
+`$01:F3A6` handles partial polygon clipping.
+
+The sweep's catalog entry 48 (`$C1DC`) has no visible polygon faces. Its
+shape stream contains **two continuing `$68` commands**, which author
+opposing planes in slots four and five. Entry 49 (`$C1F8`) similarly authors
+slots six and seven. The old extractor called this `procedural` and stopped
+at the first command, silently dropping the second plane. The corrected
+extractor preserves the slot and both signed local points and continues
+parsing; truncation, unknown tail commands, invalid slots and changed dispatch
+signatures fail closed. All 577 shapes, 11,860 vertices, 10,524 faces and
+1,342 animation frames remain intact.
+
+`sf-render/src/sf2_clipping.rs` reconstructs the source calculation using
+ordinary typed plane and transform structs:
+
+- Transform both local points with separately rounded signed Q15 products.
+- Subtract the transformed origin from the endpoint and scale by eight,
+  preserving signed-word wrapping.
+- Compute distance from the transformed origin plus the object's translation.
+- Rebase for each mesh before computing its vertex distances. Nonnegative
+  distances survive. The opposing plane is calculated independently, not
+  approximated by negating its partner; their rounding differs.
+
+`sf-oracle/tests/sf2_clipping.rs` executes the unmodified retail routines
+against all four authored planes, 256 combined orientations, four translations
+and seven vertices: **4,096 plane constructions and 28,672 vertex distances**
+match. The test harness sets up machine state only in the oracle; shipping
+plane math contains no emulated address space or processor state.
+
+Independent read-only Mesen verification covers an 800-video-frame neutral
+boot. `mesen_logo_draw_policy_oracle.lua` requires both selectors to be
+consumed at the verified load and both planes to be installed. It records
+236 installations, including their input matrices/translations and resulting
+planes. Every row matches native math. The numerical fixture
+`tools/sf2/fixtures/logo_clipping_planes.csv` is verification-only, never
+an animation track or production source of plane values.
+
+Remaining: initial plane state and draw ordering, geometry clipping, outline
+child attachment/material lifecycle, actor scheduling, and camera integration.
+The current application still displays the recorded intro; these verified
+components do not yet constitute a visible HD-intro fix.
 
 ## Reproduce without manual play
 
@@ -217,6 +266,20 @@ uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_logo --test sf2_intro_logo_actor'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
+
+Clipping extraction and source/live plane verification:
+
+```bash
+uv run python -m unittest discover -s tools/sf2 -p test_extract_shapes.py
+uv run python tools/sf2/run_mesen_oracle.py \
+  tools/sf2/mesen_logo_draw_policy_oracle.lua --timeout 30 --quiet
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_clipping'
+```
+
+To check the fresh Mesen output as well as the committed fixture, set
+`SF2_CLIPPING_TRACE` to its printed script-data directory's
+`logo_clipping_planes.csv` for the final command. The verifier requires a
+complete default 800-frame capture and checks every row.
 
 Unknown control flow, missing observed cursors, or changed source signatures
 fail the graph check. `--require-reviewed-semantics` additionally rejects

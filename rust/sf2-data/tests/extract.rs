@@ -72,7 +72,8 @@ fn complete_shape_table_is_self_consistent() {
     let mut animation_frame_count = 0usize;
     let mut animated_shape_count = 0usize;
     let mut face_count = 0usize;
-    let mut procedural_count = 0usize;
+    let mut clipping_shape_count = 0usize;
+    let mut clipping_plane_count = 0usize;
     for s in &shape_data::SHAPE_DATA {
         assert_eq!(
             s.shape_id,
@@ -86,7 +87,8 @@ fn complete_shape_table_is_self_consistent() {
         animation_frame_count += s.animation_frames.len();
         animated_shape_count += usize::from(!s.animation_frames.is_empty());
         face_count += s.faces.len();
-        procedural_count += usize::from(s.procedural);
+        clipping_shape_count += usize::from(!s.clipping_planes.is_empty());
+        clipping_plane_count += s.clipping_planes.len();
         for f in s.faces {
             assert!((2..=12).contains(&f.num_verts));
             for k in 0..f.num_verts as usize {
@@ -106,7 +108,8 @@ fn complete_shape_table_is_self_consistent() {
     assert_eq!(animated_shape_count, 135);
     assert_eq!(animation_frame_count, 1_342);
     assert_eq!(face_count, 10_524);
-    assert_eq!(procedural_count, 2);
+    assert_eq!(clipping_shape_count, 2);
+    assert_eq!(clipping_plane_count, 4);
 
     assert!(shape_data::shape_by_id(0xBC9B).is_none());
     assert!(shape_data::shape_by_id(0xBC9D).is_none());
@@ -130,6 +133,41 @@ fn complete_shape_table_is_self_consistent() {
                 spawn.shape
             );
         }
+    }
+}
+
+#[test]
+fn clipping_shapes_retain_both_opposing_plane_definitions() {
+    use shape_data::{ShapeClipPlane, ShapeVertex};
+    const ORIGIN: ShapeVertex = ShapeVertex { x: 0, y: 0, z: 0 };
+    const DIRECTION: i16 = 4095;
+    const CLIPPING_SHAPES: [(usize, [u8; 2]); 2] = [(48, [4, 5]), (49, [6, 7])];
+    for (index, slots) in CLIPPING_SHAPES {
+        let shape = &shape_data::SHAPE_DATA[index];
+        assert!(shape.faces.is_empty());
+        assert_eq!(
+            shape.clipping_planes,
+            &[
+                ShapeClipPlane {
+                    slot: slots[0],
+                    origin: ORIGIN,
+                    direction_point: ShapeVertex {
+                        x: 0,
+                        y: -DIRECTION,
+                        z: 0
+                    },
+                },
+                ShapeClipPlane {
+                    slot: slots[1],
+                    origin: ORIGIN,
+                    direction_point: ShapeVertex {
+                        x: 0,
+                        y: DIRECTION,
+                        z: 0
+                    },
+                },
+            ]
+        );
     }
 }
 
