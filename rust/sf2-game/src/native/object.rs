@@ -1022,20 +1022,35 @@ impl ObjectStore {
     }
 
     pub fn allocate(&mut self, object: Object) -> Option<ObjectId> {
+        self.allocate_after(None, object)
+    }
+
+    /// Allocate at the head, or directly after a live actor. Authored child
+    /// spawns use the latter so an in-progress traversal can visit the child
+    /// before the spawner's former successor. An invalid anchor changes nothing.
+    pub fn allocate_after(&mut self, after: Option<ObjectId>, object: Object) -> Option<ObjectId> {
+        let position = match after {
+            Some(id) => self.active.iter().position(|candidate| *candidate == id)? + 1,
+            None => 0,
+        };
         let id = self.free.pop()?;
         let generation = &mut self.generations[id.index()];
         *generation = generation.wrapping_add(1).max(1);
-        let old_head = self.active.first().copied();
+        let next = self.active.get(position).copied();
         self.slots[id.index()] = Some(object);
         if let Some(value) = self.slots[id.index()].as_mut() {
-            value.base.next = old_head;
+            value.base.previous = after;
+            value.base.next = next;
         }
-        if let Some(old_head) = old_head {
-            if let Some(value) = self.slots[old_head.index()].as_mut() {
+        if let Some(next) = next {
+            if let Some(value) = self.slots[next.index()].as_mut() {
                 value.base.previous = Some(id);
             }
         }
-        self.active.insert(0, id);
+        if let Some(after) = after {
+            self.slots[after.index()].as_mut().unwrap().base.next = Some(id);
+        }
+        self.active.insert(position, id);
         Some(id)
     }
 
@@ -1134,6 +1149,44 @@ mod tests {
             assert_eq!(objects.allocate(effect()).unwrap().index(), expected);
         }
         assert!(objects.allocate(effect()).is_none());
+    }
+
+    #[test]
+    fn child_insertion_preserves_the_live_cursor_and_both_neighbor_links() {
+        let mut objects = ObjectStore::new();
+        let tail = objects.allocate(effect()).unwrap();
+        let parent = objects.allocate(effect()).unwrap();
+        let first_child = objects.allocate_after(Some(parent), effect()).unwrap();
+        let second_child = objects.allocate_after(Some(parent), effect()).unwrap();
+        assert_eq!(
+            objects.active_ids(),
+            &[parent, second_child, first_child, tail]
+        );
+        assert_eq!(objects.get(parent).unwrap().base.next, Some(second_child));
+        assert_eq!(
+            objects.get(second_child).unwrap().base.previous,
+            Some(parent)
+        );
+        assert_eq!(
+            objects.get(second_child).unwrap().base.next,
+            Some(first_child)
+        );
+        assert_eq!(
+            objects.get(first_child).unwrap().base.previous,
+            Some(second_child)
+        );
+        assert_eq!(objects.get(first_child).unwrap().base.next, Some(tail));
+        assert_eq!(objects.get(tail).unwrap().base.previous, Some(first_child));
+        objects.remove(first_child).unwrap();
+        let saved = objects.clone();
+        assert!(objects
+            .allocate_after(Some(first_child), effect())
+            .is_none());
+        assert_eq!(objects, saved);
+        let new_tail = objects.allocate_after(Some(tail), effect()).unwrap();
+        assert_eq!(new_tail, first_child);
+        assert_eq!(objects.get(tail).unwrap().base.next, Some(new_tail));
+        assert_eq!(objects.get(new_tail).unwrap().base.next, None);
     }
 
     #[test]

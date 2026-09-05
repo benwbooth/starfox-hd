@@ -1016,6 +1016,49 @@ and terminal idempotence. Scene-wide allocation, collision routing and rendering
 integration remain separate required work; the shipping front end is still
 recorded rather than this native scene.
 
+## Later flyby live traversal
+
+`intro_second_flyby_scene::OpeningSecondFlybyScene` composes the later craft,
+recursive chain, persistent engine flare, trail, camera target, both wings and
+their common-destruction effects in one source-sized typed object pool. It
+follows the live next link after each actor update instead of iterating an
+earlier snapshot. `ObjectStore::allocate_after` adds explicit insertion after
+a live actor without changing existing head-allocation behavior.
+
+The source spawn handlers temporarily select the current spawner as the
+allocation anchor (`7F:90B1..90BA`, `7F:91B3..91CB`). Direct parent children
+therefore precede older children, while recursive chain descendants remain
+in predecessor order. The parent's common attachment publication can reach
+new direct children in their birth update; descendants made after that pass
+cannot receive it retroactively. Common destruction instead inserts after
+the real list head. The traversal now derives whether those effects execute
+immediately or wait, with no externally guessed birth-timing parameter.
+
+The flare's separate path `44:FD58..FD5B` disables contact, enables the sort
+override and switches to common attachment updates (`7F:8ECF -> 9DDE`). It
+does not use the earlier flare's timed retirement. A shared typed attachment
+constant is used by both its constructor and the parent's spawn request.
+Four 400-update original-spawn scenarios verify continued publication and
+the strategy handoff, including wrapped positions and rotating parents.
+
+Twelve complete-family comparisons execute 550 original update/cleanup
+traversals each, without disabling any child strategy. They cover normal,
+immediate-second-cut and persistent-wait schedules; external chain departure
+and following controls; two random seeds; repeated zero-health callbacks;
+one/two listeners; and scroll compensation. Assertions include exact active
+order and slot reuse, child poses and links, motion and presentation state,
+shared random state, camera selection, ordered audio, auxiliary effect
+configuration and final effect removal. Four additional ROM-free scene tests
+cover same-update recursion, deferred common effects, lifetime identities,
+atomic capacity failure and the actual tail boundary of the last-slot sweep.
+
+Holding is not completion: the parent itself leaves child controls at `0088`
+and never requests chain departure. The persistent craft, flare, camera target
+and any surviving chain remain live for the enclosing scene to manage. This
+is a complete later-flyby **subscene**, not integration of the entire opening:
+the root, first flyby, formation, camera/controller, global collisions and
+renderer still need one shared scene. The shipping recorded intro is unchanged.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -1038,6 +1081,7 @@ nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_int
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby_craft'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby_wings'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_chain'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby_scene'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_formation --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```

@@ -1,13 +1,15 @@
 //! Source-authored later-flyby placement tables and attached trail path.
 
 use sf2_game::intro_motion::IntroScenePose;
-use sf2_game::intro_second_flyby::{OpeningSecondFlybyPlacement, OpeningSecondFlybyTrail};
+use sf2_game::intro_second_flyby::{
+    OpeningSecondFlybyFlare, OpeningSecondFlybyPlacement, OpeningSecondFlybyTrail,
+};
 use sf2_game::object::{
     active_objects, allocate, ACTIVE_LIST, CURRENT_OBJECT, FIELD_PATH, FIELD_STRATEGY, PLAYER_ONE,
     SELECTED_OBJECT,
 };
 use sf2_game::oracle_compat::Game;
-use sf2_game::{Angle, Rotation, Vector3};
+use sf2_game::{Angle, Behavior, Object, ObjectKind, ObjectStore, Rotation, ShapeId, Vector3};
 
 const STRATEGY: u32 = 0x7F7E1E;
 const UPDATE: u32 = 0x7F34E7;
@@ -19,6 +21,160 @@ fn retail() -> Vec<u8> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     std::fs::read(root.join("Star Fox 2 (USA, Europe).sfc"))
         .expect("later flyby verification requires the user-owned retail SF2 ROM")
+}
+
+#[test]
+fn source_spawned_engine_flare_retains_common_attachment_updates_without_a_timeout() {
+    let rom = retail();
+    for rotating in [false, true] {
+        for translated in [false, true] {
+            let mut exact = Game::new(rom.clone()).unwrap();
+            let parent = allocate(&mut exact.memory, 0).unwrap();
+            exact.memory.write_word(parent + FIELD_PATH, 0xFE11);
+            exact
+                .memory
+                .write_word(parent + FIELD_STRATEGY, STRATEGY as u16);
+            exact
+                .memory
+                .write_byte(parent + FIELD_STRATEGY + 2, (STRATEGY >> 16) as u8);
+            exact.memory.write_byte(parent + 0x2D, 1);
+            exact.memory.write_word(PLAYER_ONE, 0x033F);
+            exact.memory.write_word(SELECTED_OBJECT, 0x033F);
+            exact.memory.write_word(0x033F + FIELD_PATH, 0x0140);
+            exact.memory.write_word(CURRENT_OBJECT, parent);
+            // Execute the original parent spawn and its remaining path body.
+            // The newly created flare has not executed its own strategy yet.
+            exact.run_retail_oracle_routine(STRATEGY, parent).unwrap();
+            let actor = exact.memory.read_word(parent);
+            assert_eq!(exact.memory.read_word(actor + FIELD_PATH), 0xFD58);
+            assert_eq!(active_objects(&exact.memory), vec![parent, actor]);
+            exact.memory.write_word(parent + FIELD_PATH, 0xFF43);
+            exact.memory.write_byte(parent + 24, 0);
+            for field in [50, 52, 54] {
+                exact.memory.write_word(parent + field, 0);
+            }
+            let mut objects = ObjectStore::new();
+            let parent_id = objects
+                .allocate(Object::new(
+                    ObjectKind::Effect,
+                    ShapeId::EMPTY,
+                    Behavior::Effect,
+                ))
+                .unwrap();
+            let mut native = OpeningSecondFlybyFlare::new(parent_id);
+            // This independent parent completes an attachment pass after its
+            // path body, so the new flare is published before its first tick.
+            native.publish_from_parent(parent_id, read_flare_pose(&exact, parent));
+            assert_eq!(native.pose, read_flare_pose(&exact, actor));
+            assert_eq!(exact.memory.read_word(actor + 6), parent);
+            assert_eq!(exact.memory.read_word(actor + 0x1CD8), parent);
+            assert_eq!(
+                exact.memory.read_byte(actor + 0x21) & 1 != 0,
+                native.contact_disabled()
+            );
+            assert_eq!(
+                exact.memory.read_byte(actor + 9) & 1 != 0,
+                native.sort_override()
+            );
+            for (field, value) in [0x1CCF, 0x1CD1, 0x1CD3].into_iter().zip([
+                native.attachment().offset.x,
+                native.attachment().offset.y,
+                native.attachment().offset.z,
+            ]) {
+                assert_eq!(exact.memory.read_word(actor + field) as i16, value);
+            }
+            for (field, value) in [0x1CD5, 0x1CD6, 0x1CD7].into_iter().zip([
+                native.attachment().rotation.pitch,
+                native.attachment().rotation.yaw,
+                native.attachment().rotation.roll,
+            ]) {
+                assert_eq!(exact.memory.read_byte(actor + field), value.units());
+            }
+            for update in 0..400_i16 {
+                let parent_pose = IntroScenePose {
+                    position: if translated {
+                        Vector3 {
+                            x: i16::MAX.wrapping_add(update * 37),
+                            y: i16::MIN.wrapping_sub(update * 19),
+                            z: update.wrapping_mul(239).wrapping_sub(29000),
+                        }
+                    } else {
+                        Vector3::default()
+                    },
+                    rotation: if rotating {
+                        Rotation {
+                            pitch: Angle::from_units((update as u8).wrapping_mul(13)),
+                            yaw: Angle::from_units((update as u8).wrapping_mul(31)),
+                            roll: Angle::from_units((update as u8).wrapping_mul(47)),
+                        }
+                    } else {
+                        Rotation::default()
+                    },
+                };
+                write_flare_pose(&mut exact, parent, parent_pose);
+                exact.memory.write_word(CURRENT_OBJECT, parent);
+                exact.run_retail_oracle_routine(UPDATE, parent).unwrap();
+                exact.run_retail_oracle_routine(RESUME, parent).unwrap();
+                native.publish_from_parent(parent_id, parent_pose);
+                native.tick();
+                assert_eq!(
+                    native.pose,
+                    read_flare_pose(&exact, actor),
+                    "update={update} rotating={rotating} translated={translated}"
+                );
+                assert_eq!(
+                    exact.memory.read_byte(actor + 0x21) & 1 != 0,
+                    native.contact_disabled()
+                );
+                assert_eq!(
+                    exact.memory.read_byte(actor + 9) & 1 != 0,
+                    native.sort_override()
+                );
+                assert_eq!(exact.memory.read_byte(actor + 9) & 8, 8);
+                assert_eq!(exact.memory.read_word(actor + FIELD_STRATEGY), 0x9DDE);
+                assert_eq!(exact.memory.read_byte(actor + FIELD_STRATEGY + 2), 0x7F);
+                assert_eq!(exact.memory.read_word(actor + FIELD_PATH), 0xFD5B);
+                assert_eq!(
+                    exact.memory.read_word(actor + 4),
+                    0xBC9C + native.shape().catalog_index() as u16 * 28
+                );
+                exact.run_retail_oracle_routine(0x7F402D, parent).unwrap();
+                assert_eq!(active_objects(&exact.memory), vec![parent, actor]);
+            }
+        }
+    }
+}
+
+fn write_flare_pose(exact: &mut Game, actor: u16, pose: IntroScenePose) {
+    for (field, value) in
+        POSITION
+            .into_iter()
+            .zip([pose.position.x, pose.position.y, pose.position.z])
+    {
+        exact.memory.write_word(actor + field, value as u16);
+    }
+    for (field, angle) in
+        ROTATION
+            .into_iter()
+            .zip([pose.rotation.pitch, pose.rotation.yaw, pose.rotation.roll])
+    {
+        exact.memory.write_byte(actor + field, angle.units());
+    }
+}
+
+fn read_flare_pose(exact: &Game, actor: u16) -> IntroScenePose {
+    IntroScenePose {
+        position: Vector3 {
+            x: exact.memory.read_word(actor + 12) as i16,
+            y: exact.memory.read_word(actor + 14) as i16,
+            z: exact.memory.read_word(actor + 16) as i16,
+        },
+        rotation: Rotation {
+            pitch: Angle::from_units(exact.memory.read_byte(actor + 18)),
+            yaw: Angle::from_units(exact.memory.read_byte(actor + 20)),
+            roll: Angle::from_units(exact.memory.read_byte(actor + 22)),
+        },
+    }
 }
 
 #[test]

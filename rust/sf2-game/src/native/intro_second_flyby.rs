@@ -2,13 +2,22 @@
 //! parent choreography and recursively linked children are separate consumers.
 
 use super::intro_motion::{IntroAttachment, IntroScenePose};
-use super::object::{Angle, ShapeId, Vector3};
+use super::object::{Angle, ObjectId, ShapeId, Vector3};
 use super::render::Rotation;
 
 const TRAIL_SHAPE: ShapeId = ShapeId::from_catalog_index(119);
 const TRAIL_UPDATES: u8 = 20;
 const TRAIL_DEPTH_STEP: i16 = 100;
 const TRAIL_DEPTH_OFFSET: u8 = 5;
+const FLARE_SHAPE: ShapeId = ShapeId::from_catalog_index(48);
+pub const SECOND_FLYBY_FLARE_ATTACHMENT: IntroAttachment = IntroAttachment {
+    offset: Vector3 { x: 0, y: 0, z: 20 },
+    rotation: Rotation {
+        pitch: Angle::from_units(192),
+        yaw: Angle::ZERO,
+        roll: Angle::ZERO,
+    },
+};
 pub const SECOND_FLYBY_TRAIL_ATTACHMENT: IntroAttachment = IntroAttachment {
     offset: Vector3 {
         x: 0,
@@ -86,6 +95,58 @@ impl OpeningSecondFlybyPlacement {
     }
 }
 
+/// The later engine flare has no authored timeout. Its initial path disables
+/// contact and enables the sort override, then permanently selects the common
+/// attachment-update service. Scene teardown owns its eventual removal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpeningSecondFlybyFlare {
+    pub pose: IntroScenePose,
+    parent: ObjectId,
+    initialized: bool,
+}
+
+impl OpeningSecondFlybyFlare {
+    pub fn new(parent: ObjectId) -> Self {
+        Self {
+            pose: IntroScenePose::default(),
+            parent,
+            initialized: false,
+        }
+    }
+
+    pub const fn shape(&self) -> ShapeId {
+        FLARE_SHAPE
+    }
+
+    pub const fn attachment(&self) -> IntroAttachment {
+        SECOND_FLYBY_FLARE_ATTACHMENT
+    }
+
+    pub fn parent(&self) -> ObjectId {
+        self.parent
+    }
+
+    pub fn contact_disabled(&self) -> bool {
+        self.initialized
+    }
+
+    pub fn sort_override(&self) -> bool {
+        self.initialized
+    }
+
+    pub fn publish_from_parent(&mut self, parent: ObjectId, pose: IntroScenePose) {
+        if parent == self.parent {
+            self.pose = self.attachment().world_pose(pose);
+        }
+    }
+
+    /// This actor does not independently move or animate. Publication belongs
+    /// to the parent's attachment pass, including after the initial path ends.
+    pub fn tick(&mut self) {
+        self.initialized = true;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OpeningSecondFlybyTrail {
     pub pose: IntroScenePose,
@@ -141,6 +202,40 @@ impl OpeningSecondFlybyTrail {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Behavior, Object, ObjectKind, ObjectStore};
+
+    #[test]
+    fn persistent_flare_uses_only_its_owner_publication_and_never_times_out() {
+        let mut objects = ObjectStore::new();
+        let mut allocate = || {
+            objects
+                .allocate(Object::new(
+                    ObjectKind::Effect,
+                    FLARE_SHAPE,
+                    Behavior::Effect,
+                ))
+                .unwrap()
+        };
+        let parent = allocate();
+        let unrelated = allocate();
+        let mut flare = OpeningSecondFlybyFlare::new(parent);
+        assert!(!flare.contact_disabled());
+        assert!(!flare.sort_override());
+        flare.tick();
+        assert!(flare.contact_disabled());
+        assert!(flare.sort_override());
+        assert_eq!(flare.pose, IntroScenePose::default());
+        let pose = OpeningSecondFlybyPlacement::FinalCut.pose();
+        flare.publish_from_parent(unrelated, pose);
+        assert_eq!(flare.pose, IntroScenePose::default());
+        flare.publish_from_parent(parent, pose);
+        assert_eq!(flare.pose, SECOND_FLYBY_FLARE_ATTACHMENT.world_pose(pose));
+        let initialized = flare;
+        for _ in 0..1024 {
+            flare.tick();
+        }
+        assert_eq!(flare, initialized);
+    }
 
     #[test]
     fn birth_step_does_not_publish_and_end_never_restarts() {

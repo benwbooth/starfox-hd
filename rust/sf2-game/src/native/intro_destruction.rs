@@ -193,7 +193,7 @@ impl IntroExplosionActor {
         }
     }
 
-    fn tick_animation(&mut self, context: &IntroDestructionContext) {
+    pub(super) fn tick_animation(&mut self, context: &IntroDestructionContext) {
         match self.phase {
             IntroExplosionPhase::Animating { age, limit } => {
                 if context.compensate_scroll {

@@ -6,7 +6,9 @@ use super::game::flight_velocity;
 use super::intro_camera::OpeningCameraCue;
 use super::intro_formation::chase_formation_angle;
 use super::intro_motion::{IntroAttachment, IntroScenePose};
-use super::intro_second_flyby::{OpeningSecondFlybyPlacement, SECOND_FLYBY_TRAIL_ATTACHMENT};
+use super::intro_second_flyby::{
+    OpeningSecondFlybyPlacement, SECOND_FLYBY_FLARE_ATTACHMENT, SECOND_FLYBY_TRAIL_ATTACHMENT,
+};
 use super::object::{Angle, ShapeId, Vector3};
 use super::render::Rotation;
 
@@ -254,13 +256,7 @@ impl OpeningSecondFlybyCraft {
                 offset: Vector3 { x: 0, y: 0, z: -11 },
                 ..Default::default()
             }),
-            EngineFlare => Attached(IntroAttachment {
-                offset: Vector3 { x: 0, y: 0, z: 20 },
-                rotation: Rotation {
-                    pitch: Angle::from_units(192),
-                    ..Default::default()
-                },
-            }),
+            EngineFlare => Attached(SECOND_FLYBY_FLARE_ATTACHMENT),
             Trail => Attached(SECOND_FLYBY_TRAIL_ATTACHMENT),
             CameraTarget | DepartingWing => Independent(self.pose),
             AttachedWing => Attached(IntroAttachment {
