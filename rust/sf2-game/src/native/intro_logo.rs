@@ -9,6 +9,7 @@ use super::render::{MaterialSetId, Rotation};
 use super::state::RandomState;
 
 const GLYPH_COUNT: usize = 9;
+const LAYERS_PER_GLYPH: usize = 2;
 const SPACING_SCALE: i16 = 8;
 const SWEEP_START_X: i16 = -750;
 const HOLD_UPDATES: u8 = 92;
@@ -30,6 +31,9 @@ const SWEEP_ROLL: Angle = Angle::from_units(80);
 const SWEEP_DELAY_UPDATES: u8 = 19;
 const SWEEP_TRAVERSE_UPDATES: u8 = 13;
 const SWEEP_HORIZONTAL_STEP: i16 = 150;
+const OUTLINE_MATERIAL_UPDATES: u8 = 37;
+const OUTLINE_INITIAL_MATERIAL: MaterialSetId = MaterialSetId::from_catalog_token(33_534);
+const OUTLINE_SETTLED_MATERIAL: MaterialSetId = MaterialSetId::from_catalog_token(33_268);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogoGlyph {
@@ -149,6 +153,14 @@ impl NintendoLogoAssembly {
                     updates_left: updates_left - 1,
                 };
             }
+        }
+        events
+    }
+
+    pub fn tick_with_scroll(&mut self, scroll: LogoSceneScroll) -> LogoAssemblyEvents {
+        let events = self.tick();
+        if self.phase != AssemblyPhase::Complete {
+            scroll.apply(&mut self.position);
         }
         events
     }
@@ -473,9 +485,245 @@ impl NintendoLogoActor {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogoOutlinePhase {
+    InitialMaterial { updates_left: u8 },
+    Holding,
+    Finished,
+}
+
+/// The outline's zero-offset attached child. Its transform follows the parent
+/// after the parent's common movement pass, but material timing and visibility
+/// are independent. It does not inherit clipping, depth bias or texture scroll.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NintendoLogoOutline {
+    pub position: Vector3,
+    pub rotation: Rotation,
+    pub material: MaterialSetId,
+    phase: LogoOutlinePhase,
+}
+
+impl NintendoLogoOutline {
+    pub const SHAPE: ShapeId = ShapeId::from_catalog_index(372);
+
+    fn new(parent: &NintendoLogoActor) -> Self {
+        Self {
+            position: parent.position,
+            rotation: parent.rotation,
+            material: OUTLINE_INITIAL_MATERIAL,
+            phase: LogoOutlinePhase::InitialMaterial {
+                updates_left: OUTLINE_MATERIAL_UPDATES,
+            },
+        }
+    }
+
+    pub fn phase(&self) -> LogoOutlinePhase {
+        self.phase
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.phase != LogoOutlinePhase::Finished
+    }
+
+    fn tick(&mut self) {
+        if let LogoOutlinePhase::InitialMaterial { updates_left } = self.phase {
+            if updates_left == 0 {
+                self.material = OUTLINE_SETTLED_MATERIAL;
+                self.phase = LogoOutlinePhase::Holding;
+            } else {
+                self.phase = LogoOutlinePhase::InitialMaterial {
+                    updates_left: updates_left - 1,
+                };
+            }
+        }
+    }
+}
+
+/// A logo layer and its optional attached outline, updated in authored order.
+/// New attachments participate in the same update as their parent's spawn.
+/// Cleanup happens after actor updates, so an ending parent no longer copies
+/// its final rotation to the child, and neither remains drawable afterward.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NintendoLogoLayer {
+    pub actor: NintendoLogoActor,
+    pub outline: Option<NintendoLogoOutline>,
+}
+
+impl NintendoLogoLayer {
+    pub fn new(pair: LogoGlyphPair, layer: LogoLayer, rotation: Rotation) -> Self {
+        Self {
+            actor: NintendoLogoActor::new(pair, layer, rotation),
+            outline: None,
+        }
+    }
+
+    pub fn tick(
+        &mut self,
+        release: bool,
+        scroll: LogoSceneScroll,
+        random: &mut RandomState,
+    ) -> LogoActorEvents {
+        let events = self.actor.tick(release, scroll, random);
+        if events.spawn_outline_child {
+            self.outline = Some(NintendoLogoOutline::new(&self.actor));
+        }
+        if let Some(outline) = &mut self.outline {
+            if outline.phase == LogoOutlinePhase::Finished {
+                return events;
+            }
+            if self.actor.phase != LogoActorPhase::Finished {
+                outline.position = self.actor.position;
+                outline.rotation = self.actor.rotation;
+            }
+            outline.tick();
+            if events.finished {
+                outline.phase = LogoOutlinePhase::Finished;
+            }
+        }
+        events
+    }
+}
+
+/// The complete logo actor family: assembly, nine paired glyphs, attached
+/// outline and plane sweep. Camera, scene transitions and drawing are supplied
+/// by the surrounding intro scene, not inferred from elapsed display frames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NintendoLogoAnimation {
+    assembly: NintendoLogoAssembly,
+    pairs: [Option<[NintendoLogoLayer; LAYERS_PER_GLYPH]>; GLYPH_COUNT],
+    pair_count: usize,
+    pub sweep: Option<NintendoLogoSweep>,
+    released: bool,
+}
+
+impl NintendoLogoAnimation {
+    pub fn new(origin: Vector3) -> Self {
+        Self {
+            assembly: NintendoLogoAssembly::new(origin),
+            pairs: [None; GLYPH_COUNT],
+            pair_count: 0,
+            sweep: None,
+            released: false,
+        }
+    }
+
+    /// Stable authored allocation order, with primary before secondary.
+    /// Consumers must still respect each actor's lifetime and visibility.
+    pub fn layers(&self) -> impl Iterator<Item = &NintendoLogoLayer> {
+        self.pairs.iter().flatten().flat_map(|pair| pair.iter())
+    }
+
+    pub fn released(&self) -> bool {
+        self.released
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.released
+            && self
+                .layers()
+                .all(|layer| layer.actor.phase() == LogoActorPhase::Finished)
+            && self
+                .sweep
+                .as_ref()
+                .is_some_and(|sweep| sweep.phase() == LogoSweepPhase::Finished)
+    }
+
+    pub fn tick(&mut self, scroll: LogoSceneScroll, random: &mut RandomState) {
+        let events = self.assembly.tick_with_scroll(scroll);
+        if let Some(pair) = events.glyph_pair {
+            self.pairs[self.pair_count] = Some([
+                NintendoLogoLayer::new(pair, LogoLayer::Primary, Rotation::default()),
+                NintendoLogoLayer::new(pair, LogoLayer::Secondary, Rotation::default()),
+            ]);
+            self.pair_count += 1;
+        }
+        if let Some(position) = events.sweep_position {
+            self.sweep = Some(NintendoLogoSweep::new(position));
+        }
+        self.released |= events.release;
+
+        // Quick spawns are inserted immediately after the assembly actor.
+        // The sweep is its final spawn, followed by glyph pairs in reverse
+        // allocation order, secondary then primary. This orders PRNG use.
+        if let Some(sweep) = &mut self.sweep {
+            sweep.tick(self.released, scroll);
+        }
+        for pair in self.pairs.iter_mut().rev().flatten() {
+            for layer in pair.iter_mut().rev() {
+                layer.tick(self.released, scroll, random);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outline_keeps_its_own_visibility_material_clock_and_lifetime() {
+        let pair = LogoGlyphPair {
+            glyph: LogoGlyph::Outline,
+            position: Vector3::default(),
+        };
+        let mut layer = NintendoLogoLayer::new(pair, LogoLayer::Primary, Rotation::default());
+        let mut random = RandomState::default();
+        for update in 0..=OUTLINE_MATERIAL_UPDATES {
+            layer.tick(false, LogoSceneScroll::default(), &mut random);
+            let outline = layer.outline.as_ref().unwrap();
+            assert!(outline.is_visible());
+            assert_eq!(outline.position, layer.actor.position);
+            assert_eq!(outline.rotation, layer.actor.rotation);
+            assert_eq!(
+                outline.material,
+                if update < OUTLINE_MATERIAL_UPDATES {
+                    OUTLINE_INITIAL_MATERIAL
+                } else {
+                    OUTLINE_SETTLED_MATERIAL
+                }
+            );
+            if update == 0 {
+                assert!(!layer.actor.is_visible());
+            }
+        }
+        layer.actor.exit_policy = LogoExitPolicy::Remove;
+        let events = layer.tick(true, LogoSceneScroll::default(), &mut random);
+        assert!(events.finished);
+        assert!(!layer.actor.is_visible());
+        assert!(!layer.outline.as_ref().unwrap().is_visible());
+    }
+
+    #[test]
+    fn complete_family_preserves_identity_after_removal_and_never_restarts() {
+        const COMPLETION_UPDATE: usize = 139;
+        let mut animation = NintendoLogoAnimation::new(Vector3::default());
+        let mut random = RandomState::default();
+        for update in 0..=COMPLETION_UPDATE {
+            animation.tick(LogoSceneScroll::default(), &mut random);
+            assert_eq!(animation.is_finished(), update == COMPLETION_UPDATE);
+        }
+        assert_eq!(animation.layers().count(), GLYPH_COUNT * LAYERS_PER_GLYPH);
+        assert_eq!(
+            animation
+                .layers()
+                .filter(|layer| layer.outline.is_some())
+                .count(),
+            1
+        );
+        assert!(animation.layers().all(|layer| !layer.actor.is_visible()));
+        let completed = animation.clone();
+        let final_random = random;
+        animation.tick(
+            LogoSceneScroll {
+                horizontal: 17,
+                depth: 53,
+                horizontal_locked: false,
+            },
+            &mut random,
+        );
+        assert_eq!(animation, completed);
+        assert_eq!(random, final_random);
+    }
 
     #[test]
     fn paired_layers_reveal_separately_and_scroll_the_texture() {

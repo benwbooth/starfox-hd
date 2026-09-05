@@ -192,12 +192,54 @@ the outline child's spawn without advancing that separate child. Another
 15 cases check the complete sweep path at release and wrapping boundaries.
 These tests execute unmodified retail handlers and continuations.
 
-This does **not** yet reconstruct the full logo presentation. The outline
-child's attachment/material lifecycle, polygon clipping integration, actor-pool
-scheduling and scene camera still need integration. These controllers are
-not called by the shipping scene scheduler yet, so the application still
-displays its recorded intro. Passing these tests is a bounded source-behavior
-result, not an HD-intro or full-SF2 completion claim.
+### Attached outline and complete logo-family scheduling
+
+`NintendoLogoOutline` reconstructs the `$F01D` child. It uses its own material
+table for 37 updates, switches to the settled table on update 37 (numbered
+from zero), and holds. Its shape is catalog entry 372 (`$E54C`). It stays
+visible while the primary parent is initially hidden, and does not inherit
+the parent's depth offset, clipping selector or texture scroll.
+
+The source spawn at `$9414` uses zero local position and rotation offsets.
+The common parent pass calls `$7F:2319/$7F:2229` after movement, so this
+attachment shares the parent's updated pose. Its own path does not apply
+world scrolling again. `End` skips that parent pass: the child's final pose
+remains from the preceding update, while its own material clock still runs.
+Cleanup `$7F:344F` marks dependent children for removal, and the same list
+cleanup traversal frees the outline with its parent. This is distinct from
+the damage-related detach service `$7F:2AA4`.
+
+`NintendoLogoLayer` composes the parent with this child.
+`NintendoLogoAnimation` now composes the entire actor family: the assembly,
+nine paired glyphs, the attached outline and the clipping-plane sweep. It
+uses typed fields and fixed arrays, not a source script or emulated pool.
+The assembly's common scrolling is preserved as well as each layer's own
+movement. New actors run on their creation update. Since quick spawns insert
+after the assembly, updates visit the newest glyph pair first, secondary
+before primary; the final sweep precedes them all. This ordering determines
+which primary letter consumes each random value at dispersal.
+
+`sf-oracle/tests/sf2_intro_logo_attachment.rs` verifies both compositions
+using the unmodified retail actor-list update passes `$7F:34E7/$7F:354A`
+and cleanup `$7F:402D`, not a hand-ordered loop over isolated paths. The first
+pass overlaps work while graphics are busy; the second resumes its saved
+cursor. Running the first alone with an idle graphics unit updates no actors.
+
+- 24 parent/outline runs cover three release times, both exit policies and
+  four initial pitch states, including a non-settling pitch residue. Every
+  update checks both poses, child material and path, independent presentation
+  fields, attachment, and same-pass removal.
+- Six full-family runs cover three random seeds and both stationary and
+  scrolling scenes. All 18 glyph layers, the outline and sweep match retail
+  identity, poses, visibility, material, texture scroll, clipping and lifetime.
+  The entire random state matches after every update. Native completion
+  occurs at update 139, when the source active list is empty.
+
+This does **not** yet reconstruct the full logo presentation. Initial plane
+state, polygon clipping integration, the surrounding attract-scene actors,
+camera and production scheduling still need integration. The application
+still displays its recorded intro. The complete logo family is a bounded
+source-behavior result, not an HD-intro or full-SF2 completion claim.
 
 ### Authored clipping planes: corrected extraction and native math
 
@@ -242,8 +284,8 @@ planes. Every row matches native math. The numerical fixture
 `tools/sf2/fixtures/logo_clipping_planes.csv` is verification-only, never
 an animation track or production source of plane values.
 
-Remaining: initial plane state and draw ordering, geometry clipping, outline
-child attachment/material lifecycle, actor scheduling, and camera integration.
+Remaining: initial plane state and draw ordering, geometry clipping, surrounding
+scene scheduling, and camera integration.
 The current application still displays the recorded intro; these verified
 components do not yet constitute a visible HD-intro fix.
 
@@ -263,7 +305,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   /path/to/sf2_intro_scene_trace.txt \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_logo --test sf2_intro_logo_actor'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
