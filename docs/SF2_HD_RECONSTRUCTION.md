@@ -809,6 +809,36 @@ Runtime differential checks supplement this mapping by detecting translation
 mistakes. They do not define the choreography, supply sampled poses, or
 replace static review of unobserved branches.
 
+## Later flyby camera target reconstructed
+
+`intro_second_camera_target` implements the independent target spawned by the
+second flyby at `44:FE82`. The source path `44:FB2E..FB4B` selects this actor
+once, waits 17 updates, installs pitch 20/yaw 226/speed 60 with a five-unit
+speed approach toward zero, waits 27 updates, then installs pitch zero/yaw
+236/speed 30 for 40 updates before a persistent zero-speed hold. Inherited
+position and roll are preserved; the held actor is not retired.
+
+The shared path movement assembly at `7F:9DE8..9E1C` applies the speed approach
+before movement on the same update that installs it. Its descending comparison
+retains the approach when speed lands exactly on zero; only the following
+overshoot clears it. This one-update distinction is retained explicitly in
+native state. The later speed-30 segment consequently does not keep slowing.
+
+Verification executes the original QuickSpawn command and constructor, then
+isolates the created target and compares its complete path for 400 updates
+across 16 inherited poses, including signed-coordinate boundaries and eight
+combined rotations. Checks cover position, velocity, each rotation axis,
+speed, approach state, camera identity, path continuation and absence of an
+End/removal request. Three ROM-free tests cover first-frame deceleration,
+exact-zero versus overshoot and persistent-hold idempotence. This proves the
+target in isolation, not the surrounding craft's choreography or rendering.
+
+The second flyby's statically decoded graph has 299 reachable commands with
+no decoder failures, including its recursive attached actors, animation,
+auxiliary services and departures. The remaining parent/children must still
+be translated and composed; this graph count is reachability evidence, not
+a completion certificate.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -826,6 +856,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_camera_target'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_formation --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
