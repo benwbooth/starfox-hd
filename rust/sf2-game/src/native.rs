@@ -10,6 +10,7 @@ pub mod intro_camera;
 pub mod intro_controller;
 pub mod intro_logo;
 pub mod intro_motion;
+pub mod intro_root;
 pub mod intro_target;
 mod object;
 mod render;

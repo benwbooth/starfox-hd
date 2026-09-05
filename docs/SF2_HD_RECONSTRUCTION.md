@@ -418,8 +418,51 @@ authored timings, not the complete scene's global actor scheduling.
 
 These controller, palette, target and attachment components are **implemented
 and tested but not integrated into the shipping native intro**. They do not
-replace the recorded production scene on their own. Root actor choreography,
+replace the recorded production scene on their own. Child actor choreography,
 palette initialization, global scheduling and native rendering remain open.
+
+## Native opening root choreography
+
+`intro_root::OpeningSceneRoot` reconstructs source `$44:FA11..FAB1` as typed
+ordered events and persistent root motion. Its direct actor kinds are enums;
+independent spawns retain the pre-movement root pose, while attached spawns
+carry a local pose and semantic attachment group. The root does not execute
+an emulated path stream or use sampled animation coordinates.
+
+- Initialization retains the zero player pose, installs background origins
+  (horizontal 176, vertical 400), publishes the derived depth velocity and
+  opening cue, then requests the tracking target, logo assembly, camera and
+  attached flyby rig in source order.
+- After the full 96-update wait, it queues the flyby audio marker before
+  requesting the attached craft, free craft and three distinct formation
+  members.
+- On the first camera cue it yields for one more update, then marks the
+  first flyby-rig attachment for removal and requests the second flyby craft.
+  The third cue requests the next camera target; the fourth enters Hold.
+- Equality gates remain equality gates: a missed cue does not synthesize
+  later actors. Hold continues root motion without re-emitting events.
+
+The authored speed **10 is not a displacement of 10**. Both original
+fixed-point cosine products execute even at the zero heading, yielding depth
+velocity **8**. The native root uses the existing verified flight-velocity
+kernel rather than copying the script's speed directly into position updates.
+The exported depth velocity is the derived value, too.
+
+`sf2_intro_root` independently executes the unmodified original root strategy,
+allocation helpers, movement and attachment publication. Across 6,200 updates
+it compares all 11 direct spawn identities and source parameters, ordering,
+pre-movement independent poses, local and published attachment poses,
+parent/group links, removal flags, queued audio, retained player pose,
+background origins, velocity and path phase. Cases include authored cues,
+early cues, skipped equality gates, a permanently held opening and signed
+coordinate wrapping. Two ROM-free tests also cover composition with the typed
+controller and event ordering at a cue boundary.
+
+This verifier deliberately does **not** execute the spawned child strategies.
+It proves the root's event producer, not their behavior or the complete scene
+scheduler. The flyby rig and trails (`$FD5C`, `$FDAB`), craft/formation paths
+(`$FCF2`, `$FCC5`, `$FBD0`, `$FDC2`) and later target (`$FB08`) still need native
+consumers before this root can replace the recorded production scene.
 
 ## Reproduce without manual play
 
@@ -438,7 +481,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
