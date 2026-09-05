@@ -1,13 +1,30 @@
 # Application icon
 
-Generated with the built-in image-generation tool. This is project artwork,
-not a retail ROM asset. The source PNG is preserved; the 512-pixel PNG serves
+Revised with the built-in image-generation tool using the port's actual
+`SHAPE_MYSHIP_4` player mesh as the shape/color reference. This is generated
+icon artwork, not an exact renderer capture. The source PNG is preserved;
+the 512-pixel PNG serves
 desktop shells and the 256-pixel RGBA BMP is embedded in the executable so
 SDL can decode it without another image library or runtime asset lookup.
 
-Generation prompt:
+Revision prompt (image 1: previous icon; image 2: `arwing-model-reference.png`):
 
-> Use case: logo-brand. Asset type: desktop game application icon for Star Fox HD, a modern Rust port of the original SNES Star Fox games. Create one square 1024 by 1024 icon: a bold, recognizable silver-white and blue low-poly Arwing starfighter, seen from slightly above and in front, nose pointing down toward the viewer, broad swept triangular wings fully visible. Crisp angular SNES-inspired faceted geometry, a small blue canopy, restrained blue engine glow. Centered strong silhouette fills most of the canvas with safe padding. Deep midnight-navy rounded-square badge behind the ship; genuinely transparent outside the badge. Keep the design clean, high contrast and readable at 32 pixels. No text, letters, watermark, border inscription, extra ships, stars or scenery. Finished application icon, not a mockup.
+> Use case: precise-object-edit. Revise the application icon in image 1. Image 1 is the EDIT TARGET, but its ship design is wrong. Image 2 is the PRIMARY SHIP REFERENCE, rendered directly from the actual SNES player mesh in this game's renderer. Replace the detailed spaceship in image 1 with the extremely simple low-poly Arwing in image 2. Match image 2's silhouette, proportions, pose and few large flat polygon faces closely: long pointed pale gray central fuselage with two shaded sides and nose pointing down; two thin long upright blue/cyan angular fins flanking the central body; small narrow swept triangular silver wings extending outward behind them. No canopy is visible in this pose. Keep the asymmetric light/dark face colors as in the reference. Clean crisp polygon edges, flat-shaded game geometry, absolutely no added panel lines, vents, insignia, red decals, cockpit glass, armor, bevels, extra appendages or photorealistic details. Enlarge this exact simple ship to occupy about 80 percent of the icon, centered with padding. Preserve the navy rounded-square badge concept and genuine transparency outside it from image 1, but soften its glow so the very simple game mesh is the focus. No text, no watermarks, no scene, no invented detail. This should look like the actual in-game polygon model placed on a desktop icon, not a modern redesign.
+
+To reproduce the mesh reference from the repo root:
+
+```sh
+nix develop --command cargo run --manifest-path rust/Cargo.toml \
+  -p sf-render --example arwing_icon_reference -- /tmp/arwing-reference.ppm
+magick /tmp/arwing-reference.ppm -trim +repage -bordercolor black -border 20 \
+  -resize 768x768 rust/sf-app/assets/arwing-model-reference.png
+```
+
+Final transparency-edit prompt, also using built-in image generation:
+
+> Extract the blue rounded-square application badge from this image. Remove every black pixel of background outside the badge. Deliver an actual RGBA PNG cutout with alpha=0 in the four corners and all outside areas. Transparency is essential: do not paint a transparency checkerboard, white, or black background. The checkerboard preview should not be part of the image. Keep the blue badge and extremely simple flat-shaded polygon spacecraft unchanged. Do not redesign, reinterpret, redraw or add any detail. Only the exterior background must become genuinely transparent.
+
+The previous icon and prompt remain available in Git commit `c63d7f8`.
 
 Rebuild the derived sizes with ImageMagick from this directory:
 
