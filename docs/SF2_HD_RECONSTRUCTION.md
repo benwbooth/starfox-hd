@@ -1116,6 +1116,35 @@ uncatalogued handlers; it currently fails intentionally. No observed-cursor
 filter or ignore-failures option is provided. ROM-backed extraction tests
 require the local ROM. The new GPU checks require an actual adapter.
 
+## Opening boot scheduling oracle
+
+`sf-oracle/tests/sf2_intro_scene.rs` now checks the controller at 441 consecutive
+instruction-entry boundaries in an unmodified retail boot (elapsed 0 through
+440). At each boundary the controller's player is a member of the same
+60-object pool and is the active-list head/current object. The global actor
+clock has already advanced and is one ahead of controller elapsed time, modulo
+256. The native controller's camera cues agree at every sampled boundary; all
+60 slots remain accounted for in disjoint active/free lists with valid active
+back-links. This stops before executing the final sampled controller call and
+does not certify the next-scene handoff.
+
+The boot-created player is not the reserved view anchor `$033F`. Consequently,
+the separate synthetic test, which invokes the controller outside the object
+pool, cannot establish boot allocation capacity or scheduling by itself. It
+remains useful for root-pose/cue comparisons and running all source child
+strategies together under two RNG seeds. The diagnostic example
+`sf2_opening_order_probe` prints boot-created list topology without replacing
+child strategies.
+
+Verification:
+
+```sh
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_scene'
+```
+
+These are integration-oracle checks, not a native whole-opening scene or a
+replacement for the shipping recorded presentation.
+
 ## Remaining completion gates
 
 1. Recover the intro's typed actor/camera/effect systems and source-authored
