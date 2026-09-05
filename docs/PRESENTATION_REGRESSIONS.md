@@ -6,7 +6,8 @@ evidence. Passing native rendering tests is not retail certification.
 | Report | Evidence and current status |
 | --- | --- |
 | Low-rate floor dots | Fixed HD point interpolation. World grid cells retain identity across grid recentering; dust carries allocation generations; near-point second pixels have distinct identities. Fractional positions reach GPU quads without integer rounding. Source pixels, RNG and raster output are unchanged. Unit tests cover clipping/reordering, respawn and cell boundaries; a GPU readback test verifies the midpoint actually moves. |
-| Staircase sky on camera banking | Fixed HD spatial interpolation across column and row offsets, including wrapped texture coordinates. Exact source-resolution strip rendering is retained. Temporal interpolation remains independent. |
+| Staircase sky on camera banking | Follow-up repair: interpolating individual integer steps still left bands. HD now fits a continuous affine shear to unwrapped row/column offsets only when every sample agrees within one source pixel. Genuinely nonlinear effects keep their authored mesh; exact source-resolution strips are unchanged. A GPU test checks more than 200,000 pixels against an analytic shear: disabling the repair produces 85,094 mismatches, enabling it produces none. This proves removal of the reproduced quantization bands, not all possible live-display tearing. |
+| Resizing stretches 2D artwork | SF1 screen artwork and HUD now share a centered, fitted 256-by-224 square-pixel canvas. HD Playing/Tally can extend the 3D view, and camera-coupled backgrounds reveal more texture rather than stretching. Wipes preserve the canvas and mask outer strips; uniform flashes cover the full world. SF2's existing presentation path is retained. A GPU test resizes one renderer through wide, tall, restored, and minimized outputs, checks artwork/HUD pixels and black borders, and confirms world geometry can appear beyond the UI canvas. The test also exposed and fixed mismatched offscreen color/depth attachment sizes during resize. |
 | Tunnel faces flicker near the eye plane | Fixed an independently reproduced culling defect: a selector touching/crossing the eye plane made either side of a face visible. A homogeneous orientation determinant preserves the selected side without dividing by depth. The existing corridor depth bias is mathematically distance-independent; tests now pin that property. Full reported tunnel flicker is not yet closed. |
 | First-hit pause, approximately five seconds | Confirmed synchronous first-use effect decoding under the audio mixer lock. Available effect clips now preload before runtime; a regression deletes the file after preload and verifies playback. Music is not bulk-preloaded (the local library is 3.1 GB). This eliminates one hitch path, not proof of the entire reported pause. |
 | Slow launch sequence / repeatable mid-level pause | Partially repaired. The 103-refresh neutral-recording death/restart interval at frame 943 is no longer applied to an alive player; live death/restart flags gate that wait. Both the public shell boundary and timing helper are tested. The original measurement arrays are unchanged. Frame 186 still includes the 87-refresh audio-transfer wait, and ordinary pacing still comes from one neutral-input recording. A native neutral trace confirms the death flag at scene 943 and completed restart at 944. This fixes an erroneous approximately 1.7-second pause, not proof that the entire reported five-second stall is gone. Fully context-dependent pacing remains open. |
@@ -72,6 +73,22 @@ of reporting successful capture. The probe deliberately does not run audio.
 
 ## Verification
 
+- After the aspect/background follow-up, all 241 `sf-render` tests passed
+  and `sf-app` built. Log: `/tmp/sf1-aspect-render-final.log`. The native
+  architecture check and `git diff --check` passed. Existing title asset
+  expectations and SF2 guidance hashes were preserved; title verification
+  now measures its fitted artwork rather than averaging new black borders
+  into the old whole-window grid. The bitmap and wipe tests account for
+  the fitted integer viewport.
+- The remaining tunnel report is **open**. Native completed-scene captures
+  sampled five phases in ranges 120–134, 140–148, 158–168 and 178–188
+  (230 images under `/tmp/sf1-tunnel-transition-zXt4XF`). Spot inspection,
+  source geometry review, and isolated overlap checks have not established
+  the residual defect. The actual scene-164 draw entries use normalized
+  corridor shape IDs 510, ruling out a suspected compatibility-ID mismatch
+  in depth-layer selection. No speculative tunnel bias was added and no
+  independent retail comparison was performed in this pass. These samples
+  do not rule out an active-window or frame-timing problem.
 - After the smoke/logo/timing follow-up, all 473 `sf-game`, `sf-render`
   and `sf-audio` tests passed and `sf-app` built. The GPU logo test covers
   45 poses at 1280 by 720 with smooth shading, including fractional camera

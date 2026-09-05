@@ -3,6 +3,9 @@ use sf_render::renderer::{config_from_repo_root, FrameInputs, GameState, Rendere
 
 const WIDTH: i32 = 224;
 const HEIGHT: i32 = 192;
+const SOURCE_WIDTH: f32 = 256.0;
+const SOURCE_HEIGHT: f32 = 224.0;
+const HALF_REVEAL_HEIGHT: usize = HEIGHT as usize / 2;
 const VISIBLE_TEST_BACKGROUND: u16 = 4;
 const MASK_COLOR: [u8; 3] = [0, 0, 0];
 
@@ -32,7 +35,7 @@ fn render(wipe: ScreenWipeState) -> Option<Vec<u8>> {
 }
 
 #[test]
-fn horizontal_reveal_masks_the_actual_output_surface() {
+fn horizontal_reveal_preserves_canvas_aspect_and_masks_the_outer_surface() {
     let mut closed = ScreenWipeState::inactive();
     closed.begin(ScreenWipeKind::HorizontalReveal);
     let Some(closed_pixels) = render(closed) else {
@@ -51,14 +54,24 @@ fn horizontal_reveal_masks_the_actual_output_surface() {
         .chunks_exact(3)
         .filter(|pixel| **pixel != MASK_COLOR)
         .count();
-    assert_eq!(revealed, WIDTH as usize * 96);
+    let canvas_width = (HEIGHT as f32 * SOURCE_WIDTH / SOURCE_HEIGHT).round() as usize;
+    let canvas_left = (WIDTH as usize - canvas_width) / 2;
+    let expected_revealed = canvas_width * HALF_REVEAL_HEIGHT;
+    assert_eq!(revealed, expected_revealed);
     assert_eq!(
         half_open_pixels
             .chunks_exact(3)
             .filter(|pixel| **pixel == MASK_COLOR)
             .count(),
-        WIDTH as usize * 96
+        WIDTH as usize * HEIGHT as usize - expected_revealed
     );
+    for row in half_open_pixels.chunks_exact(WIDTH as usize * 3) {
+        for (x, pixel) in row.chunks_exact(3).enumerate() {
+            if x < canvas_left || x >= canvas_left + canvas_width {
+                assert_eq!(pixel, MASK_COLOR, "wipe must mask expanded side strips");
+            }
+        }
+    }
 }
 
 #[test]

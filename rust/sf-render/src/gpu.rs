@@ -699,7 +699,22 @@ impl Gpu {
                 config.height = h;
                 surface.configure(&self.device, config);
             }
-            Target::Offscreen { .. } => {}
+            Target::Offscreen { texture, width, height } => {
+                if (*width, *height) != (w, h) {
+                    *texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("offscreen-color"),
+                        size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: self.color_format,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                        view_formats: &[],
+                    });
+                    *width = w;
+                    *height = h;
+                }
+            }
         }
         if self.depth_size != (w, h) {
             self.depth_view = make_depth(&self.device, w, h);

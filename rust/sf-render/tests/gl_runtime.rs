@@ -1466,6 +1466,11 @@ fn launch_boost_billboard_draws_both_authored_texture_frames() {
 
 // (c) Full composed title frame vs source-asset region averages.
 fn check_title_golden(renderer: &mut Renderer) {
+    // Compare artwork in its native aspect, excluding the intentional bars.
+    // aspect_ratio.rs separately checks the fitted canvas after resizing.
+    const TITLE_WIDTH: i32 = 1024;
+    const TITLE_HEIGHT: i32 = 896;
+    renderer.resize(TITLE_WIDTH, TITLE_HEIGHT);
     let inputs = FrameInputs {
         game_state: GameState::Title,
         ..Default::default()
@@ -1475,7 +1480,7 @@ fn check_title_golden(renderer: &mut Renderer) {
     renderer.end_frame();
 
     let px = renderer.read_pixels_rgb();
-    let grid = grid_8x8(&px, W as usize, H as usize, 3);
+    let grid = grid_8x8(&px, TITLE_WIDTH as usize, TITLE_HEIGHT as usize, 3);
     let mut max_delta = 0i32;
     for (i, (got, want)) in grid
         .iter()
@@ -1494,6 +1499,7 @@ fn check_title_golden(renderer: &mut Renderer) {
         }
     }
     println!("title source-asset grid: max region delta {max_delta}");
+    renderer.resize(W as i32, H as i32);
 }
 
 // Corneria's opening background remains black behind the polygon corridor

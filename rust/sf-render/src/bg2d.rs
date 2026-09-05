@@ -121,7 +121,70 @@ fn spatial_offset_sample(offsets: &[f32], position: f32, period: f32) -> f32 {
     offsets[left] + delta * (position - left as f32)
 }
 
-fn unwrap_spatial_offsets<const LENGTH: usize>(offsets: &[f32; LENGTH], period: f32) -> [f32; LENGTH] {
+/// HD flight keeps square source pixels while revealing a wider/narrower
+/// window into the repeating sky. Menu artwork is fitted by Renderer.
+fn background_horizontal_span(width: i32, height: i32) -> f32 {
+    width.max(1) as f32 * BG2D_H as f32 / (height.max(1) as f32 * BG2D_W as f32)
+}
+
+fn expanded_background_window(left: f32, right: f32, span: f32) -> (f32, f32) {
+    let center = (left + right) * 0.5;
+    let half_span = (right - left) * span * 0.5;
+    (center - half_span, center + half_span)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AffineBackgroundOffset {
+    origin: f32,
+    slope: f32,
+}
+
+impl AffineBackgroundOffset {
+    fn sample(self, position: f32) -> f32 {
+        self.origin + self.slope * position
+    }
+}
+
+/// The ground-roll tables quantize an affine shear to whole source pixels.
+/// Interpolating each stair step still leaves horizontal/vertical bands in
+/// HD. Recover the subpixel field only when every sample agrees within one
+/// source pixel; genuinely non-affine effects retain their authored mesh.
+fn affine_background_offset(offsets: &[f32]) -> Option<AffineBackgroundOffset> {
+    const MAXIMUM_QUANTIZATION_ERROR: f32 = 1.0;
+    if offsets.is_empty() {
+        return None;
+    }
+    let midpoint = (offsets.len() - 1) as f32 * 0.5;
+    let mean = offsets.iter().sum::<f32>() / offsets.len() as f32;
+    let mut covariance = 0.0;
+    let mut variance = 0.0;
+    for (index, &offset) in offsets.iter().enumerate() {
+        let distance = index as f32 - midpoint;
+        covariance += distance * (offset - mean);
+        variance += distance * distance;
+    }
+    let slope = if variance == 0.0 {
+        0.0
+    } else {
+        covariance / variance
+    };
+    let field = AffineBackgroundOffset {
+        origin: mean - slope * midpoint,
+        slope,
+    };
+    offsets
+        .iter()
+        .enumerate()
+        .all(|(index, offset)| {
+            (field.sample(index as f32) - offset).abs() <= MAXIMUM_QUANTIZATION_ERROR
+        })
+        .then_some(field)
+}
+
+fn unwrap_spatial_offsets<const LENGTH: usize>(
+    offsets: &[f32; LENGTH],
+    period: f32,
+) -> [f32; LENGTH] {
     let mut unwrapped = *offsets;
     for index in 1..LENGTH {
         let mut delta = (offsets[index] - offsets[index - 1]).rem_euclid(period);
@@ -1431,8 +1494,9 @@ impl Bg2d {
         // Stars: deterministic pseudo-random spread
         let star = [0.85, 0.85, 0.95, 1.0];
         let mut seed: u32 = 0x123_4567;
-        let sx = w as f32 / 256.0;
-        let sy = h as f32 / 224.0;
+        let sy = h as f32 / BG2D_H as f32;
+        let sx = sy;
+        let left = (w as f32 - BG2D_W as f32 * sx) * 0.5;
         for i in 0..64 {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             let px = ((seed >> 8) & 0xFF) as i32;
@@ -1442,7 +1506,7 @@ impl Bg2d {
             self.push_quad(
                 gpu,
                 proj,
-                px as f32 * sx,
+                left + px as f32 * sx,
                 py as f32 * sy,
                 size * sx,
                 size * sy,
@@ -1519,6 +1583,28 @@ impl Bg2d {
         };
         let spatial_vertical_offsets = unwrap_spatial_offsets(&vertical_offsets, map_height);
         let spatial_horizontal_offsets = unwrap_spatial_offsets(&horizontal_offsets, map_width);
+        if smooth_spatial {
+            if let (Some(vertical), Some(horizontal)) = (
+                affine_background_offset(&spatial_vertical_offsets),
+                affine_background_offset(&spatial_horizontal_offsets),
+            ) {
+                let span = background_horizontal_span(w, h);
+                let vertices = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]].map(|[x, y]| {
+                    let source_column =
+                        (0.5 + (x - 0.5) * span) * (BG2_VERTICAL_OFFSET_COLUMNS - 1) as f32;
+                    let source_row = (1.0 - y) * (BG2_HORIZONTAL_OFFSET_ROWS - 1) as f32;
+                    Vertex2 {
+                        pos: [x * w as f32, y * h as f32],
+                        uv: [
+                            u0 + (u1 - u0) * x + horizontal.sample(source_row) / map_width,
+                            v0 + (v1 - v0) * y - vertical.sample(source_column) / map_height,
+                        ],
+                    }
+                });
+                gpu.push_overlay_fan(&vertices, proj, &IDENTITY, [1.0; 4], 1, None, tex);
+                return;
+            }
+        }
         let mut vertices = Vec::with_capacity(BG2_HORIZONTAL_OFFSET_ROWS * column_count * 6);
         // Overlay coordinates are bottom-up; walk the authored top-down
         // display rows in reverse so each value remains attached to its
@@ -1543,6 +1629,15 @@ impl Bg2d {
             let horizontal_uv_bottom = horizontal_bottom / map_width;
 
             for column in 0..column_count {
+                let left_fraction = column as f32 / column_count as f32;
+                let right_fraction = (column + 1) as f32 / column_count as f32;
+                let span = if smooth_spatial {
+                    background_horizontal_span(w, h)
+                } else {
+                    1.0
+                };
+                let source_column =
+                    |fraction: f32| (0.5 + (fraction - 0.5) * span) * column_count as f32;
                 let (vertical_left, vertical_right) = if uniform_vertical_offset {
                     (vertical_offsets[0], vertical_offsets[0])
                 } else if smooth_spatial {
@@ -1550,20 +1645,18 @@ impl Bg2d {
                     // there is no UV discontinuity at a 32-column boundary.
                     let left = spatial_offset_sample(
                         &spatial_vertical_offsets,
-                        column as f32,
+                        source_column(left_fraction),
                         map_height,
                     );
                     let right = spatial_offset_sample(
                         &spatial_vertical_offsets,
-                        (column + 1).min(column_count - 1) as f32,
+                        source_column(right_fraction).min((column_count - 1) as f32),
                         map_height,
                     );
                     (left, right)
                 } else {
                     (vertical_offsets[column], vertical_offsets[column])
                 };
-                let left_fraction = column as f32 / column_count as f32;
-                let right_fraction = (column + 1) as f32 / column_count as f32;
                 let x0 = w as f32 * left_fraction;
                 let x1 = w as f32 * right_fraction;
                 let column_u0_top = u0 + (u1 - u0) * left_fraction + horizontal_uv_top;
@@ -1657,6 +1750,7 @@ impl Bg2d {
         v0: f32,
         v1: f32,
         phase: i16,
+        horizontal_span: f32,
     ) {
         let offsets = bhole_line_offsets(phase);
         let mut verts = Vec::with_capacity(BG2D_H * 6);
@@ -1667,8 +1761,12 @@ impl Bg2d {
             let y1 = fy1 * screen_height as f32;
             let tv0 = v0 + (v1 - v0) * fy0;
             let tv1 = v0 + (v1 - v0) * fy1;
-            let tu0 = u_base + offset as f32 / map_width;
-            let tu1 = tu0 + BG2D_W as f32 / map_width;
+            let source_left = u_base + offset as f32 / map_width;
+            let (tu0, tu1) = expanded_background_window(
+                source_left,
+                source_left + BG2D_W as f32 / map_width,
+                horizontal_span,
+            );
             let x1 = screen_width as f32;
             verts.extend_from_slice(&[
                 Vertex2 {
@@ -1892,6 +1990,13 @@ impl Bg2d {
             }
         }
 
+        let horizontal_span = if couple && !inputs.source_resolution {
+            background_horizontal_span(screen_width, screen_height)
+        } else {
+            1.0
+        };
+        (u0, u1) = expanded_background_window(u0, u1, horizontal_span);
+
         let proj = ortho(screen_width as f32, screen_height as f32);
         let bhole = matches!(display_id, Some(17 | 39 | BG2D_ID_SPECIAL));
         if bhole {
@@ -1922,6 +2027,7 @@ impl Bg2d {
                     v0,
                     v1,
                     phase,
+                    horizontal_span,
                 );
                 return;
             }
@@ -1988,6 +2094,104 @@ impl Bg2d {
 #[cfg(test)]
 mod bhole_tests {
     use super::*;
+
+    #[test]
+    fn hd_background_field_removes_quantized_steps_but_preserves_nonlinear_effects() {
+        const STEP_PERIOD: usize = 8;
+        const SOURCE_PIXEL_TOLERANCE: f32 = 1.0;
+        let stairs: [f32; BG2_HORIZONTAL_OFFSET_ROWS] =
+            std::array::from_fn(|index| (index / STEP_PERIOD) as f32);
+        let field = affine_background_offset(&stairs).unwrap();
+        for (index, &sample) in stairs.iter().enumerate() {
+            assert!((field.sample(index as f32) - sample).abs() <= SOURCE_PIXEL_TOLERANCE);
+        }
+        assert!(field.slope > 0.0 && field.slope < 1.0);
+        assert!(affine_background_offset(&[0.0, 0.0, 20.0, 0.0]).is_none());
+        assert!(affine_background_offset(&[]).is_none());
+        assert_eq!(background_horizontal_span(512, 448), 1.0);
+        assert_eq!(background_horizontal_span(1024, 448), 2.0);
+        assert_eq!(expanded_background_window(0.0, 1.0, 2.0), (-0.5, 1.5));
+    }
+
+    #[test]
+    fn hd_banked_background_matches_a_continuous_shear_without_scanline_bands() {
+        const WIDTH: u32 = 512;
+        const HEIGHT: u32 = 448;
+        const MAP_SIDE: u32 = 256;
+        const HORIZONTAL_STEP_PERIOD: usize = 8;
+        const VERTICAL_STEP_PERIOD: usize = 4;
+        const BLUE_COMPONENT: u8 = 100;
+        const TEXEL_EDGE_EPSILON: f32 = 0.002;
+        const MINIMUM_CHECKED_PIXELS: usize = 200_000;
+        let mut gpu =
+            Gpu::new_headless(WIDTH, HEIGHT).expect("GPU required for background shear regression");
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let background = Bg2d::new(&mut gpu, &root);
+        let mut texture_bytes = Vec::new();
+        for y in 0..MAP_SIDE {
+            for x in 0..MAP_SIDE {
+                texture_bytes.extend_from_slice(&[x as u8, y as u8, BLUE_COMPONENT, u8::MAX]);
+            }
+        }
+        let texture = gpu.create_texture_rgba_repeat(MAP_SIDE, MAP_SIDE, &texture_bytes);
+        let horizontal = std::array::from_fn(|index| (index / HORIZONTAL_STEP_PERIOD) as f32);
+        let vertical = std::array::from_fn(|index| (index / VERTICAL_STEP_PERIOD) as f32);
+        let horizontal_field = affine_background_offset(&horizontal).unwrap();
+        let vertical_field = affine_background_offset(&vertical).unwrap();
+        let source_height = BG2D_H as f32 / MAP_SIDE as f32;
+        gpu.begin_frame();
+        background.draw_ground_rolled_texture(
+            &mut gpu,
+            &ortho(WIDTH as f32, HEIGHT as f32),
+            texture,
+            WIDTH as i32,
+            HEIGHT as i32,
+            0.0,
+            0.0,
+            1.0,
+            source_height,
+            MAP_SIDE as f32,
+            MAP_SIDE as f32,
+            vertical,
+            horizontal,
+            true,
+        );
+        gpu.end_frame();
+        let (_, _, actual) = gpu.read_pixels().unwrap();
+        let mut checked = 0;
+        let mut mismatches = 0;
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let fx = (x as f32 + 0.5) / WIDTH as f32;
+                let fy = 1.0 - (y as f32 + 0.5) / HEIGHT as f32;
+                let tx = fx * MAP_SIDE as f32
+                    + horizontal_field.sample((1.0 - fy) * (BG2_HORIZONTAL_OFFSET_ROWS - 1) as f32);
+                let ty = fy * BG2D_H as f32
+                    - vertical_field.sample(fx * (BG2_VERTICAL_OFFSET_COLUMNS - 1) as f32);
+                if (tx - tx.round()).abs() < TEXEL_EDGE_EPSILON
+                    || (ty - ty.round()).abs() < TEXEL_EDGE_EPSILON
+                {
+                    continue;
+                }
+                let expected = [
+                    tx.floor().rem_euclid(MAP_SIDE as f32) as u8,
+                    ty.floor().rem_euclid(MAP_SIDE as f32) as u8,
+                    BLUE_COMPONENT,
+                    u8::MAX,
+                ];
+                let offset = ((y * WIDTH + x) * 4) as usize;
+                if actual[offset..offset + 4] != expected {
+                    mismatches += 1;
+                }
+                checked += 1;
+            }
+        }
+        assert!(checked > MINIMUM_CHECKED_PIXELS);
+        assert_eq!(
+            mismatches, 0,
+            "HD sky differs from continuous subpixel shear"
+        );
+    }
 
     #[test]
     fn corneria_corridor_background_is_the_source_black_tile_window() {
@@ -2189,6 +2393,9 @@ mod bhole_tests {
         // The bottom edge of row 1 is the top edge of row 2 in the reversed
         // display walk; both resolve to the same source-row sample.
         assert_eq!(unwrapped[1], 14.0);
-        assert_eq!(unwrapped[1], spatial_offset_sample(&unwrapped, 1.0, 1_024.0));
+        assert_eq!(
+            unwrapped[1],
+            spatial_offset_sample(&unwrapped, 1.0, 1_024.0)
+        );
     }
 }

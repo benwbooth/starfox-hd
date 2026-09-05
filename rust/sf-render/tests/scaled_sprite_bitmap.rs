@@ -6,6 +6,8 @@ use sf_render::{color_data, shape_data, shapes};
 
 const WIDTH: i32 = 1280;
 const HEIGHT: i32 = 720;
+const SOURCE_CANVAS_WIDTH: f32 = 256.0;
+const SOURCE_CANVAS_HEIGHT: f32 = 224.0;
 const DEPTH: i32 = 300;
 const BITMAP_SIDE: usize = 32;
 const TEXTURE_ROW_BYTES: usize = 256;
@@ -62,7 +64,12 @@ fn hd_launch_boost_matches_one_complete_upright_bitmap_at_each_size() {
                 (width - height).abs() < TEXEL_EDGE_EPSILON,
                 "sprite must remain square"
             );
-            let left = (WIDTH as f32 - width) / 2.0;
+            // Boot artwork now uses the fitted source-aspect viewport. Its
+            // integer left/right bars can differ by one output pixel.
+            let canvas_width =
+                (HEIGHT as f32 * SOURCE_CANVAS_WIDTH / SOURCE_CANVAS_HEIGHT).round() as i32;
+            let canvas_left = (WIDTH - canvas_width) / 2;
+            let left = canvas_left as f32 + (canvas_width as f32 - width) / 2.0;
             let top = (HEIGHT as f32 - height) / 2.0;
             let mut checked = 0;
             let mut mismatches = 0;

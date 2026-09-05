@@ -670,6 +670,8 @@ impl Renderer {
         height: i32,
         config: &RendererConfig,
     ) -> Result<Self, String> {
+        let width = width.max(1);
+        let height = height.max(1);
         let mut transform = Transform::new();
         let draw_list = DrawListRenderer::new();
         let hud = Hud::new(&mut gpu);
@@ -720,11 +722,11 @@ impl Renderer {
 
     /// Mirror of `Renderer_Resize`.
     pub fn resize(&mut self, width: i32, height: i32) {
-        self.width = width;
-        self.height = height;
-        self.gpu.resize(width.max(0) as u32, height.max(0) as u32);
-        self.transform.set_projection(width, height);
-        self.font.set_screen_size(width, height);
+        self.width = width.max(1);
+        self.height = height.max(1);
+        self.gpu.resize(self.width as u32, self.height as u32);
+        self.transform.set_projection(self.width, self.height);
+        self.font.set_screen_size(self.width, self.height);
     }
 
     /// Advance the HD presentation history for source-authored per-line
@@ -758,6 +760,34 @@ impl Renderer {
         alpha: f32,
         inputs: &FrameInputs,
     ) {
+        // Screen artwork shares one square-source-pixel canvas. Only active
+        // HD flight expands its world view; window aspect must never stretch
+        // portraits, fonts, sprites, menus, or the HUD.
+        let canvas = if inputs.sf2.is_some() {
+            // SF2's native screens already own their fitted presentation.
+            RenderViewport {
+                x: 0,
+                y: 0,
+                width: self.width.max(1) as u32,
+                height: self.height.max(1) as u32,
+            }
+        } else {
+            source_frame_viewport(self.width, self.height)
+        };
+        let canvas_width = canvas.width as i32;
+        let canvas_height = canvas.height as i32;
+        let expanded_world = inputs.sf2.is_none()
+            && !inputs.source_resolution
+            && matches!(inputs.game_state, GameState::Playing | GameState::Tally);
+        let (scene_width, scene_height) = if expanded_world {
+            (self.width.max(1), self.height.max(1))
+        } else {
+            (canvas_width, canvas_height)
+        };
+        self.gpu
+            .set_draw_viewport(if expanded_world { None } else { Some(canvas) });
+        self.transform.set_projection(scene_width, scene_height);
+        self.font.set_screen_size(scene_width, scene_height);
         let clear_blue = if inputs.sf2.is_some() {
             SF2_SIDEBAR_BLUE_COMPONENT
         } else {
@@ -786,8 +816,8 @@ impl Renderer {
             self.ui.render_ending_replay_background(
                 &mut self.gpu,
                 replay.backdrop,
-                self.width,
-                self.height,
+                scene_width,
+                scene_height,
             );
         } else {
             self.bg2d.render(
@@ -795,8 +825,8 @@ impl Renderer {
                 &self.transform,
                 inputs,
                 alpha,
-                self.width,
-                self.height,
+                scene_width,
+                scene_height,
             );
         }
         if let Some(sf2) = inputs.sf2.filter(|sf2| sf2.mode == Sf2Mode::Mission) {
@@ -804,7 +834,14 @@ impl Renderer {
                 .render_sf2_mission_background(&mut self.gpu, sf2.mission_backdrop);
         }
         if inputs.screen_fill_circle.scope == ScreenFillCircleScope::Background {
-            self.render_screen_fill_circle(inputs.screen_fill_circle, prev, curr, alpha);
+            self.render_screen_fill_circle(
+                inputs.screen_fill_circle,
+                prev,
+                curr,
+                alpha,
+                scene_width,
+                scene_height,
+            );
         }
         self.shapes.set_scene_style(inputs.scene_style);
         // Polygon colors use the independent BGS-selected game palette.
@@ -842,8 +879,8 @@ impl Renderer {
                 &mut self.gpu,
                 &points,
                 &shape_palette,
-                self.width,
-                self.height,
+                scene_width,
+                scene_height,
             );
         }
         let sf2_mission = inputs.sf2.is_some_and(|sf2| sf2.mode == Sf2Mode::Mission);
@@ -855,8 +892,8 @@ impl Renderer {
                 .set_projection(viewport.width as i32, viewport.height as i32);
         } else if sf1_briefing {
             self.transform.set_projection_source_center(
-                self.width,
-                self.height,
+                scene_width,
+                scene_height,
                 SOURCE_FRAME_WIDTH as f32,
                 SOURCE_FRAME_HEIGHT as f32,
                 crate::sf1_briefing::VANISH_X,
@@ -894,25 +931,30 @@ impl Renderer {
         self.particles.render(&mut self.gpu, &self.transform);
         if inputs.game_state == GameState::Title {
             self.bg2d
-                .render_title_foreground(&mut self.gpu, self.width, self.height);
+                .render_title_foreground(&mut self.gpu, scene_width, scene_height);
         }
         if inputs.screen_fill_circle.scope == ScreenFillCircleScope::Scene {
-            self.render_screen_fill_circle(inputs.screen_fill_circle, prev, curr, alpha);
+            self.render_screen_fill_circle(
+                inputs.screen_fill_circle,
+                prev,
+                curr,
+                alpha,
+                scene_width,
+                scene_height,
+            );
         }
         if sf2_mission || sf1_briefing {
-            if sf2_mission {
-                self.gpu.set_draw_viewport(None);
-            }
-            self.transform.set_projection(self.width, self.height);
+            self.transform.set_projection(scene_width, scene_height);
         }
+        self.gpu.set_draw_viewport(Some(canvas));
         self.hud.render(
             &mut self.gpu,
             &mut self.sprites,
             &mut self.font,
             inputs,
             &shape_palette,
-            self.width,
-            self.height,
+            canvas_width,
+            canvas_height,
             alpha,
         );
         if inputs.source_resolution {
@@ -924,7 +966,7 @@ impl Renderer {
             if let Some(aperture) = aperture {
                 // Apply the completed source scanout aperture after the scene
                 // and bitmap-resident HUD have been composed.
-                self.render_source_bitmap_mask(aperture);
+                self.render_source_bitmap_mask(aperture, canvas_width, canvas_height);
             }
         }
         self.ui.render(
@@ -932,16 +974,72 @@ impl Renderer {
             &mut self.font,
             &self.bg2d,
             inputs,
-            self.width,
-            self.height,
+            canvas_width,
+            canvas_height,
         );
-        self.ui
-            .render_fade(&mut self.gpu, inputs, self.width, self.height);
+        if expanded_world && !inputs.screen_wipe.active {
+            // A uniform flash has no artwork aspect and must cover the
+            // expanded world too, not leave unfaded side strips.
+            self.gpu.set_draw_viewport(None);
+            self.ui
+                .render_fade(&mut self.gpu, inputs, scene_width, scene_height);
+        } else {
+            if expanded_world {
+                self.render_canvas_bars(canvas);
+            }
+            self.ui
+                .render_fade(&mut self.gpu, inputs, canvas_width, canvas_height);
+        }
+        self.gpu.set_draw_viewport(None);
+        self.transform
+            .set_projection(self.width.max(1), self.height.max(1));
+    }
+
+    /// A source-aspect wipe masks the expanded world outside its aperture.
+    fn render_canvas_bars(&mut self, canvas: RenderViewport) {
+        let width = self.width as f32;
+        let height = self.height as f32;
+        let left = canvas.x as f32;
+        let right = (canvas.x + canvas.width) as f32;
+        let top = canvas.y as f32;
+        let bottom = (canvas.y + canvas.height) as f32;
+        let mut identity = [0.0; 16];
+        crate::transform::identity(&mut identity);
+        self.gpu.set_draw_viewport(None);
+        for [x0, y0, x1, y1] in [
+            [0.0, 0.0, left, height],
+            [right, 0.0, width, height],
+            [left, 0.0, right, top],
+            [left, bottom, right, height],
+        ] {
+            if x0 == x1 || y0 == y1 {
+                continue;
+            }
+            let vertices = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(|[x, y]| Vertex2 {
+                pos: [x * 2.0 / width - 1.0, 1.0 - y * 2.0 / height],
+                uv: [0.0; 2],
+            });
+            self.gpu.push_overlay_fan(
+                &vertices,
+                &identity,
+                &identity,
+                [0.0, 0.0, 0.0, 1.0],
+                0,
+                None,
+                WHITE_TEX,
+            );
+        }
+        self.gpu.set_draw_viewport(Some(canvas));
     }
 
     /// Mask a completed 224-pixel-wide source bitmap after scene drawing and
     /// before HUD/OAM presentation.
-    fn render_source_bitmap_mask(&mut self, aperture: SourceBitmapAperture) {
+    fn render_source_bitmap_mask(
+        &mut self,
+        aperture: SourceBitmapAperture,
+        width: i32,
+        height: i32,
+    ) {
         const SOURCE_FRAME_WIDTH: f32 = 256.0;
         const SOURCE_FRAME_HEIGHT: f32 = 224.0;
         const IDENTITY: [f32; 16] = [
@@ -951,8 +1049,8 @@ impl Renderer {
             0.0, 0.0, 0.0, 1.0,
         ];
 
-        let output_width = self.width as f32;
-        let output_height = self.height as f32;
+        let output_width = width as f32;
+        let output_height = height as f32;
         let scale = output_height / SOURCE_FRAME_HEIGHT;
         let source_left = (output_width - SOURCE_FRAME_WIDTH * scale) * 0.5;
         let left = source_left + SOURCE_BITMAP_LEFT * scale;
@@ -1026,6 +1124,8 @@ impl Renderer {
         prev: &[DrawListEntry],
         curr: &[DrawListEntry],
         alpha: f32,
+        width: i32,
+        height: i32,
     ) {
         if !state.is_active()
             || state.radius == 0
@@ -1035,7 +1135,6 @@ impl Renderer {
         }
 
         const CIRCLE_SEGMENTS: usize = 64;
-        const SOURCE_HALF_WIDTH: f32 = 128.0;
         const SOURCE_HALF_HEIGHT: f32 = 112.0;
         const WORLD_TO_RENDER_FIXED_SHIFT: u32 = 16;
         const IDENTITY: [f32; 16] = [
@@ -1059,7 +1158,8 @@ impl Renderer {
             )
             .unwrap_or((0.0, 0.0)),
         };
-        let radius_x = f32::from(state.radius) / SOURCE_HALF_WIDTH;
+        let radius_x = f32::from(state.radius) / SOURCE_HALF_HEIGHT * height.max(1) as f32
+            / width.max(1) as f32;
         let radius_y = f32::from(state.radius) / SOURCE_HALF_HEIGHT;
         let mut fan = Vec::with_capacity(CIRCLE_SEGMENTS + 2);
         fan.push(Vertex2 {
