@@ -5,7 +5,10 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from extract_intro_paths import authored_intro_root, cursor_is_reached, decode, main, trace_paths
+from extract_intro_paths import (
+    authored_intro_root, authored_scene_roots, cursor_is_reached, decode,
+    installed_scene_roots, main, trace_paths,
+)
 from extract_map import DEFAULT_ROM
 from extract_path import PATH_DATA_FILE, PathAddress, PathExtractor
 
@@ -19,6 +22,51 @@ class IntroPathTraceTests(unittest.TestCase):
         source[0x032968] ^= 1
         with self.assertRaisesRegex(ValueError, "scene installer signature mismatch"):
             authored_intro_root(bytes(source))
+
+    def test_installed_scenes_are_validated_against_the_indexed_table(self):
+        rom = DEFAULT_ROM.read_bytes()
+        table = authored_scene_roots(rom)
+        self.assertEqual(len(table), 30)
+        self.assertEqual(len(set(table)), 24)
+        installations = self.write_trace(
+            "frame=156 selector=6 index=6 root=FA11\n"
+            "frame=2034 selector=7 index=7 root=B65B\n"
+        )
+        self.assertEqual(installed_scene_roots(rom, installations), [0xB65B, 0xFA11])
+
+    def test_installer_clamps_the_selector_but_not_a_forged_root(self):
+        rom = DEFAULT_ROM.read_bytes()
+        table = authored_scene_roots(rom)
+        clamped = self.write_trace(f"frame=1 selector=255 index=0 root={table[0]:04X}\n")
+        self.assertEqual(installed_scene_roots(rom, clamped), [table[0]])
+        for line in [
+            "frame=1 selector=6 index=6 root=B65B\n",
+            "frame=1 selector=30 index=30 root=FA11\n",
+            "frame=1 selector=256 index=0 root=FA11\n",
+            "frame=2 selector=6 index=6 root=FA11\nframe=1 selector=7 index=7 root=B65B\n",
+            "frame=1 root=FA11\n",
+            "",
+        ]:
+            with self.subTest(line=line), self.assertRaises(ValueError):
+                installed_scene_roots(rom, self.write_trace(line))
+
+    def test_actual_attract_installer_roots_reach_the_previously_missing_family(self):
+        commands, failures = decode(DEFAULT_ROM, [0xFA11, 0xB65B])
+        self.assertEqual(failures, [])
+        self.assertEqual(len(commands), 903)
+        for cursor in [0xB6F7, 0xB741, 0xB7E3, 0xB866, 0xB868, 0xDB2E]:
+            self.assertTrue(cursor_is_reached(commands, cursor), f"{cursor:04X}")
+
+    def test_both_inline_phase_branches_are_source_signature_checked(self):
+        rom = DEFAULT_ROM.read_bytes()
+        extractor = PathExtractor(rom)
+        for root, successors in [(0xB796, [0xB7A4, 0xB7AB]), (0xB869, [0xB877, 0xB87E])]:
+            command = extractor.decode_command(PathAddress(root))
+            self.assertEqual(command.successors, tuple(PathAddress(offset) for offset in successors))
+            changed = bytearray(rom)
+            changed[PATH_DATA_FILE + successors[1] - 2] ^= 1
+            with self.assertRaisesRegex(ValueError, "signature mismatch"):
+                PathExtractor(bytes(changed)).decode_command(PathAddress(root))
 
     def test_consumed_escape_is_not_misclassified_as_a_new_path_root(self):
         extractor = PathExtractor(DEFAULT_ROM.read_bytes())

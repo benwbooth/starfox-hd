@@ -13,6 +13,7 @@ not a native scene implementation or a proof of complete game behavior.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -22,12 +23,12 @@ from extract_path import PathAddress, PathExtractor
 from path_semantics import PATH_SEMANTIC_BY_OPCODE
 
 
-def authored_intro_root(rom: bytes) -> int:
-    """Recover the title root from the source's indexed scene installer.
+def authored_scene_roots(rom: bytes) -> tuple[int, ...]:
+    """Recover the source's complete bounded indexed scene-root table.
 
     The live boot write is $06:A96E, not an immediate path installation.
-    The selector clamps to 30 records, multiplies by eight, and reads the
-    path word from $0D:D4C7. The boot intro selects record six. Both code
+    The selector resets out-of-range values to zero, multiplies by eight,
+    and reads the path word from $0D:D4C7. The boot intro selects record six. Both code
     slices are checked before interpreting that table; observed cursors are
     evidence for reachability, never replacement animation data.
     """
@@ -40,12 +41,39 @@ def authored_intro_root(rom: bytes) -> int:
             raise ValueError(f"scene installer signature mismatch at file {offset:#x}")
     scene_table_file = 0x06D4C7
     scene_record_size = 8
-    intro_scene_index = 6
-    offset = scene_table_file + intro_scene_index * scene_record_size
-    payload = rom[offset:offset + 2]
-    if len(payload) != 2:
+    scene_count = 30
+    table = rom[scene_table_file:scene_table_file + scene_record_size * scene_count]
+    if len(table) != scene_record_size * scene_count:
         raise ValueError("incomplete scene path table")
-    return int.from_bytes(payload, "little")
+    return tuple(int.from_bytes(table[index:index + 2], "little")
+                 for index in range(0, len(table), scene_record_size))
+
+
+def authored_intro_root(rom: bytes) -> int:
+    return authored_scene_roots(rom)[6]
+
+
+def installed_scene_roots(rom: bytes, installations: Path) -> list[int]:
+    """Validate actual installer executions against its bounded source table."""
+    table = authored_scene_roots(rom)
+    roots = set()
+    previous_frame = -1
+    for line in installations.read_text().splitlines():
+        match = re.fullmatch(r"frame=(\d+) selector=(\d+) index=(\d+) root=([0-9A-F]{4})", line)
+        if match is None:
+            raise ValueError(f"malformed scene installation: {line!r}")
+        frame, selector, index = map(int, match.groups()[:3])
+        root = int(match[4], 16)
+        if not 0 <= selector <= 255 or frame < previous_frame:
+            raise ValueError(f"invalid scene installation order or selector: {line!r}")
+        expected_index = selector if selector < len(table) else 0
+        if index != expected_index or root != table[index]:
+            raise ValueError(f"scene installation does not match the authored table: {line!r}")
+        previous_frame = frame
+        roots.add(root)
+    if not roots:
+        raise ValueError("trace contains no scene installations")
+    return sorted(roots)
 
 
 def trace_paths(trace: Path) -> list[int]:
@@ -129,17 +157,21 @@ def main() -> int:
     parser.add_argument("--rom", type=Path, default=DEFAULT_ROM)
     parser.add_argument("--summary", action="store_true", help="omit the per-command listing")
     parser.add_argument("--require-reviewed-semantics", action="store_true")
+    parser.add_argument("--installations", type=Path,
+                        help="validate and include actually executed indexed scene installations")
     args = parser.parse_args()
 
     observed = trace_paths(args.trace)
     if not observed:
         raise SystemExit("trace contains no nonzero path cursors")
-    root = authored_intro_root(args.rom.read_bytes())
-    commands, failures = decode(args.rom, [root])
+    rom = args.rom.read_bytes()
+    roots = (installed_scene_roots(rom, args.installations) if args.installations
+             else [authored_intro_root(rom)])
+    commands, failures = decode(args.rom, roots)
     missing = [offset for offset in observed if not cursor_is_reached(commands, offset)]
     unnamed = sorted({command.opcode for command in commands.values()
                       if command.opcode not in PATH_SEMANTIC_BY_OPCODE})
-    print(f"authored_root=44:{root:04X} observed_cursors={len(observed)} "
+    print(f"authored_roots={','.join(f'44:{root:04X}' for root in roots)} observed_cursors={len(observed)} "
           f"commands={len(commands)} failures={len(failures)} missing_observed={len(missing)} "
           f"unreviewed_semantics={len(unnamed)}")
     print("observed=" + ",".join(f"44:{offset:04X}" for offset in observed))

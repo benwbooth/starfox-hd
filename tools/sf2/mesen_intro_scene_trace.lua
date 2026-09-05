@@ -8,6 +8,7 @@ local step = tonumber(os.getenv("SF2_INTRO_TRACE_STEP")) or 4
 assert(stop_frame > 0 and step > 0, "trace stop and step must be positive")
 local lines = {}
 local installations = {}
+local scene_installations = {}
 local draw_record_size = 0x26
 local draw_list_start = 0xB273
 
@@ -89,6 +90,17 @@ local function path_write(address, value)
     frame, address - field, field, value, state["cpu.k"], state["cpu.pc"])
 end
 
+-- The indexed installer, not a sampled path cursor, is the authority for
+-- later attract-scene roots. Capture immediately before STA $002B,Y.
+local function scene_install()
+  local state = emu.getState()
+  local selector = w8(0x1D73)
+  local index = selector < 30 and selector or 0
+  scene_installations[#scene_installations + 1] = string.format(
+    "frame=%d selector=%d index=%d root=%04X",
+    frame, selector, index, state["cpu.a"] & 0xFFFF)
+end
+
 local function end_frame()
   frame = frame + 1
   if frame % step == 0 then record() end
@@ -99,6 +111,9 @@ local function end_frame()
     local writers = assert(io.open(emu.getScriptDataFolder() .. "/sf2_intro_path_writers.txt", "wb"))
     writers:write(table.concat(installations, "\n") .. "\n")
     writers:close()
+    local scenes = assert(io.open(emu.getScriptDataFolder() .. "/sf2_intro_scene_installations.txt", "wb"))
+    scenes:write(table.concat(scene_installations, "\n") .. "\n")
+    scenes:close()
     emu.log("SF2_INTRO_SCENE_TRACE_DONE")
     emu.stop(0)
   end
@@ -106,5 +121,7 @@ end
 
 emu.addEventCallback(input, emu.eventType.inputPolled)
 emu.addEventCallback(end_frame, emu.eventType.endFrame)
+emu.addMemoryCallback(scene_install, emu.callbackType.exec,
+  0x06A96E, 0x06A96E, emu.cpuType.snes, emu.memType.snesMemory)
 emu.addMemoryCallback(path_write, emu.callbackType.write, 0x03BD,
   0x03BD + 60 * 0x3F - 1, emu.cpuType.snes, emu.memType.snesWorkRam)

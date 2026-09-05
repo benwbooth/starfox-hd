@@ -361,6 +361,21 @@ _PATH_INLINE_BLOCKS: dict[int, tuple[bytes, tuple[int, ...]]] = {
     # Same child-auxiliary publication thunk as 2059/9122/919F/91DA above.
     # Source $09:FDDD..FDE7 returns the first path byte after the RTL.
     0xFDDC: (bytes.fromhex("ac71d7961cc220a9e8fd6b"), (0xFDE8,)),
+    # Indexed attract scene seven. These two source phase tests return one
+    # of two literal path addresses; retain both arms (including the embedded
+    # path Return byte between the machine-code arms).
+    0xB796: (
+        bytes.fromhex("ade01bc901f007c220a9a4b76b42c220a9abb76b"),
+        (0xB7A4, 0xB7AB),
+    ),
+    0xB869: (
+        bytes.fromhex("ade01bc9011007c220a977b86b42c220a97eb86b"),
+        (0xB877, 0xB87E),
+    ),
+    # $07:F52B eases the camera's fine yaw toward the three-quarter turn;
+    # $07:F3D1 advances the six-entry pilot selector. Both end in RTL.
+    0xB7E7: (bytes.fromhex("222bf507c220a9f2b76b"), (0xB7F2,)),
+    0xE91B: (bytes.fromhex("22d1f307c220a926e96b"), (0xE926,)),
 }
 
 

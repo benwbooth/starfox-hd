@@ -67,14 +67,62 @@ are **not** a declaration of completed native choreography or full intro
 coverage. Independent host timing, camera control, scene layers, and the
 rest of the attract loop still require reconstruction and verification.
 
-A fresh **4,560-video-frame** neutral capture exercises the full retained
-attract duration. It contains 167 observed path cursors, of which 20 are not
-reachable from the single recovered intro root (the `$B6F7..B868` family and
-`$DB2E`). The completion check correctly exits with failure for this corpus.
-The same indexed installer has 24 distinct path roots across its 30 records;
-recovering later scene handoffs is necessary, not something to hide by seeding
-the graph with arbitrary sampled offsets. An exploratory traversal of all 24
-table roots reaches 3,826 commands and 19 still-unreviewed inline blocks.
+The initial **4,560-video-frame** neutral capture contained 167 observed path
+cursors; 20 were unreachable from the single intro root. A subsequent probe
+at the indexed installer itself established the missing handoff:
+
+- Video frame 156: selector/index six installs `$FA11`.
+- Video frame 2,034: selector/index seven installs `$B65B`.
+
+`sf2_intro_scene_installations.txt` records those actual executions.
+`--installations` validates each selector, its source clamp, its table entry,
+and chronological ordering. It cannot introduce arbitrary sampled path roots.
+Four additional inline blocks (`$B796`, `$B869`, `$B7E7`, `$E91B`) now have
+signature-checked return continuations. Both phase-test branches are retained.
+Together the two installed roots reach **903 commands, all 167 observed
+cursors, and no unresolved control-flow blocks** for this neutral corpus.
+Four handler identities (`$143`, `$145`, `$146`, `$151`) are not yet registered
+in the older generated path semantic catalog; that integration gate stays red.
+
+This is not all-scene coverage. The indexed installer has 24 distinct roots
+across its 30 records. An exploratory traversal of all 24 reaches 3,855
+commands and 15 still-unreviewed inline blocks.
+
+## Native motion kernels
+
+`rust/sf2-game/src/native/intro_motion.rs` now implements typed counterparts of
+the four uncatalogued handlers and the attract camera's yaw-settling service.
+`rust/sf-oracle/tests/sf2_intro_motion.rs` executes the original ROM routines
+independently and compares the resulting fields, rather than reproducing the
+native arithmetic in expected-value fixtures.
+
+- `$145/$146`: copy the current rotation/position into the selected player
+  and its retained movement origins. Retained pitch/yaw have eight fractional
+  bits; retained roll is integral. Tests exercise every angle byte, signed
+  position boundaries, nonzero adjacent bytes, and aliased/distinct objects.
+- `$143`: chase each fine camera angle toward the current object's coarse
+  angle. `$7F:25A3` takes one eighth of the signed wrapped displacement,
+  truncating toward zero, with a minimum nonzero step of one. It is **not** a
+  maximum-eight-unit clamp. Differential tests cover all 65,536 targets from
+  three wrapping origins and the complete command's per-axis wiring.
+- `$151`: copy each fine camera angle's high byte into the current object's
+  coarse rotation. This handler enters in eight-bit mode; it does **not**
+  copy overlapping words. The test checks that adjacent bytes are unchanged.
+- `$07:F52B`: settle fine yaw toward 49,152 using two separately rounded signed
+  halves. All 65,536 input yaw values match retail execution. Combining the
+  arithmetic into a simple three-quarters multiply is not equivalent.
+
+The oracle replaces only the common post-command dispatch continuation with
+a return, so each pose handler and its called helpers run from original bytes
+without executing a subsequent script instruction. This harness is confined
+to `sf-oracle`; the native types have no machine-state container.
+
+These kernels are **not yet wired into a native attract scene scheduler**.
+They do not change the recorded intro currently shown by the application.
+Next integration work includes the source `$9284/$93F0` Nintendo glyph layout
+and actor paths: the spacing byte 186 must become signed -70 before scaling
+by eight, and the paired child roles 19/20 have distinct visibility/material
+behavior. Host timing, layers and cut/skip transitions must also be recovered.
 
 ## Reproduce without manual play
 
@@ -89,8 +137,10 @@ Use the printed `MESEN_SCRIPT_DATA` directory for the following trace argument:
 
 ```bash
 uv run python tools/sf2/disasm/extract_intro_paths.py \
-  /path/to/sf2_intro_scene_trace.txt --summary
+  /path/to/sf2_intro_scene_trace.txt \
+  --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 
