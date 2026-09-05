@@ -1,12 +1,19 @@
 //! Original chain construction and the source follower transform.
 
+use sf2_game::intro_chain::{
+    OpeningChainAllocationContext, OpeningChainControls, OpeningChainFamily, OpeningChainPart,
+    OpeningChainPhase,
+};
 use sf2_game::intro_motion::{follow_intro_predecessor, IntroScenePose};
 use sf2_game::object::{
     active_objects, allocate, CURRENT_OBJECT, FIELD_PATH, FIELD_SHAPE, FIELD_STRATEGY, PLAYER_ONE,
     SELECTED_OBJECT,
 };
 use sf2_game::oracle_compat::Game;
-use sf2_game::{Angle, Rotation, Vector3};
+use sf2_game::{
+    Angle, Behavior, Object, ObjectId, ObjectKind, ObjectStore, RandomState, Rotation, ShapeId,
+    Vector3,
+};
 
 const STRATEGY: u32 = 0x7F7E1E;
 
@@ -15,6 +22,403 @@ fn retail() -> Vec<u8> {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Star Fox 2 (USA, Europe).sfc"),
     )
     .expect("chain verification requires the user-owned retail SF2 ROM")
+}
+
+fn native_ids() -> (ObjectId, [ObjectId; 9]) {
+    let mut objects = ObjectStore::new();
+    let mut next = || {
+        objects
+            .allocate(Object::new(
+                ObjectKind::Effect,
+                ShapeId::from_catalog_index(340),
+                Behavior::Effect,
+            ))
+            .unwrap()
+    };
+    (next(), std::array::from_fn(|_| next()))
+}
+
+fn free_slots(exact: &Game) -> usize {
+    let mut next = exact.memory.read_word(sf2_game::object::FREE_LIST);
+    let mut count = 0;
+    while next != 0 {
+        count += 1;
+        next = exact.memory.read_word(next);
+    }
+    count
+}
+
+fn controls(scenario: u8, update: u8) -> OpeningChainControls {
+    let sequence = update
+        .wrapping_mul(13)
+        .wrapping_add(scenario.wrapping_mul(7));
+    OpeningChainControls {
+        suppress_initial_contact: (scenario & 1 != 0) ^ (update >= 3),
+        sort_override_on_reveal: (scenario & 2 != 0) ^ (update >= 7),
+        depart: scenario != 5 && update >= [32, 43, 17, 1, 26][usize::from(scenario.min(4))],
+        raise_depth_offset: sequence & 1 != 0,
+        settle_pitch: sequence & 2 != 0,
+        bank_by_part: sequence & 4 != 0,
+        level_pitch: sequence & 8 != 0,
+    }
+}
+
+fn write_controls(exact: &mut Game, controls: OpeningChainControls) {
+    let mut value = 0;
+    for (enabled, mask) in [
+        (controls.suppress_initial_contact, 2),
+        (controls.sort_override_on_reveal, 128),
+        (controls.depart, 64),
+        (controls.raise_depth_offset, 1024),
+        (controls.settle_pitch, 8),
+        (controls.bank_by_part, 4),
+        (controls.level_pitch, 256),
+    ] {
+        if enabled {
+            value |= mask;
+        }
+    }
+    exact.memory.write_word(0xD77D, value);
+}
+
+fn family_parent_pose(update: u8, varied: bool) -> IntroScenePose {
+    let frame = i16::from(update);
+    pose(
+        Vector3 {
+            x: if varied {
+                32000_i16.wrapping_add(frame * 53)
+            } else {
+                -1700
+            },
+            y: if varied {
+                (-32500_i16).wrapping_sub(frame * 29)
+            } else {
+                530
+            },
+            z: if varied {
+                frame.wrapping_mul(839).wrapping_sub(24000)
+            } else {
+                3200
+            },
+        },
+        if varied { update.wrapping_mul(19) } else { 31 },
+        if varied { update.wrapping_mul(31) } else { 190 },
+        if varied { update.wrapping_mul(47) } else { 227 },
+    )
+}
+
+#[test]
+fn native_chain_family_matches_original_controls_departure_and_burst_cleanup() {
+    let rom = retail();
+    for scenario in 0..6 {
+        for varied in [false, true] {
+            for seed in [[0; 4], [1, 2, 3, 4], [255, 0, 127, 128]] {
+                for (capacity, trailing_actor) in [
+                    (None, false),
+                    (Some(0), false),
+                    (Some(1), false),
+                    (Some(1), true),
+                ] {
+                    if capacity.is_some() && (scenario != 3 || varied || seed != [0; 4]) {
+                        continue;
+                    }
+                    let mut exact = Game::new(rom.clone()).unwrap();
+                    let parent = allocate(&mut exact.memory, 0).unwrap();
+                    install_strategy(&mut exact, parent, 0xFDC2);
+                    exact.memory.write_word(parent + FIELD_SHAPE, 0xE194);
+                    exact.memory.write_byte(parent + 0x2E, 16);
+                    exact.memory.write_word(PLAYER_ONE, 0x033F);
+                    exact.memory.write_word(SELECTED_OBJECT, 0x033F);
+                    exact.memory.write_word(0x033F + FIELD_PATH, 0x0140);
+                    exact.memory.write_word(CURRENT_OBJECT, parent);
+                    exact.run_retail_oracle_routine(STRATEGY, parent).unwrap();
+                    exact.memory.write_word(parent + FIELD_PATH, 0xFF43);
+                    exact.memory.write_byte(parent + 24, 0);
+                    for field in [50, 52, 54] {
+                        exact.memory.write_word(parent + field, 0);
+                    }
+                    for (index, byte) in seed.into_iter().enumerate() {
+                        exact.memory.write_byte(0xE0 + index as u16, byte);
+                    }
+                    let (parent_id, ids) = native_ids();
+                    let mut native = OpeningChainFamily::new(parent_id, ids);
+                    let mut random = RandomState::new(seed);
+                    let mut source_ids = Vec::new();
+                    let mut retirements = 0;
+                    let mut saw_capacity_error = false;
+                    let mut pressure_updates = 0;
+                    for update in 0..80 {
+                        let parent_pose = family_parent_pose(update, varied);
+                        write_pose(&mut exact, parent, parent_pose);
+                        let signals = controls(scenario, update);
+                        write_controls(&mut exact, signals);
+                        native.publish_from_parent(parent_id, parent_pose);
+                        if update == 2 {
+                            if let Some(remaining) = capacity {
+                                // Other scene occupants keep their pool slots but
+                                // stay outside this isolated family's traversal.
+                                let next = exact.memory.read_word(parent);
+                                while free_slots(&exact) > remaining {
+                                    allocate(&mut exact.memory, parent).unwrap();
+                                }
+                                exact.memory.write_word(parent, next);
+                                exact.memory.write_word(next + 2, parent);
+                            }
+                        }
+                        let available = free_slots(&exact);
+                        // A zero-health actor only reaches its path when the
+                        // engine grants the one-update strategy bypass. Exercise
+                        // persistent callbacks, and cancellation by departure.
+                        let inject_zero = update > 0
+                            && native.segments()[0].phase() == OpeningChainPhase::Following
+                            && if scenario == 2 {
+                                update == 17
+                            } else {
+                                [5, 6, 32, 43].contains(&update)
+                            };
+                        if inject_zero {
+                            let actor = source_ids[0];
+                            exact.memory.write_byte(actor + 0x2D, 0);
+                            let flags = exact.memory.read_byte(actor + 0x31) | 4;
+                            exact.memory.write_byte(actor + 0x31, flags);
+                            native.set_health_at_strategy_entry(OpeningChainPart::First, 0);
+                        }
+                        exact.memory.write_word(CURRENT_OBJECT, parent);
+                        exact.run_retail_oracle_routine(0x7F34E7, parent).unwrap();
+                        let source_update = exact.run_retail_oracle_routine(0x7F354A, parent);
+                        let allocation = OpeningChainAllocationContext {
+                            available_slots: available,
+                            oldest_burst_at_list_tail: !trailing_actor,
+                        };
+                        if let Err(error) = source_update {
+                            assert_eq!(capacity, Some(0));
+                            assert!(format!("{error:?}").contains("$00:80"), "{error:?}");
+                            assert_eq!(
+                                exact.memory.read_word(0x192C),
+                                0x03E0,
+                                "object-pool diagnostic"
+                            );
+                            let saved = native.clone();
+                            let saved_random = random;
+                            let error = native
+                                .tick(parent_pose, signals, &mut random, allocation)
+                                .unwrap_err();
+                            assert_eq!(error.required_slots, 1);
+                            assert_eq!(error.available_slots, 0);
+                            assert_eq!(native, saved);
+                            assert_eq!(random, saved_random);
+                            saw_capacity_error = true;
+                            break;
+                        }
+                        if update == 0 {
+                            source_ids = active_objects(&exact.memory)
+                                .into_iter()
+                                .filter(|id| *id != parent)
+                                .collect();
+                            assert_eq!(source_ids.len(), 9);
+                            if trailing_actor {
+                                let sentinel = allocate(&mut exact.memory, source_ids[8]).unwrap();
+                                exact.memory.write_byte(sentinel + 0x2D, 1);
+                                exact.memory.write_word(sentinel + FIELD_STRATEGY, 0);
+                            }
+                        }
+                        let events = native
+                            .tick(parent_pose, signals, &mut random, allocation)
+                            .unwrap();
+                        let retired = &events.retired_segments;
+                        pressure_updates += usize::from(events.allocation_pressure);
+                        assert_eq!(events.spawned_bursts, retired.len());
+                        for identity in retired {
+                            let index = ids.iter().position(|id| id == identity).unwrap();
+                            let segment = &native.segments()[index];
+                            let actor = source_ids[index];
+                            assert_eq!(segment.pose, read_pose(&exact, actor));
+                            assert_eq!(exact.memory.read_byte(actor + 0x25) & 8, 8);
+                            assert_eq!(
+                                segment.local_offset,
+                                Vector3 {
+                                    x: exact.memory.read_word(actor + 0x1CCF) as i16,
+                                    y: exact.memory.read_word(actor + 0x1CD1) as i16,
+                                    z: exact.memory.read_word(actor + 0x1CD3) as i16,
+                                }
+                            );
+                        }
+                        retirements += retired.len();
+                        // End requests retirement; the real cleanup pass reclaims
+                        // those actors after the complete update traversal.
+                        exact.run_retail_oracle_routine(0x7F402D, parent).unwrap();
+                        assert_eq!(native.initialized_count(), 9);
+                        assert_eq!(
+                            random.bytes(),
+                            std::array::from_fn(|i| exact.memory.read_byte(0xE0 + i as u16)),
+                            "random scenario={scenario} varied={varied} update={update}"
+                        );
+                        let active = active_objects(&exact.memory);
+                        let mut live_segments = 0;
+                        for (index, segment) in native.segments().iter().enumerate() {
+                            if segment.phase() == OpeningChainPhase::Finished {
+                                continue;
+                            }
+                            live_segments += 1;
+                            let actor = source_ids[index];
+                            assert!(active.contains(&actor));
+                            assert_eq!(segment.pose, read_pose(&exact, actor), "pose scenario={scenario} varied={varied} update={update} part={index}");
+                            assert_eq!(
+                                segment.local_offset,
+                                Vector3 {
+                                    x: exact.memory.read_word(actor + 0x1CCF) as i16,
+                                    y: exact.memory.read_word(actor + 0x1CD1) as i16,
+                                    z: exact.memory.read_word(actor + 0x1CD3) as i16,
+                                },
+                                "local update={update} part={index}"
+                            );
+                            assert_eq!(
+                                segment.velocity,
+                                Vector3 {
+                                    x: exact.memory.read_word(actor + 50) as i16,
+                                    y: exact.memory.read_word(actor + 52) as i16,
+                                    z: exact.memory.read_word(actor + 54) as i16,
+                                }
+                            );
+                            assert_eq!(segment.health(), exact.memory.read_byte(actor + 0x2D));
+                            assert_eq!(segment.contact_disabled(), exact.memory.read_byte(actor + 0x21) & 1 != 0, "contact scenario={scenario} varied={varied} update={update} part={index} controls={signals:?}");
+                            assert_eq!(
+                                segment.suppresses_peer_contacts(),
+                                exact.memory.read_byte(actor + 0x31) & 32 != 0
+                            );
+                            assert_eq!(
+                                segment.sort_override(),
+                                exact.memory.read_byte(actor + 9) & 1 != 0
+                            );
+                            assert_eq!(
+                                segment.trail_style().unwrap_or(0),
+                                exact.memory.read_byte(actor + 0x1CEE)
+                            );
+                            assert_eq!(
+                                segment.depth_offset,
+                                exact.memory.read_word(actor + 0x1CC8)
+                            );
+                            assert_eq!(
+                                segment.is_visible(),
+                                exact.memory.read_byte(actor + 0x23) & 2 == 0
+                            );
+                            let trigger = exact.memory.read_word(actor + 0x1CE0);
+                            let armed =
+                                trigger != 0 && exact.memory.read_byte(trigger + 0x6A61) != 0;
+                            assert_eq!(segment.health_response_armed(), armed);
+                            if armed {
+                                assert_eq!(exact.memory.read_word(trigger + 0x6A62), 0xF8E5);
+                                assert_eq!(exact.memory.read_byte(trigger + 0x6A64), 12);
+                                assert_eq!(exact.memory.read_byte(trigger + 0x6A65), 0);
+                            }
+                            assert_eq!(
+                                segment.shape().catalog_index(),
+                                usize::from(
+                                    (exact.memory.read_word(actor + FIELD_SHAPE) - 0xBC9C) / 28
+                                )
+                            );
+                            assert_eq!(segment.parent(), parent_id);
+                            assert_eq!(
+                                segment.predecessor(),
+                                if index == 0 {
+                                    parent_id
+                                } else {
+                                    ids[index - 1]
+                                }
+                            );
+                            assert_eq!(exact.memory.read_word(actor + 6), parent);
+                            assert_eq!(
+                                exact.memory.read_word(actor + 0x1C),
+                                if index == 0 {
+                                    parent
+                                } else {
+                                    source_ids[index - 1]
+                                }
+                            );
+                            assert_eq!(exact.memory.read_word(actor + 0x1CD8), actor);
+                            let expected_path = match segment.phase() {
+                                OpeningChainPhase::HiddenUntilNextUpdate => 0xF868,
+                                OpeningChainPhase::Following => 0xF881,
+                                OpeningChainPhase::Departing { .. } => 0xF8CD,
+                                _ => unreachable!(),
+                            };
+                            assert_eq!(exact.memory.read_word(actor + FIELD_PATH), expected_path);
+                            let aux = exact.memory.read_word(actor + 0x1CEC);
+                            assert_eq!(exact.memory.read_byte(aux + 0x6A61), 1);
+                            assert_eq!(exact.memory.read_byte(aux + 0x6A62), 11);
+                            assert_eq!(
+                                Some(exact.memory.read_byte(aux + 0x6A63)),
+                                segment.ordinary_contact_payload()
+                            );
+                        }
+                        let source_bursts: Vec<_> = active
+                            .iter()
+                            .copied()
+                            .filter(|actor| exact.memory.read_word(*actor + FIELD_SHAPE) == 0xBDD0)
+                            .collect();
+                        assert_eq!(
+                            active.len(),
+                            1 + usize::from(trailing_actor) + live_segments + source_bursts.len(),
+                            "active count scenario={scenario} update={update}: {:?}",
+                            active
+                                .iter()
+                                .map(|id| (
+                                    *id,
+                                    exact.memory.read_word(*id + FIELD_PATH),
+                                    exact.memory.read_byte(*id + 0x25)
+                                ))
+                                .collect::<Vec<_>>()
+                        );
+                        assert_eq!(
+                            source_bursts.len(),
+                            native.bursts().len(),
+                            "burst count update={update}"
+                        );
+                        // Later departures originate earlier in the chain; their
+                        // after-spawner insertion leaves bursts newest-first.
+                        for (actor, burst) in
+                            source_bursts.into_iter().zip(native.bursts().iter().rev())
+                        {
+                            assert_eq!(
+                                read_pose(&exact, actor),
+                                burst.pose,
+                                "burst pose update={update}"
+                            );
+                            assert_eq!(
+                                exact.memory.read_byte(actor + 0x1CCA) & 127,
+                                burst.color_frame
+                            );
+                            assert_eq!(
+                                exact.memory.read_byte(actor + 0x1CE2),
+                                0,
+                                "authored sprite size delta remains zero"
+                            );
+                            assert_eq!(
+                                exact.memory.read_byte(actor + 0x20) & 32 != 0,
+                                burst.is_sprite()
+                            );
+                            assert_eq!(
+                                exact.memory.read_byte(actor + 0x1CC8),
+                                burst.depth_offset()
+                            );
+                            assert_eq!(exact.memory.read_byte(actor + 0x1CDA), burst.size_bias());
+                        }
+                    }
+                    assert_eq!(saw_capacity_error, capacity == Some(0));
+                    assert_eq!(
+                        retirements,
+                        if scenario == 5 || saw_capacity_error {
+                            0
+                        } else {
+                            9
+                        }
+                    );
+                    assert_eq!(native.is_finished(), scenario != 5 && !saw_capacity_error);
+                    assert_eq!(pressure_updates != 0, capacity == Some(1));
+                }
+            }
+        }
+    }
 }
 
 fn install_strategy(exact: &mut Game, actor: u16, path: u16) {

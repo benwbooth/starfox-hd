@@ -7,9 +7,9 @@
 mod native;
 
 pub use native::{
-    intro_attached_craft, intro_camera, intro_controller, intro_destruction, intro_flyby,
-    intro_formation, intro_free_craft, intro_late_target, intro_logo, intro_motion, intro_root,
-    intro_second_camera_target, intro_second_flyby, intro_second_flyby_craft,
+    intro_attached_craft, intro_camera, intro_chain, intro_controller, intro_destruction,
+    intro_flyby, intro_formation, intro_free_craft, intro_late_target, intro_logo, intro_motion,
+    intro_root, intro_second_camera_target, intro_second_flyby, intro_second_flyby_craft,
     intro_second_flyby_wings, intro_target,
 };
 pub use native::{

@@ -865,9 +865,9 @@ the complete naturally scheduled flyby still needs scene-level verification.
 Static review of the inline code at `44:FDDC` and `44:F9A1` identifies an
 additional required relationship: both write the current actor as the newly
 spawned child's secondary link (original child field `1C`), independently of
-the primary attachment link. The remaining recursive-child implementation
-must preserve both relationships as typed identities; treating every link as
-the attachment owner would change subsequent linked-object selection.
+the primary attachment link. `intro_chain` now preserves both relationships
+as typed identities; treating every link as the attachment owner would change
+subsequent linked-object selection.
 
 ## Later flyby parent choreography reconstructed
 
@@ -933,7 +933,8 @@ birth timings, scroll compensation, ordered explosion audio and final removal.
 Independent construction checks all inherited position and rotation channels.
 Three ROM-free tests protect boundary timing, terminal idempotence and capacity
 failure. These isolated families do not yet compose the entire flyby scene;
-the recursive attached chain, full scheduler and rendering remain required.
+the full scheduler and rendering remain required. The native chain family is
+described below.
 
 ## Linked-chain geometry and constructor boundaries
 
@@ -960,9 +961,60 @@ the subsequent nine-segment traversals. A separate 25,600-case comparison
 executes the original authored follower command over angular, signed-depth,
 wrapped-coordinate and coincident-position boundaries. Two ROM-free tests
 protect pre-move facing, roll ownership, byte overflow and quantization.
-This adds geometry and constructor evidence, not a complete chain actor:
-control-driven motion, departure, auxiliary rendering and scene integration
-remain unfinished.
+Those primitive checks are supplemented by the native family below; they do
+not on their own establish whole-scene integration.
+
+## Native linked-chain lifecycle
+
+`intro_chain::OpeningChainFamily` implements the recursive nine-segment family
+and its departure sprites. Callers reserve nine distinct identities; only the
+head is initially live, and the other segments initialize in predecessor
+order during the first family update. Initial parent publication can reach
+the head before its constructor; later children begin unpublished. Thereafter
+each segment owns its world pose while retaining separate main-craft and
+predecessor identities.
+
+The source path `44:F85A..F8A9` hides each segment for one update, then reveals
+it with health 15, contact classification, trail style and a persistent
+zero-health response. InvisibleOn/Off independently disable/enable contact,
+superseding the optional initial contact-suppression branch. Sort override is
+sampled once on reveal; following controls execute in source order: predecessor
+geometry, depth-offset change, three pitch-settling steps, three per-part bank
+steps plus yaw, then optional pitch leveling. Departure takes precedence.
+
+The auxiliary entry created at `7F:C395 -> 2360` is ordinary contact payload
+1, consumed by `0D:DF90..DFAD`, not a visual allocation. The callback registered
+at `44:F876` uses condition 12 (health zero), not a twelve-update timer. Its
+source dispatcher at `7F:9AA8/9CEB` restores health 10 and disables contact.
+`set_health_at_strategy_entry` explicitly requires the enclosing engine to
+have selected the strategy: this response does not bypass the engine's earlier
+common-destruction routing at `7F:35B5`.
+
+Departure `44:F8AA..F8E4` cancels that response before the trigger pass, faces
+the main craft, captures signed speed 216 with fourfold velocity, and draws
+three random angles from the shared scene generator. Each part then performs
+`20 - ordinal` world-motion/spin bodies. Local offset drift is separate and
+omitted on the final End update. The final world pose is inherited by a shape
+11 burst executing `44:C520..C532`: eight color-animation updates, fixed size
+bias 32, zero size delta. QuickSpawn's actual insertion after the current
+segment (`7F:91B3..91CB`) runs that burst in the same traversal. Retirement is
+reconciled with the original separate cleanup pass (`7F:402D`).
+
+Allocation is not silently ignored. An empty pool enters the original
+diagnostic at `00:8032`; the native family returns a capacity error without
+consuming its pending update. Consuming the final slot invokes the source
+effect-retirement sweep (`7F:2979..29BB`), which omits the actual list-tail
+actor. The caller supplies whether the oldest burst occupies that boundary;
+the returned pressure event also permits handling other eligible scene actors.
+
+Thirty-nine original-constructor/update/cleanup scenarios cover six control
+schedules, fixed/wrapping poses, three random seeds, repeated zero-health
+callbacks, cancellation on departure, both pressure-sweep tail boundaries,
+and the expected exhaustion diagnostic. Four ROM-free tests protect birth,
+sampling/precedence, persistent callbacks, retirement order, capacity recovery
+and terminal idempotence. Scene-wide allocation, collision routing and rendering
+integration remain separate required work; the shipping front end is still
+recorded rather than this native scene.
 
 ## Reproduce without manual play
 
