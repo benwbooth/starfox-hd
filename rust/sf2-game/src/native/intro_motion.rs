@@ -19,6 +19,53 @@ pub struct IntroScenePose {
     pub rotation: Rotation,
 }
 
+/// Face the predecessor from the current position, then move to the authored
+/// depth along its pitch and yaw. This is the chain's byte-quantized follower
+/// transform, not the matrix transform used by ordinary attachments.
+///
+/// Depth is in eight-world-unit steps. Both rotation stages truncate to signed
+/// bytes before the final scale; the follower's roll is retained and the
+/// predecessor's roll is deliberately ignored.
+pub fn follow_intro_predecessor(
+    current: IntroScenePose,
+    predecessor: IntroScenePose,
+    depth: i8,
+) -> IntroScenePose {
+    let dx = predecessor.position.x.wrapping_sub(current.position.x);
+    let dy = predecessor.position.y.wrapping_sub(current.position.y);
+    let dz = predecessor.position.z.wrapping_sub(current.position.z);
+    let pitch = sf_core::aim_angle::sf2_pitch_to_target(
+        dy,
+        sf_core::aim_angle::sf2_xz_angle_distance(dx, dz),
+    );
+    let yaw = sf_core::aim_angle::sf2_yaw_to_target(dx, dz);
+    let (y, pitched_depth) =
+        sf_core::snes_trig::rotate_8yz(predecessor.rotation.pitch.units(), 0, depth);
+    let (x, z) =
+        sf_core::snes_trig::rotate_8xz(predecessor.rotation.yaw.units(), 0, pitched_depth as i8);
+    IntroScenePose {
+        position: Vector3 {
+            x: predecessor
+                .position
+                .x
+                .wrapping_add((x as i8 as i16).wrapping_mul(8)),
+            y: predecessor
+                .position
+                .y
+                .wrapping_add((y as i8 as i16).wrapping_mul(8)),
+            z: predecessor
+                .position
+                .z
+                .wrapping_add((z as i8 as i16).wrapping_mul(8)),
+        },
+        rotation: Rotation {
+            pitch: Angle::from_units(pitch),
+            yaw: Angle::from_units(yaw),
+            roll: current.rotation.roll,
+        },
+    }
+}
+
 /// Retained attachment coordinates are independent of the published world
 /// pose. Their velocity is integrated after the parent's pose publication.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -211,6 +258,77 @@ pub fn settle_title_view_yaw(yaw: u16) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn follower_faces_before_placement_and_preserves_only_its_own_roll() {
+        let current = IntroScenePose {
+            position: Vector3 {
+                x: -700,
+                y: 130,
+                z: 270,
+            },
+            rotation: Rotation {
+                pitch: Angle::ZERO,
+                yaw: Angle::ZERO,
+                roll: Angle::from_units(93),
+            },
+        };
+        let mut predecessor = IntroScenePose {
+            position: Vector3 {
+                x: 900,
+                y: -210,
+                z: -1400,
+            },
+            rotation: Rotation {
+                pitch: Angle::from_units(41),
+                yaw: Angle::from_units(193),
+                roll: Angle::from_units(73),
+            },
+        };
+        let coincident = follow_intro_predecessor(current, predecessor, 0);
+        let following = follow_intro_predecessor(current, predecessor, -25);
+        assert_eq!(coincident.position, predecessor.position);
+        assert_ne!(following.position, predecessor.position);
+        assert_eq!(coincident.rotation, following.rotation);
+        assert_eq!(following.rotation.roll, current.rotation.roll);
+        predecessor.rotation.roll = Angle::from_units(201);
+        assert_eq!(
+            follow_intro_predecessor(current, predecessor, -25),
+            following
+        );
+    }
+
+    #[test]
+    fn follower_keeps_byte_multiply_boundary_and_eight_unit_quantization() {
+        for angle in 0..=255 {
+            let predecessor = IntroScenePose {
+                position: Vector3 {
+                    x: 32760,
+                    y: -32760,
+                    z: -3,
+                },
+                rotation: Rotation {
+                    pitch: Angle::from_units(angle),
+                    yaw: Angle::from_units(angle.wrapping_mul(17)),
+                    roll: Angle::ZERO,
+                },
+            };
+            // Doubling the absolute signed-byte minimum wraps to zero in
+            // the original byte multiplier before the trig multiplication.
+            assert_eq!(
+                follow_intro_predecessor(IntroScenePose::default(), predecessor, i8::MIN).position,
+                predecessor.position,
+            );
+            let following = follow_intro_predecessor(IntroScenePose::default(), predecessor, -11);
+            for difference in [
+                following.position.x.wrapping_sub(predecessor.position.x),
+                following.position.y.wrapping_sub(predecessor.position.y),
+                following.position.z.wrapping_sub(predecessor.position.z),
+            ] {
+                assert_eq!(difference % 8, 0);
+            }
+        }
+    }
 
     #[test]
     fn capture_keeps_position_and_rotation_channels_separate() {

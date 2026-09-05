@@ -935,6 +935,35 @@ Three ROM-free tests protect boundary timing, terminal idempotence and capacity
 failure. These isolated families do not yet compose the entire flyby scene;
 the recursive attached chain, full scheduler and rendering remain required.
 
+## Linked-chain geometry and constructor boundaries
+
+`intro_motion::follow_intro_predecessor` implements the chain's source follower
+operation at `7F:BD13..BDC6`, used at `44:F863` and in its following loop.
+It computes pitch and yaw from the pre-move position, then places the follower
+at its signed depth along the predecessor's pitch and yaw. The two source
+rotation helpers (`7F:3A4E` and `7F:38A9`) use byte-sized multiplication and
+intermediate results, followed by an eight-unit scale and wrapping position
+addition. This is not the ordinary attachment matrix or the wider integer
+rotation kernel. Follower roll survives; predecessor roll is ignored.
+
+The constructor graph `44:F831/F83D -> F965 -> F9AE` increments a shared
+counter on the main craft, giving nine segments their ordinals. Their primary
+owner remains the main craft, their secondary link names their predecessor,
+and each segment selects itself as its transform owner. Child insertion after
+the current segment allows all nine to initialize in one actor-list update.
+The tail uses shape 342; the other eight use shape 340. Authored local depths
+are -11 for the first segment and -25 for the remainder.
+
+`sf2_intro_chain` checks those constructor/link/shape/depth assertions through
+16 real actor-list updates and compares the native follower kernel through
+the subsequent nine-segment traversals. A separate 25,600-case comparison
+executes the original authored follower command over angular, signed-depth,
+wrapped-coordinate and coincident-position boundaries. Two ROM-free tests
+protect pre-move facing, roll ownership, byte overflow and quantization.
+This adds geometry and constructor evidence, not a complete chain actor:
+control-driven motion, departure, auxiliary rendering and scene integration
+remain unfinished.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -956,6 +985,7 @@ nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_int
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby_craft'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_second_flyby_wings'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_chain'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_formation --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
