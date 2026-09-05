@@ -353,6 +353,14 @@ _PATH_INLINE_BLOCKS: dict[int, tuple[bytes, tuple[int, ...]]] = {
     0xF313: (bytes.fromhex("b52509029525c220a920f36b"), (0xF320,)),
     0xF7C9: (bytes.fromhex("2280f707c220a9d4f76b"), (0xF7D4,)),
     0xF9A1: (bytes.fromhex("ac71d7961cc220a9adf96b"), (0xF9AD,)),
+    # Attract craft drift: call $06:FA04 (ease bank toward level,
+    # accumulate and damp the three drift components), then return FCC4.
+    # The literal return proves path reachability, not a native port of the
+    # called motion service. Keep those certification claims separate.
+    0xFCB9: (bytes.fromhex("2204fa06c220a9c4fc6b"), (0xFCC4,)),
+    # Same child-auxiliary publication thunk as 2059/9122/919F/91DA above.
+    # Source $09:FDDD..FDE7 returns the first path byte after the RTL.
+    0xFDDC: (bytes.fromhex("ac71d7961cc220a9e8fd6b"), (0xFDE8,)),
 }
 
 
