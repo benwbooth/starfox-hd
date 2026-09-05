@@ -22,6 +22,14 @@ const SOUND_FAR_LIMIT: i16 = 1_300;
 const MAX_EFFECTS: usize = 3;
 const MAX_LISTENERS: usize = 2;
 
+/// The original allocator inserts common-death actors after the active-list
+/// head. A birth runs immediately only if traversal has not passed that point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntroExplosionBirthTiming {
+    ThisUpdate,
+    NextUpdate,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IntroDestructionCapacityError {
     pub required_slots: usize,
@@ -303,6 +311,14 @@ impl IntroDestructionEffects {
         &mut self,
         context: &IntroDestructionContext,
     ) -> Result<Vec<IntroExplosionVolume>, IntroDestructionCapacityError> {
+        self.tick_with_birth_timing(context, IntroExplosionBirthTiming::ThisUpdate)
+    }
+
+    pub fn tick_with_birth_timing(
+        &mut self,
+        context: &IntroDestructionContext,
+        birth_timing: IntroExplosionBirthTiming,
+    ) -> Result<Vec<IntroExplosionVolume>, IntroDestructionCapacityError> {
         let mut audio = Vec::new();
         for index in (0..self.actors.len()).rev() {
             if self.actors[index].phase == IntroExplosionPhase::AwaitingDestruction {
@@ -319,10 +335,12 @@ impl IntroDestructionEffects {
                 )?;
                 self.actors[index].phase = IntroExplosionPhase::Finished;
                 audio.extend(events);
-                // The new child runs before the next older sibling, in this
-                // same update. Retain retired entries as separate lifetimes.
-                for child in &mut children.actors {
-                    child.tick_animation(context);
+                // Retain retired entries as separate lifetimes. Scene-wide
+                // traversal can defer a new child until the following update.
+                if birth_timing == IntroExplosionBirthTiming::ThisUpdate {
+                    for child in &mut children.actors {
+                        child.tick_animation(context);
+                    }
                 }
                 self.actors.extend(children.actors);
             } else {

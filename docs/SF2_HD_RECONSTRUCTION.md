@@ -552,8 +552,9 @@ Other scene actors are excluded from execution for this isolated comparison.
 Missed-gate cases run 4000 updates to cover signed-coordinate wrapping;
 completed paths are compared through the explicit destruction boundary.
 Every update checks pose, velocity, visibility, shape, path phase, marker
-request and all configured auxiliary fields. **72 separate service cases**
-exercise low-byte carry/wrapping and frozen ownership. Three ROM-free tests
+request and all configured auxiliary fields. **144 separate service cases**
+exercise low-byte carry/wrapping and frozen ownership across both the flyby
+and independent-departure auxiliary services. Three ROM-free tests
 protect event order, missed gates and the frozen-owner behavior.
 
 This is not a completed native opening or a demonstrated visible improvement.
@@ -585,9 +586,13 @@ Its one-time newborn exemption permits the first animation update. On the
 next update the actor-list dispatcher runs common destruction instead of the
 animation routine's apparent 64-update continuation. This creates a third,
 small explosion sprite and another sound request, then removes the companion.
-The small sprite runs its first update immediately, before the older main
-sprite. The source can reuse the original craft's freed slot for that sprite;
-native completed entries are retained as distinct lifetimes and never reused.
+In this isolated active-head case, the small sprite runs its first update
+immediately, before the older main sprite. The source can reuse the original
+craft's freed slot for that sprite; native completed entries are retained as
+distinct lifetimes and never reused.
+`IntroExplosionBirthTiming` now makes that traversal dependency explicit:
+births inserted after an already-visited scene root run on the next update,
+as verified by the attached-craft family below.
 
 The animation pass compensates for scene scrolling only in the original
 selected-view mode, subtracting twice the horizontal/depth scroll using signed
@@ -670,6 +675,73 @@ capacity policy or its final rendered appearance. Root-wide scheduling,
 remaining craft/effect services and rendering integration still gate replacing
 the shipping recorded intro.
 
+## First attached craft, departure copy, flare and burst family
+
+`intro_attached_craft::OpeningAttachedCraftSequence` reconstructs the complete
+first attached Arwing family: craft `$44:FCF2`, independently moving copy
+`$44:FD22`, attached flare `$44:FD52`, scheduled burst callback `$44:C621`,
+random sound helper `$44:DC00` and particle animation `$44:C520`. It composes
+common destruction instead of dropping actors when their health reaches zero.
+
+Updates below are relative to the attached craft's first strategy update:
+
+| Update | Source behavior |
+| --- | --- |
+| 0–35 | Advance local depth by 7; root publication precedes local motion. |
+| 36 | Spawn the flare and an independent copy; change attached craft style. |
+| 44 | Copy starts 20 scheduled horizontal/vertical drift callbacks. |
+| 60 | Copy removes its mesh, shifts left, configures departure auxiliary state and starts emitting bursts. |
+| 63–64 | Copy requests death, completes its last motion/callback pass, then enters common destruction. |
+| 64–68 | Attached craft runs its burst callback, then configures flyby auxiliary state and requests death. |
+| 69 | Root publishes the craft's final pose; common destruction retires it. |
+| 101 | The retained flare finishes; all family members have been cleaned up. |
+
+The flare is a root-list sibling with the craft as its transform owner. It
+starts with an unpublished pose on the spawn update, receives its first world
+pose on the following root pass, and outlives the craft at its retained final
+pose. Its local offset `(50, 5, 0)`, rotation `(0, 3, 74)`, catalog shape 48
+and far-sort policy are source-authored. The independent copy is real catalog
+64 geometry until its mesh-removal command; it is not a sprite approximation.
+The separate craft style variants retain their authored selections without
+assigning an unverified shader interpretation.
+
+The shared burst callback consumes the **already-advanced scene clock**, not
+an actor-local age. It emits on even phases, chooses catalog 11/12 from a
+second phase bit, consumes the optional sound's random branches before six
+coordinate-random calls, and creates an eight-step sprite with size bias 2.
+The last color step wraps to zero and ends without an additional visible hold.
+Path-created particles run on their birth update. In contrast, common-death
+effects are inserted after the already-visited scene root and first run on
+the next update, including the companion's secondary small explosion. This
+family comparison exposed and now protects that allocator/scheduler distinction.
+
+Selected burst audio retains its pre-randomization source position and exact
+sound choice. Its class-two spatial service uses integer Euclidean X/Z
+distance, near/middle stereo sectors and centered far audio. That differs
+from common destruction's wrapped approximate distance; the two policies
+are deliberately separate. The departure auxiliary service likewise retains
+its own `(4, 8, 8)` axis modes and undoubled range, with frozen-owner refresh
+verified against the original service.
+
+Verification includes **160 complete family runs** (four random seeds, five
+scene-clock starts, combined rotating/wrapping parent motion, frozen auxiliary
+state and death-effect scrolling). The parent/craft are source-created by the
+original root, then unrelated actors are excluded while the root and complete
+family run the unmodified update, resume and cleanup routines. Checks cover
+each actor lifetime, positions/rotations, local motion, shapes/styles, random
+state, auxiliary writes, sound payloads and independently counted free slots.
+An additional **3,328 spatial sound cases** cover all listener headings at 13
+distance/direction inputs, including threshold and signed-wrap extremes. A
+test-only calling-convention adapter invokes the unchanged original sound,
+angle and Super FX square-root routines. Four ROM-free regressions protect
+birth publication, cadence, retirement/idempotence and explicit split-capacity
+failure without a half-created family.
+
+This closes the family's natural source-script lifetime, not rendering or
+whole-scene cancellation/reclamation under pressure. The formation craft,
+second flyby craft, downstream auxiliary presentation, global scene scheduling
+and renderer integration still gate removing the shipping recorded intro.
+
 ## Reproduce without manual play
 
 From the repository root, with the user-owned SF2 ROM present:
@@ -687,7 +759,7 @@ uv run python tools/sf2/disasm/extract_intro_paths.py \
   --installations /path/to/sf2_intro_scene_installations.txt --summary
 uv run python -m unittest discover -s tools/sf2/disasm -p 'test_extract*py'
 uv run python tools/sf2/disasm/extract_intro_controller.py --scene 6
-nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_motion --test sf2_intro_camera --test sf2_intro_controller --test sf2_intro_root --test sf2_intro_flyby --test sf2_intro_free_craft --test sf2_intro_destruction --test sf2_intro_late_target --test sf2_intro_attached_craft --test sf2_intro_attachment --test sf2_intro_target --test sf2_intro_logo --test sf2_intro_logo_actor --test sf2_intro_logo_attachment'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game && cargo test -p sf-app --bin starfox-hd-rs && cargo test -p sf-render --lib && cargo test -p sf-render --test gl_runtime'
 ```
 

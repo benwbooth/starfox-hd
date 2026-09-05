@@ -18,6 +18,7 @@ const RESUME: u32 = 0x7F354A;
 const STRATEGY: u32 = 0x7F7E1E;
 const PATH: u16 = 0xFCC5;
 const AUX_SERVICE: u32 = 0x07B6EF;
+const DEPARTURE_AUX_SERVICE: u32 = 0x07B746;
 const VIEW: u16 = 0x033F;
 const AUX: u16 = 0x0140;
 const POSITION: [u16; 3] = [0x0C, 0x0E, 0x10];
@@ -201,26 +202,32 @@ fn assert_effect(
 #[test]
 fn auxiliary_service_matches_original_including_frozen_owner_refresh_and_byte_doubling() {
     let rom = retail();
-    for range in [0, 1, 127, 128, 255, 256, i16::MAX, i16::MIN, -1] {
-        for flags in [37, 101, 165, 229] {
-            for owned in [false, true] {
-                let mut exact = Game::new(rom.clone()).unwrap();
-                let actor = allocate(&mut exact.memory, 0).unwrap();
-                let id = native_id();
-                let mut effect = seed_effect(&mut exact, actor, id, flags, owned);
-                let pose = IntroScenePose {
-                    position: Vector3 {
-                        x: i16::MIN,
-                        y: 791,
-                        z: i16::MAX,
-                    },
-                    ..Default::default()
-                };
-                write_vector(&mut exact, actor, POSITION, pose.position);
-                exact.memory.write_word(0x3A, range as u16);
-                exact.run_retail_oracle_routine(AUX_SERVICE, actor).unwrap();
-                effect.configure_flyby(id, pose, range);
-                assert_effect(&exact, actor, id, &effect, 0);
+    for service in [AUX_SERVICE, DEPARTURE_AUX_SERVICE] {
+        for range in [0, 1, 127, 128, 255, 256, i16::MAX, i16::MIN, -1] {
+            for flags in [37, 101, 165, 229] {
+                for owned in [false, true] {
+                    let mut exact = Game::new(rom.clone()).unwrap();
+                    let actor = allocate(&mut exact.memory, 0).unwrap();
+                    let id = native_id();
+                    let mut effect = seed_effect(&mut exact, actor, id, flags, owned);
+                    let pose = IntroScenePose {
+                        position: Vector3 {
+                            x: i16::MIN,
+                            y: 791,
+                            z: i16::MAX,
+                        },
+                        ..Default::default()
+                    };
+                    write_vector(&mut exact, actor, POSITION, pose.position);
+                    exact.memory.write_word(0x3A, range as u16);
+                    exact.run_retail_oracle_routine(service, actor).unwrap();
+                    if service == AUX_SERVICE {
+                        effect.configure_flyby(id, pose, range);
+                    } else {
+                        effect.configure_departure(id, pose, range);
+                    }
+                    assert_effect(&exact, actor, id, &effect, 0);
+                }
             }
         }
     }

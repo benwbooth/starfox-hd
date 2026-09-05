@@ -6,6 +6,7 @@
 
 mod game;
 mod input;
+pub mod intro_attached_craft;
 pub mod intro_camera;
 pub mod intro_controller;
 pub mod intro_destruction;

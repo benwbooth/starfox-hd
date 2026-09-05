@@ -28,6 +28,7 @@ const SECOND_POSITION: Vector3 = Vector3 {
 const EFFECT_TRANSITION_MODE: u16 = 2;
 const EFFECT_LIMIT: u16 = 255;
 const EFFECT_AXIS_MODES: [u8; 3] = [1, 2, 2];
+const DEPARTURE_AXIS_MODES: [u8; 3] = [4, 8, 8];
 const EFFECT_TARGET_AXIS: u8 = 3;
 const EFFECT_FULL_CONTROL: u8 = 31;
 const LOW_BYTE_MASK: u16 = 255;
@@ -58,17 +59,33 @@ impl IntroAuxiliaryEffect {
         // the authored service for values whose low byte carries or wraps.
         let doubled =
             (((range as u16) & HIGH_BYTE_MASK) | u16::from((range as u8).wrapping_mul(2))) as i16;
+        self.configure(actor, pose, doubled, EFFECT_AXIS_MODES);
+    }
+
+    /// Independent departure service: the range is not byte-doubled and its
+    /// three authored axis modes differ from the attached craft's flyby.
+    pub fn configure_departure(&mut self, actor: ObjectId, pose: IntroScenePose, range: i16) {
+        self.configure(actor, pose, range, DEPARTURE_AXIS_MODES);
+    }
+
+    fn configure(
+        &mut self,
+        actor: ObjectId,
+        pose: IntroScenePose,
+        range: i16,
+        axis_modes: [u8; 3],
+    ) {
         self.tracking = false;
         if !self.frozen {
             self.transition_mode = EFFECT_TRANSITION_MODE;
             self.origin = pose.position;
             self.limit = EFFECT_LIMIT;
-            self.range = doubled;
-            self.remaining = if doubled < 0 { 1 } else { doubled };
+            self.range = range;
+            self.remaining = if range < 0 { 1 } else { range };
             self.owner = Some(actor);
             self.target_axis = EFFECT_TARGET_AXIS;
             self.target_control = EFFECT_FULL_CONTROL;
-            self.axis_modes = EFFECT_AXIS_MODES;
+            self.axis_modes = axis_modes;
             self.axis_controls = [EFFECT_FULL_CONTROL; 3];
         }
         // This refresh is a separate, unconditional service call. A frozen
