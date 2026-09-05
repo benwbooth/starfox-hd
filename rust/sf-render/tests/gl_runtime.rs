@@ -1143,6 +1143,94 @@ fn sf2_native_geometry_is_hd_and_camera_interpolates_between_ticks() {
     );
 }
 
+#[test]
+fn sf2_mesh_animation_renders_intermediate_geometry_only_in_hd() {
+    let _gpu_test_guard = GPU_TEST_LOCK.lock().expect("GPU test lock poisoned");
+    const WIDTH: i32 = 512;
+    const HEIGHT: i32 = 448;
+    const CRAFT_DEPTH: i32 = 500;
+    const FIXED_POSITION_SHIFT: u32 = 16;
+    const ANIMATED_CRAFT: u16 = sf_core::shape::sf2_shape_id(51);
+    let mut config = config_from_repo_root(&repo_root());
+    config.shadow_style = sf_render::draw_list::ShadowStyle::Smooth;
+    let mut renderer = Renderer::new_headless(WIDTH, HEIGHT, &config)
+        .expect("SF2 animation regression requires a wgpu adapter");
+    renderer.transform.set_camera(0, 0, 0, 0, 0, 0);
+    renderer.transform.snap_camera();
+    let previous = DrawListEntry {
+        z: CRAFT_DEPTH << FIXED_POSITION_SHIFT,
+        shape_id: ANIMATED_CRAFT,
+        flags: DL_FLAG_VISIBLE,
+        obj_id: 1,
+        interpolation_id: 1,
+        anim_frame: 0,
+        ..Default::default()
+    };
+    let current = DrawListEntry {
+        anim_frame: 1,
+        ..previous
+    };
+    let render = |renderer: &mut Renderer, current, alpha, source_resolution| {
+        renderer.begin_frame();
+        renderer.submit(
+            &[previous],
+            &[current],
+            alpha,
+            &FrameInputs {
+                source_resolution,
+                ..Default::default()
+            },
+        );
+        renderer.end_frame();
+        renderer.read_pixels_rgb()
+    };
+    let first = render(&mut renderer, current, 0.0, false);
+    let quarter = render(&mut renderer, current, 0.25, false);
+    let middle = render(&mut renderer, current, 0.5, false);
+    let three_quarters = render(&mut renderer, current, 0.75, false);
+    let last = render(&mut renderer, current, 1.0, false);
+    assert_ne!(
+        first, quarter,
+        "a stationary animated mesh must deform between ticks"
+    );
+    assert_ne!(quarter, middle);
+    assert_ne!(middle, three_quarters);
+    assert_ne!(three_quarters, last);
+
+    let replaced = DrawListEntry {
+        interpolation_id: 2,
+        ..current
+    };
+    assert_eq!(
+        first,
+        render(&mut renderer, replaced, 0.5, false),
+        "a replacement object must not deform its predecessor"
+    );
+    let skipped = DrawListEntry {
+        anim_frame: 3,
+        ..current
+    };
+    assert_eq!(
+        first,
+        render(&mut renderer, skipped, 0.5, false),
+        "an animation discontinuity must hold the authored frame"
+    );
+
+    let source_first = render(&mut renderer, current, 0.0, true);
+    let source_middle = render(&mut renderer, current, 0.5, true);
+    let source_last = render(&mut renderer, current, 1.0, true);
+    assert_eq!(
+        source_first, source_middle,
+        "reference mesh animation remains discrete"
+    );
+    assert_ne!(
+        source_first, source_last,
+        "reference output advances at the tick endpoint"
+    );
+    assert_eq!(previous.anim_frame, 0);
+    assert_eq!(current.anim_frame, 1);
+}
+
 fn check_sf2_native_frontend(renderer: &mut Renderer) {
     const MIN_VISIBLE_PIXELS: usize = 10_000;
     const MIN_DISTINCT_COLORS: usize = 8;

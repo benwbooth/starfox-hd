@@ -25,6 +25,14 @@ pub enum ShapeRenderMode {
     Polygons,
     ScaledSprite,
 }
+
+/// Render-only endpoints. The game and reference raster keep integer frames.
+#[derive(Clone, Copy, Debug)]
+pub struct MeshAnimationBlend {
+    pub previous_frame: u8,
+    pub current_frame: u8,
+    pub amount: f32,
+}
 const SOURCE_LOCAL_FACE_INDICES: [u16; 12] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const SOURCE_LOD_DEPTH_THRESHOLDS: [i16; 3] = [1_000, 2_000, 3_000];
 const SOURCE_ANIMATION_COUNTER_MASK: u8 = 63;
@@ -176,6 +184,7 @@ const fn texture_material_fields(is_sf2: bool, material: u16) -> (usize, usize, 
 /// A registered shape with CPU-side vertex buffers (C `Shape` with
 /// `gpu_ready`). Instead of a VBO, triangle and line vertices are kept as
 /// plain `Vertex3` vectors and pushed to the retained `Gpu` per draw.
+#[derive(Clone)]
 pub struct GpuShape {
     /// Generated ShapeHdr `sh_col_ptr`, represented by color_data table id.
     pub default_color_table: u16,
@@ -759,6 +768,70 @@ impl ShapeStore {
             num_line_verts: line_count,
             face_line_first,
         }
+    }
+
+    /// Deform matching authored vertices, never pixels or simulation state.
+    /// Discontinuous animation changes and incompatible topology hold their
+    /// ordinary discrete frame instead of inventing intermediate geometry.
+    fn blended_sf2_animation(&self, shape_id: u16, blend: MeshAnimationBlend) -> Option<GpuShape> {
+        if !blend.amount.is_finite() || blend.amount <= 0.0 || blend.amount >= 1.0 {
+            return None;
+        }
+        let frames = self.sf2_animation_frames.get(&shape_id)?;
+        let previous_index = usize::from(blend.previous_frame) % frames.len();
+        let current_index = usize::from(blend.current_frame) % frames.len();
+        if previous_index == current_index
+            || ((previous_index + 1) % frames.len() != current_index
+                && (current_index + 1) % frames.len() != previous_index)
+        {
+            return None;
+        }
+        let previous = &frames[previous_index];
+        let current = &frames[current_index];
+        if previous.vertices.len() != current.vertices.len()
+            || previous.faces.len() != current.faces.len()
+            || previous.faces.iter().zip(&current.faces).any(|(a, b)| {
+                a.num_verts != b.num_verts
+                    || a.vertex_indices != b.vertex_indices
+                    || a.visibility_vertices != b.visibility_vertices
+                    || a.color_index != b.color_index
+            })
+        {
+            return None;
+        }
+        let vertices: Vec<_> = previous
+            .vertices
+            .iter()
+            .zip(&current.vertices)
+            .map(|(a, b)| ShapeVertex {
+                x: a.x + (b.x - a.x) * blend.amount,
+                y: a.y + (b.y - a.y) * blend.amount,
+                z: a.z + (b.z - a.z) * blend.amount,
+            })
+            .collect();
+        Some(Self::build_gpu_shape(
+            &vertices,
+            &previous.faces,
+            &previous.painter_nodes,
+            &previous.reflected_pair_starts,
+            previous.default_color_table,
+            true,
+        ))
+    }
+
+    pub(crate) fn sf2_animation_geometry(
+        &self,
+        shape_id: u16,
+        frame: u8,
+        blend: Option<MeshAnimationBlend>,
+    ) -> Option<std::borrow::Cow<'_, GpuShape>> {
+        let frames = self.sf2_animation_frames.get(&shape_id)?;
+        Some(
+            match blend.and_then(|blend| self.blended_sf2_animation(shape_id, blend)) {
+                Some(shape) => std::borrow::Cow::Owned(shape),
+                None => std::borrow::Cow::Borrowed(&frames[usize::from(frame) % frames.len()]),
+            },
+        )
     }
 
     pub fn register_with_color(
@@ -1634,6 +1707,7 @@ impl ShapeStore {
         transform: &Transform,
         shape_id: u16,
         anim_frame: u8,
+        animation_blend: Option<MeshAnimationBlend>,
         col_frame: u8,
         color_table: u16,
         object_depth_table: u8,
@@ -1664,6 +1738,15 @@ impl ShapeStore {
                 shape
             }
         };
+
+        // Source-resolution output and scaled sprites remain discrete. SF1
+        // animation semantics are deliberately unaffected by this SF2 change.
+        let blended_shape = if source_pose.is_none() && render_mode == ShapeRenderMode::Polygons {
+            animation_blend.and_then(|blend| self.blended_sf2_animation(shape_id, blend))
+        } else {
+            None
+        };
+        let shape = blended_shape.as_ref().unwrap_or(shape);
 
         let mut proj = *transform.projection();
         // Sequential launch-corridor pieces deliberately overlap at their
@@ -2034,7 +2117,7 @@ mod tests {
         apply_depth_layer_bias, face_is_camera_visible, resolve_registered_face_material,
         resolve_registered_face_palette_pair, sf1_animation_frame_index,
         source_explosion_face_indices, source_lod_index, texture_address, texture_material_fields,
-        ShapeStore, DEPTH_LAYER_STEP, RETAIL_REVISION_2_PILLAR_TEXEL,
+        MeshAnimationBlend, ShapeStore, DEPTH_LAYER_STEP, RETAIL_REVISION_2_PILLAR_TEXEL,
         RETAIL_REVISION_2_PILLAR_TEXEL_ADDRESS, SOURCE_TEX_BANK_01, TEXTURE_XY, TEX_BANK_01,
     };
     use super::{continuous_texture_coord, coplanar_decal_is_contained};
@@ -2239,6 +2322,102 @@ mod tests {
             assert!(!front_visible);
             assert!(back_visible);
         }
+    }
+
+    #[test]
+    fn sf2_mesh_animation_blends_authored_vertices_without_mutating_them() {
+        const ANIMATED_SHAPE: u16 = sf2_shape_id(51);
+        let mut store = ShapeStore::new();
+        store.register_sf2_shapes();
+        let frames = &store.sf2_animation_frames[&ANIMATED_SHAPE];
+        let original = frames[0].vertices.clone();
+        let blend = |amount| MeshAnimationBlend {
+            previous_frame: 0,
+            current_frame: 1,
+            amount,
+        };
+        for amount in [0.25, 0.5, 0.75] {
+            let mesh = store
+                .sf2_animation_geometry(ANIMATED_SHAPE, 0, Some(blend(amount)))
+                .expect("authored SF2 animation");
+            for ((actual, previous), current) in mesh
+                .vertices
+                .iter()
+                .zip(&frames[0].vertices)
+                .zip(&frames[1].vertices)
+            {
+                assert_eq!(actual.x, previous.x + (current.x - previous.x) * amount);
+                assert_eq!(actual.y, previous.y + (current.y - previous.y) * amount);
+                assert_eq!(actual.z, previous.z + (current.z - previous.z) * amount);
+            }
+            assert_ne!(mesh.vertices, frames[0].vertices);
+            assert_ne!(mesh.vertices, frames[1].vertices);
+            assert_eq!(mesh.faces, frames[0].faces);
+        }
+        for (amount, frame) in [(0.0, 0), (1.0, 1)] {
+            let mesh = store
+                .sf2_animation_geometry(ANIMATED_SHAPE, frame, Some(blend(amount)))
+                .expect("authored SF2 animation endpoint");
+            assert_eq!(mesh.vertices, frames[usize::from(frame)].vertices);
+        }
+        assert_eq!(
+            store.sf2_animation_frames[&ANIMATED_SHAPE][0].vertices,
+            original
+        );
+    }
+
+    #[test]
+    fn sf2_mesh_animation_holds_discontinuities_and_rejects_changed_topology() {
+        const ANIMATED_SHAPE: u16 = sf2_shape_id(51);
+        let mut store = ShapeStore::new();
+        store.register_sf2_shapes();
+        for (previous_frame, current_frame) in [(0, 0), (0, 3)] {
+            assert!(store
+                .blended_sf2_animation(
+                    ANIMATED_SHAPE,
+                    MeshAnimationBlend {
+                        previous_frame,
+                        current_frame,
+                        amount: 0.5,
+                    }
+                )
+                .is_none());
+        }
+        let adjacent = MeshAnimationBlend {
+            previous_frame: 0,
+            current_frame: 1,
+            amount: 0.5,
+        };
+        for amount in [f32::NAN, f32::INFINITY, -1.0, 2.0] {
+            assert!(store
+                .blended_sf2_animation(ANIMATED_SHAPE, MeshAnimationBlend { amount, ..adjacent })
+                .is_none());
+        }
+        assert!(store
+            .blended_sf2_animation(
+                ANIMATED_SHAPE,
+                MeshAnimationBlend {
+                    previous_frame: 1,
+                    current_frame: 0,
+                    ..adjacent
+                }
+            )
+            .is_some());
+        assert!(store
+            .blended_sf2_animation(
+                ANIMATED_SHAPE,
+                MeshAnimationBlend {
+                    previous_frame: 15,
+                    current_frame: 0,
+                    ..adjacent
+                }
+            )
+            .is_some());
+        let frames = store.sf2_animation_frames.get_mut(&ANIMATED_SHAPE).unwrap();
+        frames[1].faces[0].vertex_indices.swap(0, 1);
+        assert!(store
+            .blended_sf2_animation(ANIMATED_SHAPE, adjacent)
+            .is_none());
     }
 
     #[test]

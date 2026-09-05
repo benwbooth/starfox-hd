@@ -6,7 +6,7 @@
 use crate::font::Font;
 use crate::gpu::{Gpu, TextureId};
 use crate::shapes::{SHAPE_ALIAS_OP_0, SHAPE_ALIAS_OP_1, SHAPE_ALIAS_OP_2};
-use crate::shapes_gl::{ShapeRenderMode, ShapeStore};
+use crate::shapes_gl::{MeshAnimationBlend, ShapeRenderMode, ShapeStore};
 use crate::source_projection::SourcePose;
 use crate::source_raster::{SourceBitmapRect, SourceRaster};
 use crate::transform::Transform;
@@ -566,11 +566,13 @@ impl DrawListRenderer {
         shapes: &ShapeStore,
         transform: &Transform,
         e: &DrawListEntry,
+        animation_blend: Option<MeshAnimationBlend>,
         shadow_height: f32,
         shape_palette: &crate::shapes::ShapePaletteRgb,
         shadow_style: ShadowStyle,
     ) {
-        let Some(shape) = shapes.get(e.shape_id) else {
+        let animated = shapes.sf2_animation_geometry(e.shape_id, e.anim_frame, animation_blend);
+        let Some(shape) = animated.as_deref().or_else(|| shapes.get(e.shape_id)) else {
             return;
         };
         if shape.num_triangles <= 0 {
@@ -672,7 +674,7 @@ impl DrawListRenderer {
 
         // Interpolated entries that want a drop shadow (collected during the
         // main pass, drawn afterwards as a translucent overlay).
-        let mut shadow_list: Vec<DrawListEntry> = Vec::new();
+        let mut shadow_list: Vec<(DrawListEntry, Option<MeshAnimationBlend>)> = Vec::new();
         let palette_pair_style = if shadow_style == ShadowStyle::RetailDithered {
             crate::shapes::PalettePairStyle::RetailDithered
         } else {
@@ -894,12 +896,31 @@ impl DrawListRenderer {
                     continue;
                 }
             }
+            let animation_blend = interpolation
+                .filter(|(previous, current)| {
+                    source_presentation_offset.is_none()
+                        && !scaled_sprite
+                        && previous.flags == current.flags
+                        && previous.explosion_cnt == 0
+                        && current.explosion_cnt == 0
+                })
+                .map(|(previous, current)| MeshAnimationBlend {
+                    previous_frame: previous.anim_frame,
+                    current_frame: current.anim_frame,
+                    amount: source_safe_interpolation_alpha(
+                        previous,
+                        current,
+                        camera_endpoints,
+                        alpha,
+                    ),
+                });
             shapes.render(
                 gpu,
                 &mut source_raster,
                 transform,
                 interp.shape_id,
                 interp.anim_frame,
+                animation_blend,
                 interp.col_frame,
                 color_table,
                 interp.depth_offset,
@@ -924,7 +945,7 @@ impl DrawListRenderer {
                 && interp.explosion_cnt == 0
                 && shadow_list.len() < MAX_DRAW_LIST
             {
-                shadow_list.push(interp);
+                shadow_list.push((interp, animation_blend));
             }
         }
 
@@ -954,7 +975,7 @@ impl DrawListRenderer {
         // --- Optional HD shadow pass (after opaque geometry so depth testing
         // hides projected fragments behind solid objects). ---
         if source_presentation_offset.is_none() && shadow_style != ShadowStyle::Disabled {
-            for e in &shadow_list {
+            for (e, animation_blend) in &shadow_list {
                 self.render_shadow(
                     gpu,
                     &proj,
@@ -962,6 +983,7 @@ impl DrawListRenderer {
                     shapes,
                     transform,
                     e,
+                    *animation_blend,
                     shadow_height,
                     shape_palette,
                     shadow_style,
