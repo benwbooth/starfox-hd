@@ -1262,6 +1262,29 @@ for CPU/GSU work, raster deadlines, IRQ acceptance and queued DMA work in master
 clocks. Neither update-index tables nor captured first-pass lengths derive this
 timing. Initial raster/GSU state and per-strategy work costs remain unproven.
 
+The GSU job at `$01:CD99` is not a fixed clear: it runs the clear at `$D226`,
+background work, the ordered display-list renderer at `$CE80` (with an optional
+additional shadow pass), and overlay/particle work before stopping. Its duration
+therefore depends on the native render submission and the memory/cache pipeline.
+
+`intro_render_work::BitmapClearWork` now derives the clear's row addresses,
+word loads/stores and instruction work from its layout, without executing source
+code or consulting frame recordings. The isolated retail differential checks
+the complete RAM footprint, final pointer and instruction count for ten layouts,
+including odd pointers, address/width wrapping, signed division and zero loop
+counters. The zero counter means 65,536 iterations, not an empty clear. Layouts
+that overwrite the source's repeatedly loaded width are explicitly rejected.
+The bitmap base is a caller argument, not a load performed inside `$D226`.
+
+This is a work-accounting input, not an elapsed-clock model or an autonomous
+scheduler. It is not yet consumed by `OpeningScene`. Cache fills, overlapping
+RAM operations, bus grants and the geometry-dependent display-list work still
+need native integration before deriving actor-pass boundaries.
+
+```sh
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
+```
+
 1. Recover the intro's typed actor/camera/effect systems and source-authored
    choreography. Preserve original discrete gameplay timing and interpolate
    presentation only. Do not substitute sampled poses, frame blending, image
