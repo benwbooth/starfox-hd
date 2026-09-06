@@ -3,7 +3,7 @@ use sf2_data::{
     point_program_data::POINT_PROGRAMS,
     shape_data::{ShapeDataEntry, SHAPE_DATA},
 };
-use sf2_game::intro_transform::transform_shape;
+use sf2_game::intro_transform::{object_view_matrix, transform_shape};
 use sf_oracle::gsu::Gsu;
 
 fn rom() -> Vec<u8> {
@@ -283,14 +283,34 @@ fn authored_shape_rotation_to_bsp_matches_original_pipeline() {
         }
         for (scene, translation) in [[0, 0, 2048], [0, 0, 256], [400, -200, 128], [0, 0, -512]]
             .into_iter()
+            .cycle()
+            .take(8)
             .enumerate()
         {
-            let columns = MATRICES[scene];
+            let view = MATRICES[scene % 4];
+            let angles = [[0, 0, 0], [0, 128, 0], [37, 219, 81], [256, 0, 0]][scene % 4];
+            let flags = if scene == 6 { 0x2000 } else { 0 };
+            let columns = if scene < 4 {
+                view
+            } else {
+                object_view_matrix(view, angles, flags)
+            };
             let animation = (scene * 31) as u16;
             let rotated = transform_shape(shape, points, animation, columns).unwrap();
             let projected = project_points(&rotated, translation, viewport);
             let native = submit_projected_bsp(faces, &projected).unwrap();
-            prepare(&mut source, shape, animation, columns);
+            prepare(
+                &mut source,
+                shape,
+                animation,
+                if scene < 4 { columns } else { [[0; 3]; 3] },
+            );
+            for (index, coefficient) in view.into_iter().flatten().enumerate() {
+                put_word(&mut source, 0xE4 + index * 2, coefficient as u16);
+            }
+            for (index, angle) in angles.into_iter().enumerate() {
+                put_word(&mut source, 0x20 + index * 2, angle);
+            }
             for (address, value) in [
                 (0x26, translation[0]),
                 (0x28, translation[1]),
@@ -301,13 +321,13 @@ fn authored_shape_rotation_to_bsp_matches_original_pipeline() {
                 (0x3A, 224),
                 (0x3C, 0),
                 (0x3E, 192),
-                (0x54, 0),
+                (0x54, flags as i16),
             ] {
                 put_word(&mut source, address, value as u16);
             }
             put_word(&mut source, 0x18, shape.faces_address as u16);
             source.watch_execution(1, 0x9CC4);
-            source.start(1, 0x96BA);
+            source.start(1, if scene < 4 { 0x96BA } else { 0x9528 });
             while !source.execution_watch_hit()
                 && source.r[15] != 0xA0C7
                 && source.is_running()
@@ -360,5 +380,5 @@ fn authored_shape_rotation_to_bsp_matches_original_pipeline() {
             comparisons += 1;
         }
     }
-    assert_eq!(comparisons, 768);
+    assert_eq!(comparisons, 1536);
 }

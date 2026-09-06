@@ -1352,18 +1352,19 @@ signed coordinates, accumulate full products, and round only once. Mirrored
 word/full-byte blocks subtract twice the already-rounded X contribution from
 the positive result. The packed byte paths instead round the positive and
 negative raw sums independently, then scale. All arithmetic retains source
-word wrapping. Matrix high-byte packing and `1 << shift` byte scaling are native;
-matrix construction itself remains outside this stage.
+word wrapping. Matrix high-byte packing and `1 << shift` byte scaling are native.
 
 The transform oracle checks every emitted block and all 28,032 authored input
 records against the original ROM. It executes 15,428 shape/frame/matrix cases
 through the original complete point program, including masked animation words,
 plus 1,024 mixed-format edge cases across all 16 supported scale shifts. Another
-768 shape cases now compare the combined authored-points → rotation → projection
-→ visibility → BSP path against the original, including cull exits.
+1,536 shape cases now compare the combined authored-points → rotation → projection
+→ visibility → BSP path against the original, including cull exits. Half begin
+earlier at `$01:9528`, deriving the object matrix from view coefficients and raw
+object angles rather than supplying it to the source.
 
-These comparisons still supply the camera/object matrix and camera-axis object
-translation. They do not yet derive those inputs from scene transforms, nor
+These comparisons still supply view coefficients and camera-axis object
+translation. They do not yet derive those inputs from scene state, nor
 account for polygon clipping, rasterization, cache/bus clocks, or actor-pass
 deadlines. The complete opening is still not production-native.
 
@@ -1373,8 +1374,18 @@ Rust `zxy_matrix_q15_fine` for all 65,536 values of each angle axis with the
 other two held nonzero, plus 8,192 random triples (204,800 comparisons).
 The original `$01:913A` job also matches `matrix_rotate_q15` for 16,384
 arbitrary signed matrices and relative positions. This certifies per-product
-Q15 rounding, interpolation and word wrapping, not object/view composition,
-world-minus-camera input selection, or production scene scheduling.
+Q15 rounding, interpolation and word wrapping, not world-minus-camera input
+selection or production scene scheduling.
+
+Native `object_view_matrix` now implements `$01:9539..964E`: zero/half-turn
+shortcuts preserve coefficients without identity-matrix rounding; raw angle
+high bytes disable those shortcuts; the general path transposes the local
+rotation and performs per-product Q15 composition. Shadow flattening zeros the
+local Y column before composition on the general path, but the final Y input
+axis on shortcut paths. A further 16,384 direct comparisons cover random word
+matrices, all byte angles on each axis, random byte/word angle triples and both
+shadow states. Production camera/actor wiring and lighting remain outside
+this arithmetic stage.
 
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'

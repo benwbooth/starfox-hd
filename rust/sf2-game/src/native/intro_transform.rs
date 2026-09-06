@@ -1,11 +1,46 @@
 //! Authored SF2 point-block rotation. Encoding and mirror boundaries are
 //! semantic inputs: independently rotating the expanded vertex catalog loses
-//! source rounding. Camera/object matrix construction precedes this stage.
+//! source rounding. Object matrices retain the original shortcut rounding.
 
 use sf2_data::{
     point_program::{PointBlock, PointFormat, PointProgram},
     shape_data::{ShapeDataEntry, ShapeVertex},
 };
+use sf_core::snes_trig::{gsu_fmult_q15, zxy_matrix_q15_fine};
+
+/// Original `$01:9539..964E` object/view composition. Angles are the raw
+/// draw-record words: low bytes encode rotations, while nonzero high bytes
+/// also affect shortcut eligibility. Both matrices use input-axis-first order.
+pub fn object_view_matrix(view: [[i16; 3]; 3], angles: [u16; 3], flags: u16) -> [[i16; 3]; 3] {
+    let flatten = flags & 0x2000 != 0;
+    if angles[0] | angles[2] == 0 && matches!(angles[1], 0 | 128) {
+        let mut result = view;
+        if angles[1] == 128 {
+            result[0] = result[0].map(i16::wrapping_neg);
+            result[2] = result[2].map(i16::wrapping_neg);
+        }
+        if flatten {
+            result[1] = [0; 3];
+        }
+        return result;
+    }
+    let [pitch, yaw, roll] = angles.map(|angle| ((angle & 255) << 8).wrapping_neg());
+    let rotation = zxy_matrix_q15_fine(pitch, yaw, roll);
+    let mut local: [[i16; 3]; 3] =
+        std::array::from_fn(|input| std::array::from_fn(|output| rotation[output][input]));
+    if flatten {
+        for row in &mut local {
+            row[1] = 0;
+        }
+    }
+    std::array::from_fn(|input| {
+        std::array::from_fn(|output| {
+            gsu_fmult_q15(local[input][0], view[0][output])
+                .wrapping_add(gsu_fmult_q15(local[input][1], view[1][output]))
+                .wrapping_add(gsu_fmult_q15(local[input][2], view[2][output]))
+        })
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PointTransform {
@@ -158,6 +193,23 @@ pub fn transform_shape(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn object_shortcuts_preserve_coefficients_without_identity_rounding() {
+        let view = [[i16::MIN, i16::MAX, -1], [255, 0, -256], [1, -2, 3]];
+        assert_eq!(object_view_matrix(view, [0; 3], 0), view);
+        assert_eq!(
+            object_view_matrix(view, [0, 128, 0], 0x2000),
+            [[i16::MIN, -32767, 1], [0; 3], [-1, 2, -3]]
+        );
+    }
+
+    #[test]
+    fn high_angle_flags_force_general_rounding_even_at_zero_rotation() {
+        let view = [[32767; 3]; 3];
+        assert_eq!(object_view_matrix(view, [0; 3], 0), view);
+        assert_eq!(object_view_matrix(view, [256, 0, 0], 0), [[32765; 3]; 3]);
+    }
 
     fn block(format: PointFormat, mirrored: bool) -> PointBlock {
         PointBlock {

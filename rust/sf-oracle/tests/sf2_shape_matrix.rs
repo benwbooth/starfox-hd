@@ -1,5 +1,6 @@
 //! Execute the original SF2 view-matrix and camera-relative rotation jobs.
 //! These checks certify arithmetic, not scene input selection or scheduling.
+use sf2_game::intro_transform::object_view_matrix;
 use sf_core::snes_trig::{matrix_rotate_q15, zxy_matrix_q15_fine};
 use sf_oracle::gsu::Gsu;
 
@@ -80,6 +81,65 @@ fn native_relative_translation_matches_original_world_rotation_job() {
             [native.0, native.1, native.2],
             std::array::from_fn(|axis| word(&source, 0x26 + axis * 2) as i16),
             "case={case}"
+        );
+    }
+}
+
+#[test]
+fn native_object_view_composition_matches_original() {
+    let mut source = Gsu::new(rom());
+    let mut random = 0x7A46_53D1u32;
+    let mut next = || {
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        random as u16
+    };
+    let special = [
+        [0, 0, 0],
+        [0, 128, 0],
+        [0, 64, 0],
+        [256, 0, 0],
+        [0, 256, 0],
+        [0, 0, 256],
+        [0, 384, 0],
+    ];
+    for case in 0..16384 {
+        let view = std::array::from_fn(|_| std::array::from_fn(|_| next() as i16));
+        let angles = if case < special.len() * 2 {
+            special[case / 2]
+        } else if case < 1550 {
+            let mut angles = [0; 3];
+            angles[(case - 14) / 512] = ((case - 14) / 2 % 256) as u16;
+            angles
+        } else if case < 8192 {
+            std::array::from_fn(|_| next() & 255)
+        } else {
+            std::array::from_fn(|_| next())
+        };
+        let flags = (next() & !0x2000) | if case & 1 != 0 { 0x2000 } else { 0 };
+        for (index, coefficient) in view.into_iter().flatten().enumerate() {
+            put_word(&mut source, 0xE4 + index * 2, coefficient as u16);
+        }
+        for (index, angle) in angles.into_iter().enumerate() {
+            put_word(&mut source, 0x20 + index * 2, angle);
+        }
+        put_word(&mut source, 0x32, (case % 16) as u16);
+        put_word(&mut source, 0x54, flags);
+        source.r[10] = 0x400;
+        source.watch_execution(1, 0x964E);
+        source.start(1, 0x9528);
+        while !source.execution_watch_hit() && source.is_running() && source.last_run_steps < 5000 {
+            source.run_slice(1);
+        }
+        assert!(source.execution_watch_hit(), "case={case}");
+        let actual: [[i16; 3]; 3] = std::array::from_fn(|input| {
+            std::array::from_fn(|output| word(&source, 0x132 + input * 6 + output * 2) as i16)
+        });
+        assert_eq!(
+            object_view_matrix(view, angles, flags),
+            actual,
+            "case={case} angles={angles:?} flags={flags:04X}"
         );
     }
 }
