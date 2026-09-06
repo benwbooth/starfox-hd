@@ -98,6 +98,19 @@ class ClipPlane:
 
 
 @dataclass(frozen=True)
+class FaceCommand:
+    """Decoded authored command, with file-offset edges until emission.
+
+    Addresses are provenance only. The native catalog resolves every edge to
+    a node index rather than executing ROM bytecode.
+    """
+    address: int
+    operation: str
+    arguments: tuple
+    targets: tuple[int | None, ...]
+
+
+@dataclass(frozen=True)
 class ShapeHeader:
     index: int
     address: int
@@ -124,6 +137,7 @@ class Shape:
     animation_frames: tuple[tuple[Vertex, ...], ...]
     faces: tuple[Face, ...]
     clipping_planes: tuple[ClipPlane, ...]
+    face_program: tuple[FaceCommand, ...]
 
 
 def s8(value: int) -> int:
@@ -295,9 +309,9 @@ def _face_program_target(data: bytes, bank: int, pointer: int) -> int:
     return gsu_to_file(data, (bank << 16) | (pointer & 0xFFFF))
 
 
-def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], tuple[ClipPlane, ...]]:
+def parse_face_program(data: bytes, address: int):
     if address == 0:
-        return (), ()
+        return (), (), ()
 
     bank = (address >> 16) & 0xFF
     pending: list[
@@ -306,61 +320,90 @@ def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], tuple[Clip
     visited: set[int] = set()
     faces: list[Face] = []
     clipping_planes: list[ClipPlane] = []
+    commands: list[FaceCommand] = []
+    contexts: dict[int, tuple | None] = {}
+
+    def require(cursor: int, length: int, description: str):
+        if cursor < 0 or cursor + length > len(data):
+            raise ShapeParseError(f"truncated {description} at ROM file ${cursor:06X}")
+
+    def record(cursor: int, operation: str, arguments=(), targets=()):
+        commands.append(FaceCommand(cursor, operation, tuple(arguments), tuple(targets)))
 
     while pending:
         cursor, visibility_tests = pending.pop()
-        while cursor not in visited:
+        while True:
+            if cursor in visited:
+                if contexts[cursor] != visibility_tests and data[cursor] != MVAL_VIZIS:
+                    raise ShapeParseError(f"conflicting visibility contexts at ROM file ${cursor:06X}")
+                break
             if not 0 <= cursor < len(data):
                 raise ShapeParseError(f"unterminated face program from ${address:06X}")
             if len(visited) >= 65536:
                 raise ShapeParseError(f"face program from ${address:06X} exceeded step limit")
             visited.add(cursor)
+            contexts[cursor] = visibility_tests
             opcode = data[cursor]
 
             if opcode == MVAL_VIZIS:
+                require(cursor, 2, "visibility table")
                 count = data[cursor + 1]
+                require(cursor, 2 + count * 3, "visibility table")
                 visibility_tests = tuple(
                     tuple(data[cursor + 2 + index * 3 : cursor + 5 + index * 3])
                     for index in range(count)
                 )
+                record(cursor, "Visibility", visibility_tests, (cursor + 2 + count * 3,))
                 cursor += 2 + count * 3
                 continue
             if opcode == MVAL_BSPINIT:
+                record(cursor, "BeginBsp", targets=(cursor + 1,))
                 cursor += 1
                 continue
             if opcode == MVAL_BSP:
-                if visibility_tests is not None:
-                    relative = s16(data, cursor + 2)
-                    first = cursor + 3 + relative
-                    second = cursor + 4 + s8(data[cursor + 4])
-                    fallthrough = cursor + 5
-                else:
-                    relative = s16(data, cursor + 1)
-                    first = cursor + 2 + relative
-                    second = cursor + 3 + s8(data[cursor + 3])
-                    fallthrough = cursor + 4
-                # A BSP node orders three streams rather than choosing one:
-                # the node's own coplanar face list and the two spatial
-                # children.  The latter are encoded as the fall-through path
-                # and the byte-relative path (normally small BSPE thunks).
+                require(cursor, 5, "BSP node")
+                selector = data[cursor + 1]
+                if visibility_tests is None or selector >= len(visibility_tests):
+                    raise ShapeParseError(f"BSP visibility {selector} at ROM file ${cursor:06X} has no matching test")
+                relative = s16(data, cursor + 2)
+                first = cursor + 3 + relative
+                # The source zero-extends this byte; zero means no right
+                # child, not a command at the operand's own address.
+                offset = data[cursor + 4]
+                second = cursor + 4 + offset if offset else None
+                fallthrough = cursor + 5
+                record(cursor, "Bsp", (selector,), (first, fallthrough, second))
+                # Preserve the geometry union independently of runtime BSP
+                # ordering and conditional coplanar-list submission.
                 pending.append((first, visibility_tests))
-                pending.append((second, visibility_tests))
+                if second is not None:
+                    pending.append((second, visibility_tests))
                 pending.append((fallthrough, visibility_tests))
                 break
             if opcode == MVAL_BSPE:
-                cursor = cursor + 2 + s16(data, cursor + 1)
+                require(cursor, 3, "BSP leaf")
+                target = cursor + 2 + s16(data, cursor + 1)
+                record(cursor, "BspLeaf", targets=(target,))
+                cursor = target
                 continue
             if opcode in (MVAL_BSPEND, MVAL_QUIT, MVAL_ENDSHAPE):
+                record(cursor, {MVAL_BSPEND: "ReturnBsp", MVAL_QUIT: "Quit", MVAL_ENDSHAPE: "EndShape"}[opcode])
                 break
 
             if opcode == MVAL_FACES:
+                command_address = cursor
+                first_face = len(faces)
                 cursor += 1
-                while data[cursor] not in (0xFE, 0xFF):
+                while True:
+                    require(cursor, 1, "face list")
+                    if data[cursor] in (0xFE, 0xFF):
+                        break
                     vertex_count = data[cursor]
                     if not 2 <= vertex_count <= 12:
                         raise ShapeParseError(
                             f"invalid face arity {vertex_count} at ROM file ${cursor:06X}"
                         )
+                    require(cursor, 6 + vertex_count, "face record")
                     visibility_selector = data[cursor + 1]
                     color_index = data[cursor + 2]
                     normal = tuple(s8(value) for value in data[cursor + 3 : cursor + 6])
@@ -388,21 +431,36 @@ def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], tuple[Clip
                     cursor += 6 + vertex_count
                 terminator = data[cursor]
                 cursor += 1
+                record(command_address, "Faces", (first_face, len(faces) - first_face),
+                       (cursor if terminator == 0xFE else None,))
                 if terminator == 0xFF:
                     break
                 continue
 
             if opcode == MVAL_GROUPS:
+                require(cursor, 2, "group table")
                 count = data[cursor + 1]
+                require(cursor, 2 + count * 3, "group table")
+                groups = []
+                targets = []
                 for index in range(count):
-                    record = cursor + 2 + index * 3
-                    pointer = u16(data, record + 1)
-                    pending.append((_face_program_target(data, bank, pointer), visibility_tests))
+                    # Source $01:9CEE reads all depth-point bytes first;
+                    # the following table contains count 16-bit pointers.
+                    pointer = u16(data, cursor + 2 + count + index * 2)
+                    target = _face_program_target(data, bank, pointer)
+                    groups.append(data[cursor + 2 + index])
+                    targets.append(target)
+                    pending.append((target, visibility_tests))
+                record(cursor, "Groups", groups, targets)
                 break
             if opcode == MVAL_SPRITE:
+                require(cursor, 4, "sprite")
+                record(cursor, "Sprite", data[cursor + 1:cursor + 4], (cursor + 4,))
                 cursor += 4
                 continue
             if opcode == MVAL_SPRITEVIS:
+                require(cursor, 5, "visible sprite")
+                record(cursor, "VisibleSprite", data[cursor + 1:cursor + 5], (cursor + 5,))
                 cursor += 5
                 continue
             if opcode == MVAL_CLIP_PLANE:
@@ -416,6 +474,8 @@ def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], tuple[Clip
                     Vertex(*(s16(data, cursor + offset) for offset in (2, 4, 6))),
                     Vertex(*(s16(data, cursor + offset) for offset in (8, 10, 12))),
                 ))
+                record(cursor, "ClipPlane", (len(clipping_planes) - 1,),
+                       (cursor + CLIP_PLANE_RECORD_SIZE,))
                 # This is a continuing command. Stopping here discarded the
                 # paired opposing plane and could conceal unknown tail code.
                 cursor += CLIP_PLANE_RECORD_SIZE
@@ -426,7 +486,12 @@ def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], tuple[Clip
                 f"(root ${address:06X})"
             )
 
-    return tuple(faces), tuple(clipping_planes)
+    return tuple(faces), tuple(clipping_planes), tuple(commands)
+
+
+def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], tuple[ClipPlane, ...]]:
+    faces, planes, _ = parse_face_program(data, address)
+    return faces, planes
 
 
 def extract_shapes(data: bytes) -> list[Shape]:
@@ -437,7 +502,7 @@ def extract_shapes(data: bytes) -> list[Shape]:
         vertex_frames = parse_vertex_frames(data, header.points_address)
         vertices = vertex_frames[0]
         animation_frames = vertex_frames if len(vertex_frames) > 1 else ()
-        faces, clipping_planes = parse_faces(data, header.faces_address)
+        faces, clipping_planes, face_program = parse_face_program(data, header.faces_address)
         for frame_index, frame in enumerate(vertex_frames):
             for face_index, face in enumerate(faces):
                 for vertex_index in face.vertex_indices:
@@ -447,7 +512,7 @@ def extract_shapes(data: bytes) -> list[Shape]:
                             f"{face_index} references vertex {vertex_index}, but only "
                             f"{len(frame)} exist"
                         )
-        shapes.append(Shape(header, vertices, animation_frames, faces, clipping_planes))
+        shapes.append(Shape(header, vertices, animation_frames, faces, clipping_planes, face_program))
     return shapes
 
 
@@ -614,9 +679,74 @@ def emit_rust(shapes: list[Shape]) -> None:
     subprocess.run(["rustfmt", "--edition", "2021", output], check=True)
 
 
+def emit_face_programs(shapes: list[Shape]) -> None:
+    types = "FaceCommand, FaceNode, FaceProgram, NodeId"
+    if any(node.operation == "Groups" for shape in shapes for node in shape.face_program):
+        types += ", FaceGroup"
+    lines = [AUTOGEN_HEADER.format(tool="extract_shapes.py"),
+             "//! Authored face-program topology; edges are native node indices.",
+             f"use crate::shape_program::{{{types}}};", ""]
+    for shape in shapes:
+        nodes = shape.face_program
+        ids = {node.address: index for index, node in enumerate(nodes)}
+
+        def target(address):
+            if address not in ids:
+                raise ShapeParseError(f"unresolved face-program edge ${address:06X}")
+            if ids[address] > 0xFFFF:
+                raise ShapeParseError("face-program node index exceeds native representation")
+            return f"NodeId({ids[address]})"
+
+        def optional(address):
+            return "None" if address is None else f"Some({target(address)})"
+
+        lines.append(f"static PROGRAM_{shape.header.address:04X}: [FaceNode; {len(nodes)}] = [")
+        for node in nodes:
+            args, edges = node.arguments, node.targets
+            op = node.operation
+            if op == "Visibility":
+                triangles = ", ".join(f"[{a}, {b}, {c}]" for a, b, c in args)
+                value = f"Visibility {{ triangles: &[{triangles}], next: {target(edges[0])} }}"
+            elif op == "BeginBsp":
+                value = f"BeginBsp {{ root: {target(edges[0])} }}"
+            elif op == "Bsp":
+                value = (f"Bsp {{ visibility: {args[0]}, coplanar: {target(edges[0])}, "
+                         f"left: {target(edges[1])}, right: {optional(edges[2])} }}")
+            elif op == "BspLeaf":
+                value = f"BspLeaf {{ faces: {target(edges[0])} }}"
+            elif op in ("ReturnBsp", "Quit", "EndShape"):
+                value = op
+            elif op == "Faces":
+                value = f"Faces {{ first: {args[0]}, count: {args[1]}, next: {optional(edges[0])} }}"
+            elif op == "Groups":
+                groups = ", ".join(f"FaceGroup {{ depth_point: {point}, root: {target(edge)} }}"
+                                   for point, edge in zip(args, edges))
+                value = f"Groups {{ entries: &[{groups}] }}"
+            elif op in ("Sprite", "VisibleSprite"):
+                value = f"{op} {{ parameters: [{', '.join(map(str, args))}], next: {target(edges[0])} }}"
+            elif op == "ClipPlane":
+                value = f"ClipPlane {{ plane: {args[0]}, next: {target(edges[0])} }}"
+            else:
+                raise ShapeParseError(f"unhandled native face command {op}")
+            bank = shape.header.faces_address >> 16
+            source_address = (bank << 16) | (node.address - bank * 0x8000 + 0x8000)
+            lines.append(f"    FaceNode {{ source_address: 0x{source_address:06X}, command: FaceCommand::{value} }},")
+        lines.append("];\n")
+    lines.append(f"pub static FACE_PROGRAMS: [FaceProgram; {len(shapes)}] = [")
+    for shape in shapes:
+        root = "Some(NodeId(0))" if shape.face_program else "None"
+        lines.append(f"    FaceProgram {{ root: {root}, nodes: &PROGRAM_{shape.header.address:04X} }},")
+    lines.append("];\n")
+    output = os.path.join(RUST_SRC, "shape_program_data.rs")
+    with open(output, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+    subprocess.run(["rustfmt", "--edition", "2021", output], check=True)
+
+
 def extract(data: bytes) -> list[Shape]:
     shapes = extract_shapes(data)
     emit_rust(shapes)
+    emit_face_programs(shapes)
     vertex_count = sum(len(shape.vertices) for shape in shapes)
     animation_frame_count = sum(len(shape.animation_frames) for shape in shapes)
     face_count = sum(len(shape.faces) for shape in shapes)

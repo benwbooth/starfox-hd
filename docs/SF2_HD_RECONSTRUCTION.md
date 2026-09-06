@@ -1281,8 +1281,32 @@ scheduler. It is not yet consumed by `OpeningScene`. Cache fills, overlapping
 RAM operations, bus grants and the geometry-dependent display-list work still
 need native integration before deriving actor-pass boundaries.
 
+The shape extractor now retains a separate typed face-program graph alongside
+the unchanged mesh union: 4,037 nodes across the 577 catalog entries. Every edge
+is resolved to a native node index. Visibility tables, null BSP children,
+coplanar targets, leaves, face-list continuations and clipping commands retain
+their authored relationships. Synthetic extraction tests also protect the
+unsigned BSP right offset and the groups layout (depth-point bytes followed by
+a separate pointer table); the retail catalog contains no group commands.
+
+`intro_bsp_work::submit_bsp` consumes this graph and the visibility sign bits.
+Negative tests traverse left, queue coplanar faces, then traverse right;
+nonnegative tests traverse right then left without the coplanar submission.
+Leaves queue a list and return, instead of immediately drawing it. Cyclic
+spatial graphs and missing nodes/visibility inputs return explicit errors;
+shared subtrees retain repeated visits.
+
+The isolated source differential compares ordered list pointers and branch,
+leaf and return work for all 192 BSP-bearing shapes under four visibility
+patterns (768 comparisons). A second test checks every emitted command against
+its original ROM operands and every face range against the geometry catalog.
+This does not yet derive visibility from the native camera or account for
+polygon clipping, rasterization, cache/bus clocks, or actor-pass deadlines.
+
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_programs'
+python3 -m unittest discover -s tools/sf2 -p test_extract_shapes.py
 ```
 
 1. Recover the intro's typed actor/camera/effect systems and source-authored

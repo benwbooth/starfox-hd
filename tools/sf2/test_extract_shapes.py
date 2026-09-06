@@ -5,6 +5,7 @@ import unittest
 
 from extract_shapes import (
     ClipPlane, MVAL_CLIP_PLANE, ShapeParseError, Vertex, extract_shapes, parse_faces,
+    parse_face_program,
 )
 from rom import load_rom
 
@@ -89,6 +90,94 @@ class RetailClippingPlanes(unittest.TestCase):
         changed[0x8069] ^= 1
         with self.assertRaisesRegex(ShapeParseError, "dispatch signature mismatch"):
             extract_shapes(changed)
+
+
+def line_record(color):
+    return bytes((0x14, 2, 0xFF, color, 0, 0, 0, 0, 1, 0xFF))
+
+
+class FaceProgramTopology(unittest.TestCase):
+    def bsp_program(self, right_offset):
+        data = bytearray(256)
+        data[:6] = bytes((0x30, 1, 0, 1, 2, 0x3C))
+        data[6:11] = bytes((0x28, 0, 7, 0, right_offset))
+        data[11:14] = bytes((0x44, 13, 0))
+        data[16:26] = line_record(1)
+        data[26:36] = line_record(2)
+        if right_offset:
+            right = 10 + right_offset
+            data[right:right + 3] = bytes((0x44, 8, 0))
+            data[right + 10:right + 20] = line_record(3)
+        return bytes(data)
+
+    def test_bsp_null_child_does_not_create_a_phantom_command(self):
+        faces, _, nodes = parse_face_program(self.bsp_program(0), FACE_PROGRAM_ADDRESS)
+        by_address = {node.address: node for node in nodes}
+        self.assertEqual(by_address[6].targets, (16, 11, None))
+        self.assertEqual(by_address[6].arguments, (0,))
+        self.assertEqual(by_address[11].operation, "BspLeaf")
+        self.assertEqual(by_address[11].targets, (26,))
+        self.assertNotIn(10, by_address)
+        self.assertEqual({face.color_index for face in faces}, {1, 2})
+
+    def test_bsp_right_offset_is_unsigned(self):
+        faces, _, nodes = parse_face_program(self.bsp_program(128), FACE_PROGRAM_ADDRESS)
+        by_address = {node.address: node for node in nodes}
+        self.assertEqual(by_address[6].targets, (16, 11, 138))
+        self.assertEqual(by_address[138].targets, (148,))
+        self.assertEqual({face.color_index for face in faces}, {1, 2, 3})
+
+    def test_bsp_requires_the_active_visibility_table(self):
+        data = bytearray(self.bsp_program(0))
+        data[7] = 1
+        with self.assertRaisesRegex(ShapeParseError, "BSP visibility 1"):
+            parse_face_program(data, FACE_PROGRAM_ADDRESS)
+
+    def test_group_depth_points_precede_the_pointer_table(self):
+        data = bytearray(64)
+        data[:8] = bytes((0x10, 2, 5, 7, 0x10, 0x80, 0x20, 0x80))
+        data[16:26] = line_record(1)
+        data[32:42] = line_record(2)
+        faces, _, nodes = parse_face_program(data, FACE_PROGRAM_ADDRESS)
+        self.assertEqual(nodes[0].arguments, (5, 7))
+        self.assertEqual(nodes[0].targets, (16, 32))
+        self.assertEqual({face.color_index for face in faces}, {1, 2})
+
+    def test_continuing_and_quitting_face_lists_stay_distinct(self):
+        stream = line_record(1)[:-1] + b"\xFE" + line_record(2)
+        faces, _, nodes = parse_face_program(stream, FACE_PROGRAM_ADDRESS)
+        self.assertEqual(len(faces), 2)
+        self.assertEqual(nodes[0].arguments, (0, 1))
+        self.assertEqual(nodes[0].targets, (10,))
+        self.assertEqual(nodes[1].arguments, (1, 1))
+        self.assertEqual(nodes[1].targets, (None,))
+
+    def test_truncated_command_records_fail_cleanly(self):
+        for record in (bytes((0x30, 1, 0, 1, 2)),
+                       bytes((0x10, 2, 5, 7, 0x10, 0x80, 0x20, 0x80)),
+                       bytes((0x50, 1, 2, 3)), bytes((0x54, 1, 2, 3, 4)),
+                       bytes((0x44, 0, 0)), line_record(1)):
+            for length in range(1, len(record)):
+                with self.subTest(record=record, length=length):
+                    with self.assertRaises(ShapeParseError):
+                        parse_face_program(record[:length], FACE_PROGRAM_ADDRESS)
+
+    def test_retail_graph_covers_each_face_and_resolves_every_edge(self):
+        shapes = extract_shapes(load_rom())
+        self.assertEqual(sum(len(shape.face_program) for shape in shapes), 4037)
+        for shape in shapes:
+            nodes = shape.face_program
+            addresses = {node.address for node in nodes}
+            self.assertEqual(len(addresses), len(nodes))
+            covered = []
+            for node in nodes:
+                for edge in node.targets:
+                    if edge is not None:
+                        self.assertIn(edge, addresses)
+                if node.operation == "Faces":
+                    first, count = node.arguments
+                    covered.extend(range(first, first + count))
+            self.assertEqual(sorted(covered), list(range(len(shape.faces))))
 
 
 if __name__ == "__main__":

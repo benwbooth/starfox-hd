@@ -25,6 +25,8 @@
 //!   exact Argonaut point/face programs: 11,860 decoded vertices and 10,524
 //!   BSP-unioned polygon records, with every vertex index checked. The two
 //!   non-polygon procedural shapes are explicitly classified.
+//! - [`shape_program_data`] — 4,037 typed face-program nodes retaining the
+//!   authored visibility tables, BSP links, face ranges and continuations.
 //! - [`textures`] — all 211 exact polygon-texture descriptors, 12 coordinate
 //!   layouts, and the three packed-nibble source banks used by those records.
 //! - [`palettes`] — the five exact 16-color BGR555 polygon-palette rows;
@@ -63,5 +65,7 @@ pub mod palettes;
 #[cfg(feature = "oracle-data")]
 pub mod path;
 pub mod shape_data;
+pub mod shape_program;
+pub mod shape_program_data;
 pub mod text;
 pub mod textures;

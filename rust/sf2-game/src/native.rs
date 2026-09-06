@@ -7,6 +7,7 @@
 mod game;
 mod input;
 pub mod intro_attached_craft;
+pub mod intro_bsp_work;
 pub mod intro_camera;
 pub mod intro_chain;
 pub mod intro_controller;
