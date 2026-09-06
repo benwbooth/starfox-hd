@@ -1203,6 +1203,29 @@ all 128 live and saved colors without injecting subsequent source palette state.
 It is explicitly ignored until native palette loading is implemented, separate
 from the passing actor-only check and the unresolved autonomous timing gate.
 
+The first missing transfer's original asset source is now independently
+recoverable: `sf2-data::compression::decode_artwork` is a native Rust backward
+literal/back-reference decoder, not an emulated decompressor. The opening
+artwork stream ending at `$18:AF24` decodes to 9,408 bytes; offsets `$80..$100`
+match all 128 bytes at `$70:6E98` queued for colors 0 through 63 by the retail
+opening. The loader's live source, byte count and destination index are checked
+before executing `$7F:0A76`.
+
+The decoder matches six original retail decompressor outputs byte-for-byte and
+their previously recorded independent Mesen hashes. Synthetic tests cover
+literal-length encodings, bit-word refills, overlapping references and bounded
+errors. The two boot/data oracle tests run with:
+
+```sh
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_artwork_decompression'
+nix develop --command bash -c 'cd rust && cargo test -p sf2-data'
+```
+
+This removes the need for emulation to decode those artwork streams. It does
+not yet install the palette into `OpeningScene`, derive the deferred transfer
+schedule, or remove the shipping presentation recordings. The palette gate
+below therefore remains unresolved.
+
 ```sh
 # Unresolved palette gate; currently expected to fail at update 2, color 2:
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_native_scene native_palette_integration_with_observed_source_pass_partition -- --ignored'

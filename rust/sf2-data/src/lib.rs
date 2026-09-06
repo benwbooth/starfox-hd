@@ -48,6 +48,7 @@ pub mod audio;
 #[cfg(feature = "oracle-data")]
 pub mod collision_data;
 pub mod colors;
+pub mod compression;
 #[cfg(feature = "oracle-data")]
 pub mod draw;
 pub mod lighting;
