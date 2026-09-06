@@ -98,6 +98,38 @@ impl OpeningScenePalette {
         }
     }
 
+    /// Commit the background loader job without changing foreground, polygon,
+    /// saved colors or effect policy. The scheduler owns the completion time.
+    pub fn install_background(
+        &mut self,
+        artwork: &sf2_data::opening_artwork::OpeningArtworkPalettes,
+    ) {
+        for (target, packed) in self.colors.iter_mut().zip(&artwork.background) {
+            *target = IntroColor::from_bgr555(*packed);
+        }
+    }
+
+    /// Commit the separate foreground loader job. Sprite colors remain a
+    /// separate asset block; colors 112..127 belong to the polygon/effect ramp.
+    pub fn install_foreground(
+        &mut self,
+        artwork: &sf2_data::opening_artwork::OpeningArtworkPalettes,
+        id: sf2_data::opening_artwork::ForegroundPaletteId,
+    ) {
+        let start = sf2_data::opening_artwork::BACKGROUND_COLORS;
+        for (target, packed) in self.colors[start..].iter_mut().zip(artwork.foreground(id)) {
+            *target = IntroColor::from_bgr555(*packed);
+        }
+    }
+
+    /// Install the polygon ramp independently of the artwork palette blocks.
+    pub fn install_polygon_palette(&mut self, id: sf2_data::palettes::PolygonPaletteId) {
+        let start = INTRO_PALETTE_COLORS - sf2_data::palettes::COLORS_PER_POLYGON_PALETTE;
+        for (target, packed) in self.colors[start..].iter_mut().zip(id.colors()) {
+            *target = IntroColor::from_bgr555(*packed);
+        }
+    }
+
     pub fn prepare_logo(&mut self) {
         self.saved_colors = self.colors;
         self.colors[LOGO_RAMP_START..LOGO_RAMP_START + LOGO_RAMP.len()].copy_from_slice(&LOGO_RAMP);
@@ -314,6 +346,52 @@ impl OpeningSceneController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staged_artwork_installs_preserve_other_layers_and_policy() {
+        use sf2_data::opening_artwork::{ForegroundPaletteId, OpeningArtworkPalettes};
+        let mut bytes = vec![0; 0x24C0];
+        for (start, count, color) in [
+            (0x80, 64, 0x1234u16),
+            (0x400, 48, 0x0101),
+            (0x7C0, 48, 0x0202),
+            (0x760, 48, 0x0303),
+        ] {
+            for word in bytes[start..start + count * 2].chunks_exact_mut(2) {
+                word.copy_from_slice(&color.to_le_bytes());
+            }
+        }
+        let artwork = OpeningArtworkPalettes::from_decoded(&bytes).unwrap();
+        for (variant, expected) in [
+            (ForegroundPaletteId::Standard, 0x0101),
+            (ForegroundPaletteId::CatalogOne, 0x0202),
+            (ForegroundPaletteId::CatalogTwo, 0x0303),
+        ] {
+            let mut palette =
+                OpeningScenePalette::new([IntroColor::new(1, 2, 3); INTRO_PALETTE_COLORS]);
+            palette.saved_colors = [IntroColor::new(4, 5, 6); INTRO_PALETTE_COLORS];
+            palette.effects = IntroPaletteEffectState {
+                restoring: true,
+                persistent_highlight: true,
+                highlighted: true,
+            };
+            palette.refresh_requested = true;
+            let before = palette.clone();
+            palette.install_background(&artwork);
+            assert!(palette.colors[..64].iter().all(|c| c.bgr555() == 0x1234));
+            assert_eq!(palette.colors[64..], before.colors[64..]);
+            let after_background = palette.clone();
+            palette.install_foreground(&artwork, variant);
+            assert_eq!(palette.colors[..64], after_background.colors[..64]);
+            assert!(palette.colors[64..112]
+                .iter()
+                .all(|c| c.bgr555() == expected));
+            assert_eq!(palette.colors[112..], before.colors[112..]);
+            assert_eq!(palette.saved_colors, before.saved_colors);
+            assert_eq!(palette.effects, before.effects);
+            assert_eq!(palette.refresh_requested, before.refresh_requested);
+        }
+    }
 
     #[test]
     fn restoration_finishes_on_the_first_unchanged_step() {

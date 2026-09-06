@@ -56,6 +56,7 @@ pub mod lighting;
 pub mod map;
 #[cfg(feature = "oracle-data")]
 pub mod map_vm;
+pub mod opening_artwork;
 #[cfg(feature = "oracle-data")]
 pub mod oracle_audio;
 pub mod palettes;

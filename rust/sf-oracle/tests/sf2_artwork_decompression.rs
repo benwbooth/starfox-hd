@@ -1,4 +1,103 @@
 use sf2_data::compression::decode_artwork;
+use sf2_data::opening_artwork::{ForegroundPaletteId, OpeningArtworkPalettes};
+
+#[test]
+fn native_palette_installation_matches_completed_source_loader() {
+    use sf2_game::intro_controller::{IntroColor, OpeningScenePalette};
+    let rom = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Star Fox 2 (USA, Europe).sfc"),
+    )
+    .expect("user-owned SF2 retail ROM");
+    let artwork = OpeningArtworkPalettes::decode(&rom[..0xC2F24]).unwrap();
+    // Foreground loader operands, not hardcoded expected asset samples.
+    let records = [
+        (ForegroundPaletteId::Standard, 0x1C894),
+        (ForegroundPaletteId::CatalogOne, 0x1C87A),
+        (ForegroundPaletteId::CatalogTwo, 0x1C860),
+    ]
+    .map(|(id, offset)| {
+        (
+            id,
+            u16::from_le_bytes(rom[offset..offset + 2].try_into().unwrap()),
+        )
+    });
+    let mut machine = sf_oracle::RetailMachine::new(rom);
+    machine.watch_cpu_execution(&[0x0DBCCF, 0x03D52C]);
+    assert!(machine.tick_until_cpu_execution(0, 0x0DBCCF, 240).unwrap());
+    let initial =
+        std::array::from_fn(|i| IntroColor::from_bgr555(machine.peek16(0x7EEFE5 + i as u32 * 2)));
+    let mut palette = OpeningScenePalette::new(initial);
+    assert!(machine.tick_until_cpu_execution(0, 0x03D52C, 30).unwrap());
+    // The live boot takes the standard branch. Other table rows are checked
+    // against their original source operands and decompressed RAM below.
+    assert!(machine.peek16(0x7E1B86) & 0x2000 == 0 || machine.peek8(0x7ED7F2) == 0);
+    palette.install_background(&artwork);
+    palette.install_foreground(&artwork, ForegroundPaletteId::Standard);
+    palette.install_polygon_palette(sf2_data::palettes::PolygonPaletteId::Standard);
+    for (index, color) in palette.colors.iter().enumerate() {
+        assert_eq!(
+            color.bgr555(),
+            machine.peek16(0x7EEFE5 + index as u32 * 2),
+            "loaded color {index}"
+        );
+    }
+    for (id, source) in records {
+        for (index, color) in artwork.foreground(id).iter().enumerate() {
+            assert_eq!(
+                *color,
+                machine.peek16(0x700000 + u32::from(source) + index as u32 * 2),
+                "foreground {id:?} color {index}"
+            );
+        }
+    }
+    for (index, color) in artwork.sprites.iter().enumerate() {
+        assert_eq!(
+            *color,
+            machine.peek16(0x7EF0E5 + index as u32 * 2),
+            "sprite color {index}"
+        );
+    }
+}
+
+#[test]
+fn native_polygon_palette_installation_matches_original_for_every_catalog_row() {
+    use sf2_data::palettes::PolygonPaletteId;
+    use sf2_game::intro_controller::{IntroColor, OpeningScenePalette};
+    let rom = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Star Fox 2 (USA, Europe).sfc"),
+    )
+    .expect("user-owned SF2 retail ROM");
+    for id in [
+        PolygonPaletteId::Standard,
+        PolygonPaletteId::CatalogOne,
+        PolygonPaletteId::CatalogTwo,
+        PolygonPaletteId::EladardSurface,
+        PolygonPaletteId::AstropolisExterior,
+    ] {
+        let mut bus = sf_oracle::SnesBus::new(rom.clone());
+        let mut palette = OpeningScenePalette::new([IntroColor::from_bgr555(0x1234); 128]);
+        for index in 0..128 {
+            bus.write16(0x7EEFE5 + index * 2, 0x1234);
+        }
+        sf_oracle::call(
+            &mut bus,
+            0x038584,
+            &sf_oracle::Entry {
+                a: id as u16,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        palette.install_polygon_palette(id);
+        for (index, color) in palette.colors.iter().enumerate() {
+            assert_eq!(
+                color.bgr555(),
+                bus.read16(0x7EEFE5 + index as u32 * 2),
+                "polygon {id:?} color {index}"
+            );
+        }
+    }
+}
 
 #[test]
 fn native_opening_artwork_contains_the_queued_background_palette() {

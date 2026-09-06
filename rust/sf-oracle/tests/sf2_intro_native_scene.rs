@@ -44,7 +44,7 @@ fn native_actor_integration_with_observed_source_pass_partition() {
 }
 
 #[test]
-#[ignore = "known failure at update 2: native opening palette transfers are not implemented"]
+#[ignore = "known failure at update 2: native opening palette loading is not scheduled"]
 fn native_palette_integration_with_observed_source_pass_partition() {
     check_opening_with_observed_source_pass_partition(true);
 }

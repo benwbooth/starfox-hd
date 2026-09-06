@@ -1221,15 +1221,46 @@ nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_art
 nix develop --command bash -c 'cd rust && cargo test -p sf2-data'
 ```
 
-This removes the need for emulation to decode those artwork streams. It does
-not yet install the palette into `OpeningScene`, derive the deferred transfer
-schedule, or remove the shipping presentation recordings. The palette gate
-below therefore remains unresolved.
+`sf2-data::opening_artwork::OpeningArtworkPalettes` now decodes separate
+background (64 colors), foreground (three 48-color catalog variants), and
+sprite (128 colors) assets from that bundle. Native
+`OpeningScenePalette::install_background` and `install_foreground` commit
+colors 0..63 and 64..111 separately, preserving the other layers, saved colors
+and effect policy. Staged tests cover distinct data for every foreground variant.
+Colors 112..127 are installed
+separately by `install_polygon_palette` using the existing five-row polygon
+catalog. A source `$03:8584` differential covers all five polygon rows.
+
+The completed-loader boot comparison checks all 128 live background/polygon
+colors and all 128 sprite colors after `$03:D52C`. Foreground variant offsets
+are independently read from the source loader operands and checked against
+decompressed source RAM. This proves palette content and install semantics,
+not autonomous scheduling of these operations.
+
+The relevant deferred jobs are explicit source work: `$03:C82B` queues 128
+background bytes through job `$04`, `$03:C893` selects the standard foreground
+and queues 96 bytes through job `$1C`, and `$03:D509` queues 256 sprite bytes
+through job `$1C`. Each waits for the shared job to complete. The two handlers
+are `$7F:0C79 -> $7F:0A76` and `$7F:1038` (DMA at `$7F:107D`).
+
+These native asset/install operations do not yet run at the correct time in
+`OpeningScene` or remove the shipping presentation recordings. The palette gate
+below therefore remains unresolved: it now lacks deferred loading integration,
+not the underlying asset decoder or palette-copy operations.
 
 ```sh
 # Unresolved palette gate; currently expected to fail at update 2, color 2:
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_native_scene native_palette_integration_with_observed_source_pass_partition -- --ignored'
 ```
+
+The timing audit identifies the other scheduler dependency precisely: before
+each first-pass actor visit `$7F:3511..3517` tests the concurrent GSU running
+bit. When it clears, `$7F:353E` saves the next object; `$7F:354A` resumes that
+list without the GSU gate. Raster IRQ work reaches entropy refresh through
+`$7F:0412 -> $7F:0511 -> $7F:058C`. Therefore the native scheduler must account
+for CPU/GSU work, raster deadlines, IRQ acceptance and queued DMA work in master
+clocks. Neither update-index tables nor captured first-pass lengths derive this
+timing. Initial raster/GSU state and per-strategy work costs remain unproven.
 
 1. Recover the intro's typed actor/camera/effect systems and source-authored
    choreography. Preserve original discrete gameplay timing and interpolate
