@@ -8,6 +8,17 @@ use sf2_data::{
 };
 use sf_core::snes_trig::{gsu_fmult_q15, zxy_matrix_q15_fine};
 
+/// Original `$01:964E..96BA` object-local light vector, in signed byte units.
+/// The source dots each input-axis row of the composed object/view matrix
+/// with its fixed view-space light. Each product is truncated before the
+/// wrapping sum; extracting the signed high byte happens only at the end.
+pub fn object_light_direction(object_view: [[i16; 3]; 3]) -> [i8; 3] {
+    object_view.map(|row| {
+        let terms = row.map(|coefficient| gsu_fmult_q15(0x49E5, coefficient));
+        (terms[0].wrapping_add(terms[1]).wrapping_add(terms[2]) >> 8) as i8
+    })
+}
+
 /// Original `$01:9539..964E` object/view composition. Angles are the raw
 /// draw-record words: low bytes encode rotations, while nonzero high bytes
 /// also affect shortcut eligibility. Both matrices use input-axis-first order.

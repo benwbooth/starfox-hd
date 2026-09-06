@@ -1,6 +1,6 @@
 //! Execute the original SF2 view-matrix and camera-relative rotation jobs.
 //! These checks certify arithmetic, not scene input selection or scheduling.
-use sf2_game::intro_transform::object_view_matrix;
+use sf2_game::intro_transform::{object_light_direction, object_view_matrix};
 use sf_core::snes_trig::{matrix_rotate_q15, zxy_matrix_q15_fine};
 use sf_oracle::gsu::Gsu;
 
@@ -140,6 +140,45 @@ fn native_object_view_composition_matches_original() {
             object_view_matrix(view, angles, flags),
             actual,
             "case={case} angles={angles:?} flags={flags:04X}"
+        );
+    }
+}
+
+#[test]
+fn native_object_light_direction_matches_original() {
+    let mut source = Gsu::new(rom());
+    let mut random = 0x964E_49E5u32;
+    for case in 0..73728 {
+        let mut matrix = std::array::from_fn(|_| {
+            std::array::from_fn(|_| {
+                random ^= random << 13;
+                random ^= random >> 17;
+                random ^= random << 5;
+                random as i16
+            })
+        });
+        // Sweep every word through each row, retaining different nonsymmetric
+        // companion coefficients. Random matrices also exercise wrapping sums.
+        if case < 65536 {
+            for axis in 0..3 {
+                matrix[axis][axis] = case as i16;
+            }
+        }
+        for (index, coefficient) in matrix.into_iter().flatten().enumerate() {
+            put_word(&mut source, 0x132 + index * 2, coefficient as u16);
+        }
+        // Watches observe and execute the marked instruction. Stop on the
+        // final store, before the next routine's ALT1 prefix is consumed.
+        source.watch_execution(1, 0x96B8);
+        source.start(1, 0x964E);
+        while !source.execution_watch_hit() && source.is_running() && source.last_run_steps < 500 {
+            source.run_slice(1);
+        }
+        assert!(source.execution_watch_hit(), "case={case}");
+        assert_eq!(
+            object_light_direction(matrix).map(i16::from),
+            std::array::from_fn(|axis| word(&source, 0x106 + axis * 2) as i16),
+            "case={case} matrix={matrix:?}"
         );
     }
 }

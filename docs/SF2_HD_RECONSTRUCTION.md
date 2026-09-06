@@ -1384,8 +1384,17 @@ rotation and performs per-product Q15 composition. Shadow flattening zeros the
 local Y column before composition on the general path, but the final Y input
 axis on shortcut paths. A further 16,384 direct comparisons cover random word
 matrices, all byte angles on each axis, random byte/word angle triples and both
-shadow states. Production camera/actor wiring and lighting remain outside
-this arithmetic stage.
+shadow states. Production camera/actor wiring remains outside this arithmetic
+stage.
+
+Native `object_light_direction` implements the following `$01:964E..96BA`
+light-vector stage: dot each input-axis row of the object/view matrix with
+the fixed view-space vector `(0x49E5, 0x49E5, 0x49E5)`, truncate each Q15
+product separately, wrap the word sum, and extract its signed high byte.
+The direct original-code oracle compares 73,728 matrices, including every
+coefficient word on all three diagonal positions with nonsymmetric companion
+coefficients and 8,192 additional random matrices. This certifies light-vector
+arithmetic, not face-normal shading, material selection or rendered pixels.
 
 Native `intro_draw` now derives camera-space placements and submission order
 from typed world positions, view position/matrix, shadow mode and authored sort
