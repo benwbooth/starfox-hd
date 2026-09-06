@@ -1316,15 +1316,39 @@ Its oracle covers all 65,536 aggregate words, 16,384 arithmetic inputs split
 between both paths, and 768 complete post-projection comparisons over all BSP
 shapes (inside, crossing a screen plane, crossing near depth, and culled).
 
-These comparisons begin with projected point records. They do not yet derive
-those records and their exact clipping outcodes from native world/camera
-transforms, nor account for polygon clipping, rasterization, cache/bus clocks,
-or actor-pass deadlines. The complete opening is still not production-native.
+`intro_projection` now produces those records from camera-axis rotated points
+and a wrapping object translation. The ordinary path at `$01:9AEA` uses the
+exact integer reciprocal formula from ROM `$19:BAB8` and the signed product's
+high word. Unlike the older `MOBJ.MC` reference, SF2 does not execute an extra
+`ROL` after that multiply. Its far-depth clamp tests a wrapping subtraction's
+sign, so even extreme negative depth words preserve the original overflow
+behavior rather than being replaced with a conventional signed clamp.
+
+At depths through 256, the separate `$01:A2DB` path uses signed half-coordinate
+magnitudes, normalized integer division and dominant-component saturation to
+`$3FFF`. Behind points restore opposite signs and swap the outside-plane pairs.
+Zero depth becomes one. The near path's signed screen comparisons exclude the
+left/top equality and include the right/bottom equality; the ordinary path has
+different edge rules. Word wrapping, including the magnitude of `-32768`, is
+preserved. These routines operate on native values, not interpreted opcodes.
+
+The projection oracle checks all 6,145 reciprocal entries through the exact
+far limit, 4,913 coordinate/depth edge combinations, 32,768 random points,
+all 65,536 depth words, and 4,096 four-point translated lists with varied
+viewports. Another 768 cases execute the original projection-to-BSP path for
+every BSP-bearing shape and compare projected records, visibility bytes and
+ordered face lists (or the source cull exit).
+
+The new comparisons begin with already-rotated point records. They do not yet
+derive camera/object rotation matrices and shape scaling, nor account for
+polygon clipping, rasterization, cache/bus clocks, or actor-pass deadlines.
+The complete opening is still not production-native.
 
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_programs'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_visibility'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_projection'
 python3 -m unittest discover -s tools/sf2 -p test_extract_shapes.py
 ```
 
