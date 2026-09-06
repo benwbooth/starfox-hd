@@ -1300,12 +1300,31 @@ The isolated source differential compares ordered list pointers and branch,
 leaf and return work for all 192 BSP-bearing shapes under four visibility
 patterns (768 comparisons). A second test checks every emitted command against
 its original ROM operands and every face range against the geometry catalog.
-This does not yet derive visibility from the native camera or account for
-polygon clipping, rasterization, cache/bus clocks, or actor-pass deadlines.
+`intro_visibility` now computes the complete visibility byte from projected
+points, using wrapping word deltas and long products for the full path, or low
+coordinate bytes and pre-multiply arithmetic shifts for the on-screen path.
+The full path preserves the source's outcode XOR, not just the winding sign.
+The whole projected vertex set selects the path: ORed high outcode bits must
+contain `$1F00` to survive culling, and low bits must be zero for fast mode.
+The original short memory operand `$2A` is word-indexed and addresses flags at
+RAM `$0054`; the aggregate outcode word is at `$014A`.
+
+`submit_projected_bsp` composes this cull/mode/visibility stage with native BSP
+submission. All vertices affect mode selection, including vertices absent from
+the visibility triangles. Invalid tables and missing points return errors.
+Its oracle covers all 65,536 aggregate words, 16,384 arithmetic inputs split
+between both paths, and 768 complete post-projection comparisons over all BSP
+shapes (inside, crossing a screen plane, crossing near depth, and culled).
+
+These comparisons begin with projected point records. They do not yet derive
+those records and their exact clipping outcodes from native world/camera
+transforms, nor account for polygon clipping, rasterization, cache/bus clocks,
+or actor-pass deadlines. The complete opening is still not production-native.
 
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_programs'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_visibility'
 python3 -m unittest discover -s tools/sf2 -p test_extract_shapes.py
 ```
 
