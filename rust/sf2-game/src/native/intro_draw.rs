@@ -1,8 +1,9 @@
 //! Native camera-relative placement and ordered draw preparation (`$01:D28B`).
 //! Inputs are semantic state, not machine RAM or captured display lists.
 
-use sf_core::snes_trig::matrix_rotate_q15;
+use sf_core::snes_trig::{matrix_rotate_q15, zxy_matrix_q15_fine};
 
+use super::intro_camera::IntroCameraView;
 use super::object::Vector3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +49,34 @@ pub struct PreparedDrawList {
 }
 
 impl ViewTransform {
+    /// Render view from the selected camera anchor (`$7F:159D..1736`).
+    /// Follow distance is the camera's signed authored distance, not a world
+    /// Z displacement. The two inverse rotations retain separate rounding;
+    /// camera roll affects the final view matrix, not this anchor offset.
+    pub fn from_camera(camera: IntroCameraView, follow_distance: i16) -> Self {
+        let angles = camera.angles;
+        let pitched = matrix_rotate_q15(
+            zxy_matrix_q15_fine(angles.pitch.wrapping_neg(), 0, 0),
+            0,
+            0,
+            follow_distance.wrapping_neg(),
+        );
+        let offset = matrix_rotate_q15(
+            zxy_matrix_q15_fine(0, angles.yaw.wrapping_neg(), 0),
+            pitched.0,
+            pitched.1,
+            pitched.2,
+        );
+        Self {
+            position: Vector3 {
+                x: camera.position.x.wrapping_add(offset.0),
+                y: camera.position.y.wrapping_add(offset.1),
+                z: camera.position.z.wrapping_add(offset.2),
+            },
+            matrix: zxy_matrix_q15_fine(angles.pitch, angles.yaw, angles.roll),
+        }
+    }
+
     fn rotate(self, position: Vector3) -> Vector3 {
         let (x, y, z) = matrix_rotate_q15(self.matrix, position.x, position.y, position.z);
         Vector3 { x, y, z }
@@ -112,7 +141,33 @@ pub fn prepare_draw_list(view: ViewTransform, objects: &[DrawPlacement]) -> Prep
 
 #[cfg(test)]
 mod tests {
+    use super::super::intro_motion::AttractCameraAngles;
     use super::*;
+
+    #[test]
+    fn camera_roll_changes_view_but_not_follow_offset() {
+        let mut camera = IntroCameraView {
+            position: Vector3 {
+                x: 7,
+                y: -11,
+                z: 23,
+            },
+            angles: AttractCameraAngles {
+                pitch: 0x2317,
+                yaw: 0x792F,
+                roll: 0,
+            },
+        };
+        let first = ViewTransform::from_camera(camera, 200);
+        camera.angles.roll = 0x4567;
+        let rolled = ViewTransform::from_camera(camera, 200);
+        assert_eq!(first.position, rolled.position);
+        assert_ne!(first.matrix, rolled.matrix);
+        assert_eq!(
+            ViewTransform::from_camera(camera, 0).position,
+            camera.position
+        );
+    }
 
     #[test]
     fn horizontal_sort_bias_discards_low_byte_carry() {

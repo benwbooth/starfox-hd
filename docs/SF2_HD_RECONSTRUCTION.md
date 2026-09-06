@@ -1405,6 +1405,23 @@ new native API returns typed placements and index order, never source-memory
 pointers. Scene selection of the view inputs, draw submission, lighting,
 clipping/rasterization and clock integration are still pending.
 
+`ViewTransform::from_camera` now connects the typed fine-angle camera to this
+placement stage, including its authored signed follow distance. The original
+handoff `$7F:1561/$7F:156A -> $7F:1573` selects the primary/secondary camera,
+rotates `[0, 0, -distance]` through separate inverse-pitch and inverse-yaw
+matrices, adds the result to the camera anchor with word wrapping, and builds
+the final view matrix from the original fine pitch/yaw/roll. Roll does not
+affect the follow offset. Combining those two offset rotations into one matrix
+would lose the source's intermediate Q15 rounding.
+
+The CPU/GSU oracle runs that complete handoff for 2,048 camera pairs, checking
+the selected camera, final position, all view coefficients and their saved CPU
+copy. It then feeds the actual source-produced view workspace into `$01:D28B`
+and compares object placement, ground shadow and sort depth. Zero, signed-limit
+and random follow distances are covered. This connects the arithmetic APIs;
+production scene ownership of follow distance and final draw submission are
+still not integrated.
+
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_programs'
@@ -1413,6 +1430,7 @@ nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_sha
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_transform'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_matrix'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_draw_preparation'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_camera_view'
 python3 -m unittest discover -s tools/sf2 -p test_extract_shapes.py
 ```
 
