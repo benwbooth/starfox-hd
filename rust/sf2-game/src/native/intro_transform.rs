@@ -19,6 +19,17 @@ pub fn object_light_direction(object_view: [[i16; 3]; 3]) -> [i8; 3] {
     })
 }
 
+/// Ten-level face shading used by both original polygon consumers
+/// (`$01:9EC0` and `$01:A1CD`). Normals retain their authored byte magnitude.
+pub fn face_shade_index(normal: [i8; 3], light: [i8; 3]) -> u8 {
+    let products: [i16; 3] =
+        std::array::from_fn(|axis| i16::from(normal[axis]) * i16::from(light[axis]));
+    let dot = products[0]
+        .wrapping_add(products[1])
+        .wrapping_add(products[2]);
+    ((dot >> 10).clamp(6, 15) - 6) as u8
+}
+
 /// Original `$01:9539..964E` object/view composition. Angles are the raw
 /// draw-record words: low bytes encode rotations, while nonzero high bytes
 /// also affect shortcut eligibility. Both matrices use input-axis-first order.

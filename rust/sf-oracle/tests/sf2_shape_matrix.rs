@@ -1,6 +1,6 @@
 //! Execute the original SF2 view-matrix and camera-relative rotation jobs.
 //! These checks certify arithmetic, not scene input selection or scheduling.
-use sf2_game::intro_transform::{object_light_direction, object_view_matrix};
+use sf2_game::intro_transform::{face_shade_index, object_light_direction, object_view_matrix};
 use sf_core::snes_trig::{matrix_rotate_q15, zxy_matrix_q15_fine};
 use sf_oracle::gsu::Gsu;
 
@@ -181,4 +181,68 @@ fn native_object_light_direction_matches_original() {
             "case={case} matrix={matrix:?}"
         );
     }
+}
+
+#[test]
+fn native_face_shading_matches_both_original_consumers() {
+    let cartridge = rom();
+    let mut source = Gsu::new(cartridge.clone());
+    let mut random = 0x9EC0_A1CDu32;
+    let mut levels_seen = [false; 10];
+    let mut wrapping_changes = 0;
+    for case in 0..65536 {
+        random ^= random << 13;
+        random ^= random >> 17;
+        random ^= random << 5;
+        // Read genuine ROM bytes for the two GETB normal operands, keeping
+        // the source stream unmodified. ROMB defaults to bank zero.
+        let address = (random as usize % 32767) as u16;
+        let normal = [
+            case as i8,
+            cartridge[address as usize] as i8,
+            cartridge[address as usize + 1] as i8,
+        ];
+        let light = [
+            (case >> 8) as i8,
+            (random >> 16) as i8,
+            (random >> 24) as i8,
+        ];
+        let shade = face_shade_index(normal, light);
+        levels_seen[usize::from(shade)] = true;
+        let wide_dot: i32 = normal
+            .into_iter()
+            .zip(light)
+            .map(|(normal, light)| i32::from(normal) * i32::from(light))
+            .sum();
+        wrapping_changes += usize::from(i32::from(shade) != (wide_dot >> 10).clamp(6, 15) - 6);
+        for (axis, component) in light.into_iter().enumerate() {
+            put_word(&mut source, 0x106 + axis * 2, component as i16 as u16);
+        }
+        for (entry, finish) in [(0x9EC0, 0x9EEE), (0xA1CD, 0xA1FB)] {
+            source.r[0] = normal[0] as u8 as u16;
+            source.r[14] = address;
+            source.watch_execution(1, finish);
+            source.start(1, entry);
+            while !source.execution_watch_hit()
+                && source.is_running()
+                && source.last_run_steps < 500
+            {
+                source.run_slice(1);
+            }
+            assert!(
+                source.execution_watch_hit(),
+                "case={case} entry={entry:04X}"
+            );
+            assert_eq!(
+                u16::from(shade),
+                source.r[1],
+                "case={case} entry={entry:04X} normal={normal:?} light={light:?}"
+            );
+        }
+    }
+    assert!(levels_seen.into_iter().all(|seen| seen));
+    assert!(
+        wrapping_changes > 0,
+        "must distinguish widened dot products"
+    );
 }

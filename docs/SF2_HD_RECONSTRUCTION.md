@@ -1396,6 +1396,17 @@ coefficient word on all three diagonal positions with nonsymmetric companion
 coefficients and 8,192 additional random matrices. This certifies light-vector
 arithmetic, not face-normal shading, material selection or rendered pixels.
 
+Native `face_shade_index` now covers the subsequent signed-byte normal/light
+dot product in both polygon consumers (`$01:9EC0..9EEE` and
+`$01:A1CD..A1FB`). Their three products wrap as a signed word before the
+ten-bit arithmetic shift, clamp to 6..15, and subtraction of 6. A direct
+oracle compares both consumers on 65,536 input combinations (131,072 source
+executions), sweeping every first normal/light byte pair while drawing the
+other two normal bytes from unmodified ROM. Coverage assertions require all
+ten shade levels and cases that differ from widened dot-product arithmetic.
+Material-table selection and production face submission remain separate,
+unverified integration steps.
+
 Native `intro_draw` now derives camera-space placements and submission order
 from typed world positions, view position/matrix, shadow mode and authored sort
 biases. It matches the complete `$01:D28B` pass: wrapping world-minus-camera
