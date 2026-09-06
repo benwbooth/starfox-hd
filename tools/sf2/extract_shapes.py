@@ -81,6 +81,15 @@ class Vertex:
 
 
 @dataclass(frozen=True)
+class PointBlock:
+    source_address: int
+    words: bool
+    mirrored: bool
+    first_vertex: int
+    count: int
+
+
+@dataclass(frozen=True)
 class Face:
     # Resolved retail `vizis` triangle. None is selector $FF, used for
     # deliberately two-sided faces and wireframe segments.
@@ -138,6 +147,7 @@ class Shape:
     faces: tuple[Face, ...]
     clipping_planes: tuple[ClipPlane, ...]
     face_program: tuple[FaceCommand, ...]
+    point_frames: tuple[tuple[PointBlock, ...], ...]
 
 
 def s8(value: int) -> int:
@@ -207,19 +217,22 @@ def parse_headers(data: bytes) -> list[ShapeHeader]:
     return headers
 
 
-def parse_vertex_stream(
+def parse_point_stream(
         data: bytes,
         address: int,
         animation_frame: int,
-) -> tuple[tuple[Vertex, ...], tuple[int, ...]]:
+) -> tuple[tuple[Vertex, ...], tuple[int, ...], tuple[PointBlock, ...]]:
     if address == 0:
-        return (), ()
+        return (), (), ()
 
     cursor = gsu_to_file(data, address)
     vertices: list[Vertex] = []
     frame_counts: list[int] = []
     visited: set[int] = set()
+    blocks: list[PointBlock] = []
     for _ in range(4096):
+        if not 0 <= cursor < len(data):
+            raise ShapeParseError(f"unterminated point program from ${address:06X}")
         if cursor in visited:
             raise ShapeParseError(f"point-program loop from ${address:06X}")
         visited.add(cursor)
@@ -227,10 +240,20 @@ def parse_vertex_stream(
 
         if opcode in (MVAL_ROTPOINTS8, MVAL_ROTPOINTS16,
                       MVAL_ROTPOINTSX8, MVAL_ROTPOINTSX16):
+            if cursor + 2 > len(data):
+                raise ShapeParseError("truncated point block header")
             count = data[cursor + 1]
-            cursor += 2
             words = opcode in (MVAL_ROTPOINTS16, MVAL_ROTPOINTSX16)
             mirrored = opcode in (MVAL_ROTPOINTSX8, MVAL_ROTPOINTSX16)
+            if count == 0:
+                raise ShapeParseError("zero-count point block is a wrapping machine loop")
+            if cursor + 2 + count * (6 if words else 3) > len(data):
+                raise ShapeParseError("truncated point block coordinates")
+            bank = address >> 16
+            blocks.append(PointBlock(
+                (bank << 16) | (cursor - bank * 0x8000 + 0x8000),
+                words, mirrored, len(vertices), count))
+            cursor += 2
             for _ in range(count):
                 if words:
                     x, y, z = struct.unpack_from("<hhh", data, cursor)
@@ -240,7 +263,7 @@ def parse_vertex_stream(
                     cursor += 3
                 vertices.append(Vertex(x, y, z))
                 if mirrored:
-                    vertices.append(Vertex(-x, y, z))
+                    vertices.append(Vertex((32768 - x) % 65536 - 32768, y, z))
             continue
 
         if opcode == MVAL_VNORMALS:
@@ -248,7 +271,7 @@ def parse_vertex_stream(
             cursor += 2 + count * 3
             continue
         if opcode == MVAL_ENDPOINTS:
-            return tuple(vertices), tuple(frame_counts)
+            return tuple(vertices), tuple(frame_counts), tuple(blocks)
         if opcode == MVAL_JUMP:
             cursor = cursor + 2 + s16(data, cursor + 1)
             continue
@@ -269,6 +292,11 @@ def parse_vertex_stream(
             f"(root ${address:06X})"
         )
     raise ShapeParseError(f"point program from ${address:06X} exceeded step limit")
+
+
+def parse_vertex_stream(data: bytes, address: int, animation_frame: int):
+    vertices, counts, _ = parse_point_stream(data, address, animation_frame)
+    return vertices, counts
 
 
 def parse_vertex_frames(
@@ -497,6 +525,10 @@ def parse_faces(data: bytes, address: int) -> tuple[tuple[Face, ...], tuple[Clip
 def extract_shapes(data: bytes) -> list[Shape]:
     if data[0x8068:0x806C] != bytes.fromhex("ffadf001"):
         raise ShapeParseError("clipping-plane dispatch signature mismatch")
+    for opcode, target in ((4, 0x9971), (8, 0x9742), (0x34, 0x97C9), (0x38, 0x99E8)):
+        expected = bytes((0xFF, target & 0xFF, target >> 8, 1))
+        if data[0x8000 + opcode:0x8004 + opcode] != expected:
+            raise ShapeParseError(f"point dispatch signature mismatch for ${opcode:02X}")
     shapes: list[Shape] = []
     for header in parse_headers(data):
         vertex_frames = parse_vertex_frames(data, header.points_address)
@@ -512,7 +544,10 @@ def extract_shapes(data: bytes) -> list[Shape]:
                             f"{face_index} references vertex {vertex_index}, but only "
                             f"{len(frame)} exist"
                         )
-        shapes.append(Shape(header, vertices, animation_frames, faces, clipping_planes, face_program))
+        point_frames = tuple(parse_point_stream(data, header.points_address, frame)[2]
+                             for frame in range(len(vertex_frames)))
+        shapes.append(Shape(header, vertices, animation_frames, faces, clipping_planes,
+                            face_program, point_frames))
     return shapes
 
 
@@ -743,10 +778,36 @@ def emit_face_programs(shapes: list[Shape]) -> None:
     subprocess.run(["rustfmt", "--edition", "2021", output], check=True)
 
 
+def emit_point_programs(shapes: list[Shape]) -> None:
+    lines = [AUTOGEN_HEADER.format(tool="extract_shapes.py"),
+             "//! Authored point-block formats and mirror relationships by animation frame.",
+             "use crate::point_program::{PointBlock, PointFormat, PointProgram};", "",
+             "#[rustfmt::skip]",
+             f"pub static POINT_PROGRAMS: [PointProgram; {len(shapes)}] = ["]
+    for shape in shapes:
+        lines.append("    PointProgram { frames: &[")
+        for frame in shape.point_frames:
+            blocks = []
+            for block in frame:
+                format_name = "Words" if block.words else "Bytes"
+                blocks.append(
+                    f"PointBlock {{ source_address: 0x{block.source_address:06X}, "
+                    f"format: PointFormat::{format_name}, mirrored: {str(block.mirrored).lower()}, "
+                    f"first_vertex: {block.first_vertex}, count: {block.count} }}")
+            lines.append("        &[" + ", ".join(blocks) + "],")
+        lines.append("    ] },")
+    lines.append("];\n")
+    output = os.path.join(RUST_SRC, "point_program_data.rs")
+    with open(output, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+    subprocess.run(["rustfmt", "--edition", "2021", output], check=True)
+
+
 def extract(data: bytes) -> list[Shape]:
     shapes = extract_shapes(data)
     emit_rust(shapes)
     emit_face_programs(shapes)
+    emit_point_programs(shapes)
     vertex_count = sum(len(shape.vertices) for shape in shapes)
     animation_frame_count = sum(len(shape.animation_frames) for shape in shapes)
     face_count = sum(len(shape.faces) for shape in shapes)

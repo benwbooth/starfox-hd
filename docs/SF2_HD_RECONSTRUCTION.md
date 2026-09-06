@@ -1339,16 +1339,40 @@ viewports. Another 768 cases execute the original projection-to-BSP path for
 every BSP-bearing shape and compare projected records, visibility bytes and
 ordered face lists (or the source cull exit).
 
-The new comparisons begin with already-rotated point records. They do not yet
-derive camera/object rotation matrices and shape scaling, nor account for
-polygon clipping, rasterization, cache/bus clocks, or actor-pass deadlines.
-The complete opening is still not production-native.
+`intro_transform` now moves the boundary back to authored shape points and a
+supplied camera/object matrix. `point_program_data` retains all 3,698 byte/word
+and ordinary/mirrored blocks across 1,784 frame entries without duplicating
+the existing geometry. Frame selection masks the original object's low six
+animation bits before selecting the frame. Native validation rejects missing,
+noncontiguous, zero-count, or inconsistent mirrored input blocks.
+
+The four source handlers do not share one generic dot product. Ordinary words
+round each Q15 product before addition; ordinary full-precision bytes scale the
+signed coordinates, accumulate full products, and round only once. Mirrored
+word/full-byte blocks subtract twice the already-rounded X contribution from
+the positive result. The packed byte paths instead round the positive and
+negative raw sums independently, then scale. All arithmetic retains source
+word wrapping. Matrix high-byte packing and `1 << shift` byte scaling are native;
+matrix construction itself remains outside this stage.
+
+The transform oracle checks every emitted block and all 28,032 authored input
+records against the original ROM. It executes 15,428 shape/frame/matrix cases
+through the original complete point program, including masked animation words,
+plus 1,024 mixed-format edge cases across all 16 supported scale shifts. Another
+768 shape cases now compare the combined authored-points → rotation → projection
+→ visibility → BSP path against the original, including cull exits.
+
+These comparisons still supply the camera/object matrix and camera-axis object
+translation. They do not yet derive those inputs from scene transforms, nor
+account for polygon clipping, rasterization, cache/bus clocks, or actor-pass
+deadlines. The complete opening is still not production-native.
 
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_programs'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_visibility'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_projection'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_transform'
 python3 -m unittest discover -s tools/sf2 -p test_extract_shapes.py
 ```
 

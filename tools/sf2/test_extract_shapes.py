@@ -6,12 +6,49 @@ import unittest
 from extract_shapes import (
     ClipPlane, MVAL_CLIP_PLANE, ShapeParseError, Vertex, extract_shapes, parse_faces,
     parse_face_program,
+    parse_point_stream,
 )
 from rom import load_rom
 
 
 FACE_PROGRAM_ADDRESS = 0x008000
 PLANE_DIRECTION = 4095
+
+
+class PointBlockExtraction(unittest.TestCase):
+    def test_changed_point_dispatch_is_rejected(self):
+        data = bytearray(load_rom())
+        data[0x8005] ^= 1
+        with self.assertRaisesRegex(ShapeParseError, "point dispatch signature"):
+            extract_shapes(data)
+
+    def test_mixed_formats_preserve_mirror_boundaries(self):
+        stream = bytes([4, 1, 1, 2, 3, 0x34, 1]) + struct.pack("<hhh", -32768, 9, -7) + bytes([0x0C])
+        vertices, counts, blocks = parse_point_stream(stream, 0x8000, 0)
+        self.assertEqual(vertices, (Vertex(1, 2, 3), Vertex(-32768, 9, -7), Vertex(-32768, 9, -7)))
+        self.assertEqual(counts, ())
+        self.assertEqual([(b.source_address, b.words, b.mirrored, b.first_vertex, b.count) for b in blocks],
+                         [(0x8000, False, False, 0, 1), (0x8005, True, True, 1, 1)])
+
+    def test_truncated_and_zero_blocks_fail(self):
+        for opcode, stride in [(4, 3), (8, 6), (0x34, 6), (0x38, 3)]:
+            with self.assertRaisesRegex(ShapeParseError, "zero-count"):
+                parse_point_stream(bytes([opcode, 0, 0x0C]), 0x8000, 0)
+            for length in range(1, 2 + stride):
+                with self.subTest(opcode=opcode, length=length):
+                    with self.assertRaisesRegex(ShapeParseError, "truncated point"):
+                        parse_point_stream((bytes([opcode, 1]) + bytes(stride))[:length], 0x8000, 0)
+
+    def test_retail_blocks_cover_every_decoded_frame_without_gaps(self):
+        for shape in extract_shapes(load_rom()):
+            frames = shape.animation_frames or (shape.vertices,)
+            self.assertEqual(len(frames), len(shape.point_frames))
+            for vertices, blocks in zip(frames, shape.point_frames):
+                cursor = 0
+                for block in blocks:
+                    self.assertEqual(block.first_vertex, cursor)
+                    cursor += block.count * (2 if block.mirrored else 1)
+                self.assertEqual(cursor, len(vertices))
 
 
 def plane_record(slot, origin=(0, 0, 0), direction=(0, -PLANE_DIRECTION, 0)):

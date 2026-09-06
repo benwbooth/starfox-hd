@@ -27,6 +27,8 @@
 //!   non-polygon procedural shapes are explicitly classified.
 //! - [`shape_program_data`] — 4,037 typed face-program nodes retaining the
 //!   authored visibility tables, BSP links, face ranges and continuations.
+//! - [`point_program_data`] — 3,698 authored point blocks across 1,784 frame
+//!   entries, preserving byte/word encoding and mirrored-pair boundaries.
 //! - [`textures`] — all 211 exact polygon-texture descriptors, 12 coordinate
 //!   layouts, and the three packed-nibble source banks used by those records.
 //! - [`palettes`] — the five exact 16-color BGR555 polygon-palette rows;
@@ -64,6 +66,8 @@ pub mod oracle_audio;
 pub mod palettes;
 #[cfg(feature = "oracle-data")]
 pub mod path;
+pub mod point_program;
+pub mod point_program_data;
 pub mod shape_data;
 pub mod shape_program;
 pub mod shape_program_data;
