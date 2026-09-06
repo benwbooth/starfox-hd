@@ -1367,12 +1367,22 @@ translation. They do not yet derive those inputs from scene transforms, nor
 account for polygon clipping, rasterization, cache/bus clocks, or actor-pass
 deadlines. The complete opening is still not production-native.
 
+The prerequisite view arithmetic is independently certified by
+`sf2_shape_matrix`: the original `$01:9191` view job matches the existing shared
+Rust `zxy_matrix_q15_fine` for all 65,536 values of each angle axis with the
+other two held nonzero, plus 8,192 random triples (204,800 comparisons).
+The original `$01:913A` job also matches `matrix_rotate_q15` for 16,384
+arbitrary signed matrices and relative positions. This certifies per-product
+Q15 rounding, interpolation and word wrapping, not object/view composition,
+world-minus-camera input selection, or production scene scheduling.
+
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_programs'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_visibility'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_projection'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_transform'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_matrix'
 python3 -m unittest discover -s tools/sf2 -p test_extract_shapes.py
 ```
 
