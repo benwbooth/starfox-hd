@@ -1387,6 +1387,24 @@ matrices, all byte angles on each axis, random byte/word angle triples and both
 shadow states. Production camera/actor wiring and lighting remain outside
 this arithmetic stage.
 
+Native `intro_draw` now derives camera-space placements and submission order
+from typed world positions, view position/matrix, shadow mode and authored sort
+biases. It matches the complete `$01:D28B` pass: wrapping world-minus-camera
+subtraction, per-product Q15 rotation, ground-height shadow projection and the
+shadow-object override. Sorting preserves a source byte-level detail: X is added
+both to Z and to the shape-bias low byte, but `GETBH` replaces the latter sum's
+high byte and discards its carry. The linked-list comparison decrements the old
+key before a wrapping sign-bit test, reversing equal keys and retaining its
+overflow behavior. It is not a conventional stable signed-depth sort.
+
+The complete-pass oracle compares every byte of 8,897 resulting object records,
+including next links and untouched fields, plus the list head. It covers all
+577 shape headers, each valid list size from 0 through 64, both shadow flags,
+explicit equal/overflow sort keys, and arbitrary signed view/world inputs. The
+new native API returns typed placements and index order, never source-memory
+pointers. Scene selection of the view inputs, draw submission, lighting,
+clipping/rasterization and clock integration are still pending.
+
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_programs'
@@ -1394,6 +1412,7 @@ nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_sha
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_projection'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_transform'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_matrix'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_draw_preparation'
 python3 -m unittest discover -s tools/sf2 -p test_extract_shapes.py
 ```
 
