@@ -1193,6 +1193,21 @@ nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_int
 
 ## Remaining completion gates
 
+The integrated palette comparison additionally exposes a setup dependency at
+update 2: live color 2 at `$7E:EFE9` becomes `$679C` in retail while the native
+scene retains zero. A write watch records `$7F:0AA8`, within the `$7F:0AA6`
+DMA trigger instruction; disassembly identifies the queued transfer into WRAM.
+The native controller's flash/restoration unit checks do not cover this loading
+path. `native_palette_integration_with_observed_source_pass_partition` compares
+all 128 live and saved colors without injecting subsequent source palette state.
+It is explicitly ignored until native palette loading is implemented, separate
+from the passing actor-only check and the unresolved autonomous timing gate.
+
+```sh
+# Unresolved palette gate; currently expected to fail at update 2, color 2:
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_native_scene native_palette_integration_with_observed_source_pass_partition -- --ignored'
+```
+
 1. Recover the intro's typed actor/camera/effect systems and source-authored
    choreography. Preserve original discrete gameplay timing and interpolate
    presentation only. Do not substitute sampled poses, frame blending, image

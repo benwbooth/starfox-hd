@@ -2,6 +2,8 @@
 //! partitioning as scheduler input, but never supplies actor poses, allocations
 //! or RNG corrections. The separate ignored autonomous gate remains failing
 //! until the timer/PPU refresh timing can be derived natively.
+//! Palette parity has its own ignored gate: the actor-only comparison does
+//! not cover the source's queued palette transfers during opening setup.
 
 use sf2_game::intro_camera::OpeningCameraCue;
 use sf2_game::intro_controller::{IntroColor, OpeningScenePalette, INTRO_PALETTE_COLORS};
@@ -38,6 +40,16 @@ fn active_slots(machine: &RetailMachine) -> Vec<usize> {
 
 #[test]
 fn native_actor_integration_with_observed_source_pass_partition() {
+    check_opening_with_observed_source_pass_partition(false);
+}
+
+#[test]
+#[ignore = "known failure at update 2: native opening palette transfers are not implemented"]
+fn native_palette_integration_with_observed_source_pass_partition() {
+    check_opening_with_observed_source_pass_partition(true);
+}
+
+fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
     let rom = std::fs::read(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Star Fox 2 (USA, Europe).sfc"),
     )
@@ -94,6 +106,29 @@ fn native_actor_integration_with_observed_source_pass_partition() {
             completed_updates
         );
         assert_eq!(native.controller().elapsed_updates(), completed_updates);
+        if check_palette {
+            // Compare state, never inject source colors after initialization.
+            // The first missing transfer changes color 2 to $679C at update 2;
+            // a write watch identifies the WRAM DMA routine at $7F:0AA6.
+            for (index, (live, saved)) in native
+                .palette()
+                .colors
+                .iter()
+                .zip(&native.palette().saved_colors)
+                .enumerate()
+            {
+                assert_eq!(
+                    machine.peek16(WRAM + 0xEFE5 + index as u32 * 2),
+                    live.bgr555(),
+                    "live palette update={completed_updates} color={index}"
+                );
+                assert_eq!(
+                    machine.peek16(WRAM + 0xF2E5 + index as u32 * 2),
+                    saved.bgr555(),
+                    "saved palette update={completed_updates} color={index}"
+                );
+            }
+        }
         let cue = match native.controller().cue() {
             OpeningCameraCue::Opening => 1,
             OpeningCameraCue::FirstCut => 2,
