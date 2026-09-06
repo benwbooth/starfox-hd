@@ -75,7 +75,19 @@ impl OpeningSecondFlybyActor {
         }
     }
 
-    fn publish_from_parent(&mut self, parent: ObjectId, pose: IntroScenePose) {
+    pub fn is_visible(&self) -> bool {
+        match self {
+            Self::Craft(_) | Self::Flare(_) | Self::AttachedWing(_) => true,
+            Self::Chain(actor) => actor.is_visible(),
+            Self::Trail { actor, .. } => !actor.is_finished(),
+            Self::CameraTarget(_) => false,
+            Self::DepartingWing(actor) => actor.is_visible(),
+            Self::ChainBurst(actor) => !actor.is_finished(),
+            Self::Explosion(actor) => !actor.is_finished() && actor.shape() != ShapeId::EMPTY,
+        }
+    }
+
+    pub(super) fn publish_from_parent(&mut self, parent: ObjectId, pose: IntroScenePose) {
         match self {
             Self::Chain(actor) => actor.publish_from_parent(parent, pose),
             Self::Flare(actor) => actor.publish_from_parent(parent, pose),
@@ -88,7 +100,7 @@ impl OpeningSecondFlybyActor {
         }
     }
 
-    fn awaiting_destruction(&self) -> bool {
+    pub(super) fn awaiting_destruction(&self) -> bool {
         match self {
             Self::AttachedWing(actor) => {
                 actor.phase() == OpeningAttachedWingPhase::AwaitingDestruction
@@ -101,7 +113,7 @@ impl OpeningSecondFlybyActor {
         }
     }
 
-    fn eligible_for_pressure_retirement(&self) -> bool {
+    pub(super) fn eligible_for_pressure_retirement(&self) -> bool {
         matches!(self, Self::ChainBurst(_) | Self::Explosion(_))
     }
 }

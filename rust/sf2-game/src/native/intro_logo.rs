@@ -112,6 +112,10 @@ pub struct NintendoLogoAssembly {
 }
 
 impl NintendoLogoAssembly {
+    pub fn position(&self) -> Vector3 {
+        self.position
+    }
+
     pub fn new(position: Vector3) -> Self {
         Self {
             position,
@@ -506,7 +510,7 @@ pub struct NintendoLogoOutline {
 impl NintendoLogoOutline {
     pub const SHAPE: ShapeId = ShapeId::from_catalog_index(372);
 
-    fn new(parent: &NintendoLogoActor) -> Self {
+    pub(super) fn new(parent: &NintendoLogoActor) -> Self {
         Self {
             position: parent.position,
             rotation: parent.rotation,
@@ -525,7 +529,7 @@ impl NintendoLogoOutline {
         self.phase != LogoOutlinePhase::Finished
     }
 
-    fn tick(&mut self) {
+    pub(super) fn tick(&mut self) {
         if let LogoOutlinePhase::InitialMaterial { updates_left } = self.phase {
             if updates_left == 0 {
                 self.material = OUTLINE_SETTLED_MATERIAL;

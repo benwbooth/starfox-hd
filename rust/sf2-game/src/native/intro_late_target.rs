@@ -68,7 +68,7 @@ pub struct OpeningLateTargetEffect {
 }
 
 impl OpeningLateTargetEffect {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             pose: IntroScenePose::default(),
             attachment: IntroAttachment {
@@ -95,7 +95,7 @@ impl OpeningLateTargetEffect {
         self.phase != OpeningLateEffectPhase::Finished
     }
 
-    fn tick(&mut self, cue: OpeningCameraCue) {
+    pub(super) fn tick(&mut self, cue: OpeningCameraCue) {
         match self.phase {
             OpeningLateEffectPhase::Finished => return,
             OpeningLateEffectPhase::Waiting { updates_left } if updates_left > 0 => {
@@ -161,7 +161,7 @@ impl OpeningLateCameraTarget {
         self.removal_requested = true;
     }
 
-    pub fn tick(&mut self, cue: OpeningCameraCue) -> OpeningLateTargetEvents {
+    pub(super) fn tick_parent(&mut self) -> OpeningLateTargetEvents {
         if self.is_finished() {
             return OpeningLateTargetEvents::default();
         }
@@ -215,7 +215,19 @@ impl OpeningLateCameraTarget {
                 }
             }
         }
-        let finishing = self.is_finished() || self.removal_requested;
+        if self.is_finished() || self.removal_requested {
+            self.phase = OpeningLateTargetPhase::Finished;
+            events.target_finished = true;
+        }
+        events
+    }
+
+    pub fn tick(&mut self, cue: OpeningCameraCue) -> OpeningLateTargetEvents {
+        if self.is_finished() {
+            return OpeningLateTargetEvents::default();
+        }
+        let mut events = self.tick_parent();
+        let finishing = events.target_finished;
         if let Some(effect) = &mut self.effect {
             let was_visible = effect.is_visible();
             effect.tick(cue);

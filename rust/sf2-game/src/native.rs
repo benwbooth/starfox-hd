@@ -18,6 +18,7 @@ pub mod intro_late_target;
 pub mod intro_logo;
 pub mod intro_motion;
 pub mod intro_root;
+pub mod intro_scene;
 pub mod intro_second_camera_target;
 pub mod intro_second_flyby;
 pub mod intro_second_flyby_craft;

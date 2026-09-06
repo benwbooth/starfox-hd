@@ -1150,6 +1150,47 @@ nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_int
 These are integration-oracle checks, not a native whole-opening scene or a
 replacement for the shipping recorded presentation.
 
+## Shared native opening integration — timing gate still open
+
+`native/intro_scene.rs` now composes the root, controller, camera, logo layers,
+both flybys, formation, attachments and destruction effects in one 60-slot
+pool. Both boot player reservations are retained. Actor creation follows the
+live list, so children inserted after an unvisited position can execute in the
+same update; cleanup is deferred. Capacity errors roll back the pending scene,
+including its controller, palette, camera and shared RNG.
+
+The boot comparison exposed an observable timing dependency: the shared
+entropy refresh (`$7F:058F -> $7F:7BD4`) can separate actors' random draws.
+At update 101, the first departing logo glyph agrees, but the next diverges
+if the refresh is deferred until the end of the entire traversal. The total
+final RNG state still agrees, so final-RNG equality alone misses this error.
+
+`tick_with_refresh_boundaries` therefore accepts explicit completed-actor
+counts at which to refresh the shared RNG. Some source updates contain more
+than one refresh. This is a scheduling input, not a pose recording
+or an RNG-state correction. The conditional integration oracle derives that
+input from live source execution markers; it does **not** establish a native
+timer/PPU scheduling model or autonomous boot fidelity. The no-input `tick()` uses
+tail refresh and is not certified as retail opening scheduling.
+
+The conditional test passes 440 updates, checking live-list slot order,
+shapes, positions, non-billboard actor rotations, camera position/angles,
+controller elapsed/cues and shared RNG state. All 197 `sf2-game` library
+tests and the six affected logo/late-target/later-flyby oracle tests also pass.
+This does not verify complete palette/material/clipping composition, ordered
+audio output, rendered pixels or the next-scene handoff.
+
+The strict autonomous test remains explicitly ignored with its known
+update-101 failure documented in the test attribute. It must be enabled and
+pass after native timing derivation is implemented. Neither this shared scene
+nor the conditional oracle replaces the shipping recorded presentation.
+
+```sh
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_native_scene native_actor_integration_with_observed_source_pass_partition'
+# Unresolved autonomous gate; currently expected to fail at update 101:
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_intro_native_scene native_opening_matches_boot_actor_pool_through_last_opening_boundary -- --ignored'
+```
+
 ## Remaining completion gates
 
 1. Recover the intro's typed actor/camera/effect systems and source-authored
