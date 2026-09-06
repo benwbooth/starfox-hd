@@ -1418,9 +1418,17 @@ The CPU/GSU oracle runs that complete handoff for 2,048 camera pairs, checking
 the selected camera, final position, all view coefficients and their saved CPU
 copy. It then feeds the actual source-produced view workspace into `$01:D28B`
 and compares object placement, ground shadow and sort depth. Zero, signed-limit
-and random follow distances are covered. This connects the arithmetic APIs;
-production scene ownership of follow distance and final draw submission are
-still not integrated.
+and random follow distances are covered. This constructor connects the
+arithmetic APIs; its caller still owns scene selection and draw submission.
+
+The opening's camera ownership is now connected through
+`OpeningScene::render_view()`. A real boot confirms the native default camera
+at the first controller entry, and the 440-update actor-integration oracle
+confirms zero follow distance, camera position/angles and the derived render
+view at every checked update, including update 1 (previously omitted). This
+accessor reports the current actor-update state. The test still supplies
+observed CPU/GSU pass partitions; it does not certify which state a renderer
+must consume at a particular master-clock deadline, nor rendered pixels.
 
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'

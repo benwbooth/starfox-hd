@@ -319,6 +319,11 @@ impl OpeningScene {
     pub fn camera(&self) -> IntroCameraView {
         self.camera
     }
+    /// Native view at this actor-update boundary. Opening camera actors use
+    /// zero follow distance; render-deadline selection is the scheduler's job.
+    pub fn render_view(&self) -> super::intro_draw::ViewTransform {
+        super::intro_draw::ViewTransform::from_camera(self.camera, 0)
+    }
     pub fn camera_target(&self) -> Option<ObjectId> {
         self.camera_target
     }

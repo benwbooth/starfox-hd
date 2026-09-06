@@ -44,6 +44,34 @@ fn native_actor_integration_with_observed_source_pass_partition() {
 }
 
 #[test]
+fn opening_view_initialization_matches_native_default() {
+    let rom = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Star Fox 2 (USA, Europe).sfc"),
+    )
+    .expect("user-owned SF2 retail ROM");
+    let mut machine = RetailMachine::new(rom);
+    machine.watch_cpu_execution(&[CONTROLLER]);
+    assert!(machine
+        .tick_until_cpu_execution(0, CONTROLLER, 240)
+        .unwrap());
+    let native = OpeningScene::default();
+    let view = native.camera();
+    assert_eq!(
+        [0xC, 0xE, 0x10, 0x12, 0x14, 0x16, 0x29].map(|field| word(&machine, CAMERA_VIEW + field)),
+        [
+            view.position.x as u16,
+            view.position.y as u16,
+            view.position.z as u16,
+            view.angles.pitch,
+            view.angles.yaw,
+            view.angles.roll,
+            0
+        ]
+    );
+    assert_eq!(native.render_view().position, view.position);
+}
+
+#[test]
 #[ignore = "known failure at update 2: native opening palette loading is not scheduled"]
 fn native_palette_integration_with_observed_source_pass_partition() {
     check_opening_with_observed_source_pass_partition(true);
@@ -203,8 +231,27 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
             native.random().bytes(),
             "RNG update={completed_updates} budget={budget:?}"
         );
-        if completed_updates >= 2 {
+        {
+            assert_eq!(
+                word(&machine, CAMERA_VIEW + 0x29),
+                0,
+                "camera follow distance after {completed_updates} updates"
+            );
             let view = native.camera();
+            assert_eq!(
+                native.render_view().position,
+                view.position,
+                "opening render anchor after {completed_updates} updates"
+            );
+            assert_eq!(
+                native.render_view().matrix,
+                sf_core::snes_trig::zxy_matrix_q15_fine(
+                    word(&machine, CAMERA_VIEW + 0x12),
+                    word(&machine, CAMERA_VIEW + 0x14),
+                    word(&machine, CAMERA_VIEW + 0x16),
+                ),
+                "opening render matrix after {completed_updates} updates"
+            );
             let [x, y, z] = [12, 14, 16].map(|field| word(&machine, CAMERA_VIEW + field) as i16);
             assert_eq!(
                 Vector3 { x, y, z },
