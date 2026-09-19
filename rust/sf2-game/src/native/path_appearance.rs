@@ -8,6 +8,58 @@ use super::Object;
 const MANUAL_FRAME: u8 = 0x80;
 const FRAME_VALUE: u8 = 0x7f;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnimationChannel {
+    Shape,
+    Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnimationCommand {
+    Initialize {
+        channel: AnimationChannel,
+        value: u8,
+    },
+    Advance {
+        channel: AnimationChannel,
+        amount: u8,
+        period: u8,
+    },
+}
+
+/// Path-owned controls, distinct from the renderer's resolved frame snapshot.
+/// Other native strategy families currently author that snapshot directly.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct AnimationChannels {
+    pub shape: AnimationControl,
+    pub color: AnimationControl,
+}
+
+impl AnimationChannels {
+    pub fn apply(&mut self, command: AnimationCommand) {
+        let channel = match command {
+            AnimationCommand::Initialize { channel, .. }
+            | AnimationCommand::Advance { channel, .. } => channel,
+        };
+        let control = match channel {
+            AnimationChannel::Shape => &mut self.shape,
+            AnimationChannel::Color => &mut self.color,
+        };
+        match command {
+            AnimationCommand::Initialize { value, .. } => control.initialize(value),
+            AnimationCommand::Advance { amount, period, .. } => control.advance(amount, period),
+        }
+    }
+}
+
+/// The world supplies its actual animation clock at the render boundary;
+/// advancing an actor path must not independently advance this shared clock.
+pub fn publish_animation(actor: &mut Object, clock: u8) {
+    let controls = actor.extension.path_state.animation;
+    actor.extension.animation_frame = controls.shape.resolve(clock);
+    actor.extension.color_frame = controls.color.resolve(clock);
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct AnimationControl {
     manual: bool,
@@ -69,6 +121,38 @@ pub fn set_sprite(actor: &mut Object, color: u8, size: u8) {
 #[cfg(test)]
 mod tests {
     use super::super::{Behavior, ObjectKind, ShapeId, Vector3};
+
+    #[test]
+    fn channels_are_independent_and_publication_does_not_advance_them() {
+        let mut actor = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
+        actor
+            .extension
+            .path_state
+            .animation
+            .apply(AnimationCommand::Initialize {
+                channel: AnimationChannel::Shape,
+                value: 5,
+            });
+        publish_animation(&mut actor, 17);
+        assert_eq!(actor.extension.animation_frame, 5);
+        assert_eq!(actor.extension.color_frame, 17);
+        actor
+            .extension
+            .path_state
+            .animation
+            .apply(AnimationCommand::Advance {
+                channel: AnimationChannel::Color,
+                amount: 1,
+                period: 2,
+            });
+        let retained = actor.extension.path_state.animation;
+        for clock in 0..=u8::MAX {
+            publish_animation(&mut actor, clock);
+            assert_eq!(actor.extension.animation_frame, 5);
+            assert_eq!(actor.extension.color_frame, 1);
+            assert_eq!(actor.extension.path_state.animation, retained);
+        }
+    }
     use super::*;
 
     #[test]

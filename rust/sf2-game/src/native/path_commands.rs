@@ -117,6 +117,25 @@ pub enum BranchCommand {
 }
 
 impl PathRuntime {
+    pub fn execute_animation(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        command: super::path_appearance::AnimationCommand,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let actor = objects
+            .get_mut(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        actor.extension.path_state.animation.apply(command);
+        actor.base.path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     pub fn execute_sprite(
         &mut self,
         objects: &mut ObjectStore,

@@ -14,6 +14,7 @@ use super::{Behavior, Object, ObjectId, ObjectStore, PathCursor};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActorPathState {
+    pub animation: super::path_appearance::AnimationChannels,
     /// PATHHOLD sets source actor flag 09 bit 08 and retains its cursor.
     pub hold_latched: bool,
     pub motion: super::path_motion::MotionSettings,

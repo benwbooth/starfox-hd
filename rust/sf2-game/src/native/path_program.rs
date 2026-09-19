@@ -93,6 +93,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    Animation {
+        command: super::path_appearance::AnimationCommand,
+        next: PathCursor,
+    },
     Sprite {
         color: u8,
         size: u8,
@@ -225,6 +229,9 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::Animation { command, next } => {
+                    self.execute_animation(objects, owner, command, next)
+                }
                 Statement::Sprite { color, size, next } => {
                     self.execute_sprite(objects, owner, color, size, next)
                 }
@@ -326,6 +333,55 @@ mod tests {
             },
             next,
         }
+    }
+
+    #[test]
+    fn authored_alternate_exhaust_runs_complete_graph_with_two_movement_yields() {
+        use super::super::{authored_paths, path_appearance, path_motion};
+        let (mut runtime, mut objects, owner) = setup();
+        objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
+        objects.get_mut(owner).unwrap().base.velocity.x = 7;
+        let catalog = authored_paths::catalog();
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 1);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 5);
+        // Source DO 3 executes ADDCOL three times; NEXT only yields on its
+        // first two decrements. The final pass reaches END without movement.
+        for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
+            let outcome = runtime
+                .enter_program(&catalog, &mut objects, owner, None, 8)
+                .unwrap();
+            assert_eq!(
+                outcome,
+                if invocation < 2 {
+                    ControlStep::Movement
+                } else {
+                    ControlStep::Ended
+                }
+            );
+            if outcome == ControlStep::Movement {
+                assert!(!runtime
+                    .begin_movement(
+                        &mut objects,
+                        owner,
+                        path_motion::PlayerDisplacement::default()
+                    )
+                    .unwrap());
+                runtime
+                    .finish_movement(&mut objects, &mut [None, None])
+                    .unwrap();
+            }
+            let actor = objects.get_mut(owner).unwrap();
+            let clock = 49 + invocation as u8;
+            path_appearance::publish_animation(actor, clock);
+            assert_eq!(actor.extension.color_frame, color);
+            assert_eq!(actor.extension.animation_frame, clock);
+            assert!(actor.base.flags.scaled_sprite);
+            assert_eq!(actor.extension.depth_offset, 0);
+            assert_eq!(actor.extension.texture_scroll_x, 0);
+            assert_eq!(actor.base.position.x, 7 * (invocation + 1).min(2) as i16);
+            assert_eq!(actor.base.flags.remove_after_tick, invocation == 2);
+        }
+        runtime.release_actor_programs(&mut objects, owner).unwrap();
     }
 
     #[test]

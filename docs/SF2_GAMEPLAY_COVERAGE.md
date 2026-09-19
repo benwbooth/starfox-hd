@@ -433,3 +433,14 @@ SPRITE is wired through typed path dispatch, actor render channels, Game render
 objects, and the app's existing scaled-sprite renderer flag. Pure Rust boundary
 tests and four new static assembly checks pass. The verification-only host's
 incorrect writes to shared bytes were corrected to actor-local channels.
+
+The first complete authored path, alternate exhaust, is now lowered offline
+into five typed native statements. The lowerer follows the static graph,
+verifies its source installer and handler identities, and rejects an entire
+graph if any statement is unsupported. Its native regression runs Sprite,
+DO 3, colour-frame addition, NEXT, and END, including precisely two movement
+yields and no movement on the final END pass. Path-owned shape/colour controls
+are separate from resolved rendering snapshots; publication takes an explicit
+world animation clock and never advances it. This is 1 of 106 discovered roots,
+not completed Game scheduling or source spawn integration. The static audit
+reports these counts separately and checks generated native catalog freshness.

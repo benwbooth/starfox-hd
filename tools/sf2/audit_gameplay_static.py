@@ -23,6 +23,8 @@ sys.path.insert(0, str(Path(__file__).with_name("disasm")))
 from extract_map import DEFAULT_ROM, InlineCall, MapExtractor
 from extract_path import PathExtractor
 from path_semantics import PATH_SEMANTICS
+from generate_native_paths import OUTPUT as NATIVE_PATH_OUTPUT, ROOTS as NATIVE_PATH_ROOTS
+from generate_native_paths import generate as generate_native_paths, lower_graph
 
 
 def audit(rom_path: Path) -> dict:
@@ -40,6 +42,13 @@ def audit(rom_path: Path) -> dict:
             errors.append(f"{name}: {len(failures)}")
 
     generated = (ROOT / "rust/sf2-data/src/path.rs").read_text()
+    native_path_extractor = PathExtractor(rom)
+    native_path_commands = sum(
+        len(lower_graph(native_path_extractor, root, index)[1])
+        for index, (_, root) in enumerate(NATIVE_PATH_ROOTS)
+    )
+    if NATIVE_PATH_OUTPUT.read_text() != generate_native_paths(rom):
+        errors.append("generated native path catalog differs from complete-graph lowering")
     for name, actual in (
         ("PATH_ROOT_COUNT", len(paths.roots)),
         ("PATH_HANDLER_COUNT", len(paths.handlers)),
@@ -118,6 +127,12 @@ def audit(rom_path: Path) -> dict:
             } for opcode, handler in sorted(paths.handlers.items())],
         },
         "shipping_dependency_boundary": {name: name in present for name in excluded},
+        "native_path_catalog": {
+            "complete_lowered_roots": len(NATIVE_PATH_ROOTS),
+            "lowered_statements": native_path_commands,
+            "named_roots": [name for name, _ in NATIVE_PATH_ROOTS],
+            "caveat": "typed catalog lowering only; Game scheduler and spawn integration remain open",
+        },
         "game_source_navigation_hints": {
             "path": str(game_path.relative_to(ROOT)), "lines_by_marker": sites,
             "caveat": "textual hints requiring review, not semantic coverage counts",
@@ -142,6 +157,9 @@ def main() -> int:
         print("Excluded from shipping: " + ", ".join(
             name for name, present in result["shipping_dependency_boundary"].items() if not present
         ))
+        native = result["native_path_catalog"]
+        print(f"Native catalog: roots={native['complete_lowered_roots']} statements={native['lowered_statements']}")
+        print(native["caveat"])
         print("Static checks: " + ("PASS" if result["static_checks_passed"] else "FAIL"))
         for error in result["errors"]:
             print(error)
