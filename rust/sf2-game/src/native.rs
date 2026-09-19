@@ -7,6 +7,7 @@
 pub mod collision_boxes;
 pub mod collision_contacts;
 pub mod collision_math;
+pub mod collision_pass;
 pub mod collision_surface;
 mod game;
 pub mod hit_response;

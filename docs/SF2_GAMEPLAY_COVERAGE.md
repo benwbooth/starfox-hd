@@ -149,3 +149,30 @@ and architecture checks passed. Those results do not certify an input-only
 campaign playthrough or fix earlier workspace/runtime regressions. Existing
 tests that directly move actors or apply damage prove narrower state-machine
 behavior, not an unassisted campaign.
+
+## Static port implementation checkpoints
+
+The contact subsystem now has ROM-extracted profiles for all 61 shapes using
+compound object-contact boxes, word-exact center/overlap math, directional
+contact storage and separation, callback-driven hit response, and the ordered
+collision queue/epoch pass. `native/collision_pass.rs` uses the ordinary object
+store: profiles are snapshotted at queue build, while poses, links, shape
+equality and exclusion groups are read during detection. Each probe box visits
+all later candidates before the next box, preserving repeated contact counts.
+
+Source frame branches at `$03:8027` and `$03:80AE` build the queue, run cleanup
+and detection through the render-work wrappers, then enter the strategy pass.
+Cleanup copies pending-hit into previous-hit and clears pending-hit; detection
+sets pending-hit again; strategy dispatch reads pending-hit, not previous-hit.
+Thus collision animation uses the shared clock before the strategy increment.
+Both the branch ordering and the flag distinction are checked against assembly
+bytes, not recorded frame timing.
+
+Production geometry queries use the extracted box catalog. The generic queue,
+contact-response callback hosts, and split strategy scheduler are implemented
+services but are **not yet the production Game frame owner**. Their presence
+does not close collision/damage/lifecycle or service-scheduling coverage above;
+authored flag initialization, callback registration, full world retirement, and
+frame-service integration remain required. The queue checkpoint has ten Rust
+tests passing in debug/release, six assembly-byte tests, and successful native
+architecture and application builds. These are static/synthetic checks only.

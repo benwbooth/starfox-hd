@@ -947,6 +947,7 @@ pub struct ObjectBase {
     pub collision_class: CollisionClass,
     pub velocity: Vector3,
     pub hit_flags: u8,
+    pub contacts: super::collision_pass::ActorContacts,
 }
 
 /// Typed counterpart of the original parallel object-extension record.
@@ -1008,6 +1009,10 @@ impl Object {
                 collision_class: CollisionClass::None,
                 velocity: Vector3::default(),
                 hit_flags: 0,
+                contacts: super::collision_pass::ActorContacts {
+                    first_strategy_visit: true,
+                    ..super::collision_pass::ActorContacts::default()
+                },
             },
             extension: ObjectExtension::default(),
         }
