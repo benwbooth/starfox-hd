@@ -242,3 +242,16 @@ failure, and explicit rejection of corrupt overflowing stack counts. Thirteen
 focused Rust tests pass in both profiles, with twelve static source checks.
 Callback-root return gates, callback descriptor construction/dispatch, and
 production path integration are still outstanding.
+
+`native/path_triggers.rs` now owns typed trigger records in the same program
+resource pool as path stacks. Registration retains duplicates and allocates
+replacement storage before freeing the old list; cancellation removes only
+the first matching path and does not shrink storage. The mutable pass retains
+the source's current-entry deletion budget adjustment, timer expiry before
+predicate evaluation, and stale timer observation for indefinite triggers.
+Tests cover cancellation before/current/after the active entry, additions and
+clear during callbacks, shared allocation pressure, and the explicit fault at
+64 records where the source's byte-sized allocation cost wraps. Eight Rust
+tests pass in debug and release, plus seven assembly checks. The list/pass
+mechanics do not yet evaluate trigger predicates or dispatch path callbacks,
+and are not yet connected to production Game execution.

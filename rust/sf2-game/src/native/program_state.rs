@@ -32,6 +32,7 @@ pub struct PathEntries {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramData {
     PathStack(PathEntries),
+    PathTriggers(super::path_triggers::TriggerRecords),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,7 +98,10 @@ impl PathStack {
         };
         let ProgramData::PathStack(data) = resources
             .get_owned(owner, old)
-            .ok_or(PathStackError::MissingStorage)?;
+            .ok_or(PathStackError::MissingStorage)?
+        else {
+            return Err(PathStackError::MissingStorage);
+        };
         let next_count = data.entries.len() + 1;
         // A wrapping source count writes before its first entry and corrupts
         // ownership metadata; it is not a valid typed loop continuation.
@@ -121,7 +125,10 @@ impl PathStack {
         } else {
             let ProgramData::PathStack(data) = resources
                 .get_owned_mut(owner, old)
-                .ok_or(PathStackError::MissingStorage)?;
+                .ok_or(PathStackError::MissingStorage)?
+            else {
+                return Err(PathStackError::MissingStorage);
+            };
             data.entries.push(entry);
         }
         Ok(())
@@ -134,7 +141,10 @@ impl PathStack {
         let id = self.storage.ok_or(PathStackError::MissingLoop)?;
         let ProgramData::PathStack(data) = resources
             .get_mut(id)
-            .ok_or(PathStackError::MissingStorage)?;
+            .ok_or(PathStackError::MissingStorage)?
+        else {
+            return Err(PathStackError::MissingStorage);
+        };
         if data.entries.is_empty() {
             return Err(PathStackError::MissingLoop);
         }
