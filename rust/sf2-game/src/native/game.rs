@@ -4517,11 +4517,10 @@ const MISSION_ENTRY_CRAFT_COUNT: usize = 4;
 const MISSION_ENCOUNTER_ACTOR_COUNT: usize = MISSION_ENTRY_CRAFT_COUNT;
 const MISSION_CAPITAL_CRAFT_COUNT: usize = 2;
 const SF2_HOSTILE_LASER_HEALTH: u8 = 10;
-const HOSTILE_PROJECTILE_CONTRACTION_DISTANCE: u16 = 127;
-const HOSTILE_PROJECTILE_CRUISE_SPEED: u8 = 63;
+const HOSTILE_PROJECTILE_CONTRACTION_DISTANCE: i16 =
+    super::hostile_laser_control::CONTRACTION_RADIUS_DELTA;
+const HOSTILE_PROJECTILE_CRUISE_SPEED: u8 = super::hostile_laser_control::FLIGHT_SPEED;
 const HOSTILE_PROJECTILE_AIM_CHASE_SHIFT: u32 = 2;
-const NORMALIZED_DIRECTION_SCALE: i64 = 32_767;
-const NORMALIZED_DIRECTION_FRACTION_BITS: u32 = 15;
 const MISSION_ENTRY_YAW: u8 = 56;
 const MISSION_ENTRY_CRAFTS: [MissionEntryCraft; MISSION_ENTRY_CRAFT_COUNT] = [
     MissionEntryCraft {
@@ -21795,34 +21794,7 @@ fn chase_capital_angle(current: Angle, target: Angle, divisor: i8) -> Angle {
 }
 
 fn hostile_projectile_contracted_position(position: Vector3, target: Vector3) -> Vector3 {
-    let delta = [
-        position.x.wrapping_sub(target.x),
-        position.y.wrapping_sub(target.y),
-        position.z.wrapping_sub(target.z),
-    ];
-    let squared_radius = delta.into_iter().fold(0_u32, |sum, component| {
-        let component = i32::from(component);
-        sum.wrapping_add((component * component) as u32)
-    });
-    let radius = squared_radius.isqrt();
-    if radius == 0 {
-        return position;
-    }
-
-    let precision_shift = u32::BITS - 1 - radius.leading_zeros();
-    let reciprocal = (NORMALIZED_DIRECTION_SCALE << precision_shift) / i64::from(radius);
-    let contracted_radius = (radius as u16).wrapping_sub(HOSTILE_PROJECTILE_CONTRACTION_DISTANCE);
-    let contract_component = |component: i16, target_component: i16| {
-        let direction = (i64::from(component) * reciprocal) >> precision_shift;
-        let offset =
-            (direction * i64::from(contracted_radius)) >> NORMALIZED_DIRECTION_FRACTION_BITS;
-        target_component.wrapping_add(offset as i16)
-    };
-    Vector3 {
-        x: contract_component(delta[0], target.x),
-        y: contract_component(delta[1], target.y),
-        z: contract_component(delta[2], target.z),
-    }
+    super::path_math::change_radius(position, target, HOSTILE_PROJECTILE_CONTRACTION_DISTANCE)
 }
 
 fn contract_hostile_projectile_toward(object: &mut Object, target: Vector3) {

@@ -5,6 +5,7 @@
 //! operate on the domain structs exported from this module.
 
 mod game;
+pub mod hostile_laser_control;
 mod input;
 pub mod intro_attached_craft;
 pub mod intro_bsp_work;
@@ -33,6 +34,8 @@ pub mod intro_target;
 pub mod intro_transform;
 pub mod intro_visibility;
 mod object;
+pub mod path_control;
+pub mod path_math;
 mod render;
 mod results;
 mod state;

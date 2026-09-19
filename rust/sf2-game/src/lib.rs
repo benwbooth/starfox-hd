@@ -6,6 +6,8 @@
 
 mod native;
 
+pub use native::{hostile_laser_control, path_control, path_math};
+
 pub use native::{
     intro_attached_craft, intro_bsp_work, intro_camera, intro_chain, intro_controller,
     intro_destruction, intro_draw, intro_flyby, intro_formation, intro_free_craft,
