@@ -52,6 +52,28 @@ class PathMovementStaticTests(unittest.TestCase):
         self.assert_source(0x7F8514, "B5 21 09 10 95 21 4C E8 CA")
         self.assert_source(0x7F9F16, "B5 21 29 08 D0 04 5C 4E 9F 7F")
 
+    def test_child_gate_precedes_relative_integration_and_walks_first_child_only(self):
+        self.assert_source(0x7F9E73, "B5 22 29 01 F0 04 5C 8B 9E 7F B5 23 29 10 D0 04 5C 8B 9E 7F 22 19 23 7F")
+        self.assert_source(0x7F2322, "B4 29 F0 07 BB 22 29 22 7F 80 F5")
+
+    def test_extension_parent_has_priority_and_only_its_self_reference_skips(self):
+        self.assert_source(0x7F222A, "B4 06 C2 20 BD D8 1C F0 0A 86 02 C5 02 D0 03 82 D9 00 A8")
+        self.assert_source(0x7F225A, "22 BE 2B 7F BD D5 1C 18 79 12 00 95 12 BD D6 1C 18 79 14 00 95 14 BD D7 1C 18 79 16 00 95 16")
+        self.assert_source(0x7F2279, "B9 12 00 8D 8F 15 B9 14 00 8D 91 15 B9 16 00 8D 93 15")
+
+    def test_carry_reselects_player_and_clears_only_low_continuity_byte(self):
+        self.assert_source(0x7F9ED3, "AC 1F CF B9 24 00 29 02 D0 04 5C EB 9E 7F C2 20 8A D9 E8 1C E2 20 F0 07 A9 00 9D C1 1C 80 0B BD C1 1C F0 03 20 1C BB 20 F7 BA")
+
+    def test_carry_snapshot_word_and_byte_writes_are_distinct(self):
+        self.assert_source(0x7FBB01, "B5 0C 95 39 B5 0E 95 3B B5 10 95 3D A9 01 00 9D C1 1C E2 20 BD 14 00 9D C3 1C 60")
+
+    def test_carry_scales_horizontal_before_rotation_and_uses_unrotated_vertical(self):
+        self.assert_source(0x7FBB2D, "B9 ED 6B 38 F5 39 0A 0A 0A 0A 85 02 85 B7 B9 EF 6B 38 F5 3B 85 08 85 B9 B9 F1 6B 38 F5 3D 0A 0A 0A 0A 85 97 85 BB")
+        self.assert_source(0x7FBC0F, "A5 08 18 75 0E 99 EF 6B")
+
+    def test_common_exit_clears_contact_latches_without_clearing_pending_damage(self):
+        self.assert_source(0x7F9EFD, "B5 22 29 FD 95 22 B5 21 29 7F 95 21 B5 26 29 FD 95 26 B5 26 29 FB 95 26 6B")
+
 
 if __name__ == "__main__":
     unittest.main()

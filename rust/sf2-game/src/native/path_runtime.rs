@@ -15,6 +15,10 @@ use super::{Behavior, Object, ObjectId, ObjectStore, PathCursor};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActorPathState {
     pub motion: super::path_motion::MotionSettings,
+    pub platform_carry: super::platform_carry::PlatformCarryState,
+    /// Source 21 bit 80 is cleared at the common path exit. Its producer's
+    /// gameplay meaning is not yet established; it is not a ground-hit test.
+    pub clear_on_path_exit_latch: bool,
     pub stack: PathStack,
     pub triggers: TriggerList,
     pub conditions: TriggerActorState,

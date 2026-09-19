@@ -4,7 +4,7 @@
 //! attached-relative integration (`$7F:9E9F`) follows them. These operations
 //! are separate so callers cannot accidentally collapse those two phases.
 
-use super::{Angle, Object, ObjectId, Vector3};
+use super::{Angle, Object, ObjectId, ObjectStore, Vector3};
 
 const BANK_TURN_DIVISOR: i8 = 4;
 const ORDINARY_VELOCITY_SCALE: i16 = 1;
@@ -14,6 +14,12 @@ const ENLARGED_VELOCITY_SCALE: i16 = 4;
 /// neither should be inferred from the presence of a parent pointer.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct MotionSettings {
+    /// Source 23 bit 10 enables first-child-chain pose publication.
+    pub refresh_child_chain: bool,
+    /// Source 22 bit 01 suppresses that publication independently.
+    pub suppress_child_refresh: bool,
+    /// Source 21 bit 20 enables carrying the currently selected player.
+    pub carry_selected_player: bool,
     /// Source 21 bit 08, tested by the displacement service at 9F16.
     pub follow_player_displacement: bool,
     /// Source 21 bit 10; this is NOT the displacement-follow flag.
@@ -124,6 +130,29 @@ pub fn integrate_relative_after_callbacks(object: &mut Object) {
             object.base.velocity,
         );
     }
+}
+
+/// Complete movement after the callback batch has finished. Selection must
+/// be resolved at this boundary because a callback can switch players.
+pub fn after_callbacks(
+    objects: &mut ObjectStore,
+    owner: ObjectId,
+    selected: Option<&mut super::platform_carry::CarriedPlayer>,
+) -> Result<(), super::attachments::AttachmentError> {
+    super::attachments::refresh_after_callbacks(objects, owner)?;
+    let actor = objects.get_mut(owner).expect("validated movement actor");
+    integrate_relative_after_callbacks(actor);
+    super::platform_carry::after_callbacks(actor, owner, selected);
+    clear_exit_latches(actor);
+    Ok(())
+}
+
+/// Common footer (`$7F:9EFD`), also reached by END without movement.
+pub fn clear_exit_latches(actor: &mut Object) {
+    actor.base.contacts.new_contact_latched = false;
+    actor.extension.path_state.clear_on_path_exit_latch = false;
+    actor.base.contacts.hit_by_primary = false;
+    actor.base.contacts.hit_by_secondary = false;
 }
 
 /// Accelerate using the source's signed *byte subtraction* tests. Testing
@@ -498,5 +527,62 @@ mod tests {
                 z: -32749
             }
         );
+    }
+    #[test]
+    fn post_callback_services_publish_children_integrate_locals_carry_and_clear_latches() {
+        let (mut parent, _) = setup();
+        parent.base.position.x = 200;
+        parent.base.velocity.x = 20;
+        parent.extension.relative_position.x = 40;
+        parent.extension.path_state.motion.refresh_child_chain = true;
+        parent.extension.path_state.motion.relative_coordinates = true;
+        parent.extension.path_state.motion.carry_selected_player = true;
+        parent.extension.path_state.platform_carry.continuity = 1;
+        parent.extension.path_state.clear_on_path_exit_latch = true;
+        parent.base.contacts.new_contact_latched = true;
+        parent.base.contacts.hit_by_primary = true;
+        parent.base.contacts.hit_by_secondary = true;
+        parent.base.contacts.pending_hit = true;
+        let mut objects = ObjectStore::new();
+        let owner = objects.allocate(parent).unwrap();
+        let (mut child, _) = setup();
+        child.base.attachment = Some(owner);
+        child.extension.relative_position.x = 100;
+        let child = objects.allocate(child).unwrap();
+        objects.get_mut(owner).unwrap().base.first_child = Some(child);
+        let mut selected = super::super::platform_carry::CarriedPlayer {
+            enabled: true,
+            carrier: Some(owner),
+            ..Default::default()
+        };
+        after_callbacks(&mut objects, owner, Some(&mut selected)).unwrap();
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(objects.get(child).unwrap().base.position.x, 299);
+        assert_eq!(
+            objects.get(child).unwrap().extension.relative_position.x,
+            100
+        );
+        assert_eq!(actor.extension.relative_position.x, 60);
+        assert_eq!(actor.base.position.x, 200);
+        assert_eq!(selected.origin.x, 200);
+        assert!(!actor.base.contacts.new_contact_latched);
+        assert!(!actor.base.contacts.hit_by_primary);
+        assert!(!actor.base.contacts.hit_by_secondary);
+        assert!(!actor.extension.path_state.clear_on_path_exit_latch);
+        assert!(actor.base.contacts.pending_hit);
+    }
+
+    #[test]
+    fn suppressed_child_refresh_does_not_suppress_relative_integration() {
+        let (mut object, owner) = setup();
+        object.extension.path_state.motion.refresh_child_chain = true;
+        object.extension.path_state.motion.suppress_child_refresh = true;
+        object.extension.path_state.motion.relative_coordinates = true;
+        object.base.first_child = Some(owner); // Would diagnose a cycle if followed.
+        object.base.velocity.x = 7;
+        let mut objects = ObjectStore::new();
+        assert_eq!(objects.allocate(object), Some(owner));
+        after_callbacks(&mut objects, owner, None).unwrap();
+        assert_eq!(objects.get(owner).unwrap().extension.relative_position.x, 7);
     }
 }

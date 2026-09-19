@@ -4,6 +4,7 @@
 //! Source-machine encodings are decoded at data boundaries and game systems
 //! operate on the domain structs exported from this module.
 
+pub mod attachments;
 pub mod collision_boxes;
 pub mod collision_contacts;
 pub mod collision_math;
@@ -50,6 +51,7 @@ pub mod path_sound;
 pub mod path_trigger_conditions;
 pub mod path_triggers;
 pub mod player_contact;
+pub mod platform_carry;
 pub mod player_hit_control;
 pub mod program_resources;
 pub mod program_state;

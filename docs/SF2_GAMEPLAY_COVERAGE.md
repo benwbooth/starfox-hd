@@ -327,3 +327,17 @@ program bytes are unchanged. Child refresh, selected-target carry correction,
 path-exit latch cleanup and the complete movement-service caller remain to be
 integrated; this does not claim that the production scheduler now runs all
 authored paths.
+
+The post-callback movement service now publishes the source first-child chain
+(not siblings), integrates retained relative coordinates, applies selected-player
+platform carry and clears the path-exit latches. Attachment publication reuses
+the source matrix shared with the intro: extension-parent precedence, extension
+self-reference bypass, and base-self-reference angle publication order are
+explicit. Carry retains wrapped horizontal scaling, signed truncation, unrotated
+vertical displacement, and the source's distinct byte/word snapshot writes.
+Twenty-three focused attachment/carry/movement tests pass in debug and release;
+thirteen movement assembly checks, the architecture check and `sf-app` build
+pass. No recorded gameplay or original-program execution was used. The common
+post-callback service is available to the native path owner; complete authored
+program lowering, pre/post movement orchestration through that owner, and
+replacing `Game`'s recorded controllers remain unfinished.
