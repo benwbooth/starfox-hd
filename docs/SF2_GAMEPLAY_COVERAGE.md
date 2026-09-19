@@ -538,3 +538,18 @@ bytes 5/6 or 8/9 respectively, position words stay signed, and byte identifiers
 and rotations remain unsigned. Full source operand-reader checks and 21
 lowerer tests pass. Spawn commands still reject lowering; six roots and 60
 native statements remain the supported catalog, not an expanded gameplay claim.
+
+Typed child spawning now composes scoped pool allocation, fresh-record
+initialization and child-chain attachment. The new constructor preserves the
+source's initial path hold, first-strategy exemption, search eligibility,
+draw-admission observation, pause-mode input and group identity. Draw admission
+is separate from authored invisibility. Child setup retains local coordinates
+without eager world conversion, inherits target/group from the caller (not
+necessarily the attachment parent), and updates the shared last-spawn identity.
+Last-slot allocation only scans the caller's active-list suffix. Exhaustion
+clears last-spawn and reports an explicit native fault: the original continues
+writing fields through its null result, which is not reproduced as arbitrary
+native memory corruption. Malformed chain diagnostics identify any allocated
+child retained at the error boundary. Tests pass for six spawn scenarios,
+12 object-pool/default cases, 133 native path cases and 137 static path checks;
+the app builds. Catalog dispatch and Game integration of spawning remain open.

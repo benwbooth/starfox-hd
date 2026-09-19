@@ -45,6 +45,29 @@ class PathSpawnStaticTests(unittest.TestCase):
             self.assert_source(address,
                 f"E2 20 C2 20 B5 2B 18 69 {count:02X} 00 95 2B E2 20 4C 75 7E")
 
+    def test_fresh_initializer_clears_records_not_pool_links_and_applies_world_defaults(self):
+        self.assert_source(0x7F29BC, "DA BB 7A 8B A9 7E 48 AB A9 00 5A DA A0 3B 00 95 04 E8 88 D0 FA FA DA A0 3F 00 9D C1 1C E8 88 D0 F9 FA 7A B5 08 09 10 95 08 B5 09 09 08 95 09 B5 31 09 04 95 31 B5 22 09 04 95 22 C2 20 AD 84 1B 89 02 00 E2 20 D0 03 4C 0C 2A B5 26 09 08 95 26 AD 0E 19 9D F0 1C AB DA BB 7A 6B")
+
+    def test_draw_admission_is_cleared_at_preparation_then_set_separately_from_invisibility(self):
+        self.assert_source(0x7F120C, "B9 08 00 29 E1 09 08 99 08 00 B9 23 00 29 02 F0 04 5C 60 14 7F")
+        self.assert_source(0x0385F4, "E2 20 B9 23 00 29 02 D0 24 C2 20 BF 12 00 70 10 0B B9 08 00 09 14 00 99 08 00 80 09 B9 08 00 09 10 00 99 08 00 C2 20 8A 18 69 26 00 AA")
+
+    def test_general_search_and_bulk_cleanup_test_the_same_eligibility_flag(self):
+        self.assert_source(0x7F1E8B, "B4 00 F0 F3 BB E4 3A F0 F7 B5 22 29 04 00 F0 F0 8E 36 14 A6 3A 6B")
+        self.assert_source(0x03A97A, "B4 00 E2 20 B5 22 29 04 F0 06 5A 22 56 33 7F 7A BB D0 ED FA 6B")
+
+    def test_allocation_group_is_compared_by_group_retirement(self):
+        self.assert_source(0x0DD8EC, "B4 00 BD F0 1C C5 5F D0 0E A9 00 9D E6 1C 9D E7 1C B5 25 09 08 95 25 BB D0 E6")
+
+    def test_allocation_scopes_head_to_caller_before_choosing_attachment_parent(self):
+        self.assert_source(0x7F90AF, "C2 20 AD A8 12 48 E2 20 8E A8 12 DA B5 23 29 04 D0 04 5C C8 90 7F B4 06 BB C2 20 AD B7 16 85 5F E2 20 22 17 2A 7F B0 04 5C 2B 91 7F AD B9 16 22 3D 2A 7F DA BB 7A")
+
+    def test_success_sets_relative_pose_and_publishes_last_child_and_caller_without_world_position(self):
+        self.assert_source(0x7F90E5, "C2 20 A9 1E 7E 95 19 E2 20 A9 7F 95 1B B5 31 09 10 95 31 C2 20 AD B1 16 9D CF 1C E2 20 C2 20 AD B3 16 9D D1 1C E2 20 C2 20 AD B5 16 9D D3 1C E2 20 AD BD 16 9D D5 1C AD BF 16 9D D6 1C AD C1 16 9D D7 1C DA BB 7A 8C 71 D7 FA C2 20 8A 99 D8 1C E2 20 C2 20 68 8D A8 12 E2 20")
+
+    def test_failed_allocator_returns_null_destination_without_initializing_an_actor(self):
+        self.assert_source(0x7F2A17, "86 3A AE A8 12 22 25 29 7F B0 07 A0 00 00 A6 3A 18 6B 9B A6 3A E2 20 22 BC 29 7F C2 20 A5 5F 99 04 00 E2 20 38 6B")
+
 
 if __name__ == "__main__":
     unittest.main()

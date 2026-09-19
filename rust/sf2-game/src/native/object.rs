@@ -900,6 +900,13 @@ pub enum ObjectActivity {
 pub struct ObjectFlags {
     pub active: bool,
     pub visible: bool,
+    /// Last draw-list admission observation (source 08 bit 10), not the
+    /// authored invisibility controls. Initialized before the first draw,
+    /// cleared during list preparation, set by `$03:85E4` for admitted actors.
+    pub draw_list_admitted: bool,
+    /// Source 22 bit 04 admits an actor to general searches and bulk cleanup.
+    /// Shape-specific searches have their own selection rules.
+    pub general_search_eligible: bool,
     pub scaled_sprite: bool,
     pub exploding: bool,
     pub on_fire: bool,
@@ -972,6 +979,9 @@ pub struct ObjectExtension {
     pub relative_position: Vector3,
     pub relative_rotation: super::render::Rotation,
     pub parent: Option<ObjectId>,
+    /// Allocation group's byte identity (source 1CF0). Child-producing paths
+    /// inherit it from their caller; `$0D:D8DD` retires a matching group.
+    pub spawn_group: u8,
     pub texture_scroll_x: u8,
     pub texture_scroll_y: u8,
     pub spatial_loop: Option<SpatialLoop>,
@@ -986,7 +996,37 @@ pub struct Object {
     pub extension: ObjectExtension,
 }
 
+/// Live world inputs sampled by the source fresh-object initializer.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectSpawnDefaults {
+    /// Shared initializer mode (source 1B84 bit 02), not current pause state.
+    pub run_when_paused: bool,
+    /// Current allocation group (source 190E).
+    pub group: u8,
+}
+
 impl Object {
+    /// Source fresh-record defaults (`$7F:29BC..2A16`), then the caller's
+    /// decoded shape and assigned behavior. List insertion remains the pool's
+    /// responsibility; this constructor never copies an old actor's state.
+    ///
+    /// The ordinary constructor is retained for the existing higher-level
+    /// strategies, which do not yet all use source initialization semantics.
+    pub fn new_authored(
+        kind: ObjectKind,
+        shape: ShapeId,
+        behavior: Behavior,
+        defaults: ObjectSpawnDefaults,
+    ) -> Self {
+        let mut object = Self::new(kind, shape, behavior);
+        object.base.flags.draw_list_admitted = true;
+        object.base.flags.general_search_eligible = true;
+        object.base.contacts.run_when_paused = defaults.run_when_paused;
+        object.extension.path_state.hold_latched = true;
+        object.extension.spawn_group = defaults.group;
+        object
+    }
+
     pub fn new(kind: ObjectKind, shape: ShapeId, behavior: Behavior) -> Self {
         Self {
             base: ObjectBase {
@@ -1071,6 +1111,13 @@ impl ObjectStore {
     /// while allocating, the source temporarily makes that actor the list
     /// head, so the last-slot pressure sweep visits only its suffix.
     pub fn allocate_weapon_after(&mut self, source: ObjectId, object: Object) -> Option<ObjectId> {
+        self.allocate_scoped_after(source, object)
+    }
+
+    /// Path and weapon spawners temporarily scope the allocation head to
+    /// their caller. Insert immediately after it and limit a last-slot
+    /// pressure sweep to that suffix; never persist a different global head.
+    pub fn allocate_scoped_after(&mut self, source: ObjectId, object: Object) -> Option<ObjectId> {
         self.allocate_with_pressure_head(Some(source), Some(source), object)
     }
 
@@ -1256,6 +1303,70 @@ impl Default for ObjectStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_initialization_sets_only_source_defaults_and_supplied_metadata() {
+        for run_when_paused in [false, true] {
+            for group in [0, 1, 127, 128, 255] {
+                let object = Object::new_authored(
+                    ObjectKind::Effect,
+                    ShapeId::TITLE_FORMATION_EFFECT,
+                    Behavior::FollowPath,
+                    ObjectSpawnDefaults {
+                        run_when_paused,
+                        group,
+                    },
+                );
+                let mut expected = Object::new(
+                    ObjectKind::Effect,
+                    ShapeId::TITLE_FORMATION_EFFECT,
+                    Behavior::FollowPath,
+                );
+                expected.base.flags.draw_list_admitted = true;
+                expected.base.flags.general_search_eligible = true;
+                expected.base.contacts.run_when_paused = run_when_paused;
+                expected.extension.path_state.hold_latched = true;
+                expected.extension.spawn_group = group;
+                assert_eq!(object, expected);
+                assert!(object.base.contacts.first_strategy_visit);
+                assert!(object.base.flags.visible);
+                assert_eq!(object.base.position, Vector3::default());
+                assert_eq!(object.base.path, None);
+                assert_eq!(object.base.hit_points, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn authored_reallocation_discards_old_state_and_pool_alone_sets_list_links() {
+        let mut objects = ObjectStore::new();
+        let owner = objects.allocate(effect()).unwrap();
+        let mut old = effect();
+        old.base.position.x = 321;
+        old.base.velocity.y = -456;
+        old.base.hit_points = 128;
+        old.base.flags.visible = false;
+        old.base.flags.collision_disabled = true;
+        old.extension.spawn_group = 255;
+        old.extension.relative_position.z = 789;
+        old.extension.path_state.motion_phase = u16::MAX;
+        let retired = objects.allocate_after(Some(owner), old).unwrap();
+        let old_lifetime = objects.lifetime_id(retired).unwrap();
+        objects.remove(retired);
+        let fresh = Object::new_authored(
+            ObjectKind::Enemy,
+            ShapeId::EMPTY,
+            Behavior::FollowPath,
+            ObjectSpawnDefaults::default(),
+        );
+        let mut expected = fresh.clone();
+        let id = objects.allocate_after(Some(owner), fresh).unwrap();
+        assert_eq!(id, retired);
+        expected.base.previous = Some(owner);
+        assert_eq!(objects.get(id), Some(&expected));
+        assert_eq!(objects.get(owner).unwrap().base.next, Some(id));
+        assert_ne!(objects.lifetime_id(id).unwrap(), old_lifetime);
+    }
 
     fn effect() -> Object {
         Object::new(

@@ -55,6 +55,7 @@ pub mod path_random;
 pub mod path_relationships;
 pub mod path_runtime;
 pub mod path_sound;
+pub mod path_spawn;
 pub mod path_steering;
 pub mod path_trigger_conditions;
 pub mod path_triggers;
@@ -83,7 +84,7 @@ pub use game::{Error, Game};
 pub use input::{Button, Buttons, InputState};
 pub use object::{
     Angle, Behavior, CollisionClass, Object, ObjectFlags, ObjectId, ObjectKind, ObjectLifetimeId,
-    ObjectStore, PathCursor, PathId, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
+    ObjectSpawnDefaults, ObjectStore, PathCursor, PathId, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
     StereoPosition, Vector3, WeaponKind, OBJECT_CAPACITY,
 };
 pub use render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};

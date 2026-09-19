@@ -6,7 +6,7 @@
 
 mod native;
 
-pub use native::{authored_paths, path_appearance, path_program, path_random};
+pub use native::{authored_paths, path_appearance, path_program, path_random, path_relationships, path_spawn};
 pub use native::{
     attachments, collision_boxes, collision_contacts, collision_math, collision_pass,
     collision_surface, hit_response, hostile_laser_control, path_calls, path_commands,
@@ -39,7 +39,7 @@ pub use native::{
     MaterialSetId, MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus,
     MissionMessage, MissionMessageIrisFrame, MissionMessagePhase, MissionMessageState,
     MissionPhase, MissionState, MissionVisit, Object, ObjectFlags, ObjectId, ObjectKind,
-    ObjectLifetimeId, ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass, PilotCraftProfile,
+    ObjectLifetimeId, ObjectSpawnDefaults, ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass, PilotCraftProfile,
     PilotSelectionCursor, PilotSelectionPhase, PilotSelectionState, PlanetObjectiveStatus,
     PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
     PlayerCraftTransformationDirection, PlayerDamageState, PlayerWalkerState, RandomState,
