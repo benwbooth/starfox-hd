@@ -8,7 +8,7 @@
 //! weapon/object systems; both homing and ballistic continuations live here.
 
 use super::path_control::{CountedLoop, PathWait, PlayerCrossing, PlayerTarget, TriggerPeriod};
-use super::{path_control, path_math, path_motion, Object, Rotation, Vector3};
+use super::{path_control, path_math, path_motion, Difficulty, Object, Rotation, Vector3};
 
 pub const LAUNCH_DISTANCE_EXCLUSIVE: u16 = 12_000;
 pub const HOMING_DISTANCE_EXCLUSIVE: u16 = 1_000;
@@ -20,6 +20,16 @@ const AIM_LOOP_COUNT: u16 = 40;
 const FREE_FLIGHT_WAIT: u8 = 15;
 const TERRAIN_WATCH_LIFETIME: u16 = 60;
 const WORLD_MOVEMENT_SCALE: i16 = 4;
+
+/// Ordinary laser initialization (`$44:EE4C..EE6B`); stronger weapon entry
+/// paths have their own authored damage and must not use this selector.
+pub const fn initial_attack_power(difficulty: Difficulty) -> u8 {
+    match difficulty {
+        Difficulty::Normal => 2,
+        Difficulty::Hard => 3,
+        Difficulty::Expert => 4,
+    }
+}
 
 /// Live world inputs, sampled by the object scheduler for one path call.
 /// Occupancy is queried separately, after movement, at the new position.

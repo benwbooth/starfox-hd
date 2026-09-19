@@ -9,9 +9,10 @@
 /// A fighter-created laser inherits the fighter transform at this launch speed.
 pub(super) const INITIAL_SPEED: u8 = 30;
 
-/// The shared weapon service declines hostile shots outside this wrapped
-/// horizontal player radius.
-pub(super) const MAXIMUM_LAUNCH_DISTANCE: u16 = 12_000;
+/// Ordinary laser path initialization ends outside this wrapped horizontal
+/// radius, after allocation; it does not make the allocator decline the shot.
+pub(super) const MAXIMUM_LAUNCH_DISTANCE: u16 =
+    crate::hostile_laser_control::LAUNCH_DISTANCE_EXCLUSIVE;
 
 /// The launch initializer promotes the projectile to its flight speed.
 pub(super) const CRUISE_SPEED: u8 = 63;

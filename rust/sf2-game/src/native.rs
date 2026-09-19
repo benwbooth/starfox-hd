@@ -43,6 +43,7 @@ mod render;
 mod results;
 mod state;
 pub mod strategy_schedule;
+pub mod weapon_launch;
 pub mod world_occupancy;
 
 mod astropolis_assault;

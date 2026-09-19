@@ -8,7 +8,7 @@ mod native;
 
 pub use native::{
     collision_math, collision_surface, hostile_laser_control, path_control, path_math, path_motion,
-    strategy_schedule, world_occupancy,
+    strategy_schedule, weapon_launch, world_occupancy,
 };
 
 pub use native::{

@@ -107,7 +107,16 @@ class PathControlStaticTests(unittest.TestCase):
 
     def test_hostile_laser_authored_control_flow(self):
         expected = {
+            0xEE4C: ("SetByte", "0b0a2d"),
+            0xEE4F: ("ImportByteIndexed", "7a2e96"),
+            0xEE52: ("IfSameByte", "2a2e0068ee"),
+            0xEE57: ("IfSameByte", "2a2e0262ee"),
+            0xEE5C: ("SetByte", "0b032e"),
+            0xEE62: ("SetByte", "0b042e"),
+            0xEE68: ("SetByte", "0b022e"),
             0xEE6E: ("IfSelectedDistanceLess", "14e02e74ee"),
+            0xEE73: ("End", "0f"),
+            0xEE74: ("QueueSelectedMarkerClass2", "fa72"),
             0xEE81: ("SetVelocity", "061e"),
             0xEE9B: ("SetVelocity", "063f"),
             0xEE9D: ("IfSelectedDistanceLess", "14e803adee"),
@@ -329,6 +338,15 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F4037, "AE A8 12 B5 25 29 08 D0 04 5C 54 40 7F")
         self.assert_source(0x7F4044, "C2 20 B5 00 48 E2 20 22 46 33 7F 7A BB 4C B3 40")
         self.assert_source(0x7F40B0, "9B B6 00 D0 85")
+
+    def test_weapon_muzzle_uses_source_bank_then_pitch_yaw_and_word_scale(self):
+        self.assert_source(0x03AB2A, "22 D2 2B 7F A9 00 99 16 00")
+        self.assert_source(0x03AB6C, "B5 16 22 F0 3B 7F A5 04 85 02 A5 0A 85 08 A5 E4 85 97")
+        self.assert_source(0x03AB7E, "B5 12 22 4E 3A 7F A5 04 85 02 A5 0A 85 08 A5 E4 85 97")
+        self.assert_source(0x03AB90, "B5 14 22 A9 38 7F C2 20 A5 04 0A 0A 85 04 A5 0A 0A 0A 85 0A A5 E4 0A 0A 85 E4")
+        self.assert_source(0x03ABE0, "22 C3 21 7F 18 6D B7 14 95 12 22 EB 21 7F 49 FF 1A 18 6D B6 14 95 14")
+        self.assert_source(0x03ABFC, "B9 12 00 18 6D B7 14 99 12 00 B9 14 00 18 6D B6 14 99 14 00")
+        self.assert_source(0x7F8B8B, "B5 25 09 08 95 25 4C FD 9E")
 
 
 if __name__ == "__main__":

@@ -18261,38 +18261,34 @@ impl Game {
         });
 
         for launch in fire_events.iter() {
-            if pressure_fighter_horizontal_distance(launch.position, player_position)
-                >= pressure_fighter_live_projectiles::MAXIMUM_LAUNCH_DISTANCE
-            {
-                continue;
-            }
             let source = self
                 .pressure_fighter_actors
                 .flanker
                 .ok_or(Error::MissingProjectileSource)?;
             let mut projectile = Object::new(
                 ObjectKind::Projectile,
-                ShapeId::ENEMY_LASER,
+                ShapeId::EMPTY,
                 Behavior::Projectile,
             );
             projectile.base.weapon = WeaponKind::EnemyLaser;
             projectile.base.hit_points = SF2_HOSTILE_LASER_HEALTH;
-            projectile.base.attack_power = player_damage::HOSTILE_PROJECTILE_ATTACK_POWER;
+            projectile.base.attack_power = super::hostile_laser_control::initial_attack_power(
+                self.state.campaign.difficulty,
+            );
             projectile.base.collision_class = CollisionClass::EnemyWeapon;
             projectile.base.flags.casts_shadow = false;
-            projectile.base.position = launch.position;
-            projectile.base.pitch = launch.pitch;
-            projectile.base.yaw = launch.yaw;
-            // The shared weapon formatter clears bank after inheriting pose.
-            projectile.base.roll = Angle::ZERO;
+            // Path-fire clears all muzzle/aim offsets and the optional aim
+            // target before entering the shared weapon formatter.
+            let pose = super::weapon_launch::format_pose(
+                launch.position,
+                Rotation { pitch: launch.pitch, yaw: launch.yaw, roll: launch.roll },
+                super::weapon_launch::LaunchParameters::default(),
+            );
+            projectile.base.position = pose.position;
+            projectile.base.pitch = pose.rotation.pitch;
+            projectile.base.yaw = pose.rotation.yaw;
+            projectile.base.roll = pose.rotation.roll;
             projectile.base.linked_object = Some(source);
-            projectile.base.speed = pressure_fighter_live_projectiles::INITIAL_SPEED;
-            projectile.extension.activity =
-                ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
-                    phase: HostileProjectileFlightPhase::Homing,
-                    motion_steps_elapsed: 0,
-                    movement_phase: HostileProjectileMovementPhase::Ready,
-                });
             let object = self
                 .state
                 .objects
@@ -18310,6 +18306,25 @@ impl Game {
                 .expect("validated weapon source")
                 .base
                 .linked_object = Some(object);
+            // `$44:EE6E..EE74`: range rejection is a path END AFTER shared
+            // allocation and reciprocal linking. It retains the empty shape
+            // and marks deferred cleanup; even a rejected shot can consume
+            // the last free slot and trigger pool-pressure retirements.
+            if pressure_fighter_horizontal_distance(pose.position, player_position)
+                >= pressure_fighter_live_projectiles::MAXIMUM_LAUNCH_DISTANCE
+            {
+                self.state.objects.get_mut(object).unwrap().base.flags.remove_after_tick = true;
+                continue;
+            }
+            let projectile = self.state.objects.get_mut(object).unwrap();
+            projectile.base.shape = ShapeId::ENEMY_LASER;
+            projectile.base.speed = pressure_fighter_live_projectiles::INITIAL_SPEED;
+            projectile.extension.activity =
+                ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
+                    phase: HostileProjectileFlightPhase::Homing,
+                    motion_steps_elapsed: 0,
+                    movement_phase: HostileProjectileMovementPhase::Ready,
+                });
             self.state.audio.queue(SoundEvent::HostileLaser);
             self.live_pressure_fighter_projectiles
                 .push(ActiveLivePressureProjectile {
@@ -29856,6 +29871,70 @@ mod tests {
         game.spawn_live_pressure_fighter_projectiles(0, Vector3::default(), distant_shot)
             .unwrap();
         assert!(game.live_pressure_fighter_projectiles.is_empty());
+    }
+
+    #[test]
+    fn rejected_laser_allocates_links_and_marks_pressure_before_silent_path_end() {
+        let mut game = Game::new();
+        game.state.objects = super::super::object::ObjectStore::new();
+        let effect = || Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Effect);
+        let tail = game.state.objects.allocate(effect()).unwrap();
+        let mut transient = effect();
+        transient.base.flags.reclaim_on_pool_pressure = true;
+        let transient = game.state.objects.allocate(transient).unwrap();
+        let source = game.state.objects.allocate(effect()).unwrap();
+        game.pressure_fighter_actors.flanker = Some(source);
+        while game.state.objects.len() < super::super::OBJECT_CAPACITY - 1 {
+            game.state.objects.allocate(effect()).unwrap();
+        }
+        game.state.audio.begin_tick();
+        let mut fire = PressureFighterFireEvents::default();
+        fire.push(PressureProjectileLaunch {
+            position: Vector3 { x: 0, y: -100, z: 12_000 },
+            pitch: Angle::ZERO, yaw: Angle::ZERO, roll: Angle::from_units(32),
+            strategy_frame: 0,
+        });
+        game.spawn_live_pressure_fighter_projectiles(0, Vector3::default(), fire).unwrap();
+        assert_eq!(game.state.objects.len(), super::super::OBJECT_CAPACITY);
+        let shot = game.state.objects.get(source).unwrap().base.linked_object.unwrap();
+        let projectile = game.state.objects.get(shot).unwrap();
+        assert_eq!(projectile.base.shape, ShapeId::EMPTY);
+        assert_eq!(projectile.base.linked_object, Some(source));
+        assert_eq!(projectile.base.speed, 0);
+        assert_eq!(projectile.base.roll, Angle::ZERO);
+        assert!(projectile.base.flags.remove_after_tick);
+        assert!(game.state.objects.get(transient).unwrap().base.flags.remove_after_tick);
+        assert!(!game.state.objects.get(tail).unwrap().base.flags.remove_after_tick);
+        assert!(game.live_pressure_fighter_projectiles.is_empty());
+        assert!(game.state.audio.take_events().into_iter().all(|cue| cue.is_none()));
+        // No free slot means failure even if the path would reject the range.
+        assert_eq!(
+            game.spawn_live_pressure_fighter_projectiles(0, Vector3::default(), fire),
+            Err(Error::ObjectCapacityReached),
+        );
+        game.update_objects();
+        assert!(game.state.objects.get(shot).is_none());
+        assert_eq!(game.state.objects.get(source).unwrap().base.linked_object, None);
+    }
+
+    #[test]
+    fn ordinary_laser_birth_uses_all_three_authored_difficulty_damage_values() {
+        for (difficulty, damage) in [(Difficulty::Normal, 2), (Difficulty::Hard, 3), (Difficulty::Expert, 4)] {
+            let mut game = Game::new();
+            game.state.campaign.difficulty = difficulty;
+            let source = game.state.objects.allocate(Object::new(
+                ObjectKind::Enemy, ShapeId::EMPTY, Behavior::EnemyFlight,
+            )).unwrap();
+            game.pressure_fighter_actors.flanker = Some(source);
+            let mut fire = PressureFighterFireEvents::default();
+            fire.push(PressureProjectileLaunch {
+                position: Vector3::default(), pitch: Angle::ZERO, yaw: Angle::ZERO,
+                roll: Angle::ZERO, strategy_frame: 0,
+            });
+            game.spawn_live_pressure_fighter_projectiles(0, Vector3::default(), fire).unwrap();
+            let shot = game.live_pressure_fighter_projectiles[0].object;
+            assert_eq!(game.state.objects.get(shot).unwrap().base.attack_power, damage);
+        }
     }
 
     #[test]
