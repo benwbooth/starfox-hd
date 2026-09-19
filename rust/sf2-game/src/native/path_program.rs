@@ -93,6 +93,9 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    DisableCollision {
+        next: PathCursor,
+    },
     Animation {
         command: super::path_appearance::AnimationCommand,
         next: PathCursor,
@@ -229,6 +232,9 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::DisableCollision { next } => {
+                    self.execute_disable_collision(objects, owner, next)
+                }
                 Statement::Animation { command, next } => {
                     self.execute_animation(objects, owner, command, next)
                 }
@@ -342,8 +348,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 1);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 5);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 2);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 13);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -380,6 +386,67 @@ mod tests {
             assert_eq!(actor.extension.texture_scroll_x, 0);
             assert_eq!(actor.base.position.x, 7 * (invocation + 1).min(2) as i16);
             assert_eq!(actor.base.flags.remove_after_tick, invocation == 2);
+        }
+        runtime.release_actor_programs(&mut objects, owner).unwrap();
+    }
+
+    #[test]
+    fn authored_color_cycle_sprite_waits_on_zero_then_cycles_before_retirement() {
+        use super::super::{authored_paths, path_appearance, path_motion};
+        let (mut runtime, mut objects, owner) = setup();
+        {
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::COLOR_CYCLE_SPRITE);
+            actor.base.hit_points = 10;
+            actor.base.hit_flags = 0x40;
+            actor.base.contacts.new_contact_latched = true;
+            actor.base.velocity.x = 7;
+        }
+        let catalog = authored_paths::catalog();
+        // INITCOL 0 / WAITONE supplies the first visible color. DO 7 then
+        // adds 1..7; the last NEXT completes and END retires without a yield.
+        for color in 0..8u8 {
+            let outcome = runtime
+                .enter_program(&catalog, &mut objects, owner, None, 8)
+                .unwrap();
+            assert_eq!(
+                outcome,
+                if color < 7 {
+                    ControlStep::Movement
+                } else {
+                    ControlStep::Ended
+                }
+            );
+            {
+                let actor = objects.get_mut(owner).unwrap();
+                path_appearance::publish_animation(actor, 133 + color);
+                assert_eq!(actor.extension.color_frame, color);
+                assert_eq!(actor.extension.animation_frame, 5 + color);
+                assert!(actor.base.flags.collision_disabled);
+                assert!(actor.base.flags.scaled_sprite);
+                assert_eq!(actor.base.hit_points, 10);
+                assert_eq!(actor.base.hit_flags, 0x40);
+                assert_eq!(actor.extension.depth_offset, 0);
+                assert_eq!(actor.extension.texture_scroll_x, 10);
+                if color == 0 {
+                    assert!(actor.base.contacts.new_contact_latched);
+                }
+            }
+            if outcome == ControlStep::Movement {
+                assert!(!runtime
+                    .begin_movement(
+                        &mut objects,
+                        owner,
+                        path_motion::PlayerDisplacement::default()
+                    )
+                    .unwrap());
+                runtime
+                    .finish_movement(&mut objects, &mut [None, None])
+                    .unwrap();
+            }
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(actor.base.position.x, 7 * i16::from((color + 1).min(7)));
+            assert_eq!(actor.base.flags.remove_after_tick, color == 7);
         }
         runtime.release_actor_programs(&mut objects, owner).unwrap();
     }

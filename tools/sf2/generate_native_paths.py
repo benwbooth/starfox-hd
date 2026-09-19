@@ -2,7 +2,7 @@
 """Lower reviewed complete source path graphs into typed native catalogs.
 
 No encoded operands or source-address lookup enter gameplay. The allow-list
-deliberately starts with one complete graph; unsupported statements abort the
+deliberately contains complete graphs only; unsupported statements abort the
 entire generation, rather than inserting placeholders or truncating a graph.
 """
 
@@ -20,7 +20,10 @@ from path_semantics import PATH_SEMANTICS
 REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
-ROOTS = (("ALTERNATE_EXHAUST", PathAddress(0xF536)),)
+ROOTS = (
+    ("ALTERNATE_EXHAUST", PathAddress(0xF536)),
+    ("COLOR_CYCLE_SPRITE", PathAddress(0xF593)),
+)
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
 
@@ -69,7 +72,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int):
                 raise UnsupportedPath(f"unexpected {name} edges at {command.address.label()}")
             return cursor(command.successors[0])
 
-        if name == "Sprite":
+        if name == "DisableCollision":
+            parameters(0)
+            statement = f"Statement::DisableCollision {{ next: {next_cursor()} }}"
+        elif name == "WaitOne":
+            parameters(0)
+            statement = f"Statement::Control(ControlCommand::WaitOne {{ next: {next_cursor()} }})"
+        elif name == "Sprite":
             color, size = parameters(2)
             statement = f"Statement::Sprite {{ color: {color}, size: {size}, next: {next_cursor()} }}"
         elif name == "DoQueue":

@@ -122,7 +122,7 @@ pub enum PathSemantic {
     SetRandomWord,
     IfHitFlag,
     ClearFlag21Bit01,
-    SetFlag21Bit01,
+    DisableCollision,
     QuickSpawn,
     UnlinkChild,
     IfProjectedSelectedForwardPointNegative,
@@ -3193,7 +3193,7 @@ pub static PATH_HANDLERS: [PathHandler; PATH_HANDLER_COUNT] = [
     PathHandler {
         opcode: 0x05C,
         address: 0x7F9A9F,
-        semantic: Some(PathSemantic::SetFlag21Bit01),
+        semantic: Some(PathSemantic::DisableCollision),
         effects: &PATH_EFFECTS_76,
         instruction_count: 4,
     },

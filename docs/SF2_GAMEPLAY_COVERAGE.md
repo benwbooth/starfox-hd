@@ -444,3 +444,11 @@ are separate from resolved rendering snapshots; publication takes an explicit
 world animation clock and never advances it. This is 1 of 106 discovered roots,
 not completed Game scheduling or source spawn integration. The static audit
 reports these counts separately and checks generated native catalog freshness.
+
+The colour-cycle sprite is the second complete lowered graph (13 statements
+across both roots). Static source identifies opcode 92 as collision disable:
+its actor flag is the same gate consumed by the existing collision queue.
+The eight-command graph preserves INITCOL 0's initial wait, the following
+seven-count loop, seven movement yields in total, and final no-movement END.
+Source naming now reflects that collision meaning. Remaining roots, Game
+scheduling, source spawning and shared-clock ownership are still open.

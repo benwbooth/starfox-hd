@@ -35,9 +35,23 @@ class NativePathGenerationTests(unittest.TestCase):
         _, statements = lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF536), 0)
         self.assertIn("color: 17, size: 201", statements[0])
 
+    def test_color_cycle_effect_preserves_initial_wait_and_seven_count_loop(self):
+        entry, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF593), 1)
+        self.assertEqual(entry, 0)
+        self.assertEqual(len(statements), 8)
+        self.assertIn("DisableCollision", statements[0])
+        self.assertIn("color: 0, size: 10", statements[1])
+        self.assertIn("Initialize", statements[2])
+        self.assertIn("value: 0", statements[2])
+        self.assertIn("WaitOne", statements[3])
+        self.assertIn("iterations: 7", statements[4])
+        self.assertIn("amount: 1, period: 8", statements[5])
+        self.assertIn("immediate: false", statements[6])
+        self.assertEqual(statements[7], "Statement::Control(ControlCommand::End)")
+
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
         with self.assertRaisesRegex(UnsupportedPath, "unsupported"):
-            lower_graph(PathExtractor(self.rom), PathAddress(0xF593), 1)
+            lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
 
 
 if __name__ == "__main__":

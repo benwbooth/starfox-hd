@@ -34,6 +34,10 @@ class PathAppearanceStaticTests(unittest.TestCase):
     def test_sprite_sets_actor_flag_and_two_existing_extension_channels(self):
         self.assert_source(0x7F99D5, "20 BC C4 8D B1 16 20 E0 C4 8D B3 16 B5 20 09 20 95 20 AD B1 16 9D C8 1C AD B3 16 9D DA 1C 4C BE CA")
 
+    def test_effect_collision_disable_is_the_existing_collision_queue_gate(self):
+        self.assert_source(0x7F9A9F, "B5 21 09 01 95 21 4C E8 CA")
+        self.assert_source(0x7F32CE, "B5 21 29 01 00 D0 60")
+
 
 if __name__ == "__main__":
     unittest.main()

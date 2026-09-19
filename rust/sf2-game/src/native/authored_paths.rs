@@ -13,32 +13,68 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
     }
 }
 pub const ALTERNATE_EXHAUST: PathCursor = cursor(0, 0);
-pub const LOWERED_ROOT_COUNT: usize = 1;
-pub const LOWERED_COMMAND_COUNT: usize = 5;
+pub const COLOR_CYCLE_SPRITE: PathCursor = cursor(1, 0);
+pub const LOWERED_ROOT_COUNT: usize = 2;
+pub const LOWERED_COMMAND_COUNT: usize = 13;
 pub fn catalog() -> PathCatalog {
-    PathCatalog::new(vec![vec![
-        Statement::Sprite {
-            color: 0,
-            size: 0,
-            next: cursor(0, 1),
-        },
-        Statement::Control(ControlCommand::BeginLoop {
-            iterations: 3,
-            next: cursor(0, 2),
-        }),
-        Statement::Animation {
-            command: AnimationCommand::Advance {
-                channel: AnimationChannel::Color,
-                amount: 1,
-                period: 2,
+    PathCatalog::new(vec![
+        vec![
+            Statement::Sprite {
+                color: 0,
+                size: 0,
+                next: cursor(0, 1),
             },
-            next: cursor(0, 3),
-        },
-        Statement::Control(ControlCommand::Next {
-            immediate: false,
-            next: cursor(0, 4),
-        }),
-        Statement::Control(ControlCommand::End),
-    ]])
+            Statement::Control(ControlCommand::BeginLoop {
+                iterations: 3,
+                next: cursor(0, 2),
+            }),
+            Statement::Animation {
+                command: AnimationCommand::Advance {
+                    channel: AnimationChannel::Color,
+                    amount: 1,
+                    period: 2,
+                },
+                next: cursor(0, 3),
+            },
+            Statement::Control(ControlCommand::Next {
+                immediate: false,
+                next: cursor(0, 4),
+            }),
+            Statement::Control(ControlCommand::End),
+        ],
+        vec![
+            Statement::DisableCollision { next: cursor(1, 1) },
+            Statement::Sprite {
+                color: 0,
+                size: 10,
+                next: cursor(1, 2),
+            },
+            Statement::Animation {
+                command: AnimationCommand::Initialize {
+                    channel: AnimationChannel::Color,
+                    value: 0,
+                },
+                next: cursor(1, 3),
+            },
+            Statement::Control(ControlCommand::WaitOne { next: cursor(1, 4) }),
+            Statement::Control(ControlCommand::BeginLoop {
+                iterations: 7,
+                next: cursor(1, 5),
+            }),
+            Statement::Animation {
+                command: AnimationCommand::Advance {
+                    channel: AnimationChannel::Color,
+                    amount: 1,
+                    period: 8,
+                },
+                next: cursor(1, 6),
+            },
+            Statement::Control(ControlCommand::Next {
+                immediate: false,
+                next: cursor(1, 7),
+            }),
+            Statement::Control(ControlCommand::End),
+        ],
+    ])
     .expect("generated catalog indices fit native cursors")
 }

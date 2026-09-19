@@ -1052,7 +1052,7 @@ impl PathVm {
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
-            SetFlag21Bit01 => {
+            DisableCollision => {
                 set_byte_bits(host, VAR_PATH_FLAGS, 0x01, true)?;
                 self.advance(command);
             }

@@ -103,7 +103,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x059, "SetRandomWord", 0x7F9A55, 109, "sf1_handler"),
     PathSemanticSpec(0x05A, "IfHitFlag", 0x7F9A79, 110, "sf1_handler"),
     PathSemanticSpec(0x05B, "ClearFlag21Bit01", 0x7F9A96, 111, "sf1_handler"),
-    PathSemanticSpec(0x05C, "SetFlag21Bit01", 0x7F9A9F, None, "sf2_handler"),
+    PathSemanticSpec(0x05C, "DisableCollision", 0x7F9A9F, None, "sf2_handler"),
     PathSemanticSpec(0x05D, "QuickSpawn", 0x7F91A3, 120, "sf1_handler"),
     PathSemanticSpec(0x05E, "UnlinkChild", 0x7F9474, 121, "sf1_handler"),
     PathSemanticSpec(0x05F, "IfProjectedSelectedForwardPointNegative", 0x7F8DF1, None, "sf2_handler"),
