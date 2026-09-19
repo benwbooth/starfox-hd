@@ -20001,13 +20001,16 @@ impl Game {
             .objects_destroyed
             .saturating_add(destroyed_objects);
 
-        let removals: Vec<_> = self
-            .state
-            .objects
-            .active_objects()
-            .filter_map(|(id, object)| object.base.flags.remove_after_tick.then_some(id))
-            .collect();
-        for id in removals {
+        // `$7F:403A..40B3` samples each retirement flag at its live-list
+        // visit. Parent retirement can mark a later child in this same pass;
+        // collecting only the initially marked actors would defer it a tick.
+        let mut cleanup_cursor = self.state.objects.active_ids().first().copied();
+        while let Some(id) = cleanup_cursor {
+            let object = self.state.objects.get(id).expect("live cleanup cursor");
+            cleanup_cursor = object.base.next;
+            if !object.base.flags.remove_after_tick {
+                continue;
+            }
             let defeated_pigma = self.pigma_rival == Some(id);
             let defeated_leon = self.leon_rival == Some(id);
             let defeated_final_rival = self.final_rival == Some(id);
@@ -36503,6 +36506,32 @@ mod tests {
         }
 
         assert!(game.mission_projectiles.is_empty());
+    }
+
+    #[test]
+    fn cleanup_visits_newly_marked_later_children_but_not_earlier_children_twice() {
+        for parent_first in [false, true] {
+            let mut game = Game::new();
+            game.state.objects = super::super::object::ObjectStore::new();
+            let object = || Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Effect);
+            let first = game.state.objects.allocate(object()).unwrap();
+            let second = game.state.objects.allocate_after(Some(first), object()).unwrap();
+            let (parent, child) = if parent_first { (first, second) } else { (second, first) };
+            let owner = game.state.objects.get_mut(parent).unwrap();
+            owner.base.flags.remove_after_tick = true;
+            owner.base.first_child = Some(child);
+            let dependent = game.state.objects.get_mut(child).unwrap();
+            dependent.extension.parent = Some(parent);
+            dependent.base.flags.remove_with_parent = true;
+            game.update_objects();
+            assert!(game.state.objects.get(parent).is_none());
+            assert_eq!(game.state.objects.get(child).is_none(), parent_first);
+            if !parent_first {
+                assert!(game.state.objects.get(child).unwrap().base.flags.remove_after_tick);
+                game.update_objects();
+                assert!(game.state.objects.get(child).is_none());
+            }
+        }
     }
 
     #[test]

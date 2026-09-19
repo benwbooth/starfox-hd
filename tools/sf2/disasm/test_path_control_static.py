@@ -315,6 +315,21 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F362C, "C2 20 AD 84 1B 89 02 00 E2 20 F0 03 4C 50 36")
         self.assert_source(0x7F3661, "AD D3 1C 89 01 D0 0B BD CC 1C F0 06 A0 3F 03 20 B8 36")
 
+    def test_retirement_detaches_children_then_clears_all_incoming_links(self):
+        self.assert_source(0x7F336A, "22 25 34 7F 22 B2 33 7F 22 4F 34 7F C2 20 22 CB 34 7F")
+        self.assert_source(0x7F3470, "B9 29 00 F0 17 C5 3C F0 03 A8 80 F4 B5 29 99 29 00")
+        self.assert_source(0x7F34A4, "B4 29 B5 23 29 FB 95 23 C2 20 A9 00 00 95 06")
+        self.assert_source(0x7F34B5, "B5 25 29 01 D0 04 5C C5 34 7F B5 25 09 08 95 25")
+        self.assert_source(0x7F34CB, "DA 8A AE A8 12 D5 1C D0 02 74 1C D5 06 D0 02 74 06 B4 00 BB D0 EF")
+        # Only after dependent services/link cleanup does the slot return to
+        # the free-list head, preserving last-freed-first reuse.
+        self.assert_source(0x7F339D, "AD AA 12 95 00 8E AA 12")
+
+    def test_cleanup_samples_live_flags_and_saves_next_before_retirement(self):
+        self.assert_source(0x7F4037, "AE A8 12 B5 25 29 08 D0 04 5C 54 40 7F")
+        self.assert_source(0x7F4044, "C2 20 B5 00 48 E2 20 22 46 33 7F 7A BB 4C B3 40")
+        self.assert_source(0x7F40B0, "9B B6 00 D0 85")
+
 
 if __name__ == "__main__":
     unittest.main()

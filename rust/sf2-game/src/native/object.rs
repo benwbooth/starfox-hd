@@ -907,6 +907,9 @@ pub struct ObjectFlags {
     /// Source transient-effect flag: retire this object when the final free
     /// slot is consumed, provided the pressure traversal reaches it.
     pub reclaim_on_pool_pressure: bool,
+    /// Attached child is marked for deferred removal when its owner retires
+    /// (`$7F:34B5..34C3`). Detachment alone does not free the child.
+    pub remove_with_parent: bool,
     pub remove_after_tick: bool,
 }
 
@@ -1113,8 +1116,12 @@ impl ObjectStore {
         }
     }
 
+    /// Retire the pool-owned record and its object relationships. Other
+    /// systems still own their contact entries, path callbacks, and scene
+    /// handles; those owners must release them as part of world retirement.
     pub fn remove(&mut self, id: ObjectId) -> Option<Object> {
         let position = self.active.iter().position(|candidate| *candidate == id)?;
+        self.detach_relationships(id);
         let object = self.slots.get_mut(id.index())?.take()?;
         let previous = object.base.previous;
         let next = object.base.next;
@@ -1131,6 +1138,51 @@ impl ObjectStore {
         self.active.remove(position);
         self.free.push(id);
         Some(object)
+    }
+
+    /// Source `$7F:344F..34E6`, expressed using the native split child/sibling
+    /// fields. Removing a child splices it out; removing an owner detaches
+    /// its children and marks only those with the authored lifetime flag.
+    /// Finally clear incoming interaction/attachment references BEFORE the
+    /// slot can be reused. A weapon's reciprocal link is not child ownership.
+    fn detach_relationships(&mut self, id: ObjectId) {
+        let object = self.get(id).expect("validated retiring actor");
+        let successor = object.base.next_sibling;
+        let mut child = object.base.first_child;
+        // Valid source chains are acyclic. Bound malformed imported/native
+        // chains by the pool capacity instead of risking an infinite loop.
+        for _ in 0..OBJECT_CAPACITY {
+            let Some(child_id) = child else { break };
+            let object = self
+                .get_mut(child_id)
+                .expect("child chain references a live actor");
+            child = object.base.next_sibling;
+            object.base.attachment = None;
+            object.extension.parent = None;
+            if object.base.flags.remove_with_parent {
+                object.base.flags.remove_after_tick = true;
+            }
+        }
+        assert!(child.is_none(), "cyclic child ownership chain");
+        for object in self.slots.iter_mut().flatten() {
+            if object.base.first_child == Some(id) {
+                object.base.first_child = successor;
+            }
+            if object.base.next_sibling == Some(id) {
+                object.base.next_sibling = successor;
+            }
+            if object.base.linked_object == Some(id) {
+                object.base.linked_object = None;
+            }
+            if object.base.attachment == Some(id) {
+                object.base.attachment = None;
+            }
+            // Some native authored actors keep their attachment owner in
+            // the extension's named parent field rather than base attachment.
+            if object.extension.parent == Some(id) {
+                object.extension.parent = None;
+            }
+        }
     }
 
     pub fn get(&self, id: ObjectId) -> Option<&Object> {
@@ -1265,6 +1317,95 @@ mod tests {
         assert_ne!(first_lifetime.render_id(), replacement_lifetime.render_id());
         assert_eq!(first_lifetime.slot(), replacement_lifetime.slot());
         assert_eq!(replacement_lifetime.generation(), 2);
+    }
+
+    #[test]
+    fn retirement_clears_incoming_links_before_slot_reuse() {
+        let mut objects = ObjectStore::new();
+        let target = objects.allocate(effect()).unwrap();
+        let unrelated = objects.allocate(effect()).unwrap();
+        let mut follower = effect();
+        follower.base.attachment = Some(target);
+        follower.base.linked_object = Some(target);
+        follower.extension.parent = Some(target);
+        let follower = objects.allocate(follower).unwrap();
+        let mut preserved = effect();
+        preserved.base.linked_object = Some(unrelated);
+        let preserved = objects.allocate(preserved).unwrap();
+        objects.remove(target).unwrap();
+        assert_eq!(objects.allocate(effect()), Some(target));
+        let follower = objects.get(follower).unwrap();
+        assert_eq!(follower.base.attachment, None);
+        assert_eq!(follower.base.linked_object, None);
+        assert_eq!(follower.extension.parent, None);
+        assert_eq!(
+            objects.get(preserved).unwrap().base.linked_object,
+            Some(unrelated)
+        );
+    }
+
+    #[test]
+    fn retirement_splices_first_middle_and_last_children() {
+        for removed_index in 0..3 {
+            let mut objects = ObjectStore::new();
+            let parent = objects.allocate(effect()).unwrap();
+            let children: Vec<_> = (0..3)
+                .map(|_| objects.allocate(effect()).unwrap())
+                .collect();
+            objects.get_mut(parent).unwrap().base.first_child = Some(children[0]);
+            for (index, child) in children.iter().copied().enumerate() {
+                let object = objects.get_mut(child).unwrap();
+                object.extension.parent = Some(parent);
+                object.base.next_sibling = children.get(index + 1).copied();
+            }
+            objects.remove(children[removed_index]).unwrap();
+            let expected: Vec<_> = children
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, child)| (index != removed_index).then_some(child))
+                .collect();
+            let mut cursor = objects.get(parent).unwrap().base.first_child;
+            for child in expected {
+                assert_eq!(cursor, Some(child));
+                let object = objects.get(child).unwrap();
+                assert_eq!(object.extension.parent, Some(parent));
+                cursor = object.base.next_sibling;
+            }
+            assert_eq!(cursor, None);
+        }
+    }
+
+    #[test]
+    fn parent_retirement_detaches_children_and_only_marks_owned_lifetimes() {
+        let mut objects = ObjectStore::new();
+        let parent = objects.allocate(effect()).unwrap();
+        let survivor = objects.allocate(effect()).unwrap();
+        let dependent = objects.allocate(effect()).unwrap();
+        let grandchild = objects.allocate(effect()).unwrap();
+        objects.get_mut(parent).unwrap().base.first_child = Some(survivor);
+        objects.get_mut(survivor).unwrap().base.next_sibling = Some(dependent);
+        for child in [survivor, dependent] {
+            let object = objects.get_mut(child).unwrap();
+            object.base.attachment = Some(parent);
+            object.extension.parent = Some(parent);
+        }
+        let object = objects.get_mut(dependent).unwrap();
+        object.base.flags.remove_with_parent = true;
+        object.base.first_child = Some(grandchild);
+        objects.get_mut(grandchild).unwrap().extension.parent = Some(dependent);
+        objects.remove(parent).unwrap();
+        assert_eq!(objects.len(), 3, "marking is not recursive freeing");
+        assert!(!objects.get(survivor).unwrap().base.flags.remove_after_tick);
+        assert!(objects.get(dependent).unwrap().base.flags.remove_after_tick);
+        for child in [survivor, dependent] {
+            let object = objects.get(child).unwrap();
+            assert_eq!(object.base.attachment, None);
+            assert_eq!(object.extension.parent, None);
+        }
+        assert_eq!(
+            objects.get(grandchild).unwrap().extension.parent,
+            Some(dependent)
+        );
     }
 
     #[test]
