@@ -515,3 +515,16 @@ missing children, and malformed-chain errors. The older verification host's
 auxiliary action-byte read was corrected independently from mode mutation.
 The Game scheduler/spawn adapter remains open; this milestone establishes
 static lowering and typed path execution, not complete gameplay integration.
+
+The child-attachment service now ports the source tail append independently
+of active-list allocation. Spawn-parent selection follows exactly one mother
+link when the caller's attached-coordinate flag is set; it does not use the
+child-refresh flag or recursively seek a root. Attaching sets the authored
+identifier and attachment/lifetime flags without changing world pose,
+extension parent, resources or active ordering. Tests exercise empty and
+nonempty chains, zero/duplicate identifiers, the reversed active insertion
+order, subsequent unlinking, and explicit malformed-chain diagnostics.
+Verification passes 127 native path release tests and 125 source-byte checks.
+This is a prerequisite service, not yet a lowered SpawnChild command: fresh
+object defaults, operand evaluation, failure handling, inherited state and
+child-program graph closure still need their complete port.

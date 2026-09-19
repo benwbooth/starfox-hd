@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Child lookup/detachment contracts from static source bytes only."""
+"""Child attachment/lookup/detachment contracts from static source bytes only."""
 
 from pathlib import Path
 import unittest
@@ -20,6 +20,12 @@ class PathRelationshipsStaticTests(unittest.TestCase):
 
     def test_child_lookup_walks_in_order_and_compares_full_number_byte(self):
         self.assert_source(0x7F2A7B, "8D 2A 19 DA B4 29 F0 0B B9 13 00 CD 2A 19 F0 03 BB 80 F1 FA 6B")
+
+    def test_attach_sets_number_and_mother_appends_at_tail_then_sets_flags(self):
+        self.assert_source(0x7F2A3D, "85 5F A5 5F 99 13 00 96 06 C2 20 A9 00 00 99 29 00 E2 20 C2 20 84 3A 8A A8 B9 29 00 D0 FA A5 3A 99 29 00 A4 3A E2 20 B5 23 09 10 95 23 B9 23 00 09 04 99 23 00 B9 25 00 09 01 99 25 00 6B")
+
+    def test_child_spawn_selects_mother_only_when_attached_and_links_only_on_success(self):
+        self.assert_source(0x7F90BB, "B5 23 29 04 D0 04 5C C8 90 7F B4 06 BB C2 20 AD B7 16 85 5F E2 20 22 17 2A 7F B0 04 5C 2B 91 7F AD B9 16 22 3D 2A 7F")
 
     def test_self_unlink_flag_gate_and_flags_clear_before_chain_search(self):
         self.assert_source(0x7F9435, "B5 23 29 04 D0 04 5C E8 CA 7F B4 06 B5 23 29 FB 95 23 B5 25 29 FE 95 25 C2 20 86 3C 5A B9 29 00 F0 17 C5 3C F0 03 A8 80 F4 B5 29 99 29 00 A9 00 00 95 06 95 29 E2 20 95 13 7A E2 20 4C E8 CA")
