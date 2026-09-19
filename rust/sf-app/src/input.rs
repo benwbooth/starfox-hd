@@ -32,6 +32,12 @@ const KEY_MAP: &[(Scancode, u16)] = &[
 
 /// Analog stick deadzone (C `DEADZONE`, sf_rtl.c:111).
 const STICK_DEADZONE: i16 = 8000;
+
+fn axis_magnitude_exceeds(value: i16, threshold: u16) -> bool {
+    // SDL axes include -32768, whose magnitude cannot fit in an i16.
+    value.unsigned_abs() > threshold
+}
+
 const SF1_FRONT_END_CONFIRM_CADENCE_TICKS: u32 = 60;
 /// Last periodic confirmation after Training exits and GAME is selected.
 const SF1_PRESENTATION_LAST_CONFIRM_TICK: u32 = 540;
@@ -238,7 +244,7 @@ impl Input {
                     (Axis::TriggerRight, "RT"),
                 ] {
                     let v = gp.axis(a);
-                    if v.abs() > 6000 {
+                    if axis_magnitude_exceeds(v, 6000) {
                         let _ = write!(s, "{name}={v} ");
                     }
                 }
@@ -264,7 +270,7 @@ impl Input {
             // keyboard still work).
             let rx = gp.axis(Axis::RightX);
             let ry = gp.axis(Axis::RightY);
-            let saturated = |v: i16| v.abs() > 30000;
+            let saturated = |v: i16| axis_magnitude_exceeds(v, 30000);
             let axes_garbage = (saturated(lx) && saturated(rx))
                 || (saturated(ly) && saturated(ry))
                 || (saturated(lx) && saturated(ly) && saturated(rx) && saturated(ry));
@@ -405,6 +411,20 @@ impl Input {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn controller_axis_magnitude_handles_the_full_sdl_range() {
+        for threshold in [6000, 30000] {
+            for value in i16::MIN..=i16::MAX {
+                assert_eq!(
+                    axis_magnitude_exceeds(value, threshold),
+                    i32::from(value).abs() > i32::from(threshold),
+                    "axis={value} threshold={threshold}",
+                );
+            }
+        }
+        assert!(axis_magnitude_exceeds(i16::MIN, 30000));
+    }
 
     /// C AutoplayPad table check without SDL state: replicate the formula.
     #[test]
