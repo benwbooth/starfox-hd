@@ -6,7 +6,7 @@
 
 mod native;
 
-pub use native::{authored_paths, path_appearance, path_program};
+pub use native::{authored_paths, path_appearance, path_program, path_random};
 pub use native::{
     attachments, collision_boxes, collision_contacts, collision_math, collision_pass,
     collision_surface, hit_response, hostile_laser_control, path_calls, path_commands,

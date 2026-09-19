@@ -2,8 +2,12 @@
 //! Complete statically lowered source paths. This is an explicit subset,
 //! not a fallback catalog for paths that have not been ported.
 use super::path_appearance::{AnimationChannel, AnimationCommand};
-use super::path_commands::ControlCommand;
-use super::path_program::{PathCatalog, Statement};
+use super::path_commands::{ControlCommand, MotionCommand};
+use super::path_fields::{
+    Axis, ByteField, ByteOperand, ByteOperation, BytePart, Mutation, WordField, WordOperation,
+};
+use super::path_program::{ActorCondition, PathCatalog, Statement};
+use super::path_random::RandomMutation;
 use super::{PathCursor, PathId};
 
 const fn cursor(path: u16, command_index: u16) -> PathCursor {
@@ -14,8 +18,9 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
 }
 pub const ALTERNATE_EXHAUST: PathCursor = cursor(0, 0);
 pub const COLOR_CYCLE_SPRITE: PathCursor = cursor(1, 0);
-pub const LOWERED_ROOT_COUNT: usize = 2;
-pub const LOWERED_COMMAND_COUNT: usize = 13;
+pub const RANDOMIZED_COLOR_PARTICLE: PathCursor = cursor(2, 0);
+pub const LOWERED_ROOT_COUNT: usize = 3;
+pub const LOWERED_COMMAND_COUNT: usize = 25;
 pub fn catalog() -> PathCatalog {
     PathCatalog::new(vec![
         vec![
@@ -72,6 +77,86 @@ pub fn catalog() -> PathCatalog {
             Statement::Control(ControlCommand::Next {
                 immediate: false,
                 next: cursor(1, 7),
+            }),
+            Statement::Control(ControlCommand::End),
+        ],
+        vec![
+            Statement::Sprite {
+                color: 0,
+                size: 0,
+                next: cursor(2, 1),
+            },
+            Statement::Random {
+                mutation: RandomMutation::AddCenteredWord {
+                    field: WordField::Position(Axis::X),
+                    mask: 15,
+                },
+                next: cursor(2, 2),
+            },
+            Statement::Random {
+                mutation: RandomMutation::AddCenteredWord {
+                    field: WordField::Position(Axis::Y),
+                    mask: 15,
+                },
+                next: cursor(2, 3),
+            },
+            Statement::Random {
+                mutation: RandomMutation::AddCenteredWord {
+                    field: WordField::Position(Axis::Z),
+                    mask: 15,
+                },
+                next: cursor(2, 4),
+            },
+            Statement::Control(ControlCommand::BeginLoop {
+                iterations: 8,
+                next: cursor(2, 5),
+            }),
+            Statement::Motion {
+                command: MotionCommand::AccelerateTo {
+                    target: 0,
+                    amount: 5,
+                },
+                next: cursor(2, 6),
+            },
+            Statement::Animation {
+                command: AnimationCommand::Advance {
+                    channel: AnimationChannel::Color,
+                    amount: 1,
+                    period: 8,
+                },
+                next: cursor(2, 7),
+            },
+            Statement::Mutate {
+                mutation: Mutation::Byte {
+                    field: ByteField::WordPart {
+                        field: WordField::MotionPhase,
+                        part: BytePart::Low,
+                    },
+                    operation: ByteOperation::Increment,
+                },
+                next: cursor(2, 8),
+            },
+            Statement::Compare {
+                condition: ActorCondition::EqualByte(
+                    ByteOperand::Actor(ByteField::WordPart {
+                        field: WordField::MotionPhase,
+                        part: BytePart::Low,
+                    }),
+                    ByteOperand::Literal(7),
+                ),
+                taken: cursor(2, 11),
+                next: cursor(2, 9),
+            },
+            Statement::Mutate {
+                mutation: Mutation::Word {
+                    field: WordField::Velocity(Axis::Y),
+                    operation: WordOperation::Decrement,
+                },
+                next: cursor(2, 10),
+            },
+            Statement::Control(ControlCommand::Next {
+                immediate: false,
+                next: cursor(2, 11),
             }),
             Statement::Control(ControlCommand::End),
         ],

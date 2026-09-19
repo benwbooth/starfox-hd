@@ -15,6 +15,9 @@ use super::{Behavior, Object, ObjectId, ObjectStore, PathCursor};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActorPathState {
     pub animation: super::path_appearance::AnimationChannels,
+    /// Retained motion phase word (source extension 1CE2). Some paths use its
+    /// low byte as a phase counter; player motion also uses it as an angle.
+    pub motion_phase: u16,
     /// PATHHOLD sets source actor flag 09 bit 08 and retains its cursor.
     pub hold_latched: bool,
     pub motion: super::path_motion::MotionSettings,

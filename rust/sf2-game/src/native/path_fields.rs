@@ -32,6 +32,7 @@ impl Axis {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WordField {
+    MotionPhase,
     Position(Axis),
     Velocity(Axis),
     RelativePosition(Axis),
@@ -40,6 +41,7 @@ pub enum WordField {
 impl WordField {
     pub fn read(self, actor: &Object) -> u16 {
         (match self {
+            Self::MotionPhase => actor.extension.path_state.motion_phase as i16,
             Self::Position(axis) => axis.get(actor.base.position),
             Self::Velocity(axis) => axis.get(actor.base.velocity),
             Self::RelativePosition(axis) => axis.get(actor.extension.relative_position),
@@ -48,6 +50,7 @@ impl WordField {
 
     pub fn write(self, actor: &mut Object, value: u16) {
         match self {
+            Self::MotionPhase => actor.extension.path_state.motion_phase = value,
             Self::Position(axis) => axis.set(&mut actor.base.position, value as i16),
             Self::Velocity(axis) => axis.set(&mut actor.base.velocity, value as i16),
             Self::RelativePosition(axis) => {

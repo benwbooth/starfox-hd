@@ -452,3 +452,15 @@ The eight-command graph preserves INITCOL 0's initial wait, the following
 seven-count loop, seven movement yields in total, and final no-movement END.
 Source naming now reflects that collision meaning. Remaining roots, Game
 scheduling, source spawning and shared-clock ownership are still open.
+
+The randomized colour particle is the third complete lowered graph, bringing
+the native catalog to 25 statements. Its three centered word mutations draw
+from the world's borrowed RNG, first byte high then second byte low, including
+when masks are zero. The retained motion-phase word's low-byte counter aliases
+the actual motion field, preserves its high byte, and is distinct from the
+platform's saved yaw. Literal comparisons retain both source graph edges.
+The complete regression consumes six random bytes once, runs six movement
+yields from phase zero, and takes the phase-seven early END without a final
+move; the next actor continues the same random stream. Dispatcher world inputs
+now also supply the animation clock for resolving presentation snapshots.
+This remains three statically lowered roots, not production Game scheduling.

@@ -6,7 +6,7 @@ import unittest
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    generate, lower_graph,
+    byte_field, generate, lower_graph, word_field,
 )
 
 
@@ -52,6 +52,23 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
         with self.assertRaisesRegex(UnsupportedPath, "unsupported"):
             lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
+
+    def test_particle_fields_are_named_and_unknown_encodings_are_rejected(self):
+        self.assertEqual(word_field(0x34), "WordField::Velocity(Axis::Y)")
+        self.assertIn("WordField::MotionPhase", byte_field(0xA1))
+        self.assertIn("BytePart::Low", byte_field(0xA1))
+        self.assertIn("BytePart::High", byte_field(0xA2))
+        for field in (word_field, byte_field):
+            with self.assertRaises(UnsupportedPath):
+                field(0x80)
+
+    def test_particle_branch_uses_literal_target_not_sorted_successor_order(self):
+        entry, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF294), 2)
+        self.assertEqual(entry, 0)
+        self.assertEqual(len(statements), 12)
+        self.assertIn("taken: cursor(2, 11), next: cursor(2, 9)", statements[8])
+        self.assertIn("MotionCommand::AccelerateTo { target: 0, amount: 5 }", statements[5])
+        self.assertIn("WordField::Velocity(Axis::Y)", statements[9])
 
 
 if __name__ == "__main__":

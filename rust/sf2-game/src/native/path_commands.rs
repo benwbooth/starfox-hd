@@ -117,6 +117,26 @@ pub enum BranchCommand {
 }
 
 impl PathRuntime {
+    pub fn execute_random(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        random: &mut super::RandomState,
+        mutation: super::path_random::RandomMutation,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let actor = objects
+            .get_mut(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        mutation.apply(actor, random);
+        actor.base.path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     /// Source `$7F:9A9F` sets the flag tested by the collision queue at
     /// `$7F:32CE`; no contact-latch clearing or retirement is implied.
     pub fn execute_disable_collision(

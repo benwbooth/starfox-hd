@@ -23,12 +23,40 @@ OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 ROOTS = (
     ("ALTERNATE_EXHAUST", PathAddress(0xF536)),
     ("COLOR_CYCLE_SPRITE", PathAddress(0xF593)),
+    ("RANDOMIZED_COLOR_PARTICLE", PathAddress(0xF294)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
 
 class UnsupportedPath(ValueError):
     pass
+
+
+def word_field(variable: int) -> str:
+    # CB47 maps these authored operands to the existing actor words. Numeric
+    # encodings stop here: generated gameplay statements name actual fields.
+    fields = {
+        0x0C: "WordField::Position(Axis::X)",
+        0x0E: "WordField::Position(Axis::Y)",
+        0x10: "WordField::Position(Axis::Z)",
+        0x32: "WordField::Velocity(Axis::X)",
+        0x34: "WordField::Velocity(Axis::Y)",
+        0x36: "WordField::Velocity(Axis::Z)",
+        0xA1: "WordField::MotionPhase",
+    }
+    if variable not in fields:
+        raise UnsupportedPath(f"unported word operand {variable:02X}")
+    return fields[variable]
+
+
+def byte_field(variable: int) -> str:
+    # Each pair aliases one actual typed word; it must not create a separate
+    # particle counter or independent byte shadow of the motion phase.
+    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0xA1):
+        if variable in (base, base + 1):
+            part = "Low" if variable == base else "High"
+            return f"ByteField::WordPart {{ field: {word_field(base)}, part: BytePart::{part} }}"
+    raise UnsupportedPath(f"unported byte operand {variable:02X}")
 
 
 def graph(extractor: PathExtractor, root: PathAddress) -> list[PathCommand]:
@@ -72,7 +100,36 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int):
                 raise UnsupportedPath(f"unexpected {name} edges at {command.address.label()}")
             return cursor(command.successors[0])
 
-        if name == "DisableCollision":
+        def branch_cursors(target):
+            fallthrough = PathAddress((command.address.offset + len(raw)) & 0xFFFF)
+            destination = PathAddress(target)
+            if set(command.successors) != {fallthrough, destination}:
+                raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
+            return cursor(destination), cursor(fallthrough)
+
+        if name in ("SetRandomByte", "SetRandomWord", "AddCenteredRandomByte", "AddCenteredRandomWord"):
+            wide = name.endswith("Word")
+            operands = parameters(3 if wide else 2)
+            field = word_field(operands[0]) if wide else byte_field(operands[0])
+            mask = int.from_bytes(operands[1:], "little")
+            operation = ("Assign" if name.startswith("Set") else "AddCentered") + ("Word" if wide else "Byte")
+            statement = f"Statement::Random {{ mutation: RandomMutation::{operation} {{ field: {field}, mask: {mask} }}, next: {next_cursor()} }}"
+        elif name in ("IncrementByte", "DecrementWord"):
+            variable, = parameters(1)
+            if name == "IncrementByte":
+                mutation = f"Mutation::Byte {{ field: {byte_field(variable)}, operation: ByteOperation::Increment }}"
+            else:
+                mutation = f"Mutation::Word {{ field: {word_field(variable)}, operation: WordOperation::Decrement }}"
+            statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
+        elif name == "IfSameByte":
+            variable, expected, low, high = parameters(4)
+            taken, next_ = branch_cursors(low | (high << 8))
+            condition = f"ActorCondition::EqualByte(ByteOperand::Actor({byte_field(variable)}), ByteOperand::Literal({expected}))"
+            statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
+        elif name == "SetObjectBytes0a0b":
+            target, amount = parameters(2)
+            statement = f"Statement::Motion {{ command: MotionCommand::AccelerateTo {{ target: {target}, amount: {amount} }}, next: {next_cursor()} }}"
+        elif name == "DisableCollision":
             parameters(0)
             statement = f"Statement::DisableCollision {{ next: {next_cursor()} }}"
         elif name == "WaitOne":
@@ -124,8 +181,10 @@ def generate(rom: bytes) -> str:
 //! Complete statically lowered source paths. This is an explicit subset,
 //! not a fallback catalog for paths that have not been ported.
 use super::path_appearance::{AnimationChannel, AnimationCommand};
-use super::path_commands::ControlCommand;
-use super::path_program::{PathCatalog, Statement};
+use super::path_commands::{ControlCommand, MotionCommand};
+use super::path_fields::{Axis, ByteField, ByteOperand, ByteOperation, BytePart, Mutation, WordField, WordOperation};
+use super::path_program::{ActorCondition, PathCatalog, Statement};
+use super::path_random::RandomMutation;
 use super::{PathCursor, PathId};
 
 const fn cursor(path: u16, command_index: u16) -> PathCursor {
