@@ -216,3 +216,16 @@ callbacks cannot allocate the retiring slot, while its programs and child links
 are still available. Five proxy tests, three retirement tests and six source
 checks cover this checkpoint; production world ownership and program-allocation
 adapters remain to be connected.
+
+`native/program_resources.rs` now ports shared resource capacity, first-fit
+free-list priority, high-end allocation, the six-byte whole-block threshold,
+adjacent coalescing, and newest-first actor ownership release. Payloads remain
+typed Rust values; no source addresses or byte storage are exposed. Six
+synthetic allocator tests and six assembly-byte checks cover this layer; the
+three retirement tests now use this resource pool rather than unconstrained
+callback vectors. Debug/release tests, architecture checks, and the app build
+pass. The source's empty-free-list branch returns a nonzero cost as though it
+were an allocation; this malformed-source-state case is explicitly reported
+as `EmptyFreeList`, not silently treated as a valid resource. Descriptor
+construction, resize/copy semantics, and production world integration remain
+open. These results do not claim live gameplay completion.

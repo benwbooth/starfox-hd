@@ -57,6 +57,7 @@ mod tests {
     use super::*;
     use crate::collision_contacts::{Contact, ContactId, ContactStore};
     use crate::hit_response::HitCallback;
+    use crate::program_resources::ProgramResources;
     use crate::{Behavior, ObjectKind, PathCursor, PathId, ShapeId, OBJECT_CAPACITY};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,7 +70,7 @@ mod tests {
         objects: ObjectStore,
         proxies: SceneProxyStore,
         contacts: ContactStore,
-        programs: Vec<Vec<HitCallback>>,
+        programs: ProgramResources<HitCallback>,
         owner: ObjectId,
         other: ObjectId,
         child: ObjectId,
@@ -111,6 +112,17 @@ mod tests {
                 .unwrap();
             let mut contacts = ContactStore::default();
             contacts.record_pair(owner, other, [None, None]).unwrap();
+            let mut programs = ProgramResources::default();
+            // Synthetic typed callback records compete for the real shared
+            // resource capacity; source descriptor decoding is separate.
+            const TEST_CALLBACK_COST: u16 = 6;
+            for &actor in objects.active_ids() {
+                for callback in [HitCallback::NewContact, HitCallback::ContinuingContact] {
+                    programs
+                        .allocate_owned(actor, TEST_CALLBACK_COST, callback)
+                        .unwrap();
+                }
+            }
             Self {
                 objects,
                 proxies,
@@ -118,10 +130,7 @@ mod tests {
                 owner,
                 other,
                 child,
-                programs: vec![
-                    vec![HitCallback::NewContact, HitCallback::ContinuingContact];
-                    OBJECT_CAPACITY
-                ],
+                programs,
                 events: Vec::new(),
                 fail_separation: false,
                 allocation_during_callback: Vec::new(),
@@ -146,7 +155,7 @@ mod tests {
                 self.objects.get(self.owner).unwrap().extension.scene_proxy,
                 None
             );
-            assert!(!self.programs[self.owner.index()].is_empty());
+            assert_eq!(self.programs.owner_count(self.owner), 2);
             let proxy = self.proxies.get(self.proxies.active_ids()[0]).unwrap();
             assert_eq!(proxy.owner, None);
             assert!(proxy.flags.actor_retired());
@@ -185,7 +194,10 @@ mod tests {
                 self.objects.get(self.other).unwrap().base.linked_object,
                 None
             );
-            self.programs[owner.index()].clear();
+            assert_eq!(
+                self.programs.release_owner(owner),
+                [HitCallback::ContinuingContact, HitCallback::NewContact]
+            );
             Ok(())
         }
     }
@@ -216,7 +228,8 @@ mod tests {
                 .remove_after_tick
         );
         assert_eq!(world.proxies.len(), 1);
-        assert!(world.programs[owner.index()].is_empty());
+        assert_eq!(world.programs.owner_count(owner), 0);
+        assert_eq!(world.programs.owner_count(world.other), 2);
         let replacement = world.objects.allocate(effect()).unwrap();
         assert_eq!(replacement, owner);
         assert_ne!(world.objects.lifetime_id(replacement), Some(old_lifetime));
@@ -236,7 +249,7 @@ mod tests {
         assert_eq!(world.events, [Event::Separate(owner)]);
         assert_eq!(world.objects.len(), OBJECT_CAPACITY);
         assert_eq!(world.contacts.len(), 2);
-        assert!(!world.programs[owner.index()].is_empty());
+        assert_eq!(world.programs.owner_count(owner), 2);
         assert_eq!(
             world.objects.get(world.child).unwrap().extension.parent,
             Some(owner)
