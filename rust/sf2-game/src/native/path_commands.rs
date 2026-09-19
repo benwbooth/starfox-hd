@@ -93,6 +93,15 @@ pub enum MotionCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BranchCommand {
+    HitFlags {
+        mask: u8,
+        taken: PathCursor,
+        next: PathCursor,
+    },
+    HitEvent {
+        taken: PathCursor,
+        next: PathCursor,
+    },
     InvertNext {
         next: PathCursor,
     },
@@ -118,6 +127,24 @@ impl PathRuntime {
             return Err(PathRuntimeError::MissingPath(owner));
         }
         let next = match command {
+            BranchCommand::HitFlags { mask, taken, next } => {
+                // `$7F:9A79`: the operand is a literal mask, not a bit index.
+                // Only a successful test clears the masked hit flags.
+                if actor.base.hit_flags & mask != 0 {
+                    actor.base.hit_flags &= !mask;
+                    taken
+                } else {
+                    next
+                }
+            }
+            BranchCommand::HitEvent { taken, next } => {
+                // `$7F:9507`: shares the event latch with hit callbacks.
+                if std::mem::take(&mut actor.extension.path_state.conditions.hit_event_pending) {
+                    taken
+                } else {
+                    next
+                }
+            }
             BranchCommand::InvertNext { next } => {
                 self.branch.invert_next_condition();
                 next
@@ -532,6 +559,72 @@ mod tests {
             Err(PathRuntimeError::MissingPath(other))
         );
         assert!(!runtime.branch.invert_next);
+    }
+
+    #[test]
+    fn hit_branches_consume_only_their_own_latches_and_leave_inversion_pending() {
+        let (mut runtime, mut objects, owner) = setup();
+        runtime.branch.invert_next = true;
+        objects.get_mut(owner).unwrap().base.hit_flags = 0b1011;
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .conditions
+            .hit_event_pending = true;
+        for (mask, expected_path, expected_flags) in
+            [(0, 2, 11), (5, 1, 10), (5, 2, 10), (10, 1, 0)]
+        {
+            assert_eq!(
+                runtime
+                    .execute_branch(
+                        &mut objects,
+                        owner,
+                        BranchCommand::HitFlags {
+                            mask,
+                            taken: cursor(1),
+                            next: cursor(2),
+                        }
+                    )
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            assert_eq!(
+                objects.get(owner).unwrap().base.path,
+                Some(cursor(expected_path))
+            );
+            assert_eq!(objects.get(owner).unwrap().base.hit_flags, expected_flags);
+            assert!(
+                objects
+                    .get(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .conditions
+                    .hit_event_pending
+            );
+        }
+        for expected_path in [3, 4] {
+            assert_eq!(
+                runtime
+                    .execute_branch(
+                        &mut objects,
+                        owner,
+                        BranchCommand::HitEvent {
+                            taken: cursor(3),
+                            next: cursor(4),
+                        }
+                    )
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            assert_eq!(
+                objects.get(owner).unwrap().base.path,
+                Some(cursor(expected_path))
+            );
+        }
+        assert!(runtime.branch.invert_next);
     }
 
     #[test]

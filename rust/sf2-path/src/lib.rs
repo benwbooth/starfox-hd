@@ -190,9 +190,9 @@ pub enum Sf2PathOperation {
 pub enum Sf2PathCondition {
     HitGround { offset: u16 },
     ProjectedSelectedPointNegative,
-    SelectedLeftOfObject,
+    SelectedAtOrBelowObject,
     ProjectedSelectedForwardPointNegative,
-    SelectedBelowObject,
+    SelectedAboveObject,
     SelectedOrCurrentAuxState,
     SelectedAuxiliaryMapCellOccupied,
     SelectedAuxiliaryFlag04Clear,
@@ -2301,19 +2301,19 @@ impl PathVm {
                 }
             }
             IfProjectedSelectedPointNegative
-            | IfSelectedLeftOfObject
+            | IfSelectedAtOrBelowObject
             | IfProjectedSelectedForwardPointNegative
-            | IfSelectedBelowObject
+            | IfSelectedAboveObject
             | IfSelectedOrCurrentAuxState => {
                 let condition = match semantic {
                     IfProjectedSelectedPointNegative => {
                         Sf2PathCondition::ProjectedSelectedPointNegative
                     }
-                    IfSelectedLeftOfObject => Sf2PathCondition::SelectedLeftOfObject,
+                    IfSelectedAtOrBelowObject => Sf2PathCondition::SelectedAtOrBelowObject,
                     IfProjectedSelectedForwardPointNegative => {
                         Sf2PathCondition::ProjectedSelectedForwardPointNegative
                     }
-                    IfSelectedBelowObject => Sf2PathCondition::SelectedBelowObject,
+                    IfSelectedAboveObject => Sf2PathCondition::SelectedAboveObject,
                     IfSelectedOrCurrentAuxState => Sf2PathCondition::SelectedOrCurrentAuxState,
                     _ => unreachable!(),
                 };
@@ -2384,8 +2384,7 @@ impl PathVm {
                 self.advance(command);
             }
             IfHitFlag => {
-                let index = operand_byte(command, 3);
-                let mask = variable_bit_mask(command.address, index)? as u8;
+                let mask = operand_byte(command, 3);
                 let flags = host.read_variable_byte(0x38).map_err(PathVmError::Host)?;
                 if flags & mask != 0 {
                     host.write_variable_byte(0x38, flags & !mask)

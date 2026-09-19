@@ -1417,13 +1417,22 @@ impl Game {
         )
     }
 
-    fn contract_radius_position(&self, current: u16, target: u16, amount: i8) -> crate::native::Vector3 {
+    fn contract_radius_position(
+        &self,
+        current: u16,
+        target: u16,
+        amount: i8,
+    ) -> crate::native::Vector3 {
         let position = |object| crate::native::Vector3 {
             x: self.object_word(object, FIELD_X),
             y: self.object_word(object, FIELD_Y),
             z: self.object_word(object, FIELD_Z),
         };
-        crate::native::path_math::change_radius(position(current), position(target), i16::from(amount))
+        crate::native::path_math::change_radius(
+            position(current),
+            position(target),
+            i16::from(amount),
+        )
     }
 
     fn face_object(&mut self, target: u16, smooth_shift: Option<u32>) -> Result<(), Error> {
@@ -3384,7 +3393,7 @@ impl Sf2PathHost for Game {
             Sf2PathCondition::HitGround { offset } => {
                 self.object_word(current, FIELD_Y)
                     .wrapping_add(offset as i16)
-                    < 0
+                    >= 0
             }
             Sf2PathCondition::ProjectedSelectedPointNegative => self
                 .selected_object()
@@ -3392,10 +3401,12 @@ impl Sf2PathHost for Game {
                     self.object_word(selected, FIELD_Z) < self.object_word(current, FIELD_Z)
                 })
                 .unwrap_or(false),
-            Sf2PathCondition::SelectedLeftOfObject => self
+            Sf2PathCondition::SelectedAtOrBelowObject => self
                 .selected_object()
                 .map(|selected| {
-                    self.object_word(selected, FIELD_Y) < self.object_word(current, FIELD_Y)
+                    self.object_word(selected, FIELD_Y)
+                        .wrapping_sub(self.object_word(current, FIELD_Y))
+                        >= 0
                 })
                 .unwrap_or(false),
             Sf2PathCondition::ProjectedSelectedForwardPointNegative => self
@@ -3405,10 +3416,12 @@ impl Sf2PathHost for Game {
                         < self.object_word(current, FIELD_Z)
                 })
                 .unwrap_or(false),
-            Sf2PathCondition::SelectedBelowObject => self
+            Sf2PathCondition::SelectedAboveObject => self
                 .selected_object()
                 .map(|selected| {
-                    self.object_word(selected, FIELD_Y) >= self.object_word(current, FIELD_Y)
+                    self.object_word(selected, FIELD_Y)
+                        .wrapping_sub(self.object_word(current, FIELD_Y))
+                        < 0
                 })
                 .unwrap_or(false),
             Sf2PathCondition::SelectedOrCurrentAuxState => {

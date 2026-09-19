@@ -1148,7 +1148,10 @@ fn final_reachable_sf2_specific_handlers_preserve_effects_and_operands() {
     run_one(&mut PathVm::new(PathAddress { offset: 0x796F }), &mut host);
     assert_eq!(
         &host.path_operations[host.path_operations.len() - 2..],
-        &[Sf2PathOperation::ContractLinkedRadius(40), Sf2PathOperation::ContractLinkedRadius(-50)]
+        &[
+            Sf2PathOperation::ContractLinkedRadius(40),
+            Sf2PathOperation::ContractLinkedRadius(-50)
+        ]
     );
 
     run_one(&mut PathVm::new(PathAddress { offset: 0x8D08 }), &mut host);
@@ -1915,13 +1918,13 @@ fn expanded_object_conditions_branch_only_on_the_reviewed_retail_predicate() {
     let cases = [
         (0x01A, Sf2PathCondition::HitGround { offset: 0 }, 3usize),
         (0x023, Sf2PathCondition::ProjectedSelectedPointNegative, 1),
-        (0x024, Sf2PathCondition::SelectedLeftOfObject, 1),
+        (0x024, Sf2PathCondition::SelectedAtOrBelowObject, 1),
         (
             0x05F,
             Sf2PathCondition::ProjectedSelectedForwardPointNegative,
             1,
         ),
-        (0x101, Sf2PathCondition::SelectedBelowObject, 1),
+        (0x101, Sf2PathCondition::SelectedAboveObject, 1),
         (0x113, Sf2PathCondition::SelectedOrCurrentAuxState, 1),
     ];
 
@@ -1942,5 +1945,32 @@ fn expanded_object_conditions_branch_only_on_the_reviewed_retail_predicate() {
         let (vm, _) = run_opcode(opcode, &mut host);
         assert_eq!(host.evaluated_conditions, vec![expected_condition]);
         assert_eq!(vm.cursor().offset, target, "opcode ${opcode:03X}");
+    }
+}
+
+#[test]
+fn hit_flag_operand_is_a_literal_mask_and_only_matching_bits_are_consumed() {
+    let command = first_command(0x05A);
+    let start = usize::from(command.prefix_size);
+    let mask = command.raw[start + 3];
+    let target = u16::from_le_bytes([command.raw[start + 1], command.raw[start + 2]]);
+    assert_ne!(mask, 0);
+    for flags in 0..=u8::MAX {
+        let mut host = Host::new();
+        host.vars[0x38] = flags;
+        let (vm, _) = run_opcode(0x05A, &mut host);
+        let matched = flags & mask != 0;
+        assert_eq!(host.vars[0x38], if matched { flags & !mask } else { flags });
+        assert_eq!(
+            vm.cursor().offset,
+            if matched {
+                target
+            } else {
+                command
+                    .address
+                    .offset
+                    .wrapping_add(u16::from(command.raw_len))
+            }
+        );
     }
 }

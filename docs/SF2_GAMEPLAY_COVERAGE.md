@@ -378,3 +378,14 @@ their opposite bearing directions and different heading owners. Seven numeric
 and spatial tests, the live command-dispatch regression and eight assembly
 checks cover this layer; the focused native path suite passes 83 tests.
 These statements still need authored-program lowering and production dispatch.
+
+Further branch transcription covers zero, wrapped second-minus-first variable
+comparisons, byte/word mask tests and vertical ordering without consuming IFNOT.
+Following the actual common exit routines corrected two misleading catalog
+names: opcode 36 branches when selected height is at or below the actor;
+opcode 257 branches when it is above. Both use wrapped subtraction sign, not
+widened order. Native hit branches consume the shared hit-event latch or just
+the matching hit-mask bits. The latter operand is a literal mask, not a bit
+number. The verification host's ground predicate now takes the nonnegative
+height-plus-offset branch. These are static source corrections; neither
+recordings nor original-program execution determined the expected behavior.

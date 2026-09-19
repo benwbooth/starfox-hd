@@ -31,6 +31,33 @@ pub enum Predicate {
     },
     NonzeroByte(u8),
     NonzeroWord(u16),
+    ZeroByte(u8),
+    ZeroWord(u16),
+    /// Variable comparison reads the first operand, then tests second-first.
+    SecondByteLess {
+        first: u8,
+        second: u8,
+    },
+    SecondWordLess {
+        first: u16,
+        second: u16,
+    },
+    AnyByteBitsSet {
+        value: u8,
+        mask: u8,
+    },
+    AnyWordBitsSet {
+        value: u16,
+        mask: u16,
+    },
+    TargetAbove {
+        height: i16,
+        target_height: i16,
+    },
+    TargetAtOrBelow {
+        height: i16,
+        target_height: i16,
+    },
     HorizontalDistanceLess {
         position: Vector3,
         target: Vector3,
@@ -106,6 +133,20 @@ impl BranchState {
             // These predicates deliberately leave a pending IFNOT untouched.
             NonzeroByte(value) => return value != 0,
             NonzeroWord(value) => return value != 0,
+            ZeroByte(value) => return value == 0,
+            ZeroWord(value) => return value == 0,
+            SecondByteLess { first, second } => return (second.wrapping_sub(first) as i8) < 0,
+            SecondWordLess { first, second } => return (second.wrapping_sub(first) as i16) < 0,
+            AnyByteBitsSet { value, mask } => return value & mask != 0,
+            AnyWordBitsSet { value, mask } => return value & mask != 0,
+            TargetAbove {
+                height,
+                target_height,
+            } => return target_height.wrapping_sub(height) < 0,
+            TargetAtOrBelow {
+                height,
+                target_height,
+            } => return target_height.wrapping_sub(height) >= 0,
             WithinTargetRange {
                 position,
                 target,
@@ -200,6 +241,62 @@ mod tests {
             value: 65535,
             expected: 65535
         }));
+    }
+
+    #[test]
+    fn zero_less_bit_and_height_branches_preserve_inversion() {
+        let mut state = BranchState { invert_next: true };
+        for value in 0..=u8::MAX {
+            assert_eq!(state.test(Predicate::ZeroByte(value)), value == 0);
+            assert_eq!(
+                state.test(Predicate::AnyByteBitsSet { value, mask: 0x81 }),
+                value & 0x81 != 0
+            );
+            for first in 0..=u8::MAX {
+                let difference = (i16::from(value) - i16::from(first)).rem_euclid(256);
+                assert_eq!(
+                    state.test(Predicate::SecondByteLess {
+                        first,
+                        second: value
+                    }),
+                    difference >= 128
+                );
+            }
+        }
+        for value in 0..=u16::MAX {
+            assert_eq!(state.test(Predicate::ZeroWord(value)), value == 0);
+            assert_eq!(
+                state.test(Predicate::AnyWordBitsSet {
+                    value,
+                    mask: 0x8100
+                }),
+                value & 0x8100 != 0
+            );
+            let first = 32760;
+            let expected = (i32::from(value) - i32::from(first)).rem_euclid(65536) >= 32768;
+            assert_eq!(
+                state.test(Predicate::SecondWordLess {
+                    first,
+                    second: value
+                }),
+                expected
+            );
+            assert_eq!(
+                state.test(Predicate::TargetAbove {
+                    height: first as i16,
+                    target_height: value as i16
+                }),
+                expected
+            );
+            assert_eq!(
+                state.test(Predicate::TargetAtOrBelow {
+                    height: first as i16,
+                    target_height: value as i16
+                }),
+                !expected
+            );
+        }
+        assert!(state.invert_next);
     }
 
     #[test]

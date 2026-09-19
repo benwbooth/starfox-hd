@@ -7,6 +7,50 @@ use sf2_map::Sf2MapHost;
 use sf2_path::{ChildSpawn, PlayerTargetUpdate, Sf2PathCondition, Sf2PathHost, Sf2PathOperation};
 
 #[test]
+fn static_vertical_path_conditions_use_wrapped_height_and_ground_sign() {
+    let mut game = Game::new(Vec::new()).unwrap();
+    let current = allocate(&mut game.memory, 0).unwrap();
+    let selected = allocate(&mut game.memory, current).unwrap();
+    game.memory.write_word(CURRENT_OBJECT, current);
+    game.memory.write_word(0xCF1F, selected);
+    for (height, target_height) in [
+        (0i16, 0i16),
+        (0, -1),
+        (-1, 0),
+        (i16::MIN, i16::MAX),
+        (i16::MAX, i16::MIN),
+    ] {
+        game.memory.write_word(current + FIELD_Y, height as u16);
+        game.memory
+            .write_word(selected + FIELD_Y, target_height as u16);
+        let below = target_height.wrapping_sub(height) >= 0;
+        assert_eq!(
+            Sf2PathHost::evaluate_path_condition(
+                &mut game,
+                Sf2PathCondition::SelectedAtOrBelowObject
+            )
+            .unwrap(),
+            below
+        );
+        assert_eq!(
+            Sf2PathHost::evaluate_path_condition(&mut game, Sf2PathCondition::SelectedAboveObject)
+                .unwrap(),
+            !below
+        );
+        for offset in [0u16, 1, u16::MAX, 32768] {
+            assert_eq!(
+                Sf2PathHost::evaluate_path_condition(
+                    &mut game,
+                    Sf2PathCondition::HitGround { offset }
+                )
+                .unwrap(),
+                height.wrapping_add(offset as i16) >= 0
+            );
+        }
+    }
+}
+
+#[test]
 fn retail_object_pool_formats_all_sixty_stride_3f_records() {
     let game = Game::new(Vec::new()).unwrap();
     assert_eq!(game.memory.read_word(ACTIVE_LIST), 0);

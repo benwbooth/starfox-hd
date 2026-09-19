@@ -26,6 +26,29 @@ class PathConditionsStaticTests(unittest.TestCase):
         self.assert_source(0x7F8F1A, "20 BC C4 20 47 CB B9 00 00 D0 04 5C A9 CA 7F 4C FF CA")
         self.assert_source(0x7F8F2C, "20 BC C4 20 47 CB C2 20 B9 00 00 D0 04 5C A9 CA 7F 4C FF CA")
 
+    def test_zero_and_variable_less_and_bit_conditions_preserve_inversion(self):
+        self.assert_source(0x7F8EF4, "20 BC C4 20 47 CB B9 00 00 D0 04 5C FF CA 7F 4C A9 CA")
+        self.assert_source(0x7F8F06, "20 BC C4 20 47 CB C2 20 B9 00 00 D0 04 5C FF CA 7F 4C A9 CA")
+        self.assert_source(0x7FB8F6, "B9 00 00 CD B7 16 10 03 82 0A 12 4C 94 CA")
+        self.assert_source(0x7FB91C, "B9 00 00 CD B7 16 10 03 82 E4 11 4C 94 CA")
+        self.assert_source(0x7FB652, "20 EF B5 39 00 00 F0 03 82 AE 14 4C 94 CA")
+        # The mask helper widens before returning: IFBIT reads a whole word.
+        self.assert_source(0x7FB606, "C2 20 29 FF 00 8E B1 16 AA BF CF B5 7F AE B1 16 60")
+
+    def test_hit_branches_consume_distinct_latches_and_hit_mask_is_literal(self):
+        self.assert_source(0x7F9A79, "20 04 C5 8D B1 16 B5 38 2D B1 16 D0 04 5C A9 CA 7F AD B1 16 49 FF 35 38 95 38 4C F3 CA")
+        self.assert_source(0x7F9507, "B5 23 29 08 D0 04 5C BE CA 7F B5 23 29 F7 95 23 4C F3 CA")
+
+    def test_both_vertical_predicates_use_height_and_wrapped_subtraction_sign(self):
+        from path_semantics import PATH_SEMANTIC_BY_OPCODE
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x024].rust_name, "IfSelectedAtOrBelowObject")
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x101].rust_name, "IfSelectedAboveObject")
+        self.assert_source(0x7F8E0C, "AC 1F CF C2 20 B9 0E 00 D5 0E 10 16 E2 20 4C BE CA")
+        self.assert_source(0x7F8E1D, "AC 1F CF C2 20 B9 0E 00 D5 0E 30 05 E2 20 4C BE CA 4C F3 CA")
+        # CABE advances three bytes; CAF3 jumps to its first word operand.
+        self.assert_source(0x7FCAC2, "B5 2B 18 69 03 00 95 2B")
+        self.assert_source(0x7FCAF3, "C2 20 20 20 C7 95 2B")
+
     def test_between_uses_subtraction_sign_not_unsigned_or_widened_signed_order(self):
         self.assert_source(0x7F8FBF, "20 E0 C4 D9 00 00 30 04 5C 83 CA 7F 20 04 C5 D9 00 00 10 04 5C 83 CA 7F 4C 17 CB")
         self.assert_source(0x7F9005, "C2 20 20 4C C7 D9 00 00 30 04 5C 61 CA 7F 20 A4 C7 D9 00 00 10 04 5C 61 CA 7F 4C 2F CB")
