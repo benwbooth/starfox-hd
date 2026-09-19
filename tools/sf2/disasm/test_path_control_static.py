@@ -405,5 +405,24 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x03A44C, "B5 26 29 08 F0 04 5C 66 A4 03 C2 20 AD 84 1B 89 02 00 E2 20 D0 03 4C 66 A4 6B 5C 8F 2B 7F")
 
 
+    def test_collision_box_rotation_selector_and_zero_axis_bypasses(self):
+        self.assert_source(0x7F4133, "89 F0 D0 03 82 6B 02 89 10 F0 03 82 E2 01 89 20 F0 03 82 58 01 89 40 F0 03 82 CE 00")
+        self.assert_source(0x7F415D, "BF 16 00 00 F0 04 22 F0 3B 7F")
+        self.assert_source(0x7F4172, "BF 12 00 00 F0 04 22 4E 3A 7F")
+        self.assert_source(0x7F4184, "BF 14 00 00 F0 04 22 A9 38 7F")
+        self.assert_source(0x7F4293, "B9 03 00 18 7F 0C 00 00 85 73")
+        self.assert_source(0x7F4316, "B9 05 00 18 7F 0E 00 00 85 7B")
+        # Candidate-side full rotation has the same individual bypasses.
+        self.assert_source(0x7F456A, "B9 16 00 F0 04 22 F0 3B 7F")
+        self.assert_source(0x7F457F, "B9 12 00 F0 04 22 4E 3A 7F")
+        self.assert_source(0x7F4590, "B9 14 00 F0 04 22 A9 38 7F")
+
+    def test_collision_box_animation_mask_and_word_absolute_overlap(self):
+        self.assert_source(0x7F4100, "B9 02 00 F0 29 3A 85 02 BF CB 1C 7E 10 06 25 02 F0 1C 80 06 A5 02 25 C4 F0 14")
+        self.assert_source(0x7F411A, "C2 20 29 7F 00 85 02 98 A4 02 18 69 12 00 88 D0 FA")
+        self.assert_source(0x7F489A, "BD 4A 2F 18 65 5C 8D DE 12 A5 3E 38 E5 75 10 04 49 FF FF 1A 38 ED DE 12 30 03 4C 38 49")
+        self.assert_source(0x7F48B7, "BD 46 2F 18 65 58 8D DE 12 A5 3A 38 E5 73 10 04 49 FF FF 1A 38 ED DE 12 30 03 4C 38 49")
+
+
 if __name__ == "__main__":
     unittest.main()

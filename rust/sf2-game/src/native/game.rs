@@ -20939,21 +20939,17 @@ fn oriented_collision_volume_center_at_pose(
     volume: player_damage::OrientedCollisionVolume,
     scale: u32,
 ) -> Vector3 {
-    let offset = volume.center_offset;
-    let (x, y, z) = sf_core::snes_trig::strat_roffs_full_scaled(
-        pose.roll.units(),
-        pose.pitch.units(),
-        pose.yaw.units(),
-        offset.x as i8,
-        offset.y as i8,
-        offset.z as i8,
+    super::collision_boxes::center(
+        pose.position,
+        Rotation {
+            pitch: pose.pitch,
+            yaw: pose.yaw,
+            roll: pose.roll,
+        },
+        volume.center_offset,
+        super::collision_boxes::CenterRotation::Full,
         scale,
-    );
-    Vector3 {
-        x: pose.position.x.wrapping_add(x),
-        y: pose.position.y.wrapping_add(y),
-        z: pose.position.z.wrapping_add(z),
-    }
+    )
 }
 
 fn collision_volumes_overlap(
@@ -20993,8 +20989,7 @@ fn allocate_hostile_projectile(
 }
 
 fn axis_overlaps(first: i16, second: i16, first_extent: u16, second_extent: u16) -> bool {
-    let distance = i32::from(first.wrapping_sub(second)).unsigned_abs();
-    distance < u32::from(first_extent) + u32::from(second_extent)
+    super::collision_boxes::axis_overlaps(first, second, first_extent, second_extent)
 }
 
 fn interpolate_map_coordinate(
@@ -36711,6 +36706,27 @@ mod tests {
             game.mission_entry_flyby[MissionEncounterActor::UpperFighter.index()],
             None
         );
+    }
+
+    #[test]
+    fn live_contact_geometry_uses_zero_axis_bypasses_and_word_overlap() {
+        let pose = ObjectCollisionPose {
+            position: Vector3 { x: 10, y: 20, z: 30 },
+            pitch: Angle::ZERO,
+            yaw: Angle::ZERO,
+            roll: Angle::ZERO,
+        };
+        let volume = player_damage::OrientedCollisionVolume {
+            center_offset: Vector3 { x: 25, y: -15, z: -40 },
+            extents: CollisionBounds { x: 10, y: 10, z: 10 },
+        };
+        assert_eq!(
+            oriented_collision_volume_center_at_pose(pose, volume, 2),
+            Vector3 { x: 110, y: -40, z: -130 },
+        );
+        assert!(axis_overlaps(0, i16::MIN, 0, 0));
+        assert!(!axis_overlaps(0, 0, 40_000, 0));
+        assert!(!axis_overlaps(0, 20, 10, 10));
     }
 
     #[test]
