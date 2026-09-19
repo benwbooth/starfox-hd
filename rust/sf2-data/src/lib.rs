@@ -35,10 +35,12 @@
 //!   shipping code selects verified live rows by semantic scene identity.
 //! - [`draw`] — the exact counted 38-byte render-list ABI constructed by the
 //!   retail 65816 routine at `$02:9201..$02:947D`.
-//! - [`path`] — the complete 106-root reachable object-path graph: 11,798 exact
-//!   raw commands, 274 dispatch handlers, handler-derived pointer effects, and
+//! - [`path`] — the graph reachable from 106 discovered object-path roots: 14,220 exact
+//!   raw commands, 279 logical opcode handlers, handler-derived pointer effects, and
 //!   CFG successors. Every handler has a proof-gated semantic identity and a
-//!   typed implementation. All 42 reachable script-embedded inline blocks have
+//!   typed verification-staging implementation, not a shipping gameplay owner.
+//!   Indexed/dynamic root completeness is a separate obligation.
+//!   All 42 reachable script-embedded inline blocks have
 //!   typed control flow, and all 20 named gameplay service bodies are direct
 //!   Rust with isolated retail edge differentials.
 //!

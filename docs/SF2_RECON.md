@@ -5,6 +5,9 @@ release build. This document maps SF2's ROM structure against the Star Fox 1 eng
 already understand from `reference/ultrastarfox/SF/` and lays out a porting plan into the
 existing `rust/` workspace.
 
+For current shipping gameplay status, see [SF2_GAMEPLAY_COVERAGE.md](SF2_GAMEPLAY_COVERAGE.md).
+Decoded programs and verification-only interpreters are not full native gameplay coverage.
+
 All offsets in this doc are **file offsets** (the ROM is headerless / 1,048,576 bytes, so
 file offset == LoROM linear offset). LoROM bank _b_ occupies file `b*0x8000 .. b*0x8000+0x7FFF`
 and is CPU-addressable at `$b0:8000` (and mirrors). Confidence tags: **certain / high /
@@ -128,20 +131,23 @@ upload protocol, while the shipping runtime plays semantic PCM rendered from it.
 
 ### Remaining precisely-located but not yet fully implemented logic
 
-- The map VM is extracted and implemented for every command reachable from all 25 retail
-  roots. Its 232 spawns resolve to four initializer targets: `$06:82ED`, `$06:82F9`,
+- The map VM is extracted and implemented in verification staging for every command
+  reachable from the 25 discovered roots. It is not a shipping dependency.
+  Its 232 spawns resolve to four initializer targets: `$06:82ED`, `$06:82F9`,
   `$7F:7E00`, and `$7F:7E1E`.
 - The general object path interpreter at copied WRAM `$7F:7E53` is mechanically extracted:
-  106 roots produce a closed graph of 11,798 commands and 274 logical opcode handlers.
+  106 discovered roots produce a closed graph of 14,220 commands and 279 logical opcode handlers.
   Handler CFG analysis resolves every static advance, branch, wait, return, and
   dynamic-pointer exit with no invalid records. All handlers have proof-gated identities;
-  23 remain explicitly isolated behind the oracle-only retail bridge.
+  the entire general interpreter is verification staging, not shipping gameplay.
+  Indexed/dynamic root completeness remains a separate obligation.
 - Strategic-map, player, mission, boss, and progression state machines now have native
   typed implementations, but their remaining PARTIAL audit rows still require the same
-  trace-and-decompile pass before full parity can be claimed. The player has retail pilot
+  source-branch audit before full parity can be claimed. The player has retail pilot
   profiles, distinct rapid/charge weapon lifecycles, exact active/transform/Walker forms,
-  and a shared Select-driven transformation state; Walker turn easing and jump wind-up
-  remain explicitly open. Polygon texture descriptors, layouts, and all three source banks
+  and a shared Select-driven transformation state. Walker turn easing and jump wind-up
+  now have implementations; full control-path equivalence remains unclosed.
+  Polygon texture descriptors, layouts, and all three source banks
   are exact generated data consumed by the native renderer.
 
 ---

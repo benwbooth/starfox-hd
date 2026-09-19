@@ -1,5 +1,10 @@
 # SF2 HD reconstruction — incomplete
 
+Gameplay is also incomplete, independently of rendering. The static coverage
+ledger in [SF2_GAMEPLAY_COVERAGE.md](SF2_GAMEPLAY_COVERAGE.md) identifies production
+recording-derived schedules, neutral/live control splits, and staging-only
+interpreters. Typed Rust gameplay must not be read as full source equivalence.
+
 The shipping game runs typed Rust gameplay, but that is not equivalent to a
 complete native presentation. Its intro, title/records, briefing, strategic
 opening, pilot selection, game-over, results and ending currently include
