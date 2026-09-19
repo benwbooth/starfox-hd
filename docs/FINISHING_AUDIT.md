@@ -51,6 +51,37 @@ Local detailed evidence: `/tmp/sf1-workspace-audit-20260904.log`,
 `/tmp/sf1-native-control-gate-20260904.txt`. These paths are local diagnostic
 artifacts, not reproducible release fixtures or distributed ROM data.
 
+### Independent early-scene recheck — 2026-09-19
+
+The new read-only `sf1_timing_boundary` example reproduces the integrated
+oracle's handoff and logs actual refresh-counter writes. At scenario tick 892,
+both games have completed strategy scene 1, but the in-tree `RetailMachine`
+reports 4 refreshes while native Rust publishes 3. Differences also remain at
+later routine-aligned boundaries, so sampling alignment alone does not explain
+the in-tree oracle's cadence.
+
+A fresh independent Mesen 2.1.1 capture of scenes 1–12 reports 3 refreshes for
+completed scene 1 and 2 at that scene's strategy entry. These agree with the
+native boundary handling and the retained Mesen timing record. All twelve
+scenes pass `verify_corneria_semantic_oracle.py`, including its object-inventory
+checks and all fields within that comparator's declared coverage. This does
+not certify source/native shape identity, rendered pixels, audio, later scenes,
+or input-dependent pacing. It establishes that changing native scene 1 to the
+in-tree oracle's value would contradict the independent reference.
+
+Reproduce the in-tree diagnostic with:
+
+```sh
+nix develop --command cargo run --manifest-path rust/Cargo.toml \
+  -p sf-oracle --example sf1_timing_boundary
+```
+
+The integrated semantic test and its frozen fingerprints remain unchanged and
+failing. Their timing source needs independent correction; this result must
+not be used to remove the counter comparison or bless new native-only hashes.
+Local artifacts: `/tmp/sf1-timing-boundary.log`,
+`/tmp/sf1-mesen-handoff-capture.txt`, and `/tmp/sf1-native-handoff.txt`.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from
