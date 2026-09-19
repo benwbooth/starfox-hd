@@ -369,5 +369,21 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7FA5A0, "AD 34 1C 18 69 20 8D 34 1C 80 09 AD 34 1C 18 69 10 8D 34 1C")
 
 
+    def test_contact_pool_capacity_lookup_insertion_and_refresh(self):
+        self.assert_source(0x03A60D, "A9 9A 31 8D 81 12 A0 3C 00 AA 18 69 0B 00 9D 00 00 88 D0 F5 9E 00 00")
+        self.assert_source(0x7F3ED9, "BC 1E 00 F0 0C BB DD 04 00 F0 5D BC 00 00 BB D0 F5")
+        self.assert_source(0x7F3EF2, "AE 81 12 D0 04 BB 4C 55 3F")
+        self.assert_source(0x7F3F10, "B9 00 00 9D 00 00 8A 99 00 00 98 9D 02 00")
+        self.assert_source(0x7F3F34, "E2 20 A9 02 9D 09 00 9E 08 00 9E 0A 00 E2 20 BD 09 00 09 01 9D 09 00 FE 0A 00")
+
+    def test_contact_callbacks_precede_reverse_then_original_lifo_release(self):
+        self.assert_source(0x7F33BD, "B4 1E F0 0B B9 00 00 48 22 A7 3F 7F 7A D0 F5 B5 1E F0 04 22 06 80 00")
+        self.assert_source(0x7F3FA7, "DA 5A 20 59 3F BE 04 00 B9 06 00 A8 20 59 3F")
+        self.assert_source(0x7F3FE0, "AD 81 12 9D 00 00 8E 81 12 FA A5 08 95 1E 7A FA")
+        self.assert_source(0x7F401A, "AD 81 12 9D 00 00 8E 81 12 FA A5 08 95 1E 6B")
+        self.assert_source(0x7F4090, "B9 00 00 48 B9 09 00 89 01 00 D0 06 22 A7 3F 7F 80 09 E2 20 29 FE 99 09 00 C2 20 7A D0 E2")
+        self.assert_source(0x7F4878, "A5 F5 99 08 00 A5 F6 9D 08 00")
+
+
 if __name__ == "__main__":
     unittest.main()
