@@ -39,6 +39,7 @@ mod object;
 pub mod path_control;
 pub mod path_math;
 pub mod path_motion;
+pub mod path_sound;
 mod render;
 mod results;
 mod state;

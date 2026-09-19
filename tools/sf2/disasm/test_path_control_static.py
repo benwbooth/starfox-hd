@@ -355,6 +355,19 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F0FA5, "AE 18 1D EC 16 1D F0 23 BD F6 1C")
         self.assert_source(0x7F0FBB, "AD 18 1D 1A 1A 29 1F 8D 18 1D")
 
+    def test_path_sound_distance_branches_skip_angle_for_far_and_distance_only(self):
+        self.assert_source(0x7FA4CE, "E0 20 03 90 27 80 32")
+        self.assert_source(0x7FA4D5, "AD 34 1C E0 20 03 90 0E E0 14 05 90 07 09 60 8D 34 1C 80 11")
+        self.assert_source(0x7FA4E9, "09 30 8D 34 1C AD 35 1C 3A F0 06 AE 37 1C 20 50 A5")
+        self.assert_source(0x7F8C3A, "A9 00 00 8F 28 00 70 B9 10 00 38 F5 10 8F 2A 00 70")
+        self.assert_source(0x7F8C50, "A9 01 A2 72 FB 22 7B 78 7F")
+
+    def test_path_sound_bearing_uses_live_listener_and_half_open_rear_rejection(self):
+        self.assert_source(0x7FA565, "22 58 1D 7F E2 20 EB 38 F9 15 00 C9 10 90 40 C9 F0 B0 3C")
+        self.assert_source(0x7FA578, "48 AD 35 1C C9 03 F0 0B 68 C9 70 90 1B C9 90 90 2B 80 20")
+        self.assert_source(0x7FA58B, "68 C9 40 90 10 C9 C0 B0 17 C2 20 A9 FF FF 8D 33 1C")
+        self.assert_source(0x7FA5A0, "AD 34 1C 18 69 20 8D 34 1C 80 09 AD 34 1C 18 69 10 8D 34 1C")
+
 
 if __name__ == "__main__":
     unittest.main()

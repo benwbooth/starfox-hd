@@ -2065,9 +2065,13 @@ const SPATIAL_LISTENER_YAW_STEP: u8 = 2;
 const SPATIAL_CLOSE_DISTANCE_LIMIT: u32 = 400;
 const SPATIAL_NEAR_DISTANCE_LIMIT: u32 = 1_000;
 const SPATIAL_FAR_DISTANCE_LIMIT: u32 = 2_000;
+#[cfg(test)]
 const SPATIAL_RIGHT_START: u8 = 16;
+#[cfg(test)]
 const SPATIAL_CENTER_REAR_START: u8 = 112;
+#[cfg(test)]
 const SPATIAL_LEFT_START: u8 = 144;
+#[cfg(test)]
 const SPATIAL_CENTER_FRONT_START: u8 = 240;
 const PLAYER_LEFT_BANK: Angle = Angle::from_units(32);
 const PLAYER_RIGHT_BANK: Angle = Angle::from_units(224);
@@ -21692,13 +21696,7 @@ fn spatial_distance(distance: u32) -> SpatialDistance {
 }
 
 fn spatial_stereo_position(relative_angle: u8) -> StereoPosition {
-    if (SPATIAL_RIGHT_START..SPATIAL_CENTER_REAR_START).contains(&relative_angle) {
-        StereoPosition::Right
-    } else if (SPATIAL_LEFT_START..SPATIAL_CENTER_FRONT_START).contains(&relative_angle) {
-        StereoPosition::Left
-    } else {
-        StereoPosition::Center
-    }
+    super::path_sound::stereo_position(relative_angle)
 }
 
 fn approach_angle(current: Angle, target: Angle, maximum_step: u8) -> Angle {
