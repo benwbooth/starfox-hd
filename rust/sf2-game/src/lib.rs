@@ -8,9 +8,10 @@ mod native;
 
 pub use native::{
     collision_boxes, collision_contacts, collision_math, collision_pass, collision_surface,
-    hit_response, hostile_laser_control, path_control, path_math, path_motion, path_sound,
-    path_triggers, player_contact, player_hit_control, program_resources, program_state,
-    retirement, scene_proxy, strategy_schedule, weapon_launch, world_occupancy,
+    hit_response, hostile_laser_control, path_calls, path_control, path_math, path_motion,
+    path_sound, path_trigger_conditions, path_triggers, player_contact, player_hit_control,
+    program_resources, program_state, retirement, scene_proxy, strategy_schedule, weapon_launch,
+    world_occupancy,
 };
 
 pub use native::{

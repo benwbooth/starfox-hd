@@ -255,3 +255,18 @@ clear during callbacks, shared allocation pressure, and the explicit fault at
 tests pass in debug and release, plus seven assembly checks. The list/pass
 mechanics do not yet evaluate trigger predicates or dispatch path callbacks,
 and are not yet connected to production Game execution.
+
+Callback return/redirect ownership is now ported in `native/path_calls.rs`,
+including root returns without a stack pop, ordinary versus callback depth
+accounting, per-callback redirect reset, forced continuation replacement, and
+deferred calls through the shared actor stack. Pending redirect mode survives
+a pass with no eligible callbacks, matching the source's lack of an entry reset.
+`native/path_trigger_conditions.rs` evaluates all eighteen authored predicate
+cases (including seven periods) from current typed world observations. It
+preserves consumed versus persistent flags, player selection/rearming, and the
+source's asymmetric secondary-player part-target branches. Twelve focused
+Rust tests pass in debug and release, including composition of actual trigger
+storage, predicates, callback returns, redirects, and a parent loop stack.
+Sixteen assembly checks cover the storage/control/predicate source blocks.
+Production world adapters and decoded path command dispatch remain required;
+synthetic composition tests are not evidence of live gameplay completion.
