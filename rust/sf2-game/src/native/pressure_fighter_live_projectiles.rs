@@ -6,9 +6,6 @@
 //! Regenerate the test evidence with
 //! `uv run python tools/sf2/generate_pressure_fighter_live_projectiles.py`.
 
-/// Retail exposes four reusable hostile-laser allocations during this fight.
-pub(super) const MAXIMUM_ACTIVE_PROJECTILES: usize = 4;
-
 /// A fighter-created laser inherits the fighter transform at this launch speed.
 pub(super) const INITIAL_SPEED: u8 = 30;
 

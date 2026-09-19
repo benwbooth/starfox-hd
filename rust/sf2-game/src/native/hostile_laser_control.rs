@@ -281,7 +281,7 @@ impl HostileLaserControl {
     /// exact age boundary installs END for the *next* path invocation; the
     /// current movement still finishes. A later callback may replace it.
     /// Returns true when the source also resets the actor's path counter and
-    /// auxiliary steering byte (`$17/$15`), not the visible roll (`$16`).
+    /// simple-loop byte (`$17/$15`), not the visible roll (`$16`).
     pub fn watch_terrain(&mut self, occupied: bool) -> bool {
         if !occupied {
             self.terrain_age = self.terrain_age.wrapping_add(1);
@@ -302,7 +302,7 @@ impl HostileLaserControl {
 
     /// Run after the smooth-face callback, with freshly projected player
     /// positions. A crossing changes selected player and resets path count
-    /// and auxiliary steering state in the owner. Cancellation happens on the
+    /// and simple-loop state in the owner. Cancellation happens on the
     /// next path advance.
     pub fn crossed_player(&mut self, projections: [Option<i16>; 2]) -> Option<PlayerTarget> {
         if !self.aim_callbacks {

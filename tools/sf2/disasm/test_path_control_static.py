@@ -266,6 +266,31 @@ class PathControlStaticTests(unittest.TestCase):
         # Selected auxiliary exemption short-circuits the occupancy test.
         self.assert_source(0x7FB745, "B4 2B B9 EB 6B 7A DA BB 7A 89 80 F0 04 5C BE CA 7F")
 
+    def test_shared_allocator_marks_effects_only_after_consuming_final_slot(self):
+        self.assert_source(0x7F2925, "C2 20 9B AE AA 12 D0 06 E2 20 BB 4C 69 29")
+        self.assert_source(0x7F295D, "DA AE AA 12 D0 03 20 79 29 FA 38 6B")
+        self.assert_source(0x7F2979, "DA 5A AE A8 12 B4 00 F0 37 5A B5 20 29 10")
+        self.assert_source(
+            0x7F298D,
+            "C2 20 B5 04 C9 98 BD F0 16 C9 B4 BD F0 11 C9 D0 BD F0 0C "
+            "C9 EC BD F0 07 C9 08 BE F0 02 80 08 E2 20 B5 25 09 08 95 25",
+        )
+        source = (ROOT / "rust/sf2-data/src/shape_data.rs").read_text()
+        for index, shape in enumerate((0xBD98, 0xBDB4, 0xBDD0, 0xBDEC, 0xBE08), start=9):
+            self.assertRegex(source, rf"header_index: {index},\s+shape_id: 0x{shape:04X},")
+        # The new allocation is cleared after the sweep, including its
+        # retirement flag, before the requested shape is installed.
+        self.assert_source(0x7F2A1C, "22 25 29 7F")
+        self.assert_source(0x7F2A2E, "22 BC 29 7F C2 20 A5 5F 99 04 00")
+        self.assert_source(0x7F29C4, "A9 00 5A DA A0 3B 00 95 04 E8 88 D0 FA")
+
+    def test_weapon_allocation_temporarily_changes_pressure_head_and_clears_bank(self):
+        self.assert_source(0x0DE019, "AD A8 12 48 E2 20 8E A8 12")
+        self.assert_source(0x0DE02B, "22 17 2A 7F B0 04 5C 9A E0 0D")
+        self.assert_source(0x0DE035, "C2 20 68 8D A8 12")
+        self.assert_source(0x03AB2A, "22 D2 2B 7F A9 00 99 16 00")
+        self.assert_source(0x03AC1D, "B5 18 99 17 00 96 1C 94 1C 6B")
+
 
 if __name__ == "__main__":
     unittest.main()

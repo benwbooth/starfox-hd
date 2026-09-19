@@ -5500,6 +5500,7 @@ const fn mission_player_keyframe(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
     ObjectCapacityReached,
+    MissingProjectileSource,
     MissingCatalogShape(ShapeId),
 }
 
@@ -5615,9 +5616,7 @@ impl Game {
             pressure_fighter_projectiles: Vec::with_capacity(
                 pressure_fighter_projectiles::PROJECTILE_COUNT,
             ),
-            live_pressure_fighter_projectiles: Vec::with_capacity(
-                pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES,
-            ),
+            live_pressure_fighter_projectiles: Vec::new(),
             leon_pressure_projectiles: Vec::with_capacity(
                 leon_pressure_projectiles::PROJECTILE_COUNT,
             ),
@@ -18267,12 +18266,10 @@ impl Game {
             {
                 continue;
             }
-            if self.live_pressure_fighter_projectiles.len()
-                >= pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES
-            {
-                continue;
-            }
-
+            let source = self
+                .pressure_fighter_actors
+                .flanker
+                .ok_or(Error::MissingProjectileSource)?;
             let mut projectile = Object::new(
                 ObjectKind::Projectile,
                 ShapeId::ENEMY_LASER,
@@ -18286,7 +18283,9 @@ impl Game {
             projectile.base.position = launch.position;
             projectile.base.pitch = launch.pitch;
             projectile.base.yaw = launch.yaw;
-            projectile.base.roll = launch.roll;
+            // The shared weapon formatter clears bank after inheriting pose.
+            projectile.base.roll = Angle::ZERO;
+            projectile.base.linked_object = Some(source);
             projectile.base.speed = pressure_fighter_live_projectiles::INITIAL_SPEED;
             projectile.extension.activity =
                 ObjectActivity::HostileProjectileFlight(HostileProjectileFlightState {
@@ -18294,7 +18293,24 @@ impl Game {
                     motion_steps_elapsed: 0,
                     movement_phase: HostileProjectileMovementPhase::Ready,
                 });
-            let object = allocate_hostile_projectile(&mut self.state, projectile)?;
+            let object = self
+                .state
+                .objects
+                .allocate_weapon_after(source, projectile)
+                .ok_or_else(|| {
+                    if self.state.objects.get(source).is_none() {
+                        Error::MissingProjectileSource
+                    } else {
+                        Error::ObjectCapacityReached
+                    }
+                })?;
+            self.state
+                .objects
+                .get_mut(source)
+                .expect("validated weapon source")
+                .base
+                .linked_object = Some(object);
+            self.state.audio.queue(SoundEvent::HostileLaser);
             self.live_pressure_fighter_projectiles
                 .push(ActiveLivePressureProjectile {
                     object,
@@ -29752,8 +29768,12 @@ mod tests {
     }
 
     #[test]
-    fn live_pressure_projectiles_enforce_the_retail_pool_and_expire() {
+    fn live_pressure_projectiles_use_the_shared_pool_and_expire() {
         let mut game = Game::new();
+        let source = game.state.objects.allocate(Object::new(
+            ObjectKind::Enemy, ShapeId::PRESSURE_ASSAULT_FIGHTER, Behavior::EnemyFlight,
+        )).unwrap();
+        game.pressure_fighter_actors.flanker = Some(source);
         let launch = PressureProjectileLaunch {
             position: Vector3 {
                 x: 0,
@@ -29777,7 +29797,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             game.live_pressure_fighter_projectiles.len(),
-            pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES
+            6
         );
 
         let first = game.live_pressure_fighter_projectiles[0].object;
@@ -29789,6 +29809,10 @@ mod tests {
         );
         assert_eq!(projectile.base.weapon, WeaponKind::EnemyLaser);
         assert_eq!(projectile.base.collision_class, CollisionClass::EnemyWeapon);
+        assert_eq!(projectile.base.linked_object, Some(source));
+        let newest = game.live_pressure_fighter_projectiles.last().unwrap().object;
+        assert_eq!(game.state.objects.get(source).unwrap().base.next, Some(newest));
+        assert_eq!(game.state.objects.get(source).unwrap().base.linked_object, Some(newest));
 
         let mut saw_aim_correction = false;
         let mut saw_cruise = false;
@@ -29913,16 +29937,12 @@ mod tests {
             oracle::PROJECTILE_LIFETIMES.len()
         );
         assert_eq!(
-            oracle::REUSABLE_ALLOCATION_COUNT,
-            pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES
-        );
-        assert_eq!(
             oracle::HANDOFF_STRATEGY_FRAME,
             pressure_fighter_live_projectiles::HANDOFF_STRATEGY_FRAME
         );
         assert!(
             oracle::MAXIMUM_CONCURRENT_PROJECTILES
-                <= pressure_fighter_live_projectiles::MAXIMUM_ACTIVE_PROJECTILES
+                <= oracle::REUSABLE_ALLOCATION_COUNT
         );
         assert_eq!(
             oracle::FIRE_ATTEMPTS

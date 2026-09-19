@@ -3,6 +3,14 @@ use sf2_data::shape_data::{ShapeDataEntry, SHAPE_DATA};
 use super::render::MaterialSetId;
 
 pub const OBJECT_CAPACITY: usize = 60;
+// Five authored sprite shapes selected by the allocation-pressure sweep.
+const POOL_RECLAIMABLE_SPRITES: [ShapeId; 5] = [
+    ShapeId(9),
+    ShapeId(10),
+    ShapeId(11),
+    ShapeId(12),
+    ShapeId(13),
+];
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Vector3 {
@@ -896,6 +904,9 @@ pub struct ObjectFlags {
     /// Set for the one native simulation tick in which contact occurred.
     pub collided: bool,
     pub collision_disabled: bool,
+    /// Source transient-effect flag: retire this object when the final free
+    /// slot is consumed, provided the pressure traversal reaches it.
+    pub reclaim_on_pool_pressure: bool,
     pub remove_after_tick: bool,
 }
 
@@ -1029,6 +1040,22 @@ impl ObjectStore {
     /// spawns use the latter so an in-progress traversal can visit the child
     /// before the spawner's former successor. An invalid anchor changes nothing.
     pub fn allocate_after(&mut self, after: Option<ObjectId>, object: Object) -> Option<ObjectId> {
+        self.allocate_with_pressure_head(after, None, object)
+    }
+
+    /// Shared weapon allocation (`$0D:E017`). Insert after the firing actor;
+    /// while allocating, the source temporarily makes that actor the list
+    /// head, so the last-slot pressure sweep visits only its suffix.
+    pub fn allocate_weapon_after(&mut self, source: ObjectId, object: Object) -> Option<ObjectId> {
+        self.allocate_with_pressure_head(Some(source), Some(source), object)
+    }
+
+    fn allocate_with_pressure_head(
+        &mut self,
+        after: Option<ObjectId>,
+        pressure_head: Option<ObjectId>,
+        object: Object,
+    ) -> Option<ObjectId> {
         let position = match after {
             Some(id) => self.active.iter().position(|candidate| *candidate == id)? + 1,
             None => 0,
@@ -1051,7 +1078,39 @@ impl ObjectStore {
             self.slots[after.index()].as_mut().unwrap().base.next = Some(id);
         }
         self.active.insert(position, id);
+        if self.free.is_empty() {
+            self.mark_pressure_retirements(pressure_head, id);
+        }
         Some(id)
+    }
+
+    /// `$7F:295D..29BB`: consuming the last free slot marks eligible effects
+    /// for the later cleanup pass, but does not reclaim them immediately.
+    /// The actual list tail is never tested. The fresh allocation's source
+    /// record is cleared after this sweep, so none of its transient flags
+    /// survive; do not test its newly initialized native shape here.
+    fn mark_pressure_retirements(&mut self, head: Option<ObjectId>, fresh: ObjectId) {
+        let first = head.map_or(0, |head| {
+            self.active
+                .iter()
+                .position(|id| *id == head)
+                .expect("validated allocation head")
+        });
+        let end = self.active.len().saturating_sub(1);
+        for index in first..end {
+            let id = self.active[index];
+            if id == fresh {
+                continue;
+            }
+            let object = self.slots[id.index()]
+                .as_mut()
+                .expect("live allocation list");
+            if object.base.flags.reclaim_on_pool_pressure
+                || POOL_RECLAIMABLE_SPRITES.contains(&object.base.shape)
+            {
+                object.base.flags.remove_after_tick = true;
+            }
+        }
     }
 
     pub fn remove(&mut self, id: ObjectId) -> Option<Object> {
@@ -1221,5 +1280,76 @@ mod tests {
         let new_lifetime = objects.lifetime_id(new_scene).unwrap();
         assert_eq!(old_scene, new_scene);
         assert_ne!(old_lifetime, new_lifetime);
+    }
+
+    #[test]
+    fn final_slot_marks_effects_but_preserves_tail_and_fresh_object() {
+        let mut objects = ObjectStore::new();
+        let mut sprite = effect();
+        sprite.base.shape = POOL_RECLAIMABLE_SPRITES[0];
+        let tail = objects.allocate(sprite.clone()).unwrap();
+        let sprites: Vec<_> = POOL_RECLAIMABLE_SPRITES
+            .into_iter()
+            .map(|shape| {
+                let mut object = effect();
+                object.base.shape = shape;
+                objects.allocate(object).unwrap()
+            })
+            .collect();
+        let mut transient = effect();
+        transient.base.flags.reclaim_on_pool_pressure = true;
+        let transient = objects.allocate(transient).unwrap();
+        while objects.len() < OBJECT_CAPACITY - 1 {
+            objects.allocate(effect()).unwrap();
+        }
+        assert!(objects
+            .active_objects()
+            .all(|(_, object)| !object.base.flags.remove_after_tick));
+        let fresh = objects.allocate(sprite).unwrap();
+        assert!(sprites.into_iter().chain([transient]).all(|id| objects
+            .get(id)
+            .unwrap()
+            .base
+            .flags
+            .remove_after_tick));
+        assert!(!objects.get(tail).unwrap().base.flags.remove_after_tick);
+        assert!(!objects.get(fresh).unwrap().base.flags.remove_after_tick);
+        assert_eq!(objects.len(), OBJECT_CAPACITY);
+        let saved = objects.clone();
+        assert!(objects.allocate(effect()).is_none());
+        assert_eq!(
+            objects, saved,
+            "exhaustion does not perform a second sweep or steal a slot"
+        );
+        // Only the cleanup owner releases marked objects, and released slots
+        // become available in normal last-freed-first order.
+        objects.remove(transient).unwrap();
+        assert_eq!(objects.allocate(effect()), Some(transient));
+    }
+
+    #[test]
+    fn weapon_pressure_starts_at_source_and_does_not_visit_earlier_actors() {
+        let mut objects = ObjectStore::new();
+        let mut transient = effect();
+        transient.base.flags.reclaim_on_pool_pressure = true;
+        let tail = objects.allocate(transient.clone()).unwrap();
+        let later = objects.allocate(transient.clone()).unwrap();
+        let source = objects.allocate(transient.clone()).unwrap();
+        let earlier = objects.allocate(transient).unwrap();
+        while objects.len() < OBJECT_CAPACITY - 1 {
+            objects.allocate(effect()).unwrap();
+        }
+        let old_head = objects.active_ids()[0];
+        let projectile = objects.allocate_weapon_after(source, effect()).unwrap();
+        assert_eq!(objects.active_ids()[0], old_head);
+        assert_eq!(objects.get(source).unwrap().base.next, Some(projectile));
+        assert_eq!(objects.get(projectile).unwrap().base.next, Some(later));
+        assert_eq!(objects.get(later).unwrap().base.previous, Some(projectile));
+        for id in [source, later] {
+            assert!(objects.get(id).unwrap().base.flags.remove_after_tick);
+        }
+        for id in [earlier, tail, projectile] {
+            assert!(!objects.get(id).unwrap().base.flags.remove_after_tick);
+        }
     }
 }
