@@ -229,3 +229,16 @@ were an allocation; this malformed-source-state case is explicitly reported
 as `EmptyFreeList`, not silently treated as a valid resource. Descriptor
 construction, resize/copy semantics, and production world integration remain
 open. These results do not claim live gameplay completion.
+
+Program resource replacement now allocates before releasing the old record,
+preserving peak allocation pressure and ownership ordering. Typed callers
+preserve meaningful fields; this is not a generic byte-copy service.
+`native/program_state.rs` adds the shared subroutine/count-loop stack, with
+one entry for a call and two for a loop, zero-count wrapping, paired loop
+completion/exit, retained empty storage, and reallocation on every eighth
+push. That reallocation can shrink after earlier pops. Tests cover mixed
+call/loop nesting, replacement pressure, partial loop setup on allocation
+failure, and explicit rejection of corrupt overflowing stack counts. Thirteen
+focused Rust tests pass in both profiles, with twelve static source checks.
+Callback-root return gates, callback descriptor construction/dispatch, and
+production path integration are still outstanding.

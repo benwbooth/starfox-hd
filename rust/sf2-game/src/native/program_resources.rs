@@ -32,6 +32,12 @@ pub struct AllocationError<T> {
     pub value: T,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReplacementError<T> {
+    MissingOwnedResource(T),
+    Allocation(AllocationError<T>),
+}
+
 #[derive(Debug, Clone)]
 struct Resource<T> {
     owner: Option<ObjectId>,
@@ -115,6 +121,26 @@ impl<T> ProgramResources<T> {
             .map(|r| &mut r.value)
     }
 
+    pub fn get_owned(&self, owner: ObjectId, id: ProgramResourceId) -> Option<&T> {
+        let resource = self
+            .partitions
+            .iter()
+            .find(|p| p.id == id)?
+            .resource
+            .as_ref()?;
+        (resource.owner == Some(owner)).then_some(&resource.value)
+    }
+
+    pub fn get_owned_mut(&mut self, owner: ObjectId, id: ProgramResourceId) -> Option<&mut T> {
+        let resource = self
+            .partitions
+            .iter_mut()
+            .find(|p| p.id == id)?
+            .resource
+            .as_mut()?;
+        (resource.owner == Some(owner)).then_some(&mut resource.value)
+    }
+
     /// Allocation failure returns the unconsumed typed value. `payload_cost`
     /// is the authored record cost, not `size_of::<T>()`.
     pub fn allocate_shared(
@@ -194,6 +220,33 @@ impl<T> ProgramResources<T> {
 
     pub fn release_owned(&mut self, owner: ObjectId, id: ProgramResourceId) -> Option<T> {
         self.release(id, Some(owner))
+    }
+
+    /// Resize/replace an owned record (`$7F:1B00..1B62`). Both allocations
+    /// remain charged until replacement succeeds; the old resource cannot
+    /// fund its own growth. The domain caller constructs `replacement` by
+    /// preserving the meaningful fields of its typed record, not copying
+    /// storage bytes or treating allocation padding as gameplay data.
+    pub fn replace_owned(
+        &mut self,
+        owner: ObjectId,
+        old: ProgramResourceId,
+        payload_cost: u16,
+        replacement: T,
+    ) -> Result<ProgramResourceId, ReplacementError<T>> {
+        if !self
+            .partitions
+            .iter()
+            .any(|p| p.id == old && p.resource.as_ref().is_some_and(|r| r.owner == Some(owner)))
+        {
+            return Err(ReplacementError::MissingOwnedResource(replacement));
+        }
+        let new = self
+            .allocate_owned(owner, payload_cost, replacement)
+            .map_err(ReplacementError::Allocation)?;
+        self.release_owned(owner, old)
+            .expect("replacement owner was validated");
+        Ok(new)
     }
 
     /// Retire the ownership chain newest-first (`$7F:19B3..19C5`). The caller
@@ -409,5 +462,37 @@ mod tests {
         pool.release_shared(shared).unwrap();
         pool.release_owner(other);
         assert_eq!(pool.available_capacity(), PROGRAM_CAPACITY);
+    }
+
+    #[test]
+    fn replacement_allocates_before_release_and_becomes_chain_head() {
+        let [owner, other] = owners();
+        let mut pool = ProgramResources::default();
+        let first = pool.allocate_owned(owner, 100, vec![1]).unwrap();
+        let later = pool.allocate_owned(owner, 100, vec![2]).unwrap();
+        assert_eq!(
+            pool.replace_owned(other, first, 200, vec![3]),
+            Err(ReplacementError::MissingOwnedResource(vec![3]))
+        );
+        let new = pool.replace_owned(owner, first, 200, vec![1, 3]).unwrap();
+        assert_ne!(new, first);
+        assert_eq!(pool.get(first), None);
+        assert_eq!(pool.get(later), Some(&vec![2]));
+        assert_eq!(pool.available_capacity(), PROGRAM_CAPACITY - 308);
+        assert_eq!(pool.release_owner(owner), [vec![1, 3], vec![2]]);
+        assert_eq!(pool.available_capacity(), PROGRAM_CAPACITY);
+
+        let old = pool.allocate_owned(owner, 10_000, vec![4]).unwrap();
+        let before = pool.available_capacity();
+        assert_eq!(
+            pool.replace_owned(owner, old, 12_000, vec![4, 5]),
+            Err(ReplacementError::Allocation(AllocationError {
+                reason: AllocationFailure::NoContiguousFit,
+                value: vec![4, 5],
+            }))
+        );
+        assert_eq!(pool.available_capacity(), before);
+        assert_eq!(pool.owner_count(owner), 1);
+        assert_eq!(pool.get(old), Some(&vec![4]));
     }
 }

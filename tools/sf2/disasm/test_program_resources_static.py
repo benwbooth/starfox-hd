@@ -40,6 +40,11 @@ class ProgramResourcesStaticTests(unittest.TestCase):
     def test_actor_retirement_walks_chain_before_clearing_auxiliary_handles(self):
         self.assert_source(0x7F19B3, "BC DC 1C F0 10 DA BE 61 6A 98 22 77 17 7F 9B D0 F5 FA 9E DC 1C 9E EC 1C 9E DE 1C 9E E0 1C")
 
+    def test_replacement_allocates_new_before_copy_and_old_release(self):
+        self.assert_source(0x7F1B00, "C0 00 00 D0 03 82 46 FE")
+        self.assert_source(0x7F1B1C, "AD 2B CF 22 4E 19 7F F0 3E 48 5A DA BB A8")
+        self.assert_source(0x7F1B4A, "FA 68 22 6B 19 7F 68 8D 2B CF")
+
 
 if __name__ == "__main__":
     unittest.main()
