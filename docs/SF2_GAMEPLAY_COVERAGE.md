@@ -423,3 +423,13 @@ Five synthetic dispatcher regressions pass, as do all 99 native path tests in
 release, 105 static path source checks, the app build, and architecture checks.
 This is dispatcher infrastructure, not completed authored-catalog lowering or
 Game integration. No original CPU execution or recorded gameplay was used.
+
+Source animation controls now have a typed packed-channel kernel preserving
+automatic versus manual selection, retained automatic payloads, wrapping adds,
+and the single correction/subtraction rule (not modulo). All 16,777,216 byte
+combinations pass an independent arithmetic formulation. This kernel still
+needs ownership and clock integration in the authored-path actor lifecycle.
+SPRITE is wired through typed path dispatch, actor render channels, Game render
+objects, and the app's existing scaled-sprite renderer flag. Pure Rust boundary
+tests and four new static assembly checks pass. The verification-only host's
+incorrect writes to shared bytes were corrected to actor-local channels.

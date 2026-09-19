@@ -93,6 +93,11 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    Sprite {
+        color: u8,
+        size: u8,
+        next: PathCursor,
+    },
     /// Control statements whose operands are literal or semantic cursors.
     Control(ControlCommand),
     Branch(BranchCommand),
@@ -220,6 +225,9 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::Sprite { color, size, next } => {
+                    self.execute_sprite(objects, owner, color, size, next)
+                }
                 Statement::Control(command) => self.execute_control(objects, owner, command),
                 Statement::Branch(command) => self.execute_branch(objects, owner, command),
                 Statement::Motion { command, next } => {

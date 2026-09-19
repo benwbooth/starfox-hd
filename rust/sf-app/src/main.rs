@@ -149,6 +149,9 @@ fn to_sf2_render_entry(object: &sf2_game::RenderObject) -> RenderEntry {
     if object.flags.highlighted {
         flags |= DL_FLAG_HIGHLIGHT;
     }
+    if object.flags.scaled_sprite {
+        flags |= sf_render::draw_list::DL_FLAG_SCALED_SPRITE;
+    }
     RenderEntry {
         x: sf2_world_to_render(object.position.x),
         y: sf2_world_to_render(object.position.y),
@@ -1419,6 +1422,45 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_sf2_sprite_flag_and_aliased_parameters_reach_renderer() {
+        use sf2_game::{Behavior, Object, ObjectKind, ObjectStore, ShapeId};
+        let mut objects = ObjectStore::new();
+        let id = objects
+            .allocate(Object::new(
+                ObjectKind::Effect,
+                ShapeId::TITLE_FORMATION_EFFECT,
+                Behavior::Effect,
+            ))
+            .unwrap();
+        let object = sf2_game::RenderObject {
+            object: id,
+            lifetime: objects.lifetime_id(id).unwrap(),
+            shape: ShapeId::TITLE_FORMATION_EFFECT,
+            material_set: sf2_game::MaterialSetId::from_catalog_token(0),
+            position: sf2_game::Vector3::default(),
+            rotation: sf2_game::Rotation::default(),
+            sort_depth: 0,
+            animation: sf2_game::AnimationState::default(),
+            depth_offset: 5,
+            texture_scroll_x: 200,
+            texture_scroll_y: 47,
+            flags: sf2_game::RenderFlags {
+                visible: true,
+                scaled_sprite: true,
+                ..Default::default()
+            },
+        };
+        let entry = to_sf2_render_entry(&object);
+        assert_eq!(
+            entry.flags,
+            DL_FLAG_VISIBLE | sf_render::draw_list::DL_FLAG_SCALED_SPRITE
+        );
+        assert_eq!(entry.depth_offset, 5);
+        assert_eq!(entry.tscroll_x, 200);
+        assert_eq!(entry.tscroll_y, 47);
+    }
 
     #[test]
     fn sf2_progress_round_trips_typed_expert_unlock() {

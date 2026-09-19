@@ -7,6 +7,22 @@ use sf2_map::Sf2MapHost;
 use sf2_path::{ChildSpawn, PlayerTargetUpdate, Sf2PathCondition, Sf2PathHost, Sf2PathOperation};
 
 #[test]
+fn static_sprite_parameters_belong_to_actor_extensions_not_shared_globals() {
+    let mut game = Game::new(Vec::new()).unwrap();
+    let current = allocate(&mut game.memory, 0).unwrap();
+    game.memory.write_word(CURRENT_OBJECT, current);
+    game.memory.write_byte(current + 0x20, 0x81);
+    game.memory.write_byte(current + 0x1CDB, 47);
+    game.memory.write_word(0x1D7A, 0x1234);
+    Sf2PathHost::set_sprite(&mut game, 5, 200).unwrap();
+    assert_eq!(game.memory.read_byte(current + 0x20), 0xA1);
+    assert_eq!(game.memory.read_byte(current + 0x1CC8), 5);
+    assert_eq!(game.memory.read_byte(current + 0x1CDA), 200);
+    assert_eq!(game.memory.read_byte(current + 0x1CDB), 47);
+    assert_eq!(game.memory.read_word(0x1D7A), 0x1234);
+}
+
+#[test]
 fn static_vertical_path_conditions_use_wrapped_height_and_ground_sign() {
     let mut game = Game::new(Vec::new()).unwrap();
     let current = allocate(&mut game.memory, 0).unwrap();

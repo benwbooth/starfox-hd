@@ -38,6 +38,7 @@ pub struct AnimationState {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct RenderFlags {
     pub visible: bool,
+    pub scaled_sprite: bool,
     pub casts_shadow: bool,
     pub highlighted: bool,
 }

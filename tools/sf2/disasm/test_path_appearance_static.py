@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""Animation and sprite contracts from static source bytes, no CPU execution."""
+
+from pathlib import Path
+import unittest
+
+from dump_runtime_routine import source_offset
+from extract_map import DEFAULT_ROM
+
+
+class PathAppearanceStaticTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.rom = Path(DEFAULT_ROM).read_bytes()
+
+    def assert_source(self, address, expected):
+        expected = bytes.fromhex(expected)
+        offset = source_offset(address)
+        self.assertEqual(self.rom[offset:offset + len(expected)], expected)
+
+    def test_initialization_forces_manual_selection(self):
+        self.assert_source(0x7F8CFD, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CB 1C 4C D3 CA")
+        self.assert_source(0x7F8D3A, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CA 1C 4C D3 CA")
+
+    def test_both_channels_add_then_correct_once_not_modulo(self):
+        operands = "20 BC C4 8D B1 16 20 E0 C4 8D B7 16"
+        arithmetic = "18 6D B1 16 30 04 18 6D B7 16 29 7F CD B7 16 90 04 38 ED B7 16 09 80"
+        self.assert_source(0x7F8D0E, f"{operands} BD CB 1C {arithmetic} 9D CB 1C 4C BE CA")
+        self.assert_source(0x7F8D4B, f"{operands} BD CA 1C {arithmetic} 9D CA 1C 4C BE CA")
+
+    def test_presentation_uses_clock_only_when_control_sign_bit_is_clear(self):
+        self.assert_source(0x7F1406, "B9 CB 1C 30 02 A5 C4 29 7F 9D 19 00 B9 CA 1C 30 02 A5 C4 29 7F 9D 1A 00")
+
+    def test_sprite_sets_actor_flag_and_two_existing_extension_channels(self):
+        self.assert_source(0x7F99D5, "20 BC C4 8D B1 16 20 E0 C4 8D B3 16 B5 20 09 20 95 20 AD B1 16 9D C8 1C AD B3 16 9D DA 1C 4C BE CA")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -3689,9 +3689,12 @@ impl Sf2PathHost for Game {
         Ok(())
     }
 
-    fn set_sprite(&mut self, x: u8, y: u8) -> Result<(), Self::Error> {
-        self.memory.write_byte(0x1D7A, x);
-        self.memory.write_byte(0x1D7B, y);
+    fn set_sprite(&mut self, color: u8, size: u8) -> Result<(), Self::Error> {
+        let object = self.memory.read_word(CURRENT_OBJECT);
+        let flags = self.memory.read_byte(object.wrapping_add(0x20));
+        self.memory.write_byte(object.wrapping_add(0x20), flags | 0x20);
+        self.memory.write_byte(object.wrapping_add(0x1CC8), color);
+        self.memory.write_byte(object.wrapping_add(0x1CDA), size);
         Ok(())
     }
 

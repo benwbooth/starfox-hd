@@ -20187,6 +20187,7 @@ impl Game {
                 texture_scroll_y: object.extension.texture_scroll_y,
                 flags: RenderFlags {
                     visible: object.base.flags.visible,
+                    scaled_sprite: object.base.flags.scaled_sprite,
                     casts_shadow: object.base.flags.casts_shadow,
                     highlighted: false,
                 },
@@ -23960,6 +23961,32 @@ mod tests {
             .iter()
             .find(|entry| entry.object == object)
             .expect("active player craft is absent from the native render boundary")
+    }
+
+    #[test]
+    fn native_sprite_command_reaches_game_render_boundary() {
+        let mut game = Game::new();
+        let mut actor = Object::new(
+            ObjectKind::Effect,
+            ShapeId::TITLE_FORMATION_EFFECT,
+            Behavior::FollowPath,
+        );
+        let cursor = super::super::PathCursor {
+            path: super::super::PathId::from_catalog_index(0),
+            command_index: 0,
+        };
+        actor.base.path = Some(cursor);
+        let owner = game.state.objects.allocate(actor).unwrap();
+        let mut runtime = super::super::path_runtime::PathRuntime::default();
+        assert_eq!(
+            runtime.execute_sprite(&mut game.state.objects, owner, 5, 200, cursor),
+            Ok(super::super::path_commands::ControlStep::Continue)
+        );
+        game.build_render_objects().unwrap();
+        let entry = rendered_object(&game, owner);
+        assert!(entry.flags.scaled_sprite);
+        assert_eq!(entry.depth_offset, 5);
+        assert_eq!(entry.texture_scroll_x, 200);
     }
 
     fn active_walker_game() -> (Game, ObjectId, i16) {

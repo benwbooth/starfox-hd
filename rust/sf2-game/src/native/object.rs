@@ -900,6 +900,7 @@ pub enum ObjectActivity {
 pub struct ObjectFlags {
     pub active: bool,
     pub visible: bool,
+    pub scaled_sprite: bool,
     pub exploding: bool,
     pub on_fire: bool,
     pub casts_shadow: bool,
