@@ -74,7 +74,10 @@ class PathControlStaticTests(unittest.TestCase):
 
     def test_shared_byte_trig_tables_match_the_sf2_rotation_callees(self):
         source = (ROOT / "rust/sf-core/src/snes_trig.rs").read_text()
-        for name, address in (("SINTAB", 0x7F3D92), ("COSTAB", 0x7F3DD2)):
+        for name, address in (
+            ("SINTAB", 0x7F3D92), ("COSTAB", 0x7F3DD2),
+            ("SINTAB", 0x008E26), ("COSTAB", 0x008E66),
+        ):
             match = re.search(rf"pub static {name}: \[i8; 256\] = \[(.*?)\];", source, re.S)
             self.assertIsNotNone(match)
             values = [int(value.strip()) & 255 for value in match[1].split(",") if value.strip()]
@@ -199,6 +202,47 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F9D38, "FA DA B5 22 29 02 D0 04 5C 88 9D 7F")
         self.assert_source(0x7FBF9C, "C2 20 B5 0E 38 E5 08 30 03 4C F3 CA")
         self.assert_source(0x7F8CA3, "C2 20 20 20 C7 18 75 0E")
+
+    def test_collision_rotation_scales_input_words_and_preserves_product_carries(self):
+        self.assert_source(0x01FD6D, "3D A0 34 50 11 50 3D A0 17 50 13 50")
+        self.assert_source(0x01FE78, "F0 66 8E 1E 52 EF 15 4D F0 26 8E 1E 52 EF 19 4D")
+        self.assert_source(
+            0x01FE88,
+            "21 16 B9 18 3D 9F 24 17 23 16 B5 3D 9F 27 54 3D 58 12 96 "
+            "23 16 B9 18 3D 9F 24 17 21 16 B5 3D 9F 27 64 3D 68 13 96",
+        )
+
+    def test_collision_polygon_uses_full_signed_cross_product_and_inclusive_edges(self):
+        self.assert_source(
+            0x01FD2F,
+            "B9 13 67 BA 15 68 B1 17 67 B2 18 68 28 16 23 3D 9F "
+            "24 18 25 16 27 3D 9F 24 15 25 68 27 3D 63 0B 0B",
+        )
+        self.assert_source(0x01FD50, "29 17 2A 18 3C 01 A0 00 05 03 01 A0 FF 3E A0 0B 00 01")
+
+    def test_collision_plane_truncates_before_doubling_and_signed_division(self):
+        self.assert_source(
+            0x01FA39,
+            "3D A0 13 3D A6 55 9F 11 50 3D A0 15 3D A6 57 9F 50 11 51 "
+            "3D A0 14 21 60 21 15 A4 00 3D A6 56 94 FF 8A FA 01 24 96 3E A4 14",
+        )
+        self.assert_source(
+            0x01FA8A,
+            "02 B5 17 3D C6 60 26 B6 0A 02 16 66 25 B5 0A 05 "
+            "14 64 15 3D 65 24 54 B5 04 AC 10 2F 1D 66 0C 08 01 "
+            "24 04 3C 04 05 06 01 56 24 54 3C 04 27 B7 0A 03 24 4F D4 9B 01",
+        )
+
+    def test_surface_admission_uses_no_extra_footprint_margin(self):
+        self.assert_source(0x0DB07E, "BD 05 00 4A 18 7D 01 00 38 E5 02 DD 05 00 B0 10")
+        self.assert_source(0x0DB08E, "BD 07 00 4A 18 7D 03 00 38 E5 97 DD 07 00 90 09")
+        # The +2 is only the later vertical admission margin.
+        self.assert_source(0x0DB157, "A5 08 38 79 0C 00 1A D5 0E 10 03 82 6D 00")
+        self.assert_source(0x0DB165, "A5 08 CD 5D 19 30 03 82 63 00")
+        # Both failed and accepted surface candidates resume at the NEXT
+        # OBJECT link, not the compound-group loop at $B09E.
+        self.assert_source(0x0DB1D8, "C2 20 AC 49 19 B6 00 F0 14")
+        self.assert_source(0x0DB1FE, "AD 5D 19 C9 00 20 D0 03 A9 00 00 85 08")
 
 
 if __name__ == "__main__":

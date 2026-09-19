@@ -51,7 +51,7 @@
 //!   architecture.
 
 pub mod audio;
-#[cfg(feature = "oracle-data")]
+// Authored geometry is shared by the native collision service and oracle.
 pub mod collision_data;
 pub mod colors;
 pub mod compression;

@@ -8,8 +8,9 @@ variant run selected by the candidate object's animation frame.
 
 The optional polygon pointer names a convex X/Z footprint encoded as a vertex
 count followed by signed byte pairs. Its scale byte is stored in the record.
-The plane coefficients and offset are retained exactly; the oracle-only path
-host uses retail's exact fixed-point math kernels to consume them.
+The plane coefficients and offset are retained exactly. Native code selects
+profiles by decoded shape-catalog index; source tokens remain available to
+the independent verification host.
 """
 
 from __future__ import annotations
@@ -270,6 +271,18 @@ def render(data: bytes) -> str:
                 "",
             ]
         )
+
+    lines.extend(
+        [
+            "/// Native lookup by decoded shape-catalog index, not a source token.",
+            "pub fn collision_profile_by_index(index: usize) -> Option<&'static CollisionProfile> {",
+            "    match index {",
+        ]
+    )
+    for shape_id, profile_address in shape_profiles:
+        index = (shape_id - SHAPE_HEADER_START) // SHAPE_HEADER_SIZE
+        lines.append(f"        {index} => Some(&PROFILE_{profile_address:04X}),")
+    lines.extend(["        _ => None,", "    }", "}", ""])
 
     lines.extend(
         [
