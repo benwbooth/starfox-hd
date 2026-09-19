@@ -82,6 +82,13 @@ not be used to remove the counter comparison or bless new native-only hashes.
 Local artifacts: `/tmp/sf1-timing-boundary.log`,
 `/tmp/sf1-mesen-handoff-capture.txt`, and `/tmp/sf1-native-handoff.txt`.
 
+A subsequent fresh capture reaches scene 983. Its full comparison still fails
+the object-inventory gate at restart scene 944 (six active slots have no object
+records). Before that boundary, scenes 1–191 pass the existing semantic
+comparator; scene 192 requires a verified path-cursor mapping (retail 13864,
+native 13867 for slot 28). Neither gate was bypassed. The extended capture and
+native output are retained in `/tmp/sf1-independent-scenes-zJ1L1s/`.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from
