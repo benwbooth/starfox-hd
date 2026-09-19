@@ -402,3 +402,12 @@ reported explicitly. Focused native path coverage now passes 89 release tests;
 98 static path checks and three synthetic verification-host condition tests
 pass without executing the original programs. Whole authored-program dispatch
 and production scheduler replacement remain open.
+
+Path arithmetic now addresses named actor fields directly: world/local
+coordinates, velocity, angles, speed, health, attack/hit state, path counters
+and part identifiers. Byte views of numeric words preserve the other byte;
+copy operands are read before writes, and source byte-to-word copies/adds
+sign-extend. Assignment, addition, increment, decrement and negation retain
+their destination widths. Ordinary speed/angle variable writes do not invoke
+SETVEL's velocity generation. This is a typed operand subset, not a claim
+that every encoded actor/world field is lowered or every path now ships.

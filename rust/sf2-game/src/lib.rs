@@ -7,11 +7,12 @@
 mod native;
 
 pub use native::{
-    attachments, collision_boxes, collision_contacts, collision_math, collision_pass, collision_surface,
-    hit_response, hostile_laser_control, path_calls, path_commands, path_conditions, path_control, path_math, path_motion,
-    path_runtime, path_sound, path_steering, path_trigger_conditions, path_triggers, player_contact, player_hit_control, platform_carry,
-    program_resources, program_state, retirement, scene_proxy, strategy_schedule, weapon_launch,
-    world_occupancy,
+    attachments, collision_boxes, collision_contacts, collision_math, collision_pass,
+    collision_surface, hit_response, hostile_laser_control, path_calls, path_commands,
+    path_conditions, path_control, path_fields, path_math, path_motion, path_runtime, path_sound,
+    path_steering, path_trigger_conditions, path_triggers, platform_carry, player_contact,
+    player_hit_control, program_resources, program_state, retirement, scene_proxy,
+    strategy_schedule, weapon_launch, world_occupancy,
 };
 
 pub use native::{

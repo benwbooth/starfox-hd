@@ -117,6 +117,25 @@ pub enum BranchCommand {
 }
 
 impl PathRuntime {
+    pub fn execute_mutation(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        mutation: super::path_fields::Mutation,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let actor = objects
+            .get_mut(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        mutation.apply(actor);
+        actor.base.path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     pub fn execute_spatial_branch(
         &mut self,
         objects: &mut ObjectStore,
@@ -835,6 +854,54 @@ mod tests {
                 .execute_control(&mut objects, owner, ControlCommand::Return)
                 .unwrap(),
             ControlStep::ResumeCallbacks
+        );
+    }
+
+    #[test]
+    fn typed_field_mutations_advance_without_movement_or_speed_regeneration() {
+        use super::super::path_fields::{
+            Axis, ByteField, ByteOperand, ByteOperation, Mutation, WordField, WordOperand,
+            WordOperation,
+        };
+        let (mut runtime, mut objects, owner) = setup();
+        let speed = Mutation::Byte {
+            field: ByteField::Speed,
+            operation: ByteOperation::Assign(ByteOperand::Literal(200)),
+        };
+        assert_eq!(
+            runtime
+                .execute_mutation(&mut objects, owner, speed, cursor(2))
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert_eq!(objects.get(owner).unwrap().base.speed, 200);
+        assert_eq!(
+            objects.get(owner).unwrap().base.velocity,
+            super::super::Vector3::default()
+        );
+        assert_eq!(
+            runtime
+                .execute_mutation(
+                    &mut objects,
+                    owner,
+                    Mutation::Word {
+                        field: WordField::Position(Axis::Y),
+                        operation: WordOperation::Add(WordOperand::SignedByte(ByteOperand::Actor(
+                            ByteField::Speed
+                        ))),
+                    },
+                    cursor(3)
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.base.position.y, -56);
+        assert_eq!(actor.base.path, Some(cursor(3)));
+        objects.get_mut(owner).unwrap().base.path = None;
+        assert_eq!(
+            runtime.execute_mutation(&mut objects, owner, speed, cursor(4)),
+            Err(PathRuntimeError::MissingPath(owner))
         );
     }
 
