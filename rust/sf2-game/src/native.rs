@@ -18,6 +18,7 @@ pub mod intro_formation;
 pub mod intro_free_craft;
 pub mod intro_late_target;
 pub mod intro_logo;
+pub mod intro_material;
 pub mod intro_motion;
 pub mod intro_projection;
 pub mod intro_render_work;

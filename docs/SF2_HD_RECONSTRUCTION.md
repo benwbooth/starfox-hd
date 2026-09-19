@@ -1407,6 +1407,19 @@ ten shade levels and cases that differ from widened dot-product arithmetic.
 Material-table selection and production face submission remain separate,
 unverified integration steps.
 
+`intro_material::FlatMaterial` now decodes validated solid, standard-depth,
+and lit material words after animation/texture dispatch and returns the exact
+packed palette pair. All four depth groups use the extracted SF2 tables;
+lighting rows 10 and 11 alias row 9 through the original pointer catalog.
+With lighting disabled, the source emits the decoded lighting row byte,
+not the material low byte or a default shade. The direct `$01:9E85..9EFC`
+oracle covers every supported word in every group with lighting both enabled
+and disabled: 26,880 source executions. Texture, animation, smooth and
+out-of-catalog table words are explicitly rejected at this flat-only boundary.
+The scene still owns material animation, depth-group selection, choice of
+depth-color family, and submission; this API currently supports the standard
+family and does not establish complete rendered-material parity.
+
 Native `intro_draw` now derives camera-space placements and submission order
 from typed world positions, view position/matrix, shadow mode and authored sort
 biases. It matches the complete `$01:D28B` pass: wrapping world-minus-camera
