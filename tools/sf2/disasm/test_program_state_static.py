@@ -37,6 +37,11 @@ class ProgramStateStaticTests(unittest.TestCase):
         self.assert_source(0x7F9592, "B5 2B 8D 69 B2 BD DE 1C 22 0F 1A 7F 9D DE 1C")
         self.assert_source(0x7F95B4, "C2 20 BD DE 1C 22 C1 1A 7F 9D DE 1C AD 69 B2 95 2B E2 20 4C BE CA")
 
+    def test_word_count_handler_pushes_continuation_then_full_variable_word(self):
+        from path_semantics import PATH_SEMANTIC_BY_OPCODE
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x063].rust_name, "DoVariableWord")
+        self.assert_source(0x7F9607, "C2 20 B5 2B 1A 1A E2 20 C2 20 8D 69 B2 BD DE 1C 22 0F 1A 7F 9D DE 1C E2 20 20 BC C4 20 47 CB C2 20 B9 00 00 E2 20 C2 20 8D 69 B2 BD DE 1C 22 0F 1A 7F 9D DE 1C E2 20 4C D3 CA")
+
 
 if __name__ == "__main__":
     unittest.main()

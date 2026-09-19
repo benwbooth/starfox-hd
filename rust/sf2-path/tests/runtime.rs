@@ -678,6 +678,26 @@ fn immediate_jump_variable_adds_and_indexed_byte_export_match_retail() {
 }
 
 #[test]
+fn do_variable_word_pushes_a_full_word_count_not_arithmetic_into_stack_storage() {
+    let mut host = Host::new();
+    for count in 0..=u16::MAX {
+        host.stack.clear();
+        host.write_variable_word(0x39, count).unwrap();
+        let mut vm = PathVm::new(PathAddress { offset: 0x28E2 });
+        run_one(&mut vm, &mut host);
+        assert_eq!(host.stack, [0x28E4, count]);
+        assert!(host.path_operations.is_empty());
+    }
+    host.stack.clear();
+    host.write_variable_word(0x39, 0xABCD).unwrap();
+    host.write_variable_word(0x3B, 0x1234).unwrap();
+    let mut vm = PathVm::new(PathAddress { offset: 0x28E2 });
+    run_one(&mut vm, &mut host);
+    run_one(&mut vm, &mut host);
+    assert_eq!(host.stack, [0x28E4, 0xABCD, 0x28E6, 0x1234]);
+}
+
+#[test]
 fn movement_flags_sprite_spawn_and_do_variable_use_exact_records() {
     let mut host = Host::new();
 

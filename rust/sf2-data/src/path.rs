@@ -128,7 +128,7 @@ pub enum PathSemantic {
     IfProjectedSelectedForwardPointNegative,
     DoQueue,
     DoVariableByte,
-    AccumulateObject1cde,
+    DoVariableWord,
     UnlinkSelf,
     RemoveChild,
     IfZeroByte,
@@ -3235,7 +3235,7 @@ pub static PATH_HANDLERS: [PathHandler; PATH_HANDLER_COUNT] = [
     PathHandler {
         opcode: 0x063,
         address: 0x7F9607,
-        semantic: Some(PathSemantic::AccumulateObject1cde),
+        semantic: Some(PathSemantic::DoVariableWord),
         effects: &PATH_EFFECTS_82,
         instruction_count: 51,
     },

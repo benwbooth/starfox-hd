@@ -109,7 +109,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x05F, "IfProjectedSelectedForwardPointNegative", 0x7F8DF1, None, "sf2_handler"),
     PathSemanticSpec(0x061, "DoQueue", 0x7F9641, 138, "sf1_handler"),
     PathSemanticSpec(0x062, "DoVariableByte", 0x7F95CA, 139, "sf1_handler"),
-    PathSemanticSpec(0x063, "AccumulateObject1cde", 0x7F9607, None, "sf2_handler"),
+    PathSemanticSpec(0x063, "DoVariableWord", 0x7F9607, None, "sf2_handler"),
     PathSemanticSpec(0x065, "UnlinkSelf", 0x7F9435, 142, "sf1_handler"),
     PathSemanticSpec(0x066, "RemoveChild", 0x7F8B64, 148, "sf2_handler"),
     PathSemanticSpec(0x067, "IfZeroByte", 0x7F8EF4, 149, "sf1_handler"),

@@ -2772,16 +2772,6 @@ impl Sf2PathHost for Game {
                     }
                 }
             }
-            Sf2PathOperation::AccumulateObject1cde(variable) => {
-                let current = self.current_object()?;
-                let address = current.wrapping_add(0x1CDE);
-                let value = self
-                    .memory
-                    .read_word(address)
-                    .wrapping_add(self.memory.read_word(current + 0x02))
-                    .wrapping_add(self.read_variable_word(variable)?);
-                self.memory.write_word(address, value);
-            }
             Sf2PathOperation::SaturatingAddSelectedAuxWord(value) => {
                 let address = self.selected_aux_address(0x6C33)?;
                 self.memory.write_word(

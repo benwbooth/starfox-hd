@@ -270,3 +270,12 @@ storage, predicates, callback returns, redirects, and a parent loop stack.
 Sixteen assembly checks cover the storage/control/predicate source blocks.
 Production world adapters and decoded path command dispatch remain required;
 synthetic composition tests are not evidence of live gameplay completion.
+
+Static review corrected decoded opcode `063` from the erroneous
+`AccumulateObject1cde` label to `DoVariableWord`. It pushes the body continuation
+and a full variable word onto the shared path stack; it does not add values to
+the stack handle. The generated catalog and verification-only path dispatcher
+now agree with that source flow, and the obsolete arithmetic host operation
+is removed. A synthetic dispatcher test covers all 65,536 counts and nested
+word loops in debug/release; six stack source checks and eleven extractor
+checks pass. No recorded gameplay or original-program execution was used.

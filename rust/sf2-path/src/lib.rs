@@ -114,7 +114,6 @@ pub enum Sf2PathOperation {
     SpawnObject(ObjectSpawn),
     FlagLinkedObject,
     UnlinkChild(u8),
-    AccumulateObject1cde(u8),
     SaturatingAddSelectedAuxWord(u16),
     RefreshSelectedRelativeTransform,
     SelectSelfAndClearRelativeTransform,
@@ -1090,6 +1089,15 @@ impl PathVm {
                     .map_err(PathVmError::Host)?;
                 host.push_path_value(value as u16)
                     .map_err(PathVmError::Host)?;
+                self.advance(command);
+            }
+            DoVariableWord => {
+                host.push_path_value(fallthrough(command).offset)
+                    .map_err(PathVmError::Host)?;
+                let value = host
+                    .read_variable_word(operand_byte(command, 1))
+                    .map_err(PathVmError::Host)?;
+                host.push_path_value(value).map_err(PathVmError::Host)?;
                 self.advance(command);
             }
             RemoveChild => {
@@ -2395,13 +2403,6 @@ impl PathVm {
             }
             UnlinkChild => {
                 host.perform_path_operation(Sf2PathOperation::UnlinkChild(operand_byte(
-                    command, 1,
-                )))
-                .map_err(PathVmError::Host)?;
-                self.advance(command);
-            }
-            AccumulateObject1cde => {
-                host.perform_path_operation(Sf2PathOperation::AccumulateObject1cde(operand_byte(
                     command, 1,
                 )))
                 .map_err(PathVmError::Host)?;
