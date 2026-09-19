@@ -44,6 +44,7 @@ pub mod path_control;
 pub mod path_math;
 pub mod path_motion;
 pub mod path_sound;
+pub mod player_contact;
 pub mod player_hit_control;
 mod render;
 mod results;

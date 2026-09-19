@@ -186,3 +186,14 @@ leaves have seven synthetic Rust tests in debug/release and seven source-byte
 checks, including the reused native bearing table. The whole player-contact
 callback, reflected-weapon path, and production player frame owner remain open;
 this is not replacement of the legacy frame-based recovery schedule yet.
+
+`native/player_contact.rs` now implements the complete player contact callback
+control flow: early and global gates, timed versus projectile-only deflection,
+sound-before-random ordering, part-hit feedback consumption, contact-turn gates,
+heavy impact and reserve absorption. Its required world interface dispatches
+reflection and sounds; it does not silently omit either operation. Six synthetic
+tests exercise all protection-byte values, all box-hit flag values, and actual
+composition with new/continuing hit response and separation. Five assembly-byte
+checks cover the branch and dispatch ordering. Reflected-weapon world operations
+and production Game integration are still required; these interface tests do
+not demonstrate live reflected projectiles.
