@@ -311,3 +311,19 @@ Seven command tests (including every wait/repeat byte pair), seven stack tests
 and seven command assembly checks cover this layer. Complete authored-program
 lowering, the remaining statement families, movement/service orchestration,
 and replacing production recorded controllers remain open.
+
+Path motion now operates directly on actor fields before callbacks, selecting
+ordinary versus local relative heading, applying acceleration before bank
+turning, then player displacement and optional per-step velocity regeneration.
+Relative-position integration is a separate post-callback operation and reads
+the latest flags and velocity; a callback can intentionally cause both world
+and relative integration in one invocation. Six decoded motion-configuration
+statements preserve immediate versus deferred regeneration. Eleven movement
+tests and eight command tests pass in debug/release, with seven new assembly
+checks. The catalog's former `RelativeToPlayerOn/Off` names are corrected to
+`GenerateVelocityEachStepOn/Off`; displacement following uses the separate
+`FollowPlayerDisplacementOn/Off` pair. Catalog command/root counts and raw
+program bytes are unchanged. Child refresh, selected-target carry correction,
+path-exit latch cleanup and the complete movement-service caller remain to be
+integrated; this does not claim that the production scheduler now runs all
+authored paths.

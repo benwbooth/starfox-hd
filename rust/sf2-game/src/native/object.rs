@@ -965,6 +965,7 @@ pub struct ObjectExtension {
     pub animation_frame: u8,
     pub material_set: Option<MaterialSetId>,
     pub relative_position: Vector3,
+    pub relative_rotation: super::render::Rotation,
     pub parent: Option<ObjectId>,
     pub texture_scroll_x: u8,
     pub texture_scroll_y: u8,

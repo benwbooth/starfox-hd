@@ -28,7 +28,7 @@ pub const VAR_WORLD_Z: u8 = 0x10;
 pub const VAR_ROTATION_X: u8 = 0x12;
 pub const VAR_ROTATION_Y: u8 = 0x14;
 pub const VAR_ROTATION_Z: u8 = 0x16;
-pub const PATH_FLAG_RELATIVE_TO_PLAYER: u8 = 0x10;
+pub const PATH_FLAG_GENERATE_VELOCITY_EACH_STEP: u8 = 0x10;
 pub const PATH_FLAG_HELICOPTER: u8 = 0x40;
 pub const PATH_FLAG_INVISIBLE: u8 = 0x01;
 pub const OBJECT_FLAG_INVISIBLE: u8 = 0x02;
@@ -486,7 +486,7 @@ impl PathVm {
     ) -> Result<Option<YieldReason>, PathVmError<H::Error>> {
         use PathSemantic::*;
         match semantic {
-            ClearFlag21Bit08 => {
+            FollowPlayerDisplacementOff => {
                 set_byte_bits(host, VAR_PATH_FLAGS, 0x08, false)?;
                 self.advance(command);
             }
@@ -504,14 +504,14 @@ impl PathVm {
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
-            RelativeToPlayerOn | RelativeToPlayerOff => {
+            GenerateVelocityEachStepOn | GenerateVelocityEachStepOff => {
                 let flags = host
                     .read_variable_byte(VAR_PATH_FLAGS)
                     .map_err(PathVmError::Host)?;
-                let flags = if semantic == RelativeToPlayerOn {
-                    flags | PATH_FLAG_RELATIVE_TO_PLAYER
+                let flags = if semantic == GenerateVelocityEachStepOn {
+                    flags | PATH_FLAG_GENERATE_VELOCITY_EACH_STEP
                 } else {
-                    flags & !PATH_FLAG_RELATIVE_TO_PLAYER
+                    flags & !PATH_FLAG_GENERATE_VELOCITY_EACH_STEP
                 };
                 host.write_variable_byte(VAR_PATH_FLAGS, flags)
                     .map_err(PathVmError::Host)?;
@@ -523,7 +523,7 @@ impl PathVm {
                 let flags = host
                     .read_variable_byte(VAR_PATH_FLAGS)
                     .map_err(PathVmError::Host)?;
-                if flags & PATH_FLAG_RELATIVE_TO_PLAYER == 0 {
+                if flags & PATH_FLAG_GENERATE_VELOCITY_EACH_STEP == 0 {
                     host.regenerate_velocity_vectors()
                         .map_err(PathVmError::Host)?;
                 }
@@ -2094,7 +2094,7 @@ impl PathVm {
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
-            SetFlag21Bit08 => {
+            FollowPlayerDisplacementOn => {
                 set_byte_bits(host, VAR_PATH_FLAGS, 0x08, true)?;
                 self.advance(command);
             }

@@ -4,9 +4,127 @@
 //! attached-relative integration (`$7F:9E9F`) follows them. These operations
 //! are separate so callers cannot accidentally collapse those two phases.
 
-use super::{Angle, Vector3};
+use super::{Angle, Object, ObjectId, Vector3};
 
 const BANK_TURN_DIVISOR: i8 = 4;
+const ORDINARY_VELOCITY_SCALE: i16 = 1;
+const ENLARGED_VELOCITY_SCALE: i16 = 4;
+
+/// Independent source motion gates. Relative and attached flags can coexist;
+/// neither should be inferred from the presence of a parent pointer.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MotionSettings {
+    /// Source 21 bit 08, tested by the displacement service at 9F16.
+    pub follow_player_displacement: bool,
+    /// Source 21 bit 10; this is NOT the displacement-follow flag.
+    pub generate_velocity_each_step: bool,
+    /// Source 21 bit 40 applies the bank-derived yaw step.
+    pub bank_turn: bool,
+    /// Source 23 bit 04: integration uses retained attachment coordinates.
+    pub attached_coordinates: bool,
+    /// Source 25 bit 04: integration uses retained relative coordinates.
+    pub relative_coordinates: bool,
+    /// Source 26 bit 80 multiplies all generated velocity words by four.
+    pub quadruple_velocity: bool,
+}
+
+impl MotionSettings {
+    fn uses_relative_coordinates(self) -> bool {
+        self.attached_coordinates || self.relative_coordinates
+    }
+}
+
+/// Live displacement supplied by the world service. Only the horizontal
+/// suppression flag belongs to the selected player's auxiliary state.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PlayerDisplacement {
+    pub world_delta: Vector3,
+    pub suppress_horizontal: bool,
+}
+
+/// Full direction selection (`$7F:855F`). A self-relative reference uses
+/// ordinary heading even when integration still uses relative coordinates.
+pub fn generate_velocity(object: &mut Object, owner: ObjectId) {
+    let settings = object.extension.path_state.motion;
+    let (pitch, yaw) =
+        if settings.uses_relative_coordinates() && object.extension.parent != Some(owner) {
+            (
+                object.extension.relative_rotation.pitch,
+                object.extension.relative_rotation.yaw,
+            )
+        } else {
+            (object.base.pitch, object.base.yaw)
+        };
+    let scale = if settings.quadruple_velocity {
+        ENLARGED_VELOCITY_SCALE
+    } else {
+        ORDINARY_VELOCITY_SCALE
+    };
+    object.base.velocity = direction_velocity(pitch, yaw, object.base.speed, scale);
+}
+
+/// SETVEL (`$7F:854A`) defers regeneration only when the per-step gate is on.
+pub fn set_speed(object: &mut Object, owner: ObjectId, speed: u8) {
+    object.base.speed = speed;
+    if !object
+        .extension
+        .path_state
+        .motion
+        .generate_velocity_each_step
+    {
+        generate_velocity(object, owner);
+    }
+}
+
+/// Movement through the callback boundary (`$7F:9DE8..9E70`). Acceleration
+/// regenerates before bank turning unless per-step regeneration is enabled;
+/// the latter happens after bank turning and selected-player displacement.
+pub fn before_callbacks(object: &mut Object, owner: ObjectId, player: PlayerDisplacement) {
+    let settings = object.extension.path_state.motion;
+    if object.base.acceleration != 0 {
+        accelerate(
+            &mut object.base.speed,
+            object.base.target_speed,
+            &mut object.base.acceleration,
+        );
+        if !settings.generate_velocity_each_step {
+            generate_velocity(object, owner);
+        }
+    }
+    if settings.bank_turn {
+        object.base.yaw = bank_turn(object.base.yaw, object.base.roll);
+    }
+    if settings.follow_player_displacement {
+        follow_selected_displacement(
+            &mut object.base.position,
+            player.world_delta,
+            player.suppress_horizontal,
+        );
+    }
+    if settings.generate_velocity_each_step {
+        generate_velocity(object, owner);
+    }
+    if !settings.uses_relative_coordinates() {
+        integrate(&mut object.base.position, object.base.velocity);
+    }
+}
+
+/// `$7F:9E8B..9EC7`: call AFTER callbacks and any required child refresh.
+/// Resample both the integration flags and velocity; callbacks can change
+/// either, including enabling a second integration in the same invocation.
+pub fn integrate_relative_after_callbacks(object: &mut Object) {
+    if object
+        .extension
+        .path_state
+        .motion
+        .uses_relative_coordinates()
+    {
+        integrate(
+            &mut object.extension.relative_position,
+            object.base.velocity,
+        );
+    }
+}
 
 /// Accelerate using the source's signed *byte subtraction* tests. Testing
 /// widened integers or saturating the intermediate result is not equivalent
@@ -83,6 +201,198 @@ pub fn follow_selected_displacement(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Behavior, ObjectKind, ObjectStore, Rotation, ShapeId};
+
+    fn setup() -> (Object, ObjectId) {
+        let object = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
+        let owner = ObjectStore::new().allocate(object.clone()).unwrap();
+        (object, owner)
+    }
+
+    #[test]
+    fn regeneration_order_distinguishes_acceleration_and_per_step_modes() {
+        for each_step in [false, true] {
+            let (mut object, owner) = setup();
+            object.base.speed = 12;
+            object.base.target_speed = 12;
+            object.base.acceleration = 1;
+            object.base.roll = Angle::from_units(64);
+            object.extension.path_state.motion.bank_turn = true;
+            object
+                .extension
+                .path_state
+                .motion
+                .generate_velocity_each_step = each_step;
+            before_callbacks(&mut object, owner, PlayerDisplacement::default());
+            assert_eq!(
+                (object.base.speed, object.base.acceleration, object.base.yaw),
+                (12, 0, Angle::from_units(16))
+            );
+            let expected = direction_velocity(
+                Angle::ZERO,
+                if each_step {
+                    Angle::from_units(16)
+                } else {
+                    Angle::ZERO
+                },
+                12,
+                1,
+            );
+            assert_eq!(object.base.velocity, expected);
+            assert_eq!(object.base.position, expected);
+        }
+    }
+
+    #[test]
+    fn absent_acceleration_preserves_velocity_unless_per_step_generation_is_on() {
+        for each_step in [false, true] {
+            let (mut object, owner) = setup();
+            object.base.speed = 40;
+            object.base.velocity = Vector3 { x: 7, y: -8, z: 9 };
+            object
+                .extension
+                .path_state
+                .motion
+                .generate_velocity_each_step = each_step;
+            before_callbacks(&mut object, owner, PlayerDisplacement::default());
+            let expected = if each_step {
+                direction_velocity(Angle::ZERO, Angle::ZERO, 40, 1)
+            } else {
+                Vector3 { x: 7, y: -8, z: 9 }
+            };
+            assert_eq!(object.base.position, expected);
+        }
+    }
+
+    #[test]
+    fn relative_velocity_selects_local_angles_unless_reference_is_self() {
+        for attached in [false, true] {
+            for relative in [false, true] {
+                for self_reference in [false, true] {
+                    for enlarged in [false, true] {
+                        let (mut object, owner) = setup();
+                        object.base.speed = 63;
+                        object.base.pitch = Angle::from_units(12);
+                        object.base.yaw = Angle::from_units(25);
+                        object.extension.relative_rotation = Rotation {
+                            pitch: Angle::from_units(128),
+                            yaw: Angle::from_units(64),
+                            roll: Angle::from_units(5),
+                        };
+                        object.extension.parent = self_reference.then_some(owner);
+                        object.extension.path_state.motion = MotionSettings {
+                            attached_coordinates: attached,
+                            relative_coordinates: relative,
+                            quadruple_velocity: enlarged,
+                            ..MotionSettings::default()
+                        };
+                        generate_velocity(&mut object, owner);
+                        let (pitch, yaw) = if (attached || relative) && !self_reference {
+                            (Angle::from_units(128), Angle::from_units(64))
+                        } else {
+                            (object.base.pitch, object.base.yaw)
+                        };
+                        assert_eq!(
+                            object.base.velocity,
+                            direction_velocity(pitch, yaw, 63, if enlarged { 4 } else { 1 })
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn relative_integration_reads_post_callback_flags_and_velocity() {
+        for relative_before in [false, true] {
+            for relative_after in [false, true] {
+                let (mut object, owner) = setup();
+                let before = Vector3 { x: 3, y: 4, z: 5 };
+                let after = Vector3 {
+                    x: -6,
+                    y: -7,
+                    z: -8,
+                };
+                object.base.velocity = before;
+                object.extension.path_state.motion.relative_coordinates = relative_before;
+                before_callbacks(&mut object, owner, PlayerDisplacement::default());
+                assert_eq!(
+                    object.base.position,
+                    if relative_before {
+                        Vector3::default()
+                    } else {
+                        before
+                    }
+                );
+                assert_eq!(object.extension.relative_position, Vector3::default());
+                object.base.velocity = after;
+                object.extension.path_state.motion.relative_coordinates = relative_after;
+                integrate_relative_after_callbacks(&mut object);
+                assert_eq!(
+                    object.extension.relative_position,
+                    if relative_after {
+                        after
+                    } else {
+                        Vector3::default()
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn displacement_is_independent_of_velocity_regeneration_and_relative_coordinates() {
+        let (mut object, owner) = setup();
+        object.extension.path_state.motion.relative_coordinates = true;
+        object
+            .extension
+            .path_state
+            .motion
+            .follow_player_displacement = true;
+        object.base.velocity = Vector3 { x: 1, y: 2, z: 3 };
+        before_callbacks(
+            &mut object,
+            owner,
+            PlayerDisplacement {
+                world_delta: Vector3 {
+                    x: 40,
+                    y: 50,
+                    z: 60,
+                },
+                suppress_horizontal: true,
+            },
+        );
+        assert_eq!(object.base.position, Vector3 { x: 0, y: 0, z: 60 });
+        integrate_relative_after_callbacks(&mut object);
+        assert_eq!(
+            object.extension.relative_position,
+            Vector3 { x: 1, y: 2, z: 3 }
+        );
+    }
+
+    #[test]
+    fn speed_write_defers_velocity_only_in_per_step_mode() {
+        for each_step in [false, true] {
+            let (mut object, owner) = setup();
+            let retained = Vector3 { x: 1, y: 2, z: 3 };
+            object.base.velocity = retained;
+            object
+                .extension
+                .path_state
+                .motion
+                .generate_velocity_each_step = each_step;
+            set_speed(&mut object, owner, 40);
+            assert_eq!(object.base.speed, 40);
+            assert_eq!(
+                object.base.velocity,
+                if each_step {
+                    retained
+                } else {
+                    direction_velocity(Angle::ZERO, Angle::ZERO, 40, 1)
+                }
+            );
+        }
+    }
 
     #[test]
     fn acceleration_stops_on_crossing_but_not_on_an_exact_landing_from_above() {

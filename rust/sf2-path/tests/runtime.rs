@@ -705,7 +705,7 @@ fn movement_flags_sprite_spawn_and_do_variable_use_exact_records() {
     run_one(&mut velocity, &mut host);
     assert_eq!(host.vars[VAR_VELOCITY as usize], 0x1E);
     assert_eq!(host.velocity_regenerations, 1);
-    host.vars[VAR_PATH_FLAGS as usize] = PATH_FLAG_RELATIVE_TO_PLAYER;
+    host.vars[VAR_PATH_FLAGS as usize] = PATH_FLAG_GENERATE_VELOCITY_EACH_STEP;
     velocity = PathVm::new(PathAddress { offset: 0x4F9B });
     run_one(&mut velocity, &mut host);
     assert_eq!(host.vars[VAR_VELOCITY as usize], 0);

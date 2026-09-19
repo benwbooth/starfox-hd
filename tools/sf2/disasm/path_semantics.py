@@ -22,11 +22,11 @@ class PathSemanticSpec:
 
 
 PATH_SEMANTICS = (
-    PathSemanticSpec(0x001, "SetFlag21Bit08", 0x7F84E9, None, "sf2_handler"),
-    PathSemanticSpec(0x002, "ClearFlag21Bit08", 0x7F84F2, None, "sf2_handler"),
+    PathSemanticSpec(0x001, "FollowPlayerDisplacementOn", 0x7F84E9, None, "sf2_handler"),
+    PathSemanticSpec(0x002, "FollowPlayerDisplacementOff", 0x7F84F2, None, "sf2_handler"),
     PathSemanticSpec(0x003, "Wait", 0x7F84FB, 2, "sf1_handler"),
-    PathSemanticSpec(0x004, "RelativeToPlayerOn", 0x7F8514, 0, "sf1_handler"),
-    PathSemanticSpec(0x005, "RelativeToPlayerOff", 0x7F851D, 1, "sf1_handler"),
+    PathSemanticSpec(0x004, "GenerateVelocityEachStepOn", 0x7F8514, None, "sf2_handler"),
+    PathSemanticSpec(0x005, "GenerateVelocityEachStepOff", 0x7F851D, None, "sf2_handler"),
     PathSemanticSpec(0x006, "SetVelocity", 0x7F854A, 5, "sf1_handler"),
     PathSemanticSpec(0x007, "AddByte", 0x7F8627, 7, "sf1_handler"),
     PathSemanticSpec(0x008, "AddWord", 0x7F86CD, 8, "sf1_handler"),

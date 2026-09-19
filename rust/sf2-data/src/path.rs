@@ -46,11 +46,11 @@ pub struct FlowEffect {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathSemantic {
-    SetFlag21Bit08,
-    ClearFlag21Bit08,
+    FollowPlayerDisplacementOn,
+    FollowPlayerDisplacementOff,
     Wait,
-    RelativeToPlayerOn,
-    RelativeToPlayerOff,
+    GenerateVelocityEachStepOn,
+    GenerateVelocityEachStepOff,
     SetVelocity,
     AddByte,
     AddWord,
@@ -2661,14 +2661,14 @@ pub static PATH_HANDLERS: [PathHandler; PATH_HANDLER_COUNT] = [
     PathHandler {
         opcode: 0x001,
         address: 0x7F84E9,
-        semantic: Some(PathSemantic::SetFlag21Bit08),
+        semantic: Some(PathSemantic::FollowPlayerDisplacementOn),
         effects: &PATH_EFFECTS_0,
         instruction_count: 4,
     },
     PathHandler {
         opcode: 0x002,
         address: 0x7F84F2,
-        semantic: Some(PathSemantic::ClearFlag21Bit08),
+        semantic: Some(PathSemantic::FollowPlayerDisplacementOff),
         effects: &PATH_EFFECTS_1,
         instruction_count: 4,
     },
@@ -2682,14 +2682,14 @@ pub static PATH_HANDLERS: [PathHandler; PATH_HANDLER_COUNT] = [
     PathHandler {
         opcode: 0x004,
         address: 0x7F8514,
-        semantic: Some(PathSemantic::RelativeToPlayerOn),
+        semantic: Some(PathSemantic::GenerateVelocityEachStepOn),
         effects: &PATH_EFFECTS_3,
         instruction_count: 4,
     },
     PathHandler {
         opcode: 0x005,
         address: 0x7F851D,
-        semantic: Some(PathSemantic::RelativeToPlayerOff),
+        semantic: Some(PathSemantic::GenerateVelocityEachStepOff),
         effects: &PATH_EFFECTS_4,
         instruction_count: 4,
     },

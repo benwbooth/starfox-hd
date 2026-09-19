@@ -14,6 +14,7 @@ use super::{Behavior, Object, ObjectId, ObjectStore, PathCursor};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActorPathState {
+    pub motion: super::path_motion::MotionSettings,
     pub stack: PathStack,
     pub triggers: TriggerList,
     pub conditions: TriggerActorState,

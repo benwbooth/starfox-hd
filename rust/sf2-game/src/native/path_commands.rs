@@ -80,7 +80,59 @@ pub enum ControlStep {
     ResumeCallbacks,
 }
 
+/// Source motion configuration statements; every one continues immediately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotionCommand {
+    SetSpeed(u8),
+    AccelerateTo { target: u8, amount: u8 },
+    FollowPlayerDisplacement(bool),
+    GenerateVelocityEachStep(bool),
+    BankTurn(bool),
+    QuadrupleVelocity(bool),
+}
+
 impl PathRuntime {
+    pub fn execute_motion(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        command: MotionCommand,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let actor = objects
+            .get_mut(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        match command {
+            MotionCommand::SetSpeed(speed) => super::path_motion::set_speed(actor, owner, speed),
+            MotionCommand::AccelerateTo { target, amount } => {
+                actor.base.target_speed = target;
+                actor.base.acceleration = amount;
+            }
+            MotionCommand::FollowPlayerDisplacement(enabled) => {
+                actor.extension.path_state.motion.follow_player_displacement = enabled
+            }
+            MotionCommand::GenerateVelocityEachStep(enabled) => {
+                actor
+                    .extension
+                    .path_state
+                    .motion
+                    .generate_velocity_each_step = enabled
+            }
+            MotionCommand::BankTurn(enabled) => {
+                actor.extension.path_state.motion.bank_turn = enabled
+            }
+            MotionCommand::QuadrupleVelocity(enabled) => {
+                actor.extension.path_state.motion.quadruple_velocity = enabled
+            }
+        }
+        actor.base.path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     pub fn execute_control(
         &mut self,
         objects: &mut ObjectStore,
@@ -599,5 +651,72 @@ mod tests {
                 target
             );
         }
+    }
+
+    #[test]
+    fn motion_configuration_continues_without_eager_acceleration_or_flag_regeneration() {
+        let (mut runtime, mut objects, owner) = setup();
+        let retained = crate::Vector3 { x: 1, y: 2, z: 3 };
+        objects.get_mut(owner).unwrap().base.velocity = retained;
+        for command in [
+            MotionCommand::GenerateVelocityEachStep(true),
+            MotionCommand::SetSpeed(31),
+            MotionCommand::AccelerateTo {
+                target: 40,
+                amount: 3,
+            },
+            MotionCommand::FollowPlayerDisplacement(true),
+            MotionCommand::BankTurn(true),
+            MotionCommand::QuadrupleVelocity(true),
+        ] {
+            assert_eq!(
+                runtime
+                    .execute_motion(&mut objects, owner, command, cursor(1))
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(actor.base.path, Some(cursor(1)));
+            assert_eq!(actor.base.velocity, retained);
+        }
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(
+            (
+                actor.base.speed,
+                actor.base.target_speed,
+                actor.base.acceleration
+            ),
+            (31, 40, 3)
+        );
+        assert_eq!(
+            crate::hit_response::HitActor::from_object(actor).contact_parameter,
+            40
+        );
+        assert_eq!(
+            runtime
+                .execute_motion(
+                    &mut objects,
+                    owner,
+                    MotionCommand::GenerateVelocityEachStep(false),
+                    cursor(2)
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert_eq!(
+            runtime
+                .execute_motion(&mut objects, owner, MotionCommand::SetSpeed(50), cursor(3))
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert_eq!(
+            objects.get(owner).unwrap().base.velocity,
+            super::super::path_motion::direction_velocity(
+                crate::Angle::ZERO,
+                crate::Angle::ZERO,
+                50,
+                4
+            )
+        );
     }
 }
