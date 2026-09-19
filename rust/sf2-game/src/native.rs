@@ -42,6 +42,7 @@ pub mod path_motion;
 mod render;
 mod results;
 mod state;
+pub mod world_occupancy;
 
 mod astropolis_assault;
 mod campaign_major_objectives;

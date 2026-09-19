@@ -244,6 +244,28 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x0DB1D8, "C2 20 AC 49 19 B6 00 F0 14")
         self.assert_source(0x0DB1FE, "AD 5D 19 C9 00 20 D0 03 A9 00 00 85 08")
 
+    def test_world_occupancy_quantization_and_bit_masks(self):
+        self.assert_source(0x00B063, "01 00 02 00 04 00 08 00 10 00 20 00 40 00 80 00")
+        self.assert_source(0x0DDAD1, "A5 02 EB 4A 29 7F 00 85 5F")
+        self.assert_source(0x0DDAED, "A5 97 29 00 FE EB 0A 0A 0A 18 65 5F 85 5F")
+        self.assert_source(0x0DDAFB, "A5 04 18 69 FF 01 EB 4A 29 7F 00 85 04")
+        self.assert_source(0x0DDB08, "A5 E4 18 69 FF 01 EB 4A 29 7F 00 85 E4")
+        self.assert_source(0x0DDB75, "A5 02 EB 4A 29 7F 00 85 5F")
+        self.assert_source(0x0DDB91, "A5 97 29 00 FE EB 0A 0A 0A 18 65 5F AA")
+        self.assert_source(0x0DDBA0, "BD 36 CF 25 0A 85 02")
+
+    def test_world_marker_half_row_boundary_and_countdown_widths(self):
+        # At every eighth BYTE boundary, subtract a full 16-byte row.
+        self.assert_source(
+            0x0DDB36,
+            "18 26 0A 90 10 26 0A E8 C2 20 8A 89 07 00 D0 05 38 E9 10 00 AA",
+        )
+        # Width decrements in byte mode; depth decrements in word mode.
+        self.assert_source(0x0DDB4B, "E2 20 C6 04 D0 CF")
+        self.assert_source(0x0DDB59, "A5 5F 18 69 10 00 C9 00 08 90 04 38 E9 00 08 85 5F C6 E4 D0 A7")
+        # Selected auxiliary exemption short-circuits the occupancy test.
+        self.assert_source(0x7FB745, "B4 2B B9 EB 6B 7A DA BB 7A 89 80 F0 04 5C BE CA 7F")
+
 
 if __name__ == "__main__":
     unittest.main()
