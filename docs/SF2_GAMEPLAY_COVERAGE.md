@@ -482,3 +482,11 @@ native predicate and verification-only host now agree with the full source
 branch, including raw zero selection in that host. All 65,536 flag pairs are
 tested. The semantic name is now `IfSelectedAuxiliaryContinuation`; this does
 not yet make the surrounding auxiliary-dependent paths production-complete.
+
+The auxiliary-gated sprite graph is now the fifth lowered root (48 unique
+statements). Its sprite-size byte aliases texture X, wraps from 255 to 1,
+and reaches 3 and 5 at the following movement boundaries before resetting.
+The later loop samples explicit selected-auxiliary observations on each
+invocation, preserves IFNOT, and exits when the gate changes. Missing required
+observations fail at that branch without silent fallthrough. This tests the
+world-input contract, not yet Game's auxiliary-state adapter or live spawning.

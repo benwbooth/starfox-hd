@@ -16,12 +16,13 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         command_index,
     }
 }
-pub const ALTERNATE_EXHAUST: PathCursor = cursor(0, 24);
-pub const COLOR_CYCLE_SPRITE: PathCursor = cursor(0, 29);
+pub const ALTERNATE_EXHAUST: PathCursor = cursor(0, 35);
+pub const COLOR_CYCLE_SPRITE: PathCursor = cursor(0, 40);
 pub const RANDOMIZED_COLOR_PARTICLE: PathCursor = cursor(0, 4);
-pub const LOCAL_JITTER_SPRITE: PathCursor = cursor(0, 16);
-pub const LOWERED_ROOT_COUNT: usize = 4;
-pub const LOWERED_COMMAND_COUNT: usize = 37;
+pub const LOCAL_JITTER_SPRITE: PathCursor = cursor(0, 27);
+pub const AUXILIARY_GATED_SPRITE: PathCursor = cursor(0, 16);
+pub const LOWERED_ROOT_COUNT: usize = 5;
+pub const LOWERED_COMMAND_COUNT: usize = 48;
 pub fn catalog() -> PathCatalog {
     PathCatalog::new(vec![vec![
         Statement::Random {
@@ -126,12 +127,64 @@ pub fn catalog() -> PathCatalog {
         Statement::Control(ControlCommand::End),
         Statement::Sprite {
             color: 0,
-            size: 252,
+            size: 255,
             next: cursor(0, 17),
+        },
+        Statement::DisableCollision {
+            next: cursor(0, 18),
+        },
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 4,
+            next: cursor(0, 19),
+        }),
+        Statement::Animation {
+            command: AnimationCommand::Advance {
+                channel: AnimationChannel::Color,
+                amount: 1,
+                period: 4,
+            },
+            next: cursor(0, 20),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::TextureScrollX,
+                operation: ByteOperation::Add(ByteOperand::Literal(2)),
+            },
+            next: cursor(0, 21),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: false,
+            next: cursor(0, 22),
+        }),
+        Statement::Sprite {
+            color: 0,
+            size: 0,
+            next: cursor(0, 23),
+        },
+        Statement::Animation {
+            command: AnimationCommand::Advance {
+                channel: AnimationChannel::Color,
+                amount: 1,
+                period: 2,
+            },
+            next: cursor(0, 24),
+        },
+        Statement::SelectedAuxiliaryBranch {
+            taken: cursor(0, 26),
+            next: cursor(0, 25),
+        },
+        Statement::Control(ControlCommand::End),
+        Statement::Control(ControlCommand::Goto {
+            target: cursor(0, 23),
+        }),
+        Statement::Sprite {
+            color: 0,
+            size: 252,
+            next: cursor(0, 28),
         },
         Statement::Control(ControlCommand::Call {
             target: cursor(0, 0),
-            next: cursor(0, 18),
+            next: cursor(0, 29),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -139,7 +192,7 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 3,
             },
-            next: cursor(0, 19),
+            next: cursor(0, 30),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -149,10 +202,10 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 20),
+            next: cursor(0, 31),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 21),
+            next: cursor(0, 32),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -162,21 +215,21 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(3),
             ),
-            taken: cursor(0, 23),
-            next: cursor(0, 22),
+            taken: cursor(0, 34),
+            next: cursor(0, 33),
         },
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 18),
+            target: cursor(0, 29),
         }),
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 25),
+            next: cursor(0, 36),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 3,
-            next: cursor(0, 26),
+            next: cursor(0, 37),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -184,34 +237,34 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 2,
             },
-            next: cursor(0, 27),
+            next: cursor(0, 38),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 28),
+            next: cursor(0, 39),
         }),
         Statement::Control(ControlCommand::End),
         Statement::DisableCollision {
-            next: cursor(0, 30),
+            next: cursor(0, 41),
         },
         Statement::Sprite {
             color: 0,
             size: 10,
-            next: cursor(0, 31),
+            next: cursor(0, 42),
         },
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Color,
                 value: 0,
             },
-            next: cursor(0, 32),
+            next: cursor(0, 43),
         },
         Statement::Control(ControlCommand::WaitOne {
-            next: cursor(0, 33),
+            next: cursor(0, 44),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 7,
-            next: cursor(0, 34),
+            next: cursor(0, 45),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -219,11 +272,11 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 8,
             },
-            next: cursor(0, 35),
+            next: cursor(0, 46),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 36),
+            next: cursor(0, 47),
         }),
         Statement::Control(ControlCommand::End),
     ]])

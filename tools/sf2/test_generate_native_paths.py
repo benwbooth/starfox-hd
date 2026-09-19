@@ -55,6 +55,7 @@ class NativePathGenerationTests(unittest.TestCase):
             lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
 
     def test_particle_fields_are_named_and_unknown_encodings_are_rejected(self):
+        self.assertEqual(byte_field(0x99), "ByteField::TextureScrollX")
         self.assertEqual(word_field(0x34), "WordField::Velocity(Axis::Y)")
         self.assertIn("WordField::MotionPhase", byte_field(0xA1))
         self.assertIn("BytePart::Low", byte_field(0xA1))
@@ -92,6 +93,15 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertIn("LOWERED_COMMAND_COUNT: usize = 12", source)
         self.assertEqual(source.count("ControlCommand::Return"), 1)
+
+    def test_auxiliary_sprite_preserves_wrapped_size_add_and_dynamic_loop_edges(self):
+        entry, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF36F), 4)
+        self.assertEqual(entry, 0)
+        self.assertEqual(len(statements), 11)
+        self.assertIn("size: 255", statements[0])
+        self.assertIn("ByteField::TextureScrollX", statements[4])
+        self.assertIn("ByteOperation::Add(ByteOperand::Literal(2))", statements[4])
+        self.assertEqual(statements[8], "Statement::SelectedAuxiliaryBranch { taken: cursor(4, 10), next: cursor(4, 9) }")
 
 
 if __name__ == "__main__":

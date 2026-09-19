@@ -19,6 +19,7 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assertEqual(self.rom[offset:offset + len(expected)], expected)
 
     def test_byte_angle_adds_write_only_the_angle_and_advance(self):
+        self.assert_source(0x7F8627, "20 BC C4 20 47 CB 20 E0 C4 18 79 00 00 99 00 00 4C BE CA")
         self.assert_source(0x7F863A, "20 BC C4 18 75 12 95 12 4C D3 CA")
         self.assert_source(0x7F8645, "20 BC C4 18 75 14 95 14 4C D3 CA")
         self.assert_source(0x7F8650, "20 BC C4 18 75 16 95 16 4C D3 CA")

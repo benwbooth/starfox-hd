@@ -25,6 +25,7 @@ ROOTS = (
     ("COLOR_CYCLE_SPRITE", PathAddress(0xF593)),
     ("RANDOMIZED_COLOR_PARTICLE", PathAddress(0xF294)),
     ("LOCAL_JITTER_SPRITE", PathAddress(0xF521)),
+    ("AUXILIARY_GATED_SPRITE", PathAddress(0xF36F)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -54,6 +55,8 @@ def word_field(variable: int) -> str:
 
 
 def byte_field(variable: int) -> str:
+    if variable == 0x99:
+        return "ByteField::TextureScrollX"
     # Each pair aliases one actual typed word; it must not create a separate
     # particle counter or independent byte shadow of the motion phase.
     for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1):
@@ -112,7 +115,15 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name == "Gosub":
+        if name == "AddByte":
+            variable, amount = parameters(2)
+            mutation = f"Mutation::Byte {{ field: {byte_field(variable)}, operation: ByteOperation::Add(ByteOperand::Literal({amount})) }}"
+            statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
+        elif name == "IfSelectedAuxiliaryContinuation":
+            low, high = parameters(2)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::SelectedAuxiliaryBranch {{ taken: {taken}, next: {next_} }}"
+        elif name == "Gosub":
             low, high = parameters(2)
             target, next_ = branch_cursors(low | (high << 8))
             statement = f"Statement::Control(ControlCommand::Call {{ target: {target}, next: {next_} }})"

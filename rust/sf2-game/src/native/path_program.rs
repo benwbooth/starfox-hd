@@ -16,8 +16,17 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub selected: Option<ObjectId>,
+    /// Fresh selected auxiliary observations for this invocation; absent
+    /// observations are an error only when a statement actually needs them.
+    pub selected_auxiliary: Option<AuxiliaryContinuationInput>,
     pub random: &'a mut RandomState,
     pub animation_clock: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuxiliaryContinuationInput {
+    pub mode: u8,
+    pub action_flags: u8,
 }
 
 /// Retained expressions are sampled from the live owner on every execution.
@@ -101,6 +110,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    SelectedAuxiliaryBranch {
+        taken: PathCursor,
+        next: PathCursor,
+    },
     Random {
         mutation: super::path_random::RandomMutation,
         next: PathCursor,
@@ -155,6 +168,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingSelectedAuxiliary,
     Runtime(PathRuntimeError),
     MissingStatement(PathCursor),
     TooManyPaths,
@@ -244,6 +258,23 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::SelectedAuxiliaryBranch { taken, next } => {
+                    let input = world
+                        .selected_auxiliary
+                        .ok_or(ProgramError::MissingSelectedAuxiliary)?;
+                    self.execute_branch(
+                        objects,
+                        owner,
+                        BranchCommand::Test {
+                            predicate: Predicate::SelectedAuxiliaryContinuation {
+                                mode: input.mode,
+                                action_flags: input.action_flags,
+                            },
+                            taken,
+                            next,
+                        },
+                    )
+                }
                 Statement::Random { mutation, next } => {
                     self.execute_random(objects, owner, world.random, mutation, next)
                 }
@@ -352,6 +383,7 @@ mod tests {
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             selected: None,
+            selected_auxiliary: None,
             random,
             animation_clock: 0,
         }
@@ -381,14 +413,103 @@ mod tests {
     }
 
     #[test]
+    fn authored_auxiliary_sprite_samples_new_input_and_preserves_pending_inversion() {
+        use super::super::{authored_paths, path_motion};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        objects.get_mut(owner).unwrap().base.path = Some(authored_paths::AUXILIARY_GATED_SPRITE);
+        objects.get_mut(owner).unwrap().base.velocity.x = 1;
+        runtime.branch.invert_next = true;
+        let catalog = authored_paths::catalog();
+        for (visit, (size, color)) in [(1, 1), (3, 2), (5, 3), (0, 1), (0, 0)]
+            .into_iter()
+            .enumerate()
+        {
+            let mut inputs = PathWorld {
+                selected: None,
+                // The initial four-count loop does not read this record.
+                selected_auxiliary: (visit >= 3).then_some(AuxiliaryContinuationInput {
+                    mode: if visit == 4 { 0x80 } else { 0 },
+                    action_flags: 0x20,
+                }),
+                random: &mut random,
+                animation_clock: 61,
+            };
+            let outcome = runtime
+                .enter_program(&catalog, &mut objects, owner, &mut inputs, 16)
+                .unwrap();
+            assert_eq!(
+                outcome,
+                if visit < 4 {
+                    ControlStep::Movement
+                } else {
+                    ControlStep::Ended
+                }
+            );
+            assert!(runtime.branch.invert_next);
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(actor.extension.texture_scroll_x, size);
+            assert_eq!(actor.extension.color_frame, color);
+            assert_eq!(actor.extension.animation_frame, 61);
+            assert!(actor.base.flags.collision_disabled);
+            if outcome == ControlStep::Movement {
+                assert!(!runtime
+                    .begin_movement(
+                        &mut objects,
+                        owner,
+                        path_motion::PlayerDisplacement::default()
+                    )
+                    .unwrap());
+                runtime
+                    .finish_movement(&mut objects, &mut [None, None])
+                    .unwrap();
+            }
+            assert_eq!(
+                objects.get(owner).unwrap().base.position.x,
+                (visit + 1).min(4) as i16
+            );
+        }
+        runtime.release_actor_programs(&mut objects, owner).unwrap();
+    }
+
+    #[test]
+    fn missing_auxiliary_observation_errors_at_branch_without_silent_fallthrough() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::SelectedAuxiliaryBranch {
+                taken: cursor(0, 2),
+                next: cursor(0, 1),
+            },
+            Statement::Control(ControlCommand::WaitOne { next: cursor(0, 2) }),
+            Statement::Control(ControlCommand::End),
+        ]])
+        .unwrap();
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3),
+            Err(ProgramError::MissingSelectedAuxiliary)
+        );
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
+        let mut inputs = world(&mut random);
+        inputs.selected_auxiliary = Some(AuxiliaryContinuationInput {
+            mode: 0,
+            action_flags: 0,
+        });
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2),
+            Ok(ControlStep::Movement)
+        );
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 2)));
+        assert!(!objects.get(owner).unwrap().base.flags.remove_after_tick);
+    }
+
+    #[test]
     fn authored_alternate_exhaust_runs_complete_graph_with_two_movement_yields() {
         use super::super::{authored_paths, path_appearance, path_motion};
         let (mut runtime, mut objects, owner, mut random) = setup();
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 4);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 37);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 5);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 48);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -520,6 +641,7 @@ mod tests {
         for phase in 1..=7 {
             let mut inputs = PathWorld {
                 selected: None,
+                selected_auxiliary: None,
                 random: &mut random,
                 animation_clock: 93,
             };
@@ -615,6 +737,7 @@ mod tests {
                     owner,
                     &mut PathWorld {
                         selected: None,
+                        selected_auxiliary: None,
                         random: &mut random,
                         animation_clock: 29,
                     },
