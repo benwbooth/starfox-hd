@@ -932,6 +932,10 @@ pub struct ObjectBase {
     pub yaw: Angle,
     pub roll: Angle,
     pub speed: u8,
+    /// Authored speed target; contact callbacks read this same byte as their
+    /// other-actor parameter (source 0A), not a separate contact value.
+    pub target_speed: u8,
+    pub acceleration: u8,
     pub behavior: Behavior,
     pub linked_object: Option<ObjectId>,
     pub first_child: Option<ObjectId>,
@@ -997,6 +1001,8 @@ impl Object {
                 yaw: Angle::ZERO,
                 roll: Angle::ZERO,
                 speed: 0,
+                target_speed: 0,
+                acceleration: 0,
                 behavior,
                 linked_object: None,
                 first_child: None,

@@ -17,8 +17,9 @@ pub struct ActorPathState {
     pub stack: PathStack,
     pub triggers: TriggerList,
     pub conditions: TriggerActorState,
-    /// Actor steering byte cleared by forced-path redirection (source 15).
-    pub steering: u8,
+    /// Byte-counted LOOP counter, cleared by forced-path redirection (15).
+    /// Separate from word-counted DO/NEXT entries on the shared path stack.
+    pub repeat_counter: u8,
     /// Authored actor part identifier (parallel actor field EA).
     pub part: u8,
 }
@@ -305,7 +306,7 @@ impl PathRuntime {
         Ok(result)
     }
 
-    fn check_execution_owner(&self, owner: ObjectId) -> Result<(), PathRuntimeError> {
+    pub(super) fn check_execution_owner(&self, owner: ObjectId) -> Result<(), PathRuntimeError> {
         if let Some(active) = self.active {
             if active.owner != owner {
                 return Err(PathRuntimeError::WrongCallbackOwner);
@@ -337,10 +338,10 @@ impl PathRuntime {
         match effects {
             RedirectEffects::AdvanceOnly => {}
             RedirectEffects::RestartPathStrategy => actor.base.behavior = Behavior::FollowPath,
-            RedirectEffects::RestartPathStrategyAndClearWaitAndSteering => {
+            RedirectEffects::RestartPathStrategyAndClearWaitAndRepeat => {
                 actor.base.behavior = Behavior::FollowPath;
                 actor.base.wait_timer = 0;
-                actor.extension.path_state.steering = 0;
+                actor.extension.path_state.repeat_counter = 0;
             }
         }
         actor.base.path = Some(continuation);
@@ -502,7 +503,7 @@ mod tests {
         let actor = objects.get_mut(owner).unwrap();
         actor.base.behavior = Behavior::EnemyFlight;
         actor.base.wait_timer = 19;
-        actor.extension.path_state.steering = 29;
+        actor.extension.path_state.repeat_counter = 29;
         runtime
             .redirect(&mut objects, owner, cursor(100), cursor(21), true)
             .unwrap();
@@ -511,7 +512,7 @@ mod tests {
             (
                 actor.base.behavior,
                 actor.base.wait_timer,
-                actor.extension.path_state.steering,
+                actor.extension.path_state.repeat_counter,
                 actor.base.path
             ),
             (Behavior::FollowPath, 0, 0, Some(cursor(21)))
@@ -523,7 +524,7 @@ mod tests {
         );
         let actor = objects.get_mut(owner).unwrap();
         actor.base.wait_timer = 11;
-        actor.extension.path_state.steering = 12;
+        actor.extension.path_state.repeat_counter = 12;
         runtime
             .redirect(&mut objects, owner, cursor(200), cursor(41), false)
             .unwrap();
@@ -536,7 +537,7 @@ mod tests {
         assert_eq!(
             (
                 actor.base.wait_timer,
-                actor.extension.path_state.steering,
+                actor.extension.path_state.repeat_counter,
                 actor.base.path
             ),
             (11, 12, Some(cursor(200)))
@@ -553,7 +554,7 @@ mod tests {
         assert_eq!(
             (
                 actor.base.wait_timer,
-                actor.extension.path_state.steering,
+                actor.extension.path_state.repeat_counter,
                 actor.base.path
             ),
             (11, 12, Some(cursor(101)))

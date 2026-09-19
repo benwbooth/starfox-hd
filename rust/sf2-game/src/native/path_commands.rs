@@ -1,0 +1,603 @@
+//! Decoded source path control statements. Destinations are semantic cursors;
+//! count operands are already values from typed actor/world fields. There is
+//! no encoded operand reader, source address lookup or instruction emulator.
+
+use super::path_calls::PathReturn;
+use super::path_runtime::{PathRuntime, PathRuntimeError};
+use super::path_triggers::Trigger;
+use super::program_state::LoopRepeat;
+use super::{ObjectId, ObjectStore, PathCursor};
+
+/// A source statement with all continuation edges explicit. This enum covers
+/// control statements only; it does not stand in for unported world services.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlCommand {
+    Wait {
+        duration: u8,
+        next: PathCursor,
+    },
+    WaitOne {
+        next: PathCursor,
+    },
+    Repeat {
+        count: u8,
+        target: PathCursor,
+        next: PathCursor,
+    },
+    Goto {
+        target: PathCursor,
+    },
+    Jump {
+        target: PathCursor,
+    },
+    Call {
+        target: PathCursor,
+        next: PathCursor,
+    },
+    Return,
+    BeginLoop {
+        iterations: u16,
+        next: PathCursor,
+    },
+    Next {
+        immediate: bool,
+        next: PathCursor,
+    },
+    Break {
+        target: PathCursor,
+    },
+    PopStackPair {
+        next: PathCursor,
+    },
+    Register {
+        trigger: Trigger,
+        next: PathCursor,
+    },
+    Cancel {
+        path: PathCursor,
+        next: PathCursor,
+    },
+    Clear {
+        next: PathCursor,
+    },
+    ForceAfterCallbacks {
+        target: PathCursor,
+        next: PathCursor,
+    },
+    CallAfterCallbacks {
+        target: PathCursor,
+        next: PathCursor,
+    },
+}
+
+/// The caller must service movement and callback continuations separately;
+/// neither outcome means to tick every actor or advance presentation time.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlStep {
+    Continue,
+    Movement,
+    ResumeCallbacks,
+}
+
+impl PathRuntime {
+    pub fn execute_control(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        command: ControlCommand,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let actor = objects
+            .get_mut(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        let next = match command {
+            // $7F:84FB compares before incrementing. A zero wait still needs
+            // a full wrap when its retained elapsed byte starts nonzero.
+            ControlCommand::Wait { duration, next } => {
+                if actor.base.wait_timer != duration {
+                    actor.base.wait_timer = actor.base.wait_timer.wrapping_add(1);
+                    return Ok(ControlStep::Movement);
+                }
+                actor.base.wait_timer = 0;
+                next
+            }
+            ControlCommand::WaitOne { next } => {
+                actor.base.path = Some(next);
+                return Ok(ControlStep::Movement);
+            }
+            // $7F:860D: unlike DO/NEXT this counter increments toward a
+            // byte operand and is not stacked, so nesting shares the counter.
+            ControlCommand::Repeat {
+                count,
+                target,
+                next,
+            } => {
+                let counter = &mut actor.extension.path_state.repeat_counter;
+                if *counter != count {
+                    *counter = counter.wrapping_add(1);
+                    actor.base.path = Some(target);
+                    return Ok(ControlStep::Movement);
+                }
+                *counter = 0;
+                next
+            }
+            ControlCommand::Goto { target } => {
+                actor.base.path = Some(target);
+                return Ok(ControlStep::Movement);
+            }
+            ControlCommand::Jump { target } => target,
+            ControlCommand::Call { target, next } => {
+                self.call(objects, owner, target, next)?;
+                return Ok(ControlStep::Continue);
+            }
+            ControlCommand::Return => {
+                return Ok(match self.return_from(objects, owner)? {
+                    PathReturn::Resume(_) => ControlStep::Continue,
+                    PathReturn::CallbackComplete => ControlStep::ResumeCallbacks,
+                });
+            }
+            ControlCommand::BeginLoop { iterations, next } => {
+                actor
+                    .extension
+                    .path_state
+                    .stack
+                    .begin(&mut self.resources, owner, next, iterations)
+                    .map_err(PathRuntimeError::Stack)?;
+                next
+            }
+            ControlCommand::Next { immediate, next } => {
+                match actor
+                    .extension
+                    .path_state
+                    .stack
+                    .next(&mut self.resources)
+                    .map_err(PathRuntimeError::Stack)?
+                {
+                    LoopRepeat::Complete => next,
+                    LoopRepeat::Repeat { continuation } => {
+                        actor.base.path = Some(continuation);
+                        if immediate {
+                            // Immediate NEXT alone re-enters at $7F:7E53;
+                            // ordinary advances/jumps enter at $7F:7E75.
+                            self.enter(objects, owner)?;
+                            return Ok(ControlStep::Continue);
+                        }
+                        return Ok(ControlStep::Movement);
+                    }
+                }
+            }
+            ControlCommand::Break { target } => {
+                actor
+                    .extension
+                    .path_state
+                    .stack
+                    .discard(&mut self.resources)
+                    .map_err(PathRuntimeError::Stack)?;
+                target
+            }
+            ControlCommand::PopStackPair { next } => {
+                actor
+                    .extension
+                    .path_state
+                    .stack
+                    .discard(&mut self.resources)
+                    .map_err(PathRuntimeError::Stack)?;
+                next
+            }
+            ControlCommand::Register { trigger, next } => {
+                self.add_trigger(objects, owner, trigger)?;
+                next
+            }
+            ControlCommand::Cancel { path, next } => {
+                self.cancel_trigger(objects, owner, path)?;
+                next
+            }
+            ControlCommand::Clear { next } => {
+                self.clear_triggers(objects, owner)?;
+                next
+            }
+            ControlCommand::ForceAfterCallbacks { target, next } => {
+                self.redirect(objects, owner, target, next, true)?;
+                return Ok(ControlStep::Continue);
+            }
+            ControlCommand::CallAfterCallbacks { target, next } => {
+                self.redirect(objects, owner, target, next, false)?;
+                return Ok(ControlStep::Continue);
+            }
+        };
+        objects
+            .get_mut(owner)
+            .expect("validated actor remains live")
+            .base
+            .path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::path_control::PlayerTarget;
+    use crate::path_runtime::{CallbackStep, TriggerWorldInputs};
+    use crate::path_triggers::TriggerKind;
+    use crate::{Behavior, Object, ObjectKind, PathId, ShapeId};
+
+    fn cursor(command_index: u16) -> PathCursor {
+        PathCursor {
+            path: PathId::from_catalog_index(0),
+            command_index,
+        }
+    }
+
+    fn setup() -> (PathRuntime, ObjectStore, ObjectId) {
+        let mut objects = ObjectStore::new();
+        let mut actor = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
+        actor.base.path = Some(cursor(0));
+        let owner = objects.allocate(actor).unwrap();
+        (PathRuntime::default(), objects, owner)
+    }
+
+    #[test]
+    fn wait_observes_all_byte_pairs_before_increment_and_success_clears_elapsed() {
+        let (mut runtime, mut objects, owner) = setup();
+        for elapsed in 0..=u8::MAX {
+            for duration in 0..=u8::MAX {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.wait_timer = elapsed;
+                actor.base.path = Some(cursor(0));
+                let outcome = runtime
+                    .execute_control(
+                        &mut objects,
+                        owner,
+                        ControlCommand::Wait {
+                            duration,
+                            next: cursor(1),
+                        },
+                    )
+                    .unwrap();
+                let actor = objects.get(owner).unwrap();
+                if elapsed == duration {
+                    assert_eq!(
+                        (outcome, actor.base.path, actor.base.wait_timer),
+                        (ControlStep::Continue, Some(cursor(1)), 0)
+                    );
+                } else {
+                    assert_eq!(
+                        (outcome, actor.base.path, actor.base.wait_timer),
+                        (
+                            ControlStep::Movement,
+                            Some(cursor(0)),
+                            elapsed.wrapping_add(1)
+                        )
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn goto_wait_one_and_jump_preserve_elapsed_but_only_first_two_yield() {
+        let (mut runtime, mut objects, owner) = setup();
+        objects.get_mut(owner).unwrap().base.wait_timer = 253;
+        for (command, expected) in [
+            (
+                ControlCommand::Goto { target: cursor(4) },
+                ControlStep::Movement,
+            ),
+            (
+                ControlCommand::WaitOne { next: cursor(4) },
+                ControlStep::Movement,
+            ),
+            (
+                ControlCommand::Jump { target: cursor(4) },
+                ControlStep::Continue,
+            ),
+        ] {
+            assert_eq!(
+                runtime
+                    .execute_control(&mut objects, owner, command)
+                    .unwrap(),
+                expected
+            );
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(
+                (actor.base.path, actor.base.wait_timer),
+                (Some(cursor(4)), 253)
+            );
+        }
+    }
+
+    #[test]
+    fn byte_repeat_compares_before_increment_and_zero_count_is_not_a_word_loop() {
+        let (mut runtime, mut objects, owner) = setup();
+        for elapsed in 0..=u8::MAX {
+            for count in 0..=u8::MAX {
+                objects
+                    .get_mut(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .repeat_counter = elapsed;
+                let outcome = runtime
+                    .execute_control(
+                        &mut objects,
+                        owner,
+                        ControlCommand::Repeat {
+                            count,
+                            target: cursor(2),
+                            next: cursor(3),
+                        },
+                    )
+                    .unwrap();
+                let actor = objects.get(owner).unwrap();
+                if elapsed == count {
+                    assert_eq!(
+                        (
+                            outcome,
+                            actor.base.path,
+                            actor.extension.path_state.repeat_counter
+                        ),
+                        (ControlStep::Continue, Some(cursor(3)), 0)
+                    );
+                } else {
+                    assert_eq!(
+                        (
+                            outcome,
+                            actor.base.path,
+                            actor.extension.path_state.repeat_counter
+                        ),
+                        (
+                            ControlStep::Movement,
+                            Some(cursor(2)),
+                            elapsed.wrapping_add(1)
+                        )
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn loop_repeat_yields_or_refreshes_selection_and_completion_never_yields() {
+        for immediate in [false, true] {
+            let (mut runtime, mut objects, owner) = setup();
+            assert_eq!(
+                runtime
+                    .execute_control(
+                        &mut objects,
+                        owner,
+                        ControlCommand::BeginLoop {
+                            iterations: 2,
+                            next: cursor(1)
+                        }
+                    )
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            objects
+                .get_mut(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .conditions
+                .selected_player = PlayerTarget::Secondary;
+            assert_eq!(
+                runtime
+                    .execute_control(
+                        &mut objects,
+                        owner,
+                        ControlCommand::Next {
+                            immediate,
+                            next: cursor(4)
+                        }
+                    )
+                    .unwrap(),
+                if immediate {
+                    ControlStep::Continue
+                } else {
+                    ControlStep::Movement
+                }
+            );
+            assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(1)));
+            assert_eq!(
+                runtime.selected_player(),
+                if immediate {
+                    PlayerTarget::Secondary
+                } else {
+                    PlayerTarget::Primary
+                }
+            );
+            assert_eq!(
+                runtime
+                    .execute_control(
+                        &mut objects,
+                        owner,
+                        ControlCommand::Next {
+                            immediate,
+                            next: cursor(4)
+                        }
+                    )
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(4)));
+        }
+    }
+
+    #[test]
+    fn break_and_pop_discard_only_the_inner_loop_and_normal_call_retains_parent() {
+        for pop in [false, true] {
+            let (mut runtime, mut objects, owner) = setup();
+            for next in [cursor(1), cursor(2)] {
+                assert_eq!(
+                    runtime
+                        .execute_control(
+                            &mut objects,
+                            owner,
+                            ControlCommand::BeginLoop {
+                                iterations: 2,
+                                next
+                            }
+                        )
+                        .unwrap(),
+                    ControlStep::Continue
+                );
+            }
+            let command = if pop {
+                ControlCommand::PopStackPair { next: cursor(3) }
+            } else {
+                ControlCommand::Break { target: cursor(3) }
+            };
+            assert_eq!(
+                runtime
+                    .execute_control(&mut objects, owner, command)
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            assert_eq!(
+                runtime
+                    .execute_control(
+                        &mut objects,
+                        owner,
+                        ControlCommand::Call {
+                            target: cursor(8),
+                            next: cursor(4)
+                        }
+                    )
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(8)));
+            assert_eq!(
+                runtime
+                    .execute_control(&mut objects, owner, ControlCommand::Return)
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(4)));
+            assert_eq!(
+                runtime
+                    .execute_control(
+                        &mut objects,
+                        owner,
+                        ControlCommand::Next {
+                            immediate: false,
+                            next: cursor(5)
+                        }
+                    )
+                    .unwrap(),
+                ControlStep::Movement
+            );
+            assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(1)));
+        }
+    }
+
+    #[test]
+    fn registration_callback_redirection_and_return_use_actual_control_dispatch() {
+        let (mut runtime, mut objects, owner) = setup();
+        let trigger = Trigger {
+            path: cursor(20),
+            kind: TriggerKind::Always,
+            timer: 0,
+        };
+        for next in [cursor(1), cursor(2)] {
+            assert_eq!(
+                runtime
+                    .execute_control(
+                        &mut objects,
+                        owner,
+                        ControlCommand::Register { trigger, next }
+                    )
+                    .unwrap(),
+                ControlStep::Continue
+            );
+        }
+        assert_eq!(
+            runtime
+                .execute_control(
+                    &mut objects,
+                    owner,
+                    ControlCommand::Cancel {
+                        path: trigger.path,
+                        next: cursor(3)
+                    }
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert_eq!(
+            objects
+                .get(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .triggers
+                .entries(&runtime.resources, owner)
+                .unwrap()
+                .len(),
+            1
+        );
+        runtime.begin_callbacks(&objects, owner).unwrap();
+        assert_eq!(
+            runtime
+                .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                .unwrap(),
+            CallbackStep::Run(cursor(20))
+        );
+        assert_eq!(
+            runtime
+                .execute_control(
+                    &mut objects,
+                    owner,
+                    ControlCommand::ForceAfterCallbacks {
+                        target: cursor(40),
+                        next: cursor(21)
+                    }
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(21)));
+        assert_eq!(
+            runtime
+                .execute_control(&mut objects, owner, ControlCommand::Return)
+                .unwrap(),
+            ControlStep::ResumeCallbacks
+        );
+        assert_eq!(
+            runtime
+                .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                .unwrap(),
+            CallbackStep::Complete
+        );
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(40)));
+        assert_eq!(
+            runtime
+                .execute_control(
+                    &mut objects,
+                    owner,
+                    ControlCommand::Clear { next: cursor(41) }
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert!(!runtime.begin_callbacks(&objects, owner).unwrap());
+    }
+
+    #[test]
+    fn contact_callback_parameter_aliases_the_actual_speed_target() {
+        let (_, mut objects, owner) = setup();
+        for target in 0..=u8::MAX {
+            objects.get_mut(owner).unwrap().base.target_speed = target;
+            assert_eq!(
+                crate::hit_response::HitActor::from_object(objects.get(owner).unwrap())
+                    .contact_parameter,
+                target
+            );
+        }
+    }
+}

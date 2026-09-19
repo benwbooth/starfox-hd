@@ -202,17 +202,15 @@ impl PathStack {
         }
     }
 
-    /// Explicit loop exit (`$7F:9735`, `$7F:9760`) discards both entries;
-    /// its caller advances to the decoded next instruction.
+    /// Explicit pair discard (`$7F:9735`, `$7F:9760`). Neither source handler
+    /// inspects entry contents: a pair of call continuations is discarded as
+    /// readily as a loop. The caller chooses jump versus ordinary advance.
     pub fn discard(
         &mut self,
         resources: &mut ProgramResources<ProgramData>,
     ) -> Result<(), PathStackError> {
         let entries = self.entries_mut(resources)?;
-        if entries.len() < 2
-            || !matches!(entries.last(), Some(PathEntry::Counter(_)))
-            || !matches!(entries[entries.len() - 2], PathEntry::Continuation(_))
-        {
+        if entries.len() < 2 {
             return Err(PathStackError::IncompleteLoop);
         }
         entries.truncate(entries.len() - 2);
@@ -303,6 +301,18 @@ mod tests {
             stack.discard(&mut resources),
             Err(PathStackError::MissingLoop)
         );
+    }
+
+    #[test]
+    fn pair_discard_does_not_require_a_loop_frame() {
+        let mut resources = ProgramResources::default();
+        let mut stack = PathStack::default();
+        let owner = owner();
+        stack.begin(&mut resources, owner, cursor(1), 1).unwrap();
+        stack.push_call(&mut resources, owner, cursor(2)).unwrap();
+        stack.push_call(&mut resources, owner, cursor(3)).unwrap();
+        stack.discard(&mut resources).unwrap();
+        assert_eq!(stack.next(&mut resources), Ok(LoopRepeat::Complete));
     }
 
     #[test]

@@ -285,7 +285,7 @@ redirects to real `ObjectStore` actors. Object extensions own their path stack,
 trigger registrations and condition state; the shared coordinator owns pool
 capacity, call depth, timer observation and selected-player context. Callback
 entry refreshes player selection even for nonselecting predicates. Immediate
-redirect effects modify live strategy/wait/steering fields, while the path
+redirect effects modify live strategy/wait/repeat fields, while the path
 destination remains deferred until batch completion. Hit response now borrows
 the same object's health and contact flags, avoiding a second mutable health
 record or post-callback copy-back. Five integration tests cover nested returns,
@@ -295,3 +295,19 @@ in debug/release. Seventeen trigger assembly checks cover source control flow.
 This connects the typed systems to real actor records, but does **not** yet
 replace `Game`'s recorded mission controllers or provide general decoded path
 command execution. Those production gaps remain open.
+
+`native/path_commands.rs` now executes decoded wait, single-step wait, byte
+repeat, jump/goto, call/return, word loop, pair discard, trigger registration,
+cancellation and deferred-redirection statements against those live actors.
+Each statement carries typed continuations and values; there is no generic
+memory or encoded-operand dispatch. Immediate NEXT refreshes player selection;
+ordinary jumps do not. Byte LOOP compares before incrementing, independently
+of the word-counted loop stack. Static review also corrected the forced-path
+reset field from a presumed steering value to that byte LOOP counter, and
+removed an overstrict loop-frame requirement on pair discard: the source also
+permits discarding two call continuations. The contact callback parameter now
+aliases the actual speed-target field, matching the shared source byte.
+Seven command tests (including every wait/repeat byte pair), seven stack tests
+and seven command assembly checks cover this layer. Complete authored-program
+lowering, the remaining statement families, movement/service orchestration,
+and replacing production recorded controllers remain open.

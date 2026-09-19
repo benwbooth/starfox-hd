@@ -39,8 +39,6 @@ pub struct ActorContacts {
     pub suppress_contacts_next_epoch: bool,
     /// Source 25 bit 10, read by contact response.
     pub skip_contacts: bool,
-    /// Authored contact callback parameter (source actor byte 0A).
-    pub parameter: u8,
     /// Suppress the hit marker (24 bit 08), not collision detection.
     pub suppress_hit_marker: bool,
     /// Shared hit marker (20 bit 02), independent of pending_hit.

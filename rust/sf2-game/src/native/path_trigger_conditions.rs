@@ -416,7 +416,7 @@ mod tests {
                     if trigger.path == cursor(1) {
                         assert_eq!(
                             calls.force_after_callbacks(cursor(90)),
-                            RedirectEffects::RestartPathStrategyAndClearWaitAndSteering
+                            RedirectEffects::RestartPathStrategyAndClearWaitAndRepeat
                         );
                     }
                     assert_eq!(

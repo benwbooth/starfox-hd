@@ -50,7 +50,7 @@ pub enum PathReturn {
 pub enum RedirectEffects {
     AdvanceOnly,
     RestartPathStrategy,
-    RestartPathStrategyAndClearWaitAndSteering,
+    RestartPathStrategyAndClearWaitAndRepeat,
 }
 
 impl PathCalls {
@@ -125,10 +125,10 @@ impl PathCalls {
         };
         batch.interrupted = destination;
         self.pending = PendingPath::Forced;
-        RedirectEffects::RestartPathStrategyAndClearWaitAndSteering
+        RedirectEffects::RestartPathStrategyAndClearWaitAndRepeat
     }
 
-    /// Deferred call changes strategy but does not clear wait/steering state.
+    /// Deferred call changes strategy but does not clear wait/repeat state.
     pub fn call_after_callbacks(&mut self, destination: PathCursor) -> RedirectEffects {
         if self.active.is_none() {
             return RedirectEffects::AdvanceOnly;
@@ -251,7 +251,7 @@ mod tests {
         calls.enter_callback().unwrap();
         assert_eq!(
             calls.force_after_callbacks(cursor(2)),
-            RedirectEffects::RestartPathStrategyAndClearWaitAndSteering
+            RedirectEffects::RestartPathStrategyAndClearWaitAndRepeat
         );
         assert_eq!(
             calls.call_after_callbacks(cursor(3)),
@@ -277,7 +277,7 @@ mod tests {
         calls.enter_callback().unwrap();
         assert_eq!(
             calls.force_after_callbacks(cursor(2)),
-            RedirectEffects::RestartPathStrategyAndClearWaitAndSteering
+            RedirectEffects::RestartPathStrategyAndClearWaitAndRepeat
         );
         assert_eq!(
             calls.call_after_callbacks(cursor(3)),

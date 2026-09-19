@@ -65,7 +65,7 @@ impl HitActor {
         Self {
             health: object.base.hit_points,
             attack_power: object.base.attack_power,
-            contact_parameter: contact.parameter,
+            contact_parameter: object.base.target_speed,
             skip_contacts: contact.skip_contacts,
             suppress_hit_marker: contact.suppress_hit_marker,
             hit_marked: contact.hit_marked,
