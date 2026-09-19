@@ -348,6 +348,13 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x03ABFC, "B9 12 00 18 6D B7 14 99 12 00 B9 14 00 18 6D B6 14 99 14 00")
         self.assert_source(0x7F8B8B, "B5 25 09 08 95 25 4C FD 9E")
 
+    def test_sound_queue_producers_wrap_sixteen_words_without_testing_full(self):
+        self.assert_source(0x7FA43E, "DA AE 16 1D CC C3 12 F0 08 C0 3F 03 F0 03 09 00 80")
+        self.assert_source(0x7FA44F, "9D F6 1C E2 20 AD 16 1D 1A 1A 29 1F 8D 16 1D FA 60")
+        self.assert_source(0x7F6E09, "DA AE 16 1D 9D F6 1C E2 20 8A 1A 1A 29 1F 8D 16 1D C2 20 FA 6B")
+        self.assert_source(0x7F0FA5, "AE 18 1D EC 16 1D F0 23 BD F6 1C")
+        self.assert_source(0x7F0FBB, "AD 18 1D 1A 1A 29 1F 8D 18 1D")
+
 
 if __name__ == "__main__":
     unittest.main()

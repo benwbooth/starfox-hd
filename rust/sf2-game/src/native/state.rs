@@ -10,9 +10,9 @@ use super::render::Camera;
 
 pub const SELECTED_PILOT_COUNT: usize = 2;
 pub const ROSTER_PILOT_COUNT: usize = 6;
-/// Two scripted hostile shots, the player weapon, and a mission-radio cue can
-/// begin on the same presentation boundary.
-pub const SOUND_EVENT_CAPACITY: usize = 4;
+/// Source cue ring (`$7F:A43E`, `$7F:6E09`): sixteen entries with independent
+/// producer/consumer cursors, not a per-presentation count of observed cues.
+pub const SOUND_EVENT_CAPACITY: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoundEvent {
@@ -34,22 +34,32 @@ pub enum ChargeSound {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AudioState {
     pending_events: [Option<SoundEvent>; SOUND_EVENT_CAPACITY],
+    next_event_write: usize,
+    next_event_read: usize,
     spatial_listener_yaw: Option<Angle>,
 }
 
 impl AudioState {
-    pub fn begin_tick(&mut self) {
-        self.pending_events.fill(None);
-    }
-
+    /// Source producers wrap without a full-ring check. Exactly sixteen
+    /// unconsumed writes make the cursors equal and therefore appear empty;
+    /// a seventeenth write exposes that new event, not the older sixteen.
     pub fn queue(&mut self, event: SoundEvent) {
-        if let Some(slot) = self.pending_events.iter_mut().find(|slot| slot.is_none()) {
-            *slot = Some(event);
-        }
+        self.pending_events[self.next_event_write] = Some(event);
+        self.next_event_write = (self.next_event_write + 1) % SOUND_EVENT_CAPACITY;
     }
 
+    /// Native PCM handoff drains available semantic events in source ring
+    /// order. The PCM owner controls playback; source sound-port handshaking
+    /// is not emulated here. Game ticks do not discard unconsumed events.
     pub fn take_events(&mut self) -> [Option<SoundEvent>; SOUND_EVENT_CAPACITY] {
-        std::mem::take(&mut self.pending_events)
+        let mut events = [None; SOUND_EVENT_CAPACITY];
+        let mut count = 0;
+        while self.next_event_read != self.next_event_write {
+            events[count] = self.pending_events[self.next_event_read].take();
+            self.next_event_read = (self.next_event_read + 1) % SOUND_EVENT_CAPACITY;
+            count += 1;
+        }
+        events
     }
 
     pub const fn spatial_listener_yaw(&self) -> Option<Angle> {
@@ -2635,6 +2645,50 @@ impl Default for GameState {
 mod tests {
     use super::super::campaign_world_assignments::NORMAL_OCCUPIED_WORLD_COUNT;
     use super::*;
+
+    #[test]
+    fn cue_ring_keeps_fifo_order_across_wrap_and_partial_batches() {
+        let mut audio = AudioState::default();
+        for _ in 0..3 {
+            for _ in 0..7 {
+                audio.queue(SoundEvent::HostileLaser);
+                audio.queue(SoundEvent::RapidLaser);
+            }
+            let events = audio.take_events();
+            for pair in events[..14].chunks_exact(2) {
+                assert_eq!(pair, &[Some(SoundEvent::HostileLaser), Some(SoundEvent::RapidLaser)]);
+            }
+            assert!(events[14..].iter().all(Option::is_none));
+            assert!(audio.take_events().iter().all(Option::is_none));
+        }
+    }
+
+    #[test]
+    fn cue_ring_full_lap_is_empty_and_later_writes_replace_unconsumed_events() {
+        let mut audio = AudioState::default();
+        for _ in 0..SOUND_EVENT_CAPACITY - 1 {
+            audio.queue(SoundEvent::HostileLaser);
+        }
+        let mut almost_full = audio.clone();
+        assert_eq!(almost_full.take_events().into_iter().flatten().count(), 15);
+        audio.queue(SoundEvent::RapidLaser);
+        assert!(audio.take_events().iter().all(Option::is_none));
+        audio.queue(SoundEvent::ChargedLaser);
+        let events = audio.take_events();
+        assert_eq!(events[0], Some(SoundEvent::ChargedLaser));
+        assert!(events[1..].iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn cue_ring_preserves_repeated_events_and_listener_changes_do_not_flush_it() {
+        let mut audio = AudioState::default();
+        audio.queue(SoundEvent::HostileLaser);
+        audio.queue(SoundEvent::HostileLaser);
+        audio.set_spatial_listener_yaw(Angle::from_units(70));
+        audio.reset_spatial_listener();
+        assert_eq!(audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
+            vec![SoundEvent::HostileLaser, SoundEvent::HostileLaser]);
+    }
 
     #[test]
     fn expert_unlock_requires_a_zero_damage_hard_clear() {

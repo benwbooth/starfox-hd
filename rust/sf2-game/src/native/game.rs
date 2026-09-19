@@ -5923,7 +5923,6 @@ impl Game {
     }
 
     pub fn tick(&mut self, held_input: u16) -> Result<(), Error> {
-        self.state.audio.begin_tick();
         self.state.input.sample(Buttons::from_bits(held_input));
         self.state.frame = self.state.frame.wrapping_add(1);
         self.state.mode_frame = self.state.mode_frame.wrapping_add(1);
@@ -25281,10 +25280,11 @@ mod tests {
         );
 
         game.tick(0).unwrap();
+        game.take_sound_events();
         game.tick(Button::B as u16).unwrap();
         assert_eq!(
-            game.take_sound_events(),
-            [Some(SoundEvent::RapidLaser), None, None, None]
+            game.take_sound_events().into_iter().flatten().collect::<Vec<_>>(),
+            vec![SoundEvent::RapidLaser]
         );
         let rapid_id = game
             .state()
@@ -25372,10 +25372,11 @@ mod tests {
             ShapeId::PLAYER_CHARGE_ORB_READY
         );
 
+        game.take_sound_events();
         game.tick(0).unwrap();
         assert_eq!(
-            game.take_sound_events(),
-            [Some(SoundEvent::ChargedLaser), None, None, None]
+            game.take_sound_events().into_iter().flatten().collect::<Vec<_>>(),
+            vec![SoundEvent::ChargedLaser]
         );
         assert_eq!(game.charge_sound(), ChargeSound::Silent);
         let charged_id = game
@@ -27971,25 +27972,22 @@ mod tests {
         while game.state().mode_frame
             < FIRST_SHOT_RETAIL_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
         {
+            game.take_sound_events();
             game.tick(0).unwrap();
         }
         assert_eq!(
-            game.take_sound_events(),
-            [Some(SoundEvent::HostileLaser), None, None, None]
+            game.take_sound_events().into_iter().flatten().collect::<Vec<_>>(),
+            vec![SoundEvent::HostileLaser]
         );
         while game.state().mode_frame
             < SIMULTANEOUS_SHOT_RETAIL_FRAME / RETAIL_PRESENTATION_FRAMES_PER_TICK
         {
+            game.take_sound_events();
             game.tick(0).unwrap();
         }
         assert_eq!(
-            game.take_sound_events(),
-            [
-                Some(SoundEvent::HostileLaser),
-                Some(SoundEvent::HostileLaser),
-                None,
-                None,
-            ]
+            game.take_sound_events().into_iter().flatten().collect::<Vec<_>>(),
+            vec![SoundEvent::HostileLaser, SoundEvent::HostileLaser]
         );
     }
 
@@ -28588,10 +28586,11 @@ mod tests {
             MissionMessagePhase::Hidden
         );
 
+        game.take_sound_events();
         game.tick(0).unwrap();
         assert_eq!(
-            game.take_sound_events(),
-            [Some(SoundEvent::RadioMessageOpen), None, None, None]
+            game.take_sound_events().into_iter().flatten().collect::<Vec<_>>(),
+            vec![SoundEvent::RadioMessageOpen]
         );
         assert_eq!(
             game.state().mission.message.phase,
@@ -28644,6 +28643,7 @@ mod tests {
             + u32::from(MISSION_MESSAGE_CLOSE_CUE_RETAIL_FRAMES))
             / RETAIL_PRESENTATION_FRAMES_PER_TICK;
         while game.state().mode_frame < close_cue_tick {
+            game.take_sound_events();
             game.tick(0).unwrap();
         }
         assert_eq!(
@@ -28651,8 +28651,8 @@ mod tests {
             MissionMessagePhase::Open
         );
         assert_eq!(
-            game.take_sound_events(),
-            [Some(SoundEvent::RadioMessageClose), None, None, None]
+            game.take_sound_events().into_iter().flatten().collect::<Vec<_>>(),
+            vec![SoundEvent::RadioMessageClose]
         );
 
         let close_start_tick = (REENGAGEMENT_GUIDANCE_MESSAGE_RETAIL_FRAME as u32
@@ -29887,7 +29887,7 @@ mod tests {
         while game.state.objects.len() < super::super::OBJECT_CAPACITY - 1 {
             game.state.objects.allocate(effect()).unwrap();
         }
-        game.state.audio.begin_tick();
+        game.state.audio.take_events();
         let mut fire = PressureFighterFireEvents::default();
         fire.push(PressureProjectileLaunch {
             position: Vector3 { x: 0, y: -100, z: 12_000 },
@@ -31600,18 +31600,14 @@ mod tests {
         game.state.objects.get_mut(player).unwrap().base.position = RETAIL_PLAYER_POSITION;
 
         for _ in 0..FIRST_VOLLEY_NATIVE_TICKS {
+            game.take_sound_events();
             game.tick(0).unwrap();
         }
 
         assert_eq!(game.eladard_defender_projectiles.len(), 2);
         assert_eq!(
-            game.state.audio.take_events(),
-            [
-                Some(SoundEvent::HostileLaser),
-                Some(SoundEvent::HostileLaser),
-                None,
-                None,
-            ]
+            game.state.audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
+            vec![SoundEvent::HostileLaser, SoundEvent::HostileLaser]
         );
         let left = game.eladard_interior_defenders[0].unwrap();
         let right = game.eladard_interior_defenders[1].unwrap();
