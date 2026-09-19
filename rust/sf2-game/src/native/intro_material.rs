@@ -12,6 +12,26 @@ pub enum DepthGroup {
     Farthest,
 }
 
+impl DepthGroup {
+    /// Select the material bank from camera-space object depth and the three
+    /// authored threshold bytes (`$01:94DE..951A`). The source adds each byte
+    /// in the high half of a word, then tests only the wrapped result's sign.
+    /// This deliberately is not a widened comparison against positive
+    /// distances: negative depth and word overflow retain source behavior.
+    /// The caller resolves the scene default or object's threshold override.
+    pub fn for_camera_depth(depth: i16, thresholds: [i8; 3]) -> Self {
+        for (threshold, group) in thresholds
+            .into_iter()
+            .zip([Self::Near, Self::Middle, Self::Far])
+        {
+            if depth.wrapping_add(i16::from(threshold) << 8) < 0 {
+                return group;
+            }
+        }
+        Self::Farthest
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FlatColor {
     Solid(u8),
@@ -33,6 +53,25 @@ impl FlatMaterial {
             row @ 0..=11 => Some(Self(FlatColor::Lit(row as u8))),
             _ => None,
         }
+    }
+
+    /// Resolve an object's selected threshold record before flat shading.
+    /// This keeps bank selection and material evaluation on the same native
+    /// camera-space depth, without a renderer-side distance approximation.
+    pub fn palette_pair_at_depth(
+        self,
+        depth: i16,
+        thresholds: [i8; 3],
+        lighting_enabled: bool,
+        normal: [i8; 3],
+        object_light: [i8; 3],
+    ) -> u8 {
+        self.palette_pair(
+            DepthGroup::for_camera_depth(depth, thresholds),
+            lighting_enabled,
+            normal,
+            object_light,
+        )
     }
 
     /// Original `$01:9E85..9EFC` flat-color branches, with the standard

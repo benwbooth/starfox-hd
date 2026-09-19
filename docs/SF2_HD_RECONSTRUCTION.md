@@ -1416,9 +1416,16 @@ not the material low byte or a default shade. The direct `$01:9E85..9EFC`
 oracle covers every supported word in every group with lighting both enabled
 and disabled: 26,880 source executions. Texture, animation, smooth and
 out-of-catalog table words are explicitly rejected at this flat-only boundary.
-The scene still owns material animation, depth-group selection, choice of
-depth-color family, and submission; this API currently supports the standard
-family and does not establish complete rendered-material parity.
+`DepthGroup::for_camera_depth` now reproduces the original distance-bank
+selection, including signed word overflow. `palette_pair_at_depth` combines
+that selection with flat material evaluation. The `$01:94C8..9527` oracle
+sweeps all 65,536 depth words against fourteen original threshold records
+(917,504 executions), alternating scene-default and object-override selection
+and checking both the light-row and depth-color pointers. Coverage requires
+all four banks and cases that differ from widened distance comparisons.
+The scene still owns material animation, the selected threshold record,
+choice of depth-color family, and submission; this API currently supports the
+standard family and does not establish complete rendered-material parity.
 
 Native `intro_draw` now derives camera-space placements and submission order
 from typed world positions, view position/matrix, shadow mode and authored sort
