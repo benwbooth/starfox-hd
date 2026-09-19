@@ -128,6 +128,15 @@ class PathControlStaticTests(unittest.TestCase):
             0xEED4: ("End", "0f"),
             0xEED5: ("IfSelectedWithinYawArc", "a420daee"),
             0xEEDA: ("FaceSelectedSmooth", "09"),
+            0xEF18: ("DoVariableByte", "620a"),
+            0xEF1A: ("Next", "44"),
+            0xEF1B: ("End", "0f"),
+            0xEF1C: ("IfHitGround", "1a000026ef"),
+            0xEF21: ("IfCurrentAtOrAboveCollisionTarget", "005326ef"),
+            0xEF26: ("ForceTriggerPath", "4c1bef"),
+            0xF018: ("ForceTriggerPath", "4c1cf0"),
+            0xF01B: ("Return", "42"),
+            0xF01C: ("End", "0f"),
         }
         for address, (semantic, raw) in expected.items():
             command = self.extractor.decode_command(PathAddress(address))
@@ -176,6 +185,20 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F8C3A, "A9 00 00 8F 28 00 70")
         self.assert_source(0x7F8C41, "B9 10 00 38 F5 10 8F 2A 00 70")
         self.assert_source(0x7F8C50, "A9 01 A2 72 FB 22 7B 78 7F")
+
+    def test_smooth_face_clamps_small_differences_then_rounds_two_halves(self):
+        self.assert_source(
+            0x7F87DB,
+            "38 F5 12 C9 00 30 08 C9 04 10 0A A9 04 80 06 C9 FC 30 02 A9 FC "
+            "C9 80 6A 10 02 69 00 C9 80 6A 10 02 69 00 18 75 12",
+        )
+        self.assert_source(0x7F880A, "49 FF 1A D5 14")
+        self.assert_source(0x7FAB69, "85 97 06 97 18 75 14 18 65 02 C5 97 B0 04")
+
+    def test_hit_callback_and_surface_comparisons(self):
+        self.assert_source(0x7F9D38, "FA DA B5 22 29 02 D0 04 5C 88 9D 7F")
+        self.assert_source(0x7FBF9C, "C2 20 B5 0E 38 E5 08 30 03 4C F3 CA")
+        self.assert_source(0x7F8CA3, "C2 20 20 20 C7 18 75 0E")
 
 
 if __name__ == "__main__":

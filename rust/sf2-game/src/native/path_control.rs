@@ -6,10 +6,45 @@
 
 use super::object::Vector3;
 use super::render::Rotation;
+use super::Angle;
 
 const FORWARD_AXIS_LENGTH: i8 = 127;
 const NORMAL_FRACTION_BITS: u32 = 8;
 const PRODUCT_HIGH_WORD_SHIFT: u32 = 16;
+const FACE_CHASE_DIVISOR: i8 = 4;
+
+/// Selected-target angles (`$7F:872C`, `$7F:21A5`, `$7F:2188`).
+/// Pitch uses the source's approximate horizontal length, not the geometry
+/// square-root distance used by the separate distance predicate.
+pub fn target_angles(position: Vector3, target: Vector3) -> (Angle, Angle) {
+    let x = target.x.wrapping_sub(position.x);
+    let y = target.y.wrapping_sub(position.y);
+    let z = target.z.wrapping_sub(position.z);
+    let horizontal = sf_core::aim_angle::sf2_xz_angle_distance(x, z);
+    (
+        Angle::from_units(sf_core::aim_angle::sf2_pitch_to_target(y, horizontal)),
+        Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(x, z)),
+    )
+}
+
+/// Smooth face (`$7F:87CA`): shortest byte difference, at least one unit,
+/// divide by four toward zero. Exactly opposite headings turn negatively.
+pub fn smooth_face_angle(current: Angle, target: Angle) -> Angle {
+    let difference = target.units().wrapping_sub(current.units()) as i8;
+    let difference = match difference {
+        0 => return current,
+        1..=3 => FACE_CHASE_DIVISOR,
+        -3..=-1 => -FACE_CHASE_DIVISOR,
+        difference => difference,
+    };
+    current.wrapping_add(difference / FACE_CHASE_DIVISOR)
+}
+
+/// Half-open wrapped yaw arc (`$7F:AB48`), including the lower edge and
+/// excluding the upper. The doubled radius is itself a byte operation.
+pub fn within_yaw_arc(yaw: Angle, target_yaw: Angle, radius: u8) -> bool {
+    radius.wrapping_add(yaw.units().wrapping_sub(target_yaw.units())) < radius.wrapping_mul(2)
+}
 
 /// Signed forward-plane projection (`$0D:B751`, geometry leaf `$01:FC86`).
 ///
@@ -167,6 +202,40 @@ impl TriggerPeriod {
 mod tests {
     use super::*;
     use crate::native::Angle;
+
+    #[test]
+    fn smooth_face_takes_shortest_wrapped_quarter_steps_without_stalling() {
+        for current in 0..=u8::MAX {
+            for target in 0..=u8::MAX {
+                let difference = target.wrapping_sub(current) as i8;
+                let step = if difference == 0 {
+                    0
+                } else {
+                    difference.signum() * (difference.unsigned_abs() / 4).max(1) as i8
+                };
+                assert_eq!(
+                    smooth_face_angle(Angle::from_units(current), Angle::from_units(target))
+                        .units(),
+                    current.wrapping_add(step as u8)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn yaw_arc_is_half_open_and_doubled_radius_wraps() {
+        let target = Angle::from_units(250);
+        for difference in i8::MIN..=i8::MAX {
+            assert_eq!(
+                within_yaw_arc(target.wrapping_add(difference), target, 32),
+                (-32..32).contains(&difference)
+            );
+        }
+        for yaw in 0..=u8::MAX {
+            assert!(!within_yaw_arc(Angle::from_units(yaw), target, 0));
+            assert!(!within_yaw_arc(Angle::from_units(yaw), target, 128));
+        }
+    }
 
     #[test]
     fn source_loop_decrements_before_yielding() {

@@ -4520,7 +4520,6 @@ const SF2_HOSTILE_LASER_HEALTH: u8 = 10;
 const HOSTILE_PROJECTILE_CONTRACTION_DISTANCE: i16 =
     super::hostile_laser_control::CONTRACTION_RADIUS_DELTA;
 const HOSTILE_PROJECTILE_CRUISE_SPEED: u8 = super::hostile_laser_control::FLIGHT_SPEED;
-const HOSTILE_PROJECTILE_AIM_CHASE_SHIFT: u32 = 2;
 const MISSION_ENTRY_YAW: u8 = 56;
 const MISSION_ENTRY_CRAFTS: [MissionEntryCraft; MISSION_ENTRY_CRAFT_COUNT] = [
     MissionEntryCraft {
@@ -21802,32 +21801,19 @@ fn contract_hostile_projectile_toward(object: &mut Object, target: Vector3) {
 }
 
 fn hostile_projectile_target_angles(object: &Object, target: Vector3) -> (u8, u8) {
-    let delta_x = target.x.wrapping_sub(object.base.position.x);
-    let delta_y = target.y.wrapping_sub(object.base.position.y);
-    let delta_z = target.z.wrapping_sub(object.base.position.z);
-    let distance = sf_core::aim_angle::sf2_xz_angle_distance(delta_x, delta_z);
-    let target_pitch = sf_core::aim_angle::sf2_pitch_to_target(delta_y, distance);
-    let target_yaw = sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z);
-    (target_pitch, target_yaw)
+    let (pitch, yaw) = super::path_control::target_angles(object.base.position, target);
+    (pitch.units(), yaw.units())
 }
 
 fn face_hostile_projectile_toward(object: &mut Object, target: Vector3, smooth: bool) {
     let (target_pitch, target_yaw) = hostile_projectile_target_angles(object, target);
     if smooth {
-        let mut pitch = object.base.pitch.units();
-        let mut yaw = object.base.yaw.units();
-        sf_core::snes_trig::achase_angle_8(
-            &mut pitch,
-            target_pitch,
-            HOSTILE_PROJECTILE_AIM_CHASE_SHIFT,
+        object.base.pitch = super::path_control::smooth_face_angle(
+            object.base.pitch, Angle::from_units(target_pitch),
         );
-        sf_core::snes_trig::achase_angle_8(
-            &mut yaw,
-            target_yaw,
-            HOSTILE_PROJECTILE_AIM_CHASE_SHIFT,
+        object.base.yaw = super::path_control::smooth_face_angle(
+            object.base.yaw, Angle::from_units(target_yaw),
         );
-        object.base.pitch = Angle::from_units(pitch);
-        object.base.yaw = Angle::from_units(yaw);
     } else {
         object.base.pitch = Angle::from_units(target_pitch);
         object.base.yaw = Angle::from_units(target_yaw);
@@ -23494,8 +23480,7 @@ fn pressure_fighter_within_yaw_arc(object: &Object, player_position: Vector3, ra
     let delta_x = player_position.x.wrapping_sub(object.base.position.x);
     let delta_z = player_position.z.wrapping_sub(object.base.position.z);
     let target_yaw = Angle::from_units(sf_core::aim_angle::sf2_yaw_to_target(delta_x, delta_z));
-    let bearing = object.base.yaw.units().wrapping_sub(target_yaw.units());
-    radius.wrapping_add(bearing) < radius.wrapping_mul(2)
+    super::path_control::within_yaw_arc(object.base.yaw, target_yaw, radius)
 }
 
 fn pressure_fighter_face_player(object: &mut Object, player_position: Vector3) {
