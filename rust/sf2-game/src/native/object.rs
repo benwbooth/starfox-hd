@@ -953,6 +953,8 @@ pub struct ObjectBase {
 /// Typed counterpart of the original parallel object-extension record.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ObjectExtension {
+    /// Scene-owned snapshot; retirement detaches it before contact callbacks.
+    pub scene_proxy: Option<super::scene_proxy::SceneProxyId>,
     pub depth_offset: u8,
     pub color_frame: u8,
     pub animation_frame: u8,
@@ -1125,8 +1127,14 @@ impl ObjectStore {
     /// systems still own their contact entries, path callbacks, and scene
     /// handles; those owners must release them as part of world retirement.
     pub fn remove(&mut self, id: ObjectId) -> Option<Object> {
-        let position = self.active.iter().position(|candidate| *candidate == id)?;
+        self.get(id)?;
         self.detach_relationships(id);
+        self.remove_detached(id)
+    }
+
+    /// Final pool step, after the world has completed callback-bearing cleanup.
+    pub(super) fn remove_detached(&mut self, id: ObjectId) -> Option<Object> {
+        let position = self.active.iter().position(|candidate| *candidate == id)?;
         let object = self.slots.get_mut(id.index())?.take()?;
         let previous = object.base.previous;
         let next = object.base.next;
@@ -1150,7 +1158,7 @@ impl ObjectStore {
     /// its children and marks only those with the authored lifetime flag.
     /// Finally clear incoming interaction/attachment references BEFORE the
     /// slot can be reused. A weapon's reciprocal link is not child ownership.
-    fn detach_relationships(&mut self, id: ObjectId) {
+    pub(super) fn detach_relationships(&mut self, id: ObjectId) {
         let object = self.get(id).expect("validated retiring actor");
         let successor = object.base.next_sibling;
         let mut child = object.base.first_child;

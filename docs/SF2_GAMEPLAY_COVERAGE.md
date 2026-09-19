@@ -205,3 +205,14 @@ and two wrapping counters. Nine Rust weapon-geometry tests pass, including
 exhaustive angle pairs and random-byte pairs. The multi-reflection loop still
 requires its allocator and launch-origin data-flow port; these math leaves do
 not imply that the production game emits reflected weapons.
+
+The scene-proxy pool and world-retirement ordering are now typed services.
+`native/scene_proxy.rs` retains the source's independent 512-entry pool,
+after-head insertion, pose/continuation snapshots, deferred actor detachment,
+and explicit immediate release. `native/retirement.rs` orders proxy detachment,
+both contact callbacks, relationship cleanup, required program release, and
+only then actor-slot recycling. Synthetic full-pool tests verify that contact
+callbacks cannot allocate the retiring slot, while its programs and child links
+are still available. Five proxy tests, three retirement tests and six source
+checks cover this checkpoint; production world ownership and program-allocation
+adapters remain to be connected.

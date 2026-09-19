@@ -48,6 +48,8 @@ pub mod player_contact;
 pub mod player_hit_control;
 mod render;
 mod results;
+pub mod retirement;
+pub mod scene_proxy;
 mod state;
 pub mod strategy_schedule;
 pub mod weapon_launch;
