@@ -140,6 +140,16 @@ fn complete_parent_path_matches_original_motion_animation_and_ordered_spawns() {
                 exact.memory.write_word(CURRENT_OBJECT, actor);
                 exact.run_retail_oracle_routine(strategy, actor).unwrap();
                 let events = native.tick(cue);
+                assert_eq!(
+                    sf2_game::intro_scene::OpeningSceneActor::SecondFlyby(
+                        sf2_game::intro_second_flyby_scene::OpeningSecondFlybyActor::Craft(native)
+                    )
+                    .draw_controls()
+                    .sort_bias
+                        != 0,
+                    exact.memory.read_byte(actor + 9) & 1 != 0,
+                    "later craft sort policy schedule={schedule} update={update}"
+                );
                 let context = format!(
                     "schedule={schedule} update={update} phase={:?} path={:04x}",
                     native.phase(),

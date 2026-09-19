@@ -7,7 +7,7 @@
 
 use sf2_game::intro_camera::OpeningCameraCue;
 use sf2_game::intro_controller::{IntroColor, OpeningScenePalette, INTRO_PALETTE_COLORS};
-use sf2_game::intro_scene::{OpeningScene, OpeningSceneActor};
+use sf2_game::intro_scene::{OpeningAnimationFrame, OpeningScene, OpeningSceneActor};
 use sf2_game::object::{
     object_address, object_index, ACTIVE_LIST, FIELD_PATH, FIELD_SHAPE, PLAYER_ONE,
 };
@@ -111,6 +111,8 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
     let mut native = OpeningScene::new(random, OpeningScenePalette::new(colors));
     machine.take_cpu_execution_watch_hits();
     let mut observed_splits = std::collections::BTreeSet::new();
+    let mut draw_failures = std::collections::BTreeMap::new();
+    let mut draw_checks = 0;
     for completed_updates in 1..=440 {
         assert!(machine
             .tick_until_cpu_execution(0, CONTROLLER, 240)
@@ -188,6 +190,56 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
                 continue;
             }
             let source = object_address(id.index());
+            if actor.shape() != sf2_game::ShapeId::EMPTY {
+                let controls = actor.draw_controls();
+                let source_sort_bias = if machine.peek8(WRAM + u32::from(source + 9)) & 1 != 0 {
+                    15_000
+                } else {
+                    0
+                };
+                let expected = [
+                    source_sort_bias as u16,
+                    u16::from(machine.peek8(WRAM + u32::from(source + 0x1CC8))),
+                    word(&machine, source + 0x1CCD),
+                    u16::from(machine.peek8(WRAM + u32::from(source + 0x1CDB))),
+                    u16::from(machine.peek8(WRAM + u32::from(source + 0x23)) & 2 == 0),
+                    u16::from(machine.peek8(WRAM + u32::from(source + 0x1CCB))),
+                    u16::from(machine.peek8(WRAM + u32::from(source + 0x1CCA))),
+                ];
+                let frame_control = |frame| match frame {
+                    OpeningAnimationFrame::SceneClock => 0,
+                    OpeningAnimationFrame::Authored(frame) => u16::from(frame | 128),
+                };
+                let actual = [
+                    controls.sort_bias as u16,
+                    u16::from(controls.depth_offset),
+                    controls
+                        .material_override
+                        .map_or(0, |material| material.catalog_token()),
+                    u16::from(controls.texture_scroll_y),
+                    u16::from(actor.is_visible()),
+                    frame_control(controls.shape_frame),
+                    frame_control(controls.color_frame),
+                ];
+                for (field, (expected, actual)) in [
+                    "sort bias",
+                    "depth offset",
+                    "material",
+                    "texture scroll",
+                    "visibility",
+                    "shape frame control",
+                    "color frame control",
+                ]
+                .into_iter()
+                .zip(expected.into_iter().zip(actual))
+                {
+                    if expected != actual {
+                        draw_failures.entry((id.index(), field)).or_insert_with(||
+                            format!("update={completed_updates} expected={expected} actual={actual} actor={actor:?}"));
+                    }
+                }
+                draw_checks += 1;
+            }
             assert_eq!(
                 word(&machine, source + FIELD_SHAPE),
                 0xBC9C_u16.wrapping_add(actor.shape().catalog_index() as u16 * 28),
@@ -274,6 +326,14 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
     assert!(
         observed_splits.len() > 1,
         "boot must exercise variable pass partitioning"
+    );
+    assert!(
+        draw_checks > 1000,
+        "opening must exercise complete actor lifecycles"
+    );
+    assert!(
+        draw_failures.is_empty(),
+        "opening draw controls: {draw_failures:#?}"
     );
 }
 

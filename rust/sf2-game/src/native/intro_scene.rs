@@ -43,7 +43,7 @@ use super::object::{
     Behavior, Object, ObjectId, ObjectKind, ObjectLifetimeId, ObjectStore, ShapeId, Vector3,
     OBJECT_CAPACITY,
 };
-use super::render::Rotation;
+use super::render::{MaterialSetId, Rotation};
 use super::state::RandomState;
 
 /// One independently scheduled member of the opening's shared actor pool.
@@ -87,6 +87,84 @@ pub enum OpeningSceneActor {
 }
 
 impl OpeningSceneActor {
+    /// Authored controls consumed before camera-relative draw preparation.
+    /// The far-order control is an additive bias, not an absolute camera Z.
+    pub fn draw_controls(&self) -> OpeningDrawControls {
+        let mut controls = OpeningDrawControls::default();
+        match self {
+            Self::LogoGlyph(actor) => {
+                controls.depth_offset = actor.depth_offset;
+                controls.material_override = actor.material_override;
+                controls.texture_scroll_y = actor.texture_scroll_y;
+            }
+            Self::LogoOutline { actor, .. } => {
+                controls.material_override = Some(actor.material);
+            }
+            Self::LogoSweep(_) => {
+                controls.sort_bias = 15_000;
+            }
+            Self::FlybyStreak { actor, .. } => {
+                controls.sort_bias = actor.depth_order.sort_depth_override().unwrap_or(0);
+            }
+            Self::DepartingCraft(actor) => {
+                controls.sort_bias = actor.sort_depth_override().unwrap_or(0);
+                controls.depth_offset = actor.depth_offset();
+            }
+            Self::CraftFlare { actor, .. } => {
+                controls.sort_bias = actor.sort_depth_override().unwrap_or(0);
+            }
+            Self::FreeCraft(actor) => {
+                controls.sort_bias = actor.sort_depth_override().unwrap_or(0);
+            }
+            Self::Burst(actor) => {
+                controls.color_frame = OpeningAnimationFrame::Authored(actor.color_frame);
+            }
+            Self::Explosion(actor) => {
+                controls.color_frame = OpeningAnimationFrame::Authored(actor.color_frame);
+            }
+            Self::SecondFlyby(actor) => match actor {
+                OpeningSecondFlybyActor::Chain(actor) => {
+                    controls.sort_bias = if actor.sort_override() { 15_000 } else { 0 };
+                    controls.depth_offset = actor.depth_offset as u8;
+                }
+                OpeningSecondFlybyActor::Flare(actor) => {
+                    controls.sort_bias = if actor.sort_override() { 15_000 } else { 0 };
+                }
+                OpeningSecondFlybyActor::Craft(actor) => {
+                    controls.sort_bias = 15_000;
+                    if actor.animation_enabled {
+                        controls.shape_frame =
+                            OpeningAnimationFrame::Authored(actor.animation_frame);
+                    }
+                }
+                OpeningSecondFlybyActor::ChainBurst(actor) => {
+                    if actor.is_sprite() {
+                        controls.color_frame = OpeningAnimationFrame::Authored(actor.color_frame);
+                    }
+                }
+                OpeningSecondFlybyActor::Explosion(actor) => {
+                    controls.color_frame = OpeningAnimationFrame::Authored(actor.color_frame);
+                }
+                OpeningSecondFlybyActor::Trail { .. }
+                | OpeningSecondFlybyActor::CameraTarget(_)
+                | OpeningSecondFlybyActor::AttachedWing(_)
+                | OpeningSecondFlybyActor::DepartingWing(_) => {}
+            },
+            Self::Controller
+            | Self::InactivePlayer
+            | Self::Root(_)
+            | Self::Camera(_)
+            | Self::CameraTarget(_)
+            | Self::LogoAssembly(_)
+            | Self::FlybyRig(_)
+            | Self::AttachedCraft(_)
+            | Self::FormationCraft(_)
+            | Self::LateCameraTarget(_)
+            | Self::LateTargetEffect { .. } => {}
+        }
+        controls
+    }
+
     pub fn pose(&self) -> IntroScenePose {
         match self {
             Self::Controller | Self::InactivePlayer => IntroScenePose::default(),
@@ -188,6 +266,38 @@ impl OpeningSceneActor {
     }
 }
 
+/// Actor-authored draw inputs. Depth-color selection and texture scrolling
+/// are independent of geometric sort bias. Clipping and sprite appearance
+/// are separate controls and are not represented by this subset.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct OpeningDrawControls {
+    pub sort_bias: i16,
+    /// Only the low byte is submitted, even when an actor updates a word.
+    pub depth_offset: u8,
+    pub material_override: Option<MaterialSetId>,
+    pub texture_scroll_y: u8,
+    pub shape_frame: OpeningAnimationFrame,
+    pub color_frame: OpeningAnimationFrame,
+}
+
+/// Shape and color animation independently choose the scene clock or an
+/// actor-authored frame (`$7F:1406..141B`). They never use texture scroll Y.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum OpeningAnimationFrame {
+    #[default]
+    SceneClock,
+    Authored(u8),
+}
+
+impl OpeningAnimationFrame {
+    pub const fn resolve(self, scene_clock: u8) -> u8 {
+        match self {
+            Self::SceneClock => scene_clock & 127,
+            Self::Authored(frame) => frame & 127,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OpeningActorSnapshot {
     pub id: ObjectId,
@@ -195,6 +305,7 @@ pub struct OpeningActorSnapshot {
     pub pose: IntroScenePose,
     pub shape: ShapeId,
     pub visible: bool,
+    pub draw_controls: OpeningDrawControls,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -365,6 +476,7 @@ impl OpeningScene {
             pose: actor.pose(),
             shape: actor.shape(),
             visible: actor.is_visible(),
+            draw_controls: actor.draw_controls(),
         })
     }
 

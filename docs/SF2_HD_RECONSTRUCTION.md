@@ -1470,6 +1470,28 @@ accessor reports the current actor-update state. The test still supplies
 observed CPU/GSU pass partitions; it does not certify which state a renderer
 must consume at a particular master-clock deadline, nor rendered pixels.
 
+Opening snapshots now also retain typed actor-authored draw controls: material
+override, depth-color selector, texture-scroll Y, additive sort bias, and
+independent shape/color animation selectors. The source CPU submission at
+`$7F:122C..123D` adds the far-order flag's 15,000 bias before the geometric GSU
+sort; it does not replace camera depth. The logo sweep and later flyby craft
+both retain this policy. Depth selection submits only the low byte even when
+an actor updates a full word. Texture scrolling does not advance either
+animation channel. Each animation channel independently selects the scene
+clock or an authored frame, then masks to seven bits (`$7F:1406..141B`).
+
+The boot integration oracle now checks these controls and visibility for every
+nonempty actor shape across all 440 opening updates, including hidden actors,
+reused slots and source-created effects. The sweep and later-craft path oracles
+also check their ordering flags across varied release/camera-cue schedules.
+An independent CPU oracle exhausts all 65,536 scene-clock/selector pairs for
+both animation channels, verifying the two stored frame bytes and every
+untouched draw-record byte. This connects actor state to the snapshot interface;
+it does **not** yet submit complete native opening draws. Coarse visibility,
+clipping and sprite appearance, render-deadline selection, palette scheduling
+and final pixels remain separate integration gates. The production intro still
+uses the recorded presentation.
+
 ```sh
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_bitmap_clear_work'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_programs'
@@ -1479,6 +1501,7 @@ nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_sha
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_shape_matrix'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_draw_preparation'
 nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_camera_view'
+nix develop --command bash -c 'cd rust && cargo test -p sf-oracle --test sf2_draw_animation'
 python3 -m unittest discover -s tools/sf2 -p test_extract_shapes.py
 ```
 

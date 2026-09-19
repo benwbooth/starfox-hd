@@ -111,6 +111,14 @@ fn sweep_delay_traversal_and_release_match_the_complete_retail_path() {
                 exact.memory.write_word(CURRENT_OBJECT, object);
                 exact.run_retail_oracle_routine(DISPATCH, object).unwrap();
                 let finished = native.tick(update >= release_update, scroll);
+                assert_eq!(
+                    sf2_game::intro_scene::OpeningSceneActor::LogoSweep(native)
+                        .draw_controls()
+                        .sort_bias
+                        != 0,
+                    exact.memory.read_byte(object + 9) & 1 != 0,
+                    "sweep sort policy release={release_update} update={update}"
+                );
                 assert_vector(&exact, object, POSITION_FIELDS, native.position);
                 for (field, value) in ROTATION_FIELDS.into_iter().zip([
                     native.rotation.pitch,
