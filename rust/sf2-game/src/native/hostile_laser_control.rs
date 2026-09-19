@@ -3,8 +3,8 @@
 //!
 //! The three source continuations are explicit Rust states, not a list of
 //! operations indexed by a recorded frame. The owning strategy runs the
-//! returned operation and then the registered callbacks before integrating
-//! position, in source order. Allocation, collision effects and the separate
+//! returned operation, ordinary movement, and then the registered callbacks,
+//! in source order. Allocation, collision effects and the separate
 //! non-homing weapon path are owned by the weapon/object systems.
 
 use super::path_control::{CountedLoop, PathWait, PlayerCrossing, PlayerTarget, TriggerPeriod};

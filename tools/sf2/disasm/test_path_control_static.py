@@ -134,6 +134,49 @@ class PathControlStaticTests(unittest.TestCase):
             self.assertEqual(PATH_SEMANTIC_BY_OPCODE[command.opcode].rust_name, semantic)
             self.assertEqual(command.raw_hex, raw)
 
+    def test_movement_acceleration_and_bank_rounding(self):
+        self.assert_source(
+            0x7F9DF0,
+            "B5 18 D5 0A 30 0B 38 F5 0B D5 0A 10 13 B5 0A 80 09 "
+            "18 75 0B D5 0A 30 08 B5 0A 95 18 74 0B 80 02 95 18",
+        )
+        self.assert_source(
+            0x7F9E29,
+            "B5 16 C9 80 6A 10 02 69 00 C9 80 6A 10 02 69 00 18 75 14 95 14",
+        )
+
+    def test_ordinary_integration_precedes_callbacks_but_attached_motion_follows(self):
+        self.assert_source(0x7F9E62, "22 24 2C 7F")
+        self.assert_source(0x7F9E70, "20 A8 9A")
+        self.assert_source(
+            0x7F2C24,
+            "C2 20 B5 0C 18 75 32 95 0C B5 0E 18 75 34 95 0E "
+            "B5 10 18 75 36 95 10 E2 20 6B",
+        )
+        self.assert_source(0x7F9E9F, "C2 20 BD CF 1C 18 7D 32 00 9D CF 1C")
+        self.assert_source(0x7F9EAD, "C2 20 BD D1 1C 18 7D 34 00 9D D1 1C")
+        self.assert_source(0x7F9EBB, "C2 20 BD D3 1C 18 7D 36 00 9D D3 1C")
+        # The forced-path post-callback hook has no additional side effects.
+        self.assert_source(0x7FAFFC, "60")
+
+    def test_selected_displacement_skips_only_horizontal_axis(self):
+        self.assert_source(0x7F9F30, "89 04 F0 04 5C 42 9F 7F")
+        self.assert_source(0x7F9F38, "C2 20 AD 1C 1E 18 75 0C 95 0C")
+        self.assert_source(0x7F9F42, "C2 20 AD 20 1E 18 75 10 95 10 E2 20 60")
+
+    def test_direction_velocity_keeps_doubled_byte_products_and_world_scaling(self):
+        self.assert_source(0x7F3078, "AD 12 15 49 FF 1A A8 AD 11 15 AA")
+        self.assert_source(0x7F30A0, "A5 85 30 18 0A 8F 02 42 00")
+        self.assert_source(0x7F30BC, "49 FF 1A 0A 8F 02 42 00")
+        self.assert_source(0x7F30F5, "A5 02 30 18 0A 8F 02 42 00")
+        self.assert_source(0x7F85FC, "C2 20 16 32 16 32 16 34 16 34 16 36 16 36 E2 20 60")
+
+    def test_selected_distance_uses_wrapped_horizontal_deltas_and_geometry_length(self):
+        self.assert_source(0x7F8C30, "B9 0C 00 38 F5 0C 8F 26 00 70")
+        self.assert_source(0x7F8C3A, "A9 00 00 8F 28 00 70")
+        self.assert_source(0x7F8C41, "B9 10 00 38 F5 10 8F 2A 00 70")
+        self.assert_source(0x7F8C50, "A9 01 A2 72 FB 22 7B 78 7F")
+
 
 if __name__ == "__main__":
     unittest.main()

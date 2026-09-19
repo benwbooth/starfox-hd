@@ -36,6 +36,7 @@ pub mod intro_visibility;
 mod object;
 pub mod path_control;
 pub mod path_math;
+pub mod path_motion;
 mod render;
 mod results;
 mod state;

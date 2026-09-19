@@ -21857,7 +21857,7 @@ fn advance_pigma_rival(object: &mut Object, flight: &mut PigmaRivalFlightState) 
     advance_rival(
         object,
         flight.target_speed,
-        flight.acceleration,
+        &mut flight.acceleration,
         &mut flight.motion_steps_elapsed,
     );
 }
@@ -21866,7 +21866,7 @@ fn advance_final_rival(object: &mut Object, flight: &mut FinalRivalFlightState) 
     advance_rival(
         object,
         flight.target_speed,
-        flight.acceleration,
+        &mut flight.acceleration,
         &mut flight.motion_steps_elapsed,
     );
 }
@@ -21874,7 +21874,7 @@ fn advance_final_rival(object: &mut Object, flight: &mut FinalRivalFlightState) 
 fn advance_rival(
     object: &mut Object,
     target_speed: u8,
-    acceleration: u8,
+    acceleration: &mut u8,
     motion_steps_elapsed: &mut u16,
 ) {
     prepare_rival_advance(object, target_speed, acceleration, motion_steps_elapsed);
@@ -21884,18 +21884,10 @@ fn advance_rival(
 fn prepare_rival_advance(
     object: &mut Object,
     target_speed: u8,
-    acceleration: u8,
+    acceleration: &mut u8,
     motion_steps_elapsed: &mut u16,
 ) {
-    let difference = i16::from(target_speed) - i16::from(object.base.speed);
-    let adjustment = difference.unsigned_abs().min(u16::from(acceleration)) as u8;
-    object.base.speed = if difference > 0 {
-        object.base.speed.saturating_add(adjustment)
-    } else if difference < 0 {
-        object.base.speed.saturating_sub(adjustment)
-    } else {
-        object.base.speed
-    };
+    super::path_motion::accelerate(&mut object.base.speed, target_speed, acceleration);
     let velocity = flight_velocity(
         object.base.pitch,
         object.base.yaw,
@@ -22134,7 +22126,7 @@ fn apply_leon_rival_action(
             prepare_rival_advance(
                 object,
                 flight.target_speed,
-                flight.acceleration,
+                &mut flight.acceleration,
                 &mut flight.motion_steps_elapsed,
             );
             flight.movement_phase = LeonRivalMovementPhase::PreparedAdvance;
@@ -22949,33 +22941,7 @@ fn visible_pitch_from_lean(pitch_lean: i8) -> Angle {
 /// `position_scale` expresses the source path's world-step multiplier as an
 /// ordinary gameplay unit rather than exposing encoded path operands.
 pub(super) fn flight_velocity(pitch: Angle, yaw: Angle, speed: u8, position_scale: i16) -> Vector3 {
-    let source_yaw = yaw.units().wrapping_neg();
-    let source_pitch = pitch.units();
-    let signed_speed = speed as i8;
-    let cos_pitch = sf_core::snes_trig::COSTAB[source_pitch as usize];
-    let x = sf_core::snes_trig::mulslog_mac8(
-        sf_core::snes_trig::mulslog_mac8(
-            signed_speed,
-            sf_core::snes_trig::SINTAB[source_yaw as usize],
-        ),
-        cos_pitch,
-    );
-    let y = sf_core::snes_trig::mulslog_mac8(
-        signed_speed,
-        sf_core::snes_trig::SINTAB[source_pitch as usize],
-    );
-    let z = sf_core::snes_trig::mulslog_mac8(
-        sf_core::snes_trig::mulslog_mac8(
-            signed_speed,
-            sf_core::snes_trig::COSTAB[source_yaw as usize],
-        ),
-        cos_pitch,
-    );
-    Vector3 {
-        x: i16::from(x).wrapping_mul(position_scale),
-        y: i16::from(y).wrapping_mul(position_scale),
-        z: i16::from(z).wrapping_mul(position_scale),
-    }
+    super::path_motion::direction_velocity(pitch, yaw, speed, position_scale)
 }
 
 fn apply_reengagement_fighter_action(
@@ -23515,11 +23481,13 @@ fn pressure_fighter_selected_distance(object: &Object, player_position: Vector3)
 }
 
 fn pressure_fighter_horizontal_distance(first_position: Vector3, second_position: Vector3) -> u16 {
-    let delta_x = second_position.x.wrapping_sub(first_position.x);
-    let delta_z = second_position.z.wrapping_sub(first_position.z);
-    let squared_distance =
-        i64::from(delta_x) * i64::from(delta_x) + i64::from(delta_z) * i64::from(delta_z);
-    (squared_distance as u64).isqrt().min(u64::from(u16::MAX)) as u16
+    // The selected-distance helper explicitly zeros altitude before calling
+    // the same bounded-word length routine used by path radius operations.
+    super::path_math::vector_length(Vector3 {
+        x: second_position.x.wrapping_sub(first_position.x),
+        y: 0,
+        z: second_position.z.wrapping_sub(first_position.z),
+    })
 }
 
 fn pressure_fighter_within_yaw_arc(object: &Object, player_position: Vector3, radius: u8) -> bool {
