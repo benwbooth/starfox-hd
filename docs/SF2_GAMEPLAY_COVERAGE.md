@@ -197,3 +197,11 @@ composition with new/continuing hit response and separation. Five assembly-byte
 checks cover the branch and dispatch ordering. Reflected-weapon world operations
 and production Game integration are still required; these interface tests do
 not demonstrate live reflected projectiles.
+
+Shared weapon geometry now includes source-exact reflected pitch/yaw offsets
+and optional two-byte scatter. Hostile-launch classification retains the
+primary-player yaw half-plane test, conditional random collision suppression,
+and two wrapping counters. Nine Rust weapon-geometry tests pass, including
+exhaustive angle pairs and random-byte pairs. The multi-reflection loop still
+requires its allocator and launch-origin data-flow port; these math leaves do
+not imply that the production game emits reflected weapons.

@@ -8,6 +8,73 @@
 use super::{path_control, Angle, Rotation, Vector3};
 
 const MUZZLE_WORLD_SCALE_SHIFT: u32 = 2;
+const REFLECTION_SCATTER_MASK: u8 = 0x3F;
+const REFLECTION_SCATTER_BIAS: u8 = 32;
+const HOSTILE_DISABLE_RANDOM_MASK: u8 = 0x03;
+const QUARTER_TURN: u8 = 64;
+const HALF_TURN: u8 = 128;
+
+/// `$07:F1E7..F25A`: offsets for the ordinary weapon formatter. Pitch is
+/// negated without subtracting the reflector's pitch; yaw subtracts its yaw.
+/// Consequently the formatted pitch includes the reflector's pitch, whereas
+/// formatted yaw is the incoming yaw plus half a turn. Scatter bytes must be
+/// drawn in pitch-then-yaw order only after the caller's player-mode gates.
+pub fn reflection_parameters(
+    incoming: Rotation,
+    reflector_yaw: Angle,
+    scatter: Option<[u8; 2]>,
+) -> LaunchParameters {
+    let mut pitch = incoming.pitch.units().wrapping_neg();
+    let mut yaw = incoming
+        .yaw
+        .units()
+        .wrapping_add(HALF_TURN)
+        .wrapping_sub(reflector_yaw.units());
+    if let Some([pitch_random, yaw_random]) = scatter {
+        pitch = pitch
+            .wrapping_add(pitch_random & REFLECTION_SCATTER_MASK)
+            .wrapping_sub(REFLECTION_SCATTER_BIAS);
+        yaw = yaw
+            .wrapping_add(yaw_random & REFLECTION_SCATTER_MASK)
+            .wrapping_sub(REFLECTION_SCATTER_BIAS);
+    }
+    LaunchParameters {
+        pitch_offset: pitch as i8,
+        yaw_offset: yaw as i8,
+        ..LaunchParameters::default()
+    }
+}
+
+/// `$0D:DE38..DE49`: classify using the PRIMARY player's yaw, even when the
+/// weapon was launched by a different actor. Only the aligned half-plane draws
+/// a random byte. Wrapped unsigned comparison is deliberate at the boundary.
+pub fn hostile_launch_needs_random(primary_yaw: Angle, weapon_yaw: Angle) -> bool {
+    primary_yaw
+        .units()
+        .wrapping_add(HALF_TURN)
+        .wrapping_sub(weapon_yaw.units())
+        .wrapping_add(QUARTER_TURN)
+        >= HALF_TURN
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct HostileLaunchCounts {
+    pub collision_disabled: u8,
+    pub aligned_half_plane: u8,
+}
+
+impl HostileLaunchCounts {
+    /// Call only when hostile_launch_needs_random is true, after consuming
+    /// exactly one shared random byte. Existing collision disable is never
+    /// cleared. Both source counters are wrapping bytes, not lifetime totals.
+    pub fn classify_aligned_launch(&mut self, collision_disabled: &mut bool, random: u8) {
+        if random & HOSTILE_DISABLE_RANDOM_MASK != 0 {
+            *collision_disabled = true;
+            self.collision_disabled = self.collision_disabled.wrapping_add(1);
+        }
+        self.aligned_half_plane = self.aligned_half_plane.wrapping_add(1);
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct MuzzleOffset {
@@ -199,5 +266,92 @@ mod tests {
         );
         assert_eq!(pose.rotation.pitch.units(), 4);
         assert_eq!(pose.rotation.yaw.units(), 248);
+    }
+
+    #[test]
+    fn reflection_preserves_the_sources_asymmetric_pitch_and_yaw_offsets() {
+        for incoming in 0..=u8::MAX {
+            for source in 0..=u8::MAX {
+                let source_rotation = Rotation {
+                    pitch: Angle::from_units(source),
+                    yaw: Angle::from_units(source),
+                    roll: Angle::from_units(73),
+                };
+                let parameters = reflection_parameters(
+                    Rotation {
+                        pitch: Angle::from_units(incoming),
+                        yaw: Angle::from_units(incoming),
+                        roll: Angle::from_units(19),
+                    },
+                    source_rotation.yaw,
+                    None,
+                );
+                let pose = format_pose(Vector3::default(), source_rotation, parameters);
+                assert_eq!(pose.rotation.pitch.units(), source.wrapping_sub(incoming));
+                assert_eq!(pose.rotation.yaw.units(), incoming.wrapping_add(128));
+                assert_eq!(pose.rotation.roll, Angle::ZERO);
+                assert_eq!(parameters.muzzle, MuzzleOffset::default());
+                assert_eq!(parameters.target, None);
+            }
+        }
+    }
+
+    #[test]
+    fn reflection_scatter_masks_each_random_byte_independently() {
+        for pitch_random in 0..=u8::MAX {
+            for yaw_random in 0..=u8::MAX {
+                let parameters = reflection_parameters(
+                    Rotation {
+                        pitch: Angle::from_units(128),
+                        yaw: Angle::from_units(250),
+                        roll: Angle::ZERO,
+                    },
+                    Angle::from_units(2),
+                    Some([pitch_random, yaw_random]),
+                );
+                assert_eq!(
+                    parameters.pitch_offset as u8,
+                    128u8.wrapping_add(pitch_random & 63).wrapping_sub(32)
+                );
+                assert_eq!(
+                    parameters.yaw_offset as u8,
+                    120u8.wrapping_add(yaw_random & 63).wrapping_sub(32)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hostile_launch_gate_is_a_wrapped_half_plane() {
+        for player in 0..=u8::MAX {
+            for weapon in 0..=u8::MAX {
+                let separation = weapon.wrapping_sub(player);
+                assert_eq!(
+                    hostile_launch_needs_random(
+                        Angle::from_units(player),
+                        Angle::from_units(weapon)
+                    ),
+                    separation <= 64 || separation > 192
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hostile_launch_random_disable_preserves_existing_flags_and_wraps_counters() {
+        for random in 0..=u8::MAX {
+            for initial in [false, true] {
+                let mut disabled = initial;
+                let mut counts = HostileLaunchCounts {
+                    collision_disabled: 255,
+                    aligned_half_plane: 255,
+                };
+                counts.classify_aligned_launch(&mut disabled, random);
+                let selected = random & 3 != 0;
+                assert_eq!(disabled, initial || selected);
+                assert_eq!(counts.collision_disabled, if selected { 0 } else { 255 });
+                assert_eq!(counts.aligned_half_plane, 0);
+            }
+        }
     }
 }

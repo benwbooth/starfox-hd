@@ -426,5 +426,17 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F4824, "E2 20 BF 10 00 7F 05 F5 85 F5 C2 20 BF 00 00 7F AA F0 03 82 C9 FC E2 20 A5 F5 F0 57")
 
 
+    def test_reflection_offsets_scatter_and_zero_muzzle_parameters(self):
+        self.assert_source(0x07F1E7, "B5 14 18 69 80 85 08 B5 12 49 FF 1A 85 02 DA A6 04 A5 08 38 F5 14 85 08")
+        self.assert_source(0x07F1FF, "EC C3 12 F0 05 EC C5 12 D0 0F 5A B4 2B B9 02 6C 7A 29 40 D0 04 5C 3E F2 07")
+        self.assert_source(0x07F218, "22 D0 7B 7F 29 3F 18 6D 02 00 85 02 22 D0 7B 7F 29 3F 18 6D 08 00 85 08 A5 02 18 69 E0 85 02 A5 08 18 69 E0 85 08")
+        self.assert_source(0x07F23E, "A5 02 8D B7 14 A5 08 8D B6 14 9C B8 14 9C B9 14 A9 00 8D B0 14 A9 00 8D B2 14 A9 00 8D B4 14 A9 02 22 9C A8 03")
+
+    def test_hostile_launch_primary_yaw_gate_and_wrapping_counters(self):
+        self.assert_source(0x0DDE38, "DA AE C3 12 B5 14 FA 18 69 80 38 F9 14 00 18 69 40 C9 80 90 1A")
+        self.assert_source(0x0DDE4D, "22 D0 7B 7F 29 03 85 3A A5 3A F0 0B B9 21 00 09 01 99 21 00 EE 69 1D EE 6B 1D")
+        self.assert_source(0x0DDE67, "B9 31 00 09 50 99 31 00 B9 31 00 09 10 99 31 00 60")
+
+
 if __name__ == "__main__":
     unittest.main()

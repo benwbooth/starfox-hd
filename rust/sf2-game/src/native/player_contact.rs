@@ -9,12 +9,9 @@ use super::{ObjectId, ObjectStore};
 
 const DEFLECTION_COUNT_MASK: u8 = 0x1F;
 const PART_HIT_MASK: u8 = 0x07;
-const PART_HIT_LEFT: u8 = 0x02;
-const PART_HIT_RIGHT: u8 = 0x04;
-const PART_HIT_BODY: u8 = 0x01;
-const PART_FEEDBACK_LEFT: u8 = 0x80;
-const PART_FEEDBACK_RIGHT: u8 = 0x40;
-const PART_FEEDBACK_BODY: u8 = 0x20;
+// Authored box channels to player feedback channels. Do not assign left/right
+// anatomy from the bit ordering; shape-specific boxes own that interpretation.
+const PART_FEEDBACK_REMAP: [(u8, u8); 3] = [(0x02, 0x80), (0x04, 0x40), (0x01, 0x20)];
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerContactState {
@@ -181,11 +178,7 @@ pub fn respond<H: PlayerContactHost>(
             .player_contact_mut(owner)
             .ok_or(PlayerContactError::MissingPlayer(owner))?
             .part_feedback;
-        for (source, destination) in [
-            (PART_HIT_LEFT, PART_FEEDBACK_LEFT),
-            (PART_HIT_RIGHT, PART_FEEDBACK_RIGHT),
-            (PART_HIT_BODY, PART_FEEDBACK_BODY),
-        ] {
+        for (source, destination) in PART_FEEDBACK_REMAP {
             if hit_flags & source != 0 {
                 *feedback |= destination;
             }
