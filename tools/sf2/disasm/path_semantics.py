@@ -273,7 +273,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x110, "ChasePlayerTowardObject", 0x7FB376, None, "sf2_handler"),
     PathSemanticSpec(0x111, "SnapPlayerToObject", 0x7FB43B, None, "sf2_handler"),
     PathSemanticSpec(0x112, "IfSelectedAuxBit40", 0x7FB99E, None, "sf2_handler"),
-    PathSemanticSpec(0x113, "IfSelectedOrCurrentAuxState", 0x7FB9BC, None, "sf2_handler"),
+    PathSemanticSpec(0x113, "IfSelectedAuxiliaryContinuation", 0x7FB9BC, None, "sf2_handler"),
     PathSemanticSpec(0x116, "OrSelectedAuxFlags", 0x7FBAA5, None, "sf2_handler"),
     PathSemanticSpec(0x117, "SetFlag21Bit20AndClearObject1cc1", 0x7FBAB9, None, "sf2_handler"),
     PathSemanticSpec(

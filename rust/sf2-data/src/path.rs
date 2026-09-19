@@ -262,7 +262,7 @@ pub enum PathSemantic {
     ChasePlayerTowardObject,
     SnapPlayerToObject,
     IfSelectedAuxBit40,
-    IfSelectedOrCurrentAuxState,
+    IfSelectedAuxiliaryContinuation,
     OrSelectedAuxFlags,
     SetFlag21Bit20AndClearObject1cc1,
     IncrementSelectedAuxiliaryStage,
@@ -4173,7 +4173,7 @@ pub static PATH_HANDLERS: [PathHandler; PATH_HANDLER_COUNT] = [
     PathHandler {
         opcode: 0x113,
         address: 0x7FB9BC,
-        semantic: Some(PathSemantic::IfSelectedOrCurrentAuxState),
+        semantic: Some(PathSemantic::IfSelectedAuxiliaryContinuation),
         effects: &PATH_EFFECTS_216,
         instruction_count: 29,
     },

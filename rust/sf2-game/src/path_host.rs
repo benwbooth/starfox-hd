@@ -3448,10 +3448,15 @@ impl Sf2PathHost for Game {
                         < 0
                 })
                 .unwrap_or(false),
-            Sf2PathCondition::SelectedOrCurrentAuxState => {
-                let selected = self.selected_aux_flags().unwrap_or(0);
-                let current_aux = self.memory.read_byte(current.wrapping_add(0x6B77));
-                selected & 0xC0 != 0 || current_aux & 0x20 != 0
+            Sf2PathCondition::SelectedAuxiliaryContinuation => {
+                // Both source reads follow the selected object's auxiliary
+                // slot. The temporary actor swaps do not select the owner.
+                let selected = self.memory.read_word(SELECTED_OBJECT);
+                let slot = self.memory.read_word(selected.wrapping_add(FIELD_PATH));
+                crate::path_conditions::selected_auxiliary_continuation(
+                    self.memory.read_byte(slot.wrapping_add(0x6B63)),
+                    self.memory.read_byte(slot.wrapping_add(0x6B77)),
+                )
             }
             Sf2PathCondition::SelectedAuxiliaryMapCellOccupied => {
                 let Some(selected) = self.selected_object() else {

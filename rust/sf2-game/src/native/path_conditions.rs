@@ -117,6 +117,12 @@ pub struct BranchState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Predicate {
+    /// Both bytes belong to the selected actor's auxiliary record. The
+    /// current path actor contributes neither byte (`$7F:B9BC..B9F3`).
+    SelectedAuxiliaryContinuation {
+        mode: u8,
+        action_flags: u8,
+    },
     NegativeSelectedPlane {
         position: Vector3,
         target_position: Vector3,
@@ -258,6 +264,9 @@ impl BranchState {
             }
             GroundThreshold { height, offset } => height.wrapping_add(offset) >= 0,
             // These predicates deliberately leave a pending IFNOT untouched.
+            SelectedAuxiliaryContinuation { mode, action_flags } => {
+                return selected_auxiliary_continuation(mode, action_flags);
+            }
             NonzeroByte(value) => return value != 0,
             NonzeroWord(value) => return value != 0,
             ZeroByte(value) => return value == 0,
@@ -295,6 +304,15 @@ impl BranchState {
         };
         value ^ std::mem::take(&mut self.invert_next)
     }
+}
+
+/// Mode bit 40 overrides the mode-bit-80 rejection. Either eligible mode
+/// still requires action bit 20. This is not an OR of the two flag bytes.
+pub fn selected_auxiliary_continuation(mode: u8, action_flags: u8) -> bool {
+    const MODE_OVERRIDE: u8 = 0x40;
+    const MODE_REJECT: u8 = 0x80;
+    const ACTION_CONTINUE: u8 = 0x20;
+    (mode & MODE_OVERRIDE != 0 || mode & MODE_REJECT == 0) && action_flags & ACTION_CONTINUE != 0
 }
 
 /// `$7F:8C25` supplies zero vertical displacement to the source geometry
@@ -350,6 +368,24 @@ pub fn target_within_yaw_arc(position: Vector3, target: Vector3, yaw: Angle, rad
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_auxiliary_gate_covers_all_flags_and_preserves_inversion() {
+        for mode in 0..=u8::MAX {
+            for action_flags in 0..=u8::MAX {
+                let expected = match mode & 0xC0 {
+                    0x80 => false,
+                    _ => action_flags & 0x20 != 0,
+                };
+                let mut branch = BranchState { invert_next: true };
+                assert_eq!(
+                    branch.test(Predicate::SelectedAuxiliaryContinuation { mode, action_flags }),
+                    expected
+                );
+                assert!(branch.invert_next);
+            }
+        }
+    }
 
     #[test]
     fn inversion_is_set_not_toggled_and_only_consumed_by_eligible_predicates() {

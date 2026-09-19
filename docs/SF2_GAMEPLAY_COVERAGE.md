@@ -473,3 +473,12 @@ one deduplicated semantic layout so a shared source statement has one cursor
 identity regardless of which root reaches it. Source addresses remain solely
 in the offline lowerer; native execution uses catalog indices. These paths
 still await integration with Game's spawn and strategy scheduling services.
+
+Further static branch review corrected opcode 275: both auxiliary bytes come
+from the selected actor's slot, never the current actor's base or slot. Mode
+bit 64 permits checking the action flag; without it mode bit 128 rejects.
+Eligible modes still require action bit 32, and IFNOT remains pending. The
+native predicate and verification-only host now agree with the full source
+branch, including raw zero selection in that host. All 65,536 flag pairs are
+tested. The semantic name is now `IfSelectedAuxiliaryContinuation`; this does
+not yet make the surrounding auxiliary-dependent paths production-complete.

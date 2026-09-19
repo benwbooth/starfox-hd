@@ -1925,7 +1925,7 @@ fn expanded_object_conditions_branch_only_on_the_reviewed_retail_predicate() {
             1,
         ),
         (0x101, Sf2PathCondition::SelectedAboveObject, 1),
-        (0x113, Sf2PathCondition::SelectedOrCurrentAuxState, 1),
+        (0x113, Sf2PathCondition::SelectedAuxiliaryContinuation, 1),
     ];
 
     for (opcode, expected_condition, target_operand) in cases {

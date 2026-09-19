@@ -193,7 +193,7 @@ pub enum Sf2PathCondition {
     SelectedAtOrBelowObject,
     ProjectedSelectedForwardPointNegative,
     SelectedAboveObject,
-    SelectedOrCurrentAuxState,
+    SelectedAuxiliaryContinuation,
     SelectedAuxiliaryMapCellOccupied,
     SelectedAuxiliaryFlag04Clear,
     SelectedAuxiliaryStateMatchesGlobal,
@@ -2304,7 +2304,7 @@ impl PathVm {
             | IfSelectedAtOrBelowObject
             | IfProjectedSelectedForwardPointNegative
             | IfSelectedAboveObject
-            | IfSelectedOrCurrentAuxState => {
+            | IfSelectedAuxiliaryContinuation => {
                 let condition = match semantic {
                     IfProjectedSelectedPointNegative => {
                         Sf2PathCondition::ProjectedSelectedPointNegative
@@ -2314,7 +2314,7 @@ impl PathVm {
                         Sf2PathCondition::ProjectedSelectedForwardPointNegative
                     }
                     IfSelectedAboveObject => Sf2PathCondition::SelectedAboveObject,
-                    IfSelectedOrCurrentAuxState => Sf2PathCondition::SelectedOrCurrentAuxState,
+                    IfSelectedAuxiliaryContinuation => Sf2PathCondition::SelectedAuxiliaryContinuation,
                     _ => unreachable!(),
                 };
                 if host
