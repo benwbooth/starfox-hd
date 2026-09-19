@@ -1417,6 +1417,15 @@ impl Game {
         )
     }
 
+    fn contract_radius_position(&self, current: u16, target: u16, amount: i8) -> crate::native::Vector3 {
+        let position = |object| crate::native::Vector3 {
+            x: self.object_word(object, FIELD_X),
+            y: self.object_word(object, FIELD_Y),
+            z: self.object_word(object, FIELD_Z),
+        };
+        crate::native::path_math::change_radius(position(current), position(target), i16::from(amount))
+    }
+
     fn face_object(&mut self, target: u16, smooth_shift: Option<u32>) -> Result<(), Error> {
         let current = self.current_object()?;
         let (dx, dy, dz) = self.object_delta(current, target);
@@ -2550,40 +2559,31 @@ impl Sf2PathHost for Game {
         let dz = self
             .object_word(current, FIELD_Z)
             .wrapping_sub(self.object_word(selected, FIELD_Z));
-        let (x, z) = sf_core::snes_trig::rotate_16xz(angle as u8, dx, dz);
+        let result = crate::native::path_steering::yaw_orbit_position(
+            crate::native::Vector3 { x: dx, y: 0, z: dz },
+            crate::native::Vector3::default(),
+            crate::native::Angle::from_units(angle as u8),
+        );
         self.set_object_word(
             current,
             FIELD_X,
-            self.object_word(selected, FIELD_X).wrapping_add(x),
+            self.object_word(selected, FIELD_X).wrapping_add(result.x),
         );
         self.set_object_word(
             current,
             FIELD_Z,
-            self.object_word(selected, FIELD_Z).wrapping_add(z),
+            self.object_word(selected, FIELD_Z).wrapping_add(result.z),
         );
         Ok(())
     }
 
-    fn rotate_around_selected_pitch(&mut self, angle: i8) -> Result<(), Self::Error> {
+    fn contract_selected_radius(&mut self, amount: i8) -> Result<(), Self::Error> {
         let selected = self.selected_object().ok_or(Error::InvalidObject(0))?;
         let current = self.current_object()?;
-        let dy = self
-            .object_word(current, FIELD_Y)
-            .wrapping_sub(self.object_word(selected, FIELD_Y));
-        let dz = self
-            .object_word(current, FIELD_Z)
-            .wrapping_sub(self.object_word(selected, FIELD_Z));
-        let (y, z) = sf_core::snes_trig::rotate_16yz(angle as u8, dy, dz);
-        self.set_object_word(
-            current,
-            FIELD_Y,
-            self.object_word(selected, FIELD_Y).wrapping_add(y),
-        );
-        self.set_object_word(
-            current,
-            FIELD_Z,
-            self.object_word(selected, FIELD_Z).wrapping_add(z),
-        );
+        let position = self.contract_radius_position(current, selected, amount);
+        self.set_object_word(current, FIELD_X, position.x);
+        self.set_object_word(current, FIELD_Y, position.y);
+        self.set_object_word(current, FIELD_Z, position.z);
         Ok(())
     }
 
@@ -2937,34 +2937,44 @@ impl Sf2PathHost for Game {
                     self.memory.write_word(player_anchor + field, value);
                 }
             }
-            Sf2PathOperation::RotateAroundLinkedPitch(angle) => {
-                let linked = self.memory.read_word(self.current_object()? + 0x06);
-                if object_index(linked).is_some() {
-                    let old = self.memory.read_word(SELECTED_OBJECT);
-                    self.memory.write_word(SELECTED_OBJECT, linked);
-                    self.rotate_around_selected_pitch(angle)?;
-                    self.memory.write_word(SELECTED_OBJECT, old);
-                }
+            Sf2PathOperation::ContractLinkedRadius(amount) => {
+                let current = self.current_object()?;
+                let linked = self.memory.read_word(current + 0x06);
+                let position = self.contract_radius_position(current, linked, amount);
+                self.set_object_word(current, FIELD_X, position.x);
+                self.set_object_word(current, FIELD_Y, position.y);
+                self.set_object_word(current, FIELD_Z, position.z);
             }
             Sf2PathOperation::RotateLocalOffsetYaw(angle) => {
                 let current = self.current_object()?;
                 let x = self.memory.read_word(current.wrapping_add(0x1CCF)) as i16;
                 let z = self.memory.read_word(current.wrapping_add(0x1CD3)) as i16;
-                let (x, z) = sf_core::snes_trig::rotate_16xz(angle as u8, x, z);
+                let result = crate::native::path_steering::yaw_orbit_position(
+                    crate::native::Vector3 { x, y: 0, z },
+                    crate::native::Vector3::default(),
+                    crate::native::Angle::from_units(angle as u8),
+                );
                 self.memory
-                    .write_word(current.wrapping_add(0x1CCF), x as u16);
+                    .write_word(current.wrapping_add(0x1CCF), result.x as u16);
                 self.memory
-                    .write_word(current.wrapping_add(0x1CD3), z as u16);
+                    .write_word(current.wrapping_add(0x1CD3), result.z as u16);
             }
-            Sf2PathOperation::RotateLocalOffsetPitch(angle) => {
+            Sf2PathOperation::ContractLocalRadius(amount) => {
                 let current = self.current_object()?;
+                let x = self.memory.read_word(current.wrapping_add(0x1CCF)) as i16;
                 let y = self.memory.read_word(current.wrapping_add(0x1CD1)) as i16;
                 let z = self.memory.read_word(current.wrapping_add(0x1CD3)) as i16;
-                let (y, z) = sf_core::snes_trig::rotate_16yz(angle as u8, y, z);
+                let result = crate::native::path_math::change_radius(
+                    crate::native::Vector3 { x, y, z },
+                    crate::native::Vector3::default(),
+                    i16::from(amount),
+                );
                 self.memory
-                    .write_word(current.wrapping_add(0x1CD1), y as u16);
+                    .write_word(current.wrapping_add(0x1CCF), result.x as u16);
                 self.memory
-                    .write_word(current.wrapping_add(0x1CD3), z as u16);
+                    .write_word(current.wrapping_add(0x1CD1), result.y as u16);
+                self.memory
+                    .write_word(current.wrapping_add(0x1CD3), result.z as u16);
             }
             Sf2PathOperation::UnlinkSelf => {
                 let current = self.current_object()?;

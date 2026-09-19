@@ -92,6 +92,62 @@ pub enum MotionCommand {
 }
 
 impl PathRuntime {
+    pub fn execute_yaw_orbit(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        target: super::path_steering::YawOrbitTarget,
+        angle: super::Angle,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        if objects
+            .get(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?
+            .base
+            .path
+            .is_none()
+        {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        super::path_steering::orbit_yaw(objects, owner, target, angle)
+            .map_err(PathRuntimeError::Steering)?;
+        objects
+            .get_mut(owner)
+            .expect("validated yaw orbit actor")
+            .base
+            .path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
+    pub fn execute_radius(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        command: super::path_steering::RadiusCommand,
+        selected: Option<ObjectId>,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        if objects
+            .get(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?
+            .base
+            .path
+            .is_none()
+        {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        super::path_steering::contract_radius(objects, owner, command, selected)
+            .map_err(PathRuntimeError::Steering)?;
+        objects
+            .get_mut(owner)
+            .expect("validated radial movement actor")
+            .base
+            .path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     pub fn execute_facing(
         &mut self,
         objects: &mut ObjectStore,

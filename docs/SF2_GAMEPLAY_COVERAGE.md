@@ -353,3 +353,16 @@ all byte-angle pairs for both chase rates; focused runtime and command tests
 exercise real actor/callback state. The authored catalog still needs lowering
 to these statements and the production game still needs its recorded controllers
 replaced; native command kernels alone are not completion.
+
+Static review corrected three more catalog meanings: `ContractSelectedRadius`,
+`ContractLinkedRadius` and `ContractLocalRadius` scale a three-axis radius;
+they are not pitch rotations. The linked form reads a signed literal byte,
+not a variable. Native commands now apply the source normalization kernel to
+world or retained local coordinates, and the verification dispatcher uses the
+same corrected semantics. Horizontal orbit commands use the source's full
+Q15 matrix, including zero-angle truncation, rather than the lower-precision
+byte-trig rotation helper. Nine steering tests pass in debug/release, and the
+literal-versus-variable regression passes in the Rust verification dispatcher.
+Nine steering assembly checks pass; regenerated catalog counts and raw script
+bytes are unchanged. This is static-source coverage, not recorded-gameplay or
+original-executable evidence, and full production path dispatch remains open.

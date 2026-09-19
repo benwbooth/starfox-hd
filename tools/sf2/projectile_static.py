@@ -23,9 +23,9 @@ def validate_static_hostile_projectile_path() -> None:
     expected = {
         0xEE9B: ("SetVelocity", "063f"),
         0xEE9D: ("IfSelectedDistanceLess", "14e803adee"),
-        0xEEA2: ("RotateAroundSelectedPitch", "ae7f"),
-        0xEEA4: ("RotateAroundSelectedPitch", "ae7f"),
-        0xEEA6: ("RotateAroundSelectedPitch", "ae7f"),
+        0xEEA2: ("ContractSelectedRadius", "ae7f"),
+        0xEEA4: ("ContractSelectedRadius", "ae7f"),
+        0xEEA6: ("ContractSelectedRadius", "ae7f"),
         0xEEA8: ("FaceSelectedImmediate", "000f"),
         0xEEAD: ("FaceSelectedImmediate", "000f"),
         0xEEAF: ("SetVelocity", "063f"),

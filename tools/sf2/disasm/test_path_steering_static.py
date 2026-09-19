@@ -41,6 +41,29 @@ class PathSteeringStaticTests(unittest.TestCase):
         self.assert_source(0x7F8B29, "EB D5 12 D0 04 5C 38 8B 7F 95 12 5C 3B 8B 7F EE 9D 14")
         self.assert_source(0x7F8B45, "D5 14 D0 04 5C 53 8B 7F 95 14 5C 56 8B 7F EE 9D 14")
 
+    def test_radius_commands_sign_extend_literals_and_linked_form_does_not_load_variable(self):
+        from path_semantics import PATH_SEMANTIC_BY_OPCODE
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x0AE].rust_name, "ContractSelectedRadius")
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x122].rust_name, "ContractLinkedRadius")
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x0AB].rust_name, "ContractLocalRadius")
+        self.assert_source(0x7FADAF, "20 BC C4 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 85 02 B4 06 80 17")
+        self.assert_source(0x7FADC7, "20 BC C4 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 85 02 AC 1F CF")
+
+    def test_radial_scaling_subtracts_from_length_before_rescaling_all_axes(self):
+        self.assert_source(0x7FAE0B, "A9 01 A2 72 FB 22 7B 78 7F C2 20 C2 10 AF 2E 00 70 38 E5 02 8F 68 00 70 E2 20 A9 01 A2 5A FC 22 7B 78 7F")
+        self.assert_source(0x7FAE34, "AF 26 00 70 18 79 0C 00 95 0C AF 28 00 70 18 79 0E 00 95 0E AF 2A 00 70 18 79 10 00 95 10")
+
+    def test_local_radius_uses_retained_vector_and_writes_every_local_axis(self):
+        self.assert_source(0x7FAE9B, "BD CF 1C 8F 26 00 70 BD D1 1C 8F 28 00 70 BD D3 1C 8F 2A 00 70")
+        self.assert_source(0x7FAEDB, "AF 26 00 70 9D CF 1C AF 28 00 70 9D D1 1C AF 2A 00 70 9D D3 1C")
+
+    def test_yaw_orbits_use_geometry_matrix_and_publish_only_horizontal_axes(self):
+        self.assert_source(0x7FABFB, "9C 8E 15 9C 92 15 A5 04 8D 90 15")
+        self.assert_source(0x7FAC13, "22 27 8C 03")
+        self.assert_source(0x7FAC4F, "22 85 8B 03")
+        self.assert_source(0x7FAC6A, "A5 B7 9D CF 1C A5 BB 9D D3 1C 4C D3 CA")
+        self.assert_source(0x7FAD53, "A5 B7 18 79 0C 00 95 0C A5 BB 18 79 10 00 95 10 4C D3 CA")
+
 
 if __name__ == "__main__":
     unittest.main()

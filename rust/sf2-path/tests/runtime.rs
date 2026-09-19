@@ -23,7 +23,7 @@ struct Host {
     selected_relative_yaw: u8,
     selected_bearing_plus_yaw: u8,
     yaw_rotations: Vec<i8>,
-    pitch_rotations: Vec<i8>,
+    radius_contractions: Vec<i8>,
     optional_context_available: bool,
     selected_slot_class: u8,
     selected_aux_flags: u8,
@@ -79,7 +79,7 @@ impl Default for Host {
             selected_relative_yaw: 0,
             selected_bearing_plus_yaw: 0,
             yaw_rotations: Vec::new(),
-            pitch_rotations: Vec::new(),
+            radius_contractions: Vec::new(),
             optional_context_available: false,
             selected_slot_class: 0,
             selected_aux_flags: 0,
@@ -285,8 +285,8 @@ impl Sf2PathHost for Host {
         Ok(())
     }
 
-    fn rotate_around_selected_pitch(&mut self, angle: i8) -> Result<(), Self::Error> {
-        self.pitch_rotations.push(angle);
+    fn contract_selected_radius(&mut self, angle: i8) -> Result<(), Self::Error> {
+        self.radius_contractions.push(angle);
         Ok(())
     }
 
@@ -1139,7 +1139,17 @@ fn final_reachable_sf2_specific_handlers_preserve_effects_and_operands() {
     run_one(&mut PathVm::new(PathAddress { offset: 0x8E82 }), &mut host);
     run_one(&mut PathVm::new(PathAddress { offset: 0x8E54 }), &mut host);
     assert_eq!(host.yaw_rotations, vec![-1]);
-    assert_eq!(host.pitch_rotations, vec![10]);
+    assert_eq!(host.radius_contractions, vec![10]);
+
+    // The linked radius operand is a signed literal, not a variable ID.
+    host.vars[0x28] = 3;
+    host.vars[0xCE] = 4;
+    run_one(&mut PathVm::new(PathAddress { offset: 0x0973 }), &mut host);
+    run_one(&mut PathVm::new(PathAddress { offset: 0x796F }), &mut host);
+    assert_eq!(
+        &host.path_operations[host.path_operations.len() - 2..],
+        &[Sf2PathOperation::ContractLinkedRadius(40), Sf2PathOperation::ContractLinkedRadius(-50)]
+    );
 
     run_one(&mut PathVm::new(PathAddress { offset: 0x8D08 }), &mut host);
     run_one(&mut PathVm::new(PathAddress { offset: 0x5468 }), &mut host);

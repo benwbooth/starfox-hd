@@ -127,9 +127,9 @@ pub enum Sf2PathOperation {
     FaceSelectedImmediate,
     ChasePlayerTowardObject,
     SnapPlayerToObject,
-    RotateAroundLinkedPitch(i8),
+    ContractLinkedRadius(i8),
     RotateLocalOffsetYaw(i8),
-    RotateLocalOffsetPitch(i8),
+    ContractLocalRadius(i8),
     UnlinkSelf,
     PositionRelativeToLinked(i8),
     CopySelectedSlotWorldPosition,
@@ -295,7 +295,7 @@ pub trait Sf2PathHost {
     /// byte-angle convention.
     fn selected_bearing_plus_yaw(&mut self) -> Result<u8, Self::Error>;
     fn rotate_around_selected_yaw(&mut self, angle: i8) -> Result<(), Self::Error>;
-    fn rotate_around_selected_pitch(&mut self, angle: i8) -> Result<(), Self::Error>;
+    fn contract_selected_radius(&mut self, angle: i8) -> Result<(), Self::Error>;
     /// Try a context transition whose target may not exist.  On success the
     /// host preserves the caller context for a later `Unbecome`.
     fn try_transition_context(
@@ -1677,8 +1677,8 @@ impl PathVm {
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
-            RotateAroundSelectedPitch => {
-                host.rotate_around_selected_pitch(operand_byte(command, 1) as i8)
+            ContractSelectedRadius => {
+                host.contract_selected_radius(operand_byte(command, 1) as i8)
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
@@ -2568,11 +2568,9 @@ impl PathVm {
                 .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
-            RotateAroundLinkedPitch => {
-                let angle = host
-                    .read_variable_byte(operand_byte(command, 1))
-                    .map_err(PathVmError::Host)? as i8;
-                host.perform_path_operation(Sf2PathOperation::RotateAroundLinkedPitch(angle))
+            ContractLinkedRadius => {
+                let amount = operand_byte(command, 1) as i8;
+                host.perform_path_operation(Sf2PathOperation::ContractLinkedRadius(amount))
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
@@ -2688,12 +2686,12 @@ impl PathVm {
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
-            RotateLocalOffsetYaw | RotateLocalOffsetPitch => {
+            RotateLocalOffsetYaw | ContractLocalRadius => {
                 let angle = operand_byte(command, 1) as i8;
                 let operation = if semantic == RotateLocalOffsetYaw {
                     Sf2PathOperation::RotateLocalOffsetYaw(angle)
                 } else {
-                    Sf2PathOperation::RotateLocalOffsetPitch(angle)
+                    Sf2PathOperation::ContractLocalRadius(angle)
                 };
                 host.perform_path_operation(operation)
                     .map_err(PathVmError::Host)?;

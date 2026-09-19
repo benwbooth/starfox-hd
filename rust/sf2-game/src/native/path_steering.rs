@@ -1,6 +1,6 @@
 //! Source facing commands (`$7F:872C..883F`, `$7F:8A72..8B61`).
 
-use super::{Angle, ObjectId, ObjectStore};
+use super::{Angle, ObjectId, ObjectStore, Rotation, Vector3};
 use sf_core::aim_angle::{sf2_pitch_to_target, sf2_xz_angle_distance, sf2_yaw_to_target};
 
 const SELECTED_CHASE_DIVISOR: i8 = 4;
@@ -38,6 +38,134 @@ pub enum SteeringError {
     MissingSelected,
     MissingFixedPlayer,
     MissingRelativeParent(ObjectId),
+    MissingLinked(ObjectId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RadiusCenter {
+    Selected,
+    Linked,
+    LocalOrigin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RadiusCommand {
+    pub center: RadiusCenter,
+    /// Positive contracts, negative expands. Literal bytes are sign-extended
+    /// when decoded; word-valued variants retain all sixteen bits.
+    pub amount: i16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum YawOrbitTarget {
+    Object(ObjectId),
+    LocalOrigin,
+}
+
+/// Horizontal orbit uses the full geometry matrix (`$7F:ACC6..AD63`), not
+/// the distinct byte-table rotate_16xz helper. A zero angle still passes
+/// through matrix multiplication and retains its fixed-point truncation.
+pub fn yaw_orbit_position(position: Vector3, center: Vector3, angle: Angle) -> Vector3 {
+    let matrix = super::attachments::attachment_matrix(Rotation {
+        yaw: angle,
+        ..Rotation::default()
+    });
+    let (x, _, z) = sf_core::snes_trig::matrix_rotate_q15(
+        matrix,
+        position.x.wrapping_sub(center.x),
+        0,
+        position.z.wrapping_sub(center.z),
+    );
+    Vector3 {
+        x: center.x.wrapping_add(x),
+        y: position.y,
+        z: center.z.wrapping_add(z),
+    }
+}
+
+pub fn orbit_yaw(
+    objects: &mut ObjectStore,
+    owner: ObjectId,
+    target: YawOrbitTarget,
+    angle: Angle,
+) -> Result<(), SteeringError> {
+    let actor = objects
+        .get(owner)
+        .ok_or(SteeringError::MissingActor(owner))?;
+    let local = target == YawOrbitTarget::LocalOrigin;
+    let position = if local {
+        actor.extension.relative_position
+    } else {
+        actor.base.position
+    };
+    let center = match target {
+        YawOrbitTarget::LocalOrigin => Vector3::default(),
+        YawOrbitTarget::Object(target) => {
+            objects
+                .get(target)
+                .ok_or(SteeringError::MissingActor(target))?
+                .base
+                .position
+        }
+    };
+    let result = yaw_orbit_position(position, center, angle);
+    let actor = objects.get_mut(owner).expect("validated yaw orbit actor");
+    if local {
+        actor.extension.relative_position = result;
+    } else {
+        actor.base.position = result;
+    }
+    Ok(())
+}
+
+/// Radial scaling (`$7F:ADAF`, `$7F:ADC7`, `$7F:AE7C`), not pitch rotation.
+/// Local scaling changes retained offsets only, leaving world publication to
+/// the attachment service. No variant changes rotation or generated velocity.
+pub fn contract_radius(
+    objects: &mut ObjectStore,
+    owner: ObjectId,
+    command: RadiusCommand,
+    selected: Option<ObjectId>,
+) -> Result<(), SteeringError> {
+    let actor = objects
+        .get(owner)
+        .ok_or(SteeringError::MissingActor(owner))?;
+    let local = command.center == RadiusCenter::LocalOrigin;
+    let target = match command.center {
+        RadiusCenter::Selected => Some(selected.ok_or(SteeringError::MissingSelected)?),
+        RadiusCenter::Linked => Some(
+            actor
+                .base
+                .attachment
+                .ok_or(SteeringError::MissingLinked(owner))?,
+        ),
+        RadiusCenter::LocalOrigin => None,
+    };
+    let position = if local {
+        actor.extension.relative_position
+    } else {
+        actor.base.position
+    };
+    let center = match target {
+        Some(target) => {
+            objects
+                .get(target)
+                .ok_or(SteeringError::MissingActor(target))?
+                .base
+                .position
+        }
+        None => Vector3::default(),
+    };
+    let result = super::path_math::change_radius(position, center, command.amount);
+    let actor = objects
+        .get_mut(owner)
+        .expect("validated radial movement actor");
+    if local {
+        actor.extension.relative_position = result;
+    } else {
+        actor.base.position = result;
+    }
+    Ok(())
 }
 
 /// Shortest signed byte displacement, with the source minimum nonzero
@@ -173,6 +301,142 @@ mod tests {
                 fixed_players: [Some(target), Some(owner)],
             },
         )
+    }
+
+    #[test]
+    fn contraction_updates_all_three_axes_and_local_form_does_not_publish_world_pose() {
+        let (mut objects, owner, _, targets) = fixture();
+        let position = Vector3 {
+            x: 1100,
+            y: 1000,
+            z: -1000,
+        };
+        let target = objects
+            .get(targets.selected.unwrap())
+            .unwrap()
+            .base
+            .position;
+        objects.get_mut(owner).unwrap().base.position = position;
+        contract_radius(
+            &mut objects,
+            owner,
+            RadiusCommand {
+                center: RadiusCenter::Selected,
+                amount: 127,
+            },
+            targets.selected,
+        )
+        .unwrap();
+        let world = objects.get(owner).unwrap().base.position;
+        assert_eq!(
+            world,
+            super::super::path_math::change_radius(position, target, 127)
+        );
+        assert!(world.x < position.x && world.y < position.y && world.z > position.z);
+        objects.get_mut(owner).unwrap().extension.relative_position = position;
+        contract_radius(
+            &mut objects,
+            owner,
+            RadiusCommand {
+                center: RadiusCenter::LocalOrigin,
+                amount: -127,
+            },
+            None,
+        )
+        .unwrap();
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.base.position, world);
+        assert_eq!(
+            actor.extension.relative_position,
+            super::super::path_math::change_radius(position, Vector3::default(), -127)
+        );
+    }
+
+    #[test]
+    fn horizontal_orbits_use_matrix_precision_and_preserve_altitude() {
+        let center = Vector3 {
+            x: 500,
+            y: 20_000,
+            z: -200,
+        };
+        let position = Vector3 {
+            x: 1500,
+            y: -1000,
+            z: -200,
+        };
+        assert_eq!(
+            yaw_orbit_position(position, center, Angle::from_units(64)),
+            Vector3 {
+                x: 500,
+                y: -1000,
+                z: 799
+            }
+        );
+        assert_eq!(
+            yaw_orbit_position(position, center, Angle::ZERO),
+            Vector3 {
+                x: 1499,
+                y: -1000,
+                z: -200
+            }
+        );
+        let (mut objects, owner, target, _) = fixture();
+        objects.get_mut(target).unwrap().base.position = center;
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.position = position;
+        actor.extension.relative_position = position;
+        orbit_yaw(
+            &mut objects,
+            owner,
+            YawOrbitTarget::LocalOrigin,
+            Angle::from_units(64),
+        )
+        .unwrap();
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.base.position, position);
+        assert_eq!(
+            actor.extension.relative_position,
+            yaw_orbit_position(position, Vector3::default(), Angle::from_units(64))
+        );
+        orbit_yaw(
+            &mut objects,
+            owner,
+            YawOrbitTarget::Object(target),
+            Angle::from_units(64),
+        )
+        .unwrap();
+        assert_eq!(
+            objects.get(owner).unwrap().base.position,
+            Vector3 {
+                x: 500,
+                y: -1000,
+                z: 799
+            }
+        );
+    }
+
+    #[test]
+    fn linked_contraction_uses_base_attachment_and_missing_link_is_not_a_silent_noop() {
+        let (mut objects, owner, target, _) = fixture();
+        let command = RadiusCommand {
+            center: RadiusCenter::Linked,
+            amount: 127,
+        };
+        assert_eq!(
+            contract_radius(&mut objects, owner, command, Some(target)),
+            Err(SteeringError::MissingLinked(owner))
+        );
+        objects.get_mut(owner).unwrap().base.attachment = Some(target);
+        objects.get_mut(owner).unwrap().extension.parent = Some(owner);
+        contract_radius(&mut objects, owner, command, Some(owner)).unwrap();
+        assert_eq!(
+            objects.get(owner).unwrap().base.position,
+            super::super::path_math::change_radius(
+                Vector3::default(),
+                objects.get(target).unwrap().base.position,
+                127
+            )
+        );
     }
 
     #[test]
