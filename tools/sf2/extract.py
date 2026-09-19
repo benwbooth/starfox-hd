@@ -14,6 +14,7 @@ import sys
 
 import extract_audio
 import extract_collision
+import extract_contact_boxes
 import extract_colors
 import extract_lighting
 import extract_map
@@ -30,6 +31,7 @@ def main() -> int:
     print("SF2 data extraction:")
     extract_audio.extract(d)
     extract_collision.extract(d)
+    extract_contact_boxes.extract(d)
     extract_colors.extract(d)
     extract_lighting.extract(d)
     extract_text.extract(d)

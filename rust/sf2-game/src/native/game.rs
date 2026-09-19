@@ -20815,41 +20815,25 @@ fn hostile_projectile_hits_player_at_pose(
     player: &Object,
     player_pose: ObjectCollisionPose,
 ) -> bool {
-    if projectile.base.shape != ShapeId::ENEMY_LASER {
-        return objects_overlap(projectile, player);
-    }
-    let projectile_profile = player_damage::HOSTILE_PROJECTILE_COLLISION_PROFILE;
-    let player_profile = player_damage::player_compound_collision_profile(player.base.shape);
-    let player_bounds = object_collision_bounds(player);
-    projectile_profile.volumes.iter().any(|projectile_volume| {
-        let projectile_center = oriented_collision_volume_center(
-            projectile,
-            *projectile_volume,
-            projectile_profile.scale,
-        );
-        if let Some(player_profile) = player_profile {
-            player_profile.volumes.iter().any(|player_volume| {
-                let player_center = oriented_collision_volume_center_at_pose(
-                    player_pose,
-                    *player_volume,
-                    player_profile.scale,
-                );
-                collision_volumes_overlap(
-                    projectile_center,
-                    projectile_volume.extents,
-                    player_center,
-                    player_volume.extents,
-                )
-            })
-        } else {
-            collision_volumes_overlap(
-                projectile_center,
-                projectile_volume.extents,
-                player_pose.position,
-                player_bounds,
-            )
-        }
-    })
+    use super::collision_boxes::{static_overlap, Collider};
+    let collider = |object: &Object, pose: ObjectCollisionPose| {
+        Collider::from_shape(
+            object.base.shape,
+            pose.position,
+            Rotation {
+                pitch: pose.pitch,
+                yaw: pose.yaw,
+                roll: pose.roll,
+            },
+            object.extension.animation_frame,
+        )
+        .expect("live collider uses a decoded shape")
+    };
+    static_overlap(
+        collider(projectile, object_collision_pose(projectile)),
+        collider(player, player_pose),
+    )
+    .expect("geometry-only contact query requires nonanimated boxes")
 }
 
 fn hostile_projectile_player_collision_pose(
@@ -20916,15 +20900,6 @@ fn apply_hostile_projectile_actions_with_collision(
     }
     damage
 }
-
-fn oriented_collision_volume_center(
-    object: &Object,
-    volume: player_damage::OrientedCollisionVolume,
-    scale: u32,
-) -> Vector3 {
-    oriented_collision_volume_center_at_pose(object_collision_pose(object), volume, scale)
-}
-
 fn object_collision_pose(object: &Object) -> ObjectCollisionPose {
     ObjectCollisionPose {
         position: object.base.position,
@@ -20933,49 +20908,6 @@ fn object_collision_pose(object: &Object) -> ObjectCollisionPose {
         roll: object.base.roll,
     }
 }
-
-fn oriented_collision_volume_center_at_pose(
-    pose: ObjectCollisionPose,
-    volume: player_damage::OrientedCollisionVolume,
-    scale: u32,
-) -> Vector3 {
-    super::collision_boxes::center(
-        pose.position,
-        Rotation {
-            pitch: pose.pitch,
-            yaw: pose.yaw,
-            roll: pose.roll,
-        },
-        volume.center_offset,
-        super::collision_boxes::CenterRotation::Full,
-        scale,
-    )
-}
-
-fn collision_volumes_overlap(
-    first_center: Vector3,
-    first_extents: CollisionBounds,
-    second_center: Vector3,
-    second_extents: CollisionBounds,
-) -> bool {
-    axis_overlaps(
-        first_center.x,
-        second_center.x,
-        first_extents.x,
-        second_extents.x,
-    ) && axis_overlaps(
-        first_center.y,
-        second_center.y,
-        first_extents.y,
-        second_extents.y,
-    ) && axis_overlaps(
-        first_center.z,
-        second_center.z,
-        first_extents.z,
-        second_extents.z,
-    )
-}
-
 fn allocate_hostile_projectile(
     state: &mut GameState,
     projectile: Object,
@@ -36710,23 +36642,24 @@ mod tests {
 
     #[test]
     fn live_contact_geometry_uses_zero_axis_bypasses_and_word_overlap() {
-        let pose = ObjectCollisionPose {
-            position: Vector3 { x: 10, y: 20, z: 30 },
-            pitch: Angle::ZERO,
-            yaw: Angle::ZERO,
-            roll: Angle::ZERO,
-        };
-        let volume = player_damage::OrientedCollisionVolume {
-            center_offset: Vector3 { x: 25, y: -15, z: -40 },
-            extents: CollisionBounds { x: 10, y: 10, z: 10 },
-        };
-        assert_eq!(
-            oriented_collision_volume_center_at_pose(pose, volume, 2),
-            Vector3 { x: 110, y: -40, z: -130 },
+        let mut player = Object::new(
+            ObjectKind::Player,
+            ShapeId::FOX_FALCO_FLIGHT_CRAFT,
+            Behavior::PlayerFlight,
         );
+        let mut laser = Object::new(
+            ObjectKind::Projectile,
+            ShapeId::ENEMY_LASER,
+            Behavior::Projectile,
+        );
+        player.base.position = Vector3::default();
+        laser.base.position = Vector3 { x: 0, y: 0, z: 209 };
+        // Tail box is centered 160 units behind the laser; contact is strict.
+        assert!(hostile_projectile_hits_player(&laser, &player));
+        laser.base.position.z = 210;
+        assert!(!hostile_projectile_hits_player(&laser, &player));
         assert!(axis_overlaps(0, i16::MIN, 0, 0));
         assert!(!axis_overlaps(0, 0, 40_000, 0));
-        assert!(!axis_overlaps(0, 20, 10, 10));
     }
 
     #[test]

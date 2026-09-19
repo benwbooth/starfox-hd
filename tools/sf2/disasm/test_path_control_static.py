@@ -418,10 +418,12 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F4590, "B9 14 00 F0 04 22 A9 38 7F")
 
     def test_collision_box_animation_mask_and_word_absolute_overlap(self):
+        self.assert_source(0x7F3302, "B9 08 00 9F 44 2F 7E B9 0A 00 9F 46 2F 7E B9 0C 00 9F 48 2F 7E B9 0E 00 9F 4A 2F 7E")
         self.assert_source(0x7F4100, "B9 02 00 F0 29 3A 85 02 BF CB 1C 7E 10 06 25 02 F0 1C 80 06 A5 02 25 C4 F0 14")
         self.assert_source(0x7F411A, "C2 20 29 7F 00 85 02 98 A4 02 18 69 12 00 88 D0 FA")
         self.assert_source(0x7F489A, "BD 4A 2F 18 65 5C 8D DE 12 A5 3E 38 E5 75 10 04 49 FF FF 1A 38 ED DE 12 30 03 4C 38 49")
         self.assert_source(0x7F48B7, "BD 46 2F 18 65 58 8D DE 12 A5 3A 38 E5 73 10 04 49 FF FF 1A 38 ED DE 12 30 03 4C 38 49")
+        self.assert_source(0x7F4824, "E2 20 BF 10 00 7F 05 F5 85 F5 C2 20 BF 00 00 7F AA F0 03 82 C9 FC E2 20 A5 F5 F0 57")
 
 
 if __name__ == "__main__":
