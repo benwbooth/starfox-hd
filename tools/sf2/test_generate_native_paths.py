@@ -4,10 +4,11 @@
 from pathlib import Path
 import unittest
 import re
+from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    byte_field, generate, lower_graph, word_field,
+    byte_field, child_spawn_parameters, generate, graph, lower_graph, word_field,
 )
 
 
@@ -53,6 +54,71 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
         with self.assertRaisesRegex(UnsupportedPath, "unsupported SpawnChild"):
             lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
+
+    def test_compact_child_parameters_use_literal_offsets_and_zero_rotation(self):
+        extractor = PathExtractor(self.rom)
+        command = extractor.decode_command(PathAddress(0xF56A))
+        spawn = child_spawn_parameters(command)
+        self.assertEqual(spawn.shape, 0xBD98)
+        self.assertEqual(spawn.path, PathAddress(0xF57F))
+        self.assertEqual(spawn.rotation, (0, 0, 0))
+        self.assertEqual((spawn.hit_points, spawn.attack_power, spawn.number), (1, 1, 1))
+        changed = replace(command, raw_hex="f5 34 12 78 56 81 fe 00 80 ff 7f ff ff ff")
+        spawn = child_spawn_parameters(changed)
+        self.assertEqual((spawn.shape, spawn.path.offset), (0x1234, 0x5678))
+        self.assertEqual((spawn.hit_points, spawn.attack_power, spawn.number), (129, 254, 255))
+        self.assertEqual(spawn.position, (-32768, 32767, -1))
+
+    def test_extended_child_parameters_have_rotation_before_health_and_position(self):
+        extractor = PathExtractor(self.rom)
+        command = extractor.decode_command(PathAddress(0x2677))
+        self.assertEqual(command.opcode, 0x33)
+        spawn = child_spawn_parameters(command)
+        self.assertEqual(spawn.rotation, (0, 0, 64))
+        self.assertEqual((spawn.hit_points, spawn.attack_power), (100, 4))
+        self.assertEqual(spawn.position, (960, 0, 0))
+        changed = replace(command, raw_hex="33 34 12 78 56 80 81 ff fe fd 00 80 ff 7f ff ff 00")
+        spawn = child_spawn_parameters(changed)
+        self.assertEqual(spawn.rotation, (128, 129, 255))
+        self.assertEqual((spawn.hit_points, spawn.attack_power, spawn.number), (254, 253, 0))
+        self.assertEqual(spawn.position, (-32768, 32767, -1))
+
+    def test_spawn_dependencies_are_closed_without_becoming_parent_control_edges(self):
+        extractor = PathExtractor(self.rom)
+        command = extractor.decode_command(PathAddress(0xF56A))
+        self.assertEqual(command.successors, (PathAddress(0xF578),))
+        found = {command.address: command for command in graph(extractor, PathAddress(0xF561))}
+        self.assertIn(PathAddress(0xF57F), found)  # independently spawned child
+        self.assertIn(PathAddress(0xE927), found)  # child's shared subroutine
+        self.assertIn(PathAddress(0xF592), found)  # child's final END
+        self.assertEqual(len(found), 23)
+
+    def test_spawn_graph_deduplicates_recursive_children_and_skips_null_paths(self):
+        for opcode, record in (
+            (0xF5, "f5 34 12 36 f5 01 02 00 00 00 00 00 00 00"),
+            (0x33, "33 34 12 36 f5 01 02 03 04 05 00 00 00 00 00 00 00"),
+            (0x5D, "5d 34 12 36 f5 01 02"),
+        ):
+            for target in (0, 0xF536):
+                with self.subTest(opcode=opcode, target=target):
+                    changed = bytearray(self.rom)
+                    program = bytearray.fromhex(record) + b"\x0f"
+                    program[3:5] = target.to_bytes(2, "little")
+                    changed[0x4F536:0x4F536 + len(program)] = program
+                    commands = graph(PathExtractor(bytes(changed)), PathAddress(0xF536))
+                    self.assertEqual(len(commands), 2)
+                    self.assertEqual(commands[0].opcode, opcode)
+                    self.assertEqual(commands[1].opcode, 0x0F)
+
+    def test_child_parameter_decoder_rejects_other_handlers_and_malformed_records(self):
+        extractor = PathExtractor(self.rom)
+        command = extractor.decode_command(PathAddress(0xF56A))
+        for invalid in (replace(command, raw_hex=command.raw_hex[:-2]),
+                        replace(command, prefix_size=1),
+                        replace(command, handler_address=0),
+                        extractor.decode_command(PathAddress(0xF536))):
+            with self.assertRaises(UnsupportedPath):
+                child_spawn_parameters(invalid)
 
     def lower_record(self, record):
         changed = bytearray(self.rom)

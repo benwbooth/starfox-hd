@@ -528,3 +528,13 @@ Verification passes 127 native path release tests and 125 source-byte checks.
 This is a prerequisite service, not yet a lowered SpawnChild command: fresh
 object defaults, operand evaluation, failure handling, inherited state and
 child-program graph closure still need their complete port.
+
+Graph discovery now closes over independent spawned programs, including
+recursive/shared child entries and the seven-byte quick-spawn form, without
+turning those dependencies into the parent's control-flow successors. Null
+child paths remain absent. Static literal decoding distinguishes the compact
+14-byte child record from the rotated 17-byte form: health/attack occupy
+bytes 5/6 or 8/9 respectively, position words stay signed, and byte identifiers
+and rotations remain unsigned. Full source operand-reader checks and 21
+lowerer tests pass. Spawn commands still reject lowering; six roots and 60
+native statements remain the supported catalog, not an expanded gameplay claim.

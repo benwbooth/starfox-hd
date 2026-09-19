@@ -9,6 +9,7 @@ entire generation, rather than inserting placeholders or truncating a graph.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
@@ -33,6 +34,49 @@ SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
 class UnsupportedPath(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ChildSpawnParameters:
+    """Offline literal operands of the two child-attachment spawn forms.
+
+    Source shape tokens and path addresses remain extraction-only. This
+    record does not authorize publishing a native spawn statement until its
+    allocation, initialization, and world-service contracts are implemented.
+    """
+
+    shape: int
+    path: PathAddress
+    rotation: tuple[int, int, int]
+    hit_points: int
+    attack_power: int
+    position: tuple[int, int, int]
+    number: int
+
+
+def child_spawn_parameters(command: PathCommand) -> ChildSpawnParameters:
+    spec = SEMANTICS.get(command.opcode)
+    if (spec is None or spec.handler_address != command.handler_address
+            or spec.rust_name not in ("SpawnChild", "SpawnChildAlias")):
+        raise UnsupportedPath(f"not a reviewed child spawn at {command.address.label()}")
+    raw = bytes.fromhex(command.raw_hex)
+    extended = spec.rust_name == "SpawnChildAlias"
+    expected = 17 if extended else 14
+    if command.prefix_size or len(raw) != expected:
+        raise UnsupportedPath(f"unexpected {spec.rust_name} record size at {command.address.label()}")
+    rotation = tuple(raw[5:8]) if extended else (0, 0, 0)
+    health_at = 8 if extended else 5
+    position_at = health_at + 2
+    return ChildSpawnParameters(
+        shape=int.from_bytes(raw[1:3], "little"),
+        path=PathAddress(int.from_bytes(raw[3:5], "little")),
+        rotation=rotation,
+        hit_points=raw[health_at],
+        attack_power=raw[health_at + 1],
+        position=tuple(int.from_bytes(raw[index:index + 2], "little", signed=True)
+                       for index in range(position_at, position_at + 6, 2)),
+        number=raw[-1],
+    )
 
 
 def word_field(variable: int) -> str:
@@ -87,6 +131,22 @@ def graph(extractor: PathExtractor, root: PathAddress) -> list[PathCommand]:
         command = extractor.decode_command(address)
         found[address] = command
         pending.extend(command.successors)
+        # Spawned actors run independent paths: these are dependencies, not
+        # control-flow successors of the parent. Follow them to closure before
+        # lowering or assigning the catalog's globally shared cursor identity.
+        if command.opcode in (0x033, 0x0F5):
+            child_path = child_spawn_parameters(command).path
+            if child_path.offset:
+                pending.append(child_path)
+        elif command.opcode == 0x05D:
+            # The independent-actor form has the same leading shape/path
+            # words. Its other fields are not child-attachment parameters.
+            raw = bytes.fromhex(command.raw_hex)
+            if command.prefix_size or len(raw) != 7:
+                raise UnsupportedPath(f"unexpected independent spawn record at {command.address.label()}")
+            child_path = PathAddress(int.from_bytes(raw[3:5], "little"))
+            if child_path.offset:
+                pending.append(child_path)
     return [found[address] for address in sorted(found)]
 
 
