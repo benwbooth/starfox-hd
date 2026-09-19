@@ -385,5 +385,25 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F4878, "A5 F5 99 08 00 A5 F6 9D 08 00")
 
 
+    def test_hit_response_new_callback_replaces_continuing_and_parameter_is_other_actor_byte(self):
+        self.assert_source(0x03A3B2, "B9 09 00 29 02 F0 42 B9 09 00 29 FD 99 09 00")
+        self.assert_source(0x03A3D1, "A9 06 22 3B 23 7F C0 00 00 D0 04 5C FB A3 03")
+        # The registered new handler returns directly to damage, not A3FB.
+        self.assert_source(0x03A3F0, "7A 5A A9 03 48 F4 2C A4 DC CF 12")
+        self.assert_source(0x03A3FB, "7A 5A A9 05 22 3B 23 7F")
+        # Restore OTHER ACTOR from stack before loading its auxiliary byte.
+        # This is not the similarly offset touch-count byte of the contact.
+        self.assert_source(0x03A41C, "7A 5A B9 0A 00 8D 30 CF A9 03 48 F4 2C A4 DC CF 12")
+        self.assert_source(0x03A42D, "7A B5 2D 38 ED 2F CF 95 2D 10 04 A9 00 95 2D")
+
+    def test_hit_response_mutual_exemption_next_after_callback_and_pause_gate(self):
+        self.assert_source(0x03A327, "B5 25 29 10 F0 04 5C 4C A4 03")
+        self.assert_source(0x03A349, "B5 24 29 08 F0 04 5C 59 A3 03 B5 20 09 02 95 20")
+        self.assert_source(0x03A38C, "B5 31 29 80 C9 80 D0 04 5C 3C A4 03")
+        self.assert_source(0x03A398, "B9 2E 00 8D 2F CF B9 31 00 29 01 C9 01 F0 04 5C AE A3 03 9C 2F CF")
+        self.assert_source(0x03A43C, "AC 2D CF C2 20 B9 00 00 A8 E2 20 F0 03 82 ED FE")
+        self.assert_source(0x03A44C, "B5 26 29 08 F0 04 5C 66 A4 03 C2 20 AD 84 1B 89 02 00 E2 20 D0 03 4C 66 A4 6B 5C 8F 2B 7F")
+
+
 if __name__ == "__main__":
     unittest.main()

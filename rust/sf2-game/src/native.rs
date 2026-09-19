@@ -8,6 +8,7 @@ pub mod collision_contacts;
 pub mod collision_math;
 pub mod collision_surface;
 mod game;
+pub mod hit_response;
 pub mod hostile_laser_control;
 mod input;
 pub mod intro_attached_craft;
