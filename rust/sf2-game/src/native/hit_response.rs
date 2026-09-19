@@ -6,7 +6,7 @@
 //! context across invocations, as callbacks can change its damage and cursor.
 
 use super::collision_contacts::{ContactError, ContactHost, ContactId};
-use super::ObjectId;
+use super::{Object, ObjectId};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum HitSide {
@@ -47,6 +47,68 @@ pub struct HitActor {
     pub run_when_paused: bool,
 }
 
+/// A short-lived borrow of the actual actor fields changed by hit response.
+/// No health or contact flags are copied back after a world callback.
+pub struct HitActorMut<'a> {
+    pub health: &'a mut u8,
+    pub hit_marked: &'a mut bool,
+    pub hit_by_primary: &'a mut bool,
+    pub hit_by_secondary: &'a mut bool,
+    pub new_contact_latched: &'a mut bool,
+    pub suppress_hit_marker: bool,
+    pub mutually_non_damaging: bool,
+}
+
+impl HitActor {
+    pub fn from_object(object: &Object) -> Self {
+        let contact = &object.base.contacts;
+        Self {
+            health: object.base.hit_points,
+            attack_power: object.base.attack_power,
+            contact_parameter: contact.parameter,
+            skip_contacts: contact.skip_contacts,
+            suppress_hit_marker: contact.suppress_hit_marker,
+            hit_marked: contact.hit_marked,
+            mutually_non_damaging: contact.mutually_non_damaging,
+            credits_hit_side: contact.credits_hit_side,
+            hit_side: contact.hit_side,
+            hit_by_primary: contact.hit_by_primary,
+            hit_by_secondary: contact.hit_by_secondary,
+            suppress_attack_damage: contact.suppress_attack_damage,
+            latch_new_contact: contact.latch_new_contact,
+            new_contact_latched: contact.new_contact_latched,
+            run_when_paused: contact.run_when_paused,
+        }
+    }
+
+    pub fn as_mut(&mut self) -> HitActorMut<'_> {
+        HitActorMut {
+            health: &mut self.health,
+            hit_marked: &mut self.hit_marked,
+            hit_by_primary: &mut self.hit_by_primary,
+            hit_by_secondary: &mut self.hit_by_secondary,
+            new_contact_latched: &mut self.new_contact_latched,
+            suppress_hit_marker: self.suppress_hit_marker,
+            mutually_non_damaging: self.mutually_non_damaging,
+        }
+    }
+}
+
+impl<'a> HitActorMut<'a> {
+    pub fn from_object(object: &'a mut Object) -> Self {
+        let contact = &mut object.base.contacts;
+        Self {
+            health: &mut object.base.hit_points,
+            hit_marked: &mut contact.hit_marked,
+            hit_by_primary: &mut contact.hit_by_primary,
+            hit_by_secondary: &mut contact.hit_by_secondary,
+            new_contact_latched: &mut contact.new_contact_latched,
+            suppress_hit_marker: contact.suppress_hit_marker,
+            mutually_non_damaging: contact.mutually_non_damaging,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HitCallback {
     NewContact,
@@ -63,8 +125,8 @@ pub struct HitContext {
 }
 
 pub trait HitResponseHost: ContactHost {
-    fn hit_actor(&self, id: ObjectId) -> Option<&HitActor>;
-    fn hit_actor_mut(&mut self, id: ObjectId) -> Option<&mut HitActor>;
+    fn hit_actor(&self, id: ObjectId) -> Option<HitActor>;
+    fn hit_actor_mut(&mut self, id: ObjectId) -> Option<HitActorMut<'_>>;
     fn has_hit_callback(&self, owner: ObjectId, kind: HitCallback) -> bool;
     fn run_hit_callback(
         &mut self,
@@ -98,9 +160,7 @@ pub fn health_after_damage(health: u8, damage: u8) -> u8 {
 }
 
 fn actor<H: HitResponseHost>(host: &H, id: ObjectId) -> Result<HitActor, HitError<H::Error>> {
-    host.hit_actor(id)
-        .copied()
-        .ok_or(HitError::MissingActor(id))
+    host.hit_actor(id).ok_or(HitError::MissingActor(id))
 }
 
 pub fn respond<H: HitResponseHost>(
@@ -125,12 +185,12 @@ pub fn respond<H: HitResponseHost>(
             .hit_actor_mut(owner)
             .ok_or(HitError::MissingActor(owner))?;
         if !current.suppress_hit_marker {
-            current.hit_marked = true;
+            *current.hit_marked = true;
         }
         if other.mutually_non_damaging && other.credits_hit_side {
             match other.hit_side {
-                HitSide::Primary => current.hit_by_primary = true,
-                HitSide::Secondary => current.hit_by_secondary = true,
+                HitSide::Primary => *current.hit_by_primary = true,
+                HitSide::Secondary => *current.hit_by_secondary = true,
             }
         }
         if !(current.mutually_non_damaging && other.mutually_non_damaging) {
@@ -144,7 +204,8 @@ pub fn respond<H: HitResponseHost>(
                 .take_new_contact(id)
                 .map_err(HitError::Contacts)?;
             if is_new && actor(host, owner)?.latch_new_contact {
-                host.hit_actor_mut(owner)
+                *host
+                    .hit_actor_mut(owner)
                     .ok_or(HitError::MissingActor(owner))?
                     .new_contact_latched = true;
             }
@@ -165,7 +226,7 @@ pub fn respond<H: HitResponseHost>(
             let current = host
                 .hit_actor_mut(owner)
                 .ok_or(HitError::MissingActor(owner))?;
-            current.health = health_after_damage(current.health, context.damage);
+            *current.health = health_after_damage(*current.health, context.damage);
         }
         // Unlike cleanup/retirement, hit response reads next AFTER callbacks,
         // and follows the callback's current-contact context if it changed.
@@ -263,11 +324,11 @@ mod tests {
     }
 
     impl HitResponseHost for World {
-        fn hit_actor(&self, id: ObjectId) -> Option<&HitActor> {
-            self.actors.get(id.index())
+        fn hit_actor(&self, id: ObjectId) -> Option<HitActor> {
+            self.actors.get(id.index()).copied()
         }
-        fn hit_actor_mut(&mut self, id: ObjectId) -> Option<&mut HitActor> {
-            self.actors.get_mut(id.index())
+        fn hit_actor_mut(&mut self, id: ObjectId) -> Option<HitActorMut<'_>> {
+            self.actors.get_mut(id.index()).map(HitActor::as_mut)
         }
         fn has_hit_callback(&self, _: ObjectId, kind: HitCallback) -> bool {
             match kind {

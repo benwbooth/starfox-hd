@@ -44,6 +44,7 @@ pub mod path_calls;
 pub mod path_control;
 pub mod path_math;
 pub mod path_motion;
+pub mod path_runtime;
 pub mod path_sound;
 pub mod path_trigger_conditions;
 pub mod path_triggers;

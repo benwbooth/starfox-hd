@@ -102,7 +102,8 @@ fn finish<H: PlayerContactHost>(
 ) -> Result<(), PlayerContactError<H::Error>> {
     if ignored {
         context.damage = 0;
-        host.hit_actor_mut(owner)
+        *host
+            .hit_actor_mut(owner)
             .ok_or(PlayerContactError::MissingActor(owner))?
             .hit_marked = false;
     }
@@ -341,11 +342,14 @@ mod tests {
     }
 
     impl HitResponseHost for World {
-        fn hit_actor(&self, id: ObjectId) -> Option<&HitActor> {
-            self.actors.get(id.index())
+        fn hit_actor(&self, id: ObjectId) -> Option<HitActor> {
+            self.actors.get(id.index()).copied()
         }
-        fn hit_actor_mut(&mut self, id: ObjectId) -> Option<&mut HitActor> {
-            self.actors.get_mut(id.index())
+        fn hit_actor_mut(
+            &mut self,
+            id: ObjectId,
+        ) -> Option<super::super::hit_response::HitActorMut<'_>> {
+            self.actors.get_mut(id.index()).map(HitActor::as_mut)
         }
         fn has_hit_callback(&self, owner: ObjectId, _: HitCallback) -> bool {
             owner == self.owner

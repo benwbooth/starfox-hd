@@ -39,6 +39,28 @@ pub struct ActorContacts {
     pub suppress_contacts_next_epoch: bool,
     /// Source 25 bit 10, read by contact response.
     pub skip_contacts: bool,
+    /// Authored contact callback parameter (source actor byte 0A).
+    pub parameter: u8,
+    /// Suppress the hit marker (24 bit 08), not collision detection.
+    pub suppress_hit_marker: bool,
+    /// Shared hit marker (20 bit 02), independent of pending_hit.
+    pub hit_marked: bool,
+    /// Two actors of this class do not damage one another (31 bit 80).
+    pub mutually_non_damaging: bool,
+    /// Attribute contacts to this actor's player side (31 bit 08).
+    pub credits_hit_side: bool,
+    /// Outgoing attribution (23 bit 40), not path target selection.
+    pub hit_side: super::hit_response::HitSide,
+    /// Incoming attribution (26 bits 02 and 04), also used by path triggers.
+    pub hit_by_primary: bool,
+    pub hit_by_secondary: bool,
+    /// Source class 31 bit 01 suppresses outgoing default damage.
+    pub suppress_attack_damage: bool,
+    /// Source 26 bit 01 enables the new-contact latch (22 bit 02).
+    pub latch_new_contact: bool,
+    pub new_contact_latched: bool,
+    /// Shared assigned-strategy pause exemption (26 bit 08).
+    pub run_when_paused: bool,
 }
 
 impl ActorContacts {

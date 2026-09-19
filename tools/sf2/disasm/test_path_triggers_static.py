@@ -78,6 +78,10 @@ class PathTriggersStaticTests(unittest.TestCase):
         self.assert_source(0x7F9CBA, "AC C3 12 8C 1F CF B5 24 29 7F 95 24 7A 82 9E 00")
         self.assert_source(0x7F9CDB, "AC C5 12 8C 1F CF B5 24 09 80 95 24 7A 82 7D 00")
 
+    def test_every_path_entry_refreshes_selected_player_from_actor_side(self):
+        self.assert_source(0x7F7E5D, "B5 24 29 80 F0 04 5C 6F 7E 7F AC C3 12 8C 1F CF 80 06 AC C5 12 8C 1F CF")
+        self.assert_source(0x7F9D7C, "C2 20 B9 61 6A 95 2B E2 20 4C 53 7E")
+
     def test_controlled_flags_and_health_attachment_predicates(self):
         self.assert_source(0x7F9B4B, "B4 2B B9 65 6B 7A DA BB 7A 89 10")
         self.assert_source(0x7F9B6A, "B4 2B B9 65 6B 7A DA BB 7A 89 08")

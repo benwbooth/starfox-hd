@@ -279,3 +279,19 @@ now agree with that source flow, and the obsolete arithmetic host operation
 is removed. A synthetic dispatcher test covers all 65,536 counts and nested
 word loops in debug/release; six stack source checks and eleven extractor
 checks pass. No recorded gameplay or original-program execution was used.
+
+`native/path_runtime.rs` now connects callback storage, predicates, calls and
+redirects to real `ObjectStore` actors. Object extensions own their path stack,
+trigger registrations and condition state; the shared coordinator owns pool
+capacity, call depth, timer observation and selected-player context. Callback
+entry refreshes player selection even for nonselecting predicates. Immediate
+redirect effects modify live strategy/wait/steering fields, while the path
+destination remains deferred until batch completion. Hit response now borrows
+the same object's health and contact flags, avoiding a second mutable health
+record or post-callback copy-back. Five integration tests cover nested returns,
+parent loops, fresh health predicates, redirects, mutable registration, program
+release, invalid host ordering, and damage-to-trigger attribution; they pass
+in debug/release. Seventeen trigger assembly checks cover source control flow.
+This connects the typed systems to real actor records, but does **not** yet
+replace `Game`'s recorded mission controllers or provide general decoded path
+command execution. Those production gaps remain open.

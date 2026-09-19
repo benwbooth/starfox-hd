@@ -38,13 +38,13 @@ pub enum ReplacementError<T> {
     Allocation(AllocationError<T>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Resource<T> {
     owner: Option<ObjectId>,
     value: T,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Partition<T> {
     id: ProgramResourceId,
     cost: u16,
@@ -54,7 +54,7 @@ struct Partition<T> {
 /// All actor-owned and shared program allocations compete for this one pool.
 /// Partition order records adjacency; free order records first-fit priority.
 /// Neither order can be replaced by aggregate available capacity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgramResources<T> {
     partitions: Vec<Partition<T>>,
     free_order: Vec<ProgramResourceId>,
