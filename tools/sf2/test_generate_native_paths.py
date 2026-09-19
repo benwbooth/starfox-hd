@@ -51,8 +51,58 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(statements[7], "Statement::Control(ControlCommand::End)")
 
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported"):
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported SpawnChild"):
             lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
+
+    def lower_record(self, record):
+        changed = bytearray(self.rom)
+        program = bytes.fromhex(record) + bytes([0x0F])
+        changed[0x4F536:0x4F536 + len(program)] = program
+        return lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF536), 0)[1]
+
+    def test_literal_sets_and_adds_have_distinct_source_operand_orders(self):
+        for record, fragment in (
+            ("0b 05 a1", "ByteOperation::Assign(ByteOperand::Literal(5))"),
+            ("0c 12 ab a1", "WordOperation::Assign(WordOperand::Literal(43794))"),
+            ("07 a1 05", "ByteOperation::Add(ByteOperand::Literal(5))"),
+            ("08 a1 12 ab", "WordOperation::Add(WordOperand::Literal(43794))"),
+            ("6b a1", "ByteOperation::Assign(ByteOperand::Literal(0))"),
+            ("6c a1", "WordOperation::Assign(WordOperand::Literal(0))"),
+        ):
+            with self.subTest(record=record):
+                statements = self.lower_record(record)
+                self.assertEqual(len(statements), 2)
+                self.assertIn("WordField::MotionPhase", statements[0])
+                self.assertIn(fragment, statements[0])
+
+    def test_unary_arithmetic_width_is_preserved(self):
+        for opcode, width, operation in (
+            (0x6D, "Byte", "Increment"), (0x6E, "Word", "Increment"),
+            (0x6F, "Byte", "Decrement"), (0x70, "Word", "Decrement"),
+            (0x56, "Byte", "Negate"), (0x57, "Word", "Negate"),
+        ):
+            with self.subTest(opcode=opcode):
+                statement = self.lower_record(f"{opcode:02x} a1")[0]
+                self.assertIn(f"Mutation::{width}", statement)
+                self.assertIn(f"{width}Operation::{operation}", statement)
+
+    def test_variable_byte_loop_is_unsigned_and_word_loop_uses_full_word(self):
+        self.assertIn("WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed))", self.lower_record("62 0a")[0])
+        self.assertIn("WordOperand::Actor(WordField::MotionPhase)", self.lower_record("63 a1")[0])
+
+    def test_zero_conditions_use_real_target_order_and_noninverting_predicates(self):
+        for opcode, condition, width in (
+            (0x67, "ZeroByte", "Byte"), (0x68, "ZeroWord", "Word"),
+            (0x69, "NonzeroByte", "Byte"), (0x6A, "NonzeroWord", "Word"),
+        ):
+            # Branch back to the statement; fallthrough is the appended END.
+            statement = self.lower_record(f"{opcode:02x} a1 36 f5")[0]
+            self.assertIn(f"ActorCondition::{condition}({width}Operand::Actor(", statement)
+            self.assertIn("taken: cursor(0, 0), next: cursor(0, 1)", statement)
+
+    def test_wait_reads_literal_or_live_byte_and_has_only_one_continuation(self):
+        self.assertIn("Statement::Wait { duration: ByteOperand::Literal(129)", self.lower_record("03 81")[0])
+        self.assertIn("Statement::Wait { duration: ByteOperand::Actor(ByteField::TargetSpeed)", self.lower_record("00 28 0a")[0])
 
     def test_particle_fields_are_named_and_unknown_encodings_are_rejected(self):
         self.assertEqual(byte_field(0x99), "ByteField::TextureScrollX")

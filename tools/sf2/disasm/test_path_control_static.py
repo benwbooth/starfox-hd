@@ -105,6 +105,13 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7F9D52, "A9 0F 80 0C A9 1F 80 08 A9 3F 80 04 A9 7F 80 00")
         self.assert_source(0x7F9D62, "25 C4 F0 02 80 20")
 
+    def test_variable_loops_snapshot_unsigned_count_after_pushing_body_cursor(self):
+        self.assert_source(0x7F95CA, "C2 20 B5 2B 1A 1A E2 20 C2 20 8D 69 B2 BD DE 1C 22 0F 1A 7F 9D DE 1C E2 20 20 BC C4 20 47 CB C2 20 B9 00 00 29 FF 00 E2 20 C2 20 8D 69 B2 BD DE 1C 22 0F 1A 7F 9D DE 1C E2 20 4C D3 CA")
+        self.assert_source(0x7F9607, "C2 20 B5 2B 1A 1A E2 20 C2 20 8D 69 B2 BD DE 1C 22 0F 1A 7F 9D DE 1C E2 20 20 BC C4 20 47 CB C2 20 B9 00 00 E2 20 C2 20 8D 69 B2 BD DE 1C 22 0F 1A 7F 9D DE 1C E2 20 4C D3 CA")
+
+    def test_variable_wait_rereads_byte_and_rewinds_escaped_opcode_until_equal(self):
+        self.assert_source(0x7FBCD8, "20 BC C4 20 47 CB B9 00 00 D5 17 D0 04 5C CF CA 7F F6 17 C2 20 D6 2B E2 20 4C DE 9D")
+
     def test_hostile_laser_authored_control_flow(self):
         expected = {
             0xEE4C: ("SetByte", "0b0a2d"),

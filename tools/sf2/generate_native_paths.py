@@ -55,8 +55,17 @@ def word_field(variable: int) -> str:
 
 
 def byte_field(variable: int) -> str:
-    if variable == 0x99:
-        return "ByteField::TextureScrollX"
+    fields = {
+        0x0A: "ByteField::TargetSpeed",
+        0x0B: "ByteField::Acceleration",
+        0x12: "ByteField::Rotation(Axis::X)",
+        0x14: "ByteField::Rotation(Axis::Y)",
+        0x16: "ByteField::Rotation(Axis::Z)",
+        0x17: "ByteField::WaitTimer",
+        0x99: "ByteField::TextureScrollX",
+    }
+    if variable in fields:
+        return fields[variable]
     # Each pair aliases one actual typed word; it must not create a separate
     # particle counter or independent byte shadow of the motion phase.
     for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1):
@@ -115,9 +124,25 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name == "AddByte":
-            variable, amount = parameters(2)
-            mutation = f"Mutation::Byte {{ field: {byte_field(variable)}, operation: ByteOperation::Add(ByteOperand::Literal({amount})) }}"
+        if name in ("SetByte", "SetWord", "AddByte", "AddWord", "SetZeroByte", "SetZeroWord"):
+            wide = name.endswith("Word")
+            kind = "Word" if wide else "Byte"
+            if name.startswith("SetZero"):
+                variable, = parameters(1)
+                value = 0
+            else:
+                operands = parameters(3 if wide else 2)
+                # SET reads the destination after its literal; ADD reads it
+                # before the literal. Both orders are independently sourced.
+                if name.startswith("Set"):
+                    variable = operands[-1]
+                    value = int.from_bytes(operands[:-1], "little")
+                else:
+                    variable = operands[0]
+                    value = int.from_bytes(operands[1:], "little")
+            operation = "Assign" if name.startswith("Set") else "Add"
+            field = word_field(variable) if wide else byte_field(variable)
+            mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation}({kind}Operand::Literal({value})) }}"
             statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
         elif name == "IfSelectedAuxiliaryContinuation":
             low, high = parameters(2)
@@ -149,13 +174,22 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             mask = int.from_bytes(operands[1:], "little")
             operation = ("Assign" if name.startswith("Set") else "AddCentered") + ("Word" if wide else "Byte")
             statement = f"Statement::Random {{ mutation: RandomMutation::{operation} {{ field: {field}, mask: {mask} }}, next: {next_cursor()} }}"
-        elif name in ("IncrementByte", "DecrementWord"):
+        elif name in ("IncrementByte", "IncrementWord", "DecrementByte", "DecrementWord", "NegateByte", "NegateWord"):
             variable, = parameters(1)
-            if name == "IncrementByte":
-                mutation = f"Mutation::Byte {{ field: {byte_field(variable)}, operation: ByteOperation::Increment }}"
-            else:
-                mutation = f"Mutation::Word {{ field: {word_field(variable)}, operation: WordOperation::Decrement }}"
+            wide = name.endswith("Word")
+            kind = "Word" if wide else "Byte"
+            operation = name.removesuffix(kind)
+            field = word_field(variable) if wide else byte_field(variable)
+            mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation} }}"
             statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
+        elif name in ("IfZeroByte", "IfZeroWord", "IfNotZeroByte", "IfNotZeroWord"):
+            variable, low, high = parameters(3)
+            taken, next_ = branch_cursors(low | (high << 8))
+            wide = name.endswith("Word")
+            kind = "Word" if wide else "Byte"
+            field = word_field(variable) if wide else byte_field(variable)
+            condition = ("Nonzero" if name.startswith("IfNot") else "Zero") + kind
+            statement = f"Statement::Compare {{ condition: ActorCondition::{condition}({kind}Operand::Actor({field})), taken: {taken}, next: {next_} }}"
         elif name == "IfSameByte":
             variable, expected, low, high = parameters(4)
             taken, next_ = branch_cursors(low | (high << 8))
@@ -170,12 +204,21 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "WaitOne":
             parameters(0)
             statement = f"Statement::Control(ControlCommand::WaitOne {{ next: {next_cursor()} }})"
+        elif name in ("Wait", "WaitVariable"):
+            value, = parameters(1)
+            duration = f"ByteOperand::Literal({value})" if name == "Wait" else f"ByteOperand::Actor({byte_field(value)})"
+            statement = f"Statement::Wait {{ duration: {duration}, next: {next_cursor()} }}"
         elif name == "Sprite":
             color, size = parameters(2)
             statement = f"Statement::Sprite {{ color: {color}, size: {size}, next: {next_cursor()} }}"
         elif name == "DoQueue":
             count, = parameters(1)
             statement = f"Statement::Control(ControlCommand::BeginLoop {{ iterations: {count}, next: {next_cursor()} }})"
+        elif name in ("DoVariableByte", "DoVariableWord"):
+            variable, = parameters(1)
+            iterations = (f"WordOperand::UnsignedByte(ByteOperand::Actor({byte_field(variable)}))"
+                          if name == "DoVariableByte" else f"WordOperand::Actor({word_field(variable)})")
+            statement = f"Statement::BeginLoop {{ iterations: {iterations}, next: {next_cursor()} }}"
         elif name in ("InitAnimation", "InitColorAnimation"):
             value, = parameters(1)
             channel = "Shape" if name == "InitAnimation" else "Color"
@@ -232,6 +275,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
     PathCursor { path: PathId::from_catalog_index(path), command_index }
 }
 """
+    if any("WordOperand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_fields::WordOperand;\n"
     source += "\n".join(declarations)
     source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(roots)};"
     source += f"\npub const LOWERED_COMMAND_COUNT: usize = {len(unique_statements)};"

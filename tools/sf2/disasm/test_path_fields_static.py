@@ -37,8 +37,16 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7F8968, "C2 20 BD 00 00 E2 20 99 00 00 FA 4C BE CA")
 
     def test_literal_writes_have_no_motion_or_collision_side_effect(self):
-        self.assert_source(0x7F89AE, "E2 20 20 BC C4 99 00 00 4C BE CA")
-        self.assert_source(0x7F89BF, "C2 20 20 20 C7 99 00 00 E2 20 4C A9 CA")
+        self.assert_source(0x7F89A8, "20 E0 C4 20 47 CB E2 20 20 BC C4 99 00 00 4C BE CA")
+        self.assert_source(0x7F89B9, "20 04 C5 20 47 CB C2 20 20 20 C7 99 00 00 E2 20 4C A9 CA")
+        self.assert_source(0x7FC4BC, "84 79 A0 01 00")
+        self.assert_source(0x7FC4E0, "84 79 A0 02 00")
+        self.assert_source(0x7FC504, "84 79 A0 03 00")
+
+    def test_zero_assignment_width_and_word_add_operand_order(self):
+        self.assert_source(0x7F89CC, "20 BC C4 20 47 CB E2 20 A9 00 99 00 00 4C D3 CA")
+        self.assert_source(0x7F89DC, "20 BC C4 20 47 CB C2 20 A9 00 00 99 00 00 E2 20 4C D3 CA")
+        self.assert_source(0x7F86CD, "20 BC C4 20 47 CB C2 20 20 4C C7 18 79 00 00 99 00 00 E2 20 4C A9 CA")
 
     def test_increment_and_decrement_wrap_at_destination_width(self):
         self.assert_source(0x7F86EA, "B9 00 00 1A 99 00 00 4C D3 CA")

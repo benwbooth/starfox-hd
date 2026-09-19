@@ -490,3 +490,15 @@ The later loop samples explicit selected-auxiliary observations on each
 invocation, preserves IFNOT, and exits when the gate changes. Missing required
 observations fail at that branch without silent fallthrough. This tests the
 world-input contract, not yet Game's auxiliary-state adapter or live spawning.
+
+The offline lowerer additionally supports literal/zero assignment, word adds,
+all byte/word increment/decrement/negation variants, zero/nonzero branches,
+variable byte/word DO counts, and literal/variable WAIT. SET's value-first
+operand order is kept distinct from ADD's field-first order. Variable-byte
+DO uses unsigned widening, unlike signed byte-to-word arithmetic, and snapshots
+its count only on entry. A native regression executes zero's complete 65,536
+iteration wrap and counts above 127 without sign extension. This leaves the
+catalog at five complete roots: the next child-producing graph is still rejected
+at SpawnChild rather than publishing an incomplete path. Verification: 117
+native path release tests, 15 lowerer tests, 119 source-byte checks, and the
+native architecture check pass; no recorded gameplay was used for this work.

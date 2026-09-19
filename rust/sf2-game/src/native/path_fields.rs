@@ -185,6 +185,8 @@ pub enum WordOperand {
     Actor(WordField),
     /// Byte-to-word copies and adds sign-extend (`$7F:8976`, `$7F:8925`).
     SignedByte(ByteOperand),
+    /// Variable-byte loop counts are zero-extended (`$7F:95E9`).
+    UnsignedByte(ByteOperand),
 }
 
 impl WordOperand {
@@ -193,6 +195,7 @@ impl WordOperand {
             Self::Literal(value) => value,
             Self::Actor(field) => field.read(actor),
             Self::SignedByte(value) => value.read(actor) as i8 as i16 as u16,
+            Self::UnsignedByte(value) => u16::from(value.read(actor)),
         }
     }
 }
@@ -356,6 +359,23 @@ mod tests {
         }
         .apply(&mut actor);
         assert_eq!(field.read(&actor), 0xCDCD);
+    }
+
+    #[test]
+    fn loop_counts_zero_extend_each_byte_without_changing_signed_arithmetic() {
+        let mut actor = actor();
+        for value in 0..=u8::MAX {
+            actor.base.target_speed = value;
+            let operand = ByteOperand::Actor(ByteField::TargetSpeed);
+            assert_eq!(
+                WordOperand::UnsignedByte(operand).read(&actor),
+                u16::from(value)
+            );
+            assert_eq!(
+                WordOperand::SignedByte(operand).read(&actor),
+                value as i8 as i16 as u16
+            );
+        }
     }
 
     #[test]

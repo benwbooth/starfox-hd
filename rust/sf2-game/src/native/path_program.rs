@@ -413,6 +413,89 @@ mod tests {
     }
 
     #[test]
+    fn variable_loop_snapshots_unsigned_count_once_including_zero_wrap() {
+        use super::super::path_fields::{WordField, WordOperation};
+        for (initial, wide) in [
+            (0, false),
+            (1, false),
+            (127, false),
+            (128, false),
+            (255, false),
+            (257, true),
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            objects.get_mut(owner).unwrap().base.target_speed = initial as u8;
+            objects
+                .get_mut(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .motion_phase = initial;
+            let count = if wide {
+                WordOperand::Actor(WordField::MotionPhase)
+            } else {
+                WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed))
+            };
+            let catalog = PathCatalog::new(vec![vec![
+                Statement::BeginLoop {
+                    iterations: count,
+                    next: cursor(0, 1),
+                },
+                // The body overwrites BOTH possible count sources; the loop
+                // must keep its saved count rather than sample either again.
+                Statement::Mutate {
+                    mutation: Mutation::Byte {
+                        field: ByteField::TargetSpeed,
+                        operation: ByteOperation::Assign(ByteOperand::Literal(0)),
+                    },
+                    next: cursor(0, 2),
+                },
+                Statement::Mutate {
+                    mutation: Mutation::Word {
+                        field: WordField::MotionPhase,
+                        operation: WordOperation::Assign(WordOperand::Literal(0)),
+                    },
+                    next: cursor(0, 3),
+                },
+                Statement::Control(ControlCommand::Next {
+                    immediate: false,
+                    next: cursor(0, 4),
+                }),
+                Statement::Control(ControlCommand::End),
+            ]])
+            .unwrap();
+            let expected = if initial == 0 {
+                65536
+            } else {
+                usize::from(initial)
+            };
+            for visit in 1..=expected {
+                let result = runtime
+                    .enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6)
+                    .unwrap();
+                assert_eq!(
+                    result,
+                    if visit == expected {
+                        ControlStep::Ended
+                    } else {
+                        ControlStep::Movement
+                    }
+                );
+            }
+            assert_eq!(objects.get(owner).unwrap().base.target_speed, 0);
+            assert_eq!(
+                objects
+                    .get(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .motion_phase,
+                0
+            );
+        }
+    }
+
+    #[test]
     fn authored_auxiliary_sprite_samples_new_input_and_preserves_pending_inversion() {
         use super::super::{authored_paths, path_motion};
         let (mut runtime, mut objects, owner, mut random) = setup();
