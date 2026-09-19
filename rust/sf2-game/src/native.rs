@@ -42,6 +42,7 @@ pub mod path_motion;
 mod render;
 mod results;
 mod state;
+pub mod strategy_schedule;
 pub mod world_occupancy;
 
 mod astropolis_assault;

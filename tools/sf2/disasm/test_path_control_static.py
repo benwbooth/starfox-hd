@@ -291,6 +291,30 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x03AB2A, "22 D2 2B 7F A9 00 99 16 00")
         self.assert_source(0x03AC1D, "B5 18 99 17 00 96 1C 94 1C 6B")
 
+    def test_strategy_epoch_increments_word_clock_once_and_saves_live_cursor(self):
+        self.assert_source(0x7F3504, "E6 C4 D0 02 E6 C5")
+        self.assert_source(0x7F350E, "AE A8 12 AF 30 30 00 29 20 F0 25")
+        self.assert_source(0x7F3519, "B5 26 29 40 F0 04 5C 2F 35 7F")
+        self.assert_source(0x7F3523, "9C D6 12 22 96 35 7F AD D6 12 D0 07")
+        self.assert_source(0x7F3536, "B4 00 22 56 33 7F 80 F3 8E 42 19")
+        # Remainder loads the saved next actor and never increments the clock.
+        self.assert_source(0x7F3560, "AE 42 19 F0 25 B5 26 29 40 F0 04 5C 7B 35 7F")
+        self.assert_source(0x7F356F, "9C D6 12 22 96 35 7F AD D6 12 D0 07")
+        self.assert_source(0x7F3582, "B4 00 22 56 33 7F 80 F3 8E 42 19")
+
+    def test_strategy_selection_death_hit_pause_and_post_service_precedence(self):
+        self.assert_source(0x7F35A8, "EC D6 14 D0 03 82 A0 00")
+        self.assert_source(0x7F35B5, "B5 2D D0 35 B5 31 29 04 F0 04 5C EE 35 7F")
+        self.assert_source(0x7F35C3, "B5 26 29 08 F0 04 5C DC 35 7F")
+        self.assert_source(0x7F35CD, "C2 20 AD 84 1B 89 02 00 E2 20 F0 03 4C EE 35")
+        self.assert_source(0x7F35DC, "A9 03 8D D1 12 C2 20 A9 55 A0 8D CF 12 82 4F 00")
+        self.assert_source(0x7F35EE, "B5 31 29 FB 95 31 B5 20 29 80 F0 18")
+        self.assert_source(0x7F35FA, "A9 03 8D D1 12 C2 20 A9 27 A3 8D CF 12 82 31 00")
+        self.assert_source(0x7F3619, "B5 19 F0 59")
+        self.assert_source(0x7F3622, "B5 26 29 08 F0 04 5C 3B 36 7F")
+        self.assert_source(0x7F362C, "C2 20 AD 84 1B 89 02 00 E2 20 F0 03 4C 50 36")
+        self.assert_source(0x7F3661, "AD D3 1C 89 01 D0 0B BD CC 1C F0 06 A0 3F 03 20 B8 36")
+
 
 if __name__ == "__main__":
     unittest.main()
