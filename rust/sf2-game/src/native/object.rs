@@ -926,6 +926,8 @@ pub struct ObjectBase {
     pub previous: Option<ObjectId>,
     pub shape: ShapeId,
     pub attachment: Option<ObjectId>,
+    /// Authored sibling identifier (source base 13), independent of pitch.
+    pub child_number: u8,
     pub flags: ObjectFlags,
     pub kind: ObjectKind,
     pub explosion_timer: u8,
@@ -992,6 +994,7 @@ impl Object {
                 previous: None,
                 shape,
                 attachment: None,
+                child_number: 0,
                 flags: ObjectFlags {
                     active: true,
                     visible: true,

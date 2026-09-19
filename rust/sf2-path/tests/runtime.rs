@@ -27,6 +27,7 @@ struct Host {
     optional_context_available: bool,
     selected_slot_class: u8,
     selected_aux_flags: u8,
+    selected_aux_action_flags: u8,
     selected_slot_low_nibble_4_calls: usize,
     allocated_auxiliary_type_0b: Vec<u8>,
     allocated_auxiliary_type_0d: Vec<u8>,
@@ -83,6 +84,7 @@ impl Default for Host {
             optional_context_available: false,
             selected_slot_class: 0,
             selected_aux_flags: 0,
+            selected_aux_action_flags: 0,
             selected_slot_low_nibble_4_calls: 0,
             allocated_auxiliary_type_0b: Vec::new(),
             allocated_auxiliary_type_0d: Vec::new(),
@@ -307,8 +309,8 @@ impl Sf2PathHost for Host {
         Ok(self.selected_slot_class)
     }
 
-    fn selected_aux_flags(&self) -> Result<u8, Self::Error> {
-        Ok(self.selected_aux_flags)
+    fn selected_aux_action_flags(&self) -> Result<u8, Self::Error> {
+        Ok(self.selected_aux_action_flags)
     }
 
     fn or_selected_aux_flags(&mut self, bits: u8) -> Result<(), Self::Error> {
@@ -1653,12 +1655,14 @@ fn comparison_context_and_auxiliary_handlers_match_retail() {
     run_one(&mut same, &mut host);
     assert_eq!(same.cursor().offset, 0x4F50);
 
-    host.selected_aux_flags = 0x40;
+    host.selected_aux_flags = 0;
+    host.selected_aux_action_flags = 0x40;
     let mut aux = PathVm::new(PathAddress { offset: 0x066A });
     run_one(&mut aux, &mut host);
     assert_eq!(aux.cursor().offset, 0x0671);
     run_one(&mut PathVm::new(PathAddress { offset: 0xA54E }), &mut host);
-    assert_eq!(host.selected_aux_flags, 0x60);
+    assert_eq!(host.selected_aux_flags, 0x20);
+    assert_eq!(host.selected_aux_action_flags, 0x40);
 
     host.external[0x00C4] = 0x01;
     let mut external = PathVm::new(PathAddress { offset: 0xABA9 });

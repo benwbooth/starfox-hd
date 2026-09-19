@@ -151,7 +151,18 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("size: 255", statements[0])
         self.assertIn("ByteField::TextureScrollX", statements[4])
         self.assertIn("ByteOperation::Add(ByteOperand::Literal(2))", statements[4])
-        self.assertEqual(statements[8], "Statement::SelectedAuxiliaryBranch { taken: cursor(4, 10), next: cursor(4, 9) }")
+        self.assertEqual(statements[8], "Statement::SelectedAuxiliaryBranch { condition: SelectedAuxiliaryCondition::Continuation, taken: cursor(4, 10), next: cursor(4, 9) }")
+
+    def test_detaching_sprite_preserves_numbered_child_and_aux_action_gate(self):
+        entry, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF540), 5)
+        self.assertEqual(entry, 0)
+        self.assertEqual(len(statements), 12)
+        self.assertIn("size: 250", statements[0])
+        self.assertIn("Assign(ByteOperand::Literal(0))", statements[1])
+        self.assertIn("SelectedAuxiliaryCondition::ActionBit40", statements[6])
+        self.assertIn("taken: cursor(5, 10), next: cursor(5, 7)", statements[6])
+        self.assertIn("RelationshipCommand::UnlinkChild { number: 1 }", statements[9])
+        self.assertIn("RelationshipCommand::UnlinkSelf", self.lower_record("65")[0])
 
 
 if __name__ == "__main__":

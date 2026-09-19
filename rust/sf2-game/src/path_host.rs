@@ -2665,8 +2665,12 @@ impl Sf2PathHost for Game {
             .unwrap_or(0))
     }
 
-    fn selected_aux_flags(&self) -> Result<u8, Self::Error> {
-        Ok(self.memory.read_byte(self.selected_aux_address(0x6B63)?))
+    fn selected_aux_action_flags(&self) -> Result<u8, Self::Error> {
+        // `$7F:B99E` follows the raw selected actor's slot and tests action
+        // flags (6B77), not auxiliary mode (6B63). Zero is not filtered out.
+        let selected = self.memory.read_word(0xCF1F);
+        let slot = self.memory.read_word(selected.wrapping_add(FIELD_PATH));
+        Ok(self.memory.read_byte(slot.wrapping_add(AUXILIARY_CAPTURE_FLAGS)))
     }
 
     fn or_selected_aux_flags(&mut self, bits: u8) -> Result<(), Self::Error> {

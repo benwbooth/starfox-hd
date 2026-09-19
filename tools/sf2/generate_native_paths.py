@@ -26,6 +26,7 @@ ROOTS = (
     ("RANDOMIZED_COLOR_PARTICLE", PathAddress(0xF294)),
     ("LOCAL_JITTER_SPRITE", PathAddress(0xF521)),
     ("AUXILIARY_GATED_SPRITE", PathAddress(0xF36F)),
+    ("CHILD_DETACHING_SPRITE", PathAddress(0xF540)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -59,6 +60,7 @@ def byte_field(variable: int) -> str:
         0x0A: "ByteField::TargetSpeed",
         0x0B: "ByteField::Acceleration",
         0x12: "ByteField::Rotation(Axis::X)",
+        0x13: "ByteField::ChildNumber",
         0x14: "ByteField::Rotation(Axis::Y)",
         0x16: "ByteField::Rotation(Axis::Z)",
         0x17: "ByteField::WaitTimer",
@@ -144,10 +146,19 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             field = word_field(variable) if wide else byte_field(variable)
             mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation}({kind}Operand::Literal({value})) }}"
             statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
-        elif name == "IfSelectedAuxiliaryContinuation":
+        elif name in ("IfSelectedAuxiliaryContinuation", "IfSelectedAuxBit40"):
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))
-            statement = f"Statement::SelectedAuxiliaryBranch {{ taken: {taken}, next: {next_} }}"
+            condition = "Continuation" if name == "IfSelectedAuxiliaryContinuation" else "ActionBit40"
+            statement = f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("UnlinkSelf", "UnlinkChild"):
+            if name == "UnlinkSelf":
+                parameters(0)
+                command_ = "RelationshipCommand::UnlinkSelf"
+            else:
+                number, = parameters(1)
+                command_ = f"RelationshipCommand::UnlinkChild {{ number: {number} }}"
+            statement = f"Statement::Relationship {{ command: {command_}, next: {next_cursor()} }}"
         elif name == "Gosub":
             low, high = parameters(2)
             target, next_ = branch_cursors(low | (high << 8))
@@ -267,8 +278,9 @@ def generate(rom: bytes, roots=ROOTS) -> str:
 use super::path_appearance::{AnimationChannel, AnimationCommand};
 use super::path_commands::{BranchCommand, ControlCommand, MotionCommand};
 use super::path_fields::{Axis, ByteField, ByteOperand, ByteOperation, BytePart, Mutation, WordField, WordOperation};
-use super::path_program::{ActorCondition, PathCatalog, Statement};
+use super::path_program::{ActorCondition, PathCatalog, SelectedAuxiliaryCondition, Statement};
 use super::path_random::RandomMutation;
+use super::path_relationships::RelationshipCommand;
 use super::{PathCursor, PathId};
 
 const fn cursor(path: u16, command_index: u16) -> PathCursor {

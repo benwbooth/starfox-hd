@@ -68,6 +68,7 @@ pub enum BytePart {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ByteField {
+    ChildNumber,
     /// Source texture-X channel, also used as scaled-sprite size.
     TextureScrollX,
     Rotation(Axis),
@@ -90,6 +91,7 @@ pub enum ByteField {
 impl ByteField {
     pub fn read(self, actor: &Object) -> u8 {
         match self {
+            Self::ChildNumber => actor.base.child_number,
             Self::TextureScrollX => actor.extension.texture_scroll_x,
             Self::Rotation(axis) => match axis {
                 Axis::X => actor.base.pitch,
@@ -124,6 +126,7 @@ impl ByteField {
 
     pub fn write(self, actor: &mut Object, value: u8) {
         match self {
+            Self::ChildNumber => actor.base.child_number = value,
             Self::TextureScrollX => actor.extension.texture_scroll_x = value,
             Self::Rotation(axis) => {
                 let value = Angle::from_units(value);
@@ -272,6 +275,7 @@ mod tests {
     fn scalar_fields_preserve_full_bytes_and_relative_angles_are_independent() {
         let mut actor = actor();
         let fields = [
+            ByteField::ChildNumber,
             ByteField::Rotation(Axis::X),
             ByteField::Rotation(Axis::Y),
             ByteField::Rotation(Axis::Z),

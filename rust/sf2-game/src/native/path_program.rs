@@ -29,6 +29,27 @@ pub struct AuxiliaryContinuationInput {
     pub action_flags: u8,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectedAuxiliaryCondition {
+    Continuation,
+    ActionBit40,
+}
+
+impl SelectedAuxiliaryCondition {
+    fn sample(self, input: AuxiliaryContinuationInput) -> Predicate {
+        match self {
+            Self::Continuation => Predicate::SelectedAuxiliaryContinuation {
+                mode: input.mode,
+                action_flags: input.action_flags,
+            },
+            Self::ActionBit40 => Predicate::AnyByteBitsSet {
+                value: input.action_flags,
+                mask: 0x40,
+            },
+        }
+    }
+}
+
 /// Retained expressions are sampled from the live owner on every execution.
 /// In particular, an immediate loop must not retain the first iteration's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +131,12 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    Relationship {
+        command: super::path_relationships::RelationshipCommand,
+        next: PathCursor,
+    },
     SelectedAuxiliaryBranch {
+        condition: SelectedAuxiliaryCondition,
         taken: PathCursor,
         next: PathCursor,
     },
@@ -168,6 +194,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    Relationship(super::path_relationships::RelationshipError),
     MissingSelectedAuxiliary,
     Runtime(PathRuntimeError),
     MissingStatement(PathCursor),
@@ -258,7 +285,21 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
-                Statement::SelectedAuxiliaryBranch { taken, next } => {
+                Statement::Relationship { command, next } => {
+                    super::path_relationships::apply(objects, owner, command)
+                        .map_err(ProgramError::Relationship)?;
+                    objects
+                        .get_mut(owner)
+                        .expect("validated relationship owner")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SelectedAuxiliaryBranch {
+                    condition,
+                    taken,
+                    next,
+                } => {
                     let input = world
                         .selected_auxiliary
                         .ok_or(ProgramError::MissingSelectedAuxiliary)?;
@@ -266,10 +307,7 @@ impl PathRuntime {
                         objects,
                         owner,
                         BranchCommand::Test {
-                            predicate: Predicate::SelectedAuxiliaryContinuation {
-                                mode: input.mode,
-                                action_flags: input.action_flags,
-                            },
+                            predicate: condition.sample(input),
                             taken,
                             next,
                         },
@@ -409,6 +447,84 @@ mod tests {
                 operation,
             },
             next,
+        }
+    }
+
+    #[test]
+    fn authored_detaching_sprite_only_unlinks_after_last_yield_and_without_action_gate() {
+        use super::super::authored_paths;
+        for gate in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let mut child = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
+            child.base.attachment = Some(owner);
+            child.base.child_number = 1;
+            child.base.flags.remove_with_parent = true;
+            child.extension.path_state.motion.attached_coordinates = true;
+            let child = objects.allocate(child).unwrap();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::CHILD_DETACHING_SPRITE);
+            actor.base.first_child = Some(child);
+            actor.extension.path_state.motion.refresh_child_chain = true;
+            actor.extension.path_state.motion_phase = 0xABCD;
+            let catalog = authored_paths::catalog();
+            let before_random = random;
+            let visits = if gate { 2 } else { 3 };
+            for visit in 0..visits {
+                let mut inputs = world(&mut random);
+                inputs.selected_auxiliary = Some(AuxiliaryContinuationInput {
+                    mode: 0x80, // mode does not participate in the action-bit gate
+                    action_flags: if gate { 0x40 } else { 0 },
+                });
+                let outcome = runtime
+                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 16)
+                    .unwrap();
+                assert_eq!(
+                    outcome,
+                    if visit == visits - 1 {
+                        ControlStep::Ended
+                    } else {
+                        ControlStep::Movement
+                    }
+                );
+                let linked = gate || visit != visits - 1;
+                assert_eq!(
+                    objects.get(child).unwrap().base.attachment,
+                    linked.then_some(owner)
+                );
+                assert_eq!(
+                    objects.get(owner).unwrap().base.first_child,
+                    linked.then_some(child)
+                );
+                assert_eq!(
+                    objects
+                        .get(owner)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .motion_phase,
+                    0xAB00 | (visit + 1).min(2) as u16
+                );
+                assert_eq!(objects.get(owner).unwrap().extension.texture_scroll_x, 250);
+            }
+            assert_eq!(random, before_random);
+            assert!(objects.get(child).is_some()); // detachment is not retirement
+        }
+    }
+
+    #[test]
+    fn auxiliary_action_gate_tests_only_action_bit_and_keeps_inversion() {
+        for mode in 0..=u8::MAX {
+            for action_flags in 0..=u8::MAX {
+                let mut branch = super::super::path_conditions::BranchState { invert_next: true };
+                assert_eq!(
+                    branch.test(
+                        SelectedAuxiliaryCondition::ActionBit40
+                            .sample(AuxiliaryContinuationInput { mode, action_flags })
+                    ),
+                    action_flags & 0x40 != 0
+                );
+                assert!(branch.invert_next);
+            }
         }
     }
 
@@ -559,6 +675,7 @@ mod tests {
         let (mut runtime, mut objects, owner, mut random) = setup();
         let catalog = PathCatalog::new(vec![vec![
             Statement::SelectedAuxiliaryBranch {
+                condition: SelectedAuxiliaryCondition::Continuation,
                 taken: cursor(0, 2),
                 next: cursor(0, 1),
             },
@@ -591,8 +708,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 5);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 48);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 6);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 60);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

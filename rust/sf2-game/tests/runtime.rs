@@ -7,6 +7,25 @@ use sf2_map::Sf2MapHost;
 use sf2_path::{ChildSpawn, PlayerTargetUpdate, Sf2PathCondition, Sf2PathHost, Sf2PathOperation};
 
 #[test]
+fn static_auxiliary_action_flags_do_not_alias_mode_or_current_slot() {
+    let mut game = Game::new(Vec::new()).unwrap();
+    let current = allocate(&mut game.memory, 0).unwrap();
+    let selected = allocate(&mut game.memory, current).unwrap();
+    game.memory.write_word(CURRENT_OBJECT, current);
+    game.memory.write_word(current + FIELD_PATH, 0x0100);
+    game.memory.write_byte(0x6B77 + 0x0100, 0x40);
+    for selected in [selected, 0] {
+        game.memory.write_word(0xCF1F, selected);
+        game.memory.write_word(selected + FIELD_PATH, 0x0200);
+        for (mode, action) in [(0x40, 0), (0, 0x40), (0x80, 0xFF)] {
+            game.memory.write_byte(0x6B63 + 0x0200, mode);
+            game.memory.write_byte(0x6B77 + 0x0200, action);
+            assert_eq!(Sf2PathHost::selected_aux_action_flags(&game).unwrap(), action);
+        }
+    }
+}
+
+#[test]
 fn static_auxiliary_continuation_reads_both_bytes_from_selected_slot() {
     let mut game = Game::new(Vec::new()).unwrap();
     let current = allocate(&mut game.memory, 0).unwrap();

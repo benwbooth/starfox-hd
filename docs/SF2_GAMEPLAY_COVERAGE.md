@@ -502,3 +502,16 @@ catalog at five complete roots: the next child-producing graph is still rejected
 at SpawnChild rather than publishing an incomplete path. Verification: 117
 native path release tests, 15 lowerer tests, 119 source-byte checks, and the
 native architecture check pass; no recorded gameplay was used for this work.
+
+Child detachment now lowers the sixth complete graph, the child-detaching
+sprite (60 unique statements total). Its auxiliary gate reads action bit 64,
+not mode bit 64, and the final child unlink runs only after the extra yielding
+GOTO when that gate is clear. Unlinking preserves the active object list, world
+pose, extension parent, and owned resources; it clears attachment/lifetime
+flags before searching, but clears the base links and child identifier only
+after finding the child in its parent's chain. Native tests cover first,
+middle, last, sibling-initiated and self unlink, duplicate identifiers,
+missing children, and malformed-chain errors. The older verification host's
+auxiliary action-byte read was corrected independently from mode mutation.
+The Game scheduler/spawn adapter remains open; this milestone establishes
+static lowering and typed path execution, not complete gameplay integration.

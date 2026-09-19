@@ -306,7 +306,7 @@ pub trait Sf2PathHost {
     /// SF2's selected-object auxiliary records are indexed through the
     /// selected object's `$2B` slot field.
     fn selected_slot_class(&self) -> Result<u8, Self::Error>;
-    fn selected_aux_flags(&self) -> Result<u8, Self::Error>;
+    fn selected_aux_action_flags(&self) -> Result<u8, Self::Error>;
     fn or_selected_aux_flags(&mut self, bits: u8) -> Result<(), Self::Error>;
     /// Preserve the selected auxiliary slot's high nibble and set its low
     /// nibble to `$4`, exactly as retail path opcode `$16F` does.
@@ -2037,7 +2037,7 @@ impl PathVm {
                 self.advance(command);
             }
             IfSelectedAuxBit40 => {
-                if host.selected_aux_flags().map_err(PathVmError::Host)? & 0x40 != 0 {
+                if host.selected_aux_action_flags().map_err(PathVmError::Host)? & 0x40 != 0 {
                     self.cursor = PathAddress {
                         offset: operand_word(command, 1),
                     };
