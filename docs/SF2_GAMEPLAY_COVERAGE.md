@@ -411,3 +411,15 @@ sign-extend. Assignment, addition, increment, decrement and negation retain
 their destination widths. Ordinary speed/angle variable writes do not invoke
 SETVEL's velocity generation. This is a typed operand subset, not a claim
 that every encoded actor/world field is lowered or every path now ships.
+# Native path catalog dispatch (static-port work)
+
+The typed native path runtime now executes immutable semantic catalogs through
+explicit command indices. Actor operands are sampled at execution, including
+waits, counted loops, and comparisons. Call/return, movement yields, and callback
+returns retain their separate scheduler boundaries; immediate dispatch does not
+repeat common-entry player selection. Missing catalog entries and exhausted
+diagnostic budgets return errors, never a successful no-op or fabricated tick.
+Five synthetic dispatcher regressions pass, as do all 99 native path tests in
+release, 105 static path source checks, the app build, and architecture checks.
+This is dispatcher infrastructure, not completed authored-catalog lowering or
+Game integration. No original CPU execution or recorded gameplay was used.
