@@ -907,6 +907,12 @@ pub struct ObjectFlags {
     /// Source 22 bit 04 admits an actor to general searches and bulk cleanup.
     /// Shape-specific searches have their own selection rules.
     pub general_search_eligible: bool,
+    /// Source 24 bit 04 skips horizontal shape-footprint candidates at
+    /// `$7F:1BF0`; separate from collision queue membership.
+    pub exclude_from_shape_footprint_search: bool,
+    /// Source 26 bit 10 chooses the fixed maximum draw distance instead of
+    /// the shape-derived distance (`$7F:1278`, `$7F:1325`).
+    pub maximum_draw_distance: bool,
     pub scaled_sprite: bool,
     pub exploding: bool,
     pub on_fire: bool,

@@ -71,6 +71,7 @@ impl SpawnState {
             .contacts
             .exclusion_groups
             .union(ExclusionGroups::PATH_SPAWN);
+        actor.extension.path_state.needs_path_initialization = true;
         actor.extension.relative_position = parameters.position;
         actor.extension.relative_rotation = parameters.rotation;
         // Deliberately no eager conversion to world position. The source

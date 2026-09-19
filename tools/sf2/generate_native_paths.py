@@ -17,6 +17,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent / "disasm"))
 from extract_path import DEFAULT_ROM, PathAddress, PathCommand, PathExtractor
 from path_semantics import PATH_SEMANTICS
+from extract_shapes import SHAPE_HEADER_START, SHAPE_HEADER_SIZE, SHAPE_HEADER_COUNT
 
 REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
@@ -77,6 +78,19 @@ def child_spawn_parameters(command: PathCommand) -> ChildSpawnParameters:
                        for index in range(position_at, position_at + 6, 2)),
         number=raw[-1],
     )
+
+
+def child_spawn_shape(shape: int) -> tuple[int, str]:
+    delta = shape - SHAPE_HEADER_START
+    if delta < 0 or delta % SHAPE_HEADER_SIZE or delta // SHAPE_HEADER_SIZE >= SHAPE_HEADER_COUNT:
+        raise UnsupportedPath(f"child spawn shape is not a catalog header: {shape:04X}")
+    index = delta // SHAPE_HEADER_SIZE
+    # Reviewed transient sprite family, also named by the source pool-pressure
+    # sweep. Other shapes need native metadata review; never guess enemy vs
+    # scenery vs projectile from a numerically valid shape header alone.
+    if index not in (9, 10, 11, 12, 13):
+        raise UnsupportedPath(f"unreviewed native child kind for shape {shape:04X}")
+    return index, "ObjectKind::Effect"
 
 
 def word_field(variable: int) -> str:
@@ -186,7 +200,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name in ("SetByte", "SetWord", "AddByte", "AddWord", "SetZeroByte", "SetZeroWord"):
+        if name in ("SpawnChild", "SpawnChildAlias"):
+            spawn = child_spawn_parameters(command)
+            shape, kind = child_spawn_shape(spawn.shape)
+            path = f"Some({cursor(spawn.path)})" if spawn.path.offset else "None"
+            x, y, z = spawn.position
+            pitch, yaw, roll = spawn.rotation
+            position = f"Vector3 {{ x: {x}, y: {y}, z: {z} }}"
+            rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
+            spawn_ = f"ChildSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, position: {position}, rotation: {rotation}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power}, number: {spawn.number} }}"
+            statement = f"Statement::SpawnChild {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name in ("SetByte", "SetWord", "AddByte", "AddWord", "SetZeroByte", "SetZeroWord"):
             wide = name.endswith("Word")
             kind = "Word" if wide else "Byte"
             if name.startswith("SetZero"):
@@ -349,6 +373,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
 """
     if any("WordOperand::" in statement for statement in unique_statements.values()):
         source += "use super::path_fields::WordOperand;\n"
+    if any("Statement::SpawnChild" in statement for statement in unique_statements.values()):
+        source += "use super::path_spawn::ChildSpawn;\nuse super::{Angle, ObjectKind, Rotation, ShapeId, Vector3};\n"
     source += "\n".join(declarations)
     source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(roots)};"
     source += f"\npub const LOWERED_COMMAND_COUNT: usize = {len(unique_statements)};"

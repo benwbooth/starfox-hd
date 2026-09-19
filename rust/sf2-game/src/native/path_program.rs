@@ -19,6 +19,9 @@ pub struct PathWorld<'a> {
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
     pub selected_auxiliary: Option<AuxiliaryContinuationInput>,
+    /// Fresh initializer-mode observations. Missing inputs fault only if
+    /// this invocation reaches a spawn; they are not guessed from pause state.
+    pub spawn_defaults: Option<super::ObjectSpawnDefaults>,
     pub random: &'a mut RandomState,
     pub animation_clock: u8,
 }
@@ -131,6 +134,11 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    SpawnChild {
+        kind: super::ObjectKind,
+        parameters: super::path_spawn::ChildSpawn,
+        next: PathCursor,
+    },
     Relationship {
         command: super::path_relationships::RelationshipCommand,
         next: PathCursor,
@@ -194,6 +202,8 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    Spawn(super::path_spawn::SpawnError),
+    MissingSpawnDefaults,
     Relationship(super::path_relationships::RelationshipError),
     MissingSelectedAuxiliary,
     Runtime(PathRuntimeError),
@@ -257,6 +267,7 @@ impl PathRuntime {
         budget: usize,
     ) -> Result<ControlStep, ProgramError> {
         self.check_execution_owner(owner)?;
+        self.initialize_path_strategy(objects, owner)?;
         self.enter(objects, owner)?;
         self.resume_program(catalog, objects, owner, world, budget)
     }
@@ -285,6 +296,29 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::SpawnChild {
+                    kind,
+                    parameters,
+                    next,
+                } => {
+                    let defaults = world
+                        .spawn_defaults
+                        .ok_or(ProgramError::MissingSpawnDefaults)?;
+                    // Validate the independent child's native entry before
+                    // allocating; absent catalog coverage is never a no-op.
+                    if let Some(path) = parameters.path {
+                        catalog.statement(path)?;
+                    }
+                    self.spawns
+                        .child(objects, owner, kind, parameters, defaults)
+                        .map_err(ProgramError::Spawn)?;
+                    objects
+                        .get_mut(owner)
+                        .expect("validated spawn caller")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::Relationship { command, next } => {
                     super::path_relationships::apply(objects, owner, command)
                         .map_err(ProgramError::Relationship)?;
@@ -422,6 +456,7 @@ mod tests {
         PathWorld {
             selected: None,
             selected_auxiliary: None,
+            spawn_defaults: None,
             random,
             animation_clock: 0,
         }
@@ -438,6 +473,167 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    fn spawn_statement() -> Statement {
+        Statement::SpawnChild {
+            kind: ObjectKind::Effect,
+            parameters: super::super::path_spawn::ChildSpawn {
+                shape: ShapeId::from_catalog_index(9),
+                path: Some(cursor(1, 0)),
+                position: super::super::Vector3 {
+                    x: -123,
+                    y: 456,
+                    z: -789,
+                },
+                rotation: super::super::Rotation::default(),
+                hit_points: 1,
+                attack_power: 2,
+                number: 3,
+            },
+            next: cursor(0, 1),
+        }
+    }
+
+    #[test]
+    fn spawning_continues_parent_immediately_and_child_runs_only_when_scheduled() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        objects.get_mut(owner).unwrap().extension.spawn_group = 45;
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .conditions
+            .selected_player = PlayerTarget::Secondary;
+        let catalog = PathCatalog::new(vec![
+            vec![
+                spawn_statement(),
+                Statement::Control(ControlCommand::WaitOne { next: cursor(0, 2) }),
+                Statement::Control(ControlCommand::End),
+            ],
+            vec![
+                Statement::Sprite {
+                    color: 9,
+                    size: 12,
+                    next: cursor(1, 1),
+                },
+                Statement::Control(ControlCommand::End),
+            ],
+        ])
+        .unwrap();
+        let before_random = random;
+        let mut inputs = world(&mut random);
+        inputs.spawn_defaults = Some(super::super::ObjectSpawnDefaults {
+            run_when_paused: true,
+            group: 99,
+        });
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+            Ok(ControlStep::Movement)
+        );
+        let child = runtime.spawns.last_spawn.unwrap();
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 2)));
+        assert_eq!(objects.get(owner).unwrap().base.first_child, Some(child));
+        assert_eq!(objects.get(child).unwrap().base.path, Some(cursor(1, 0)));
+        assert_eq!(objects.get(child).unwrap().extension.texture_scroll_x, 0);
+        assert_eq!(objects.get(child).unwrap().extension.spawn_group, 45);
+        assert!(objects.get(child).unwrap().base.contacts.run_when_paused);
+        assert!(
+            objects
+                .get(child)
+                .unwrap()
+                .extension
+                .path_state
+                .needs_path_initialization
+        );
+        assert!(!objects.get(child).unwrap().base.flags.casts_shadow);
+        assert_eq!(runtime.selected_player(), PlayerTarget::Secondary);
+        // Neither dispatch nor spawning runs movement or recursively ticks
+        // the child; those remain the source strategy scheduler's boundaries.
+        assert_eq!(
+            objects.get(child).unwrap().base.position,
+            super::super::Vector3::default()
+        );
+        inputs.spawn_defaults = None; // this child's path needs no spawn inputs
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 8),
+            Ok(ControlStep::Ended)
+        );
+        assert_eq!(objects.get(child).unwrap().extension.texture_scroll_x, 12);
+        assert!(
+            !objects
+                .get(child)
+                .unwrap()
+                .extension
+                .path_state
+                .needs_path_initialization
+        );
+        assert!(objects.get(child).unwrap().base.flags.casts_shadow);
+        assert!(
+            objects
+                .get(child)
+                .unwrap()
+                .base
+                .flags
+                .exclude_from_shape_footprint_search
+        );
+        assert!(objects.get(child).unwrap().base.flags.maximum_draw_distance);
+        assert!(objects.get(child).unwrap().base.contacts.latch_new_contact);
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 2)));
+        assert_eq!(random, before_random);
+        assert_eq!(runtime.spawns.last_spawn, Some(child));
+    }
+
+    #[test]
+    fn missing_spawn_inputs_or_child_catalog_entry_preserve_allocation_and_caller_cursor() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let catalog = PathCatalog::new(vec![vec![spawn_statement()]]).unwrap();
+        let before = objects.clone();
+        let mut inputs = world(&mut random);
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+            Err(ProgramError::MissingSpawnDefaults)
+        );
+        assert_eq!(objects, before);
+        inputs.spawn_defaults = Some(super::super::ObjectSpawnDefaults::default());
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+            Err(ProgramError::MissingStatement(cursor(1, 0)))
+        );
+        assert_eq!(objects, before);
+        assert_eq!(runtime.spawns.last_spawn, None);
+    }
+
+    #[test]
+    fn spawn_failure_does_not_advance_to_a_successful_parent_continuation() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        for _ in 1..super::super::OBJECT_CAPACITY {
+            objects
+                .allocate(Object::new(
+                    ObjectKind::Scenery,
+                    ShapeId::EMPTY,
+                    Behavior::Effect,
+                ))
+                .unwrap();
+        }
+        let before = objects.clone();
+        runtime.spawns.last_spawn = Some(owner);
+        let catalog = PathCatalog::new(vec![
+            vec![spawn_statement(), Statement::Control(ControlCommand::End)],
+            vec![Statement::Control(ControlCommand::End)],
+        ])
+        .unwrap();
+        let mut inputs = world(&mut random);
+        inputs.spawn_defaults = Some(super::super::ObjectSpawnDefaults::default());
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+            Err(ProgramError::Spawn(
+                super::super::path_spawn::SpawnError::PoolExhausted
+            ))
+        );
+        assert_eq!(objects, before);
+        assert_eq!(runtime.spawns.last_spawn, None);
     }
 
     fn health(operation: ByteOperation, next: PathCursor) -> Statement {
@@ -625,6 +821,7 @@ mod tests {
         {
             let mut inputs = PathWorld {
                 selected: None,
+                spawn_defaults: None,
                 // The initial four-count loop does not read this record.
                 selected_auxiliary: (visit >= 3).then_some(AuxiliaryContinuationInput {
                     mode: if visit == 4 { 0x80 } else { 0 },
@@ -842,6 +1039,7 @@ mod tests {
             let mut inputs = PathWorld {
                 selected: None,
                 selected_auxiliary: None,
+                spawn_defaults: None,
                 random: &mut random,
                 animation_clock: 93,
             };
@@ -938,6 +1136,7 @@ mod tests {
                     &mut PathWorld {
                         selected: None,
                         selected_auxiliary: None,
+                        spawn_defaults: None,
                         random: &mut random,
                         animation_clock: 29,
                     },

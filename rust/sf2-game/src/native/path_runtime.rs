@@ -14,6 +14,9 @@ use super::{Behavior, Object, ObjectId, ObjectStore, PathCursor};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActorPathState {
+    /// A source initializer strategy precedes ordinary path entry once.
+    /// This is assigned-behavior state, not an age or first-contact flag.
+    pub needs_path_initialization: bool,
     pub animation: super::path_appearance::AnimationChannels,
     /// Retained motion phase word (source extension 1CE2). Some paths use its
     /// low byte as a phase counter; player motion also uses it as an angle.
@@ -84,6 +87,7 @@ pub struct TriggerWorldInputs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRuntime {
     pub resources: ProgramResources<ProgramData>,
+    pub spawns: super::path_spawn::SpawnState,
     pub steering: super::path_steering::SteeringState,
     pub branch: super::path_conditions::BranchState,
     calls: PathCalls,
@@ -97,6 +101,7 @@ impl Default for PathRuntime {
     fn default() -> Self {
         Self {
             resources: ProgramResources::default(),
+            spawns: super::path_spawn::SpawnState::default(),
             steering: super::path_steering::SteeringState::default(),
             branch: super::path_conditions::BranchState::default(),
             calls: PathCalls::default(),
@@ -115,6 +120,41 @@ fn actor_mut(objects: &mut ObjectStore, owner: ObjectId) -> Result<&mut Object, 
 }
 
 impl PathRuntime {
+    /// One-time strategy prefix (`$7F:7E1E..7E50`), before common path entry.
+    /// The source also clears its active-callback marker here. Our strategy
+    /// entry requires no active callback, so that marker is already absent;
+    /// shared call depth and deferred-call mode must NOT be reset with it.
+    pub fn initialize_path_strategy(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+    ) -> Result<(), PathRuntimeError> {
+        let needs_initialization = objects
+            .get(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?
+            .extension
+            .path_state
+            .needs_path_initialization;
+        if !needs_initialization {
+            return Ok(());
+        }
+        self.validate_terminal_command()?;
+        let actor = actor_mut(objects, owner)?;
+        actor.base.behavior = Behavior::FollowPath;
+        actor.base.contacts.exclusion_groups = actor
+            .base
+            .contacts
+            .exclusion_groups
+            .union(super::collision_pass::ExclusionGroups::PATH_SPAWN);
+        actor.base.flags.casts_shadow = true;
+        actor.base.flags.exclude_from_shape_footprint_search = true;
+        actor.base.contacts.latch_new_contact = true;
+        actor.base.flags.maximum_draw_distance = true;
+        actor.extension.path_state.repeat_counter = 0;
+        actor.extension.path_state.needs_path_initialization = false;
+        Ok(())
+    }
+
     pub(super) fn validate_terminal_command(&self) -> Result<(), PathRuntimeError> {
         // Callbacks enter by a jump and return through their own continuation.
         // END's main-invocation exit is not a valid callback-root return;
@@ -474,6 +514,83 @@ mod tests {
         value.base.path = Some(cursor(1));
         value.base.hit_points = 10;
         value
+    }
+
+    #[test]
+    fn first_path_strategy_initializes_once_without_clearing_wait_stack_or_shared_call_state() {
+        let mut objects = ObjectStore::new();
+        let mut value = actor();
+        value.extension.path_state.needs_path_initialization = true;
+        value.extension.path_state.repeat_counter = 77;
+        value.base.wait_timer = 19;
+        value.base.behavior = Behavior::Effect;
+        value.base.contacts.exclusion_groups =
+            super::super::collision_pass::ExclusionGroups::from_authored_class(0x80);
+        let owner = objects.allocate(value).unwrap();
+        let mut runtime = PathRuntime::default();
+        runtime.branch.invert_next = true;
+        runtime
+            .calls
+            .call(
+                &mut objects.get_mut(owner).unwrap().extension.path_state.stack,
+                &mut runtime.resources,
+                owner,
+                cursor(7),
+            )
+            .unwrap();
+        let before_calls = runtime.calls.clone();
+        let before_resources = runtime.resources.clone();
+        let mut expected = objects.get(owner).unwrap().clone();
+        expected.base.behavior = Behavior::FollowPath;
+        expected.base.contacts.exclusion_groups =
+            super::super::collision_pass::ExclusionGroups::from_authored_class(0x90);
+        expected.base.flags.casts_shadow = true;
+        expected.base.flags.exclude_from_shape_footprint_search = true;
+        expected.base.contacts.latch_new_contact = true;
+        expected.base.flags.maximum_draw_distance = true;
+        expected.extension.path_state.repeat_counter = 0;
+        expected.extension.path_state.needs_path_initialization = false;
+        runtime
+            .initialize_path_strategy(&mut objects, owner)
+            .unwrap();
+        assert_eq!(objects.get(owner), Some(&expected));
+        assert_eq!(runtime.calls, before_calls);
+        assert_eq!(runtime.resources, before_resources);
+        assert!(runtime.branch.invert_next);
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.flags.casts_shadow = false;
+        actor.base.flags.maximum_draw_distance = false;
+        actor.extension.path_state.repeat_counter = 91;
+        let before = objects.clone();
+        runtime
+            .initialize_path_strategy(&mut objects, owner)
+            .unwrap();
+        assert_eq!(objects, before);
+    }
+
+    #[test]
+    fn first_strategy_cannot_discard_an_active_callback_batch() {
+        let mut objects = ObjectStore::new();
+        let owner = objects.allocate(actor()).unwrap();
+        let mut runtime = PathRuntime::default();
+        runtime
+            .add_trigger(&mut objects, owner, trigger(9, TriggerKind::Always))
+            .unwrap();
+        runtime.begin_callbacks(&mut objects, owner).unwrap();
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .needs_path_initialization = true;
+        let before = objects.clone();
+        let before_runtime = runtime.clone();
+        assert_eq!(
+            runtime.initialize_path_strategy(&mut objects, owner),
+            Err(PathRuntimeError::InvalidTerminalCallback)
+        );
+        assert_eq!(objects, before);
+        assert_eq!(runtime, before_runtime);
     }
 
     fn trigger(command_index: u16, kind: TriggerKind) -> Trigger {

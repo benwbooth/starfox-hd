@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    byte_field, child_spawn_parameters, generate, graph, lower_graph, word_field,
+    byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, word_field,
 )
 
 
@@ -52,8 +52,43 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(statements[7], "Statement::Control(ControlCommand::End)")
 
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported SpawnChild"):
+        # The parent spawn is now supported, but its independently spawned
+        # child's sound service is not. Reject the entire parent graph too.
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported QueueSelectedMarkerDirect"):
             lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
+
+    def test_spawn_lowering_uses_semantic_shape_and_child_cursor_with_separate_continuation(self):
+        for record, rotation in (
+            ("f5 98 bd 00 f6 81 fe 00 80 ff 7f ff ff ff", (0, 0, 0)),
+            ("33 98 bd 00 f6 80 81 ff 81 fe 00 80 ff 7f ff ff ff", (128, 129, 255)),
+        ):
+            changed = bytearray(self.rom)
+            program = bytes.fromhex(record) + b"\x0f"
+            changed[0x4F536:0x4F536 + len(program)] = program
+            changed[0x4F600] = 0x0F
+            entry, statements = lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF536), 0)
+            self.assertEqual(entry, 0)
+            self.assertEqual(len(statements), 3)
+            self.assertIn("kind: ObjectKind::Effect", statements[0])
+            self.assertIn("ShapeId::from_catalog_index(9)", statements[0])
+            self.assertIn("path: Some(cursor(0, 2))", statements[0])
+            self.assertIn("next: cursor(0, 1)", statements[0])
+            self.assertIn("x: -32768, y: 32767, z: -1", statements[0])
+            for field, value in zip(("pitch", "yaw", "roll"), rotation):
+                self.assertIn(f"{field}: Angle::from_units({value})", statements[0])
+            self.assertIn("hit_points: 129, attack_power: 254, number: 255", statements[0])
+            generated = generate(bytes(changed), (("SPAWNER", PathAddress(0xF536)),))
+            self.assertIn("use super::path_spawn::ChildSpawn;", generated)
+            self.assertIn("LOWERED_COMMAND_COUNT: usize = 3", generated)
+            self.assertNotIn("0xBD98", generated)
+
+    def test_spawn_null_path_is_absent_and_unknown_shapes_or_native_kinds_are_rejected(self):
+        self.assertIn("path: None", self.lower_record("f5 98 bd 00 00 01 01 00 00 00 00 00 00 00")[0])
+        for shape in [0, 0xBD99, 0xFBB8, 0xFFFF]:
+            with self.assertRaisesRegex(UnsupportedPath, "not a catalog header"):
+                child_spawn_shape(shape)
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed native child kind"):
+            child_spawn_shape(0xBC9C)
 
     def test_compact_child_parameters_use_literal_offsets_and_zero_rotation(self):
         extractor = PathExtractor(self.rom)

@@ -68,6 +68,20 @@ class PathSpawnStaticTests(unittest.TestCase):
     def test_failed_allocator_returns_null_destination_without_initializing_an_actor(self):
         self.assert_source(0x7F2A17, "86 3A AE A8 12 22 25 29 7F B0 07 A0 00 00 A6 3A 18 6B 9B A6 3A E2 20 22 BC 29 7F C2 20 A5 5F 99 04 00 E2 20 38 6B")
 
+    def test_first_path_strategy_sets_flags_and_clears_repeat_not_wait_or_stack(self):
+        self.assert_source(0x7F7E1E, "C2 20 A9 53 7E 95 19 E2 20 A9 7F 95 1B B5 31 09 10 95 31 B5 20 09 08 95 20 B5 24 09 04 95 24 B5 26 09 01 95 26 B5 26 09 10 95 26 A9 00 95 28 9C 6D B2 9C 6E B2")
+
+    def test_shadow_flag_is_published_to_draw_record_and_consumed_as_ground_shadow(self):
+        self.assert_source(0x7F1400, "B9 20 00 9D 07 00")
+        # GSU shape preparation loads record byte 7 and tests bit 8 before
+        # the shadow-height transform; source_offset also handles this LoROM.
+        self.assert_source(0x01D2CF, "A8 07 28 59 3D 48 A1 08 71 09 67 01 A8 12 28 59 11 48 3D F0 EE 03")
+
+    def test_path_flag_excludes_shape_footprint_candidates_and_draw_flag_selects_maximum(self):
+        self.assert_source(0x7F1BFE, "E4 3A F0 6E B5 31 29 04 00 D0 67 B5 24 29 04 00 D0 60 B4 04")
+        self.assert_source(0x7F1325, "B9 26 00 29 10 F0 04 5C 59 13 7F")
+        self.assert_source(0x7F1359, "C2 20 A9 E0 2E 85 3A")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -553,3 +553,19 @@ native memory corruption. Malformed chain diagnostics identify any allocated
 child retained at the error boundary. Tests pass for six spawn scenarios,
 12 object-pool/default cases, 133 native path cases and 137 static path checks;
 the app builds. Catalog dispatch and Game integration of spawning remain open.
+
+Spawn dispatch now advances the parent immediately while leaving the child's
+program for a later scheduler visit. Missing initializer inputs, missing child
+catalog entries and allocation failures retain the parent cursor and report
+errors. The runtime owns the shared last-spawn selection. A spawned child's
+one-time path-strategy prefix runs at its first program entry: it enables the
+source shadow/contact/footprint-exclusion/draw-distance flags and clears only
+the repeat counter, preserving wait, stack, call depth and pending-call state.
+This prefix is not reapplied on subsequent entries or callback resumes.
+The lowerer supports both child record forms for the reviewed transient-sprite
+family; unreviewed shape categories still fail explicitly. The F561 parent now
+passes its spawn lowering but is rejected at its child's unported sound cue,
+so the published catalog remains six complete graphs, not seven. Verification
+passes 138 native path tests in debug and release, 23 lowerer tests, 140 static
+path checks, architecture/dependency checks and the app build. World/Game
+scheduling and the remaining audio service are still separate open work.
