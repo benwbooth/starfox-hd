@@ -92,6 +92,34 @@ pub enum MotionCommand {
 }
 
 impl PathRuntime {
+    pub fn execute_facing(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        command: super::path_steering::FacingCommand,
+        targets: super::path_steering::FacingTargets,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        if objects
+            .get(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?
+            .base
+            .path
+            .is_none()
+        {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        super::path_steering::face(objects, owner, command, targets, &mut self.steering)
+            .map_err(PathRuntimeError::Steering)?;
+        objects
+            .get_mut(owner)
+            .expect("validated facing actor")
+            .base
+            .path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     pub fn execute_motion(
         &mut self,
         objects: &mut ObjectStore,
@@ -291,6 +319,51 @@ mod tests {
         actor.base.path = Some(cursor(0));
         let owner = objects.allocate(actor).unwrap();
         (PathRuntime::default(), objects, owner)
+    }
+
+    #[test]
+    fn facing_advances_without_motion_and_requires_a_live_path() {
+        use super::super::path_steering::{FacingCommand, FacingTargets};
+        let (mut runtime, mut objects, owner) = setup();
+        let target = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        objects.get_mut(target).unwrap().base.position.x = 100;
+        let targets = FacingTargets {
+            selected: Some(target),
+            ..FacingTargets::default()
+        };
+        assert_eq!(
+            runtime
+                .execute_facing(
+                    &mut objects,
+                    owner,
+                    FacingCommand::SelectedImmediate,
+                    targets,
+                    cursor(8)
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.base.yaw.units(), 192);
+        assert_eq!(actor.base.position, crate::Vector3::default());
+        assert_eq!(actor.base.path, Some(cursor(8)));
+        objects.get_mut(owner).unwrap().base.path = None;
+        assert_eq!(
+            runtime.execute_facing(
+                &mut objects,
+                owner,
+                FacingCommand::SelectedImmediate,
+                targets,
+                cursor(9)
+            ),
+            Err(PathRuntimeError::MissingPath(owner))
+        );
     }
 
     #[test]

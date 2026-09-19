@@ -42,6 +42,11 @@ pub enum PathRuntimeError {
     WrongCallbackOwner,
     CallbackStillExecuting,
     NoCallbackExecuting,
+    MovementAlreadyActive,
+    NoMovementActive,
+    CallbacksStillActive,
+    Attachments(super::attachments::AttachmentError),
+    Steering(super::path_steering::SteeringError),
     Calls(CallError),
     Triggers(TriggerError),
     Stack(PathStackError),
@@ -71,9 +76,11 @@ pub struct TriggerWorldInputs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRuntime {
     pub resources: ProgramResources<ProgramData>,
+    pub steering: super::path_steering::SteeringState,
     calls: PathCalls,
     runner: TriggerRunner,
     active: Option<ActiveCallbacks>,
+    movement: Option<ObjectId>,
     selected: PlayerTarget,
 }
 
@@ -81,9 +88,11 @@ impl Default for PathRuntime {
     fn default() -> Self {
         Self {
             resources: ProgramResources::default(),
+            steering: super::path_steering::SteeringState::default(),
             calls: PathCalls::default(),
             runner: TriggerRunner::default(),
             active: None,
+            movement: None,
             selected: PlayerTarget::Primary,
         }
     }
@@ -98,6 +107,53 @@ fn actor_mut(objects: &mut ObjectStore, owner: ObjectId) -> Result<&mut Object, 
 impl PathRuntime {
     pub fn selected_player(&self) -> PlayerTarget {
         self.selected
+    }
+
+    /// Start exactly one movement invocation. The returned flag tells the
+    /// caller whether to service callbacks before calling finish_movement.
+    /// Displacement must be sampled using the selection that exists now;
+    /// callbacks may change that selection before the final carry service.
+    pub fn begin_movement(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        player: super::path_motion::PlayerDisplacement,
+    ) -> Result<bool, PathRuntimeError> {
+        if self.movement.is_some() {
+            return Err(PathRuntimeError::MovementAlreadyActive);
+        }
+        if self.active.is_some() {
+            return Err(PathRuntimeError::Calls(CallError::ReentrantCallbacks));
+        }
+        let actor = actor_mut(objects, owner)?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        super::path_motion::before_callbacks(actor, owner, player);
+        self.movement = Some(owner);
+        self.begin_callbacks(objects, owner)
+    }
+
+    /// Finish the active movement after all callbacks, including skips and
+    /// expired registrations, have been visited. Resolve the final selected
+    /// player's auxiliary state here instead of retaining the entry target.
+    pub fn finish_movement(
+        &mut self,
+        objects: &mut ObjectStore,
+        players: &mut [Option<super::platform_carry::CarriedPlayer>; 2],
+    ) -> Result<(), PathRuntimeError> {
+        let owner = self.movement.ok_or(PathRuntimeError::NoMovementActive)?;
+        if self.active.is_some() {
+            return Err(PathRuntimeError::CallbacksStillActive);
+        }
+        let selected = match self.selected {
+            PlayerTarget::Primary => 0,
+            PlayerTarget::Secondary => 1,
+        };
+        super::path_motion::after_callbacks(objects, owner, players[selected].as_mut())
+            .map_err(PathRuntimeError::Attachments)?;
+        self.movement = None;
+        Ok(())
     }
 
     /// Common entry, including callback entry: selection follows this actor's
@@ -412,6 +468,134 @@ mod tests {
         runtime
             .step_callbacks(objects, owner, TriggerWorldInputs::default())
             .unwrap()
+    }
+
+    #[test]
+    fn movement_reselects_carry_after_callback_and_preserves_phase_order() {
+        use super::super::path_motion::PlayerDisplacement;
+        use super::super::platform_carry::CarriedPlayer;
+        use crate::Vector3;
+        let mut objects = ObjectStore::new();
+        let owner = objects.allocate(actor()).unwrap();
+        let child = objects.allocate(actor()).unwrap();
+        let parent = objects.get_mut(owner).unwrap();
+        parent.base.velocity.x = 10;
+        parent.base.first_child = Some(child);
+        parent.base.contacts.new_contact_latched = true;
+        parent.extension.path_state.motion.carry_selected_player = true;
+        parent.extension.path_state.motion.refresh_child_chain = true;
+        parent.extension.path_state.platform_carry.continuity = 1;
+        objects.get_mut(child).unwrap().base.attachment = Some(owner);
+        let mut runtime = PathRuntime::default();
+        runtime
+            .add_trigger(&mut objects, owner, trigger(20, TriggerKind::Always))
+            .unwrap();
+        runtime.enter(&objects, owner).unwrap();
+        assert!(runtime
+            .begin_movement(&mut objects, owner, PlayerDisplacement::default())
+            .unwrap());
+        assert_eq!(objects.get(owner).unwrap().base.position.x, 10);
+        let player = CarriedPlayer {
+            enabled: true,
+            carrier: Some(owner),
+            ..Default::default()
+        };
+        let mut players = [Some(player), Some(player)];
+        assert_eq!(
+            runtime.finish_movement(&mut objects, &mut players),
+            Err(PathRuntimeError::CallbacksStillActive)
+        );
+        assert_eq!(
+            runtime.begin_movement(&mut objects, owner, PlayerDisplacement::default()),
+            Err(PathRuntimeError::MovementAlreadyActive)
+        );
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .conditions
+            .selected_player = PlayerTarget::Secondary;
+        assert_eq!(
+            step(&mut runtime, &mut objects, owner),
+            CallbackStep::Run(cursor(20))
+        );
+        let parent = objects.get_mut(owner).unwrap();
+        assert!(parent.base.contacts.new_contact_latched);
+        parent.base.position.x = 100;
+        parent.base.velocity.x = 3;
+        parent.extension.path_state.motion.relative_coordinates = true;
+        assert_eq!(
+            runtime.return_from(&mut objects, owner).unwrap(),
+            PathReturn::CallbackComplete
+        );
+        assert_eq!(
+            step(&mut runtime, &mut objects, owner),
+            CallbackStep::Complete
+        );
+        runtime.finish_movement(&mut objects, &mut players).unwrap();
+        assert_eq!(players[0], Some(player));
+        assert_eq!(players[1].unwrap().origin, Vector3 { x: 100, y: 0, z: 0 });
+        assert_eq!(objects.get(child).unwrap().base.position.x, 100);
+        assert_eq!(objects.get(owner).unwrap().extension.relative_position.x, 3);
+        assert!(
+            !objects
+                .get(owner)
+                .unwrap()
+                .base
+                .contacts
+                .new_contact_latched
+        );
+        assert_eq!(
+            runtime.finish_movement(&mut objects, &mut players),
+            Err(PathRuntimeError::NoMovementActive)
+        );
+    }
+
+    #[test]
+    fn empty_callback_movement_still_requires_post_phase_without_refreshing_selection() {
+        use super::super::path_motion::PlayerDisplacement;
+        let mut objects = ObjectStore::new();
+        let owner = objects.allocate(actor()).unwrap();
+        let other = objects.allocate(actor()).unwrap();
+        let mut runtime = PathRuntime::default();
+        objects
+            .get_mut(other)
+            .unwrap()
+            .extension
+            .path_state
+            .conditions
+            .selected_player = PlayerTarget::Secondary;
+        runtime.enter(&objects, other).unwrap();
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .clear_on_path_exit_latch = true;
+        assert!(!runtime
+            .begin_movement(&mut objects, owner, PlayerDisplacement::default())
+            .unwrap());
+        assert_eq!(runtime.selected_player(), PlayerTarget::Secondary);
+        assert!(
+            objects
+                .get(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .clear_on_path_exit_latch
+        );
+        runtime
+            .finish_movement(&mut objects, &mut [None, None])
+            .unwrap();
+        assert!(
+            !objects
+                .get(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .clear_on_path_exit_latch
+        );
     }
 
     #[test]

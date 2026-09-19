@@ -341,3 +341,15 @@ pass. No recorded gameplay or original-program execution was used. The common
 post-callback service is available to the native path owner; complete authored
 program lowering, pre/post movement orchestration through that owner, and
 replacing `Game`'s recorded controllers remain unfinished.
+
+`PathRuntime` now owns the movement invocation across its callback batch and
+resolves selected-player carry after callbacks, enforcing pre/post ordering
+and rejecting nested or prematurely completed movement. Six typed facing
+commands cover selected, fixed-player and linked targets with their distinct
+immediate/quarter-step/eighth-step rules. Linked absence is a source no-op;
+selected full-facing and yaw-only variants have different shared-result effects,
+and only selected/fixed variants update retained relative yaw. Tests exhaust
+all byte-angle pairs for both chase rates; focused runtime and command tests
+exercise real actor/callback state. The authored catalog still needs lowering
+to these statements and the production game still needs its recorded controllers
+replaced; native command kernels alone are not completion.
