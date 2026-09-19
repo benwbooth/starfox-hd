@@ -1417,6 +1417,30 @@ impl Game {
         )
     }
 
+    fn selected_plane_negative(
+        &self,
+        axis: crate::native::path_control::PlaneAxis,
+    ) -> Result<bool, Error> {
+        let current = self.current_object()?;
+        let selected = self.memory.read_word(SELECTED_OBJECT);
+        let position = |object| crate::native::Vector3 {
+            x: self.object_word(object, FIELD_X),
+            y: self.object_word(object, FIELD_Y),
+            z: self.object_word(object, FIELD_Z),
+        };
+        let rotation = crate::native::Rotation {
+            pitch: crate::native::Angle::from_units(self.memory.read_byte(selected + FIELD_ROT_X)),
+            yaw: crate::native::Angle::from_units(self.memory.read_byte(selected + FIELD_ROT_Y)),
+            roll: crate::native::Angle::from_units(self.memory.read_byte(selected + FIELD_ROT_Z)),
+        };
+        Ok(crate::native::path_control::plane_projection(
+            position(selected),
+            rotation,
+            position(current),
+            axis,
+        ) < 0)
+    }
+
     fn contract_radius_position(
         &self,
         current: u16,
@@ -2506,25 +2530,32 @@ impl Sf2PathHost for Game {
     }
 
     fn selected_distance(&mut self) -> Result<u16, Self::Error> {
-        let Some(selected) = self.selected_object() else {
-            return Ok(u16::MAX);
-        };
+        let selected = self.memory.read_word(SELECTED_OBJECT);
         let (x, _, z) = self.object_delta(self.current_object()?, selected);
-        let square = i64::from(x) * i64::from(x) + i64::from(z) * i64::from(z);
-        Ok((square as u64).isqrt().min(u64::from(u16::MAX)) as u16)
+        Ok(crate::native::path_math::vector_length(
+            crate::native::Vector3 { x, y: 0, z },
+        ))
     }
 
     fn mother_distance(&mut self) -> Result<Option<u16>, Self::Error> {
         let mother = self.memory.read_word(self.current_object()? + 0x06);
-        if object_index(mother).is_none() {
+        if mother == 0 {
             return Ok(None);
         }
-        self.memory.write_word(SELECTED_OBJECT, mother);
-        self.selected_distance().map(Some)
+        let (x, _, z) = self.object_delta(self.current_object()?, mother);
+        Ok(Some(crate::native::path_math::vector_length(
+            crate::native::Vector3 { x, y: 0, z },
+        )))
     }
 
     fn selected_within_range(&mut self, range: u16) -> Result<bool, Self::Error> {
-        Ok(self.selected_distance()? < range)
+        let selected = self.memory.read_word(SELECTED_OBJECT);
+        let (x, y, z) = self.object_delta(self.current_object()?, selected);
+        Ok(crate::native::path_conditions::within_target_range(
+            crate::native::Vector3::default(),
+            crate::native::Vector3 { x, y, z },
+            range,
+        ))
     }
 
     fn selected_relative_yaw(&mut self) -> Result<u8, Self::Error> {
@@ -3395,12 +3426,9 @@ impl Sf2PathHost for Game {
                     .wrapping_add(offset as i16)
                     >= 0
             }
-            Sf2PathCondition::ProjectedSelectedPointNegative => self
-                .selected_object()
-                .map(|selected| {
-                    self.object_word(selected, FIELD_Z) < self.object_word(current, FIELD_Z)
-                })
-                .unwrap_or(false),
+            Sf2PathCondition::ProjectedSelectedPointNegative => {
+                self.selected_plane_negative(crate::native::path_control::PlaneAxis::Right)?
+            }
             Sf2PathCondition::SelectedAtOrBelowObject => self
                 .selected_object()
                 .map(|selected| {
@@ -3409,13 +3437,9 @@ impl Sf2PathHost for Game {
                         >= 0
                 })
                 .unwrap_or(false),
-            Sf2PathCondition::ProjectedSelectedForwardPointNegative => self
-                .selected_object()
-                .map(|selected| {
-                    self.object_word(selected, FIELD_Z).wrapping_add(127)
-                        < self.object_word(current, FIELD_Z)
-                })
-                .unwrap_or(false),
+            Sf2PathCondition::ProjectedSelectedForwardPointNegative => {
+                self.selected_plane_negative(crate::native::path_control::PlaneAxis::Forward)?
+            }
             Sf2PathCondition::SelectedAboveObject => self
                 .selected_object()
                 .map(|selected| {

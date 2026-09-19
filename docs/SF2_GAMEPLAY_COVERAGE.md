@@ -389,3 +389,16 @@ the matching hit-mask bits. The latter operand is a literal mask, not a bit
 number. The verification host's ground predicate now takes the nonnegative
 height-plus-offset branch. These are static source corrections; neither
 recordings nor original-program execution determined the expected behavior.
+
+Spatial dispatch now samples actual object-store transforms and links at the
+statement boundary. Linked-distance tests neither require nor replace selected
+target state. The selected right-plane and forward-plane branches reuse the
+source byte-rotation/high-product projection, with the selected actor as the
+plane's origin and orientation; they are not world-depth comparisons. END
+marks deferred removal and clears only exit latches without movement or cursor
+advance. PATHHOLD retains its cursor and installs the movement-only behavior.
+Neither may substitute for a callback RETURN; invalid nested termination is
+reported explicitly. Focused native path coverage now passes 89 release tests;
+98 static path checks and three synthetic verification-host condition tests
+pass without executing the original programs. Whole authored-program dispatch
+and production scheduler replacement remain open.

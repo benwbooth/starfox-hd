@@ -51,6 +51,58 @@ fn static_vertical_path_conditions_use_wrapped_height_and_ground_sign() {
 }
 
 #[test]
+fn static_selected_plane_conditions_use_selected_orientation_not_world_depth() {
+    let mut game = Game::new(Vec::new()).unwrap();
+    let current = allocate(&mut game.memory, 0).unwrap();
+    let selected = allocate(&mut game.memory, current).unwrap();
+    game.memory.write_word(CURRENT_OBJECT, current);
+    game.memory.write_word(0xCF1F, selected);
+    game.memory.write_word(current + FIELD_X, (-100i16) as u16);
+    game.memory.write_word(current + FIELD_Z, 100);
+    for (yaw, right, forward) in [(0, true, false), (128, false, true)] {
+        game.memory.write_byte(selected + FIELD_ROT_Y, yaw);
+        assert_eq!(
+            Sf2PathHost::evaluate_path_condition(
+                &mut game,
+                Sf2PathCondition::ProjectedSelectedPointNegative
+            )
+            .unwrap(),
+            right
+        );
+        assert_eq!(
+            Sf2PathHost::evaluate_path_condition(
+                &mut game,
+                Sf2PathCondition::ProjectedSelectedForwardPointNegative
+            )
+            .unwrap(),
+            forward
+        );
+    }
+}
+
+#[test]
+fn static_distance_conditions_do_not_change_selection_and_range_is_not_euclidean() {
+    let mut game = Game::new(Vec::new()).unwrap();
+    let current = allocate(&mut game.memory, 0).unwrap();
+    let selected = allocate(&mut game.memory, current).unwrap();
+    let linked = allocate(&mut game.memory, selected).unwrap();
+    game.memory.write_word(CURRENT_OBJECT, current);
+    game.memory.write_word(0xCF1F, selected);
+    game.memory.write_word(current + 6, linked);
+    game.memory.write_word(selected + FIELD_X, 80);
+    game.memory.write_word(selected + FIELD_Y, 80);
+    game.memory.write_word(linked + FIELD_X, 300);
+    assert_eq!(Sf2PathHost::selected_distance(&mut game).unwrap(), 80);
+    assert!(!Sf2PathHost::selected_within_range(&mut game, 100).unwrap());
+    assert!(Sf2PathHost::selected_within_range(&mut game, 161).unwrap());
+    assert_eq!(Sf2PathHost::mother_distance(&mut game).unwrap(), Some(300));
+    assert_eq!(game.memory.read_word(0xCF1F), selected);
+    game.memory.write_word(current + 6, 0);
+    assert_eq!(Sf2PathHost::mother_distance(&mut game).unwrap(), None);
+    assert_eq!(game.memory.read_word(0xCF1F), selected);
+}
+
+#[test]
 fn retail_object_pool_formats_all_sixty_stride_3f_records() {
     let game = Game::new(Vec::new()).unwrap();
     assert_eq!(game.memory.read_word(ACTIVE_LIST), 0);

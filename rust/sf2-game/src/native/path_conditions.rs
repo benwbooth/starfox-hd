@@ -1,7 +1,113 @@
 //! Source conditional path statements and their shared IFNOT latch.
 //! Operands here are typed values sampled by the command's world adapter.
 
-use super::{Angle, Vector3};
+use super::{Angle, ObjectId, ObjectStore, Vector3};
+
+/// Actor/world comparisons retain their operands until dispatch, so a prior
+/// callback or command can move or reorient either actor before the test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpatialCondition {
+    SelectedDistanceLess(u16),
+    LinkedDistanceLess(u16),
+    GroundThreshold(i16),
+    WithinSelectedRange(u16),
+    SelectedWithinYawArc(u8),
+    SelectedRelativeYawBetween { lower: u8, upper: u8 },
+    SelectedAbove,
+    SelectedAtOrBelow,
+    NegativeSelectedPlane(super::path_control::PlaneAxis),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionError {
+    MissingActor(ObjectId),
+    MissingSelected,
+}
+
+pub fn sample_spatial(
+    objects: &ObjectStore,
+    owner: ObjectId,
+    selected: Option<ObjectId>,
+    condition: SpatialCondition,
+) -> Result<Predicate, ConditionError> {
+    let actor = objects
+        .get(owner)
+        .ok_or(ConditionError::MissingActor(owner))?;
+    let position = actor.base.position;
+    // Resolve only predicates that actually need selection. In particular,
+    // absent links must not accidentally require a selected actor.
+    let target = || {
+        let id = selected.ok_or(ConditionError::MissingSelected)?;
+        objects.get(id).ok_or(ConditionError::MissingActor(id))
+    };
+    Ok(match condition {
+        SpatialCondition::SelectedDistanceLess(limit) => Predicate::HorizontalDistanceLess {
+            position,
+            target: target()?.base.position,
+            limit,
+        },
+        SpatialCondition::LinkedDistanceLess(limit) => Predicate::LinkedDistanceLess {
+            position,
+            target: actor
+                .base
+                .attachment
+                .map(|id| {
+                    objects
+                        .get(id)
+                        .map(|actor| actor.base.position)
+                        .ok_or(ConditionError::MissingActor(id))
+                })
+                .transpose()?,
+            limit,
+        },
+        SpatialCondition::GroundThreshold(offset) => Predicate::GroundThreshold {
+            height: position.y,
+            offset,
+        },
+        SpatialCondition::WithinSelectedRange(limit) => Predicate::WithinTargetRange {
+            position,
+            target: target()?.base.position,
+            limit,
+        },
+        SpatialCondition::SelectedWithinYawArc(radius) => Predicate::TargetWithinYawArc {
+            position,
+            target: target()?.base.position,
+            yaw: actor.base.yaw,
+            radius,
+        },
+        SpatialCondition::SelectedRelativeYawBetween { lower, upper } => {
+            let target = target()?;
+            Predicate::TargetRelativeYawBetween {
+                position,
+                target: target.base.position,
+                target_yaw: target.base.yaw,
+                lower,
+                upper,
+            }
+        }
+        SpatialCondition::SelectedAbove => Predicate::TargetAbove {
+            height: position.y,
+            target_height: target()?.base.position.y,
+        },
+        SpatialCondition::SelectedAtOrBelow => Predicate::TargetAtOrBelow {
+            height: position.y,
+            target_height: target()?.base.position.y,
+        },
+        SpatialCondition::NegativeSelectedPlane(axis) => {
+            let target = target()?;
+            Predicate::NegativeSelectedPlane {
+                position,
+                target_position: target.base.position,
+                target_rotation: super::Rotation {
+                    pitch: target.base.pitch,
+                    yaw: target.base.yaw,
+                    roll: target.base.roll,
+                },
+                axis,
+            }
+        }
+    })
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BranchState {
@@ -11,6 +117,12 @@ pub struct BranchState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Predicate {
+    NegativeSelectedPlane {
+        position: Vector3,
+        target_position: Vector3,
+        target_rotation: super::Rotation,
+        axis: super::path_control::PlaneAxis,
+    },
     EqualByte {
         value: u8,
         expected: u8,
@@ -101,6 +213,21 @@ impl BranchState {
     pub fn test(&mut self, predicate: Predicate) -> bool {
         use Predicate::*;
         let value = match predicate {
+            NegativeSelectedPlane {
+                position,
+                target_position,
+                target_rotation,
+                axis,
+            } => {
+                // Both handlers orient the plane with the selected actor,
+                // then project this actor minus the selected position.
+                return super::path_control::plane_projection(
+                    target_position,
+                    target_rotation,
+                    position,
+                    axis,
+                ) < 0;
+            }
             EqualByte { value, expected } => value == expected,
             EqualWord { value, expected } => value == expected,
             // Source CMP/BMI tests the sign of a bounded subtraction, not
@@ -295,6 +422,51 @@ mod tests {
                 }),
                 !expected
             );
+        }
+        assert!(state.invert_next);
+    }
+
+    #[test]
+    fn selected_plane_uses_selected_orientation_and_wrapped_projection() {
+        use super::super::path_control::PlaneAxis;
+        let mut state = BranchState { invert_next: true };
+        let position = Vector3 {
+            x: -100,
+            y: 0,
+            z: 100,
+        };
+        for (axis, yaw, expected) in [
+            (PlaneAxis::Right, 0, true),
+            (PlaneAxis::Forward, 0, false),
+            (PlaneAxis::Right, 128, false),
+            (PlaneAxis::Forward, 128, true),
+        ] {
+            assert_eq!(
+                state.test(Predicate::NegativeSelectedPlane {
+                    position,
+                    target_position: Vector3::default(),
+                    target_rotation: super::super::Rotation {
+                        yaw: Angle::from_units(yaw),
+                        ..Default::default()
+                    },
+                    axis,
+                }),
+                expected
+            );
+        }
+        for axis in [PlaneAxis::Right, PlaneAxis::Forward] {
+            // Doubling the source word precedes multiplication, so both
+            // extreme displacements wrap to zero instead of remaining negative.
+            assert!(!state.test(Predicate::NegativeSelectedPlane {
+                position: Vector3 {
+                    x: i16::MIN,
+                    y: 0,
+                    z: i16::MIN
+                },
+                target_position: Vector3::default(),
+                target_rotation: Default::default(),
+                axis,
+            }));
         }
         assert!(state.invert_next);
     }

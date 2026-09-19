@@ -14,6 +14,8 @@ use super::{Behavior, Object, ObjectId, ObjectStore, PathCursor};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActorPathState {
+    /// PATHHOLD sets source actor flag 09 bit 08 and retains its cursor.
+    pub hold_latched: bool,
     pub motion: super::path_motion::MotionSettings,
     pub platform_carry: super::platform_carry::PlatformCarryState,
     /// Source 21 bit 80 is cleared at the common path exit. Its producer's
@@ -45,8 +47,10 @@ pub enum PathRuntimeError {
     MovementAlreadyActive,
     NoMovementActive,
     CallbacksStillActive,
+    InvalidTerminalCallback,
     Attachments(super::attachments::AttachmentError),
     Steering(super::path_steering::SteeringError),
+    Conditions(super::path_conditions::ConditionError),
     Calls(CallError),
     Triggers(TriggerError),
     Stack(PathStackError),
@@ -107,6 +111,16 @@ fn actor_mut(objects: &mut ObjectStore, owner: ObjectId) -> Result<&mut Object, 
 }
 
 impl PathRuntime {
+    pub(super) fn validate_terminal_command(&self) -> Result<(), PathRuntimeError> {
+        // Callbacks enter by a jump and return through their own continuation.
+        // END's main-invocation exit is not a valid callback-root return;
+        // PATHHOLD would attempt a nested movement/callback invocation.
+        if self.active.is_some() {
+            return Err(PathRuntimeError::InvalidTerminalCallback);
+        }
+        Ok(())
+    }
+
     pub fn selected_player(&self) -> PlayerTarget {
         self.selected
     }

@@ -12,6 +12,8 @@ use super::{ObjectId, ObjectStore, PathCursor};
 /// control statements only; it does not stand in for unported world services.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlCommand {
+    End,
+    Hold,
     Wait {
         duration: u8,
         next: PathCursor,
@@ -78,6 +80,8 @@ pub enum ControlStep {
     Continue,
     Movement,
     ResumeCallbacks,
+    /// END runs only exit-latch cleanup; retirement is the scheduler's job.
+    Ended,
 }
 
 /// Source motion configuration statements; every one continues immediately.
@@ -113,6 +117,29 @@ pub enum BranchCommand {
 }
 
 impl PathRuntime {
+    pub fn execute_spatial_branch(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        selected: Option<ObjectId>,
+        condition: super::path_conditions::SpatialCondition,
+        taken: PathCursor,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let predicate = super::path_conditions::sample_spatial(objects, owner, selected, condition)
+            .map_err(PathRuntimeError::Conditions)?;
+        self.execute_branch(
+            objects,
+            owner,
+            BranchCommand::Test {
+                predicate,
+                taken,
+                next,
+            },
+        )
+    }
+
     pub fn execute_branch(
         &mut self,
         objects: &mut ObjectStore,
@@ -313,6 +340,18 @@ impl PathRuntime {
                 }
                 actor.base.wait_timer = 0;
                 next
+            }
+            ControlCommand::End => {
+                self.validate_terminal_command()?;
+                actor.base.flags.remove_after_tick = true;
+                super::path_motion::clear_exit_latches(actor);
+                return Ok(ControlStep::Ended);
+            }
+            ControlCommand::Hold => {
+                self.validate_terminal_command()?;
+                actor.extension.path_state.hold_latched = true;
+                actor.base.behavior = super::Behavior::PathMovement;
+                return Ok(ControlStep::Movement);
             }
             ControlCommand::WaitOne { next } => {
                 actor.base.path = Some(next);
@@ -625,6 +664,178 @@ mod tests {
             );
         }
         assert!(runtime.branch.invert_next);
+    }
+
+    #[test]
+    fn spatial_branches_read_live_actors_and_do_not_replace_selection_with_link() {
+        use super::super::path_conditions::SpatialCondition;
+        let (mut runtime, mut objects, owner) = setup();
+        let selected = objects
+            .allocate(objects.get(owner).unwrap().clone())
+            .unwrap();
+        let linked = objects
+            .allocate(objects.get(owner).unwrap().clone())
+            .unwrap();
+        objects.get_mut(owner).unwrap().base.attachment = Some(linked);
+        objects.get_mut(linked).unwrap().base.position.x = 100;
+        objects.get_mut(selected).unwrap().base.position.x = 1;
+        for (condition, expected) in [
+            (SpatialCondition::LinkedDistanceLess(50), 2),
+            (SpatialCondition::SelectedDistanceLess(50), 1),
+        ] {
+            assert_eq!(
+                runtime
+                    .execute_spatial_branch(
+                        &mut objects,
+                        owner,
+                        Some(selected),
+                        condition,
+                        cursor(1),
+                        cursor(2)
+                    )
+                    .unwrap(),
+                ControlStep::Continue
+            );
+            assert_eq!(
+                objects.get(owner).unwrap().base.path,
+                Some(cursor(expected))
+            );
+        }
+        objects.get_mut(selected).unwrap().base.position.x = 100;
+        assert_eq!(
+            runtime
+                .execute_spatial_branch(
+                    &mut objects,
+                    owner,
+                    Some(selected),
+                    SpatialCondition::SelectedDistanceLess(50),
+                    cursor(1),
+                    cursor(2)
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(2)));
+        objects.get_mut(owner).unwrap().base.attachment = None;
+        runtime.branch.invert_next = true;
+        assert_eq!(
+            runtime
+                .execute_spatial_branch(
+                    &mut objects,
+                    owner,
+                    None,
+                    SpatialCondition::LinkedDistanceLess(50),
+                    cursor(1),
+                    cursor(2)
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert!(runtime.branch.invert_next);
+        assert_eq!(
+            runtime
+                .execute_spatial_branch(
+                    &mut objects,
+                    owner,
+                    None,
+                    SpatialCondition::GroundThreshold(0),
+                    cursor(1),
+                    cursor(2)
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert!(!runtime.branch.invert_next);
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(2)));
+    }
+
+    #[test]
+    fn hold_installs_movement_only_and_end_clears_exit_latches_without_moving() {
+        let (mut runtime, mut objects, owner) = setup();
+        let original_path = objects.get(owner).unwrap().base.path;
+        {
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.wait_timer = 19;
+            actor.base.position.x = 100;
+            actor.base.velocity.x = 10;
+            actor.base.contacts.new_contact_latched = true;
+            actor.base.contacts.hit_by_primary = true;
+            actor.extension.path_state.clear_on_path_exit_latch = true;
+        }
+        assert_eq!(
+            runtime
+                .execute_control(&mut objects, owner, ControlCommand::Hold)
+                .unwrap(),
+            ControlStep::Movement
+        );
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.base.behavior, super::super::Behavior::PathMovement);
+        assert!(actor.extension.path_state.hold_latched);
+        assert!(actor.base.contacts.new_contact_latched);
+        assert_eq!(
+            (
+                actor.base.path,
+                actor.base.wait_timer,
+                actor.base.position.x
+            ),
+            (original_path, 19, 100)
+        );
+        assert_eq!(
+            runtime
+                .execute_control(&mut objects, owner, ControlCommand::End)
+                .unwrap(),
+            ControlStep::Ended
+        );
+        let actor = objects.get(owner).unwrap();
+        assert!(actor.base.flags.remove_after_tick);
+        assert!(!actor.base.contacts.new_contact_latched);
+        assert!(!actor.base.contacts.hit_by_primary);
+        assert!(!actor.extension.path_state.clear_on_path_exit_latch);
+        assert_eq!(
+            (
+                actor.base.path,
+                actor.base.wait_timer,
+                actor.base.position.x
+            ),
+            (original_path, 19, 100)
+        );
+    }
+
+    #[test]
+    fn terminal_commands_cannot_replace_callback_return() {
+        let (mut runtime, mut objects, owner) = setup();
+        runtime
+            .add_trigger(
+                &mut objects,
+                owner,
+                Trigger {
+                    path: cursor(20),
+                    kind: TriggerKind::Always,
+                    timer: 0,
+                },
+            )
+            .unwrap();
+        runtime.begin_callbacks(&objects, owner).unwrap();
+        assert_eq!(
+            runtime
+                .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                .unwrap(),
+            CallbackStep::Run(cursor(20))
+        );
+        let before = objects.get(owner).unwrap().clone();
+        for command in [ControlCommand::End, ControlCommand::Hold] {
+            assert_eq!(
+                runtime.execute_control(&mut objects, owner, command),
+                Err(PathRuntimeError::InvalidTerminalCallback)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+        }
+        assert_eq!(
+            runtime
+                .execute_control(&mut objects, owner, ControlCommand::Return)
+                .unwrap(),
+            ControlStep::ResumeCallbacks
+        );
     }
 
     #[test]

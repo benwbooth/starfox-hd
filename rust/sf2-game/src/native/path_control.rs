@@ -54,13 +54,34 @@ pub fn within_yaw_arc(yaw: Angle, target_yaw: Angle, radius: u8) -> bool {
 /// Replacing this with a floating-point dot product changes the branch at
 /// both rounding and overflow boundaries.
 pub fn forward_plane_projection(position: Vector3, rotation: Rotation, target: Vector3) -> i16 {
+    plane_projection(position, rotation, target, PlaneAxis::Forward)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaneAxis {
+    Right,
+    Forward,
+}
+
+/// `$0D:B75B` also accepts the right-axis normal used by `$7F:8DCF`.
+/// Both paths retain the same byte-stage rotations and wrapped dot product.
+pub fn plane_projection(
+    position: Vector3,
+    rotation: Rotation,
+    target: Vector3,
+    axis: PlaneAxis,
+) -> i16 {
+    let (right, forward) = match axis {
+        PlaneAxis::Right => (FORWARD_AXIS_LENGTH, 0),
+        PlaneAxis::Forward => (0, FORWARD_AXIS_LENGTH),
+    };
     let (x, y, z) = sf_core::snes_trig::strat_roffs_full(
         rotation.roll.units(),
         rotation.pitch.units(),
         rotation.yaw.units(),
+        right,
         0,
-        0,
-        FORWARD_AXIS_LENGTH,
+        forward,
     );
     let normal = [x, y, z].map(|component| component.wrapping_shl(NORMAL_FRACTION_BITS));
     let delta = [

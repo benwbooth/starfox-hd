@@ -39,6 +39,11 @@ class PathConditionsStaticTests(unittest.TestCase):
         self.assert_source(0x7F9A79, "20 04 C5 8D B1 16 B5 38 2D B1 16 D0 04 5C A9 CA 7F AD B1 16 49 FF 35 38 95 38 4C F3 CA")
         self.assert_source(0x7F9507, "B5 23 29 08 D0 04 5C BE CA 7F B5 23 29 F7 95 23 4C F3 CA")
 
+    def test_end_exits_without_movement_and_hold_installs_movement_without_advancing(self):
+        self.assert_source(0x7F8B8B, "B5 25 09 08 95 25 4C FD 9E")
+        self.assert_source(0x7F8ECF, "B5 09 09 08 95 09 C2 20 A9 DE 9D 95 19 E2 20 A9 7F 95 1B 4C DE 9D")
+        self.assert_source(0x7F9D7C, "C2 20 B9 61 6A 95 2B E2 20 4C 53 7E")
+
     def test_both_vertical_predicates_use_height_and_wrapped_subtraction_sign(self):
         from path_semantics import PATH_SEMANTIC_BY_OPCODE
         self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x024].rust_name, "IfSelectedAtOrBelowObject")
@@ -71,6 +76,14 @@ class PathConditionsStaticTests(unittest.TestCase):
     def test_relative_yaw_uses_current_minus_selected_and_selected_heading(self):
         self.assert_source(0x7FAB9D, "B5 0C 38 F9 0C 00 85 02 B5 10 38 F9 10 00 85 08")
         self.assert_source(0x7FABAF, "22 58 1D 7F EB 18 79 14 00 38 ED B3 16 CD B5 16 90 04 5C 94 CA 7F 4C 0B CB")
+
+    def test_selected_planes_rotate_right_or_forward_normal_and_use_projection_sign(self):
+        self.assert_source(0x7F8DCF, "9B AE 1F CF A9 7F 85 02 64 08 64 97")
+        self.assert_source(0x7F8DE5, "22 5B B7 0D BB 89 80 D0 40 4C BE CA")
+        self.assert_source(0x7F8DFB, "DA 9B AE 1F CF 22 51 B7 0D FA 89 80 D0 25 4C BE CA")
+        self.assert_source(0x0DB751, "E2 20 64 02 64 08 A9 7F 85 97")
+        self.assert_source(0x0DB83D, "A4 7F C2 20 B9 0C 00 38 F5 0C 8F 26 00 70 B9 0E 00 38 F5 0E 8F 28 00 70 B9 10 00 38 F5 10 8F 2A 00 70")
+        self.assert_source(0x0DB872, "AF AA 00 70 EB E2 20 85 02")
 
     def test_facing_arc_uses_selected_minus_current_and_current_heading(self):
         self.assert_source(0x7FAB4D, "B9 0C 00 38 F5 0C 85 02 B9 10 00 38 F5 10 85 08")

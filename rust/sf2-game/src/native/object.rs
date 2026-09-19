@@ -401,6 +401,8 @@ pub enum Behavior {
     PlayerSelection,
     PlayerFlight,
     FollowPath,
+    /// Source PATHHOLD installs the movement service without path dispatch.
+    PathMovement,
     EnemyFlight,
     Projectile,
     Effect,
