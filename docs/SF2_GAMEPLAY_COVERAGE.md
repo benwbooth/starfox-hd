@@ -366,3 +366,15 @@ literal-versus-variable regression passes in the Rust verification dispatcher.
 Nine steering assembly checks pass; regenerated catalog counts and raw script
 bytes are unchanged. This is static-source coverage, not recorded-gameplay or
 original-executable evidence, and full production path dispatch remains open.
+
+Native branch commands now share the source IFNOT latch across actor and
+callback entry. Repeated IFNOT sets rather than toggles it; equality, wrapped
+numeric intervals, horizontal distance and ground-threshold tests consume it,
+while nonzero, proximity and angular tests preserve it. A missing linked
+distance target skips before consumption. The two proximity forms deliberately
+remain distinct: geometry length ignores height, while the range predicate
+bounds depth and wrapped X/Y Manhattan distance. Angular predicates retain
+their opposite bearing directions and different heading owners. Seven numeric
+and spatial tests, the live command-dispatch regression and eight assembly
+checks cover this layer; the focused native path suite passes 83 tests.
+These statements still need authored-program lowering and production dispatch.

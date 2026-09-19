@@ -91,7 +91,53 @@ pub enum MotionCommand {
     QuadrupleVelocity(bool),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BranchCommand {
+    InvertNext {
+        next: PathCursor,
+    },
+    Test {
+        predicate: super::path_conditions::Predicate,
+        taken: PathCursor,
+        next: PathCursor,
+    },
+}
+
 impl PathRuntime {
+    pub fn execute_branch(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        command: BranchCommand,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let actor = objects
+            .get_mut(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        let next = match command {
+            BranchCommand::InvertNext { next } => {
+                self.branch.invert_next_condition();
+                next
+            }
+            BranchCommand::Test {
+                predicate,
+                taken,
+                next,
+            } => {
+                if self.branch.test(predicate) {
+                    taken
+                } else {
+                    next
+                }
+            }
+        };
+        actor.base.path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     pub fn execute_yaw_orbit(
         &mut self,
         objects: &mut ObjectStore,
@@ -420,6 +466,72 @@ mod tests {
             ),
             Err(PathRuntimeError::MissingPath(owner))
         );
+    }
+
+    #[test]
+    fn branch_latch_is_shared_across_actors_and_nonconsuming_predicates() {
+        use super::super::path_conditions::Predicate;
+        let (mut runtime, mut objects, owner) = setup();
+        let other = objects
+            .allocate(objects.get(owner).unwrap().clone())
+            .unwrap();
+        assert_eq!(
+            runtime
+                .execute_branch(
+                    &mut objects,
+                    owner,
+                    BranchCommand::InvertNext { next: cursor(1) }
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        runtime.enter(&objects, other).unwrap();
+        assert_eq!(
+            runtime
+                .execute_branch(
+                    &mut objects,
+                    other,
+                    BranchCommand::Test {
+                        predicate: Predicate::NonzeroWord(1),
+                        taken: cursor(5),
+                        next: cursor(6),
+                    },
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert_eq!(objects.get(other).unwrap().base.path, Some(cursor(5)));
+        assert!(runtime.branch.invert_next);
+        assert_eq!(
+            runtime
+                .execute_branch(
+                    &mut objects,
+                    other,
+                    BranchCommand::Test {
+                        predicate: Predicate::EqualByte {
+                            value: 7,
+                            expected: 7,
+                        },
+                        taken: cursor(8),
+                        next: cursor(9),
+                    },
+                )
+                .unwrap(),
+            ControlStep::Continue
+        );
+        assert_eq!(objects.get(other).unwrap().base.path, Some(cursor(9)));
+        assert!(!runtime.branch.invert_next);
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(1)));
+        objects.get_mut(other).unwrap().base.path = None;
+        assert_eq!(
+            runtime.execute_branch(
+                &mut objects,
+                other,
+                BranchCommand::InvertNext { next: cursor(3) }
+            ),
+            Err(PathRuntimeError::MissingPath(other))
+        );
+        assert!(!runtime.branch.invert_next);
     }
 
     #[test]

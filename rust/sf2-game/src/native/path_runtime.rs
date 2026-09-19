@@ -77,6 +77,7 @@ pub struct TriggerWorldInputs {
 pub struct PathRuntime {
     pub resources: ProgramResources<ProgramData>,
     pub steering: super::path_steering::SteeringState,
+    pub branch: super::path_conditions::BranchState,
     calls: PathCalls,
     runner: TriggerRunner,
     active: Option<ActiveCallbacks>,
@@ -89,6 +90,7 @@ impl Default for PathRuntime {
         Self {
             resources: ProgramResources::default(),
             steering: super::path_steering::SteeringState::default(),
+            branch: super::path_conditions::BranchState::default(),
             calls: PathCalls::default(),
             runner: TriggerRunner::default(),
             active: None,

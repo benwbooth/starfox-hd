@@ -43,6 +43,7 @@ pub mod intro_visibility;
 mod object;
 pub mod path_calls;
 pub mod path_commands;
+pub mod path_conditions;
 pub mod path_control;
 pub mod path_math;
 pub mod path_motion;

@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Source conditional-branch contracts, without game execution."""
+
+from pathlib import Path
+import unittest
+
+from dump_runtime_routine import source_offset
+from extract_map import DEFAULT_ROM
+
+
+class PathConditionsStaticTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.rom = Path(DEFAULT_ROM).read_bytes()
+
+    def assert_source(self, address, expected):
+        expected = bytes.fromhex(expected)
+        offset = source_offset(address)
+        self.assertEqual(self.rom[offset:offset + len(expected)], expected)
+
+    def test_ifnot_sets_shared_latch_and_equality_consumes_it(self):
+        self.assert_source(0x7FA320, "A9 01 8D 72 B2 4C E8 CA")
+        self.assert_source(0x7F8F4D, "AD 72 B2 F0 0D 9C 72 B2 28 D0 04 5C 94 CA 7F 4C 0B CB")
+
+    def test_nonzero_conditions_do_not_read_or_clear_ifnot(self):
+        self.assert_source(0x7F8F1A, "20 BC C4 20 47 CB B9 00 00 D0 04 5C A9 CA 7F 4C FF CA")
+        self.assert_source(0x7F8F2C, "20 BC C4 20 47 CB C2 20 B9 00 00 D0 04 5C A9 CA 7F 4C FF CA")
+
+    def test_between_uses_subtraction_sign_not_unsigned_or_widened_signed_order(self):
+        self.assert_source(0x7F8FBF, "20 E0 C4 D9 00 00 30 04 5C 83 CA 7F 20 04 C5 D9 00 00 10 04 5C 83 CA 7F 4C 17 CB")
+        self.assert_source(0x7F9005, "C2 20 20 4C C7 D9 00 00 30 04 5C 61 CA 7F 20 A4 C7 D9 00 00 10 04 5C 61 CA 7F 4C 2F CB")
+
+    def test_distance_uses_zero_height_and_geometry_length_then_unsigned_compare(self):
+        self.assert_source(0x7F8C30, "B9 0C 00 38 F5 0C 8F 26 00 70 A9 00 00 8F 28 00 70 B9 10 00 38 F5 10 8F 2A 00 70")
+        self.assert_source(0x7F8C50, "A9 01 A2 72 FB 22 7B 78 7F")
+        self.assert_source(0x7F8C16, "AD B5 16 CD B1 16 B0 04 5C 0B CB 7F 4C 94 CA")
+        self.assert_source(0x7F8C7F, "B4 06 D0 04 5C 94 CA 7F 82 6E FF")
+
+    def test_ground_branch_adds_height_and_offset_and_tests_nonnegative_sum(self):
+        self.assert_source(0x7F8CA3, "C2 20 20 20 C7 18 75 0E E2 20 08 AD 72 B2 F0 0D 9C 72 B2")
+        self.assert_source(0x7F8CC0, "28 10 04 5C 94 CA 7F 4C 0B CB")
+
+    def test_range_bounds_depth_then_nonnegative_wrapped_xy_manhattan(self):
+        self.assert_source(0x7FA7E7, "B9 10 00 38 F5 10 10 04 49 FF FF 1A CD B1 16 E2 20 30 04 5C 94 CA 7F")
+        self.assert_source(0x7FA800, "22 03 25 7F C2 20 AD FA 14 C9 00 00 30 05 CD B1 16 30 06")
+        self.assert_source(0x7F2518, "B9 0E 00 38 F5 0E 85 08 30 06 18 6D FA 14 80 06 38 AD FA 14 E5 08 8D FA 14")
+
+    def test_relative_yaw_uses_current_minus_selected_and_selected_heading(self):
+        self.assert_source(0x7FAB9D, "B5 0C 38 F9 0C 00 85 02 B5 10 38 F9 10 00 85 08")
+        self.assert_source(0x7FABAF, "22 58 1D 7F EB 18 79 14 00 38 ED B3 16 CD B5 16 90 04 5C 94 CA 7F 4C 0B CB")
+
+    def test_facing_arc_uses_selected_minus_current_and_current_heading(self):
+        self.assert_source(0x7FAB4D, "B9 0C 00 38 F5 0C 85 02 B9 10 00 38 F5 10 85 08")
+        self.assert_source(0x7FAB5F, "22 58 1D 7F EB 85 02 20 BC C4 85 97 06 97 18 75 14 18 65 02 C5 97")
+
+
+if __name__ == "__main__":
+    unittest.main()
