@@ -387,8 +387,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 3);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 25);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 4);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 37);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -574,6 +574,90 @@ mod tests {
             Ok(ControlStep::Movement)
         );
         assert_eq!(random, expected_random);
+    }
+
+    #[test]
+    fn authored_local_jitter_returns_from_subroutine_then_runs_inverted_loop() {
+        use super::super::{authored_paths, path_motion, Vector3};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let initial = Vector3 {
+            x: 100,
+            y: -200,
+            z: i16::MAX,
+        };
+        let velocity = Vector3 { x: 1, y: -2, z: 3 };
+        {
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::LOCAL_JITTER_SPRITE);
+            actor.extension.relative_position = initial;
+            actor.extension.path_state.motion.relative_coordinates = true;
+            actor.extension.path_state.motion_phase = 0x5500;
+            actor.base.velocity = velocity;
+            actor.base.wait_timer = 97;
+        }
+        let mut expected_random = random;
+        let mut jitter = || {
+            let high = expected_random.next_byte();
+            let low = expected_random.next_byte();
+            (u16::from_be_bytes([high, low]) & 31) as i16 - 15
+        };
+        let mut expected = Vector3 {
+            x: initial.x.wrapping_add(jitter()),
+            y: initial.y.wrapping_add(jitter()),
+            z: initial.z.wrapping_add(jitter()),
+        };
+        let catalog = authored_paths::catalog();
+        for phase in 1..=3 {
+            let outcome = runtime
+                .enter_program(
+                    &catalog,
+                    &mut objects,
+                    owner,
+                    &mut PathWorld {
+                        selected: None,
+                        random: &mut random,
+                        animation_clock: 29,
+                    },
+                    16,
+                )
+                .unwrap();
+            assert_eq!(
+                outcome,
+                if phase < 3 {
+                    ControlStep::Movement
+                } else {
+                    ControlStep::Ended
+                }
+            );
+            assert_eq!(random, expected_random);
+            assert!(!runtime.branch.invert_next);
+            {
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.extension.relative_position, expected);
+                assert_eq!(actor.base.position, Vector3::default());
+                assert_eq!(actor.extension.path_state.motion_phase, 0x5500 | phase);
+                assert_eq!(actor.extension.color_frame, (phase % 3) as u8);
+                assert_eq!(actor.extension.animation_frame, 29);
+                assert_eq!(actor.extension.texture_scroll_x, 252);
+                assert_eq!(actor.base.wait_timer, 97);
+            }
+            if outcome == ControlStep::Movement {
+                assert!(!runtime
+                    .begin_movement(
+                        &mut objects,
+                        owner,
+                        path_motion::PlayerDisplacement::default()
+                    )
+                    .unwrap());
+                runtime
+                    .finish_movement(&mut objects, &mut [None, None])
+                    .unwrap();
+                expected.x = expected.x.wrapping_add(velocity.x);
+                expected.y = expected.y.wrapping_add(velocity.y);
+                expected.z = expected.z.wrapping_add(velocity.z);
+            }
+        }
+        runtime.release_actor_programs(&mut objects, owner).unwrap();
     }
 
     #[test]

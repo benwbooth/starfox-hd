@@ -24,6 +24,7 @@ ROOTS = (
     ("ALTERNATE_EXHAUST", PathAddress(0xF536)),
     ("COLOR_CYCLE_SPRITE", PathAddress(0xF593)),
     ("RANDOMIZED_COLOR_PARTICLE", PathAddress(0xF294)),
+    ("LOCAL_JITTER_SPRITE", PathAddress(0xF521)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -42,6 +43,9 @@ def word_field(variable: int) -> str:
         0x32: "WordField::Velocity(Axis::X)",
         0x34: "WordField::Velocity(Axis::Y)",
         0x36: "WordField::Velocity(Axis::Z)",
+        0x8E: "WordField::RelativePosition(Axis::X)",
+        0x90: "WordField::RelativePosition(Axis::Y)",
+        0x92: "WordField::RelativePosition(Axis::Z)",
         0xA1: "WordField::MotionPhase",
     }
     if variable not in fields:
@@ -52,7 +56,7 @@ def word_field(variable: int) -> str:
 def byte_field(variable: int) -> str:
     # Each pair aliases one actual typed word; it must not create a separate
     # particle counter or independent byte shadow of the motion phase.
-    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0xA1):
+    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1):
         if variable in (base, base + 1):
             part = "Low" if variable == base else "High"
             return f"ByteField::WordPart {{ field: {word_field(base)}, part: BytePart::{part} }}"
@@ -72,9 +76,10 @@ def graph(extractor: PathExtractor, root: PathAddress) -> list[PathCommand]:
     return [found[address] for address in sorted(found)]
 
 
-def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int):
+def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, indices=None):
     commands = graph(extractor, root)
-    indices = {command.address: index for index, command in enumerate(commands)}
+    if indices is None:
+        indices = {command.address: index for index, command in enumerate(commands)}
 
     def cursor(address):
         return f"cursor({path_index}, {indices[address]})"
@@ -107,7 +112,26 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int):
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name in ("SetRandomByte", "SetRandomWord", "AddCenteredRandomByte", "AddCenteredRandomWord"):
+        if name == "Gosub":
+            low, high = parameters(2)
+            target, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::Control(ControlCommand::Call {{ target: {target}, next: {next_} }})"
+        elif name in ("Goto", "GotoImmediate"):
+            low, high = parameters(2)
+            target = PathAddress(low | (high << 8))
+            if set(command.successors) != {target}:
+                raise UnsupportedPath(f"unexpected {name} destination at {command.address.label()}")
+            operation = "Goto" if name == "Goto" else "Jump"
+            statement = f"Statement::Control(ControlCommand::{operation} {{ target: {cursor(target)} }})"
+        elif name == "Return":
+            parameters(0)
+            if command.successors:
+                raise UnsupportedPath(f"RETURN has static outgoing edges at {command.address.label()}")
+            statement = "Statement::Control(ControlCommand::Return)"
+        elif name == "IfNot":
+            parameters(0)
+            statement = f"Statement::Branch(BranchCommand::InvertNext {{ next: {next_cursor()} }})"
+        elif name in ("SetRandomByte", "SetRandomWord", "AddCenteredRandomByte", "AddCenteredRandomWord"):
             wide = name.endswith("Word")
             operands = parameters(3 if wide else 2)
             field = word_field(operands[0]) if wide else byte_field(operands[0])
@@ -164,24 +188,30 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int):
     return indices[root], statements
 
 
-def generate(rom: bytes) -> str:
+def generate(rom: bytes, roots=ROOTS) -> str:
     extractor = PathExtractor(rom)
     discovered = set(extractor.discover_roots())
     declarations = []
-    paths = []
-    command_count = 0
-    for path_index, (name, root) in enumerate(ROOTS):
+    # One shared address-to-semantic-index layout across all lowered roots.
+    # Duplicating a callee in each root graph would give the same source path
+    # multiple identities, breaking callback cancellation/cursor comparisons.
+    addresses = sorted({command.address for _, root in roots for command in graph(extractor, root)})
+    indices = {address: index for index, address in enumerate(addresses)}
+    unique_statements = {}
+    for name, root in roots:
         if root not in discovered:
             raise UnsupportedPath(f"{name} has no verified source installer")
-        entry, statements = lower_graph(extractor, root, path_index)
-        declarations.append(f"pub const {name}: PathCursor = cursor({path_index}, {entry});")
-        paths.append("vec![" + ",\n".join(statements) + "]")
-        command_count += len(statements)
+        entry, statements = lower_graph(extractor, root, 0, indices)
+        declarations.append(f"pub const {name}: PathCursor = cursor(0, {entry});")
+        for command, statement in zip(graph(extractor, root), statements, strict=True):
+            previous = unique_statements.setdefault(command.address, statement)
+            if previous != statement:
+                raise UnsupportedPath(f"inconsistent shared statement at {command.address.label()}")
     source = """// @generated by tools/sf2/generate_native_paths.py; do not edit.
 //! Complete statically lowered source paths. This is an explicit subset,
 //! not a fallback catalog for paths that have not been ported.
 use super::path_appearance::{AnimationChannel, AnimationCommand};
-use super::path_commands::{ControlCommand, MotionCommand};
+use super::path_commands::{BranchCommand, ControlCommand, MotionCommand};
 use super::path_fields::{Axis, ByteField, ByteOperand, ByteOperation, BytePart, Mutation, WordField, WordOperation};
 use super::path_program::{ActorCondition, PathCatalog, Statement};
 use super::path_random::RandomMutation;
@@ -192,10 +222,10 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
 }
 """
     source += "\n".join(declarations)
-    source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(ROOTS)};"
-    source += f"\npub const LOWERED_COMMAND_COUNT: usize = {command_count};"
+    source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(roots)};"
+    source += f"\npub const LOWERED_COMMAND_COUNT: usize = {len(unique_statements)};"
     source += "\npub fn catalog() -> PathCatalog {\nPathCatalog::new(vec!["
-    source += ",\n".join(paths)
+    source += "vec![" + ",\n".join(unique_statements[address] for address in addresses) + "]"
     source += "]).expect(\"generated catalog indices fit native cursors\")\n}\n"
     return subprocess.run(
         ["rustfmt", "--edition", "2021", "--emit", "stdout"],

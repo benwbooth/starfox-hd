@@ -464,3 +464,12 @@ yields from phase zero, and takes the phase-seven early END without a final
 move; the next actor continues the same random stream. Dispatcher world inputs
 now also supply the animation clock for resolving presentation snapshots.
 This remains three statically lowered roots, not production Game scheduling.
+
+The local-jitter sprite adds a fourth root and raises the unique-statement
+count to 37. Its earlier-addressed shared subroutine adds three local random
+offsets and returns to the caller's continuation; the subsequent IFNOT loop
+uses two yielding GOTOs and terminates on phase three. All roots now share
+one deduplicated semantic layout so a shared source statement has one cursor
+identity regardless of which root reaches it. Source addresses remain solely
+in the offline lowerer; native execution uses catalog indices. These paths
+still await integration with Game's spawn and strategy scheduling services.

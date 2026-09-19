@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import unittest
+import re
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
@@ -58,6 +59,10 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("WordField::MotionPhase", byte_field(0xA1))
         self.assertIn("BytePart::Low", byte_field(0xA1))
         self.assertIn("BytePart::High", byte_field(0xA2))
+        self.assertEqual(word_field(0x8E), "WordField::RelativePosition(Axis::X)")
+        self.assertIn("RelativePosition(Axis::Z)", byte_field(0x93))
+        with self.assertRaises(UnsupportedPath):
+            word_field(0x8D)
         for field in (word_field, byte_field):
             with self.assertRaises(UnsupportedPath):
                 field(0x80)
@@ -69,6 +74,24 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("taken: cursor(2, 11), next: cursor(2, 9)", statements[8])
         self.assertIn("MotionCommand::AccelerateTo { target: 0, amount: 5 }", statements[5])
         self.assertIn("WordField::Velocity(Axis::Y)", statements[9])
+
+    def test_subroutine_before_root_in_layout_has_real_return_and_continuation(self):
+        entry, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF521), 3)
+        self.assertEqual(entry, 4)  # the shared subroutine is earlier in source
+        self.assertEqual(len(statements), 12)
+        self.assertIn("RelativePosition(Axis::X)", statements[0])
+        self.assertEqual(statements[3], "Statement::Control(ControlCommand::Return)")
+        self.assertIn("target: cursor(3, 0), next: cursor(3, 6)", statements[5])
+        self.assertIn("BranchCommand::InvertNext", statements[8])
+        self.assertIn("ControlCommand::Goto { target: cursor(3, 6)", statements[11])
+
+    def test_shared_source_statements_have_one_identity_across_entry_aliases(self):
+        source = generate(self.rom, (("FIRST", PathAddress(0xF521)), ("SECOND", PathAddress(0xF521))))
+        first = re.search(r"pub const FIRST: PathCursor = (.*);", source)[1]
+        second = re.search(r"pub const SECOND: PathCursor = (.*);", source)[1]
+        self.assertEqual(first, second)
+        self.assertIn("LOWERED_COMMAND_COUNT: usize = 12", source)
+        self.assertEqual(source.count("ControlCommand::Return"), 1)
 
 
 if __name__ == "__main__":

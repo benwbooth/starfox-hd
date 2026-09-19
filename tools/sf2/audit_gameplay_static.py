@@ -24,7 +24,7 @@ from extract_map import DEFAULT_ROM, InlineCall, MapExtractor
 from extract_path import PathExtractor
 from path_semantics import PATH_SEMANTICS
 from generate_native_paths import OUTPUT as NATIVE_PATH_OUTPUT, ROOTS as NATIVE_PATH_ROOTS
-from generate_native_paths import generate as generate_native_paths, lower_graph
+from generate_native_paths import generate as generate_native_paths, graph as native_path_graph
 
 
 def audit(rom_path: Path) -> dict:
@@ -43,10 +43,11 @@ def audit(rom_path: Path) -> dict:
 
     generated = (ROOT / "rust/sf2-data/src/path.rs").read_text()
     native_path_extractor = PathExtractor(rom)
-    native_path_commands = sum(
-        len(lower_graph(native_path_extractor, root, index)[1])
-        for index, (_, root) in enumerate(NATIVE_PATH_ROOTS)
-    )
+    native_path_commands = len({
+        command.address
+        for _, root in NATIVE_PATH_ROOTS
+        for command in native_path_graph(native_path_extractor, root)
+    })
     if NATIVE_PATH_OUTPUT.read_text() != generate_native_paths(rom):
         errors.append("generated native path catalog differs from complete-graph lowering")
     for name, actual in (

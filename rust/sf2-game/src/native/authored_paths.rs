@@ -2,7 +2,7 @@
 //! Complete statically lowered source paths. This is an explicit subset,
 //! not a fallback catalog for paths that have not been ported.
 use super::path_appearance::{AnimationChannel, AnimationCommand};
-use super::path_commands::{ControlCommand, MotionCommand};
+use super::path_commands::{BranchCommand, ControlCommand, MotionCommand};
 use super::path_fields::{
     Axis, ByteField, ByteOperand, ByteOperation, BytePart, Mutation, WordField, WordOperation,
 };
@@ -16,150 +16,216 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         command_index,
     }
 }
-pub const ALTERNATE_EXHAUST: PathCursor = cursor(0, 0);
-pub const COLOR_CYCLE_SPRITE: PathCursor = cursor(1, 0);
-pub const RANDOMIZED_COLOR_PARTICLE: PathCursor = cursor(2, 0);
-pub const LOWERED_ROOT_COUNT: usize = 3;
-pub const LOWERED_COMMAND_COUNT: usize = 25;
+pub const ALTERNATE_EXHAUST: PathCursor = cursor(0, 24);
+pub const COLOR_CYCLE_SPRITE: PathCursor = cursor(0, 29);
+pub const RANDOMIZED_COLOR_PARTICLE: PathCursor = cursor(0, 4);
+pub const LOCAL_JITTER_SPRITE: PathCursor = cursor(0, 16);
+pub const LOWERED_ROOT_COUNT: usize = 4;
+pub const LOWERED_COMMAND_COUNT: usize = 37;
 pub fn catalog() -> PathCatalog {
-    PathCatalog::new(vec![
-        vec![
-            Statement::Sprite {
-                color: 0,
-                size: 0,
-                next: cursor(0, 1),
+    PathCatalog::new(vec![vec![
+        Statement::Random {
+            mutation: RandomMutation::AddCenteredWord {
+                field: WordField::RelativePosition(Axis::X),
+                mask: 31,
             },
-            Statement::Control(ControlCommand::BeginLoop {
-                iterations: 3,
-                next: cursor(0, 2),
-            }),
-            Statement::Animation {
-                command: AnimationCommand::Advance {
-                    channel: AnimationChannel::Color,
-                    amount: 1,
-                    period: 2,
+            next: cursor(0, 1),
+        },
+        Statement::Random {
+            mutation: RandomMutation::AddCenteredWord {
+                field: WordField::RelativePosition(Axis::Y),
+                mask: 31,
+            },
+            next: cursor(0, 2),
+        },
+        Statement::Random {
+            mutation: RandomMutation::AddCenteredWord {
+                field: WordField::RelativePosition(Axis::Z),
+                mask: 31,
+            },
+            next: cursor(0, 3),
+        },
+        Statement::Control(ControlCommand::Return),
+        Statement::Sprite {
+            color: 0,
+            size: 0,
+            next: cursor(0, 5),
+        },
+        Statement::Random {
+            mutation: RandomMutation::AddCenteredWord {
+                field: WordField::Position(Axis::X),
+                mask: 15,
+            },
+            next: cursor(0, 6),
+        },
+        Statement::Random {
+            mutation: RandomMutation::AddCenteredWord {
+                field: WordField::Position(Axis::Y),
+                mask: 15,
+            },
+            next: cursor(0, 7),
+        },
+        Statement::Random {
+            mutation: RandomMutation::AddCenteredWord {
+                field: WordField::Position(Axis::Z),
+                mask: 15,
+            },
+            next: cursor(0, 8),
+        },
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 8,
+            next: cursor(0, 9),
+        }),
+        Statement::Motion {
+            command: MotionCommand::AccelerateTo {
+                target: 0,
+                amount: 5,
+            },
+            next: cursor(0, 10),
+        },
+        Statement::Animation {
+            command: AnimationCommand::Advance {
+                channel: AnimationChannel::Color,
+                amount: 1,
+                period: 8,
+            },
+            next: cursor(0, 11),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::WordPart {
+                    field: WordField::MotionPhase,
+                    part: BytePart::Low,
                 },
-                next: cursor(0, 3),
+                operation: ByteOperation::Increment,
             },
-            Statement::Control(ControlCommand::Next {
-                immediate: false,
-                next: cursor(0, 4),
-            }),
-            Statement::Control(ControlCommand::End),
-        ],
-        vec![
-            Statement::DisableCollision { next: cursor(1, 1) },
-            Statement::Sprite {
-                color: 0,
-                size: 10,
-                next: cursor(1, 2),
+            next: cursor(0, 12),
+        },
+        Statement::Compare {
+            condition: ActorCondition::EqualByte(
+                ByteOperand::Actor(ByteField::WordPart {
+                    field: WordField::MotionPhase,
+                    part: BytePart::Low,
+                }),
+                ByteOperand::Literal(7),
+            ),
+            taken: cursor(0, 15),
+            next: cursor(0, 13),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::Y),
+                operation: WordOperation::Decrement,
             },
-            Statement::Animation {
-                command: AnimationCommand::Initialize {
-                    channel: AnimationChannel::Color,
-                    value: 0,
+            next: cursor(0, 14),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: false,
+            next: cursor(0, 15),
+        }),
+        Statement::Control(ControlCommand::End),
+        Statement::Sprite {
+            color: 0,
+            size: 252,
+            next: cursor(0, 17),
+        },
+        Statement::Control(ControlCommand::Call {
+            target: cursor(0, 0),
+            next: cursor(0, 18),
+        }),
+        Statement::Animation {
+            command: AnimationCommand::Advance {
+                channel: AnimationChannel::Color,
+                amount: 1,
+                period: 3,
+            },
+            next: cursor(0, 19),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::WordPart {
+                    field: WordField::MotionPhase,
+                    part: BytePart::Low,
                 },
-                next: cursor(1, 3),
+                operation: ByteOperation::Increment,
             },
-            Statement::Control(ControlCommand::WaitOne { next: cursor(1, 4) }),
-            Statement::Control(ControlCommand::BeginLoop {
-                iterations: 7,
-                next: cursor(1, 5),
-            }),
-            Statement::Animation {
-                command: AnimationCommand::Advance {
-                    channel: AnimationChannel::Color,
-                    amount: 1,
-                    period: 8,
-                },
-                next: cursor(1, 6),
+            next: cursor(0, 20),
+        },
+        Statement::Branch(BranchCommand::InvertNext {
+            next: cursor(0, 21),
+        }),
+        Statement::Compare {
+            condition: ActorCondition::EqualByte(
+                ByteOperand::Actor(ByteField::WordPart {
+                    field: WordField::MotionPhase,
+                    part: BytePart::Low,
+                }),
+                ByteOperand::Literal(3),
+            ),
+            taken: cursor(0, 23),
+            next: cursor(0, 22),
+        },
+        Statement::Control(ControlCommand::End),
+        Statement::Control(ControlCommand::Goto {
+            target: cursor(0, 18),
+        }),
+        Statement::Sprite {
+            color: 0,
+            size: 0,
+            next: cursor(0, 25),
+        },
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 3,
+            next: cursor(0, 26),
+        }),
+        Statement::Animation {
+            command: AnimationCommand::Advance {
+                channel: AnimationChannel::Color,
+                amount: 1,
+                period: 2,
             },
-            Statement::Control(ControlCommand::Next {
-                immediate: false,
-                next: cursor(1, 7),
-            }),
-            Statement::Control(ControlCommand::End),
-        ],
-        vec![
-            Statement::Sprite {
-                color: 0,
-                size: 0,
-                next: cursor(2, 1),
+            next: cursor(0, 27),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: false,
+            next: cursor(0, 28),
+        }),
+        Statement::Control(ControlCommand::End),
+        Statement::DisableCollision {
+            next: cursor(0, 30),
+        },
+        Statement::Sprite {
+            color: 0,
+            size: 10,
+            next: cursor(0, 31),
+        },
+        Statement::Animation {
+            command: AnimationCommand::Initialize {
+                channel: AnimationChannel::Color,
+                value: 0,
             },
-            Statement::Random {
-                mutation: RandomMutation::AddCenteredWord {
-                    field: WordField::Position(Axis::X),
-                    mask: 15,
-                },
-                next: cursor(2, 2),
+            next: cursor(0, 32),
+        },
+        Statement::Control(ControlCommand::WaitOne {
+            next: cursor(0, 33),
+        }),
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 7,
+            next: cursor(0, 34),
+        }),
+        Statement::Animation {
+            command: AnimationCommand::Advance {
+                channel: AnimationChannel::Color,
+                amount: 1,
+                period: 8,
             },
-            Statement::Random {
-                mutation: RandomMutation::AddCenteredWord {
-                    field: WordField::Position(Axis::Y),
-                    mask: 15,
-                },
-                next: cursor(2, 3),
-            },
-            Statement::Random {
-                mutation: RandomMutation::AddCenteredWord {
-                    field: WordField::Position(Axis::Z),
-                    mask: 15,
-                },
-                next: cursor(2, 4),
-            },
-            Statement::Control(ControlCommand::BeginLoop {
-                iterations: 8,
-                next: cursor(2, 5),
-            }),
-            Statement::Motion {
-                command: MotionCommand::AccelerateTo {
-                    target: 0,
-                    amount: 5,
-                },
-                next: cursor(2, 6),
-            },
-            Statement::Animation {
-                command: AnimationCommand::Advance {
-                    channel: AnimationChannel::Color,
-                    amount: 1,
-                    period: 8,
-                },
-                next: cursor(2, 7),
-            },
-            Statement::Mutate {
-                mutation: Mutation::Byte {
-                    field: ByteField::WordPart {
-                        field: WordField::MotionPhase,
-                        part: BytePart::Low,
-                    },
-                    operation: ByteOperation::Increment,
-                },
-                next: cursor(2, 8),
-            },
-            Statement::Compare {
-                condition: ActorCondition::EqualByte(
-                    ByteOperand::Actor(ByteField::WordPart {
-                        field: WordField::MotionPhase,
-                        part: BytePart::Low,
-                    }),
-                    ByteOperand::Literal(7),
-                ),
-                taken: cursor(2, 11),
-                next: cursor(2, 9),
-            },
-            Statement::Mutate {
-                mutation: Mutation::Word {
-                    field: WordField::Velocity(Axis::Y),
-                    operation: WordOperation::Decrement,
-                },
-                next: cursor(2, 10),
-            },
-            Statement::Control(ControlCommand::Next {
-                immediate: false,
-                next: cursor(2, 11),
-            }),
-            Statement::Control(ControlCommand::End),
-        ],
-    ])
+            next: cursor(0, 35),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: false,
+            next: cursor(0, 36),
+        }),
+        Statement::Control(ControlCommand::End),
+    ]])
     .expect("generated catalog indices fit native cursors")
 }
