@@ -176,3 +176,13 @@ authored flag initialization, callback registration, full world retirement, and
 frame-service integration remain required. The queue checkpoint has ten Rust
 tests passing in debug/release, six assembly-byte tests, and successful native
 architecture and application builds. These are static/synthetic checks only.
+
+`native/player_hit_control.rs` now transcribes the two contact-protection
+countdowns, light/heavy impact state, reserve absorption, impact cue selection,
+deflection feedback/cooldown, and contact-bearing turn arithmetic. Recovery
+decrements every strategy visit; the shared clock only controls blink marking
+and bank-impulse direction. Reserve absorption has no hull-damage spill. These
+leaves have seven synthetic Rust tests in debug/release and seven source-byte
+checks, including the reused native bearing table. The whole player-contact
+callback, reflected-weapon path, and production player frame owner remain open;
+this is not replacement of the legacy frame-based recovery schedule yet.
