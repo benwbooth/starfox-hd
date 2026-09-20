@@ -12,6 +12,127 @@ use super::tests::{setup, world};
 use super::*;
 
 #[test]
+fn authored_exit_view_waits_for_anchor_without_touching_world_services() {
+    use super::super::authored_paths;
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    objects.get_mut(owner).unwrap().base.path = Some(authored_paths::SCRIPTED_ENCOUNTER_EXIT_VIEW);
+    let catalog = authored_paths::catalog();
+    let random_before = random;
+    let resources_before = runtime.resources.clone();
+    for _ in 0..3 {
+        assert_eq!(
+            runtime
+                .resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 8)
+                .unwrap()
+                .step,
+            ControlStep::Movement
+        );
+        assert!(!objects.get(owner).unwrap().base.flags.visible);
+        assert_eq!(objects.get(owner).unwrap().base.attachment, None);
+        assert_eq!(runtime.resources, resources_before);
+        assert_eq!(random, random_before);
+    }
+}
+
+#[test]
+fn authored_exit_anchor_counts_ten_waits_then_marks_itself_for_retirement() {
+    use super::super::authored_paths;
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    objects.get_mut(owner).unwrap().base.path =
+        Some(authored_paths::SCRIPTED_ENCOUNTER_EXIT_ANCHOR);
+    let catalog = authored_paths::catalog();
+    let random_before = random;
+    let resources_before = runtime.resources.clone();
+    for count in 1..=10 {
+        assert_eq!(
+            runtime
+                .resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4)
+                .unwrap()
+                .step,
+            ControlStep::Movement
+        );
+        assert_eq!(objects.get(owner).unwrap().base.wait_timer, count);
+        assert!(!objects.get(owner).unwrap().base.flags.remove_after_tick);
+    }
+    assert_eq!(
+        runtime
+            .resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4)
+            .unwrap()
+            .step,
+        ControlStep::Ended
+    );
+    assert_eq!(objects.get(owner).unwrap().base.wait_timer, 0);
+    assert!(objects.get(owner).unwrap().base.flags.remove_after_tick);
+    assert_eq!(runtime.resources, resources_before);
+    assert_eq!(random, random_before);
+}
+
+#[test]
+fn selected_stored_rotation_writes_only_angle_bytes_and_reads_each_invocation() {
+    use super::super::{Angle, Rotation};
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    objects.get_mut(owner).unwrap().base.child_number = 137;
+    objects.get_mut(owner).unwrap().base.wait_timer = 79;
+    objects
+        .get_mut(owner)
+        .unwrap()
+        .extension
+        .path_state
+        .repeat_counter = 203;
+    let before = objects.clone();
+    let random_before = random;
+    let resources_before = runtime.resources.clone();
+    let catalog = PathCatalog::new(vec![vec![Statement::CopySelectedStoredRotation {
+        next: at(1),
+    }]])
+    .unwrap();
+    assert_eq!(
+        runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+        Err(ProgramError::MissingSelectedAuxiliary)
+    );
+    assert_eq!(objects, before);
+    for value in 0..=u8::MAX {
+        objects = before.clone();
+        let rotation = Rotation {
+            pitch: Angle::from_units(value),
+            yaw: Angle::from_units(value.wrapping_add(91)),
+            roll: Angle::from_units(value.wrapping_add(203)),
+        };
+        let mut auxiliary = SelectedAuxiliaryState {
+            stored_rotation: rotation,
+            stored_world_position: Vector3 {
+                x: -32768,
+                y: 183,
+                z: 32767,
+            },
+            mode: value,
+            action_flags: !value,
+        };
+        let auxiliary_before = auxiliary;
+        let mut inputs = world(&mut random);
+        inputs.selected = Some(owner);
+        inputs.selected_auxiliary = Some(&mut auxiliary);
+        runtime.branch.invert_next = value & 1 != 0;
+        expect_advance(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            at(1),
+            1,
+        );
+        let mut expected = before.clone();
+        let actor = expected.get_mut(owner).unwrap();
+        actor.base.pitch = rotation.pitch;
+        actor.base.yaw = rotation.yaw;
+        actor.base.roll = rotation.roll;
+        actor.base.path = Some(at(1));
+        assert_eq!(objects, expected);
+        assert_eq!(auxiliary, auxiliary_before);
+        assert_eq!(runtime.branch.invert_next, value & 1 != 0);
+        assert_eq!(runtime.resources, resources_before);
+        assert_eq!(random, random_before);
+    }
+}
+
+#[test]
 fn selected_stored_pose_is_live_auxiliary_data_not_actor_or_published_motion() {
     for alias in [false, true] {
         let (mut runtime, mut objects, owner, mut random) = setup();
@@ -19,6 +140,7 @@ fn selected_stored_pose_is_live_auxiliary_data_not_actor_or_published_motion() {
         let primary = actor(&mut objects);
         objects.get_mut(selected).unwrap().base.position = Vector3 { x: 1, y: 2, z: 3 };
         let mut auxiliary = SelectedAuxiliaryState {
+            stored_rotation: Default::default(),
             mode: 137,
             action_flags: 79,
             stored_world_position: Vector3 {

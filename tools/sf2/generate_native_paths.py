@@ -25,6 +25,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("SCRIPTED_ENCOUNTER_EXIT_VIEW", PathAddress(0x78D2)),
+    ("SCRIPTED_ENCOUNTER_EXIT_ANCHOR", PathAddress(0x7B8F)),
     ("FOUR_PANEL_OBJECTIVE", PathAddress(0x5B96)),
     ("PLANETARY_CORE_DEFENDER", PathAddress(0x5E68)),
     ("PLANETARY_CORE_OBJECTIVE", PathAddress(0x5E1D)),
@@ -180,6 +182,8 @@ SUBROUTINES = (
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
 # This proves installation only; it does not claim the parent graph is lowered.
 CHILD_INSTALLERS = {
+    PathAddress(0x78D2): (PathAddress(0x8D82), PathAddress(0x857B)),
+    PathAddress(0x7B8F): (PathAddress(0x8D82), PathAddress(0x8570)),
     PathAddress(0x888E): (PathAddress(0x22AA), PathAddress(0x8886)),
     PathAddress(0x88DA): (PathAddress(0x22AA), PathAddress(0x88D2)),
     PathAddress(0x7FAA): (PathAddress(0x787D), PathAddress(0x7887)),
@@ -596,6 +600,12 @@ def shape_index(shape: int) -> int:
 
 def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     index = shape_index(shape)
+    # Empty-shape encounter exit anchors/controllers. The short anchor waits
+    # then ends; its creator hides it and suppresses contacts before yielding.
+    # The paired camera controller immediately hides itself. Their authored
+    # health/attack remain source data, not consequences of this native kind.
+    if (shape, path) in ((0xBD28, PathAddress(0x7B8F)), (0xBC9C, PathAddress(0x78D2))):
+        return index, "ObjectKind::Effect"
     # Four-panel objective: height-gated hittable panels and their emitted
     # fighters are enemies; the detached spawners disable collision. The
     # broken-panel clone immediately enters death, while the held center
@@ -760,6 +770,7 @@ def word_field(variable: int) -> str:
         0x90: "WordField::RelativePosition(Axis::Y)",
         0x92: "WordField::RelativePosition(Axis::Z)",
         0xA1: "WordField::MotionPhase",
+        0xA2: "WordField::MotionScriptOverlap",
         0xA3: "WordField::ScriptValue",
     }
     if variable not in fields:
@@ -791,6 +802,7 @@ def byte_field(variable: int) -> str:
         0x99: "ByteField::TextureScrollX",
         0x9A: "ByteField::TextureScrollY",
         0xA9: "ByteField::Part",
+        0xAD: "ByteField::RadarMarker",
         0xAE: "ByteField::ClippingPlane",
         0xAF: "ByteField::SpawnGroup",
     }
@@ -1578,6 +1590,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "CopySelectedSlotWorldPosition":
             parameters(0)
             statement = f"Statement::CopySelectedStoredPosition {{ next: {next_cursor()} }}"
+        elif name == "CopySelectedAuxRotation":
+            parameters(0)
+            statement = f"Statement::CopySelectedStoredRotation {{ next: {next_cursor()} }}"
         elif name in ("ChasePlayerTowardObject", "SnapPlayerToObject"):
             parameters(0)
             statement = f"Statement::MoveFixedView {{ snap: {str(name == 'SnapPlayerToObject').lower()}, next: {next_cursor()} }}"
@@ -1693,6 +1708,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::AttachLastSpawn {{ next: {next_cursor()} }}"
             elif command.address == PathAddress(0xB136) and name == "ImportWordIndexed" and (variable, index) == (0x0E, 0x0B):
                 statement = f"Statement::ImportSceneryPlacementHeight {{ next: {next_cursor()} }}"
+            elif (variable, index) in ((0x0C, 0x0B), (0x10, 0x0D)):
+                coordinate = "LateralOrHeight" if index == 0x0B else "Depth"
+                operation = (f"Import {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, destination: {word_field(variable)} }}"
+                             if name.startswith("Import") else
+                             f"Export {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, source: WordOperand::Actor({word_field(variable)}) }}")
+                statement = f"Statement::Placement {{ command: super::path_scene_state::PlacementCommand::{operation}, next: {next_cursor()} }}"
             elif index == 0x36:
                 operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
                 statement = f"Statement::Guidance {{ command: GuidanceCommand::{operation}, next: {next_cursor()} }}"
@@ -1906,8 +1927,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f'Statement::ObjectiveCounts {{ field: super::path_scene_state::ObjectiveCountField::{field}, command: super::path_scene_state::CoordinationCommand::{operation}, next: {next_cursor()} }}'
                 statements.append(statement)
                 continue
-            if address in (0xD79B, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B) and name.startswith("Import"):
-                source = {0xD79B: "EncounterNodeMode", 0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
+            if address in (0xD79B, 0x1DE0, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B) and name.startswith("Import"):
+                source = {0xD79B: "EncounterNodeMode", 0x1DE0: "PlayerViewControl", 0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
                           0x1E70: "WingmatePilot", 0xDB5B: "MapRegion"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)

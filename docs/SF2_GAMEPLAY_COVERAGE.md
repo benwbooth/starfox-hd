@@ -4001,3 +4001,41 @@ The complete handler-byte fixture confirms the source record and order.
 guard, static audit and app build pass. Catalog totals remain unchanged.
 The next shared-exit dependency is the placement-anchor word publication,
 including its overlap with the already-ported scenery-height mailbox.
+
+### Complete scripted exit-view and anchor paths
+
+The independently spawned exit-view controller (`$44:78D2`, 314 source
+commands) and its short-lived empty-shape anchor (`$44:7B8F`, two commands)
+now have complete native graphs. Their installers are bound to the actual
+spawn records reachable from `$44:8D82`; this proves their installation, not
+completion of that parent boss. Graph fingerprints and mutated-installer
+tests protect the closure and provenance. The shared catalog now contains
+**142 actor roots, five helpers, 4,832 source commands and 4,788 typed
+statements**.
+
+The newly covered dependencies preserve several source distinctions:
+
+- Exit lateral/depth publications use a typed placement record. Its first
+  coordinate is the same live value used as scenery height, not an independent
+  copy. Imports retain signed word values and fault on missing publications.
+- Retained selected-player rotation copies only three auxiliary angle bytes;
+  it does not overwrite the child/repeat/wait companion bytes or use current
+  actor angles. It shares the existing selected auxiliary input record with
+  retained position, mode and action flags.
+- Player-view control is a complete published scene byte, distinct from
+  player configuration. The authored variable-bit test reads an unaligned
+  word spanning phase-high and script-low bytes; its named adapter aliases
+  the existing fields, with no duplicate storage.
+- Radar-marker comparisons read the same packed marker that the authored
+  appearance command writes. Empty-shape spawn classifications are limited
+  to the two reviewed path/shape pairs.
+
+Native checks exhaust placement and overlapping-word values, preserve
+neighboring fields, verify cross-actor scenery/exit sharing, and exercise
+the authored missing-anchor loop plus all ten anchor waits through END.
+All 1,027 native unit tests and two integration tests pass in debug and
+release; 200 lowerer tests, 443 path-static tests, exact regeneration,
+architecture guard, static audit and app build pass. The parent `$44:8D82`
+still requires articulated-part and emitted-object dependencies. Shipping
+world-service, scheduler and spawn integration remain separate open work;
+these checks do not establish gameplay completion.

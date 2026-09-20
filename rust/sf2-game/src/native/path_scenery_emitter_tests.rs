@@ -53,7 +53,7 @@ fn placement_height_is_shared_and_preserves_every_signed_word_and_other_actor_fi
             })
         );
         assert_eq!(objects, expected);
-        assert_eq!(runtime.scenery_placement_height, Some(height));
+        assert_eq!(runtime.placement.lateral_or_height, Some(height));
         assert_eq!(runtime.branch.invert_next, bits & 1 != 0);
     }
     assert_eq!(random, before_random);
@@ -205,7 +205,7 @@ fn selected_particle_mask_ors_every_byte_without_touching_action_flags_mode_or_i
         let (mut runtime, mut objects, owner, mut random) = setup();
         for flags in 0..=u8::MAX {
             runtime.branch.invert_next = flags & 1 != 0;
-            let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+            let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                 mode: !flags,
                 action_flags: flags,
             };
@@ -228,7 +228,7 @@ fn selected_particle_mask_ors_every_byte_without_touching_action_flags_mode_or_i
             );
             assert_eq!(
                 auxiliary,
-                SelectedAuxiliaryState { stored_world_position: Default::default(),
+                SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                     mode: !flags,
                     action_flags: flags
                 }
@@ -312,7 +312,7 @@ fn arc_emitter_repeats_with_selected_jitter_and_retains_the_fresh_attachment() {
                         if rejected { 16_384 } else { 0 }
                     );
                     assert_eq!(objects.get(owner).unwrap().base.attachment, Some(spawned));
-                    assert_eq!(runtime.scenery_placement_height, Some(-500));
+                    assert_eq!(runtime.placement.lateral_or_height, Some(-500));
                     previous = Some(spawned);
                 }
                 assert_eq!(inputs.random, &expected_random);
@@ -339,7 +339,7 @@ fn sprite_emitter_runs_its_own_fallthrough_and_finishes_after_the_authored_waits
         actor.base.path = Some(authored_paths::SELECTED_SCENERY_SPRITE_EMITTER);
         actor.base.position.y = initial_y;
         let mut events = AudioState::default();
-        let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+        let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
             mode: 143,
             action_flags: 0,
         };

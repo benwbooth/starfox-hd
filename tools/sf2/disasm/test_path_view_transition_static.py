@@ -35,6 +35,24 @@ class ViewTransitionStaticTests(unittest.TestCase):
         self.assert_source(0x7FC107,
             'ac1fcfdab62b9bfac220b9c16a950cb9c36a950eb9c56a9510e2204ce8ca')
 
+    def test_selected_rotation_copies_only_three_auxiliary_bytes(self):
+        self.assertEqual(PathExtractor(self.rom).handler_entry(0x14F).handler_address, 0x7FC0ED)
+        self.assert_source(0x7FC0ED, 'ac1fcfdab62b9bfab9326b9512b9346b9514b9366b95164ce8ca')
+
+    def test_exit_placement_shares_coordinate_words_and_spawn_parameter_heading(self):
+        expected = bytes.fromhex('0d14ec99f079800c0b80100d7f14089b7b0c0b7b100d7aa108')
+        self.assertEqual(self.rom[0x479E0:0x479E0 + len(expected)], expected)
+
+    def test_view_control_import_uses_unaligned_word_bit_test_without_byte_normalization(self):
+        expected = bytes.fromhex('0b07a179a2e01ddaa1a2048b17268b')
+        self.assertEqual(self.rom[0x48AF5:0x48AF5 + len(expected)], expected)
+        self.assert_source(0x7FB5EF, '20e0c42047cb5a20fbb57a60')
+        self.assert_source(0x7FB5FB, '20bcc42047cbb900003a0ac22029ff008eb116aabfcfb57faeb11660')
+        self.assert_source(0x7FB652, '20efb5390000f00382ae144c94ca')
+        # The producer/consumer preserve the other view-choice and request bits.
+        self.assert_source(0x068670, 'ade01d09208de01d')
+        self.assert_source(0x079B92, 'ade01d8920f02429df8de01dade01d8980d00d')
+
     def test_snap_computes_all_negated_coarse_angle_targets_before_any_word_angle_store(self):
         self.assertEqual(PathExtractor(self.rom).handler_entry(0x111).handler_address, 0x7FB43B)
         self.assert_source(0x7FB43B,

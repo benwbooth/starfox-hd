@@ -60,6 +60,9 @@ impl Axis {
 pub enum WordField {
     DepthOffset,
     MotionPhase,
+    /// Unaligned authored word: phase high byte followed by script low byte.
+    /// Both neighboring words stay authoritative; this is not stored twice.
+    MotionScriptOverlap,
     ScriptValue,
     Position(Axis),
     Velocity(Axis),
@@ -74,6 +77,10 @@ impl WordField {
         (match self {
             Self::DepthOffset => actor.extension.depth_offset as i16,
             Self::MotionPhase => actor.extension.path_state.motion_phase as i16,
+            Self::MotionScriptOverlap => u16::from_le_bytes([
+                (actor.extension.path_state.motion_phase >> 8) as u8,
+                actor.extension.path_state.script_value as u8,
+            ]) as i16,
             Self::ScriptValue => actor.extension.path_state.script_value as i16,
             Self::Position(axis) => axis.get(actor.base.position),
             Self::Velocity(axis) => axis.get(actor.base.velocity),
@@ -87,6 +94,12 @@ impl WordField {
         match self {
             Self::DepthOffset => actor.extension.depth_offset = value,
             Self::MotionPhase => actor.extension.path_state.motion_phase = value,
+            Self::MotionScriptOverlap => {
+                let path = &mut actor.extension.path_state;
+                let [phase_high, script_low] = value.to_le_bytes();
+                path.motion_phase = u16::from_le_bytes([path.motion_phase as u8, phase_high]);
+                path.script_value = u16::from_le_bytes([script_low, (path.script_value >> 8) as u8]);
+            }
             Self::ScriptValue => actor.extension.path_state.script_value = value,
             Self::Position(axis) => axis.set(&mut actor.base.position, value as i16),
             Self::Velocity(axis) => axis.set(&mut actor.base.velocity, value as i16),
@@ -112,6 +125,7 @@ pub enum ByteField {
     ChildNumber,
     /// Actor allocation/retirement group, also inherited by spawned actors.
     SpawnGroup,
+    RadarMarker,
     ClippingPlane,
     /// Packed path control, not the renderer's resolved frame snapshot.
     Animation(AnimationChannel),
@@ -143,6 +157,7 @@ impl ByteField {
         match self {
             Self::ChildNumber => actor.base.child_number,
             Self::SpawnGroup => actor.extension.spawn_group,
+            Self::RadarMarker => actor.extension.radar_marker.packed(),
             Self::ClippingPlane => actor.extension.clipping_plane.selector_byte(),
             Self::WeaponSelection => actor.extension.path_state.weapon_selection,
             Self::FriendHealthSlot => actor.extension.path_state.friend_health_slot,
@@ -189,6 +204,7 @@ impl ByteField {
         match self {
             Self::ChildNumber => actor.base.child_number = value,
             Self::SpawnGroup => actor.extension.spawn_group = value,
+            Self::RadarMarker => actor.extension.radar_marker = super::radar::RadarMarker::from_packed(value),
             Self::WeaponSelection => actor.extension.path_state.weapon_selection = value,
             Self::FriendHealthSlot => actor.extension.path_state.friend_health_slot = value,
             Self::ClippingPlane => actor.extension.clipping_plane =
@@ -960,6 +976,7 @@ mod tests {
         let fields = [
             ByteField::ChildNumber,
             ByteField::SpawnGroup,
+            ByteField::RadarMarker,
             ByteField::ClippingPlane,
             ByteField::WeaponSelection,
             ByteField::Rotation(Axis::X),

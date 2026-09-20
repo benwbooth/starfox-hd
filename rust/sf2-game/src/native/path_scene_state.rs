@@ -3,6 +3,59 @@
 use super::path_fields::{ByteField, ByteOperand};
 use super::Object;
 
+/// Shared placement anchor used by encounter exits and scenery helpers.
+/// The first coordinate is lateral position for exits and height for scenery
+/// (source D767); these uses observe the same last publication. Depth is D769.
+/// Actor-identity publications are separate typed operations, not coordinates.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PlacementCoordinates {
+    pub lateral_or_height: Option<i16>,
+    pub depth: Option<i16>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementCoordinate {
+    LateralOrHeight,
+    Depth,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementCommand {
+    Import {
+        coordinate: PlacementCoordinate,
+        destination: super::path_fields::WordField,
+    },
+    Export {
+        coordinate: PlacementCoordinate,
+        source: super::path_fields::WordOperand,
+    },
+}
+
+impl PlacementCoordinates {
+    /// Missing retained data is diagnosed before touching the destination.
+    pub fn apply(
+        &mut self,
+        actor: &mut Object,
+        command: PlacementCommand,
+    ) -> Result<(), PlacementCoordinate> {
+        let coordinate = match command {
+            PlacementCommand::Import { coordinate, .. }
+            | PlacementCommand::Export { coordinate, .. } => coordinate,
+        };
+        let value = match coordinate {
+            PlacementCoordinate::LateralOrHeight => &mut self.lateral_or_height,
+            PlacementCoordinate::Depth => &mut self.depth,
+        };
+        match command {
+            PlacementCommand::Import { destination, .. } => {
+                destination.write(actor, value.ok_or(coordinate)? as u16)
+            }
+            PlacementCommand::Export { source, .. } => *value = Some(source.read(actor) as i16),
+        }
+        Ok(())
+    }
+}
+
 /// Live campaign-node flags ($D7F6). Node loading replaces the low byte,
 /// while authored paths and campaign writeback read and replace the full word.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

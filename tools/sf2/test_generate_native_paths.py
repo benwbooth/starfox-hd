@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 140;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 142;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 5;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4519;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4832;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -63,6 +63,8 @@ class NativePathGenerationTests(unittest.TestCase):
                          'Statement::IfProtectionOverride { taken: cursor(0, 0), next: cursor(0, 1) }')
 
     def test_view_transition_commands_are_complete_paired_actions_not_simple_flags(self):
+        self.assertEqual(self.lower_record('00 4f')[0],
+                         'Statement::CopySelectedStoredRotation { next: cursor(0, 1) }')
         self.assertEqual(self.lower_record('00 4e')[0],
                          'Statement::CopySelectedStoredPosition { next: cursor(0, 1) }')
         self.assertEqual(self.lower_record('00 10')[0],
@@ -73,6 +75,46 @@ class NativePathGenerationTests(unittest.TestCase):
                          'Statement::ViewTransition { enabled: true, next: cursor(0, 1) }')
         self.assertEqual(self.lower_record('c3')[0],
                          'Statement::ViewTransition { enabled: false, next: cursor(0, 1) }')
+
+    def test_exit_placement_coordinates_are_typed_and_reject_other_word_mappings(self):
+        self.assertIn('WordField::MotionScriptOverlap', self.lower_record('da a1 a2 36 f5')[0])
+        self.assertIn('SceneByte::PlayerViewControl', self.lower_record('79 a2 e0 1d')[0])
+        with self.assertRaises(UnsupportedPath):
+            self.lower_record('7d a2 e0 1d')
+        self.assertIn('ByteField::RadarMarker', self.lower_record('2a ad 86 36 f5')[0])
+        for opcode, operation in [('7b', 'Import'), ('80', 'Export')]:
+            for variable, index, coordinate, axis in [('0c', '0b', 'LateralOrHeight', 'X'), ('10', '0d', 'Depth', 'Z')]:
+                statement = self.lower_record(f'{opcode} {variable} {index}')[0]
+                self.assertIn(f'PlacementCommand::{operation}', statement)
+                self.assertIn(f'PlacementCoordinate::{coordinate}', statement)
+                self.assertIn(f'WordField::Position(Axis::{axis})', statement)
+            for record in [f'{opcode} 0c 0d', f'{opcode} 10 0b', f'{opcode} 0e 0d']:
+                with self.assertRaises(UnsupportedPath):
+                    self.lower_record(record)
+
+    def test_scripted_exit_view_and_anchor_have_complete_source_bound_installers(self):
+        extractor = PathExtractor(self.rom)
+        for address, count, digest, installer, signature in [
+            (0x78D2, 314, '142ebef793a2a234891bcab9cc2d7aa90b414122b4ed684e481a64e50581f6dd', 0x857B, '5d9cbcd2786400'),
+            (0x7B8F, 2, '80836a35d66632e30a8ab79f35e56e3f6611b3e26d2173e19aafb05348145997', 0x8570, '5d28bd8f7b6400'),
+        ]:
+            root = PathAddress(address)
+            self.assertNotIn(root, extractor.discover_roots())
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
+            self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
+            source = extractor.decode_command(PathAddress(installer))
+            self.assertIn(source, graph(extractor, PathAddress(0x8D82)))
+            self.assertEqual(source.raw_hex, signature)
+            changed = bytearray(self.rom)
+            changed[0x40000 + installer + 3:0x40000 + installer + 5] = (address + 1).to_bytes(2, 'little')
+            with self.assertRaisesRegex(UnsupportedPath, 'no verified child installer'):
+                generate(bytes(changed), (('EXIT', root),))
+        for shape, path, index in [(0xBD28, 0x7B8F, 5), (0xBC9C, 0x78D2, 0)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, 'ObjectKind::Effect'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
 
     def test_four_panel_objective_closes_panels_emitters_fighters_and_completion(self):
         root = PathAddress(0x5B96)
@@ -3181,12 +3223,12 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("use super::path_program::CampaignByte;", generate(self.rom, (("RADIO", PathAddress(0x7BC5)),)))
 
     def test_word_swaps_decode_both_fields_without_exposing_unmapped_storage(self):
-        fields = [0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1, 0xA3]
+        fields = [0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1, 0xA2, 0xA3]
         for first in fields:
             for second in fields:
                 self.assertEqual(self.lower_record(f"00 78 {first:02x} {second:02x}")[0],
                     f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: cursor(0, 1) }}")
-        for invalid in [0x04, 0x0D, 0x2B, 0xA2, 0xA4]:
+        for invalid in [0x04, 0x0D, 0x2B, 0xA4]:
             for record in [f"00 78 {invalid:02x} a3", f"00 78 a3 {invalid:02x}"]:
                 with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
                     self.lower_record(record)
@@ -3300,11 +3342,12 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(self.lower_record("80 a3 36")[0],
             "Statement::Guidance { command: GuidanceCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
         self.assertIn("Statement::ImportControlStyle", self.lower_record("79 a1 d0 1d")[0])
+        self.assertIn("GuidanceCommand::CopyTo(WordField::MotionScriptOverlap)", self.lower_record("7b a2 36")[0])
         for index in range(256):
             if index not in (0x32, 0x34, 0x36, 0x43, 0x9A):
                 with self.assertRaises(UnsupportedPath):
                     self.lower_record(f"80 a3 {index:02x}")
-        for record in ["7b a2 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:
+        for record in ["7b a4 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 

@@ -160,6 +160,10 @@ mod view_transition_commands;
 #[path = "path_view_transition_tests.rs"]
 mod view_transition_tests;
 
+#[cfg(test)]
+#[path = "path_placement_tests.rs"]
+mod placement_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -283,6 +287,9 @@ pub struct ScenePathInputs {
     /// the signed encounter-height table. Paths do not draw randomness here.
     pub height_offset: Option<i16>,
     pub player_configuration: Option<u8>,
+    /// Shared player-view control byte ($1DE0). Menu and flight services
+    /// update separate bits; the exit path reads the complete published byte.
+    pub player_view_control: Option<u8>,
     pub encounter_location: Option<u8>,
     /// Encounter layout byte ($1BA5), copied from the campaign node's
     /// layout field at $04:B20C and retained independently of location.
@@ -350,6 +357,7 @@ pub enum SceneByte {
     WingmatePilot,
     EntryHeading,
     PlayerConfiguration,
+    PlayerViewControl,
     EncounterLocation,
     EncounterLayout,
     ActiveWeaponLevel,
@@ -365,6 +373,7 @@ impl SceneByte {
             Self::WingmatePilot => input.wingmate_pilot,
             Self::EntryHeading => input.entry_heading,
             Self::PlayerConfiguration => input.player_configuration,
+            Self::PlayerViewControl => input.player_view_control,
             Self::EncounterLocation => input.encounter_location,
             Self::EncounterLayout => input.encounter_layout,
             Self::ActiveWeaponLevel => input.active_weapon_level,
@@ -379,6 +388,9 @@ pub struct SelectedAuxiliaryState {
     /// Selected player's retained world pose (source auxiliary 6AC1/3/5),
     /// distinct from its live actor position and published motion snapshot.
     pub stored_world_position: super::Vector3,
+    /// Byte-angle observations at auxiliary 6B32/34/36, not actor angles
+    /// and not the fixed view's fine-word angles.
+    pub stored_rotation: super::Rotation,
 }
 
 /// Selected-player particle emission byte ($6BE4), consumed by $07:D25A.
@@ -618,6 +630,8 @@ pub enum Statement {
     ViewTransition { enabled: bool, next: PathCursor },
     MoveFixedView { snap: bool, next: PathCursor },
     CopySelectedStoredPosition { next: PathCursor },
+    CopySelectedStoredRotation { next: PathCursor },
+    Placement { command: super::path_scene_state::PlacementCommand, next: PathCursor },
     /// This direct source branch preserves pending IFNOT state.
     IfProtectionOverride { taken: PathCursor, next: PathCursor },
     EncounterHandoff {
@@ -1093,6 +1107,7 @@ pub enum ProgramError {
     MissingOccupancy,
     MissingSurfaceMode,
     MissingSceneryPlacementHeight,
+    MissingPlacementCoordinate(super::path_scene_state::PlacementCoordinate),
     MissingCapturedWorldPosition,
     MissingSelectedParticleEffects,
     MissingImpactState,
@@ -1428,7 +1443,7 @@ impl PathRuntime {
                     Ok(ControlStep::Continue)
                 }
                 Statement::SetSceneryPlacementHeight { height, next } => {
-                    self.scenery_placement_height = Some(height);
+                    self.placement.lateral_or_height = Some(height);
                     objects.get_mut(owner).expect("validated placement writer").base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -1451,9 +1466,15 @@ impl PathRuntime {
                     Ok(ControlStep::Continue)
                 }
                 Statement::ImportSceneryPlacementHeight { next } => {
-                    let height = self.scenery_placement_height.ok_or(ProgramError::MissingSceneryPlacementHeight)?;
+                    let height = self.placement.lateral_or_height.ok_or(ProgramError::MissingSceneryPlacementHeight)?;
                     let actor = objects.get_mut(owner).expect("validated placement reader");
                     actor.base.position.y = height;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::Placement { command, next } => {
+                    let actor = objects.get_mut(owner).expect("validated placement-coordinate owner");
+                    self.placement.apply(actor, command).map_err(ProgramError::MissingPlacementCoordinate)?;
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -1716,6 +1737,16 @@ impl PathRuntime {
                         .ok_or(ProgramError::MissingSelectedAuxiliary)?.stored_world_position;
                     let actor = objects.get_mut(owner).expect("validated stored-position owner");
                     actor.base.position = position;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::CopySelectedStoredRotation { next } => {
+                    let rotation = world.selected_auxiliary.as_deref()
+                        .ok_or(ProgramError::MissingSelectedAuxiliary)?.stored_rotation;
+                    let actor = objects.get_mut(owner).expect("validated stored-rotation owner");
+                    actor.base.pitch = rotation.pitch;
+                    actor.base.yaw = rotation.yaw;
+                    actor.base.roll = rotation.roll;
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -6784,7 +6815,7 @@ mod tests {
                                 actor.extension.path_state.motion_phase = u16::from_be_bytes([initial_high, initial]);
                                 let shape_animation = actor.extension.path_state.animation.shape;
                                 runtime.branch.invert_next = inverted;
-                                let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(), mode, action_flags: initial };
+                                let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(), mode, action_flags: initial };
                                 let mut audio = AudioState::default();
                                 for visit in 0..8u8 {
                                     let mut inputs = world(&mut random);
@@ -6841,7 +6872,7 @@ mod tests {
                                     assert!(!runtime.branch.invert_next);
                                     assert_eq!(random, expected_random);
                                 }
-                                assert_eq!(auxiliary, SelectedAuxiliaryState { stored_world_position: Default::default(), mode, action_flags: initial });
+                                assert_eq!(auxiliary, SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(), mode, action_flags: initial });
                                 runtime.release_actor_programs(&mut objects, owner).unwrap();
                             }
                         }
@@ -6862,7 +6893,7 @@ mod tests {
         actor.base.hit_points = 1; // no cue dependency
         actor.extension.path_state.motion_phase = 0; // increment high skips jitter
         actor.base.position = Vector3 { x: 32767, y: -456, z: -32768 };
-        let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(), mode: 0, action_flags: 0 };
+        let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(), mode: 0, action_flags: 0 };
         let mut inputs = world(&mut random);
         inputs.selected_auxiliary = Some(&mut auxiliary);
         assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
@@ -8281,7 +8312,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
+        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::PlayerViewControl, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -8303,6 +8334,7 @@ mod tests {
                     SceneByte::WingmatePilot => inputs.scene.wingmate_pilot = Some(value),
                     SceneByte::EntryHeading => inputs.scene.entry_heading = Some(value),
                     SceneByte::PlayerConfiguration => inputs.scene.player_configuration = Some(value),
+                    SceneByte::PlayerViewControl => inputs.scene.player_view_control = Some(value),
                     SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(value),
                     SceneByte::EncounterLayout => inputs.scene.encounter_layout = Some(value),
                     SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
@@ -9039,7 +9071,7 @@ mod tests {
                 actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
             }
             for visit in 0..5 {
-                let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+                let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                     mode: 0,
                     action_flags: 0x40,
                 };
@@ -9089,7 +9121,7 @@ mod tests {
                         inputs.selected_auxiliary = None;
                     } else {
                         *inputs.selected_auxiliary.as_deref_mut().unwrap() =
-                            SelectedAuxiliaryState { stored_world_position: Default::default(),
+                            SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                                 mode: 0x40,
                                 action_flags: 0,
                             };
@@ -9545,7 +9577,7 @@ mod tests {
             let before_random = random;
             let visits = if gate { 2 } else { 3 };
             for visit in 0..visits {
-                let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+                let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                     mode: 0x80, // mode does not participate in the action-bit gate
                     action_flags: if gate { 0x40 } else { 0 },
                 };
@@ -9595,7 +9627,7 @@ mod tests {
                 assert_eq!(
                     branch.test(
                         SelectedAuxiliaryCondition::ActionBit40
-                            .sample(SelectedAuxiliaryState { stored_world_position: Default::default(), mode, action_flags })
+                            .sample(SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(), mode, action_flags })
                     ),
                     action_flags & 0x40 != 0
                 );
@@ -9603,7 +9635,7 @@ mod tests {
                 assert_eq!(
                     branch.test(
                         SelectedAuxiliaryCondition::ActionBit04Clear
-                            .sample(SelectedAuxiliaryState { stored_world_position: Default::default(), mode, action_flags })
+                            .sample(SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(), mode, action_flags })
                     ),
                     action_flags & 0x04 == 0
                 );
@@ -9637,7 +9669,7 @@ mod tests {
             let destination = cursor(0, if action_flags & 0x04 == 0 { 2 } else { 1 });
             let mut expected = objects.clone();
             expected.get_mut(owner).unwrap().base.path = Some(destination);
-            let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+            let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                 mode: !action_flags,
                 action_flags,
             };
@@ -9751,7 +9783,7 @@ mod tests {
             .into_iter()
             .enumerate()
         {
-            let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+            let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                 mode: if visit == 4 { 0x80 } else { 0 },
                 action_flags: 0x20,
             };
@@ -9884,7 +9916,7 @@ mod tests {
             for mode in 0..=u8::MAX {
                 for action_flags in 0..=u8::MAX {
                     *objects.get_mut(owner).unwrap() = before.clone();
-                    let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(), mode, action_flags };
+                    let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(), mode, action_flags };
                     let mut inputs = world(&mut random);
                     inputs.selected_auxiliary = Some(&mut auxiliary);
                     let destination = cursor(0, if mode / 16 == expected_class { 2 } else { 1 });
@@ -10046,7 +10078,7 @@ mod tests {
                             weapon_level: !kind,
                         };
                         let mut equipment = initial;
-                        let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(), mode: kind, action_flags: !kind };
+                        let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(), mode: kind, action_flags: !kind };
                         let mut inputs = world(&mut random);
                         inputs.scene.active_weapon_level = Some(217);
                         inputs.selected_equipment = Some(&mut equipment);
@@ -10067,7 +10099,7 @@ mod tests {
                             Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
                         assert_eq!(inputs.selected_equipment.as_deref(), Some(&expected_equipment));
                         assert_eq!(inputs.scene.active_weapon_level, Some(217));
-                        assert_eq!(inputs.selected_auxiliary.as_deref(), Some(&SelectedAuxiliaryState { stored_world_position: Default::default(), mode: kind, action_flags: !kind }));
+                        assert_eq!(inputs.selected_auxiliary.as_deref(), Some(&SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(), mode: kind, action_flags: !kind }));
                         let mut expected = before;
                         expected.get_mut(owner).unwrap().base.path = Some(destination);
                         assert_eq!(objects, expected);
@@ -10121,25 +10153,25 @@ mod tests {
         for mode in 0..=u8::MAX {
             for action_flags in 0..=u8::MAX {
                 let stored_world_position = super::super::Vector3 { x: -32768, y: i16::from(mode), z: i16::from(action_flags) };
-                let original = SelectedAuxiliaryState { stored_world_position, mode, action_flags };
+                let original = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position, mode, action_flags };
                 for (command, expected) in [
                     (
                         SetModeLowNibbleOne,
-                        SelectedAuxiliaryState { stored_world_position,
+                        SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position,
                             mode: mode / 16 * 16 + 1,
                             action_flags,
                         },
                     ),
                     (
                         SetModeLowNibbleFour,
-                        SelectedAuxiliaryState { stored_world_position,
+                        SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position,
                             mode: mode / 16 * 16 + 4,
                             action_flags,
                         },
                     ),
                     (
                         ClearActionBit01,
-                        SelectedAuxiliaryState { stored_world_position,
+                        SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position,
                             mode,
                             action_flags: action_flags / 2 * 2,
                         },
@@ -10188,7 +10220,7 @@ mod tests {
                 let initial_objects = objects.clone();
                 // No selected pose is needed: the caller supplies exactly the
                 // selected auxiliary record, independently of actor transforms.
-                let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+                let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                     mode,
                     action_flags: !mode,
                 };
@@ -10203,7 +10235,7 @@ mod tests {
                 );
                 assert_eq!(
                     inputs.selected_auxiliary.as_deref(),
-                    Some(&SelectedAuxiliaryState { stored_world_position: Default::default(),
+                    Some(&SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                         mode,
                         action_flags: !mode
                     })
@@ -10222,7 +10254,7 @@ mod tests {
                     );
                     assert_eq!(
                         inputs.selected_auxiliary.as_deref(),
-                        Some(&SelectedAuxiliaryState { stored_world_position: Default::default(),
+                        Some(&SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                             mode: expected_mode,
                             action_flags: expected_flags
                         })
@@ -10250,7 +10282,7 @@ mod tests {
                 // actual shared record, not a copy retained by the dispatcher.
                 assert_eq!(
                     auxiliary,
-                    SelectedAuxiliaryState { stored_world_position: Default::default(),
+                    SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                         mode: mode / 16 * 16 + 1,
                         action_flags: !mode / 2 * 2
                     }
@@ -10962,7 +10994,7 @@ mod tests {
                             _ => 0,
                         };
                         actor.extension.path_state.script_value = initial_counter;
-                        let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+                        let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                             mode: auxiliary_mode,
                             action_flags: 0,
                         };
@@ -12275,7 +12307,7 @@ mod tests {
                     let velocity = path_motion::direction_velocity(pitch, Angle::ZERO, 20, 4);
                     let initial_random = random;
                     let mut audio = AudioState::default();
-                    let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+                    let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                         mode: auxiliary_mode,
                         action_flags: 0,
                     };
@@ -13148,7 +13180,7 @@ mod tests {
                         .path_state
                         .motion_phase = 0xAB00;
                     let mut history = GuidanceHistory { flags };
-                    let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+                    let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                         mode: 0xA2,
                         action_flags: 0xFF,
                     };
@@ -13463,7 +13495,7 @@ mod tests {
             Err(ProgramError::MissingSelectedAuxiliary)
         );
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
-        let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
+        let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
             mode: 0,
             action_flags: 0,
         };
@@ -13851,10 +13883,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 140);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 142);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 5);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4475);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4519);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4788);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4832);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
