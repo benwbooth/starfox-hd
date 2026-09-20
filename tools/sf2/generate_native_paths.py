@@ -370,6 +370,7 @@ def byte_field(variable: int) -> str:
         0x28: "ByteField::RepeatCounter",
         0x2D: "ByteField::Health",
         0x2E: "ByteField::AttackPower",
+        0x2F: "ByteField::WeaponSelection",
         0x89: "ByteField::Animation(AnimationChannel::Color)",
         0x8A: "ByteField::Animation(AnimationChannel::Shape)",
         0x94: "ByteField::RelativeRotation(Axis::X)",
@@ -1136,6 +1137,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "SetVelocity":
             speed, = parameters(1)
             statement = f"Statement::Motion {{ command: MotionCommand::SetSpeed({speed}), next: {next_cursor()} }}"
+        elif name == "SetWeapon":
+            weapon, = parameters(1)
+            statement = f"Statement::Mutate {{ mutation: Mutation::Byte {{ field: ByteField::WeaponSelection, operation: ByteOperation::Assign(ByteOperand::Literal({weapon})) }}, next: {next_cursor()} }}"
         elif name in (
             "FollowPlayerDisplacementOn", "FollowPlayerDisplacementOff",
             "GenerateVelocityEachStepOn", "GenerateVelocityEachStepOff",

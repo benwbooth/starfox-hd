@@ -5266,6 +5266,45 @@ mod tests {
     }
 
     #[test]
+    fn authored_weapon_selection_assignment_preserves_classification_wait_and_all_other_state() {
+        use super::super::WeaponKind;
+        for value in 0..=u8::MAX {
+            for inverted in [false, true] {
+                for kind in [WeaponKind::None, WeaponKind::Laser, WeaponKind::ChargedLaser,
+                             WeaponKind::NovaBomb, WeaponKind::EnemyLaser, WeaponKind::Missile] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.weapon = kind;
+                    actor.base.wait_timer = value;
+                    actor.base.hit_points = value ^ 255;
+                    actor.base.attack_power = value;
+                    actor.extension.path_state.weapon_selection = value ^ 255;
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    let mut expected = actor.clone();
+                    runtime.branch.invert_next = inverted;
+                    let initial_random = random;
+                    let catalog = PathCatalog::new(vec![vec![Statement::Mutate {
+                        mutation: Mutation::Byte { field: ByteField::WeaponSelection,
+                            operation: ByteOperation::Assign(ByteOperand::Literal(value)) },
+                        next: cursor(0, 1),
+                    }]]).unwrap();
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                        Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    expected.extension.path_state.weapon_selection = value;
+                    expected.base.path = Some(cursor(0, 1));
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                        Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert_eq!(ByteField::WeaponSelection.read(objects.get(owner).unwrap()), value);
+                    assert_eq!(runtime.branch.invert_next, inverted);
+                    assert_eq!(random, initial_random);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn clipping_operand_and_fixed_command_alias_one_full_byte() {
         use super::super::path_appearance::AppearanceCommand;
         use super::super::render::ClippingPlaneSelection;

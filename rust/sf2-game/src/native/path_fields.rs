@@ -113,6 +113,7 @@ pub enum ByteField {
     Acceleration,
     WaitTimer,
     ScriptParameter,
+    WeaponSelection,
     RepeatCounter,
     Part,
     Health,
@@ -129,6 +130,7 @@ impl ByteField {
         match self {
             Self::ChildNumber => actor.base.child_number,
             Self::ClippingPlane => actor.extension.clipping_plane.selector_byte(),
+            Self::WeaponSelection => actor.extension.path_state.weapon_selection,
             Self::Animation(channel) => match channel {
                 AnimationChannel::Shape => actor.extension.path_state.animation.shape,
                 AnimationChannel::Color => actor.extension.path_state.animation.color,
@@ -170,6 +172,7 @@ impl ByteField {
     pub fn write(self, actor: &mut Object, value: u8) {
         match self {
             Self::ChildNumber => actor.base.child_number = value,
+            Self::WeaponSelection => actor.extension.path_state.weapon_selection = value,
             Self::ClippingPlane => actor.extension.clipping_plane =
                 super::render::ClippingPlaneSelection::from_selector_byte(value),
             Self::Animation(channel) => {
@@ -842,6 +845,7 @@ mod tests {
         let fields = [
             ByteField::ChildNumber,
             ByteField::ClippingPlane,
+            ByteField::WeaponSelection,
             ByteField::Rotation(Axis::X),
             ByteField::Rotation(Axis::Y),
             ByteField::Rotation(Axis::Z),

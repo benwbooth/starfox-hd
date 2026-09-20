@@ -2088,3 +2088,27 @@ statements**. All 133 lowerer tests, 297 static path tests and 323 native path
 tests in debug/release pass, as do generated freshness, architecture/static
 audits and the app build. These are source-level path results, not proof of
 whole-game scheduler integration or completed gameplay.
+
+### Authored weapon selector and pickup surface-mode alias
+
+`SETWEAPON` now assigns a path-owned weapon-dispatch selector, using the same
+byte as ordinary operand `2F`. Source `$7F:8856` only stores the byte and
+advances immediately; the separate fire helper reads it later before calling
+the weapon dispatcher. The existing high-level `WeaponKind` classification
+is not an encoded alias and remains unchanged. Fire commands are still
+rejected until their actual spawning behavior is ported.
+
+The pickup path imports its surface-mode snapshot into this same byte and
+later tests it to choose collection distance. No independent pickup-only
+shadow field is introduced. Tests exhaust all 256 selector values, both
+IFNOT states and all high-level weapon classifications, preserving wait,
+health, attack, random state and every unrelated actor field. Both assignment
+forms lower identically; unsupported word-width access stays rejected.
+Static evidence pins the store, immediate advance, separate fire dispatch,
+and both pickup snapshot/use sites.
+
+Validation passes 134 lowerer tests, 298 static path tests and 324 native
+path tests in debug/release, plus generated freshness, architecture/static
+audits and the app build. Complete-root coverage remains **64 roots / 1,061
+source commands / 1,052 native statements**; the pickup graphs next require
+their selected-player reward and inventory transitions.

@@ -26,6 +26,11 @@ pub struct ActorPathState {
     /// height byte and uses it as a bit selector. It is not a timer, weapon,
     /// health alias, or the separately counted LOOP byte.
     pub script_parameter: u8,
+    /// Authored weapon-dispatch selector (source actor byte 2F). Paths also
+    /// reuse this byte for scene observations, including pickup surface mode.
+    /// It is independent of the high-level WeaponKind classification and
+    /// assigning it neither fires a weapon nor changes that classification.
+    pub weapon_selection: u8,
     /// Path-owned working word (source extension 1CE4): numeric distance/
     /// chase values and imported bit sets share this storage. Low/high byte
     /// operations alias this word; it is independent of motion_phase.

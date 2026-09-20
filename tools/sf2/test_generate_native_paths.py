@@ -2002,6 +2002,19 @@ class NativePathGenerationTests(unittest.TestCase):
                 self.assertIn("WordField::MotionPhase", statements[0])
                 self.assertIn(fragment, statements[0])
 
+    def test_weapon_selector_command_and_byte_operand_alias_without_implementing_fire(self):
+        self.assertEqual(byte_field(0x2F), "ByteField::WeaponSelection")
+        for value in range(256):
+            expected = f"Statement::Mutate {{ mutation: Mutation::Byte {{ field: ByteField::WeaponSelection, operation: ByteOperation::Assign(ByteOperand::Literal({value})) }}, next: cursor(0, 1) }}"
+            self.assertEqual(self.lower_record(f"39 {value:02x}")[0], expected)
+            self.assertEqual(self.lower_record(f"0b {value:02x} 2f")[0], expected)
+        self.assertEqual(self.lower_record("79 2f 4d 1b")[0],
+            "Statement::ImportSurfaceMode { destination: ByteField::WeaponSelection, next: cursor(0, 1) }")
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 2F"):
+            word_field(0x2F)
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported FireWeapon"):
+            self.lower_record("35")
+
     def test_dedicated_axis_adds_keep_byte_rotation_and_signed_word_displacement(self):
         for value in range(256):
             for index, axis in enumerate(("X", "Y", "Z")):

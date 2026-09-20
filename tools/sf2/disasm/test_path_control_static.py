@@ -126,6 +126,22 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7FCB47,
             "08 C2 20 8E B1 16 29 FF 00 89 80 00 F0 04 18 69 41 1C 18 6D B1 16 A8 28 60")
 
+    def test_weapon_selector_assignment_and_pickup_surface_snapshot_use_the_same_byte(self):
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x39].rust_name, "SetWeapon")
+        self.assert_source(0x7F8856, "20 BC C4 95 2F 4C D3 CA")
+        # Assignment advances the two-byte command and resumes decoding; it
+        # does not enter the separate fire helper or clear the wait counter.
+        self.assert_source(0x7FCAD3, "E2 20 C2 20 B5 2B 18 69 02 00 95 2B E2 20 4C 75 7E")
+        self.assert_source(0x7F885E, "20 C4 88 B9 31 00 09 10 99 31 00 4C E8 CA")
+        self.assert_source(0x7F88ED, "B5 2F 22 9C A8 03 C0 00 00 D0 03 AC D6 14 8C 71 D7 60")
+        self.assert_source(0x03A89C,
+            "86 3A E2 30 85 5F 0A 18 65 5F AA BF C3 A8 03 48 C2 20 "
+            "BF C1 A8 03 3A 48 E2 20 C2 10 A6 3A 6B")
+        # Pickup paths retain surface mode in that same selector, then read
+        # the retained byte again when choosing collection distance.
+        self.assert_source(0x08C55F, "79 2F 4D 1B 8A 2A 2F 00 6D 45 0C 28 F5 04")
+        self.assert_source(0x08C588, "8A 2A 2F 00 94 45 97 F4 01 A0 45 42 97 96 00 A0 45 42")
+
     def test_motion_fade_sprite_setup_and_independent_installers(self):
         # The full shared jitter/fade and saved-byte callback are pinned by
         # their own tests. These three entry prefixes join that exact tail.
