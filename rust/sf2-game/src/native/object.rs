@@ -1023,6 +1023,9 @@ pub struct ObjectBase {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ObjectExtension {
     pub impact_materials: super::path_impact::ImpactMaterials,
+    /// Optional original weapon shape (auxiliary type 10), captured at
+    /// creation and reused by reflection ($07:F26D) after shape animation.
+    pub reflection_shape: Option<ShapeId>,
     pub path_state: super::path_runtime::ActorPathState,
     pub surface_contact: super::collision_surface::ActorSurfaceContact,
     /// Scene-owned snapshot; retirement detaches it before contact callbacks.

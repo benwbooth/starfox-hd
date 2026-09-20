@@ -1671,6 +1671,7 @@ impl PathRuntime {
                     let created = weapon_dispatch::launch(objects, owner, LaunchRequest {
                         weapon, parameters: state.parameters, defaults,
                     }, &mut LaunchWorld {
+                        published_pitch: state.published_pitch,
                         primary: world.primary_player,
                         secondary: world.secondary_player,
                         primary_auxiliary_mode: world.primary_motion.map(|motion| motion.auxiliary_mode),

@@ -2894,3 +2894,25 @@ static audits and app build. The broader SF2 suite reproduced the previously
 tracked reengagement radio-timeline extra-HostileLaser mismatch; it is not a
 green full-suite claim. Coverage is 115 complete roots, 2,075 source commands
 and 2,066 typed statements; Game scheduler integration remains open.
+
+### Charged-mesh weapon selectors
+
+Weapon selectors 12, 14 and 16 now share the source `$0D:DCC3` creation
+profile and install the complete aimed-impact projectile graph. Creation uses
+the player-linked wrapper, assigns the launch mesh, preserves caller roll,
+copies the separately published aiming pitch, records the original reflection
+shape, and sets health/attack to 120/10. The formatter's earlier child/repeat
+aliases remain unchanged by the pitch override. This profile neither invokes
+the hostile launch gate nor draws randomness; full-pool failure precedes the
+pitch observation and retains the existing reserved-actor fallback behavior.
+
+The original-shape record is typed and optional, distinct from the current
+animated shape and render material. Source pins identify its reflection
+consumer's fallback to the current shape when the record is absent. That
+reflection service and the aiming-pitch producer remain separate porting work.
+Tests cover all pitch bytes, boundary rolls, opposite incoming path selection
+and outgoing hit side, all three selector aliases, missing snapshots, full
+pools and immediate path FIRE integration. All 21 weapon tests and 453 path
+tests pass in debug/release, plus 354 source-static tests, audits and app build.
+Complete-root counts remain 115/2,075/2,066; this connects a producer, not a
+new independent graph or a claim of shipping gameplay completion.

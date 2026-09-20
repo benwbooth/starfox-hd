@@ -2,8 +2,11 @@ use super::super::weapon_launch::format_pose;
 use super::super::{Angle, Behavior, Object, ObjectKind, ShapeId, Vector3};
 use super::*;
 
-const PROFILES: [(u8, PathWeapon); 9] = [
+const PROFILES: [(u8, PathWeapon); 12] = [
     (2, PathWeapon::PlayerOrHostileHeavy),
+    (12, PathWeapon::PlayerChargedMesh),
+    (14, PathWeapon::PlayerChargedMesh),
+    (16, PathWeapon::PlayerChargedMesh),
     (18, PathWeapon::VariantGuided),
     (20, PathWeapon::DifficultyHoming),
     (22, PathWeapon::PrimaryMotionHoming),
@@ -43,6 +46,154 @@ fn selector_mapping_is_explicit_and_unreviewed_variants_are_rejected() {
 }
 
 #[test]
+fn charged_mesh_uses_published_pitch_caller_roll_and_retained_reflection_shape_without_hostile_inputs(
+) {
+    use super::super::hit_response::HitSide;
+    use super::super::path_control::PlayerTarget;
+    for pitch in 0..=u8::MAX {
+        for roll in [0, 127, 128, 255] {
+            for secondary in [false, true] {
+                let mut objects = ObjectStore::new();
+                let mut source = actor();
+                source.base.pitch = Angle::from_units(pitch.wrapping_add(93));
+                source.base.yaw = Angle::from_units(177);
+                source.base.roll = Angle::from_units(roll);
+                source.base.speed = 217;
+                source.base.position = Vector3 {
+                    x: 32767,
+                    y: -32768,
+                    z: 32700,
+                };
+                source.base.contacts.hit_side = if secondary {
+                    HitSide::Secondary
+                } else {
+                    HitSide::Primary
+                };
+                source.extension.path_state.conditions.selected_player = if secondary {
+                    PlayerTarget::Primary
+                } else {
+                    PlayerTarget::Secondary
+                };
+                let caller = objects.allocate(source.clone()).unwrap();
+                let mut request = request(PathWeapon::PlayerChargedMesh);
+                request.parameters.pitch_offset = -17;
+                request.parameters.yaw_offset = 31;
+                request.parameters.muzzle =
+                    super::super::weapon_launch::MuzzleOffset { x: 8, y: -4, z: 12 };
+                let mut expected = objects.clone();
+                let created = weapon_creation::player_linked(
+                    &mut expected,
+                    caller,
+                    request.parameters,
+                    request.defaults,
+                )
+                .unwrap()
+                .unwrap();
+                let result = expected.get_mut(created).unwrap();
+                let original_child_number = result.base.child_number;
+                result.base.path = Some(authored_paths::AIMED_IMPACT_PROJECTILE);
+                result.base.shape = ShapeId::PLAYER_CHARGED_LASER_LAUNCH;
+                result.base.pitch = Angle::from_units(pitch);
+                result.base.roll = Angle::from_units(roll);
+                result.base.hit_points = 120;
+                result.base.attack_power = 10;
+                result.extension.reflection_shape = Some(ShapeId::PLAYER_CHARGED_LASER_LAUNCH);
+                let mut random = RandomState::new([1, pitch, roll, 17]);
+                let before_random = random;
+                assert_eq!(
+                    launch(
+                        &mut objects,
+                        caller,
+                        request,
+                        &mut LaunchWorld {
+                            published_pitch: Some(Angle::from_units(pitch)),
+                            primary: None,
+                            secondary: None,
+                            primary_auxiliary_mode: None,
+                            hostile_counts: None,
+                            random: &mut random,
+                        }
+                    )
+                    .unwrap(),
+                    Some(created)
+                );
+                assert_eq!(objects, expected);
+                assert_eq!(random, before_random);
+                let result = objects.get_mut(created).unwrap();
+                // The formatter's aliased pitch byte predates the later
+                // published-pitch replacement and must not follow it.
+                assert_eq!(result.base.child_number, original_child_number);
+                assert_eq!(result.base.wait_timer, 217);
+                assert_eq!(result.base.velocity, Vector3::default());
+                assert_eq!(result.base.attachment, Some(caller));
+                assert_eq!(
+                    result.extension.path_state.conditions.selected_player,
+                    if secondary {
+                        PlayerTarget::Secondary
+                    } else {
+                        PlayerTarget::Primary
+                    }
+                );
+                result.base.shape = ShapeId::PLAYER_CHARGED_LASER_ACTIVE;
+                assert_eq!(
+                    result.extension.reflection_shape,
+                    Some(ShapeId::PLAYER_CHARGED_LASER_LAUNCH)
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn charged_mesh_requires_a_pitch_snapshot_unless_allocation_already_fails() {
+    let mut objects = ObjectStore::new();
+    let caller = objects.allocate(actor()).unwrap();
+    let mut random = RandomState::default();
+    let before_random = random;
+    let before = objects.clone();
+    let request = request(PathWeapon::PlayerChargedMesh);
+    assert_eq!(
+        launch(
+            &mut objects,
+            caller,
+            request,
+            &mut LaunchWorld {
+                published_pitch: None,
+                primary: None,
+                secondary: None,
+                primary_auxiliary_mode: None,
+                hostile_counts: None,
+                random: &mut random,
+            }
+        ),
+        Err(LaunchError::MissingPublishedPitch)
+    );
+    assert_eq!(objects, before);
+    while objects.len() < OBJECT_CAPACITY {
+        objects.allocate(actor()).unwrap();
+    }
+    let before = objects.clone();
+    assert_eq!(
+        launch(
+            &mut objects,
+            caller,
+            request,
+            &mut LaunchWorld {
+                published_pitch: None,
+                primary: None,
+                secondary: None,
+                primary_auxiliary_mode: None,
+                hostile_counts: None,
+                random: &mut random,
+            }
+        ),
+        Ok(None)
+    );
+    assert_eq!(objects, before);
+    assert_eq!(random, before_random);
+}
+
+#[test]
 fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
     for mode in 0..=u8::MAX {
         for (_, profile) in PROFILES {
@@ -71,7 +222,12 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                 };
                 let mut expected_counts = counts;
                 let mut expected = objects.clone();
-                let expected_id = weapon_creation::common(
+                let creation = if profile == PathWeapon::PlayerChargedMesh {
+                    weapon_creation::player_linked
+                } else {
+                    weapon_creation::common
+                };
+                let expected_id = creation(
                     &mut expected,
                     caller,
                     launch_request.parameters,
@@ -81,9 +237,11 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                 .unwrap();
                 let primary_yaw = objects.get(primary).unwrap().base.yaw.units();
                 let hostile = profile != PathWeapon::VariantGuided
+                    && profile != PathWeapon::PlayerChargedMesh
                     && !(profile == PathWeapon::PlayerOrHostileHeavy && role < 2);
                 let actor = expected.get_mut(expected_id).unwrap();
                 actor.base.path = Some(match profile {
+                    PathWeapon::PlayerChargedMesh => authored_paths::AIMED_IMPACT_PROJECTILE,
                     PathWeapon::PlayerOrHostileHeavy if role < 2 => {
                         authored_paths::PRIMARY_MOTION_GROUND_LIMITED
                     }
@@ -107,6 +265,14 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                 if profile == PathWeapon::PlayerOrHostileHeavy {
                     actor.base.hit_points = 120;
                     actor.base.attack_power = 2;
+                }
+                if profile == PathWeapon::PlayerChargedMesh {
+                    actor.base.shape = ShapeId::PLAYER_CHARGED_LASER_LAUNCH;
+                    actor.base.pitch = Angle::from_units(197);
+                    actor.base.roll = source.base.roll;
+                    actor.extension.reflection_shape = Some(ShapeId::PLAYER_CHARGED_LASER_LAUNCH);
+                    actor.base.hit_points = 120;
+                    actor.base.attack_power = 10;
                 }
                 actor.base.flags.suppress_death_effects = profile != PathWeapon::VariantGuided;
                 let speed = match profile {
@@ -145,6 +311,7 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                     caller,
                     launch_request,
                     &mut LaunchWorld {
+                        published_pitch: Some(Angle::from_units(197)),
                         primary: Some(primary),
                         secondary: Some(secondary),
                         primary_auxiliary_mode: Some(mode),
@@ -221,6 +388,7 @@ fn hostile_gate_uses_formatted_heading_and_primary_yaw_with_exact_shared_draw_co
                     caller,
                     launch_request,
                     &mut LaunchWorld {
+                        published_pitch: Some(Angle::from_units(197)),
                         primary: Some(primary),
                         secondary: None,
                         primary_auxiliary_mode: None,
@@ -254,13 +422,14 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
         let primary = objects.allocate(actor()).unwrap();
         let mut random = RandomState::new([3, 4, 5, 6]);
         let before_random = random;
-        if profile != PathWeapon::VariantGuided {
+        if profile != PathWeapon::VariantGuided && profile != PathWeapon::PlayerChargedMesh {
             let before = objects.clone();
             let outcome = launch(
                 &mut objects,
                 caller,
                 request(profile),
                 &mut LaunchWorld {
+                    published_pitch: Some(Angle::from_units(197)),
                     primary: None,
                     secondary: None,
                     primary_auxiliary_mode: None,
@@ -282,6 +451,7 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
                 caller,
                 request(profile),
                 &mut LaunchWorld {
+                    published_pitch: Some(Angle::from_units(197)),
                     primary: None,
                     secondary: None,
                     primary_auxiliary_mode: None,
@@ -300,6 +470,7 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
                 caller,
                 request(profile),
                 &mut LaunchWorld {
+                    published_pitch: Some(Angle::from_units(197)),
                     primary: Some(caller),
                     secondary: None,
                     primary_auxiliary_mode: None,
@@ -338,6 +509,7 @@ fn each_required_world_input_is_validated_before_allocation_or_random_consumptio
             caller,
             request(profile),
             &mut LaunchWorld {
+                published_pitch: Some(Angle::from_units(197)),
                 primary: Some(primary),
                 secondary: None,
                 primary_auxiliary_mode: if missing == 2 { None } else { Some(0x10) },

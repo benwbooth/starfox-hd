@@ -51,10 +51,24 @@ class PathWeaponStaticTests(unittest.TestCase):
             "b92400098099240038601860")
 
     def test_path_weapon_dispatch_table_entries(self):
-        for selector, handler in ((2, 0x0DDC7D), (18, 0x0DDC61),
+        for selector, handler in ((2, 0x0DDC7D), (12, 0x0DDCC3), (14, 0x0DDCC3),
+                (16, 0x0DDCC3), (18, 0x0DDC61),
                 (20, 0x0DDBD8), (22, 0x0DDBC1), (24, 0x0DDBAA),
                 (26, 0x0DDBFA), (28, 0x0DDC1C), (30, 0x0DDC33), (32, 0x0DDC4A)):
             self.assert_source(0x03A8C1 + selector * 3, handler.to_bytes(3, 'little').hex())
+
+    def test_charged_mesh_profile_uses_player_linked_creation_published_pitch_and_caller_roll(self):
+        self.assert_source(0x0DDCC3,
+            'e220c21020a4e0b0045ccee00dc220a964ca990400e220c220a984f0992b00'
+            'e220b516991600adf21d99120020cfe0a978992d00a90a992e006b')
+        self.assert_source(0x07D6D3, '9cf21d5ab42bb9a06a7a29f0c920d0045cefd607b5128df21d')
+
+    def test_original_weapon_shape_is_optional_reflection_record_not_a_render_mesh_copy(self):
+        self.assert_source(0x0DE0CF,
+            'da5a08c220b904008502e220dabb7aa90a2260237fc220a50299626ae220dabb7a287afa60')
+        self.assert_source(0x07F26D,
+            'a90a223b237fc00000d0045c8bf207c220b9626a8502e220c220a5028004'
+            'c220b5047a990400e220')
 
     def test_all_eight_simple_profiles_have_complete_source_bodies(self):
         profiles = (

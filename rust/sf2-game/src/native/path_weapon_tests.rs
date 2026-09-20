@@ -39,6 +39,7 @@ fn fire_catalog() -> (PathCatalog, PathCursor, PathCursor) {
 
 fn prior_state(fallback: Option<ObjectId>) -> WeaponState {
     WeaponState {
+        published_pitch: Some(Angle::from_units(197)),
         fallback,
         parameters: LaunchParameters {
             muzzle: MuzzleOffset {
@@ -64,7 +65,7 @@ fn prior_state(fallback: Option<ObjectId>) -> WeaponState {
 #[test]
 fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or_running_it() {
     let (catalog, entry, finish) = fire_catalog();
-    for selection in [2, 18, 20, 22, 24, 26, 28, 30, 32] {
+    for selection in [2, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32] {
         for invert in [false, true] {
             let (mut runtime, mut objects, owner, mut random) = setup();
             let primary = objects.allocate(actor()).unwrap();
@@ -103,6 +104,7 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
                     defaults,
                 },
                 &mut LaunchWorld {
+                    published_pitch: Some(Angle::from_units(197)),
                     primary: Some(primary),
                     secondary: Some(secondary),
                     primary_auxiliary_mode: Some(0x1F),
@@ -155,7 +157,7 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
 #[test]
 fn full_pool_publishes_real_fallback_and_only_adds_path_exclusion_membership() {
     let (catalog, entry, finish) = fire_catalog();
-    for selection in [2, 18, 20, 22, 24, 26, 28, 30, 32] {
+    for selection in [2, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32] {
         for owner_is_fallback in [false, true] {
             let (mut runtime, mut objects, owner, mut random) = setup();
             let fallback = if owner_is_fallback {
