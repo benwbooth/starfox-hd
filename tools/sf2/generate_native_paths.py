@@ -401,7 +401,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name == "IfExternal1dddBit80":
+        if name == "ShapeDead":
+            low, high = parameters(2)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::AttachmentAbsent {{ taken: {taken}, next: {next_} }}"
+        elif name == "IfExternal1dddBit80":
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))
             statement = f"Statement::TargetingUpgradeOwned {{ taken: {taken}, next: {next_} }}"

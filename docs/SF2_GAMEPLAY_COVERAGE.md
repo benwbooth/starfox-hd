@@ -1637,3 +1637,24 @@ statements**. Validation passes 116 lowerer tests, 280 static path tests and
 291 native path tests in debug/release, generated freshness, architecture
 and static audits, and the application build. Target-lock service and Game
 scheduler integration are not claimed by this primitive/child checkpoint.
+
+### Attachment-absence branch from source, not the legacy interpreter
+
+The source `ShapeDead` handler (`7F:8D9F`) now lowers to the typed
+`AttachmentAbsent` statement. The name is misleading: it reads only the
+actor's attachment pointer and jumps directly on zero. It does not inspect
+the target's health, retirement flag or allocation status, and neither exit
+consumes IFNOT. The legacy encoded interpreter's use of its generic
+condition consumer is not used as the behavioral specification.
+
+Static tests pin the complete handler and both dispatch continuations.
+Native tests cover absent, live, retiring, released-slot and self links,
+both IFNOT states, three health boundaries for both actors, zero-budget
+atomicity and preservation of all state except the program cursor.
+
+This is an additional reviewed command, not another complete root:
+coverage remains **32 complete roots / 733 source commands / 724 native
+statements**. Validation passes 117 lowerer tests, 281 static path tests,
+292 native path tests in debug and release, generated freshness, the
+architecture/static audits and the application build. No source-machine
+execution or recorded gameplay was used.

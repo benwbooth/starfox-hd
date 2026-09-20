@@ -316,6 +316,12 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    /// Source ShapeDead tests only attachment absence, not health or slot
+    /// liveness. Like the source direct branch, this leaves IFNOT intact.
+    AttachmentAbsent {
+        taken: PathCursor,
+        next: PathCursor,
+    },
     TargetingUpgradeOwned {
         taken: PathCursor,
         next: PathCursor,
@@ -701,6 +707,11 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::AttachmentAbsent { taken, next } => {
+                    let destination = if actor.base.attachment.is_none() { taken } else { next };
+                    objects.get_mut(owner).expect("validated attachment observer").base.path = Some(destination);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::TargetingUpgradeOwned { taken, next } => {
                     let upgrade = world.targeting_upgrade.as_deref()
                         .ok_or(ProgramError::MissingTargetingUpgrade)?;
@@ -5160,6 +5171,53 @@ mod tests {
         inputs.scenery_distance = Some(paused_scene);
         assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2), Ok(ControlStep::Movement));
         assert_eq!(scenery.near_mask, 0x33);
+    }
+
+    #[test]
+    fn attachment_absence_branch_ignores_health_retirement_and_slot_liveness() {
+        let catalog = PathCatalog::new(vec![vec![Statement::AttachmentAbsent {
+            taken: cursor(0, 2), next: cursor(0, 1),
+        }]]).unwrap();
+        for inverted in [false, true] {
+            for owner_health in [0, 1, u8::MAX] {
+                for linked_health in [0, 1, u8::MAX] {
+                    // Absent, allocated, queued for retirement, already
+                    // released, and self-linked are distinct pointer cases.
+                    for link_case in 0..5 {
+                        let (mut runtime, mut objects, owner, mut random) = setup();
+                        let mut linked = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
+                        linked.base.hit_points = linked_health;
+                        linked.base.flags.remove_after_tick = link_case == 2;
+                        let target = objects.allocate(linked).unwrap();
+                        if link_case == 3 { objects.remove(target).unwrap(); }
+                        let actor = objects.get_mut(owner).unwrap();
+                        actor.base.attachment = match link_case {
+                            0 => None,
+                            4 => Some(owner),
+                            _ => Some(target),
+                        };
+                        actor.base.hit_points = owner_health;
+                        actor.base.wait_timer = 193;
+                        actor.base.flags.remove_after_tick = true;
+                        runtime.branch.invert_next = inverted;
+                        let before = objects.clone();
+                        let initial_random = random;
+                        let mut inputs = world(&mut random);
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                            Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                        assert_eq!(objects, before);
+                        let destination = cursor(0, if link_case == 0 { 2 } else { 1 });
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                            Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
+                        let mut expected = before;
+                        expected.get_mut(owner).unwrap().base.path = Some(destination);
+                        assert_eq!(objects, expected);
+                        assert_eq!(runtime.branch.invert_next, inverted);
+                        assert_eq!(random, initial_random);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

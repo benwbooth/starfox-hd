@@ -20,6 +20,10 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_shape_dead_lowers_to_attachment_presence_not_health_or_generic_predicate(self):
+        statements = self.lower_record("20 36 f5")
+        self.assertEqual(statements[0], "Statement::AttachmentAbsent { taken: cursor(0, 0), next: cursor(0, 1) }")
+
     def test_scene_material_child_has_complete_graph_and_verified_reachable_spawn(self):
         extractor = PathExtractor(self.rom)
         root = PathAddress(0x7FAA)

@@ -22,6 +22,12 @@ class PathConditionsStaticTests(unittest.TestCase):
         self.assert_source(0x7FA320, "A9 01 8D 72 B2 4C E8 CA")
         self.assert_source(0x7F8F4D, "AD 72 B2 F0 0D 9C 72 B2 28 D0 04 5C 94 CA 7F 4C 0B CB")
 
+    def test_shape_dead_only_tests_attachment_pointer_and_preserves_ifnot(self):
+        self.assert_source(0x7F8D9F, "B4 06 D0 04 5C F3 CA 7F 4C BE CA")
+        # Both exits dispatch directly, without the shared IFNOT consumer.
+        self.assert_source(0x7FCABE, "E2 20 C2 20 B5 2B 18 69 03 00 95 2B E2 20 4C 75 7E")
+        self.assert_source(0x7FCAF3, "C2 20 20 20 C7 95 2B E2 20 4C 75 7E")
+
     def test_selected_mode_classes_compare_high_nibble_without_reading_or_clearing_ifnot(self):
         for address, expected, target in [(0x7FB17F, 0x20, "9C"), (0x7FB19F, 0x10, "BC"), (0x7FB1BF, 0x30, "DC")]:
             self.assert_source(address,
