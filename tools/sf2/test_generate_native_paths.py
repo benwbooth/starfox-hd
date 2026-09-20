@@ -129,8 +129,8 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
         # An unsupported independently spawned child rejects its parent too.
         changed = bytearray(self.rom)
-        changed[0x4F582:0x4F585] = bytes.fromhex("00 06 12")
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported QueueSelectedMarkerClass1"):
+        changed[0x4F582:0x4F585] = bytes.fromhex("00 05 12")
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported WriteObject1ccc"):
             lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF561), 2)
 
     def test_spawned_sound_graph_is_complete_and_shared_with_standalone_entry(self):
@@ -151,6 +151,24 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn(f"AuthoredCue::new({cue})", statements[0])
             self.assertIn("next: cursor(0, 1)", statements[0])
             self.assertEqual(statements[1], "Statement::Control(ControlCommand::End)")
+
+    def test_marker_sound_classes_and_ranges_are_decoded_without_runtime_addresses(self):
+        for opcode, mode, extra_import in [
+            ("00 06", "DistanceBands(PathSoundClass::DistanceOnly)", "PathSoundClass"),
+            ("fa", "DistanceBands(PathSoundClass::Positioned)", "PathSoundClass"),
+            ("00 07", "RangeLimited(MarkerRange::Wide)", "MarkerRange"),
+            ("00 09", "RangeLimited(MarkerRange::Near)", "MarkerRange"),
+        ]:
+            for cue in (0, 18, 255):
+                record = f"{opcode} {cue:02x}"
+                self.assertEqual(self.lower_record(record)[0],
+                    f"Statement::MarkerSound {{ id: {cue}, mode: MarkerCueMode::{mode}, next: cursor(0, 1) }}")
+                changed = bytearray(self.rom)
+                program = bytes.fromhex(record + " 0f")
+                changed[0x4F536:0x4F536 + len(program)] = program
+                generated = generate(bytes(changed), (("SOUND", PathAddress(0xF536)),))
+                self.assertIn("use super::path_sound::MarkerCueMode;", generated)
+                self.assertIn(f"use super::path_sound::{extra_import};", generated)
 
     def test_callback_graph_has_semantic_action_and_deferred_redirection(self):
         _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF32C), 0)

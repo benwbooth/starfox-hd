@@ -173,6 +173,11 @@ pub enum Statement {
         cue: super::path_sound::AuthoredCue,
         next: PathCursor,
     },
+    MarkerSound {
+        id: u8,
+        mode: super::path_sound::MarkerCueMode,
+        next: PathCursor,
+    },
     SpawnChild {
         kind: super::ObjectKind,
         parameters: super::path_spawn::ChildSpawn,
@@ -261,6 +266,7 @@ pub enum ProgramError {
     MissingPrimaryPlayer,
     MissingPrimaryMotion,
     MissingAudio,
+    MissingSoundMarkers,
     Spawn(super::path_spawn::SpawnError),
     MissingSpawnDefaults,
     Relationship(super::path_relationships::RelationshipError),
@@ -428,6 +434,25 @@ impl PathRuntime {
                         .as_mut()
                         .ok_or(ProgramError::MissingAudio)?
                         .queue(cue, self.selected_player());
+                    objects
+                        .get_mut(owner)
+                        .expect("validated sound owner")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::MarkerSound { id, mode, next } => {
+                    let source = objects
+                        .get(owner)
+                        .expect("validated sound owner")
+                        .base
+                        .position;
+                    world
+                        .audio
+                        .as_mut()
+                        .ok_or(ProgramError::MissingAudio)?
+                        .queue_marker(id, mode, source, self.selected_player())
+                        .map_err(|_| ProgramError::MissingSoundMarkers)?;
                     objects
                         .get_mut(owner)
                         .expect("validated sound owner")
@@ -1230,6 +1255,167 @@ mod tests {
     }
 
     #[test]
+    fn marker_sound_faults_before_mutation_and_resamples_fixed_marker_inputs() {
+        use super::super::path_sound::{
+            marker_cue, CueListener, CueMarker, MarkerCueMode, MarkerInputs, MarkerRange,
+            PathAudio, PathSoundClass,
+        };
+        use super::super::{Angle, AudioState, SoundEvent, Vector3};
+        for mode in [
+            MarkerCueMode::DistanceBands(PathSoundClass::DistanceOnly),
+            MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
+            MarkerCueMode::RangeLimited(MarkerRange::Near),
+            MarkerCueMode::RangeLimited(MarkerRange::Wide),
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let original_random = random;
+            let catalog = PathCatalog::new(vec![vec![Statement::MarkerSound {
+                id: 255,
+                mode,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            let before = objects.get(owner).unwrap().clone();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingAudio)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+            let mut audio = AudioState::default();
+            audio.queue(SoundEvent::HostileLaser);
+            let mut inputs = world(&mut random);
+            inputs.audio = Some(PathAudio {
+                events: &mut audio,
+                listeners: [CueListener::Other, CueListener::PrimaryFallback],
+                markers: None,
+            });
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::MissingSoundMarkers)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+            assert_eq!(
+                inputs
+                    .audio
+                    .as_mut()
+                    .unwrap()
+                    .events
+                    .take_events()
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>(),
+                vec![SoundEvent::HostileLaser]
+            );
+            for selected in [PlayerTarget::Primary, PlayerTarget::Secondary] {
+                objects
+                    .get_mut(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .conditions
+                    .selected_player = selected;
+                runtime.enter(&objects, owner).unwrap();
+                // The retained runtime selection must survive a change in the
+                // owner's selection flag. Marker side is independently live.
+                objects
+                    .get_mut(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .conditions
+                    .selected_player = if selected == PlayerTarget::Primary {
+                    PlayerTarget::Secondary
+                } else {
+                    PlayerTarget::Primary
+                };
+                for side in [PlayerTarget::Primary, PlayerTarget::Secondary] {
+                    for distance in [0_i16, 799, 800, 1299, 1300, 5119, 5120, 32767] {
+                        let markers = [
+                            CueMarker {
+                                identity: CueListener::PrimaryFallback,
+                                position: Vector3 {
+                                    x: 100,
+                                    y: i16::MAX,
+                                    z: 200,
+                                },
+                                bearing: Angle::from_units(64),
+                            },
+                            CueMarker {
+                                identity: CueListener::Other,
+                                position: Vector3 {
+                                    x: -300,
+                                    y: i16::MIN,
+                                    z: -400,
+                                },
+                                bearing: Angle::from_units(192),
+                            },
+                        ];
+                        let opposite = if side == PlayerTarget::Primary {
+                            PlayerTarget::Secondary
+                        } else {
+                            PlayerTarget::Primary
+                        };
+                        let selected_sides = if selected == PlayerTarget::Primary {
+                            [side, opposite]
+                        } else {
+                            [opposite, side]
+                        };
+                        let marker = markers[usize::from(side == PlayerTarget::Secondary)];
+                        inputs.audio.as_mut().unwrap().markers = Some(MarkerInputs {
+                            selected_sides,
+                            markers,
+                        });
+                        let actor = objects.get_mut(owner).unwrap();
+                        actor.base.path = Some(cursor(0, 0));
+                        actor.base.position = Vector3 {
+                            x: marker.position.x,
+                            y: 777,
+                            z: marker.position.z.wrapping_add(distance),
+                        };
+                        actor.base.wait_timer = 57;
+                        actor.base.yaw = Angle::from_units(17);
+                        let mut expected = actor.clone();
+                        expected.base.path = Some(cursor(0, 1));
+                        let expected_cue = marker_cue(255, mode, actor.base.position, marker);
+                        inputs
+                            .audio
+                            .as_mut()
+                            .unwrap()
+                            .events
+                            .queue(SoundEvent::HostileLaser);
+                        runtime.branch.invert_next = true;
+                        assert_eq!(
+                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                            Err(ProgramError::BudgetExceeded {
+                                cursor: cursor(0, 1),
+                                executed: 1
+                            })
+                        );
+                        assert_eq!(objects.get(owner).unwrap(), &expected);
+                        assert!(runtime.branch.invert_next);
+                        assert_eq!(runtime.selected_player(), selected);
+                        let mut expected_events = vec![SoundEvent::HostileLaser];
+                        expected_events.extend(expected_cue.map(SoundEvent::Authored));
+                        assert_eq!(
+                            inputs
+                                .audio
+                                .as_mut()
+                                .unwrap()
+                                .events
+                                .take_events()
+                                .into_iter()
+                                .flatten()
+                                .collect::<Vec<_>>(),
+                            expected_events
+                        );
+                    }
+                }
+            }
+            assert_eq!(inputs.random, &original_random);
+        }
+    }
+
+    #[test]
     fn sound_requires_live_shared_audio_and_routes_using_retained_selection() {
         use super::super::path_sound::{AuthoredCue, CueListener, PathAudio};
         use super::super::{AudioState, SoundEvent};
@@ -1262,6 +1448,7 @@ mod tests {
         inputs.audio = Some(PathAudio {
             events: &mut audio,
             listeners: [CueListener::Other, CueListener::PrimaryFallback],
+            markers: None,
         });
         assert_eq!(
             runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 4),
@@ -1572,6 +1759,7 @@ mod tests {
                 inputs.audio = Some(PathAudio {
                     events: &mut audio,
                     listeners: [CueListener::PrimaryPlayer, CueListener::Other],
+                    markers: None,
                 });
                 let outcome = runtime
                     .enter_program(&catalog, &mut objects, child, &mut inputs, 16)

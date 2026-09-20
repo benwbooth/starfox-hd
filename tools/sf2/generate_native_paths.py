@@ -255,6 +255,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             target = "Secondary" if packed_parameter & 0x80 else "Primary"
             cue_ = f"AuthoredCue::new({cue}, {packed_parameter & 0x7F}, PlayerTarget::{target})"
             statement = f"Statement::Sound {{ cue: {cue_}, next: {next_cursor()} }}"
+        elif name in ("QueueSelectedMarkerClass1", "QueueSelectedMarkerClass2",
+                       "QueueFixedMarker1400", "QueueFixedMarker0320"):
+            cue, = parameters(1)
+            mode = {
+                "QueueSelectedMarkerClass1": "DistanceBands(PathSoundClass::DistanceOnly)",
+                "QueueSelectedMarkerClass2": "DistanceBands(PathSoundClass::Positioned)",
+                "QueueFixedMarker1400": "RangeLimited(MarkerRange::Wide)",
+                "QueueFixedMarker0320": "RangeLimited(MarkerRange::Near)",
+            }[name]
+            statement = f"Statement::MarkerSound {{ id: {cue}, mode: MarkerCueMode::{mode}, next: {next_cursor()} }}"
         elif name in ("ScheduleAlways", "ScheduleTrigger", "ScheduleRelative", "ScheduleTriggered"):
             if name == "ScheduleRelative":
                 delta, condition = parameters(2)
@@ -692,6 +702,9 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "];\n"
     if any("Statement::Sound" in statement for statement in unique_statements.values()):
         source += "use super::path_sound::AuthoredCue;\nuse super::path_control::PlayerTarget;\n"
+    for sound_type in ("MarkerCueMode", "PathSoundClass", "MarkerRange"):
+        if any(f"{sound_type}::" in statement for statement in unique_statements.values()):
+            source += f"use super::path_sound::{sound_type};\n"
     if any("ControlCommand::Register" in statement for statement in unique_statements.values()):
         source += "use super::path_triggers::{Trigger, TriggerKind};\n"
     if any("TriggerPeriod::" in statement for statement in unique_statements.values()):

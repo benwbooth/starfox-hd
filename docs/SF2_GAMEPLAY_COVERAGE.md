@@ -757,3 +757,18 @@ selection faults before mutation. Complete source helper signatures are pinned.
 Verification passes 53 lowerer tests, 173 static path tests, 163 native path
 tests in debug/release, architecture/dependency checks and the app build.
 This does not yet add another complete root or live scheduler integration.
+
+Four positional cue operations now lower through live, typed fixed-marker
+observations. Marker side comes from the selected actor's view-side flag, not
+the path owner's retained player selection; marker bearing remains separate
+from actor yaw. The banded forms preserve centered far cues and additive
+stereo parameters (including middle-left 0x40), while range-limited forms
+retain the signed wrapped comparison and omit distance attenuation. Missing
+audio/marker inputs fault before mutation. Tests cover every cue ID/bearing,
+all 65,536 range comparisons, fresh marker selection, coordinate wrapping,
+queue order, suppression and whole-actor/IFNOT/RNG preservation. Full source
+handler/helper signatures are pinned without executing recorded gameplay.
+Verification passes 54 lowerer tests, 179 static path tests, 167 native path
+tests in debug/release, architecture/dependency checks and the app build.
+Catalog coverage remains 10 complete roots/117 statements; these operations
+remove blockers from larger graphs but do not establish scheduler integration.
