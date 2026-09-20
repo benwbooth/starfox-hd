@@ -478,6 +478,13 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x07F218, "22 D0 7B 7F 29 3F 18 6D 02 00 85 02 22 D0 7B 7F 29 3F 18 6D 08 00 85 08 A5 02 18 69 E0 85 02 A5 08 18 69 E0 85 08")
         self.assert_source(0x07F23E, "A5 02 8D B7 14 A5 08 8D B6 14 9C B8 14 9C B9 14 A9 00 8D B0 14 A9 00 8D B2 14 A9 00 8D B4 14 A9 02 22 9C A8 03")
 
+    def test_homing_projectile_entry_variants_and_complete_shared_control_bytes(self):
+        self.assert_source(0x09EE2D, "06 4B 54 32 32 54 34 34 54 36 36 17 3D EE 06 5A 0B 0A 2D 0B 02 2E 0B 21 0A 41 8A E7 17 74 EE")
+        self.assert_source(0x09EE4C, "0B 0A 2D 7A 2E 96 2A 2E 00 68 EE 2A 2E 02 62 EE 0B 03 2E 17 6B EE 0B 04 2E 17 6B EE 0B 02 2E 0B 2D 0A 14 E0 2E 74 EE 0F")
+        self.assert_source(0x09EE74, "FA 72 8D 04 00 76 08 4A 18 F0 08 00 5C 06 1E 0C A8 E3 04 5D B0 BE A1 F5 01 01 79 A1 4D 1B 8A 2A A1 00 FE EE F8 DC EE 06 3F")
+        self.assert_source(0x09EE9D, "14 E8 03 AD EE AE 7F AE 7F AE 7F 00 0F 16 9D EE 00 0F 06 3F 17 BC EE")
+        self.assert_source(0x09EEBB, "0F 4A D5 EE 01 4A C8 EE 0D 61 28 44 0F 4C CC EE 42 4B D5 EE 4B C8 EE 03 0F 0F A4 20 DA EE 42 09 42 00 5F E9 EE 6E A3 8A 2B A3 3C 00 EC EE 4C BB EE 42")
+
     def test_hostile_launch_primary_yaw_gate_and_wrapping_counters(self):
         self.assert_source(0x0DDE38, "DA AE C3 12 B5 14 FA 18 69 80 38 F9 14 00 18 69 40 C9 80 90 1A")
         self.assert_source(0x0DDE4D, "22 D0 7B 7F 29 03 85 3A A5 3A F0 0B B9 21 00 09 01 99 21 00 EE 69 1D EE 6B 1D")

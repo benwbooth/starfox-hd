@@ -1187,3 +1187,28 @@ Verification passes 92 lowerer tests, 241 static path tests and 242 native path
 tests in debug/release, both audits, catalog freshness and the app build.
 Coverage is **20 complete roots / 295 unique statements**. Game integration
 remains open; no recorded gameplay or source-machine execution was used.
+
+The three shared homing-projectile roots (`$44:EE2D`, `$44:EE3B`, `$44:EE4C`)
+are now fully lowered. The first two preserve their distinct speed/doubling
+prefixes and primary horizontal-motion inheritance; the third selects attack
+2/3/4 by difficulty and rejects targets at or beyond 12,000 horizontal units.
+The shared setup subsequently replaces that inherited velocity, creates its
+independent sprite, and selects the lifetime branch using the whole mode byte.
+
+Zero mode performs three radius contractions per chase yield until the target
+is within 1,000 units, then enters a forty-iteration loop with two-tick smooth
+steering and player-crossing callbacks. A crossing cancels those two callbacks
+and waits fifteen visits, leaving occupancy/counter and new-contact callbacks
+active. The retained word counter is incremented, not initialized, and ends
+the path only on equality with 60; occupancy short-circuits the increment.
+Nonzero mode retains both authored new-contact registrations and enters the
+shared ground/surface loop for 33 or 45 iterations, depending on its entry.
+
+Full-path Rust tests cover every entry and difficulty, mode bytes 0/1/8,
+normal expiry, contact, occupancy, counter wrap/threshold, crossing cancellation
+and ground exit; additional tests cover the range boundaries, intermediate
+inherited velocity, chase yields, independent spawn ordering and one sound.
+Verification passes 93 lowerer tests, 242 static path tests and 245 native path
+tests in debug/release, both audits, catalog freshness and the app build.
+Coverage is **23 complete roots / 363 unique statements**. This is static
+source-derived catalog coverage, not full Game integration or runtime parity.

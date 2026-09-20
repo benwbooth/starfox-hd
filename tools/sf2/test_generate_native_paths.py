@@ -30,6 +30,38 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("immediate: false", statements[3])
         self.assertEqual(statements[4], "Statement::Control(ControlCommand::End)")
 
+    def test_three_homing_projectile_roots_retain_full_shared_callbacks_and_effect(self):
+        for address, count in [(0xEE2D, 82), (0xEE3B, 78), (0xEE4C, 82)]:
+            extractor = PathExtractor(self.rom)
+            commands = graph(extractor, PathAddress(address))
+            _, statements = lower_graph(extractor, PathAddress(address), 0)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((command.address.offset for command in commands), statements))
+            for offset, fragment in [
+                (0xEE77, "GenerateVelocityEachStep(true)"),
+                (0xEE87, "SpawnIndependent"), (0xEE92, "InvertNext"),
+                (0xEE9D, "SelectedDistanceLess(1000)"),
+                (0xEEA2, "amount: 127"), (0xEEA4, "amount: 127"), (0xEEA6, "amount: 127"),
+                (0xEEAA, "ControlCommand::Goto"), (0xEEB1, "ControlCommand::Jump"),
+                (0xEEBC, "TriggerKind::Periodic(TriggerPeriod::Two)"),
+                (0xEEC0, "TriggerKind::PlayerCrossing"), (0xEEC4, "iterations: 40"),
+                (0xEEC8, "ForceAfterCallbacks"), (0xEECC, "ControlCommand::Cancel"),
+                (0xEECF, "ControlCommand::Cancel"), (0xEED2, "Literal(15)"),
+                (0xEED5, "SelectedWithinYawArc(32)"), (0xEEDA, "SelectedSmooth"),
+                (0xEEDC, "OccupiedCell"), (0xEEE0, "WordOperation::Increment"),
+                (0xEEE3, "WordOperand::Literal(60)"), (0xEEE9, "ForceAfterCallbacks"),
+                (0xEF06, "ImportSurfaceMode"), (0xEF21, "AtOrAboveSurface"),
+                (0xF018, "ForceAfterCallbacks"), (0xF5A1, "color: 0, size: 16"),
+            ]:
+                self.assertIn(fragment, mapped[offset])
+            if address == 0xEE4C:
+                self.assertIn("CampaignByte::Difficulty", mapped[0xEE4F])
+                self.assertIn("SelectedDistanceLess(12000)", mapped[0xEE6E])
+                self.assertNotIn(0xE78A, mapped)
+            else:
+                self.assertIn("InheritPrimaryHorizontalMotion", mapped[0xE78A])
+                self.assertNotIn(0xEE6E, mapped)
+
     def test_primary_motion_ground_limited_root_includes_inline_callee_and_contact_callback(self):
         extractor = PathExtractor(self.rom)
         commands = graph(extractor, PathAddress(0xF029))
