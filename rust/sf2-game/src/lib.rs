@@ -12,7 +12,7 @@ pub use native::{
     collision_surface, hit_response, hostile_laser_control, path_calls, path_commands,
     path_conditions, path_control, path_fields, path_math, path_motion, path_runtime, path_sound,
     path_steering, path_trigger_conditions, path_triggers, platform_carry, player_contact,
-    player_hit_control, program_resources, program_state, radar, retirement, scene_proxy,
+    player_hit_control, program_resources, program_state, proximity_warning, radar, retirement, scene_proxy,
     strategy_schedule, weapon_launch, world_occupancy,
 };
 

@@ -941,6 +941,11 @@ pub struct ObjectFlags {
     /// Source 26 bit 40 skips strategy dispatch in both actor-pass portions
     /// (`$7F:3519`, `$7F:3565`), without removing the actor or hiding it.
     pub strategy_suspended: bool,
+    /// Source 26 bit 20 admits this actor to the nearby warning scan.
+    pub proximity_warning_source: bool,
+    /// Source 22 bit 10 suppresses repeat warnings until the actor leaves
+    /// the scan's height/range/forward bounds ($06:A647).
+    pub proximity_warning_latched: bool,
     /// Source 09 bit 01 adds the fixed far-sort bias to the draw record
     /// (`$7F:122C`); it does not change world position or draw distance.
     pub far_sort_bias: bool,

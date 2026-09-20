@@ -330,6 +330,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x165, "ScheduleTriggered", 0x7F97B7, None, "sf2_handler"),
     PathSemanticSpec(0x166, "IfExternalD743EqualsOne", 0x7FC366, None, "sf2_handler"),
     PathSemanticSpec(0x167, "SetFlag26Bit20", 0x7FC372, None, "sf2_handler"),
+    PathSemanticSpec(0x168, "ClearFlag26Bit20", 0x7FC37B, None, "sf2_handler"),
     PathSemanticSpec(0x169, "AllocateAuxiliaryType0b", 0x7FC395, None, "sf2_handler"),
     PathSemanticSpec(0x16A, "AllocateAuxiliaryType0d", 0x7FC384, None, "sf2_handler"),
     PathSemanticSpec(0x16E, "SetSelectedSlotLowNibble1", 0x7FB081, None, "sf2_handler"),

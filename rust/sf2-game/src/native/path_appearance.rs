@@ -24,6 +24,7 @@ pub enum AppearanceCommand {
     FarSortBias(bool),
     SuppressDeathEffects(bool),
     RadarMarker(super::radar::RadarMarker),
+    ProximityWarningSource(bool),
 }
 
 impl AppearanceCommand {
@@ -42,6 +43,9 @@ impl AppearanceCommand {
                 actor.base.flags.suppress_death_effects = enabled
             }
             Self::RadarMarker(marker) => actor.extension.radar_marker = marker,
+            Self::ProximityWarningSource(enabled) => {
+                actor.base.flags.proximity_warning_source = enabled
+            }
         }
     }
 }
@@ -215,7 +219,7 @@ mod tests {
 
     #[test]
     fn visibility_couples_collision_but_other_controls_and_draw_observations_are_independent() {
-        for flags in 0..256 {
+        for flags in 0..1024 {
             let mut original =
                 Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
             original.base.flags.visible = flags & 1 != 0;
@@ -226,6 +230,8 @@ mod tests {
             original.base.flags.collided = flags & 32 != 0;
             original.base.flags.far_sort_bias = flags & 64 != 0;
             original.base.flags.suppress_death_effects = flags & 128 != 0;
+            original.base.flags.proximity_warning_source = flags & 256 != 0;
+            original.base.flags.proximity_warning_latched = flags & 512 != 0;
             original.base.hit_flags = 255;
             original.extension.path_state.conditions.hit_event_pending = true;
             for enabled in [false, true] {
@@ -236,11 +242,15 @@ mod tests {
                     AppearanceCommand::MaximumDrawDistance(enabled),
                     AppearanceCommand::FarSortBias(enabled),
                     AppearanceCommand::SuppressDeathEffects(enabled),
+                    AppearanceCommand::ProximityWarningSource(enabled),
                 ] {
                     let mut expected = original.clone();
                     match command {
                         AppearanceCommand::RadarMarker(marker) => {
                             expected.extension.radar_marker = marker
+                        }
+                        AppearanceCommand::ProximityWarningSource(value) => {
+                            expected.base.flags.proximity_warning_source = value
                         }
                         AppearanceCommand::Shape(shape) => expected.base.shape = shape,
                         AppearanceCommand::Visibility(value) => {

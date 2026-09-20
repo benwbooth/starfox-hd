@@ -982,7 +982,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "DisableCollision":
             parameters(0)
             statement = f"Statement::DisableCollision {{ next: {next_cursor()} }}"
-        elif name in ("InvisibleOn", "InvisibleOff", "ClearFlag21Bit01", "SetFlag20Bit08", "ClearFlag20Bit08", "SetFlag26Bit10", "ClearFlag26Bit10", "SetFlag09Bit01", "ClearFlag09Bit01"):
+        elif name in ("InvisibleOn", "InvisibleOff", "ClearFlag21Bit01", "SetFlag20Bit08", "ClearFlag20Bit08", "SetFlag26Bit10", "ClearFlag26Bit10", "SetFlag09Bit01", "ClearFlag09Bit01", "SetFlag26Bit20", "ClearFlag26Bit20"):
             parameters(0)
             operation, enabled = {
                 "InvisibleOn": ("Visibility", False),
@@ -991,6 +991,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "SetFlag20Bit08": ("Shadow", True),
                 "ClearFlag20Bit08": ("Shadow", False),
                 "SetFlag26Bit10": ("MaximumDrawDistance", True),
+                "SetFlag26Bit20": ("ProximityWarningSource", True),
+                "ClearFlag26Bit20": ("ProximityWarningSource", False),
                 "ClearFlag26Bit10": ("MaximumDrawDistance", False),
                 "SetFlag09Bit01": ("FarSortBias", True),
                 "ClearFlag09Bit01": ("FarSortBias", False),

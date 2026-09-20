@@ -442,6 +442,11 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "SetFlag26Bit40AndHold has outgoing edges"):
             lower_graph(extractor, command.address, 0)
 
+    def test_proximity_warning_controls_change_candidate_membership(self):
+        for opcode, enabled in [("67", "true"), ("68", "false")]:
+            self.assertEqual(self.lower_record(f"00 {opcode}")[0],
+                f"Statement::Appearance {{ command: AppearanceCommand::ProximityWarningSource({enabled}), next: cursor(0, 1) }}")
+
     def test_script_parameter_decodes_to_a_separate_named_byte(self):
         self.assertEqual(byte_field(0x27), "ByteField::ScriptParameter")
         for record, fragment in [

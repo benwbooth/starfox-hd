@@ -1503,3 +1503,31 @@ movement, callback completion, every scheduler split and live child traversal
 after suspension. Complete-root coverage remains **28 roots / 670 source
 commands / 661 native statements**. Production Game scheduler integration
 remains open; this checkpoint does not claim runtime gameplay completion.
+
+### Proximity-warning candidate controls and scan
+
+Source 26 bit 20 now has its consumer-derived meaning: proximity-warning
+membership, not collision participation or automatic steering. Both path
+controls lower to this typed flag; neither resets the distinct repeat-warning
+latch. The previously uncatalogued clear opcode is checked against its full
+handler before being admitted to lowering.
+
+The native `$06:A647..A84D` service ports entry guards, live actor order,
+wrapped absolute height, source approximate player range, fixed-primary-view
+projection, forward clipping, rearming and the best-two scan. Ranking retains
+the unsigned interpretation of **signed lateral + forward**, and the second
+candidate's direction deliberately uses the nearest candidate's sign. Shape
+size's high byte forces a centered cue; this is not a bounds test. Cue 171
+retains side parameters, primary/secondary routing and the shared audio queue.
+No visibility, health, collision or strategy-suspension filters are invented.
+Unknown selected shape metadata fails before state/audio mutation.
+
+Verification passes 109 lowerer tests, 275 static path tests, 280 native path
+tests and six warning tests in debug/release, plus freshness, architecture,
+static audit and application build. Coverage includes every bearing and word
+projection (16,777,216 cases), all movement/transition byte combinations,
+candidate thresholds, stable ties, best-two replacement, wrapped origins,
+distinct view/player positions, large shapes, retained audio, statement
+atomicity and repeat-warning rearming. Complete-root coverage remains **28
+roots / 670 source commands / 661 native statements**. The service is public
+native code; production Game invocation is not claimed by this checkpoint.

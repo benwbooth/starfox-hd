@@ -4915,6 +4915,49 @@ mod tests {
     }
 
     #[test]
+    fn proximity_warning_controls_preserve_latch_and_only_change_scan_membership() {
+        for enabled in [false, true] {
+            let catalog = PathCatalog::new(vec![vec![Statement::Appearance {
+                command: super::super::path_appearance::AppearanceCommand::ProximityWarningSource(
+                    enabled,
+                ),
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let original_random = random;
+            runtime.branch.invert_next = true;
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.flags.proximity_warning_source = !enabled;
+            actor.base.flags.proximity_warning_latched = true;
+            actor.base.wait_timer = 233;
+            let before = objects.clone();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 0),
+                    executed: 0
+                })
+            );
+            assert_eq!(objects, before);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            let mut expected = before;
+            let actor = expected.get_mut(owner).unwrap();
+            actor.base.flags.proximity_warning_source = enabled;
+            actor.base.path = Some(cursor(0, 1));
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
+        }
+    }
+
+    #[test]
     fn suspension_runs_current_movement_and_callbacks_without_becoming_path_hold() {
         use super::super::path_motion::PlayerDisplacement;
         let catalog = PathCatalog::new(vec![vec![
