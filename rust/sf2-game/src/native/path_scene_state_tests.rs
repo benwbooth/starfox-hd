@@ -14,6 +14,139 @@ const FIELDS: [CoordinationField; 7] = [
     CoordinationField::Phase,
 ];
 
+#[test]
+fn objective_count_byte_commands_preserve_the_complete_word_and_other_count() {
+    let mut actor = setup().1.active_objects().next().unwrap().1.clone();
+    for original in 0..=u16::MAX {
+        for field in [ObjectiveCountField::Remaining, ObjectiveCountField::NodeRecord] {
+            for command in [
+                CoordinationCommand::CopyTo(ByteField::Health),
+                CoordinationCommand::Assign(ByteOperand::Actor(ByteField::Health)),
+                CoordinationCommand::Assign(ByteOperand::Literal(37)),
+                CoordinationCommand::Increment,
+                CoordinationCommand::Decrement,
+            ] {
+                let mut counts = EncounterObjectiveCounts {
+                    remaining_word: original,
+                    node_record: (original as u8) ^ 0xFF,
+                };
+                let mut expected = counts;
+                actor.base.hit_points = (original >> 8) as u8;
+                let mut expected_actor = actor.clone();
+                let previous = match field {
+                    ObjectiveCountField::Remaining => original as u8,
+                    ObjectiveCountField::NodeRecord => (original as u8) ^ 0xFF,
+                };
+                let value = match command {
+                    CoordinationCommand::CopyTo(_) => {
+                        expected_actor.base.hit_points = previous;
+                        previous
+                    }
+                    CoordinationCommand::Assign(ByteOperand::Actor(_)) => (original >> 8) as u8,
+                    CoordinationCommand::Assign(_) => 37,
+                    CoordinationCommand::Increment => ((u16::from(previous) + 1) % 256) as u8,
+                    CoordinationCommand::Decrement => ((u16::from(previous) + 255) % 256) as u8,
+                };
+                match field {
+                    ObjectiveCountField::Remaining => expected.remaining_word = (original & 0xFF00) | u16::from(value),
+                    ObjectiveCountField::NodeRecord => expected.node_record = value,
+                }
+                counts.apply(&mut actor, field, command);
+                assert_eq!(counts, expected);
+                assert_eq!(actor, expected_actor);
+            }
+        }
+    }
+}
+
+#[test]
+fn objective_count_statements_require_live_state_and_preserve_budget_and_ifnot() {
+    for field in [ObjectiveCountField::Remaining, ObjectiveCountField::NodeRecord] {
+        for command in [
+            CoordinationCommand::CopyTo(ByteField::Health),
+            CoordinationCommand::Assign(ByteOperand::Actor(ByteField::Health)),
+            CoordinationCommand::Assign(ByteOperand::Literal(37)),
+            CoordinationCommand::Increment,
+            CoordinationCommand::Decrement,
+        ] {
+            let catalog = PathCatalog::new(vec![vec![Statement::ObjectiveCounts {
+                field, command, next: at(1),
+            }]]).unwrap();
+            for value in 0..=u8::MAX {
+                for invert in [false, true] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    runtime.enter(&objects, owner).unwrap();
+                    runtime.branch.invert_next = invert;
+                    objects.get_mut(owner).unwrap().base.hit_points = value ^ 0xFF;
+                    objects.get_mut(owner).unwrap().base.wait_timer = 73;
+                    let before = objects.clone();
+                    let before_runtime = runtime.clone();
+                    let before_random = random;
+                    let mut counts = EncounterObjectiveCounts { remaining_word: 0xA500 | u16::from(value), node_record: value };
+                    let mut expected = counts;
+                    let mut expected_objects = objects.clone();
+                    let expected_actor = expected_objects.get_mut(owner).unwrap();
+                    expected.apply(expected_actor, field, command);
+                    expected_actor.base.path = Some(at(1));
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                        Err(ProgramError::MissingObjectiveCounts));
+                    assert_eq!(objects, before);
+                    assert_eq!(runtime, before_runtime);
+                    let mut inputs = world(&mut random);
+                    inputs.objective_counts = Some(&mut counts);
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                        Err(ProgramError::BudgetExceeded { cursor: at(0), executed: 0 }));
+                    assert_eq!(objects, before);
+                    assert_eq!(runtime, before_runtime);
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded { cursor: at(1), executed: 1 }));
+                    assert_eq!(objects, expected_objects);
+                    assert_eq!(counts, expected);
+                    assert_eq!(runtime, before_runtime);
+                    assert_eq!(random, before_random);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn separate_actors_observe_each_other_objective_updates_without_scene_republication() {
+    for initial in 0..=u8::MAX {
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::ObjectiveCounts { field: ObjectiveCountField::Remaining, command: CoordinationCommand::Decrement, next: at(1) },
+            Statement::ObjectiveCounts { field: ObjectiveCountField::NodeRecord, command: CoordinationCommand::Decrement, next: at(2) },
+            Statement::ObjectiveCounts { field: ObjectiveCountField::Remaining, command: CoordinationCommand::CopyTo(ByteField::Health), next: at(3) },
+            Statement::ObjectiveCounts { field: ObjectiveCountField::NodeRecord, command: CoordinationCommand::CopyTo(ByteField::AttackPower), next: at(4) },
+        ]]).unwrap();
+        let (mut first, mut objects, owner, mut random) = setup();
+        let mut observer = objects.get(owner).unwrap().clone();
+        observer.base.path = Some(at(2));
+        let other = objects.allocate(observer).unwrap();
+        let mut second = PathRuntime::default();
+        let mut counts = EncounterObjectiveCounts { remaining_word: 0x5A00 | u16::from(initial), node_record: initial };
+        let mut inputs = world(&mut random);
+        inputs.objective_counts = Some(&mut counts);
+        // Yield between the two mutations. These are independent byte writes,
+        // not an atomic decrement of an inferred combined objective value.
+        assert_eq!(first.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::BudgetExceeded { cursor: at(1), executed: 1 }));
+        assert_eq!(second.resume_program(&catalog, &mut objects, other, &mut inputs, 2),
+            Err(ProgramError::BudgetExceeded { cursor: at(4), executed: 2 }));
+        let decremented = ((u16::from(initial) + 255) % 256) as u8;
+        assert_eq!(objects.get(other).unwrap().base.hit_points, decremented);
+        assert_eq!(objects.get(other).unwrap().base.attack_power, initial);
+        assert_eq!(first.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::BudgetExceeded { cursor: at(2), executed: 1 }));
+        objects.get_mut(other).unwrap().base.path = Some(at(2));
+        assert_eq!(second.resume_program(&catalog, &mut objects, other, &mut inputs, 2),
+            Err(ProgramError::BudgetExceeded { cursor: at(4), executed: 2 }));
+        assert_eq!(objects.get(other).unwrap().base.hit_points, decremented);
+        assert_eq!(objects.get(other).unwrap().base.attack_power, decremented);
+        assert_eq!(counts, EncounterObjectiveCounts { remaining_word: 0x5A00 | u16::from(decremented), node_record: decremented });
+    }
+}
+
 fn at(index: u16) -> PathCursor {
     PathCursor {
         path: PathId::from_catalog_index(0),

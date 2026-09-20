@@ -21,6 +21,42 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_planetary_core_closes_shield_health_phases_and_live_count_decrements(self):
+        from generate_native_paths import core_beam_coordinates
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x5E1D)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 194)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '9ddf24150b26862ce3034d8d7bff50944e83a68329de3a360c6964e5c145f6de')
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertEqual(len(statements), 194)
+        self.assertEqual(sum('Statement::ObjectiveCounts' in s for s in statements), 3)
+        self.assertEqual(sum('ActorCondition::EqualMaterial' in s for s in statements), 1)
+        self.assertEqual(sum('Statement::SelectRelativeCoordinate' in s for s in statements), 2)
+        self.assertEqual(core_beam_coordinates(self.rom, 0x06FBC9), (0, 0, 280, -280))
+        self.assertEqual(core_beam_coordinates(self.rom, 0x06FBCD), (280, -280, 0, 0))
+        for shape, path, index, kind in [(0xEB6C, 0x5EEB, 428, 'Enemy'),
+                                       (0xF314, 0x5EC4, 498, 'Effect'), (0xEB6C, 0x6002, 428, 'Effect')]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, f'ObjectKind::{kind}'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+        for offset in [0x45F3A, 0x45F3C, 0x45F4D, 0x45F4E, 0x45F54, 0x45F67]:
+            changed = bytearray(self.rom)
+            changed[offset] ^= 1
+            with self.assertRaises(UnsupportedPath):
+                core_beam_coordinates(bytes(changed), 0x06FBC9)
+        for record in ['91 c9 fb 06 2d 8e', '91 c9 fb 06 2e 92', '91 cd fb 06 2e 8e']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
+    def test_material_comparison_uses_asset_identity_not_a_word_operand(self):
+        statement = '\n'.join(self.lower_record('2b 8c fe 82 00 00'))
+        self.assertIn('ActorCondition::EqualMaterial(super::render::MaterialSetId::from_catalog_token(33534))', statement)
+        for record in ['2b 8c fd 82 00 00', '2b 8c ff 82 00 00', '2a 8c fe 00 00']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_four_turret_encounter_closes_constructor_gate_and_saved_link_death(self):
         from generate_native_paths import radial_turret_coordinates
         extractor = PathExtractor(self.rom)
@@ -613,11 +649,28 @@ class NativePathGenerationTests(unittest.TestCase):
                                   ('80 a3 34', 'Assign(WordOperand::Actor(WordField::ScriptValue))')]:
             statement = self.lower_record(record)[0]
             self.assertIn(f'DeferredMessageCommand::{operation}', statement)
-        for record, field in [('79 99 70 1e', 'WingmatePilot'),
-                              ('79 a1 f4 d7', 'RemainingObjectives'),
-                              ('7a a1 98', 'RemainingObjectives')]:
+        for record, field in [('79 99 70 1e', 'WingmatePilot')]:
             self.assertIn(f'SceneByte::{field}', self.lower_record(record)[0])
-        for record in ['7d a1 70 1e', 'fb 70 1e 00', '7f a1 98', '7b a3 35']:
+        for record in ['7d a1 70 1e', 'fb 70 1e 00', '7b a3 35']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
+    def test_objective_counts_import_and_mutate_the_same_live_record(self):
+        for absolute, indexed, field in [('f4 d7', '98', 'Remaining'), ('a1 d7', '45', 'NodeRecord')]:
+            for record, command in [
+                (f'79 2d {absolute}', 'CopyTo(ByteField::Health)'),
+                (f'7a 2d {indexed}', 'CopyTo(ByteField::Health)'),
+                (f'7d 2d {absolute}', 'Assign(ByteOperand::Actor(ByteField::Health))'),
+                (f'7f 2d {indexed}', 'Assign(ByteOperand::Actor(ByteField::Health))'),
+                (f'fb {absolute} ff', 'Assign(ByteOperand::Literal(255))'),
+                (f'e5 {absolute}', 'Increment'),
+                (f'e7 {absolute}', 'Decrement'),
+            ]:
+                statement = self.lower_record(record)[0]
+                self.assertIn('Statement::ObjectiveCounts', statement)
+                self.assertIn(f'ObjectiveCountField::{field}', statement)
+                self.assertIn(f'CoordinationCommand::{command}', statement)
+        for record in ['79 2d f5 d7', '7b a3 98', '80 a3 45', 'e7 a2 d7', 'e5 f3 d7']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
@@ -2588,7 +2641,7 @@ class NativePathGenerationTests(unittest.TestCase):
             word_field(0xAE)
 
     def test_literal_material_override_only_accepts_reviewed_table_roots(self):
-        for token in (0x8404, 0x8498):
+        for token in (0x8174, 0x81F4, 0x82FE, 0x8404, 0x8498):
             low, high = token.to_bytes(2, "little")
             self.assertEqual(self.lower_record(f"0c {low:02x} {high:02x} 8c")[0],
                 f"Statement::Appearance {{ command: AppearanceCommand::MaterialSet(super::render::MaterialSetId::from_catalog_token({token})), next: cursor(0, 1) }}")

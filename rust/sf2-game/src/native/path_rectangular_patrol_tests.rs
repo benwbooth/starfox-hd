@@ -372,7 +372,8 @@ fn death_halves_the_active_axis_then_signals_unlinks_scores_and_retires_identity
                     target: &mut control,
                     linked_mode: false,
                 });
-                inputs.scene.remaining_objectives = Some(0);
+                let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };
+                inputs.objective_counts = Some(&mut objective_counts);
                 inputs.audio = Some(audio(&mut events));
                 assert_eq!(
                     runtime

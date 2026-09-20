@@ -10,6 +10,54 @@ pub struct ActiveNodeFlags {
     pub bits: u16,
 }
 
+/// Live objective accounting shared by encounter paths and campaign writeback.
+/// Planet entry initializes both low bytes to the same count. Space entry
+/// retains the packed campaign byte in `node_record`, and publishes the sum
+/// of its nibbles into the low byte of `remaining_word`. Path byte operations
+/// preserve the companion byte; campaign writeback reads the complete word.
+/// Sources: $04:B218, $04:B283, $04:B2B1; path counters $D7F4/$D7A1.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EncounterObjectiveCounts {
+    pub remaining_word: u16,
+    pub node_record: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectiveCountField {
+    Remaining,
+    NodeRecord,
+}
+
+impl EncounterObjectiveCounts {
+    pub fn apply(
+        &mut self,
+        actor: &mut Object,
+        field: ObjectiveCountField,
+        command: CoordinationCommand,
+    ) {
+        let previous = match field {
+            ObjectiveCountField::Remaining => self.remaining_word as u8,
+            ObjectiveCountField::NodeRecord => self.node_record,
+        };
+        let value = match command {
+            CoordinationCommand::CopyTo(destination) => {
+                destination.write(actor, previous);
+                return;
+            }
+            CoordinationCommand::Assign(source) => source.read(actor),
+            CoordinationCommand::Increment => previous.wrapping_add(1),
+            CoordinationCommand::Decrement => previous.wrapping_sub(1),
+        };
+        match field {
+            ObjectiveCountField::Remaining => {
+                const COMPANION_BYTE: u16 = 0xFF00;
+                self.remaining_word = (self.remaining_word & COMPANION_BYTE) | u16::from(value);
+            }
+            ObjectiveCountField::NodeRecord => self.node_record = value,
+        }
+    }
+}
+
 /// Encounter exit publication ($1D74, $1D88/$1D8C, $1D8E). The player
 /// transition consumer copies this horizontal anchor into its actor, with
 /// a separately chosen height. Publishing does not perform that transition.

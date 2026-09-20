@@ -130,6 +130,9 @@ mod node_objective_tests;
 #[cfg(test)]
 #[path = "path_radial_turret_tests.rs"]
 mod radial_turret_tests;
+#[cfg(test)]
+#[path = "path_core_objective_tests.rs"]
+mod core_objective_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -144,6 +147,7 @@ pub struct PathWorld<'a> {
     pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
     pub primary_feedback: Option<super::player_hit_control::PrimaryFeedback<'a>>,
     pub coordination: Option<&'a mut super::path_scene_state::EncounterCoordination>,
+    pub objective_counts: Option<&'a mut super::path_scene_state::EncounterObjectiveCounts>,
     pub path_latches: Option<&'a mut super::path_scene_state::PathLatches>,
     pub sound_bank_request: Option<&'a mut super::path_scene_state::SoundBankRequest>,
     pub friend_health: Option<&'a mut super::path_death::FriendHealth>,
@@ -233,9 +237,6 @@ pub struct ScenePathInputs {
     /// Published wingmate pilot byte ($1E70), refreshed during pilot exchange
     /// and set to 255 when absent. Not the path-selected actor identity.
     pub wingmate_pilot: Option<u8>,
-    /// Remaining encounter objectives ($D7F4), initialized from the campaign
-    /// record's packed counts. Also gates player contacts when nonzero.
-    pub remaining_objectives: Option<u8>,
     /// Scene-entry heading ($1BA9), published from the selected map actor's
     /// heading at $04:B11B. Not the current player's or camera's yaw.
     pub entry_heading: Option<u8>,
@@ -308,7 +309,6 @@ pub enum SceneByte {
     ActiveShield,
     MapRegion,
     WingmatePilot,
-    RemainingObjectives,
     EntryHeading,
     PlayerConfiguration,
     EncounterLocation,
@@ -324,7 +324,6 @@ impl SceneByte {
             Self::ActiveShield => input.active_shield,
             Self::MapRegion => input.map_region,
             Self::WingmatePilot => input.wingmate_pilot,
-            Self::RemainingObjectives => input.remaining_objectives,
             Self::EntryHeading => input.entry_heading,
             Self::PlayerConfiguration => input.player_configuration,
             Self::EncounterLocation => input.encounter_location,
@@ -488,6 +487,7 @@ impl SelectedAuxiliaryCondition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActorCondition {
     EqualShape(super::ShapeId),
+    EqualMaterial(super::render::MaterialSetId),
     EqualByte(ByteOperand, ByteOperand),
     EqualWord(WordOperand, WordOperand),
     BetweenByte {
@@ -513,6 +513,10 @@ pub enum ActorCondition {
 impl ActorCondition {
     fn sample(self, actor: &Object) -> Predicate {
         match self {
+            Self::EqualMaterial(material) => Predicate::EqualByte {
+                value: u8::from(actor.extension.material_set == Some(material)),
+                expected: 1,
+            },
             Self::EqualShape(shape) => Predicate::EqualWord {
                 value: actor.base.shape.catalog_index() as u16,
                 expected: shape.catalog_index() as u16,
@@ -653,6 +657,11 @@ pub enum Statement {
     },
     Coordination {
         field: super::path_scene_state::CoordinationField,
+        command: super::path_scene_state::CoordinationCommand,
+        next: PathCursor,
+    },
+    ObjectiveCounts {
+        field: super::path_scene_state::ObjectiveCountField,
         command: super::path_scene_state::CoordinationCommand,
         next: PathCursor,
     },
@@ -981,6 +990,7 @@ pub enum ProgramError {
     MissingTargetingUpgrade,
     MissingSceneryDistance,
     MissingCoordination,
+    MissingObjectiveCounts,
     MissingPathLatches,
     MissingSoundBankRequest,
     MissingDeferredMessage,
@@ -1280,6 +1290,14 @@ impl PathRuntime {
                         .ok_or(ProgramError::MissingCoordination)?;
                     let actor = objects.get_mut(owner).expect("validated coordination actor");
                     coordination.apply(actor, field, command);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ObjectiveCounts { field, command, next } => {
+                    let counts = world.objective_counts.as_deref_mut()
+                        .ok_or(ProgramError::MissingObjectiveCounts)?;
+                    let actor = objects.get_mut(owner).expect("validated objective count actor");
+                    counts.apply(actor, field, command);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -2471,6 +2489,7 @@ mod tests {
             primary_feedback: None,
             friend_health: None,
             coordination: None,
+            objective_counts: None,
             path_latches: None,
             sound_bank_request: None,
             encounter_signals: None,
@@ -8117,7 +8136,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
+        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -8137,7 +8156,6 @@ mod tests {
                     SceneByte::ActiveShield => inputs.scene.active_shield = Some(value),
                     SceneByte::MapRegion => inputs.scene.map_region = Some(value),
                     SceneByte::WingmatePilot => inputs.scene.wingmate_pilot = Some(value),
-                    SceneByte::RemainingObjectives => inputs.scene.remaining_objectives = Some(value),
                     SceneByte::EntryHeading => inputs.scene.entry_heading = Some(value),
                     SceneByte::PlayerConfiguration => inputs.scene.player_configuration = Some(value),
                     SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(value),
@@ -9603,6 +9621,7 @@ mod tests {
                 primary_feedback: None,
                 friend_health: None,
                 coordination: None,
+                objective_counts: None,
                 path_latches: None,
                 sound_bank_request: None,
                 encounter_signals: None,
@@ -13683,9 +13702,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 137);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4076);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4120);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 138);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4162);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4206);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13826,6 +13845,7 @@ mod tests {
                 primary_feedback: None,
                 friend_health: None,
                 coordination: None,
+                objective_counts: None,
                 path_latches: None,
                 sound_bank_request: None,
                 encounter_signals: None,
@@ -13977,6 +13997,7 @@ mod tests {
                         primary_feedback: None,
                         friend_health: None,
                         coordination: None,
+                        objective_counts: None,
                         path_latches: None,
                         sound_bank_request: None,
                         encounter_signals: None,

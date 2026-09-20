@@ -54,7 +54,8 @@ fn discharge() -> (
     let mut inputs = world(&mut random);
     inputs.coordination = Some(&mut shared);
     inputs.scene.encounter_location = Some(0);
-    inputs.scene.remaining_objectives = Some(1);
+    let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 1, ..Default::default() };
+    inputs.objective_counts = Some(&mut objective_counts);
     inputs.selected = Some(player);
     inputs.audio = Some(audio(&mut events));
     inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
@@ -155,7 +156,8 @@ fn damage_routes_keep_variant_specific_scores_retirement_and_progression() {
                     let mut inputs = world(&mut random);
                     inputs.coordination = Some(&mut shared);
                     inputs.scene.encounter_location = Some(0);
-                    inputs.scene.remaining_objectives = Some(0);
+                    let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };
+                    inputs.objective_counts = Some(&mut objective_counts);
                     inputs.selected = Some(player);
                     inputs.selected_score = Some(&mut score);
                     inputs.audio = Some(audio(&mut events));
@@ -384,7 +386,8 @@ fn dying_turret_signals_found_discharge_with_wrapping_low_byte_and_retains_paren
         let mut inputs = world(&mut random);
         inputs.coordination = Some(&mut shared);
         inputs.selected = Some(player);
-        inputs.scene.remaining_objectives = Some(0);
+        let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };
+        inputs.objective_counts = Some(&mut objective_counts);
         inputs.audio = Some(audio(&mut events));
         inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
         assert_eq!(
@@ -638,7 +641,8 @@ fn complete_emergence_three_shots_and_retreat_follow_source_wait_and_next_cadenc
             let mut inputs = world(&mut random);
             inputs.coordination = Some(&mut shared);
             inputs.scene.encounter_location = Some(0);
-            inputs.scene.remaining_objectives = Some(1);
+            let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 1, ..Default::default() };
+            inputs.objective_counts = Some(&mut objective_counts);
             inputs.selected = Some(player);
             inputs.audio = Some(audio(&mut events));
             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());

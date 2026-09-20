@@ -480,7 +480,8 @@ fn chariot_contact_threshold_keeps_signed_wrap_cooldown_and_complete_death_tail(
             linked_mode: false,
         });
         inputs.selected_score = Some(&mut score);
-        inputs.scene.remaining_objectives = Some(0);
+        let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };
+        inputs.objective_counts = Some(&mut objective_counts);
         assert_eq!(
             runtime
                 .enter_program(&catalog, &mut objects, owner, &mut inputs, 100)

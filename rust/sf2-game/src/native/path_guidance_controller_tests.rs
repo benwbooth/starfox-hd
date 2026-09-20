@@ -11,6 +11,7 @@ use super::*;
 
 struct Services {
     scene: ScenePathInputs,
+    objective_counts: super::super::path_scene_state::EncounterObjectiveCounts,
     difficulty: Difficulty,
     style: FlightControlStyle,
     deferred: DeferredMessage,
@@ -26,13 +27,16 @@ impl Default for Services {
         Self {
             scene: ScenePathInputs {
                 wingmate_pilot: Some(2),
-                remaining_objectives: Some(1),
                 player_configuration: Some(0),
                 encounter_location: Some(0),
                 map_region: Some(0),
                 ..Default::default()
             },
             difficulty: Difficulty::Normal,
+            objective_counts: super::super::path_scene_state::EncounterObjectiveCounts {
+                remaining_word: 1,
+                ..Default::default()
+            },
             style: FlightControlStyle::TypeA,
             deferred: DeferredMessage::default(),
             event: RadioEvent::default(),
@@ -51,6 +55,7 @@ impl Services {
     fn inputs<'a>(&'a mut self, random: &'a mut RandomState, selected: ObjectId) -> PathWorld<'a> {
         let mut inputs = world(random);
         inputs.scene = self.scene;
+        inputs.objective_counts = Some(&mut self.objective_counts);
         inputs.campaign = Some(CampaignPathInputs {
             difficulty: self.difficulty,
             encounter_variant: 0,
@@ -540,7 +545,7 @@ fn event_service_short_circuits_inactive_scene_and_uses_shared_sixty_count_coold
             );
         }
         let before_count = objects.active_ids().len();
-        services.scene.remaining_objectives = Some(0);
+        services.objective_counts.remaining_word = 0;
         let mut inputs = services.inputs(&mut random, player);
         inputs.radio_event = None;
         inputs.radio = None;
@@ -555,7 +560,7 @@ fn event_service_short_circuits_inactive_scene_and_uses_shared_sixty_count_coold
                 .script_parameter,
             0
         );
-        services.scene.remaining_objectives = Some(1);
+        services.objective_counts.remaining_word = 1;
         services.scene.map_region = region;
         services.event.number = 0xB300 | number;
         callbacks(
@@ -582,7 +587,7 @@ fn event_service_short_circuits_inactive_scene_and_uses_shared_sixty_count_coold
         services.request.pending = false;
         for remaining in (0..59).rev() {
             let mut inputs = services.inputs(&mut random, player);
-            inputs.scene.remaining_objectives = None;
+            inputs.objective_counts = None;
             inputs.scene.map_region = None;
             inputs.radio = None;
             callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs, 1);

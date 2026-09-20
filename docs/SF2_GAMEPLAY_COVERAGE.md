@@ -3522,3 +3522,52 @@ icon-function warnings only). No recorded gameplay or original CPU/GSU
 execution was used. These are static-lowering and native-component results;
 scene scheduling/spawn integration and whole-game completion remain open,
 as does the previously documented node-objective null-target cleanup gap.
+
+### Planetary core objective and live objective accounting
+
+The `$44:5E1D` core controller now lowers its complete **194-command**
+graph, adding **86 unique commands/statements**. The catalog contains
+**138 roots, 4206 source commands and 4162 typed statements**. Four source
+maps install this controller with a two- or four-defender gate.
+
+The graph retains the original count before common initialization, signals
+the shield, waits fifty visits, then signals the core. Its beam constructor
+resets the shared selector, emits four beams, assigns child numbers two
+through five and delay counts one through four, and reads two reviewed
+four-entry coordinate tables. Coordinates are typed signed values with
+bounds diagnostics, not an unrestricted view into adjacent source data.
+The controller stops emission when the live objective total becomes zero.
+
+Material phases use existing asset identities. Equality tests compare the
+typed material identity and consume IFNOT; material addresses are not made
+available as numeric actor operands. The contact callback retains the
+source's signed, wrapping byte-subtraction thresholds, including the cases
+outside ordinary gameplay health ranges. It registers the periodic inner
+phase cue only once, then forces destruction at the next threshold.
+
+Objective accounting is now a scene-owned mutable record, replacing the
+old `ScenePathInputs.remaining_objectives` snapshot across existing paths
+and tests. The total retains its whole word because campaign writeback
+reads that width, while path byte writes preserve the companion byte.
+The separate campaign-record byte is sometimes a packed pair of counts;
+its path decrement still wraps the **whole byte**, not individual nibbles.
+Static tests bind these representations to the planet/space loaders and
+writeback instructions; those loaders are not newly integrated here.
+
+Eight new native tests cover all material identities with and without
+IFNOT, all total words and byte commands, missing-state and budget
+boundaries, cross-actor live reads between the two independent decrements,
+all initial count bytes and health thresholds, shield rise and core release,
+beam numbering/placement, and one-time destruction accounting. Across all
+count bytes and locked/unlocked primary control, destruction awards the
+word-saturated score once, signals its parent, preserves the authored
+127-of-256 random branching and emits paused-running aftermath effects.
+The death clone is marked, not silently retired by the path dispatcher.
+
+Debug/release each pass **970 unit tests and two integration tests**;
+**188 lowerer tests and 414 path-static tests**, exact regeneration, static
+inventory, architecture guard and app build pass (existing unused
+icon-function warnings only). No recorded gameplay or original CPU/GSU
+execution was used. Map-installed defenders, scene scheduling/spawn
+integration, the previous cleanup diagnostic and whole-game completion
+remain separate work; these passing component checks do not establish them.

@@ -353,7 +353,8 @@ fn guided_fighter_new_contact_awards_saturating_score_and_emits_four_fades_befor
             inputs.coordination = Some(&mut shared);
             inputs.selected = Some(player);
             inputs.selected_score = Some(&mut score);
-            inputs.scene.remaining_objectives = Some(0);
+            let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };
+            inputs.objective_counts = Some(&mut objective_counts);
             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
             assert_eq!(
                 runtime

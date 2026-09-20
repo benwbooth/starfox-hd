@@ -56,7 +56,8 @@ fn death_drop_selects_all_five_pickups_and_consumes_only_the_reached_random_draw
                 target: &mut control,
                 linked_mode: false,
             });
-            inputs.scene.remaining_objectives = Some(1);
+            let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 1, ..Default::default() };
+            inputs.objective_counts = Some(&mut objective_counts);
             inputs.campaign = Some(CampaignPathInputs {
                 difficulty,
                 encounter_variant: 0,
@@ -384,7 +385,8 @@ fn new_contact_damage_enters_full_death_sequence_and_records_original_identity()
                     target: &mut control,
                     linked_mode: false,
                 });
-                inputs.scene.remaining_objectives = Some(0);
+                let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };
+                inputs.objective_counts = Some(&mut objective_counts);
                 inputs.audio = Some(audio(&mut events));
                 assert_eq!(
                     runtime

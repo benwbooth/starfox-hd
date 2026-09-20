@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("PLANETARY_CORE_OBJECTIVE", PathAddress(0x5E1D)),
     ("FOUR_TURRET_ENCOUNTER", PathAddress(0xF136)),
     ("MULTIPART_NODE_OBJECTIVE", PathAddress(0x546C)),
     ("DIRECT_NODE_OBJECTIVE", PathAddress(0x548E)),
@@ -370,6 +371,20 @@ def banked_word_values(rom: bytes, address: int) -> tuple[int, ...]:
     return tuple(int.from_bytes(data[index:index + 2], "little") for index in range(0, 512, 2))
 
 
+def core_beam_coordinates(rom: bytes, address: int) -> tuple[int, ...]:
+    """The complete core constructor resets the mailbox and emits four beams."""
+    if address not in (0x06FBC9, 0x06FBCD):
+        raise UnsupportedPath(f'unreviewed core beam coordinate table {address:06X}')
+    expected = bytes.fromhex('fb64d7006104f5ccbe695f64010000e8fe0000029c7a2e0891c9fb062e8e91cdfb062e92072e024e132e6f2ee564d79b4542')
+    if rom[0x45F37:0x45F37 + len(expected)] != expected:
+        raise UnsupportedPath('unexpected four-beam core constructor')
+    start = source_offset(address)
+    data = rom[start:start + 8]
+    if len(data) != 8:
+        raise UnsupportedPath('truncated core beam coordinate table')
+    return tuple(int.from_bytes(data[i:i + 2], 'little', signed=True) for i in range(0, 8, 2))
+
+
 def radial_turret_coordinates(rom: bytes, address: int) -> tuple[int, ...]:
     """Four children receive fresh LOW selectors 0..3 through the mailbox.
 
@@ -632,6 +647,13 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     if index == 0 and path in (PathAddress(0x888E), PathAddress(0x88DA), PathAddress(0x07B6), PathAddress(0xAFDD)):
         return index, "ObjectKind::Effect"
     if (index, path) == (14, PathAddress(0x83F9)):
+        return index, "ObjectKind::Effect"
+    # Planetary core is hittable after its shield releases. Its rotating
+    # shield disables collision in the shared initialization helper; the
+    # core death clone immediately enters the normal death service.
+    if (shape, path) == (0xEB6C, PathAddress(0x5EEB)):
+        return index, "ObjectKind::Enemy"
+    if (shape, path) in ((0xF314, PathAddress(0x5EC4)), (0xEB6C, PathAddress(0x6002))):
         return index, "ObjectKind::Effect"
     # Launch-transition camera helper, exhaust and transient shield sprite.
     if (index, path) in ((0, PathAddress(0xDCB1)), (19, PathAddress(0xF32F)),
@@ -1326,10 +1348,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 # not expose raw shape pointers as ordinary word arithmetic.
                 statement = f"Statement::Appearance {{ command: AppearanceCommand::Shape(ShapeId::from_catalog_index({shape_index(value)})), next: {next_cursor()} }}"
             elif name == "SetWord" and variable == 0x8C:
-                # Shared helper $09:81B6 selects these two bank-01 material
-                # tables. $7F:1451 copies the field into the render record.
+                # Shared helper $09:81B6 and core phases $44:5EEB/$44:5FAB
+                # select bank-01 materials; $7F:1451 publishes them to render.
                 # Do not expose pointer arithmetic or infer other table roots.
-                if value not in (0x8404, 0x8498):
+                if value not in (0x8174, 0x81F4, 0x82FE, 0x8404, 0x8498):
                     raise UnsupportedPath(f"unreviewed material table {value:04X}")
                 statement = f"Statement::Appearance {{ command: AppearanceCommand::MaterialSet(super::render::MaterialSetId::from_catalog_token({value})), next: {next_cursor()} }}"
             else:
@@ -1505,6 +1527,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             taken, next_ = branch_cursors(int.from_bytes(operands[3:], "little"))
             if variable == 0x04:
                 condition = f"ActorCondition::EqualShape(ShapeId::from_catalog_index({shape_index(expected)}))"
+            elif variable == 0x8C:
+                if expected != 0x82FE:
+                    raise UnsupportedPath(f"unreviewed material comparison {expected:04X}")
+                condition = f"ActorCondition::EqualMaterial(super::render::MaterialSetId::from_catalog_token({expected}))"
             else:
                 condition = f"ActorCondition::EqualWord(WordOperand::Actor({word_field(variable)}), WordOperand::Literal({expected}))"
             statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
@@ -1808,9 +1834,22 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::SceneryDistance {{ command: super::path_program::SceneryDistanceCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0xD79B, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xD7F4, 0xDB5B) and name.startswith("Import"):
+            if address in (0xD7F4, 0xD7A1):
+                field = 'Remaining' if address == 0xD7F4 else 'NodeRecord'
+                if name.startswith('Import'):
+                    operation = f'CopyTo({byte_field(variable)})'
+                elif name.startswith('Export'):
+                    operation = f'Assign(ByteOperand::Actor({byte_field(variable)}))'
+                elif name == 'StoreExternalByte':
+                    operation = f'Assign(ByteOperand::Literal({value}))'
+                else:
+                    operation = 'Increment' if name == 'IncrementExternalByte' else 'Decrement'
+                statement = f'Statement::ObjectiveCounts {{ field: super::path_scene_state::ObjectiveCountField::{field}, command: super::path_scene_state::CoordinationCommand::{operation}, next: {next_cursor()} }}'
+                statements.append(statement)
+                continue
+            if address in (0xD79B, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B) and name.startswith("Import"):
                 source = {0xD79B: "EncounterNodeMode", 0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
-                          0x1E70: "WingmatePilot", 0xD7F4: "RemainingObjectives", 0xDB5B: "MapRegion"}[address]
+                          0x1E70: "WingmatePilot", 0xDB5B: "MapRegion"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
@@ -1881,6 +1920,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             low, high, bank, selector, destination = parameters(5)
             wide = name == "IndexWordBanked"
             address = low | (high << 8) | (bank << 16)
+            if wide and address in (0x06FBC9, 0x06FBCD):
+                axis, expected_destination = {0x06FBC9: ('X', 0x8E), 0x06FBCD: ('Z', 0x92)}[address]
+                if selector != 0x2E or destination != expected_destination:
+                    raise UnsupportedPath('unreviewed core beam coordinate operands')
+                values = core_beam_coordinates(extractor.rom, address)
+                statement = f"Statement::SelectRelativeCoordinate {{ selector: ByteField::AttackPower, axis: Axis::{axis}, values: &[{', '.join(map(str, values))}], next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if wide and address in (0x07FEA1, 0x07FEA9):
                 axis, expected_destination = {0x07FEA1: ('X', 0x8E), 0x07FEA9: ('Z', 0x92)}[address]
                 if selector != 0x2E or destination != expected_destination:
