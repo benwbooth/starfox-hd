@@ -23995,6 +23995,36 @@ mod tests {
     }
 
     #[test]
+    fn native_material_command_reaches_render_boundary_without_changing_other_fields() {
+        use super::super::path_appearance::AppearanceCommand;
+        let mut game = Game::new();
+        let mut actor = Object::new(
+            ObjectKind::Effect,
+            ShapeId::TITLE_FORMATION_EFFECT,
+            Behavior::FollowPath,
+        );
+        actor.base.position = Vector3 { x: -123, y: 456, z: 789 };
+        actor.extension.animation_frame = 71;
+        actor.extension.color_frame = 39;
+        let owner = game.state.objects.allocate(actor).unwrap();
+        game.build_render_objects().unwrap();
+        let baseline = *rendered_object(&game, owner);
+        for token in [33_796, 33_944, 33_796] {
+            let material = MaterialSetId::from_catalog_token(token);
+            let actor = game.state.objects.get_mut(owner).unwrap();
+            let mut expected_actor = actor.clone();
+            expected_actor.extension.material_set = Some(material);
+            AppearanceCommand::MaterialSet(material).apply(actor);
+            assert_eq!(actor, &expected_actor);
+            game.build_render_objects().unwrap();
+            let mut expected_render = baseline;
+            expected_render.material_set = material;
+            assert_eq!(*rendered_object(&game, owner), expected_render);
+            assert_eq!(game.state.objects.get(owner).unwrap(), &expected_actor);
+        }
+    }
+
+    #[test]
     fn native_far_sort_command_reaches_render_boundary_without_changing_world_pose() {
         use super::super::path_appearance::AppearanceCommand;
         let mut game = Game::new();

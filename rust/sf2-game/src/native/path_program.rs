@@ -4915,6 +4915,47 @@ mod tests {
     }
 
     #[test]
+    fn material_selection_preserves_other_actor_state_and_respects_command_budget() {
+        use super::super::{path_appearance::AppearanceCommand, render::MaterialSetId};
+        for token in [33_796, 33_944] {
+            let material = MaterialSetId::from_catalog_token(token);
+            let catalog = PathCatalog::new(vec![vec![Statement::Appearance {
+                command: AppearanceCommand::MaterialSet(material),
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let original_random = random;
+            runtime.branch.invert_next = true;
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.wait_timer = 233;
+            actor.base.flags.visible = false;
+            actor.base.flags.collided = true;
+            actor.base.flags.collision_disabled = true;
+            actor.extension.animation_frame = 71;
+            actor.extension.color_frame = 39;
+            actor.extension.material_set = Some(MaterialSetId::from_catalog_token(33_534));
+            let before = objects.clone();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 })
+            );
+            assert_eq!(objects, before);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 })
+            );
+            let mut expected = before;
+            let actor = expected.get_mut(owner).unwrap();
+            actor.extension.material_set = Some(material);
+            actor.base.path = Some(cursor(0, 1));
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
+        }
+    }
+
+    #[test]
     fn proximity_warning_controls_preserve_latch_and_only_change_scan_membership() {
         for enabled in [false, true] {
             let catalog = PathCatalog::new(vec![vec![Statement::Appearance {

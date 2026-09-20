@@ -17,6 +17,9 @@ pub enum AppearanceCommand {
     /// Literal shape assignment changes only the catalog selection; it does
     /// not initialize a strategy, animation, visibility or collision state.
     Shape(super::ShapeId),
+    /// Replace the material catalog selection without changing the shape or
+    /// either animation channel. Source field `$1CCD`, draw record `$16`.
+    MaterialSet(super::render::MaterialSetId),
     Visibility(bool),
     Collision(bool),
     Shadow(bool),
@@ -31,6 +34,7 @@ impl AppearanceCommand {
     pub fn apply(self, actor: &mut Object) {
         match self {
             Self::Shape(shape) => actor.base.shape = shape,
+            Self::MaterialSet(material) => actor.extension.material_set = Some(material),
             Self::Visibility(visible) => {
                 actor.base.flags.visible = visible;
                 actor.base.flags.collision_disabled = !visible;
@@ -253,6 +257,9 @@ mod tests {
                             expected.base.flags.proximity_warning_source = value
                         }
                         AppearanceCommand::Shape(shape) => expected.base.shape = shape,
+                        AppearanceCommand::MaterialSet(material) => {
+                            expected.extension.material_set = Some(material)
+                        }
                         AppearanceCommand::Visibility(value) => {
                             expected.base.flags.visible = value;
                             expected.base.flags.collision_disabled = !value;

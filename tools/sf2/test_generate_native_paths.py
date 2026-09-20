@@ -909,6 +909,25 @@ class NativePathGenerationTests(unittest.TestCase):
             generated = generate(bytes(changed), (("FAR_SORT", PathAddress(0xF536)),))
             self.assertIn("use super::path_appearance::AppearanceCommand;", generated)
 
+    def test_literal_material_override_only_accepts_reviewed_table_roots(self):
+        for token in (0x8404, 0x8498):
+            low, high = token.to_bytes(2, "little")
+            self.assertEqual(self.lower_record(f"0c {low:02x} {high:02x} 8c")[0],
+                f"Statement::Appearance {{ command: AppearanceCommand::MaterialSet(super::render::MaterialSetId::from_catalog_token({token})), next: cursor(0, 1) }}")
+        for token in (0, 0x8403, 0x8405, 0x8497, 0x8499, 0xFFFF):
+            low, high = token.to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed material table"):
+                self.lower_record(f"0c {low:02x} {high:02x} 8c")
+        for record in ("08 8c 01 00", "07 8c 01", "0b 01 8c"):
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 8C"):
+            word_field(0x8C)
+        changed = bytearray(self.rom)
+        changed[0x4F536:0x4F53B] = bytes.fromhex("0c 04 84 8c 0f")
+        generated = generate(bytes(changed), (("MATERIAL", PathAddress(0xF536)),))
+        self.assertIn("use super::path_appearance::AppearanceCommand;", generated)
+
     def test_literal_shape_assignment_and_equality_decode_every_catalog_header(self):
         for index in range(577):
             shape = 0xBC9C + index * 28

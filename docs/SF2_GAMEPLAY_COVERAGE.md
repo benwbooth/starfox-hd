@@ -1531,3 +1531,19 @@ distinct view/player positions, large shapes, retained audio, statement
 atomicity and repeat-warning rearming. Complete-root coverage remains **28
 roots / 670 source commands / 661 native statements**. The service is public
 native code; production Game invocation is not claimed by this checkpoint.
+
+### Literal path material selection
+
+The two material-table assignments in shared helper `$09:81B6` now lower to
+`AppearanceCommand::MaterialSet`. Full static handler checks verify the
+literal word store and operand-to-field mapping, plus the source draw-record
+copy. Only the two reviewed table roots are accepted; byte writes, generic
+word arithmetic and other literal roots still fail lowering.
+
+Budget-zero atomicity, retained IFNOT/random/wait/contact/animation state and
+the actual Game render boundary are tested. The command changes only the
+material selection. Verification passes 110 lowerer tests, 276 static path
+tests and 281 native path tests in debug/release, with the render-boundary
+test in both profiles. Architecture, static audit, catalog freshness and
+application build also pass. This is a primitive checkpoint, not a claim
+that the complete shared helper or another root has been integrated.

@@ -579,6 +579,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 # A literal shape header becomes a semantic catalog ID. Do
                 # not expose raw shape pointers as ordinary word arithmetic.
                 statement = f"Statement::Appearance {{ command: AppearanceCommand::Shape(ShapeId::from_catalog_index({shape_index(value)})), next: {next_cursor()} }}"
+            elif name == "SetWord" and variable == 0x8C:
+                # Shared helper $09:81B6 selects these two bank-01 material
+                # tables. $7F:1451 copies the field into the render record.
+                # Do not expose pointer arithmetic or infer other table roots.
+                if value not in (0x8404, 0x8498):
+                    raise UnsupportedPath(f"unreviewed material table {value:04X}")
+                statement = f"Statement::Appearance {{ command: AppearanceCommand::MaterialSet(super::render::MaterialSetId::from_catalog_token({value})), next: {next_cursor()} }}"
             else:
                 field = word_field(variable) if wide else byte_field(variable)
                 mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation}({kind}Operand::Literal({value})) }}"

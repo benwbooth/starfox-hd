@@ -34,6 +34,16 @@ class PathAppearanceStaticTests(unittest.TestCase):
         self.assert_source(0x7F8CFD, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CB 1C 4C D3 CA")
         self.assert_source(0x7F8D3A, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CA 1C 4C D3 CA")
 
+    def test_literal_material_assignment_is_a_word_store_then_render_record_copy(self):
+        self.assert_source(0x7F89B9,
+            "20 04 C5 20 47 CB C2 20 20 20 C7 99 00 00 E2 20 4C A9 CA")
+        self.assert_source(0x7FCB47,
+            "08 C2 20 8E B1 16 29 FF 00 89 80 00 F0 04 18 69 41 1C "
+            "18 6D B1 16 A8 28 60")
+        self.assertEqual(0x8C + 0x1C41, 0x1CCD)
+        self.assert_source(0x7F1451, "B9 CD 1C 9D 16 00")
+        self.assert_source(0x0981D3, "0C 98 84 8C 17 DE 81 0C 04 84 8C")
+
     def test_far_sort_flag_publishes_fixed_bias_separately_from_world_position(self):
         self.assert_source(0x7FBCF4, "B5 09 09 01 95 09 4C E8 CA")
         self.assert_source(0x7FBCFD, "B5 09 29 FE 95 09 4C E8 CA")
