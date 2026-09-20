@@ -3124,3 +3124,46 @@ Coverage is **123 complete roots, 2716 source commands, 2699 typed statements**.
 This remains a typed-catalog milestone, not full source coverage or integration
 of the shipping Game scheduler and spawning. No original-code execution or
 recorded gameplay was used for this increment.
+
+## Rectangular patrols and their firing attachments (2026-09-20)
+
+The complete `$44:1118/111E/1124` graphs now lower, including the attached
+emitter at `1283`, its signaled death at `1290`, and its previously lowered
+surface-limited ballistic effect at `12E5`. They add **156 unique source
+commands and typed statements**. Shape/path pairs are explicitly reviewed;
+the authored health, attack, relative offsets, and child numbers are retained.
+
+Actor displacement working words (source extension `1CC1/3/5`, authored
+operands `80/82/84`) are a typed vector with shared low/high-byte views. They
+remain independent of velocity and saved-position history. The patrol's
+damage callback retains each signed half-step in these words before adding
+it to the corresponding saved speed; it does not discard those intermediate
+writes. Player publication provides static evidence for the displacement
+meaning, but this increment does not replace the current player scheduler or
+claim to port every other strategy that reuses these working words.
+
+The three entries preserve the initial identity and retirement mask, exact
+secondary sentinel, both authored motion-table variants, wrapped positions,
+signed chase, asymmetric rectangular bounds, same-visit turn transitions,
+and texture-scroll callback. Damage comparisons use byte-wrapped subtraction,
+including their non-intuitive high-byte cases, rather than unsigned health
+thresholds. The death path halves the active speed five times: the depth
+branch adds a yield that the horizontal branch does not, while the turning
+branch waits five visits. It then signals and unlinks the attachment, emits
+two fade effects, publishes player targeting, awards 100 points, updates the
+appropriate progression/retirement fields, and requests death without removal.
+
+The attachment has a 30-callback firing cooldown, emits the authored child
+effect and ballistic projectile, and consumes the mother's hit event to
+cancel both callbacks and run an 18-step signed height curve with wrapping
+pitch/yaw increments. Seven new authored-path tests cover the complete loops,
+gates, callbacks, spawns, and death branches; an exhaustive vector-field test
+checks every word/byte value while preserving unrelated actor state.
+
+Full debug and release suites pass **893 unit tests and two integration tests
+each**; **174 lowerer tests and 375 path-static tests** pass, as do the static
+inventory, architecture and regeneration checks and app build (existing unused
+icon-function warnings only). Coverage is **126 complete roots, 2872 source
+commands, 2855 typed statements**. This is still catalog coverage: whole-game
+source coverage and shipping scheduler/spawn integration remain open. No
+original-code execution or recorded gameplay was used.

@@ -21,6 +21,11 @@ pub struct ActorPathState {
     /// Retained motion phase word (source extension 1CE2). Some paths use its
     /// low byte as a phase counter; player motion also uses it as an angle.
     pub motion_phase: u16,
+    /// Per-actor displacement working vector (source extension 1CC1/3/5).
+    /// Player movement publishes these words outside the alternate mode;
+    /// authored patrols also use them to retain a signed half-step. Preserve
+    /// those writes independently of velocity and saved-position history.
+    pub motion_delta: super::Vector3,
     /// Retained authored path parameter (source actor byte 27). Its meaning
     /// belongs to the path: 5E1D saves health here, while 7F2A saves the low
     /// height byte and uses it as a bit selector. It is not a timer, weapon,

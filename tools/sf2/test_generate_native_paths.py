@@ -21,6 +21,34 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_rectangular_patrols_close_attachment_and_ballistic_effect_graphs(self):
+        extractor = PathExtractor(self.rom)
+        for address, count, checksum in [
+            (0x1118, 451, 'e6cae018684014c8984e7c1338a4874daab33e4187d7215e7abf108289849898'),
+            (0x111E, 451, '5cd9d1c400bd8dfb86a2cc9a8bb878a71f3dcf520201c5ac73a6d432d627b515'),
+            (0x1124, 450, '93562e684b2ff93bc1d88b61b7c42848c78cc5a4f46564ff192e94b3b8a57eee'),
+        ]:
+            root = PathAddress(address)
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), checksum)
+            statements = lower_graph(extractor, root, 0)[1]
+            self.assertEqual(len(statements), count)
+            self.assertEqual(sum('WordField::MotionDelta' in s for s in statements), 6)
+            for dependency in [0x1283, 0x1290, 0x12A8, 0x12E5, 0x86B4, 0x8768, 0x44B2]:
+                self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        for shape, index, path in [(0xF49C, 512, 0x1283), (0xCEE0, 167, 0x12E5)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, 'ObjectKind::Effect'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+
+    def test_motion_delta_word_and_byte_operands_share_all_three_typed_components(self):
+        for encoded, axis in [(0x80, 'X'), (0x82, 'Y'), (0x84, 'Z')]:
+            expected = f'WordField::MotionDelta(Axis::{axis})'
+            self.assertEqual(word_field(encoded), expected)
+            for offset, part in [(0, 'Low'), (1, 'High')]:
+                self.assertEqual(byte_field(encoded + offset), f'ByteField::WordPart {{ field: {expected}, part: BytePart::{part} }}')
+
     def test_fighter_emitters_close_children_and_fold_only_complete_position_helpers(self):
         extractor = PathExtractor(self.rom)
         for address, count, checksum in [
@@ -1847,8 +1875,8 @@ class NativePathGenerationTests(unittest.TestCase):
                 banked_byte_values(self.rom, address)
         with self.assertRaisesRegex(UnsupportedPath, "truncated constant-byte lookup"):
             banked_byte_values(self.rom[:0x3FC54], 0x07FB55)
-        for record in ("90 55 fb 07 80 8a", "90 55 fb 07 a2 80"):
-            with self.assertRaisesRegex(UnsupportedPath, "unported byte operand 80"):
+        for record in ("90 55 fb 07 86 8a", "90 55 fb 07 a2 86"):
+            with self.assertRaisesRegex(UnsupportedPath, "unported byte operand 86"):
                 self.lower_record(record)
 
     def test_banked_word_lookup_doubles_the_unsigned_byte_index_at_word_width(self):
@@ -2846,7 +2874,7 @@ class NativePathGenerationTests(unittest.TestCase):
             word_field(0x8D)
         for field in (word_field, byte_field):
             with self.assertRaises(UnsupportedPath):
-                field(0x80)
+                field(0x86)
 
     def test_depth_word_and_byte_views_stop_before_animation_channels(self):
         self.assertEqual(word_field(0x87), "WordField::DepthOffset")

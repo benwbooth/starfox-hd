@@ -63,6 +63,7 @@ pub enum WordField {
     ScriptValue,
     Position(Axis),
     Velocity(Axis),
+    MotionDelta(Axis),
     RelativePosition(Axis),
     /// Source base 39/3B/3D, shared with platform-carry history.
     SavedPosition(Axis),
@@ -76,6 +77,7 @@ impl WordField {
             Self::ScriptValue => actor.extension.path_state.script_value as i16,
             Self::Position(axis) => axis.get(actor.base.position),
             Self::Velocity(axis) => axis.get(actor.base.velocity),
+            Self::MotionDelta(axis) => axis.get(actor.extension.path_state.motion_delta),
             Self::RelativePosition(axis) => axis.get(actor.extension.relative_position),
             Self::SavedPosition(axis) => axis.get(actor.extension.path_state.platform_carry.saved_position),
         }) as u16
@@ -88,6 +90,7 @@ impl WordField {
             Self::ScriptValue => actor.extension.path_state.script_value = value,
             Self::Position(axis) => axis.set(&mut actor.base.position, value as i16),
             Self::Velocity(axis) => axis.set(&mut actor.base.velocity, value as i16),
+            Self::MotionDelta(axis) => axis.set(&mut actor.extension.path_state.motion_delta, value as i16),
             Self::RelativePosition(axis) => {
                 axis.set(&mut actor.extension.relative_position, value as i16)
             }
@@ -432,6 +435,35 @@ mod tests {
 
     fn actor() -> Object {
         Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)
+    }
+
+    #[test]
+    fn displacement_words_and_bytes_alias_without_touching_velocity_or_history() {
+        for axis in [Axis::X, Axis::Y, Axis::Z] {
+            let field = WordField::MotionDelta(axis);
+            let low = ByteField::WordPart { field, part: BytePart::Low };
+            let high = ByteField::WordPart { field, part: BytePart::High };
+            for value in 0..=u16::MAX {
+                let mut actual = actor();
+                actual.base.position = Vector3 { x: 173, y: -497, z: 997 };
+                actual.base.velocity = Vector3 { x: -381, y: 777, z: 83 };
+                actual.extension.path_state.motion_delta = Vector3 { x: -19, y: 37, z: 79 };
+                actual.extension.path_state.platform_carry.saved_position = Vector3 { x: -281, y: 831, z: -1471 };
+                let mut expected = actual.clone();
+                axis.set(&mut expected.extension.path_state.motion_delta, value as i16);
+                field.write(&mut actual, value);
+                assert_eq!(actual, expected);
+                assert_eq!((low.read(&actual), high.read(&actual)), (value as u8, (value >> 8) as u8));
+                low.write(&mut actual, value.wrapping_add(73) as u8);
+                high.write(&mut actual, ((value >> 8) as u8).wrapping_add(137));
+                let changed = u16::from(value.wrapping_add(73) as u8) | (u16::from(((value >> 8) as u8).wrapping_add(137)) << 8);
+                axis.set(&mut expected.extension.path_state.motion_delta, changed as i16);
+                assert_eq!(actual, expected);
+                Mutation::Word { field, operation: WordOperation::HalfTowardZero }.apply(&mut actual);
+                axis.set(&mut expected.extension.path_state.motion_delta, (changed as i16) / 2);
+                assert_eq!(actual, expected);
+            }
+        }
     }
 
     #[test]

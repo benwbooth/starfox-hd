@@ -24,6 +24,9 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("WIDE_RECTANGULAR_PATROL", PathAddress(0x1118)),
+    ("GATED_RECTANGULAR_PATROL", PathAddress(0x111E)),
+    ("RECTANGULAR_PATROL", PathAddress(0x1124)),
     ("DISTANCE_GATED_FIGHTER_EMITTER", PathAddress(0x4C68)),
     ("FIGHTER_EMITTER", PathAddress(0x4C6A)),
     ("PAIRED_PART_YAW_PATROL", PathAddress(0x3114)),
@@ -515,6 +518,11 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # paths; health/attack still come from the authored spawn record.
     if (shape, path) in ((0xCF6C, PathAddress(0x4CF7)), (0xCB98, PathAddress(0x4CCD))):
         return index, "ObjectKind::Enemy"
+    # Noncolliding patrol attachment and its surface-limited ballistic effect.
+    # Authored hit/attack values remain intact; collision changes belong to
+    # their complete paths, including the projectile's first invisible visit.
+    if (shape, path) in ((0xF49C, PathAddress(0x1283)), (0xCEE0, PathAddress(0x12E5))):
+        return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
@@ -533,6 +541,9 @@ def word_field(variable: int) -> str:
         0x39: "WordField::SavedPosition(Axis::X)",
         0x3B: "WordField::SavedPosition(Axis::Y)",
         0x3D: "WordField::SavedPosition(Axis::Z)",
+        0x80: "WordField::MotionDelta(Axis::X)",
+        0x82: "WordField::MotionDelta(Axis::Y)",
+        0x84: "WordField::MotionDelta(Axis::Z)",
         0x87: "WordField::DepthOffset",
         0x8E: "WordField::RelativePosition(Axis::X)",
         0x90: "WordField::RelativePosition(Axis::Y)",
@@ -576,7 +587,7 @@ def byte_field(variable: int) -> str:
         return fields[variable]
     # Each pair aliases one actual typed word; it must not create a separate
     # particle counter or independent byte shadow of the motion phase.
-    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x39, 0x3B, 0x3D, 0x87, 0x8E, 0x90, 0x92, 0xA1, 0xA3):
+    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x39, 0x3B, 0x3D, 0x80, 0x82, 0x84, 0x87, 0x8E, 0x90, 0x92, 0xA1, 0xA3):
         if variable in (base, base + 1):
             part = "Low" if variable == base else "High"
             return f"ByteField::WordPart {{ field: {word_field(base)}, part: BytePart::{part} }}"
