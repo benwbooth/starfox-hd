@@ -5174,6 +5174,106 @@ mod tests {
     }
 
     #[test]
+    fn fixed_count_sprite_effects_keep_exact_frames_and_offset_without_repeated_setup() {
+        use super::super::{authored_paths, Vector3};
+        let catalog = authored_paths::catalog();
+        for shrinking in [false, true] {
+            for retained in 0..=u8::MAX {
+                for y in [i16::MIN, -600, 0, i16::MAX - 600, i16::MAX] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(if shrinking { authored_paths::OFFSET_SHRINK_SPRITE }
+                        else { authored_paths::FIXED_SIZE_FADE_SPRITE });
+                    actor.base.flags.casts_shadow = true;
+                    actor.base.position = Vector3 { x: -1234, y, z: 32767 };
+                    actor.base.wait_timer = retained;
+                    actor.base.hit_points = retained;
+                    actor.base.attack_power = retained;
+                    actor.extension.depth_offset = 0xABCD;
+                    actor.extension.path_state.animation.color = super::super::path_appearance::AnimationControl::from_packed(retained);
+                    let original_animation = actor.extension.path_state.animation;
+                    runtime.branch.invert_next = true;
+                    let initial_random = random;
+                    for visit in 0..8 {
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                            Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.base.position, Vector3 { x: -1234, y: if shrinking { y.wrapping_add(600) } else { y }, z: 32767 });
+                        assert_eq!(actor.extension.texture_scroll_x, if shrinking { 32 - (visit + 1) * 3 } else { 24 });
+                        assert_eq!(actor.extension.depth_offset, 0xAB00);
+                        if shrinking { assert_eq!(actor.extension.path_state.animation, original_animation); }
+                        else { assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some((visit + 1) % 8)); }
+                        assert_eq!(actor.base.flags.casts_shadow, !shrinking);
+                        assert!(actor.base.flags.scaled_sprite);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert_eq!(actor.base.flags.remove_after_tick, visit == 7);
+                        assert_eq!((actor.base.wait_timer, actor.base.hit_points, actor.base.attack_power), (retained, retained, retained));
+                        assert!(runtime.branch.invert_next);
+                        assert_eq!(random, initial_random);
+                    }
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn phase_growth_fade_reads_live_phase_each_step_and_preserves_arbitrary_initial_animation() {
+        use super::super::{authored_paths, path_appearance::AnimationControl, Vector3};
+        let catalog = authored_paths::catalog();
+        for packed in 0..=u8::MAX {
+            for power in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::PHASE_GROWTH_FADE_SPRITE);
+                actor.base.attack_power = power;
+                actor.base.wait_timer = packed;
+                actor.base.position = Vector3 { x: -32768, y: 32767, z: 1234 };
+                actor.extension.depth_offset = 0xABCD;
+                actor.extension.path_state.motion_phase = u16::from_be_bytes([packed, 173]);
+                actor.extension.path_state.animation.color = AnimationControl::from_packed(packed);
+                let initial_shape_animation = actor.extension.path_state.animation.shape;
+                runtime.branch.invert_next = true;
+                let initial_random = random;
+                let mut color = packed;
+                let mut size = power;
+                for visit in 0..8u8 {
+                    let phase = if visit == 0 { 0 } else { power.wrapping_add(visit * 31) };
+                    if visit != 0 {
+                        objects.get_mut(owner).unwrap().extension.path_state.motion_phase = u16::from_be_bytes([packed, phase]);
+                    }
+                    size = size.wrapping_add(phase);
+                    // Literal source arithmetic: packed byte increment,
+                    // correction, seven-bit truncation, single subtraction.
+                    // In particular an automatic control is not reset to zero.
+                    color = color.wrapping_add(1);
+                    if color & 0x80 == 0 { color = color.wrapping_add(8); }
+                    color &= 0x7F;
+                    if color >= 8 { color -= 8; }
+                    color |= 0x80;
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 9),
+                        Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(actor.extension.path_state.animation.color.packed(), color);
+                    assert_eq!(actor.extension.path_state.animation.shape, initial_shape_animation);
+                    assert_eq!(actor.extension.texture_scroll_x, size);
+                    assert_eq!(actor.extension.depth_offset, 0xAB00);
+                    assert_eq!(actor.extension.path_state.motion_phase, u16::from_be_bytes([packed, phase]));
+                    assert_eq!(actor.base.position, Vector3 { x: -32768, y: 32767, z: 1234 });
+                    assert_eq!(actor.base.attack_power, power);
+                    assert_eq!(actor.base.wait_timer, packed);
+                    assert!(actor.base.flags.scaled_sprite);
+                    assert!(actor.base.flags.collision_disabled);
+                    assert_eq!(actor.base.flags.remove_after_tick, visit == 7);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, initial_random);
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn health_fade_sound_sprite_entries_queue_their_distinct_cue_once_and_count_full_health() {
         use super::super::path_sound::{AuthoredCue, CueListener, CueMarker, MarkerInputs, PathAudio};
         use super::super::{authored_paths, Angle, AudioState, SoundEvent, Vector3};
@@ -11168,9 +11268,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 43);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 882);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 891);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 46);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 906);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 915);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

@@ -1794,3 +1794,33 @@ statements**. Validation passes 122 lowerer tests, 285 static path tests,
 architecture/static audits and the application build. Parent graphs, game
 scheduling and whole-game completion remain separate work; no recorded
 gameplay was used.
+
+### Fixed-count offset shrink, fixed-size fade and live phase growth
+
+Three independently installed, complete sprite roots run eight iterations
+each: `OFFSET_SHRINK_SPRITE` (`44:90FD`, installer `44:8F63`),
+`FIXED_SIZE_FADE_SPRITE` (`44:9277`, installer `44:926F`), and
+`PHASE_GROWTH_FADE_SPRITE` (`44:C520`, installer `44:C344`). All disable
+collision and end on their eighth visit, after seven movement yields.
+
+The offset shrink adds 600 to world Y once, clears shadow, initializes size
+32, then subtracts three per iteration down to eight. It preserves both
+animation controls. The fixed-size fade initializes size 24 and color zero,
+then presents colors one through seven before ending at zero, without
+changing shadow or world position. Tests exercise every retained byte and
+signed-word offset/wrap boundaries.
+
+The phase-growth path clears only the low phase byte at entry, sets size
+from attack power, and then reads the **live** phase byte on every iteration.
+It does not initialize the color control before advancing it. Tests cover
+all 256 packed initial controls crossed with all 256 size bytes, change the
+phase between every visit, and check exact packed-animation arithmetic,
+size wrapping, retained phase-high bytes and eight-step completion. The
+apparently zero initial growth operand is not folded into a constant no-op.
+
+Full source graph/installer records are pinned and installer mutations
+reject generation. Coverage is **46 complete roots / 915 source commands /
+906 native statements**. Validation passes 123 lowerer tests, 286 static
+path tests, 304 native path tests in debug and release, generated freshness,
+architecture/static audits and the app build. This remains static lowering
+and native service verification, not whole-game scheduling or completion.

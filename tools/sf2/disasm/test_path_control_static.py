@@ -70,6 +70,14 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x08F3F3, "5D FC C0 C2 83 64 18")
         self.assert_source(0x09861D, "5D 8C C0 2E 83 0A 08")
 
+    def test_fixed_count_sprite_graph_bytes_and_independent_spawn_records(self):
+        self.assert_source(0x0990FD, "5C 8D 4D 00 20 08 0E 58 02 61 08 07 99 FD 44 0F")
+        self.assert_source(0x099277, "5C 4D 00 18 1D 00 61 08 1E 01 08 44 0F")
+        self.assert_source(0x09C520, "6B A1 4D 00 00 4E 99 2E 5C 61 08 1E 01 08 52 99 A1 44 0F")
+        self.assert_source(0x098F63, "5D A8 C0 FD 90 0A 0A")
+        self.assert_source(0x09926F, "5D 04 BF 77 92 0A 0A")
+        self.assert_source(0x09C344, "5D D0 BD 20 C5 01 01")
+
     def test_suspension_enters_movement_and_both_strategy_passes_skip_it(self):
         self.assert_source(0x7FBC80, "B5 26 09 40 95 26 4C DE 9D")
         self.assert_source(0x7F9DDE, "A5 5E 09 18 85 5E 8F 3A 30 00 B5 0B")

@@ -67,6 +67,9 @@ ROOTS = (
     ("ALTERNATE_HEALTH_FADE_SOUND_SPRITE", PathAddress(0x838F)),
     ("SHRINKING_RISE_SPRITE", PathAddress(0x83C2)),
     ("PART_SOUND_BLINK_SPRITE", PathAddress(0x832E)),
+    ("OFFSET_SHRINK_SPRITE", PathAddress(0x90FD)),
+    ("FIXED_SIZE_FADE_SPRITE", PathAddress(0x9277)),
+    ("PHASE_GROWTH_FADE_SPRITE", PathAddress(0xC520)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -85,6 +88,9 @@ CHILD_INSTALLERS = {
     PathAddress(0x838F): (PathAddress(0x32EF), PathAddress(0x33EC)),
     PathAddress(0x83C2): (PathAddress(0x1369), PathAddress(0x73F3)),
     PathAddress(0x832E): (PathAddress(0x5B96), PathAddress(0x861D)),
+    PathAddress(0x90FD): (PathAddress(0x8D82), PathAddress(0x8F63)),
+    PathAddress(0x9277): (PathAddress(0x8D82), PathAddress(0x926F)),
+    PathAddress(0xC520): (PathAddress(0xD27B), PathAddress(0xC344)),
 }
 
 
@@ -271,6 +277,8 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
         return index, "ObjectKind::Effect"
     if ((index == 22 and path in (PathAddress(0x8394), PathAddress(0x838F)))
             or (index, path) in ((40, PathAddress(0x83C2)), (36, PathAddress(0x832E)))):
+        return index, "ObjectKind::Effect"
+    if (index, path) in ((37, PathAddress(0x90FD)), (22, PathAddress(0x9277))):
         return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
