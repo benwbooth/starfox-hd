@@ -1881,3 +1881,43 @@ along with 125 lowerer tests, 288 static path tests, generated freshness,
 architecture/static audits and the app build. Complete-root coverage remains
 **49 roots / 935 source commands / 926 native statements**: graphs using
 this new primitive still contain other unported services and are not published.
+
+### Relative mesh motion, timed falling and finite shape effects
+
+Seven more complete child graphs are published: `RELATIVE_YAW_EFFECT`
+(`44:9904`), `RELATIVE_DRIFT_ROLL_EFFECT` (`44:9A3B`),
+`FOOTPRINT_YAW_EFFECT` (`44:F1BD`), `TIMED_FALLING_YAW_EFFECT` (`44:F1AE`),
+`RESET_ANIMATION_YAW_EFFECT` (`44:F1C9`), `SIX_STEP_SHAPE_EFFECT`
+(`44:C1FF`) and `DEPTH_BIASED_WAIT_EFFECT` (`44:FA07`). Source tests pin
+their complete graph bytes and reachable independent, attached and extended
+attached spawn records. Shape-kind classification is restricted to these
+collision-disabled path/shape pairs; the parents remain unlowered.
+
+The first two paths wrap relative yaw by eight, or relative X/Y by minus
+twenty with relative roll plus four, once per movement visit. Neither
+changes world pose. The footprint variants call the shared search-enable
+helper, then rotate relative yaw by minus two. Only `FOOTPRINT_YAW_EFFECT`
+suppresses next-epoch contacts. `RESET_ANIMATION_YAW_EFFECT` initializes
+shape animation on **every** loop, including after another writer changes
+its packed control byte; the other variant preserves that live byte.
+
+The falling variant does not enable footprint search. It sets world pitch
+to 128, shares the contact-suppressed rotation tail, and subtracts ten from
+world Y for exactly thirty callback passes. Its duration-plus-one timer
+expires before the thirty-first callback while relative yaw keeps running.
+The six-step shape effect advances the retained packed shape control using
+the original sign-conditioned correction and one subtraction, without an
+invented initialization or modulo normalization. It yields five times and
+ends on the sixth visit. The depth-biased effect waits against the retained
+byte counter: an initial twenty ends immediately; twenty-one takes 255
+movement visits before ending.
+
+Native tests cover all initial angle, animation-control and wait bytes,
+signed-coordinate boundaries, repeated loop writes, callback expiry,
+unchanged world/local coordinates and render channels, IFNOT preservation,
+and no random consumption. Coverage is **56 complete roots / 971 source
+commands / 962 native statements** (shared tails counted once). Validation
+passes 126 lowerer tests, 289 static path tests and 312 native path tests in
+debug and release, plus generated freshness, architecture/static audits and
+the application build. These are source-derived path proofs, not a claim
+that parent scheduling or whole-game behavior is complete.

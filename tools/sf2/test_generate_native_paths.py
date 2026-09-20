@@ -159,6 +159,46 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(shape, PathAddress(root))
 
+    def test_mesh_effect_children_keep_local_motion_timed_callback_and_loop_initialization(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, installer, shape, index in [
+            (0x9904, 4, 0x94D4, 0xDED8, 313), (0x9A3B, 6, 0x955D, 0xC1DC, 48),
+            (0xF1BD, 8, 0xF161, 0xC63C, 88), (0xF1AE, 10, 0xF16F, 0xDF10, 315),
+            (0xF1C9, 8, 0xF176, 0xCA2C, 124), (0xC1FF, 5, 0xC1D3, 0xE840, 399),
+            (0xFA07, 4, 0xF76C, 0xC1DC, 48),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((c.address.offset for c in commands), statements))
+            expected = {
+                0x9904: [(0x9907, "RelativeRotation(Axis::Y)"), (0x9907, "Literal(8)")],
+                0x9A3B: [(0x9A3E, "RelativePosition(Axis::Y)"), (0x9A41, "RelativePosition(Axis::X)"),
+                         (0x9A41, "SignedByte(ByteOperand::Literal(236))"), (0x9A44, "RelativeRotation(Axis::Z)")],
+                0xF1BD: [(0x8D54, "ShapeFootprintSearch(true)"), (0xF1C0, "SuppressContactsNextEpoch(true)")],
+                0xF1AE: [(0xF1AE, "Trigger::timed"), (0xF1AE, "Always, 30)"),
+                         (0xF1B4, "Rotation(Axis::X)"), (0xF1BA, "WordField::Position(Axis::Y)"),
+                         (0xF1BA, "SignedByte(ByteOperand::Literal(246))")],
+                0xF1C9: [(0xF1CE, "Initialize { channel: AnimationChannel::Shape, value: 0 }"),
+                         (0xF1D2, "Goto { target: cursor(0, 5) }")],
+                0xC1FF: [(0xC200, "iterations: 6"), (0xC202, "amount: 1, period: 6"),
+                         (0xC205, "immediate: false")],
+                0xFA07: [(0xFA08, "FarSortBias(true)"), (0xFA0A, "Literal(20)")],
+            }[root]
+            for address, fragment in expected:
+                self.assertIn(fragment, mapped[address])
+            if root in (0xF1BD, 0xF1AE):
+                self.assertIn("RelativeRotation(Axis::Y)", mapped[0xF1C3])
+                self.assertIn("Literal(254)", mapped[0xF1C3])
+            self.assertEqual(spawn_shape(shape, PathAddress(root)), (index, "ObjectKind::Effect"))
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+                spawn_shape(shape, PathAddress(root + 1))
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+
     def test_held_effect_children_preserve_full_depth_and_table_driven_color_callbacks(self):
         extractor = PathExtractor(self.rom)
         for root, count, installer, shape, index in [

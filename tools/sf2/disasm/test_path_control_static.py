@@ -91,6 +91,27 @@ class PathControlStaticTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.rom[start:start + 256]).hexdigest(),
                          "541f238f2bc0ac7b2f91a6cf6ce778a756b3ed903ac0afbc55bd6fe037d99b03")
 
+    def test_mesh_effect_graph_bytes_and_installed_child_records(self):
+        self.assert_source(0x099904, "5C 00 29 07 95 08 16 07 99")
+        self.assert_source(0x099A3B, "00 29 5C 77 90 EC 77 8E EC 07 96 04 16 3E 9A")
+        self.assert_source(0x09F1AE,
+            "00 65 BA F1 00 1E 0B 80 12 17 C0 F1 75 F6 42 41 54 8D 2E 5C 8D 07 95 FE 16 C3 F1 "
+            "8D 5C 41 54 8D F9 07 95 FE 16 CE F1")
+        self.assert_source(0x098D54, "89")
+        self.assert_source(0x098D61, "42")
+        self.assert_source(0x09C1FF, "5C 61 06 1C 01 06 44 0F")
+        self.assert_source(0x09FA07, "5C 00 29 03 14 0F")
+        for address, record in [
+            (0x0994D4, "F5 D8 DE 04 99 0A 0A 00 00 D4 FE 00 00 61"),
+            (0x09955D, "F5 DC C1 3B 9A 0A 0A 00 00 2C 01 00 00 0B"),
+            (0x09F161, "F5 3C C6 BD F1 01 01 00 00 2C 01 00 00 01"),
+            (0x09F16F, "5D 10 DF AE F1 01 01"),
+            (0x09F176, "F5 2C CA C9 F1 01 01 00 00 34 01 00 00 01"),
+            (0x09C1D3, "33 40 E8 FF C1 00 80 00 01 01 05 00 F6 FF F6 FF 01"),
+            (0x09F76C, "33 DC C1 07 FA C0 00 00 01 01 00 00 00 00 3C 00 01"),
+        ]:
+            self.assert_source(address, record)
+
     def test_published_weapon_level_branch_uses_literal_operand_and_direct_targets(self):
         self.assert_source(0x7FBF58, "20 BC C4 CD D4 1D D0 03 4C FF CA 4C A9 CA")
         self.assert_source(0x7FC4BC,

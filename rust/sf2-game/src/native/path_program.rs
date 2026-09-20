@@ -5259,6 +5259,220 @@ mod tests {
     }
 
     #[test]
+    fn mesh_effect_relative_motion_wraps_without_changing_world_pose_or_render_channels() {
+        use super::super::{authored_paths, Angle, Vector3};
+        let catalog = authored_paths::catalog();
+        for drift in [false, true] {
+            for angle in 0..=u8::MAX {
+                for position in [i16::MIN, -20, 0, i16::MAX] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(if drift { authored_paths::RELATIVE_DRIFT_ROLL_EFFECT }
+                        else { authored_paths::RELATIVE_YAW_EFFECT });
+                    actor.base.position = Vector3 { x: 32767, y: -32768, z: -999 };
+                    actor.base.pitch = Angle::from_units(23);
+                    actor.base.yaw = Angle::from_units(45);
+                    actor.base.roll = Angle::from_units(67);
+                    actor.base.wait_timer = angle;
+                    actor.base.flags.casts_shadow = true;
+                    actor.extension.relative_position = Vector3 { x: position, y: position, z: 789 };
+                    actor.extension.relative_rotation.pitch = Angle::from_units(19);
+                    actor.extension.relative_rotation.yaw = Angle::from_units(angle);
+                    actor.extension.relative_rotation.roll = Angle::from_units(angle);
+                    actor.extension.depth_offset = 0xABCD;
+                    actor.extension.texture_scroll_x = angle;
+                    let animation = actor.extension.path_state.animation;
+                    let initial_random = random;
+                    runtime.branch.invert_next = true;
+                    for visit in 1..=70i16 {
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6),
+                            Ok(ControlStep::Movement));
+                        let actor = objects.get(owner).unwrap();
+                        let local = if drift { position.wrapping_sub(20 * visit) } else { position };
+                        assert_eq!(actor.extension.relative_position, Vector3 { x: local, y: local, z: 789 });
+                        assert_eq!(actor.extension.relative_rotation.pitch.units(), 19);
+                        assert_eq!(actor.extension.relative_rotation.yaw.units(),
+                            angle.wrapping_add(if drift { 0 } else { (visit * 8) as u8 }));
+                        assert_eq!(actor.extension.relative_rotation.roll.units(),
+                            angle.wrapping_add(if drift { (visit * 4) as u8 } else { 0 }));
+                        assert_eq!(actor.base.position, Vector3 { x: 32767, y: -32768, z: -999 });
+                        assert_eq!((actor.base.pitch.units(), actor.base.yaw.units(), actor.base.roll.units()), (23, 45, 67));
+                        assert!(actor.base.flags.far_sort_bias);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert!(actor.base.flags.casts_shadow);
+                        assert!(!actor.base.flags.remove_after_tick);
+                        assert_eq!(actor.base.wait_timer, angle);
+                        assert_eq!(actor.extension.depth_offset, 0xABCD);
+                        assert_eq!(actor.extension.texture_scroll_x, angle);
+                        assert_eq!(actor.extension.path_state.animation, animation);
+                        assert!(runtime.branch.invert_next);
+                        assert_eq!(random, initial_random);
+                    }
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn footprint_yaw_effects_keep_distinct_contact_flags_and_reset_shape_on_each_authored_loop() {
+        use super::super::{authored_paths, path_appearance::AnimationControl, Angle, Vector3};
+        let catalog = authored_paths::catalog();
+        for reset_shape in [false, true] {
+            for initial in 0..=u8::MAX {
+                for suppression in [false, true] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(if reset_shape { authored_paths::RESET_ANIMATION_YAW_EFFECT }
+                        else { authored_paths::FOOTPRINT_YAW_EFFECT });
+                    actor.base.flags.exclude_from_shape_footprint_search = true;
+                    actor.base.flags.casts_shadow = true;
+                    actor.base.contacts.suppress_contacts_next_epoch = suppression;
+                    actor.base.wait_timer = initial;
+                    actor.extension.relative_rotation.yaw = Angle::from_units(initial);
+                    actor.extension.relative_position = Vector3 { x: i16::MIN, y: 456, z: i16::MAX };
+                    actor.extension.path_state.animation.color = AnimationControl::from_packed(initial);
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    let initial_position = actor.base.position;
+                    let initial_random = random;
+                    runtime.branch.invert_next = true;
+                    for visit in 1..=130u16 {
+                        let live_animation = initial.wrapping_add(visit as u8);
+                        objects.get_mut(owner).unwrap().extension.path_state.animation.shape =
+                            AnimationControl::from_packed(live_animation);
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                            Ok(ControlStep::Movement));
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.extension.relative_rotation.yaw.units(), initial.wrapping_sub((visit * 2) as u8));
+                        assert_eq!(actor.extension.path_state.animation.shape.packed(), if reset_shape { 128 } else { live_animation });
+                        assert_eq!(actor.extension.path_state.animation.color.packed(), initial);
+                        assert!(!actor.base.flags.exclude_from_shape_footprint_search);
+                        assert_eq!(actor.base.contacts.suppress_contacts_next_epoch, !reset_shape || suppression);
+                        assert!(!actor.base.flags.casts_shadow);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert!(!actor.base.flags.remove_after_tick);
+                        assert_eq!(actor.base.wait_timer, initial);
+                        assert_eq!(actor.base.position, initial_position);
+                        assert_eq!(actor.extension.relative_position, Vector3 { x: i16::MIN, y: 456, z: i16::MAX });
+                        assert_eq!(actor.extension.path_state.motion_phase, 0xABCD);
+                        assert!(runtime.branch.invert_next);
+                        assert_eq!(random, initial_random);
+                    }
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn timed_falling_yaw_effect_runs_thirty_world_y_callbacks_then_keeps_local_rotation() {
+        use super::super::{authored_paths, Angle, Vector3};
+        let catalog = authored_paths::catalog();
+        for initial in 0..=u8::MAX {
+            for y in [i16::MIN, -10, 0, i16::MAX] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::TIMED_FALLING_YAW_EFFECT);
+                actor.base.position = Vector3 { x: 321, y, z: -987 };
+                actor.base.pitch = Angle::from_units(initial);
+                actor.base.wait_timer = initial;
+                actor.base.flags.exclude_from_shape_footprint_search = true;
+                actor.base.flags.casts_shadow = true;
+                actor.extension.relative_rotation.yaw = Angle::from_units(initial);
+                actor.extension.relative_position = Vector3 { x: -10, y: 100, z: -1000 };
+                let animation = actor.extension.path_state.animation;
+                let initial_random = random;
+                runtime.branch.invert_next = true;
+                for visit in 0..70u8 {
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                        Ok(ControlStep::Movement));
+                    if visit <= 30 {
+                        assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                        let step = runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()).unwrap();
+                        if visit < 30 {
+                            assert!(matches!(step, CallbackStep::Run(_)));
+                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2),
+                                Ok(ControlStep::ResumeCallbacks));
+                        } else {
+                            assert_eq!(step, CallbackStep::Expired);
+                        }
+                        assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                    } else {
+                        assert!(!runtime.begin_callbacks(&objects, owner).unwrap());
+                    }
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(actor.base.position, Vector3 { x: 321, y: y.wrapping_sub(10 * i16::from((visit + 1).min(30))), z: -987 });
+                    assert_eq!(actor.base.pitch.units(), 128);
+                    assert_eq!(actor.extension.relative_rotation.yaw.units(), initial.wrapping_sub((visit + 1).wrapping_mul(2)));
+                    assert_eq!(actor.extension.relative_position, Vector3 { x: -10, y: 100, z: -1000 });
+                    assert!(actor.base.flags.exclude_from_shape_footprint_search);
+                    assert!(actor.base.contacts.suppress_contacts_next_epoch);
+                    assert!(actor.base.flags.collision_disabled);
+                    assert!(!actor.base.flags.casts_shadow);
+                    assert!(!actor.base.flags.remove_after_tick);
+                    assert_eq!(actor.base.wait_timer, initial);
+                    assert_eq!(actor.extension.path_state.animation, animation);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, initial_random);
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn finite_mesh_effects_preserve_packed_shape_arithmetic_and_retained_wait_byte() {
+        use super::super::{authored_paths, path_appearance::AnimationControl, Vector3};
+        let catalog = authored_paths::catalog();
+        for wait in [false, true] {
+            for initial in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(if wait { authored_paths::DEPTH_BIASED_WAIT_EFFECT }
+                    else { authored_paths::SIX_STEP_SHAPE_EFFECT });
+                actor.base.wait_timer = initial;
+                actor.base.flags.casts_shadow = true;
+                actor.base.flags.far_sort_bias = false;
+                actor.base.position = Vector3 { x: -123, y: i16::MIN, z: i16::MAX };
+                actor.extension.path_state.animation.shape = AnimationControl::from_packed(initial);
+                actor.extension.path_state.animation.color = AnimationControl::from_packed(initial);
+                actor.extension.depth_offset = 0xABCD;
+                actor.extension.texture_scroll_x = initial;
+                let initial_random = random;
+                runtime.branch.invert_next = true;
+                let terminal_visit = if wait { usize::from(20u8.wrapping_sub(initial)) } else { 5 };
+                let mut packed = initial;
+                for visit in 0..=terminal_visit {
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 5),
+                        Ok(if visit == terminal_visit { ControlStep::Ended } else { ControlStep::Movement }));
+                    if !wait {
+                        // Wide source arithmetic, including the sign-conditioned
+                        // correction and single subtraction; not frame modulo.
+                        let sum = (u16::from(packed) + 1) % 256;
+                        let corrected = (sum + if sum < 128 { 6 } else { 0 }) % 128;
+                        packed = (if corrected >= 6 { corrected - 6 } else { corrected }) as u8 | 128;
+                    }
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(actor.extension.path_state.animation.shape.packed(), packed);
+                    assert_eq!(actor.extension.path_state.animation.color.packed(), initial);
+                    assert_eq!(actor.base.wait_timer, if !wait { initial }
+                        else if visit == terminal_visit { 0 } else { initial.wrapping_add((visit + 1) as u8) });
+                    assert!(actor.base.flags.collision_disabled);
+                    assert!(actor.base.flags.casts_shadow);
+                    assert_eq!(actor.base.flags.far_sort_bias, wait);
+                    assert_eq!(actor.base.flags.remove_after_tick, visit == terminal_visit);
+                    assert_eq!(actor.base.position, Vector3 { x: -123, y: i16::MIN, z: i16::MAX });
+                    assert_eq!(actor.extension.depth_offset, 0xABCD);
+                    assert_eq!(actor.extension.texture_scroll_x, initial);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, initial_random);
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn held_sprite_and_depth_effects_preserve_distinct_full_word_and_sprite_contracts() {
         use super::super::{authored_paths, Vector3};
         let catalog = authored_paths::catalog();
@@ -11468,9 +11682,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 49);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 926);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 935);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 56);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 962);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 971);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

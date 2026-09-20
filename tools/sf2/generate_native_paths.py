@@ -73,6 +73,13 @@ ROOTS = (
     ("SOLID_SPRITE_HOLD", PathAddress(0x4DF1)),
     ("BIASED_DEPTH_HOLD", PathAddress(0xCFD4)),
     ("TABLE_COLOR_REVEAL", PathAddress(0x5667)),
+    ("RELATIVE_YAW_EFFECT", PathAddress(0x9904)),
+    ("RELATIVE_DRIFT_ROLL_EFFECT", PathAddress(0x9A3B)),
+    ("FOOTPRINT_YAW_EFFECT", PathAddress(0xF1BD)),
+    ("TIMED_FALLING_YAW_EFFECT", PathAddress(0xF1AE)),
+    ("RESET_ANIMATION_YAW_EFFECT", PathAddress(0xF1C9)),
+    ("SIX_STEP_SHAPE_EFFECT", PathAddress(0xC1FF)),
+    ("DEPTH_BIASED_WAIT_EFFECT", PathAddress(0xFA07)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -97,6 +104,13 @@ CHILD_INSTALLERS = {
     PathAddress(0x4DF1): (PathAddress(0x4D7E), PathAddress(0x4DA7)),
     PathAddress(0xCFD4): (PathAddress(0x4D7E), PathAddress(0x8121)),
     PathAddress(0x5667): (PathAddress(0x546C), PathAddress(0x562E)),
+    PathAddress(0x9904): (PathAddress(0x9492), PathAddress(0x94D4)),
+    PathAddress(0x9A3B): (PathAddress(0x9492), PathAddress(0x955D)),
+    PathAddress(0xF1BD): (PathAddress(0xF136), PathAddress(0xF161)),
+    PathAddress(0xF1AE): (PathAddress(0xF136), PathAddress(0xF16F)),
+    PathAddress(0xF1C9): (PathAddress(0xF136), PathAddress(0xF176)),
+    PathAddress(0xC1FF): (PathAddress(0xF5B4), PathAddress(0xC1D3)),
+    PathAddress(0xFA07): (PathAddress(0xF5B4), PathAddress(0xF76C)),
 }
 
 
@@ -287,6 +301,13 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     if (index, path) in ((37, PathAddress(0x90FD)), (22, PathAddress(0x9277))):
         return index, "ObjectKind::Effect"
     if (index, path) in ((18, PathAddress(0x4DF1)), (0, PathAddress(0xCFD4)), (0, PathAddress(0x5667))):
+        return index, "ObjectKind::Effect"
+    # These complete child graphs disable collision before yielding. Do not
+    # infer a kind for other uses of their mesh shapes or parent graphs.
+    if (index, path) in ((313, PathAddress(0x9904)), (48, PathAddress(0x9A3B)),
+                        (88, PathAddress(0xF1BD)), (315, PathAddress(0xF1AE)),
+                        (124, PathAddress(0xF1C9)), (399, PathAddress(0xC1FF)),
+                        (48, PathAddress(0xFA07))):
         return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
