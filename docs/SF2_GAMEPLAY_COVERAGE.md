@@ -3066,3 +3066,16 @@ source-static tests, architecture/static audits and app build pass (existing
 icon warning). The full SF2 library run reports 874 passed and the same one
 reengagement-guidance failure: two HostileLaser events precede the expected
 RadioMessageClose. That existing Game-level failure remains open.
+
+## Guidance audio-test sampling correction (2026-09-20)
+
+The previously reported reengagement failure was stale audio retained by its
+test, not an altered radio cue. The final portrait sample already reaches
+the close-cue tick, leaving the subsequent pre-cue drain loop with zero
+iterations. Drain preceding ticks inside the portrait loop and assert the
+exact final tick; keep the complete, unfiltered final-tick sound assertion.
+No production logic, cue expectation, timing constant or gameplay fixture
+was changed. The full SF2 package now passes all **875 unit tests and two
+integration tests in both debug and release**. The architecture audit passes.
+This removes the test failure noted above without establishing full source
+coverage or shipping scheduler integration.

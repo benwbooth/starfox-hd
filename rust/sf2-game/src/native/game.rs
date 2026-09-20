@@ -28710,6 +28710,10 @@ mod tests {
                 + u32::from(MISSION_MESSAGE_FULLY_OPEN_RETAIL_FRAMES)
                 + open_tick as u32 * RETAIL_PRESENTATION_FRAMES_PER_TICK;
             while game.state().mode_frame < retail_frame / RETAIL_PRESENTATION_FRAMES_PER_TICK {
+                // The last portrait sample is already the close-cue tick.
+                // Drain earlier ticks here, as the later cue loop may have
+                // no iterations. Keep the complete final-tick event list.
+                game.take_sound_events();
                 game.tick(0).unwrap();
             }
             assert_eq!(
@@ -28726,6 +28730,7 @@ mod tests {
             game.take_sound_events();
             game.tick(0).unwrap();
         }
+        assert_eq!(game.state().mode_frame, close_cue_tick);
         assert_eq!(
             game.state().mission.message.phase,
             MissionMessagePhase::Open
