@@ -20,7 +20,30 @@ fn actor() -> Object {
     actor.base.path = Some(at(0));
     actor.base.hit_points = 99;
     actor.base.wait_timer = 71;
+    actor.extension.path_state.repeat_counter = 173;
     actor
+}
+
+#[test]
+fn death_preserves_loop_counter_and_effect_policy_while_disabling_collision() {
+    for counter in 0..=u8::MAX {
+        for flags in 0..4 {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.hit_points = 91;
+            actor.extension.path_state.repeat_counter = counter;
+            actor.extension.path_state.friend_health_slot = 0;
+            actor.base.flags.collision_disabled = flags & 1 != 0;
+            actor.base.flags.suppress_death_effects = flags & 2 != 0;
+            let mut expected = actor.clone();
+            expected.base.hit_points = 0;
+            expected.base.flags.collision_disabled = true;
+            let catalog = PathCatalog::new(vec![vec![Statement::MarkForDeath]]).unwrap();
+            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).unwrap().step,
+                ControlStep::MovementTail);
+            assert_eq!(objects.get(owner), Some(&expected));
+        }
+    }
 }
 
 #[test]
@@ -40,7 +63,7 @@ fn every_valid_friend_selector_changes_only_its_health_record_and_death_fields()
                     .unwrap()
                     .extension
                     .path_state
-                    .repeat_counter = selector;
+                    .friend_health_slot = selector;
                 runtime.branch.invert_next = true;
                 let mut expected = objects.clone();
                 expected.get_mut(owner).unwrap().base.hit_points = 0;
@@ -49,7 +72,7 @@ fn every_valid_friend_selector_changes_only_its_health_record_and_death_fields()
                     .unwrap()
                     .base
                     .flags
-                    .suppress_death_effects = true;
+                    .collision_disabled = true;
                 let before_runtime = runtime.clone();
                 let before_random = random;
                 let mut friends = FriendHealth {
@@ -117,7 +140,7 @@ fn death_marks_only_the_gated_direct_sibling_chain_without_unlinking_or_retiring
                         .unwrap()
                         .base
                         .flags
-                        .suppress_death_effects = true;
+                        .collision_disabled = true;
                 }
             }
             let catalog = PathCatalog::new(vec![vec![Statement::MarkForDeath]]).unwrap();
@@ -146,7 +169,7 @@ fn missing_health_and_out_of_domain_selectors_fault_atomically_then_can_resume()
             .unwrap()
             .extension
             .path_state
-            .repeat_counter = selector;
+            .friend_health_slot = selector;
         let before = objects.clone();
         let expected = if usize::from(selector) <= FRIEND_HEALTH_SLOTS {
             DeathError::MissingFriendHealth
@@ -176,7 +199,7 @@ fn missing_health_and_out_of_domain_selectors_fault_atomically_then_can_resume()
                 .unwrap()
                 .extension
                 .path_state
-                .repeat_counter = 0;
+                .friend_health_slot = 0;
         }
         assert_eq!(
             runtime
@@ -201,7 +224,7 @@ fn malformed_child_chains_do_not_partially_mark_actors_or_clear_health() {
             id
         };
         let actor = objects.get_mut(owner).unwrap();
-        actor.extension.path_state.repeat_counter = 1;
+        actor.extension.path_state.friend_health_slot = 1;
         actor.extension.path_state.motion.refresh_child_chain = true;
         actor.base.first_child = Some(child);
         objects.get_mut(child).unwrap().base.next_sibling = Some(invalid);
@@ -291,7 +314,7 @@ fn callback_tail_observes_zero_health_and_retains_only_post_callback_motion() {
             ControlStep::MovementTail
         );
         expected.base.hit_points = 0;
-        expected.base.flags.suppress_death_effects = true;
+        expected.base.flags.collision_disabled = true;
         assert_eq!(objects.get(owner).unwrap(), &expected);
         assert!(runtime.begin_movement_tail(&objects, owner).unwrap());
         assert_eq!(objects.get(owner).unwrap(), &expected);
@@ -566,7 +589,8 @@ fn authored_hit_detached_part_spins_selects_speed_bounces_clears_signal_then_die
                 assert!(!actor.extension.path_state.conditions.hit_event_pending);
                 assert!(!actor.base.flags.remove_after_tick);
                 assert_eq!(actor.base.hit_points, if death { 0 } else { 37 });
-                assert_eq!(actor.base.flags.suppress_death_effects, death);
+                assert_eq!(actor.base.flags.collision_disabled, death);
+                assert!(!actor.base.flags.suppress_death_effects);
                 assert!(objects.get(parent).unwrap().base.first_child.is_none());
                 assert_eq!(cues(&mut inputs), expected_cues);
                 let has_callbacks = if death {

@@ -1760,7 +1760,7 @@ class NativePathGenerationTests(unittest.TestCase):
 
     def test_reviewed_scalar_and_relative_fields_decode_without_raw_operand_access(self):
         for variable, field in [
-            (0x18, "Speed"), (0x28, "RepeatCounter"), (0x2D, "Health"), (0x2E, "AttackPower"),
+            (0x18, "Speed"), (0x15, "RepeatCounter"), (0x28, "FriendHealthSlot"), (0x2D, "Health"), (0x2E, "AttackPower"),
             (0x94, "RelativeRotation(Axis::X)"), (0x95, "RelativeRotation(Axis::Y)"),
             (0x96, "RelativeRotation(Axis::Z)"), (0xA9, "Part"),
         ]:

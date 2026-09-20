@@ -174,7 +174,8 @@ fn height_staged_projectile_both_launch_routes_guidance_exits_and_independent_ch
                 assert_eq!(actor.extension.spatial_loop,
                     if above { None } else { SpatialLoop::from_authored_control(2) });
                 assert_eq!(actor.base.hit_points, if death { 0 } else { 1 });
-                assert_eq!(actor.base.flags.suppress_death_effects, death);
+                assert_eq!(actor.base.flags.collision_disabled, death);
+                assert!(!actor.base.flags.suppress_death_effects);
                 assert!(!actor.base.flags.remove_after_tick);
                 assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs), 1);
                 assert_eq!(objects.get(owner).unwrap().base.roll.units(), 16u8.wrapping_mul(visit as u8));
@@ -289,7 +290,8 @@ fn signal_guided_projectile_delays_guidance_and_retires_after_each_exit_cause() 
                 let actor = objects.get(owner).unwrap();
                 assert_eq!(actor.base.wait_timer, if death { 0 } else { timer + 1 });
                 assert_eq!(actor.base.hit_points, if death { 0 } else { 1 });
-                assert_eq!(actor.base.flags.suppress_death_effects, death);
+                assert_eq!(actor.base.flags.collision_disabled, death);
+                assert!(!actor.base.flags.suppress_death_effects);
                 assert!(!actor.base.flags.remove_after_tick);
                 let entries = actor.extension.path_state.triggers.entries(&runtime.resources, owner).unwrap();
                 assert_eq!(entries.len(), 1);

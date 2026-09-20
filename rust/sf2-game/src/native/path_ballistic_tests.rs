@@ -141,7 +141,8 @@ fn ballistic_effect_uses_published_position_exact_arc_delayed_collision_and_grou
         assert_eq!(actor.base.position, expected_position);
         assert_eq!(actor.base.hit_points, 0);
         assert_eq!(actor.base.attack_power, 4);
-        assert!(actor.base.flags.suppress_death_effects);
+        assert!(actor.base.flags.collision_disabled);
+        assert!(!actor.base.flags.suppress_death_effects);
         assert!(!actor.base.flags.remove_after_tick);
         assert_eq!(inputs.random, &original_random);
     }
@@ -204,6 +205,7 @@ fn ballistic_surface_exit_precedes_horizontal_drift_and_does_not_snap_to_ground(
     let actor = objects.get(owner).unwrap();
     assert_eq!(actor.base.position, original_position);
     assert_eq!(actor.base.hit_points, 0);
-    assert!(actor.base.flags.suppress_death_effects);
+    assert!(actor.base.flags.collision_disabled);
+    assert!(!actor.base.flags.suppress_death_effects);
     assert!(!actor.base.flags.remove_after_tick);
 }

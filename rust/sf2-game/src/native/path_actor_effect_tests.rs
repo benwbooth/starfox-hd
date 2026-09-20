@@ -103,7 +103,8 @@ fn four_pulse_emitter_restores_caller_each_visit_and_dies_after_final_spawn() {
             assert_eq!(actor.base.position, expected_position);
             assert_eq!(actor.extension.path_state.part, part);
             assert_eq!(actor.base.hit_points, if death { 0 } else { 93 });
-            assert_eq!(actor.base.flags.suppress_death_effects, death);
+            assert_eq!(actor.base.flags.collision_disabled, death);
+            assert!(!actor.base.flags.suppress_death_effects);
             assert!(!actor.base.flags.remove_after_tick);
             finish_fade(&mut runtime, &catalog, &mut objects, child, &mut inputs);
             assert_eq!(objects.len(), 1);

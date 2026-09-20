@@ -76,7 +76,7 @@ fn randomized_debris_consumes_five_draws_moves_ten_times_and_skips_final_ordinar
                     251u8.wrapping_add(yaw_step.wrapping_mul(visit))
                 );
                 assert_eq!(actor.base.hit_points, if death { 0 } else { 100 });
-                assert_eq!(actor.base.flags.suppress_death_effects, death);
+                assert!(!actor.base.flags.suppress_death_effects);
                 assert!(actor.base.flags.collision_disabled);
                 assert!(!actor.base.flags.remove_after_tick);
                 assert_eq!(inputs.random, &expected_random);

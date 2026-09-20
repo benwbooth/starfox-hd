@@ -123,6 +123,7 @@ pub enum ByteField {
     WaitTimer,
     ScriptParameter,
     WeaponSelection,
+    FriendHealthSlot,
     RepeatCounter,
     Part,
     Health,
@@ -141,6 +142,7 @@ impl ByteField {
             Self::SpawnGroup => actor.extension.spawn_group,
             Self::ClippingPlane => actor.extension.clipping_plane.selector_byte(),
             Self::WeaponSelection => actor.extension.path_state.weapon_selection,
+            Self::FriendHealthSlot => actor.extension.path_state.friend_health_slot,
             Self::Animation(channel) => match channel {
                 AnimationChannel::Shape => actor.extension.path_state.animation.shape,
                 AnimationChannel::Color => actor.extension.path_state.animation.color,
@@ -185,6 +187,7 @@ impl ByteField {
             Self::ChildNumber => actor.base.child_number = value,
             Self::SpawnGroup => actor.extension.spawn_group = value,
             Self::WeaponSelection => actor.extension.path_state.weapon_selection = value,
+            Self::FriendHealthSlot => actor.extension.path_state.friend_health_slot = value,
             Self::ClippingPlane => actor.extension.clipping_plane =
                 super::render::ClippingPlaneSelection::from_selector_byte(value),
             Self::Animation(channel) => {
@@ -939,6 +942,7 @@ mod tests {
             ByteField::WaitTimer,
             ByteField::ScriptParameter,
             ByteField::RepeatCounter,
+            ByteField::FriendHealthSlot,
             ByteField::Part,
             ByteField::Health,
             ByteField::AttackPower,

@@ -46,7 +46,7 @@ pub fn mark_for_death(
     let actor = objects
         .get(owner)
         .ok_or_else(|| error(RelationshipError::MissingActor(owner)))?;
-    let selector = actor.extension.path_state.repeat_counter;
+    let selector = actor.extension.path_state.friend_health_slot;
     if usize::from(selector) > FRIEND_HEALTH_SLOTS {
         return Err(DeathError::InvalidFriendSelector(selector));
     }
@@ -78,7 +78,7 @@ pub fn mark_for_death(
     affected.push(owner);
     for id in affected {
         let actor = objects.get_mut(id).expect("validated death-chain actor");
-        actor.base.flags.suppress_death_effects = true;
+        actor.base.flags.collision_disabled = true;
         actor.base.hit_points = 0;
     }
     Ok(())

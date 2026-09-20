@@ -36,6 +36,17 @@ class PathDeathStaticTests(unittest.TestCase):
         self.assert_source(0x7F8EA1,
             "b528f015c22029ff00a8e220b9fb1738e90ab002a90099fb174ce8ca")
 
+    def test_friend_slot_initialization_is_distinct_from_loop_and_force_counters(self):
+        self.assert_source(0x7F7E49, "a90095289c6db29c6eb2")
+        self.assert_source(0x7F860D,
+            "20bcc4d515f00ef615c220204cc7952be2204cde9d74154ca9ca")
+        self.assert_source(0x7F99B7, "a90095179515")
+
+    def test_death_collision_disable_is_not_the_independent_effect_suppression_flag(self):
+        self.assert_source(0x7F8BCE, "b52109019521a900952d4c709e")
+        self.assert_source(0x7F9A96, "b52129fe95214ce8ca")
+        self.assert_source(0x09F313, "89b52509029525")
+
     def test_shared_tail_integrates_relative_then_carry_and_exit_latches(self):
         self.assert_source(0x7F9E8B,
             "b5232904f0045c9f9e7fb5252904d0045cc99e7f"

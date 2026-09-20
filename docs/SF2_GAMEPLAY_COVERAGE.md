@@ -2463,9 +2463,9 @@ handlers, rather than treating extra reviewed coverage as a changed ROM graph.
 ### Death marking, movement-tail entry and the hit-detached bouncing part
 
 The death-path handler now marks the owner and its flag-gated direct child
-chain with zero health and the source death-effect flag. It retains links,
+chain with zero health and collision disabled. It retains links,
 path cursors, resource ownership and allocation state; later death processing
-is distinct from END retirement. A nonzero shared LOOP/friend selector clears
+is distinct from END retirement. A nonzero friend-health selector clears
 one of the five retained friend-health records, initialized to forty in the
 source. These are not aliased to current-player health. Selectors beyond the
 five proven records fault explicitly, as do absent health inputs and malformed
@@ -2664,3 +2664,22 @@ unported; no additional complete root is claimed here. Validation passes
 416 native path tests in debug/release, 40 collision tests, 158 lowering and
 325 source-static tests, freshness, both audits and app build (existing icon
 warning).
+
+### Corrected friend-slot, loop-counter and death-flag separation
+
+A cross-handler static review found two incorrect aliases in earlier native
+code. The friend-health selector is actor byte 28, while LOOP and FORCE use
+byte 15. They now have separate typed fields and decoded operands: strategy
+initialization clears only the friend slot, and FORCE clears only the loop
+counter (plus its independently specified wait timer).
+
+DEATH sets collision-disable bit 21:01, not effect-suppression bit 25:02.
+Owner and direct-child death marking now preserve the independent effect
+policy. Tests distinguish these flags for every loop-counter value, exercise
+all valid friend slots with a nonzero loop counter, and assert initializer/
+FORCE preservation. Existing full graph tests were corrected to these source
+contracts; these corrections add no claimed complete roots.
+
+All 417 native path tests pass in debug/release, with 158 lowering tests, 327
+source-static tests, freshness, both audits and app build passing (existing
+icon warning). The catalog remains at 110 roots and 1,796 source commands.

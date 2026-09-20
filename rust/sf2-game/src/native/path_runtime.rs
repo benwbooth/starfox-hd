@@ -31,6 +31,9 @@ pub struct ActorPathState {
     /// It is independent of the high-level WeaponKind classification and
     /// assigning it neither fires a weapon nor changes that classification.
     pub weapon_selection: u8,
+    /// One-based friend-health record selector (source actor byte 28).
+    /// Initialization clears it; LOOP and FORCE operate on a different byte.
+    pub friend_health_slot: u8,
     /// Path-owned working word (source extension 1CE4): numeric distance/
     /// chase values and imported bit sets share this storage. Low/high byte
     /// operations alias this word; it is independent of motion_phase.
@@ -169,7 +172,7 @@ impl PathRuntime {
         actor.base.flags.exclude_from_shape_footprint_search = true;
         actor.base.contacts.latch_new_contact = true;
         actor.base.flags.maximum_draw_distance = true;
-        actor.extension.path_state.repeat_counter = 0;
+        actor.extension.path_state.friend_health_slot = 0;
         actor.extension.path_state.needs_path_initialization = false;
         Ok(())
     }
@@ -572,6 +575,7 @@ mod tests {
         let mut value = actor();
         value.extension.path_state.needs_path_initialization = true;
         value.extension.path_state.repeat_counter = 77;
+        value.extension.path_state.friend_health_slot = 4;
         value.base.wait_timer = 19;
         value.base.behavior = Behavior::Effect;
         value.base.contacts.exclusion_groups =
@@ -598,7 +602,7 @@ mod tests {
         expected.base.flags.exclude_from_shape_footprint_search = true;
         expected.base.contacts.latch_new_contact = true;
         expected.base.flags.maximum_draw_distance = true;
-        expected.extension.path_state.repeat_counter = 0;
+        expected.extension.path_state.friend_health_slot = 0;
         expected.extension.path_state.needs_path_initialization = false;
         runtime
             .initialize_path_strategy(&mut objects, owner)
@@ -880,10 +884,12 @@ mod tests {
         actor.base.behavior = Behavior::EnemyFlight;
         actor.base.wait_timer = 19;
         actor.extension.path_state.repeat_counter = 29;
+        actor.extension.path_state.friend_health_slot = 3;
         runtime
             .redirect(&mut objects, owner, cursor(100), cursor(21), true)
             .unwrap();
         let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.extension.path_state.friend_health_slot, 3);
         assert_eq!(
             (
                 actor.base.behavior,
