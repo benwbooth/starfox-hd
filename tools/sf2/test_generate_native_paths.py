@@ -683,6 +683,18 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 field(0x80)
 
+    def test_animation_byte_operands_alias_controls_without_authorizing_word_views(self):
+        for variable, channel in ((0x89, "Color"), (0x8A, "Shape")):
+            field = f"ByteField::Animation(AnimationChannel::{channel})"
+            self.assertEqual(byte_field(variable), field)
+            with self.assertRaises(UnsupportedPath):
+                word_field(variable)
+            for record in (f"0b 00 {variable:02x}", f"6d {variable:02x}",
+                           f"4e {variable:02x} 2d", f"52 a1 {variable:02x}"):
+                self.assertIn(field, self.lower_record(record)[0])
+        self.assertIn("ByteOperation::Add(ByteOperand::Actor(ByteField::WordPart { field: WordField::ScriptValue, part: BytePart::Low }))",
+                      self.lower_record("53 89 a3")[0])
+
     def test_particle_branch_uses_literal_target_not_sorted_successor_order(self):
         entry, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF294), 2)
         self.assertEqual(entry, 0)

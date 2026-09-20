@@ -34,6 +34,21 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assertEqual(self.rom[0x47F4C:0x47F4F], bytes.fromhex("D9 27 A1"))
         self.assertEqual(self.rom[0x47F64:0x47F67], bytes.fromhex("D8 27 A1"))
 
+    def test_animation_operands_modify_packed_controls_not_resolved_frames(self):
+        # Extended variable decoding adds $1C41; $89/$8A therefore alias
+        # precisely the color/shape controls used by the animation handlers.
+        self.assert_source(0x7FCB47, "08 C2 20 8E B1 16 29 FF 00 89 80 00 F0 04 18 69 41 1C 18 6D B1 16 A8 28 60")
+        self.assert_source(0x7F8CFD, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CB 1C 4C D3 CA")
+        self.assert_source(0x7F8D3A, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CA 1C 4C D3 CA")
+        self.assert_source(0x7F1406, "B9 CB 1C 30 02 A5 C4 29 7F 9D 19 00 B9 CA 1C 30 02 A5 C4 29 7F 9D 1A 00")
+        for address, expected in (
+            (0x433DA, "6d8a"), (0x445ED, "5389a3"),
+            (0x4582F, "4e8a2d"), (0x4966E, "0b8689"),
+            (0x49F36, "6b89"), (0x4AE44, "528aa2"), (0x4AF00, "52a18a"),
+        ):
+            data = bytes.fromhex(expected)
+            self.assertEqual(self.rom[address:address + len(data)], data)
+
     def test_script_working_word_holds_numeric_constants_or_a_tested_bit_set(self):
         self.assertEqual(self.rom[0x4D1CF:0x4D1D3], bytes.fromhex("0C C8 00 A3"))
         self.assertEqual(self.rom[0x4D20B:0x4D20F], bytes.fromhex("0C 64 00 A3"))

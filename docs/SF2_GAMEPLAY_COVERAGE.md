@@ -815,3 +815,14 @@ all lock/ownership combinations and dispatcher self-aliasing is checked.
 Verification passes 58 lowerer tests, 188 static path tests, 175 native path
 tests in debug/release, architecture/dependency checks and the app build.
 Complete-root coverage remains 11 roots/126 statements.
+
+Ordinary byte operands now expose the existing packed shape/color animation
+controls. Source-authored copies, increments, additions and zero writes use
+those same controls, without forcing manual selection or publishing resolved
+frames early. Both channels preserve every packed byte, including automatic
+mode payloads; unreviewed overlapping word views remain rejected. Source
+fixtures pin the operand mapping and seven actual authored uses. Whole-object
+tests cover all byte values, arithmetic mode transitions, self-aliasing and
+separate render publication. Verification passes 59 lowerer tests, 189 static
+path tests, 176 native path tests in debug/release, architecture/dependency
+checks and the app build. Complete-root coverage is unchanged.

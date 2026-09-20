@@ -3,6 +3,7 @@
 //! or source addresses. Assigning speed here is deliberately different from
 //! SETVEL: ordinary variable writes do not regenerate velocity.
 
+use super::path_appearance::{AnimationChannel, AnimationControl};
 use super::{Angle, Object, Vector3};
 
 const ARITHMETIC_CHASE_DIVISOR: i16 = 8;
@@ -97,6 +98,8 @@ pub enum BytePart {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ByteField {
     ChildNumber,
+    /// Packed path control, not the renderer's resolved frame snapshot.
+    Animation(AnimationChannel),
     /// Source texture-X channel, also used as scaled-sprite size.
     TextureScrollX,
     Rotation(Axis),
@@ -121,6 +124,11 @@ impl ByteField {
     pub fn read(self, actor: &Object) -> u8 {
         match self {
             Self::ChildNumber => actor.base.child_number,
+            Self::Animation(channel) => match channel {
+                AnimationChannel::Shape => actor.extension.path_state.animation.shape,
+                AnimationChannel::Color => actor.extension.path_state.animation.color,
+            }
+            .packed(),
             Self::TextureScrollX => actor.extension.texture_scroll_x,
             Self::Rotation(axis) => match axis {
                 Axis::X => actor.base.pitch,
@@ -157,6 +165,13 @@ impl ByteField {
     pub fn write(self, actor: &mut Object, value: u8) {
         match self {
             Self::ChildNumber => actor.base.child_number = value,
+            Self::Animation(channel) => {
+                let control = AnimationControl::from_packed(value);
+                match channel {
+                    AnimationChannel::Shape => actor.extension.path_state.animation.shape = control,
+                    AnimationChannel::Color => actor.extension.path_state.animation.color = control,
+                }
+            }
             Self::TextureScrollX => actor.extension.texture_scroll_x = value,
             Self::Rotation(axis) => {
                 let value = Angle::from_units(value);
@@ -325,6 +340,87 @@ mod tests {
 
     fn actor() -> Object {
         Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)
+    }
+
+    #[test]
+    fn packed_animation_fields_keep_both_modes_and_publish_only_at_render_boundary() {
+        use super::super::path_appearance::publish_animation;
+        for channel in [AnimationChannel::Shape, AnimationChannel::Color] {
+            let field = ByteField::Animation(channel);
+            for old in 0..=u8::MAX {
+                for (operation, packed) in [
+                    (ByteOperation::Assign(ByteOperand::Literal(0)), 0),
+                    (ByteOperation::Assign(ByteOperand::Actor(field)), old),
+                    (ByteOperation::Increment, old.wrapping_add(1)),
+                    (ByteOperation::Decrement, old.wrapping_sub(1)),
+                    (
+                        ByteOperation::Add(ByteOperand::Actor(field)),
+                        old.wrapping_add(old),
+                    ),
+                    (ByteOperation::Negate, old.wrapping_neg()),
+                ] {
+                    let mut actual = actor();
+                    actual.base.wait_timer = 83;
+                    actual.base.velocity = Vector3 {
+                        x: 17,
+                        y: -32768,
+                        z: 219,
+                    };
+                    actual.extension.animation_frame = 53;
+                    actual.extension.color_frame = 91;
+                    actual.extension.path_state.animation.shape =
+                        AnimationControl::from_packed(0xA7);
+                    actual.extension.path_state.animation.color =
+                        AnimationControl::from_packed(0xBC);
+                    let mut expected = actual.clone();
+                    match channel {
+                        AnimationChannel::Shape => {
+                            expected.extension.path_state.animation.shape =
+                                AnimationControl::from_packed(old)
+                        }
+                        AnimationChannel::Color => {
+                            expected.extension.path_state.animation.color =
+                                AnimationControl::from_packed(old)
+                        }
+                    }
+                    field.write(&mut actual, old);
+                    assert_eq!(field.read(&actual), old);
+                    assert_eq!(actual, expected);
+                    match channel {
+                        AnimationChannel::Shape => {
+                            expected.extension.path_state.animation.shape =
+                                AnimationControl::from_packed(packed)
+                        }
+                        AnimationChannel::Color => {
+                            expected.extension.path_state.animation.color =
+                                AnimationControl::from_packed(packed)
+                        }
+                    }
+                    Mutation::Byte { field, operation }.apply(&mut actual);
+                    assert_eq!(field.read(&actual), packed);
+                    assert_eq!(actual, expected);
+                    for clock in [0, 49, 127, 128, 255] {
+                        let resolved = if packed & 0x80 == 0 {
+                            clock & 0x7F
+                        } else {
+                            packed & 0x7F
+                        };
+                        match channel {
+                            AnimationChannel::Shape => {
+                                expected.extension.animation_frame = resolved;
+                                expected.extension.color_frame = 60;
+                            }
+                            AnimationChannel::Color => {
+                                expected.extension.animation_frame = 39;
+                                expected.extension.color_frame = resolved;
+                            }
+                        }
+                        publish_animation(&mut actual, clock);
+                        assert_eq!(actual, expected);
+                    }
+                }
+            }
+        }
     }
 
     const MASKS: [u16; 128] = {

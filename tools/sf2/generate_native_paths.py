@@ -167,6 +167,8 @@ def byte_field(variable: int) -> str:
         0x28: "ByteField::RepeatCounter",
         0x2D: "ByteField::Health",
         0x2E: "ByteField::AttackPower",
+        0x89: "ByteField::Animation(AnimationChannel::Color)",
+        0x8A: "ByteField::Animation(AnimationChannel::Shape)",
         0x94: "ByteField::RelativeRotation(Axis::X)",
         0x95: "ByteField::RelativeRotation(Axis::Y)",
         0x96: "ByteField::RelativeRotation(Axis::Z)",
