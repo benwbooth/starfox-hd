@@ -20,7 +20,8 @@ enum PendingPath {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CallbackBatch {
     owner: ObjectId,
-    interrupted: PathCursor,
+    /// Strategy handoff can enter movement after clearing its active path.
+    interrupted: Option<PathCursor>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,7 +40,7 @@ pub enum CallError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathReturn {
-    Resume(PathCursor),
+    Resume(Option<PathCursor>),
     CallbackComplete,
 }
 
@@ -59,7 +60,7 @@ impl PathCalls {
     pub fn begin_callbacks(
         &mut self,
         owner: ObjectId,
-        interrupted: PathCursor,
+        interrupted: impl Into<Option<PathCursor>>,
         has_triggers: bool,
     ) -> Result<bool, CallError> {
         if self.active.is_some() {
@@ -68,7 +69,10 @@ impl PathCalls {
         if !has_triggers {
             return Ok(false);
         }
-        self.active = Some(CallbackBatch { owner, interrupted });
+        self.active = Some(CallbackBatch {
+            owner,
+            interrupted: interrupted.into(),
+        });
         // The source leaves pending mode intact here. Only actual callback
         // entry resets it; a pass consisting entirely of skips retains it.
         Ok(true)
@@ -123,7 +127,7 @@ impl PathCalls {
         let Some(batch) = &mut self.active else {
             return RedirectEffects::AdvanceOnly;
         };
-        batch.interrupted = destination;
+        batch.interrupted = Some(destination);
         self.pending = PendingPath::Forced;
         RedirectEffects::RestartPathStrategyAndClearWaitAndRepeat
     }
@@ -141,7 +145,7 @@ impl PathCalls {
         &mut self,
         stack: &mut PathStack,
         resources: &mut ProgramResources<ProgramData>,
-    ) -> Result<PathCursor, CallError> {
+    ) -> Result<Option<PathCursor>, CallError> {
         let batch = self.active.ok_or(CallError::NoCallbackBatch)?;
         let destination = match self.pending {
             // The forced-path hook in this source revision is a bare return.
@@ -153,7 +157,7 @@ impl PathCalls {
                 stack
                     .push_call(resources, batch.owner, batch.interrupted)
                     .map_err(CallError::Stack)?;
-                destination
+                Some(destination)
             }
         };
         self.active = None;
@@ -166,6 +170,56 @@ mod tests {
     use super::*;
     use crate::program_state::LoopRepeat;
     use crate::{Behavior, Object, ObjectKind, ObjectStore, PathId, ShapeId};
+
+    #[test]
+    fn stopped_paths_survive_callback_batches_and_deferred_calls_without_a_fabricated_cursor() {
+        let owner = owner();
+        for redirect in 0..3 {
+            let mut resources = ProgramResources::default();
+            let mut stack = PathStack::default();
+            let mut calls = PathCalls::default();
+            assert!(!calls.begin_callbacks(owner, None, false).unwrap());
+            assert!(calls.begin_callbacks(owner, None, true).unwrap());
+            calls.enter_callback().unwrap();
+            calls
+                .call(&mut stack, &mut resources, owner, cursor(9))
+                .unwrap();
+            assert_eq!(
+                calls.return_from(&mut stack, &mut resources),
+                Ok(PathReturn::Resume(Some(cursor(9))))
+            );
+            match redirect {
+                1 => {
+                    assert_eq!(
+                        calls.force_after_callbacks(cursor(7)),
+                        RedirectEffects::RestartPathStrategyAndClearWaitAndRepeat
+                    );
+                }
+                2 => {
+                    assert_eq!(
+                        calls.call_after_callbacks(cursor(7)),
+                        RedirectEffects::RestartPathStrategy
+                    );
+                }
+                _ => {}
+            }
+            assert_eq!(
+                calls.return_from(&mut stack, &mut resources),
+                Ok(PathReturn::CallbackComplete)
+            );
+            assert_eq!(
+                calls.finish_callbacks(&mut stack, &mut resources).unwrap(),
+                (redirect != 0).then_some(cursor(7))
+            );
+            if redirect == 2 {
+                assert_eq!(
+                    calls.return_from(&mut stack, &mut resources),
+                    Ok(PathReturn::Resume(None))
+                );
+            }
+            assert_eq!(resources.owner_count(owner), 1);
+        }
+    }
 
     fn owner() -> ObjectId {
         ObjectStore::new()
@@ -198,7 +252,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             calls.return_from(&mut stack, &mut resources),
-            Ok(PathReturn::Resume(cursor(10)))
+            Ok(PathReturn::Resume(Some(cursor(10))))
         );
         assert_eq!(
             calls.return_from(&mut stack, &mut resources),
@@ -206,7 +260,7 @@ mod tests {
         );
         assert_eq!(
             calls.finish_callbacks(&mut stack, &mut resources),
-            Ok(cursor(2))
+            Ok(Some(cursor(2)))
         );
         assert_eq!(
             stack.next(&mut resources),
@@ -228,7 +282,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 calls.return_from(&mut stack, &mut resources),
-                Ok(PathReturn::Resume(cursor(u16::from(index))))
+                Ok(PathReturn::Resume(Some(cursor(u16::from(index)))))
             );
             assert_eq!(calls.depth, index.wrapping_add(1));
         }
@@ -262,7 +316,7 @@ mod tests {
         calls.return_from(&mut stack, &mut resources).unwrap();
         assert_eq!(
             calls.finish_callbacks(&mut stack, &mut resources),
-            Ok(cursor(2))
+            Ok(Some(cursor(2)))
         );
         assert_eq!(resources.owner_count(owner), 0);
     }
@@ -286,12 +340,12 @@ mod tests {
         calls.return_from(&mut stack, &mut resources).unwrap();
         assert_eq!(
             calls.finish_callbacks(&mut stack, &mut resources),
-            Ok(cursor(3))
+            Ok(Some(cursor(3)))
         );
         assert_eq!(calls.depth, 0);
         assert_eq!(
             calls.return_from(&mut stack, &mut resources),
-            Ok(PathReturn::Resume(cursor(2)))
+            Ok(PathReturn::Resume(Some(cursor(2))))
         );
     }
 
@@ -310,22 +364,22 @@ mod tests {
         calls.return_from(&mut stack, &mut resources).unwrap();
         assert_eq!(
             calls.finish_callbacks(&mut stack, &mut resources),
-            Ok(cursor(3))
+            Ok(Some(cursor(3)))
         );
         assert!(!calls.begin_callbacks(owner, cursor(4), false).unwrap());
         calls.begin_callbacks(owner, cursor(5), true).unwrap();
         assert_eq!(
             calls.finish_callbacks(&mut stack, &mut resources),
-            Ok(cursor(3))
+            Ok(Some(cursor(3)))
         );
-        assert_eq!(stack.pop_call(&mut resources), Ok(cursor(5)));
-        assert_eq!(stack.pop_call(&mut resources), Ok(cursor(1)));
+        assert_eq!(stack.pop_call(&mut resources), Ok(Some(cursor(5))));
+        assert_eq!(stack.pop_call(&mut resources), Ok(Some(cursor(1))));
         calls.begin_callbacks(owner, cursor(6), true).unwrap();
         calls.enter_callback().unwrap();
         calls.return_from(&mut stack, &mut resources).unwrap();
         assert_eq!(
             calls.finish_callbacks(&mut stack, &mut resources),
-            Ok(cursor(6))
+            Ok(Some(cursor(6)))
         );
     }
 

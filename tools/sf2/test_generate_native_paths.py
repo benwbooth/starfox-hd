@@ -33,6 +33,29 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, 'unported shared byte'):
             self.lower_record('79 a1 02 00')
 
+    def test_aimed_impact_projectile_is_complete_through_both_cue_helpers_and_strategy_handoff(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xF084)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 96)
+        self.assertEqual(''.join(c.raw_hex for c in commands),
+            '5c005ee4af0993a179a102002aa1061fe82aa1051ae82aa10415e82aa10310e8'
+            '2aa1020be82aa10106e8fa711721e8fab31721e8fa801721e8fa441721e8fa65'
+            '1721e8fabf1721e8fa6595a14293a179a102002aa10134e8fa9e1736e8fa23'
+            '95a142005c8d7c06901d0004201b04007608007680f7ef79a24d1b2aa200a9f0'
+            '063c0b280a17aef006780b280a4e94124e95144e9616f82cf161041cff080031'
+            '2af119f125f152169644070af60c80ca04620a2a8a87dcf01c01084e12944e1495'
+            '4e169620f7f00e00226400226400226406781702f106785432325434345436364e94'
+            '124e95144e961600312af119f125f1005f2af1440f4741dde75d9cbcddaf0a0a0f'
+            '474124e80f470f5812ff5814ff5816ff42')
+        self.assertEqual(len(lower_graph(extractor, root, 0)[1]), 96)
+        self.assertEqual(spawn_shape(0xBC9C, PathAddress(0xAFDD)), (0, 'ObjectKind::Effect'))
+        self.assertIn('AttachPublishedHomingTarget', self.lower_record('7c 06 90 1d')[0])
+        self.assertEqual(self.lower_record('00 5e e4 af 09'), ['Statement::InstallImpactBurst'])
+        for record in ['7c a1 90 1d', '7c 06 91 1d', '00 5e e5 af 09']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_guidance_controller_entire_graph_includes_callbacks_and_delayed_reply(self):
         extractor = PathExtractor(self.rom)
         root = PathAddress(0x0591)

@@ -136,6 +136,7 @@ pub struct PathWorld<'a> {
     pub selected_charge: Option<super::path_charge::SelectedChargeInput>,
     pub primary_control: Option<super::path_player_control::PrimaryControl<'a>>,
     pub primary_target: Option<super::path_target::PrimaryTarget<'a>>,
+    pub published_homing_target: Option<super::path_target::PublishedHomingTarget>,
     /// Live active campaign-node flags. Source node loading updates only the
     /// low byte, while path imports and node writeback retain the whole word.
     pub active_node_flags: Option<u16>,
@@ -483,6 +484,8 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    AttachPublishedHomingTarget { next: PathCursor },
+    InstallImpactBurst,
     ImpactBranch { first: PathCursor, second: PathCursor, third: PathCursor, next: PathCursor },
     ImportImpactMaterial { destination: super::path_fields::ByteField, next: PathCursor },
     MarkForDeath,
@@ -878,6 +881,7 @@ pub enum ProgramError {
     MissingOccupancy,
     MissingSurfaceMode,
     MissingImpactState,
+    MissingPublishedHomingTarget,
     Impact(super::path_impact::ImpactError),
     SurfaceQuery(super::collision_surface::SurfaceQueryError),
     MissingSoundMarkers,
@@ -995,6 +999,21 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::AttachPublishedHomingTarget { next } => {
+                    let target = world.published_homing_target.ok_or(ProgramError::MissingPublishedHomingTarget)?;
+                    let actor = objects.get_mut(owner).expect("validated projectile attachment");
+                    actor.base.attachment = target.object;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::InstallImpactBurst => {
+                    self.validate_terminal_command()?;
+                    let actor = objects.get_mut(owner).expect("validated strategy handoff");
+                    actor.base.behavior = super::Behavior::ImpactBurst(super::path_effect::ImpactBurstPhase::Initialize);
+                    actor.extension.render_parameter = 0;
+                    actor.base.path = None;
+                    Ok(ControlStep::Movement)
+                }
                 Statement::MarkForDeath => {
                     self.validate_terminal_command()?;
                     super::path_death::mark_for_death(objects, owner, world.friend_health.as_deref_mut())
@@ -2108,6 +2127,7 @@ mod tests {
             active_charge_threshold: None,
             selected_charge: None,
             primary_control: None,
+            published_homing_target: None,
             primary_target: None,
             active_node_flags: None,
             countdown: None,
@@ -9160,6 +9180,7 @@ mod tests {
                 active_charge_threshold: None,
                 selected_charge: None,
                 primary_control: None,
+                published_homing_target: None,
                 primary_target: None,
                 active_node_flags: None,
                 spawn_defaults: None,
@@ -13200,9 +13221,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 114);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1970);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1979);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 115);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2066);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2075);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13371,6 +13392,7 @@ mod tests {
                 active_charge_threshold: None,
                 selected_charge: None,
                 primary_control: None,
+                published_homing_target: None,
                 primary_target: None,
                 active_node_flags: None,
                 selected_auxiliary: None,
@@ -13510,6 +13532,7 @@ mod tests {
                         active_charge_threshold: None,
                         selected_charge: None,
                         primary_control: None,
+                        published_homing_target: None,
                         primary_target: None,
                         active_node_flags: None,
                         selected_auxiliary: None,

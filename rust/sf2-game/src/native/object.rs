@@ -428,6 +428,7 @@ pub enum Behavior {
     FollowPath,
     /// Source PATHHOLD installs the movement service without path dispatch.
     PathMovement,
+    ImpactBurst(super::path_effect::ImpactBurstPhase),
     EnemyFlight,
     Projectile,
     Effect,

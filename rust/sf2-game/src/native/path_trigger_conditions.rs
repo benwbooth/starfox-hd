@@ -432,7 +432,7 @@ mod tests {
         assert!(!state.hit_event_pending);
         assert_eq!(
             calls.finish_callbacks(&mut stack, &mut resources),
-            Ok(cursor(90))
+            Ok(Some(cursor(90)))
         );
         assert_eq!(
             stack.next(&mut resources),

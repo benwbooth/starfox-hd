@@ -2863,3 +2863,34 @@ surface attribution/latching, missing inputs and whole-object preservation.
 architecture/static audits and the app build (existing icon warning). The
 catalog remains 114 complete roots: this service work does not yet complete
 the aimed projectile's strategy handoff or imply shipping scheduler integration.
+
+### Complete aimed projectile and impact-strategy handoff
+
+The complete 96-command `$44:F084` graph now lowers, including its two impact
+cue helpers, randomized-orientation callback and independent `$44:AFDD` child.
+The projectile copies the published target-lock identity once, retains its
+launch heading, runs four opening iterations, then thirty guided iterations.
+The linked route smooths facing and contracts radius three times; the unlinked
+route doubles generated velocity. Both stages classify contact before their
+appropriate exits, and the later stage also tests world occupancy. Ordinary
+contacts select the material cue and spawn the impact actor; suppressed and
+ground/spent contacts take their distinct exits without spawning that actor.
+
+The child's strategy handoff clears its path and render parameter, but still
+enters movement/callback services on that visit. Callback batches and call
+returns now retain an optional path rather than inventing a continuation for
+this case. Registered callbacks can still force a real path. The named impact
+strategy initializes only on its next strategy visit, preserves the source's
+wait/child/repeat aliases and signed wrapping lifetime, and marks retirement
+on its eleventh strategy visit. This strategy is not a scaled-sprite stand-in.
+
+All 453 native path tests pass in debug and release, plus ten program-stack
+tests. Whole-graph tests cover both steering routes over all 33 visits, exactly
+three random draws per callback, every material cue in both contact stages,
+ground/occupancy exits, independent child handoff and lifetime, absent/stale
+published target snapshots, and post-handoff callback redirection. 167 lowerer
+tests and 352 source-static tests pass, along with freshness, architecture,
+static audits and app build. The broader SF2 suite reproduced the previously
+tracked reengagement radio-timeline extra-HostileLaser mismatch; it is not a
+green full-suite claim. Coverage is 115 complete roots, 2,075 source commands
+and 2,066 typed statements; Game scheduler integration remains open.

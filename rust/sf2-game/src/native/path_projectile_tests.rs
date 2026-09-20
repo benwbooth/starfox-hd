@@ -63,6 +63,215 @@ fn callbacks(
 }
 
 #[test]
+fn aimed_impact_projectile_runs_all_thirty_three_visits_and_randomizes_only_at_callbacks() {
+    use super::super::path_target::PublishedHomingTarget;
+    use super::super::{Rotation, path_steering::{RadiusCenter, RadiusCommand}};
+    let catalog = authored_paths::catalog();
+    for linked in [false, true] {
+        for mode in [0, 1, 128, 255] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let target = player(&mut objects, Vector3 { x: 700, y: -1500, z: 3000 });
+            objects.get_mut(target).unwrap().base.flags.exclude_from_shape_footprint_search = true;
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::AIMED_IMPACT_PROJECTILE);
+            actor.base.position.y = -1000;
+            actor.base.pitch = Angle::from_units(250);
+            actor.base.yaw = Angle::from_units(241);
+            actor.base.roll = Angle::from_units(167);
+            let original_rotation = Rotation { pitch: actor.base.pitch, yaw: actor.base.yaw, roll: actor.base.roll };
+            let initial_position = actor.base.position;
+            let launch_velocity = path_motion::direction_velocity(original_rotation.pitch, original_rotation.yaw, if mode == 0 { 120 } else { 60 }, 4);
+            let mut expected_random = random;
+            let mut events = AudioState::default();
+            let mut impact = super::super::path_impact::ImpactState::default();
+            let mut inputs = world(&mut random);
+            inputs.published_homing_target = Some(PublishedHomingTarget { object: linked.then_some(target) });
+            inputs.surface_mode = Some(super::super::collision_surface::SurfaceMode { flags: mode });
+            inputs.impact = Some(&mut impact);
+            inputs.audio = Some(audio(&mut events));
+            inputs.selected_occupancy_exempt = Some(true);
+            let mut expected_shape_animation = super::super::path_appearance::AnimationControl::from_packed(132);
+            for visit in 1..=33 {
+                let mut expected = objects.clone();
+                if visit <= 4 { expected_shape_animation.advance(255, 8); }
+                if visit >= 4 {
+                    if expected_shape_animation.packed() != 135 { expected_shape_animation.advance(1, 8); }
+                    let actor = expected.get_mut(owner).unwrap();
+                    if visit == 4 { actor.extension.relative_rotation = original_rotation; }
+                    actor.base.pitch = actor.extension.relative_rotation.pitch;
+                    actor.base.yaw = actor.extension.relative_rotation.yaw;
+                    actor.base.roll = actor.extension.relative_rotation.roll;
+                    if linked {
+                        face(&mut expected, owner, FacingCommand::LinkedSmooth, FacingTargets::default(), &mut SteeringState::default()).unwrap();
+                        for _ in 0..3 {
+                            super::super::path_steering::contract_radius(&mut expected, owner, RadiusCommand { center: RadiusCenter::Linked, amount: 100 }, None).unwrap();
+                        }
+                    }
+                    let actor = expected.get_mut(owner).unwrap();
+                    path_motion::set_speed(actor, owner, 120);
+                    if !linked {
+                        actor.base.velocity.x = actor.base.velocity.x.wrapping_mul(2);
+                        actor.base.velocity.y = actor.base.velocity.y.wrapping_mul(2);
+                        actor.base.velocity.z = actor.base.velocity.z.wrapping_mul(2);
+                    }
+                    actor.extension.relative_rotation = Rotation { pitch: actor.base.pitch, yaw: actor.base.yaw, roll: actor.base.roll };
+                }
+                let outcome = runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).unwrap();
+                assert_eq!(outcome.step, if visit == 33 { ControlStep::Ended } else { ControlStep::Movement });
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.extension.path_state.animation.shape, expected_shape_animation);
+                assert_eq!(actor.base.attachment, linked.then_some(target));
+                assert!(actor.extension.path_state.motion.quadruple_velocity);
+                assert!(!actor.base.flags.casts_shadow);
+                assert!(actor.base.contacts.mutually_non_damaging && actor.base.contacts.credits_hit_side);
+                assert_eq!(actor.base.target_speed, if visit < 4 { 40 } else { 30 });
+                if visit < 4 {
+                    assert_eq!(actor.base.velocity, launch_velocity);
+                    assert_eq!(actor.extension.relative_rotation, original_rotation);
+                    assert_eq!(actor.base.position, initial_position);
+                } else {
+                    let anticipated = expected.get(owner).unwrap();
+                    assert_eq!(actor.base.shape, ShapeId::from_catalog_index(127));
+                    assert_eq!(actor.base.velocity, anticipated.base.velocity);
+                    assert_eq!(actor.base.position, anticipated.base.position);
+                    assert_eq!(actor.extension.relative_rotation, anticipated.extension.relative_rotation);
+                    assert_eq!((actor.base.pitch, actor.base.yaw, actor.base.roll), (anticipated.base.pitch, anticipated.base.yaw, anticipated.base.roll));
+                }
+                assert_eq!(actor.base.flags.remove_after_tick, visit == 33);
+                if visit < 33 {
+                    let angles = [expected_random.next_byte(), expected_random.next_byte(), expected_random.next_byte()];
+                    assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs), 1);
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!([actor.base.pitch.units(), actor.base.yaw.units(), actor.base.roll.units()], angles);
+                }
+                assert_eq!(*inputs.random, expected_random);
+                // The saved attachment, not a fresh targeting snapshot, owns
+                // all subsequent steering. No published target is needed.
+                inputs.published_homing_target = None;
+            }
+            assert_eq!(super::effect_tests::cues(&mut inputs), [32]);
+            assert_eq!(objects.len(), 2);
+        }
+    }
+}
+
+#[test]
+fn aimed_impact_projectile_contact_exits_select_every_material_cue_and_spawn_only_ordinary_burst() {
+    use super::super::collision_contacts::ContactStore;
+    use super::super::path_effect::{self, ImpactBurstPhase};
+    use super::super::path_impact::{ImpactMaterials, ImpactState};
+    use super::super::{path_target::PublishedHomingTarget, ObjectSpawnDefaults};
+    let catalog = authored_paths::catalog();
+    for later_stage in [false, true] {
+        for class in 0..3 {
+            for material in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let peer = player(&mut objects, Vector3::default());
+                let target = objects.get_mut(peer).unwrap();
+                target.base.flags.exclude_from_shape_footprint_search = true;
+                target.base.hit_points = if class == 0 { 0 } else { 100 };
+                target.base.contacts.suppress_contacts_next_epoch = class == 2;
+                target.extension.impact_materials = ImpactMaterials { ordinary: Some(material), suppressed: Some(material) };
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::AIMED_IMPACT_PROJECTILE);
+                actor.base.position.y = -100;
+                actor.extension.path_state.motion_phase = 0xA555;
+                let mut contacts = ContactStore::default();
+                contacts.record_pair(owner, peer, [None; 2]).unwrap();
+                let mut impact = ImpactState::default();
+                let mut events = AudioState::default();
+                let mut inputs = world(&mut random);
+                inputs.published_homing_target = Some(PublishedHomingTarget::default());
+                inputs.surface_mode = Some(Default::default());
+                inputs.impact = Some(&mut impact);
+                inputs.contacts = Some(&contacts);
+                inputs.audio = Some(audio(&mut events));
+                inputs.selected_occupancy_exempt = Some(true);
+                inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+                if later_stage {
+                    for _ in 0..4 {
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).unwrap().step, ControlStep::Movement);
+                        callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs);
+                    }
+                }
+                objects.get_mut(owner).unwrap().base.contacts.pending_hit = true;
+                let before_random = *inputs.random;
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).unwrap().step, ControlStep::Ended);
+                let actor = objects.get(owner).unwrap();
+                assert!(actor.base.flags.remove_after_tick);
+                assert!(actor.base.contacts.pending_hit);
+                assert_eq!(actor.extension.path_state.motion_phase, 0x0055);
+                assert_eq!(*inputs.random, before_random);
+                let expected_cue = if class == 1 {
+                    Some(match material { 1 => 179, 2 => 128, 3 => 68, 4 | 6 => 101, 5 => 191, _ => 113 })
+                } else if class == 2 { Some(if material == 1 { 35 } else { 158 }) } else { None };
+                let mut cues = vec![32];
+                cues.extend(expected_cue);
+                assert_eq!(super::effect_tests::cues(&mut inputs), cues);
+                assert_eq!(objects.len(), if class == 1 { 3 } else { 2 });
+                if class == 1 {
+                    let child = runtime.spawns.last_spawn.unwrap();
+                    let actor = objects.get(child).unwrap();
+                    assert_eq!((actor.base.hit_points, actor.base.attack_power), (10, 10));
+                    assert_eq!(actor.base.kind, ObjectKind::Effect);
+                    assert_eq!(actor.base.attachment, None);
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 10).unwrap().step, ControlStep::Movement);
+                    let actor = objects.get(child).unwrap();
+                    assert_eq!(actor.base.path, None);
+                    assert_eq!(actor.base.behavior, Behavior::ImpactBurst(ImpactBurstPhase::Initialize));
+                    assert!(actor.base.flags.collision_disabled);
+                    assert!(!runtime.begin_movement(&mut objects, child, Default::default()).unwrap());
+                    runtime.finish_movement(&mut objects, &mut [None; 2]).unwrap();
+                    for visit in 1..=11 {
+                        path_effect::step(objects.get_mut(child).unwrap()).unwrap();
+                        assert_eq!(objects.get(child).unwrap().base.flags.remove_after_tick, visit == 11);
+                    }
+                } else { assert_eq!(runtime.spawns.last_spawn, None); }
+            }
+        }
+    }
+}
+
+#[test]
+fn aimed_impact_projectile_ground_and_occupancy_exits_discard_the_active_loop_without_spawning() {
+    use super::super::path_impact::ImpactState;
+    use super::super::path_target::PublishedHomingTarget;
+    use super::super::world_occupancy::{MarkerCoverage, OccupancyChange, WorldOccupancy, WorldRectangle};
+    use super::super::program_state::PathStackError;
+    let catalog = authored_paths::catalog();
+    for ground in [false, true] {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.path = Some(authored_paths::AIMED_IMPACT_PROJECTILE);
+        actor.base.position.y = if ground { -20 } else { -100 };
+        let mut occupancy = WorldOccupancy::default();
+        occupancy.apply(&MarkerCoverage::from_rectangle(WorldRectangle { x: 0, z: 0, width: 512, depth: 512 }).unwrap(), OccupancyChange::Mark);
+        let mut impact = ImpactState::default();
+        let mut events = AudioState::default();
+        let mut inputs = world(&mut random);
+        inputs.published_homing_target = Some(PublishedHomingTarget::default());
+        inputs.surface_mode = Some(super::super::collision_surface::SurfaceMode { flags: u8::from(ground) });
+        inputs.impact = Some(&mut impact);
+        inputs.occupancy = Some(&occupancy);
+        inputs.selected_occupancy_exempt = Some(false);
+        inputs.audio = Some(audio(&mut events));
+        if !ground {
+            for _ in 0..3 {
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).unwrap().step, ControlStep::Movement);
+                callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs);
+            }
+        }
+        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).unwrap().step, ControlStep::Ended);
+        assert_eq!(objects.len(), 1);
+        let actor = objects.get_mut(owner).unwrap();
+        assert!(actor.base.flags.remove_after_tick);
+        assert_eq!(actor.extension.path_state.stack.next(&mut runtime.resources), Err(PathStackError::MissingLoop));
+        assert_eq!(super::effect_tests::cues(&mut inputs), [32]);
+        assert_eq!(runtime.spawns.last_spawn, None);
+    }
+}
+
+#[test]
 fn height_staged_projectile_saturates_vertical_drift_until_published_height_is_crossed() {
     use super::super::{path_motion::PublishedPlayerMotion, ObjectSpawnDefaults};
     let catalog = authored_paths::catalog();

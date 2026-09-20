@@ -138,6 +138,7 @@ ROOTS = (
     ("WINGMATE_PROXIMITY_WARNING", PathAddress(0x888E)),
     ("PROXIMITY_WARNING_COOLDOWN", PathAddress(0x88DA)),
     ("GUIDANCE_RADIO_CONTROLLER", PathAddress(0x0591)),
+    ("AIMED_IMPACT_PROJECTILE", PathAddress(0xF084)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -417,7 +418,7 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
         return index, "ObjectKind::Effect"
     # Invisible, noncolliding scene-radio services. Their shape is empty;
     # neither has enemy motion, damage or a drawable projectile lifetime.
-    if index == 0 and path in (PathAddress(0x888E), PathAddress(0x88DA), PathAddress(0x07B6)):
+    if index == 0 and path in (PathAddress(0x888E), PathAddress(0x88DA), PathAddress(0x07B6), PathAddress(0xAFDD)):
         return index, "ObjectKind::Effect"
     if (index, path) == (14, PathAddress(0x83F9)):
         return index, "ObjectKind::Effect"
@@ -811,6 +812,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
             spawn_ = f"ChildSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, position: {position}, rotation: {rotation}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power}, number: {spawn.number} }}"
             statement = f"Statement::SpawnChild {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name == "InstallStrategyAndStop":
+            destination = int.from_bytes(parameters(3), 'little')
+            if destination != 0x09AFE4:
+                raise UnsupportedPath(f"unported terminal strategy {destination:06X} at {command.address.label()}")
+            if command.successors:
+                raise UnsupportedPath(f"unexpected terminal strategy edges at {command.address.label()}")
+            statement = "Statement::InstallImpactBurst"
         elif name in ("AllocateAuxiliaryType0b", "AllocateAuxiliaryType0d"):
             value, = parameters(1)
             operation = "OrdinaryImpactMaterial" if name.endswith("0b") else "SuppressedImpactMaterial"
@@ -1219,6 +1227,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
+            if address == 0x1D90 and variable == 0x06:
+                statement = f"Statement::AttachPublishedHomingTarget {{ next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address == 0x12C3 and variable == 0x1C:
                 statement = f"Statement::LinkPrimaryCollisionExclusion {{ next: {next_cursor()} }}"
                 statements.append(statement)

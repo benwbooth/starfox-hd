@@ -14,6 +14,166 @@ fn at(command_index: u16) -> PathCursor {
 }
 
 #[test]
+fn published_homing_target_copies_absence_and_retained_identity_without_fresh_selection() {
+    use super::super::path_target::PublishedHomingTarget;
+    let catalog = PathCatalog::new(vec![vec![Statement::AttachPublishedHomingTarget {
+        next: at(1),
+    }]])
+    .unwrap();
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    let retired = objects
+        .allocate(Object::new(
+            ObjectKind::Enemy,
+            ShapeId::EMPTY,
+            Behavior::FollowPath,
+        ))
+        .unwrap();
+    objects.remove(retired).unwrap();
+    let before = objects.clone();
+    assert_eq!(
+        runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+        Err(ProgramError::MissingPublishedHomingTarget)
+    );
+    assert_eq!(objects, before);
+    for target in [None, Some(owner), Some(retired)] {
+        for invert in [false, true] {
+            objects = before.clone();
+            objects.get_mut(owner).unwrap().base.attachment = Some(owner);
+            let mut expected = objects.clone();
+            expected.get_mut(owner).unwrap().base.attachment = target;
+            expected.get_mut(owner).unwrap().base.path = Some(at(1));
+            let mut inputs = world(&mut random);
+            inputs.published_homing_target = Some(PublishedHomingTarget { object: target });
+            inputs.selected = Some(owner);
+            runtime.branch.invert_next = invert;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: at(1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects, expected);
+            assert_eq!(runtime.branch.invert_next, invert);
+        }
+    }
+}
+
+#[test]
+fn impact_handoff_runs_movement_and_registered_callbacks_with_stopped_or_forced_continuation() {
+    use super::super::path_effect::ImpactBurstPhase;
+    use super::super::path_fields::ByteOperation;
+    use super::super::path_motion::PlayerDisplacement;
+    use super::super::path_runtime::{CallbackStep, TriggerWorldInputs};
+    use super::super::path_triggers::{Trigger, TriggerKind};
+    use super::super::Vector3;
+    for force in [false, true] {
+        let callback = if force {
+            Statement::Control(ControlCommand::ForceAfterCallbacks {
+                target: at(3),
+                next: at(2),
+            })
+        } else {
+            Statement::Mutate {
+                mutation: Mutation::Byte {
+                    field: ByteField::Part,
+                    operation: ByteOperation::Add(ByteOperand::Literal(1)),
+                },
+                next: at(2),
+            }
+        };
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::InstallImpactBurst,
+            callback,
+            Statement::Control(ControlCommand::Return),
+            Statement::Control(ControlCommand::Hold),
+        ]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.velocity = Vector3 { x: 3, y: -4, z: 5 };
+        actor.extension.render_parameter = 222;
+        actor.extension.path_state.part = 255;
+        actor.extension.path_state.clear_on_path_exit_latch = true;
+        actor.base.wait_timer = 93;
+        actor.extension.path_state.repeat_counter = 81;
+        runtime
+            .add_trigger(
+                &mut objects,
+                owner,
+                Trigger {
+                    path: at(1),
+                    kind: TriggerKind::Always,
+                    timer: 0,
+                },
+            )
+            .unwrap();
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .stack
+            .save_word(&mut runtime.resources, owner, 0xA55A)
+            .unwrap();
+        let before_resources = runtime.resources.clone();
+        let before_random = random;
+        let mut expected = objects.clone();
+        let actor = expected.get_mut(owner).unwrap();
+        actor.base.path = None;
+        actor.base.behavior = Behavior::ImpactBurst(ImpactBurstPhase::Initialize);
+        actor.extension.render_parameter = 0;
+        assert_eq!(
+            runtime
+                .resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1)
+                .unwrap()
+                .step,
+            ControlStep::Movement
+        );
+        assert_eq!(objects, expected);
+        assert!(runtime
+            .begin_movement(&mut objects, owner, PlayerDisplacement::default())
+            .unwrap());
+        assert_eq!(
+            runtime
+                .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                .unwrap(),
+            CallbackStep::Run(at(1))
+        );
+        assert_eq!(
+            runtime
+                .resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4)
+                .unwrap()
+                .step,
+            ControlStep::ResumeCallbacks
+        );
+        assert_eq!(
+            runtime
+                .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                .unwrap(),
+            CallbackStep::Complete
+        );
+        runtime
+            .finish_movement(&mut objects, &mut [None; 2])
+            .unwrap();
+        let actor = expected.get_mut(owner).unwrap();
+        actor.base.position = Vector3 { x: 3, y: -4, z: 5 };
+        actor.extension.path_state.clear_on_path_exit_latch = false;
+        if force {
+            actor.base.path = Some(at(3));
+            actor.base.behavior = Behavior::FollowPath;
+            actor.base.wait_timer = 0;
+            actor.extension.path_state.repeat_counter = 0;
+        } else {
+            actor.extension.path_state.part = 0;
+        }
+        assert_eq!(objects, expected);
+        assert_eq!(runtime.resources, before_resources);
+        assert_eq!(random, before_random);
+    }
+}
+
+#[test]
 fn material_commands_replace_only_their_optional_record_and_import_preserves_other_state() {
     for importing in [false, true] {
         for suppressed in [false, true] {

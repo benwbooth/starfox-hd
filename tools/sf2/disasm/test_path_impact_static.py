@@ -46,6 +46,23 @@ class PathImpactStaticTests(unittest.TestCase):
             branch = 0 if decremented & 128 else 1 if decremented == 0 else 2
             self.assertEqual(branch, 0 if slot % 4 < 2 else 2)
 
+    def test_target_lock_publication_copies_retained_target_and_cancellation_clears_it(self):
+        self.assert_source(0x07A5E3, 'c220b9ca6b8d901de220c220b9ca6b99c86be220d0699c901d9c911d')
+        self.assert_source(0x07A653, 'c220b9ca6b8d901de220a90a99c76b')
+        self.assert_source(0x07A550, 'c220a900008d901de220')
+        self.assert_source(0x07A56D, 'c220a9000099c86b9c901de220')
+
+    def test_strategy_handoff_clears_path_and_render_parameter_then_enters_real_movement(self):
+        self.assert_source(0x7F99F6, 'c2202020c79519e2202004c5951ba9009dc71cc220a90000952be2204cde9d')
+        self.assert_source(0x09AFE4,
+            'b52009109520a9079517a9059513a91e9515b52029f79520b52629fe9526b526'
+            '09089526b52409049524b52609109526c220a925b09519e220a909951ba901950a'
+            'b50a3a950a101cc9f6f019b52009109520a9009517a9009513a9009515b52029f7'
+            '95206bb525090895256b')
+        # Flag 20:10 is the transient actor's allocation-pressure retirement
+        # class, not scaled-sprite rendering (which has separate controls).
+        self.assert_source(0x7F2983, 'b5202910f0045cac297f')
+
 
 if __name__ == '__main__':
     unittest.main()

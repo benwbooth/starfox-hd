@@ -203,6 +203,8 @@ impl PathRuntime {
     /// caller whether to service callbacks before calling finish_movement.
     /// Displacement must be sampled using the selection that exists now;
     /// callbacks may change that selection before the final carry service.
+    /// A terminal strategy handoff has already cleared the path; movement
+    /// still runs and its callbacks retain that absent continuation.
     pub fn begin_movement(
         &mut self,
         objects: &mut ObjectStore,
@@ -216,9 +218,6 @@ impl PathRuntime {
             return Err(PathRuntimeError::Calls(CallError::ReentrantCallbacks));
         }
         let actor = actor_mut(objects, owner)?;
-        if actor.base.path.is_none() {
-            return Err(PathRuntimeError::MissingPath(owner));
-        }
         super::path_motion::before_callbacks(actor, owner, player);
         self.movement = Some(owner);
         self.begin_callbacks(objects, owner)
@@ -333,10 +332,7 @@ impl PathRuntime {
         let actor = objects
             .get(owner)
             .ok_or(PathRuntimeError::MissingActor(owner))?;
-        let interrupted = actor
-            .base
-            .path
-            .ok_or(PathRuntimeError::MissingPath(owner))?;
+        let interrupted = actor.base.path;
         let list = &actor.extension.path_state.triggers;
         let has_triggers = !list
             .entries(&self.resources, owner)
@@ -401,11 +397,10 @@ impl PathRuntime {
             .map_err(PathRuntimeError::Triggers)?
         {
             TriggerStep::Complete => {
-                actor.base.path = Some(
+                actor.base.path =
                     self.calls
                         .finish_callbacks(&mut state.stack, &mut self.resources)
-                        .map_err(PathRuntimeError::Calls)?,
-                );
+                        .map_err(PathRuntimeError::Calls)?;
                 self.active = None;
                 Ok(CallbackStep::Complete)
             }
@@ -468,7 +463,7 @@ impl PathRuntime {
             .return_from(&mut actor.extension.path_state.stack, &mut self.resources)
             .map_err(PathRuntimeError::Calls)?;
         match result {
-            PathReturn::Resume(cursor) => actor.base.path = Some(cursor),
+            PathReturn::Resume(cursor) => actor.base.path = cursor,
             PathReturn::CallbackComplete => {
                 let active = self.active.as_mut().expect("callback root");
                 active.executing = false;
@@ -831,7 +826,7 @@ mod tests {
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(30)));
         assert_eq!(
             runtime.return_from(&mut objects, owner).unwrap(),
-            PathReturn::Resume(cursor(21))
+            PathReturn::Resume(Some(cursor(21)))
         );
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(21)));
         objects.get_mut(owner).unwrap().base.hit_points = 0;
@@ -926,7 +921,7 @@ mod tests {
         );
         assert_eq!(
             runtime.return_from(&mut objects, owner).unwrap(),
-            PathReturn::Resume(cursor(100))
+            PathReturn::Resume(Some(cursor(100)))
         );
         // Outside a callback the destination is ignored, with no actor reset.
         runtime

@@ -17,7 +17,7 @@ const INITIAL_STACK_COST: u16 = COUNT_COST + ENTRY_GROWTH * ENTRY_COST;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PathEntry {
-    CallReturn(PathCursor),
+    CallReturn(Option<PathCursor>),
     Continuation(PathCursor),
     Counter(CountedLoop),
     SavedByte(u8),
@@ -156,13 +156,14 @@ impl PathStack {
 
     /// Subroutine calls share the same stack (`$7F:956F`, `$7F:9592`). The
     /// caller owns the invocation's shared call-depth byte and decoded jump.
+    /// Deferred calls from a post-handoff callback can retain no path.
     pub fn push_call(
         &mut self,
         resources: &mut ProgramResources<ProgramData>,
         owner: ObjectId,
-        continuation: PathCursor,
+        continuation: impl Into<Option<PathCursor>>,
     ) -> Result<(), PathStackError> {
-        self.push(resources, owner, PathEntry::CallReturn(continuation))
+        self.push(resources, owner, PathEntry::CallReturn(continuation.into()))
     }
 
     /// Normal return pop (`$7F:95B4..95C7`). Callback-root returns must be
@@ -170,7 +171,7 @@ impl PathStack {
     pub fn pop_call(
         &mut self,
         resources: &mut ProgramResources<ProgramData>,
-    ) -> Result<PathCursor, PathStackError> {
+    ) -> Result<Option<PathCursor>, PathStackError> {
         let entries = self.entries_mut(resources)?;
         let Some(PathEntry::CallReturn(continuation)) = entries.last().cloned() else {
             return Err(PathStackError::IncompleteLoop);
@@ -367,7 +368,7 @@ mod tests {
             Err(PathStackError::IncompatibleSavedValue)
         );
         assert_eq!((&stack, &resources), (&before.0, &before.1));
-        assert_eq!(stack.pop_call(&mut resources), Ok(cursor(2)));
+        assert_eq!(stack.pop_call(&mut resources), Ok(Some(cursor(2))));
         assert_eq!(stack.restore_word(&mut resources), Ok(513));
         assert_eq!(
             stack.next(&mut resources),
@@ -556,7 +557,7 @@ mod tests {
         stack.push_call(&mut resources, owner, cursor(3)).unwrap();
         stack.begin(&mut resources, owner, cursor(4), 1).unwrap();
         assert_eq!(stack.next(&mut resources), Ok(LoopRepeat::Complete));
-        assert_eq!(stack.pop_call(&mut resources), Ok(cursor(3)));
+        assert_eq!(stack.pop_call(&mut resources), Ok(Some(cursor(3))));
         assert_eq!(
             stack.next(&mut resources),
             Ok(LoopRepeat::Repeat {
@@ -572,7 +573,7 @@ mod tests {
             stack.next(&mut resources),
             Err(PathStackError::IncompleteLoop)
         );
-        assert_eq!(stack.pop_call(&mut resources), Ok(cursor(1)));
+        assert_eq!(stack.pop_call(&mut resources), Ok(Some(cursor(1))));
         assert_eq!(resources.available_capacity(), PROGRAM_CAPACITY - 38);
     }
 
@@ -589,7 +590,7 @@ mod tests {
             Err(PathStackError::EntryCountOverflow)
         );
         for i in (0..u16::from(u8::MAX)).rev() {
-            assert_eq!(stack.pop_call(&mut resources), Ok(cursor(i)));
+            assert_eq!(stack.pop_call(&mut resources), Ok(Some(cursor(i))));
         }
     }
 }
