@@ -44,6 +44,22 @@ class PathAppearanceStaticTests(unittest.TestCase):
         self.assert_source(0x7F1451, "B9 CD 1C 9D 16 00")
         self.assert_source(0x0981D3, "0C 98 84 8C 17 DE 81 0C 04 84 8C")
 
+    def test_scene_material_helper_retains_stack_branch_order_and_full_scene_reads(self):
+        self.assert_source(0x0981B6,
+            "93 A1 79 A1 E2 1D 8A 2A A1 09 DE 81 79 A1 B5 1B 2A A1 02 DA 81 "
+            "2A A1 05 D3 81 17 DE 81 0C 98 84 8C 17 DE 81 0C 04 84 8C 95 A1 42")
+        self.assert_source(0x08FFAA,
+            "41 B6 81 8D 2B 04 88 EB C3 7F 2B 04 A4 EB C3 7F 2B 04 C0 EB C3 7F "
+            "17 C5 7F 00 67 0B 64 2D 5C F7 EF CC 00 1E")
+        self.assert_source(0x08F887, "F5 F8 DD AA 7F 0A 0A 00 00 00 00 00 00 01")
+        self.assert_source(0x7F9F4F, "20 D2 9F AD B7 16 99 00 00 4C A9 CA")
+        self.assert_source(0x7F9FD2,
+            "C2 20 20 4C C7 A8 B9 00 00 8D B7 16 E2 20 20 BC C4 20 47 CB 60")
+        self.assert_source(0x04B1FC,
+            "AE 07 DB BD 04 00 C2 20 29 FF 00 E2 20 8D B5 1B")
+        self.assert_source(0x0685E7,
+            "AD E2 1D C9 0A 00 90 03 A9 00 00 0A AA BF 5E 9D 06 AA")
+
     def test_far_sort_flag_publishes_fixed_bias_separately_from_world_position(self):
         self.assert_source(0x7FBCF4, "B5 09 09 01 95 09 4C E8 CA")
         self.assert_source(0x7FBCFD, "B5 09 29 FE 95 09 4C E8 CA")

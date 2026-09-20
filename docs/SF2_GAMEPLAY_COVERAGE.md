@@ -1547,3 +1547,30 @@ tests and 281 native path tests in debug/release, with the render-boundary
 test in both profiles. Architecture, static audit, catalog freshness and
 application build also pass. This is a primitive checkpoint, not a claim
 that the complete shared helper or another root has been integrated.
+
+### Complete scene-material scenery child graph
+
+`SCENE_MATERIAL_SCENERY` now includes all 25 source statements in the child
+path and shared material-selection helper. The generator verifies its
+installation through the reachable child-spawn record in parent `$44:787D`;
+it does not treat a scanned address as an installer or claim the parent is
+lowered. Redirecting that source spawn away from the child rejects publication.
+
+Typed, separately optional scene observations retain the complete player
+configuration and encounter-location bytes. The original save, import,
+IFNOT, comparisons, material assignments, restore and return remain distinct
+statements. Configuration other than nine bypasses the location import.
+Shadow removal, three-shape warning membership, health, collision, contact
+class, draw-distance and suspension commands then execute in source order.
+
+Native tests cover all 65,536 selector pairs, each warning-shape boundary,
+retained warning latches/membership, the skipped missing-input case, a failed
+location import resumed with a fresh value, saved-phase restoration, full-byte
+import preservation and zero-budget atomicity. Complete-root coverage is now
+**29 roots / 695 source commands / 686 native statements**. These are decoded
+native catalog and service tests; Game scheduler/spawn integration remains
+open, and no original instructions or recorded gameplay were executed.
+
+Checkpoint validation passes 112 lowerer tests, 277 static path tests and
+284 native path tests in both debug and release, plus generated freshness,
+architecture/static audits and the application build.

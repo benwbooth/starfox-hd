@@ -52,8 +52,12 @@ ROOTS = (
     ("LINKED_PROTECTION_EFFECT", PathAddress(0xF2B9)),
     ("TRIGGERED_LINKED_PROJECTILE", PathAddress(0xF48B)),
     ("ATTACHED_RECOVERY_EFFECT", PathAddress(0xF3AD)),
+    ("SCENE_MATERIAL_SCENERY", PathAddress(0x7FAA)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
+# Independently scheduled child roots with a reviewed, reachable parent spawn.
+# This proves installation only; it does not claim the parent graph is lowered.
+CHILD_INSTALLERS = {PathAddress(0x7FAA): (PathAddress(0x787D), PathAddress(0x7887))}
 
 
 class UnsupportedPath(ValueError):
@@ -899,6 +903,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address in (0x1DE2, 0x1BB5) and name == "ImportByteAbsolute":
+                source = "PlayerConfiguration" if address == 0x1DE2 else "EncounterLocation"
+                statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address == 0x1D72 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportActionGate {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
@@ -1067,7 +1076,14 @@ def generate(rom: bytes, roots=ROOTS) -> str:
     unique_statements = {}
     for name, root in roots:
         if root not in discovered:
-            raise UnsupportedPath(f"{name} has no verified source installer")
+            installer = CHILD_INSTALLERS.get(root)
+            if installer is None or installer[0] not in discovered:
+                raise UnsupportedPath(f"{name} has no verified source installer")
+            parent, source = installer
+            spawn = next((command for command in graph(extractor, parent)
+                          if command.address == source), None)
+            if spawn is None or child_spawn_parameters(spawn).path != root:
+                raise UnsupportedPath(f"{name} has no verified child installer")
         entry, statements = lower_graph(extractor, root, 0, indices)
         declarations.append(f"pub const {name}: PathCursor = cursor(0, {entry});")
         for command, statement in zip(lowering_units(extractor, root), statements, strict=True):

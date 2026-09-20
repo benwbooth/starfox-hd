@@ -15,6 +15,7 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
+    pub scene: ScenePathInputs,
     pub shield_recovery: Option<&'a mut super::player_hit_control::ShieldRecoveryRequest>,
     /// Whole shared action-gate byte (1D72), not a narrowed protection flag.
     pub action_gate: Option<u8>,
@@ -61,6 +62,30 @@ pub struct PathWorld<'a> {
     pub random: &'a mut RandomState,
     /// Shared strategy/animation clock (C4), also read by authored clock gates.
     pub animation_clock: u8,
+}
+
+/// Shared scene selectors. The player configuration also selects the player
+/// shape record (`$06:85E7`); encounter location comes from the campaign node
+/// (`$04:B1FC`). Keep full bytes, not the special-case predicates they drive.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ScenePathInputs {
+    pub player_configuration: Option<u8>,
+    pub encounter_location: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SceneByte {
+    PlayerConfiguration,
+    EncounterLocation,
+}
+
+impl SceneByte {
+    fn read(self, input: ScenePathInputs) -> Option<u8> {
+        match self {
+            Self::PlayerConfiguration => input.player_configuration,
+            Self::EncounterLocation => input.encounter_location,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -285,6 +310,11 @@ pub enum Statement {
         next: PathCursor,
     },
     ImportActionGate {
+        destination: super::path_fields::ByteField,
+        next: PathCursor,
+    },
+    ImportSceneByte {
+        source: SceneByte,
         destination: super::path_fields::ByteField,
         next: PathCursor,
     },
@@ -520,6 +550,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingSceneByte(SceneByte),
     MissingShieldRecovery,
     MissingActionGate,
     MissingEnvironmentPlaneHeight,
@@ -672,6 +703,13 @@ impl PathRuntime {
                     let actor = objects
                         .get_mut(owner)
                         .expect("validated action-gate reader");
+                    destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportSceneByte { source, destination, next } => {
+                    let value = source.read(world.scene).ok_or(ProgramError::MissingSceneByte(source))?;
+                    let actor = objects.get_mut(owner).expect("validated scene-selector reader");
                     destination.write(actor, value);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
@@ -1406,6 +1444,7 @@ mod tests {
 
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
+            scene: ScenePathInputs::default(),
             shield_recovery: None,
             action_gate: None,
             environment_plane_height: None,
@@ -4915,6 +4954,126 @@ mod tests {
     }
 
     #[test]
+    fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
+        use super::super::path_fields::BytePart;
+        let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
+        for source in [SceneByte::PlayerConfiguration, SceneByte::EncounterLocation] {
+            let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
+                source, destination, next: cursor(0, 1),
+            }]]).unwrap();
+            for value in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                runtime.branch.invert_next = true;
+                objects.get_mut(owner).unwrap().extension.path_state.motion_phase = 0xA57E;
+                let before = objects.clone();
+                let initial_random = random;
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                    Err(ProgramError::MissingSceneByte(source)));
+                assert_eq!(objects, before);
+                let mut inputs = world(&mut random);
+                match source {
+                    SceneByte::PlayerConfiguration => inputs.scene.player_configuration = Some(value),
+                    SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(value),
+                }
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                assert_eq!(objects, before);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
+                let mut expected = before;
+                let actor = expected.get_mut(owner).unwrap();
+                actor.extension.path_state.motion_phase = 0xA500 | u16::from(value);
+                actor.base.path = Some(cursor(0, 1));
+                assert_eq!(objects, expected);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, initial_random);
+            }
+        }
+    }
+
+    #[test]
+    fn scene_material_scenery_covers_all_selector_bytes_and_restores_saved_phase() {
+        use super::super::{authored_paths, render::MaterialSetId};
+        let catalog = authored_paths::catalog();
+        let original_material = MaterialSetId::from_catalog_token(33_534);
+        for configuration in 0..=u8::MAX {
+            for location in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let original_random = random;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::SCENE_MATERIAL_SCENERY);
+                actor.base.shape = ShapeId::from_catalog_index(429);
+                actor.base.flags.casts_shadow = true;
+                actor.base.flags.maximum_draw_distance = true;
+                actor.extension.path_state.motion_phase = u16::from_be_bytes([location, configuration]);
+                actor.extension.material_set = Some(original_material);
+                let phase = actor.extension.path_state.motion_phase;
+                let position = actor.base.position;
+                let mut inputs = world(&mut random);
+                inputs.scene.player_configuration = Some(configuration);
+                // The early branch must never demand the skipped observation.
+                if configuration == 9 {
+                    inputs.scene.encounter_location = Some(location);
+                }
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30), Ok(ControlStep::Movement));
+                let actor = objects.get(owner).unwrap();
+                let expected = match (configuration, location) {
+                    (9, 2) => MaterialSetId::from_catalog_token(33_796),
+                    (9, 5) => MaterialSetId::from_catalog_token(33_944),
+                    _ => original_material,
+                };
+                assert_eq!(actor.extension.material_set, Some(expected));
+                assert_eq!(actor.extension.path_state.motion_phase, phase);
+                assert_eq!(actor.base.position, position);
+                assert_eq!(actor.base.hit_points, 100);
+                assert!(actor.base.flags.collision_disabled);
+                assert!(!actor.base.flags.casts_shadow);
+                assert!(!actor.base.flags.maximum_draw_distance);
+                assert!(actor.base.flags.strategy_suspended);
+                assert!(!actor.extension.path_state.hold_latched);
+                assert!(matches!(catalog.statement(actor.base.path.unwrap()), Ok(Statement::Control(ControlCommand::SuspendAndMove))));
+                assert!(actor.base.flags.proximity_warning_source);
+                assert!(!runtime.branch.invert_next);
+                assert_eq!(random, original_random);
+            }
+        }
+    }
+
+    #[test]
+    fn scene_scenery_warning_membership_only_adds_three_shapes_and_location_is_sampled_late() {
+        use super::super::{authored_paths, render::MaterialSetId};
+        let catalog = authored_paths::catalog();
+        for shape in [0, 428, 429, 430, 431, 432] {
+            for already_member in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::SCENE_MATERIAL_SCENERY);
+                actor.base.shape = ShapeId::from_catalog_index(shape);
+                actor.base.flags.proximity_warning_source = already_member;
+                actor.base.flags.proximity_warning_latched = true;
+                actor.extension.path_state.motion_phase = 0xA57E;
+                let mut inputs = world(&mut random);
+                inputs.scene.player_configuration = Some(9);
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30),
+                    Err(ProgramError::MissingSceneByte(SceneByte::EncounterLocation)));
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.extension.path_state.motion_phase, 0xA509);
+                assert_eq!(actor.base.flags.proximity_warning_source, already_member);
+                // The failed import retains the saved byte and return address;
+                // the resumed command samples location, not configuration again.
+                inputs.scene.player_configuration = None;
+                inputs.scene.encounter_location = Some(5);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 30), Ok(ControlStep::Movement));
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.extension.path_state.motion_phase, 0xA57E);
+                assert_eq!(actor.extension.material_set, Some(MaterialSetId::from_catalog_token(33_944)));
+                assert_eq!(actor.base.flags.proximity_warning_source, already_member || (429..=431).contains(&shape));
+                assert!(actor.base.flags.proximity_warning_latched);
+            }
+        }
+    }
+
+    #[test]
     fn material_selection_preserves_other_actor_state_and_respects_command_budget() {
         use super::super::{path_appearance::AppearanceCommand, render::MaterialSetId};
         for token in [33_796, 33_944] {
@@ -6265,6 +6424,7 @@ mod tests {
                 action_flags: 0x20,
             };
             let mut inputs = PathWorld {
+                scene: ScenePathInputs::default(),
                 shield_recovery: None,
                 action_gate: None,
                 environment_plane_height: None,
@@ -10116,9 +10276,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 28);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 661);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 670);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 29);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 686);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 695);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -10249,6 +10409,7 @@ mod tests {
         let catalog = authored_paths::catalog();
         for phase in 1..=7 {
             let mut inputs = PathWorld {
+                scene: ScenePathInputs::default(),
                 shield_recovery: None,
                 action_gate: None,
                 environment_plane_height: None,
@@ -10371,6 +10532,7 @@ mod tests {
                     &mut objects,
                     owner,
                     &mut PathWorld {
+                        scene: ScenePathInputs::default(),
                         shield_recovery: None,
                         action_gate: None,
                         environment_plane_height: None,

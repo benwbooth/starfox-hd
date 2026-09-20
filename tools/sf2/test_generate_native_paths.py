@@ -20,6 +20,35 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_scene_material_child_has_complete_graph_and_verified_reachable_spawn(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x7FAA)
+        commands = graph(extractor, root)
+        _, statements = lower_graph(extractor, root, 0)
+        self.assertEqual(len(commands), 25)
+        self.assertEqual(len(statements), 25)
+        mapped = dict(zip((command.address.offset for command in commands), statements))
+        for offset, fragment in [
+            (0x7FAA, "ControlCommand::Call"), (0x7FC3, "ProximityWarningSource(true)"),
+            (0x7FCC, "ControlCommand::SuspendAndMove"), (0x81B6, "SaveByte"),
+            (0x81B8, "SceneByte::PlayerConfiguration"), (0x81C2, "SceneByte::EncounterLocation"),
+            (0x81D3, "from_catalog_token(33944)"), (0x81DA, "from_catalog_token(33796)"),
+            (0x81DE, "RestoreByte"), (0x81E0, "ControlCommand::Return"),
+        ]:
+            self.assertIn(fragment, mapped[offset])
+        self.assertIn("SCENE_MATERIAL_SCENERY", generate(self.rom))
+        changed = bytearray(self.rom)
+        changed[0x4788A:0x4788C] = (0x7FAB).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed))
+
+    def test_scene_imports_are_full_byte_reads_and_do_not_allow_unreviewed_writes(self):
+        for address, source in [(0x1DE2, "PlayerConfiguration"), (0x1BB5, "EncounterLocation")]:
+            low, high = address.to_bytes(2, "little")
+            self.assertIn(f"SceneByte::{source}", self.lower_record(f"79 a1 {low:02x} {high:02x}")[0])
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
+                self.lower_record(f"fb {low:02x} {high:02x} 09")
+
     def test_offset_argument_preparation_folds_to_one_typed_statement(self):
         for value in range(256):
             signed = value if value < 128 else value - 256
