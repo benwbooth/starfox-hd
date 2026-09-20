@@ -166,6 +166,71 @@ fn node_entry_captures_initial_count_heading_and_completed_state() {
 }
 
 #[test]
+fn direct_node_entry_preserves_all_part_bytes_and_needs_no_visibility_snapshot() {
+    let catalog = authored_paths::catalog();
+    for part in 0..=u8::MAX {
+        for count in 1..=3 {
+            for bits in [0, 0x10] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::DIRECT_NODE_OBJECTIVE);
+                actor.base.hit_points = count;
+                actor.base.attack_power = part.wrapping_mul(29);
+                actor.extension.path_state.part = part;
+                actor.base.flags.visible = part & 1 != 0;
+                let mut flags = ActiveNodeFlags { bits };
+                let mut inputs = world(&mut random);
+                inputs.active_node_flags = Some(&mut flags);
+                inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+                inputs.campaign = Some(CampaignPathInputs {
+                    difficulty: Difficulty::Normal,
+                    encounter_variant: 0,
+                });
+                assert_eq!(
+                    runtime
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 80)
+                        .unwrap()
+                        .actor,
+                    owner
+                );
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.extension.path_state.part, part);
+                assert_eq!(actor.extension.path_state.script_parameter, count);
+                assert_eq!(actor.base.hit_points, 100);
+                assert_eq!(actor.base.attack_power, 4);
+                assert_eq!(actor.base.yaw.units(), part.wrapping_mul(29));
+                assert_eq!(actor.base.flags.visible, part & 1 != 0);
+                assert!(actor.extension.path_state.hold_latched);
+                let triggers = actor
+                    .extension
+                    .path_state
+                    .triggers
+                    .entries(&runtime.resources, owner)
+                    .unwrap();
+                assert!(triggers.iter().all(|t| !matches!(
+                    t.kind,
+                    TriggerKind::ControlledAuxFlagHigh | TriggerKind::ControlledAuxFlagLow
+                )));
+                assert_eq!(find_child(&objects, owner, 9).unwrap(), None);
+                if bits == 0 {
+                    let child = objects
+                        .get(find_child(&objects, owner, 1).unwrap().unwrap())
+                        .unwrap();
+                    assert_eq!(
+                        child.extension.relative_position.y,
+                        if part == 0 { -350 } else { -614 }
+                    );
+                    assert_eq!(child.extension.path_state.script_parameter, count);
+                } else {
+                    assert!(find_child(&objects, owner, 1).unwrap().is_none());
+                    assert!(find_child(&objects, owner, 5).unwrap().is_some());
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn node_parts_use_count_specific_layouts_and_retain_parent_selection() {
     let catalog = authored_paths::catalog();
     let entry = locate(&catalog, |s| {

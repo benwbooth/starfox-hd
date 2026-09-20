@@ -44,6 +44,16 @@ class NodeObjectiveStaticTests(unittest.TestCase):
         self.assert_source(0x7F2A7B, '8d2a19dab429f00bb91300cd2a19f003bb80f1fa6b')
         self.assert_source(0x7F8B7B, '227b2a7fb925000908992500fa4cd3ca')
 
+    def test_eleven_maps_install_the_direct_entry_with_one_two_or_three_parts(self):
+        commands = MapExtractor(self.rom).extract().commands
+        installations = [(i, c) for i, c in enumerate(commands) if c.raw_hex == '8c8e54']
+        self.assertEqual([(c.address.bank, c.address.offset) for _, c in installations],
+                         [(5, offset) for offset in [646, 968, 1291, 5175, 5533, 5867,
+                                                    9112, 9483, 11937, 16179, 16724]])
+        self.assertEqual([commands[i - 2].raw_hex for i, _ in installations],
+                         ['362d0002', '362d0003', '362d0001', '362d0002', '362d0002',
+                          '362d0002', '362d0002', '362d0001', '362d0001', '362d0001', '362d0002'])
+
 
 if __name__ == '__main__':
     unittest.main()

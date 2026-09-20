@@ -13606,7 +13606,7 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 135);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 136);
         assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3942);
         assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3986);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its

@@ -60,6 +60,7 @@ use super::path_spawn::IndependentSpawn;
 use super::path_triggers::{Trigger, TriggerKind};
 use super::{Angle, ObjectKind, Rotation, ShapeId, Vector3};
 pub const MULTIPART_NODE_OBJECTIVE: PathCursor = cursor(0, 1381);
+pub const DIRECT_NODE_OBJECTIVE: PathCursor = cursor(0, 1390);
 pub const FIVE_PART_ENCOUNTER_GATE: PathCursor = cursor(0, 1324);
 pub const CRAFT_LAUNCH_TRANSITION: PathCursor = cursor(0, 2925);
 pub const HEAVY_CHARIOT: PathCursor = cursor(0, 167);
@@ -194,7 +195,7 @@ pub const GUIDANCE_RADIO_CONTROLLER: PathCursor = cursor(0, 43);
 pub const AIMED_IMPACT_PROJECTILE: PathCursor = cursor(0, 3587);
 pub const RAPID_IMPACT_PROJECTILE: PathCursor = cursor(0, 3013);
 pub const ALTERNATE_RAPID_IMPACT_PROJECTILE: PathCursor = cursor(0, 3146);
-pub const LOWERED_ROOT_COUNT: usize = 135;
+pub const LOWERED_ROOT_COUNT: usize = 136;
 pub const LOWERED_COMMAND_COUNT: usize = 3942;
 pub const LOWERED_SOURCE_COMMAND_COUNT: usize = 3986;
 pub fn catalog() -> PathCatalog {

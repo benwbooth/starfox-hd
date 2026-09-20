@@ -25,6 +25,7 @@ OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
     ("MULTIPART_NODE_OBJECTIVE", PathAddress(0x546C)),
+    ("DIRECT_NODE_OBJECTIVE", PathAddress(0x548E)),
     ("FIVE_PART_ENCOUNTER_GATE", PathAddress(0x4D7E)),
     ("CRAFT_LAUNCH_TRANSITION", PathAddress(0xDC42)),
     ("HEAVY_CHARIOT", PathAddress(0x0F7E)),

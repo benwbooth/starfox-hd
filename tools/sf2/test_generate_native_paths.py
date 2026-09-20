@@ -55,6 +55,20 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaises(UnsupportedPath):
             lower_graph(PathExtractor(bytes(changed)), root, 0)
 
+    def test_direct_node_objective_is_an_independent_entry_not_the_forced_part_prologue(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x548E)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 355)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         'a4a5f4f3f21b80198c02b991bed54ba4e3615352069a3bebc502b5592df4a31f')
+        self.assertTrue({c.address for c in commands}.issubset(
+            {c.address for c in graph(extractor, PathAddress(0x546C))}))
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertIn('field: ByteField::ScriptParameter', statements[0])
+        self.assertIn('ByteOperand::Actor(ByteField::Health)', statements[0])
+        self.assertNotIn(PathAddress(0x548B), {c.address for c in commands})
+
     def test_encounter_gate_closes_five_parts_firing_and_handoff(self):
         from generate_native_paths import encounter_gate_shapes
         from dump_runtime_routine import source_offset

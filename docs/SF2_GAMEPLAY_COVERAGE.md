@@ -3464,3 +3464,19 @@ The **183 lowerer tests**, **400 path-static tests**, architecture guard,
 static inventory, exact regeneration and app build pass (existing unused
 icon-function warnings only). The cleanup gap above, scene scheduling and
 whole-game completeness remain open despite those passing checks.
+
+### Direct node-objective entry
+
+The independent `$44:548E` entry is also installed by eleven maps, with
+counts one, two or three. Its **355-command** graph is already contained in
+the multipart graph, so admitting this root adds no duplicate commands:
+**136 lowered roots, 3986 source commands, 3942 typed statements**.
+Unlike `$44:546C`, it does not run the initial visibility setup, create
+child nine, or force the part selector to one. It preserves that selector;
+zero leaves the constructor at Y -350, while nonzero applies the additional
+-264 offset. An exhaustive selector test verifies these differences without
+supplying a visibility snapshot. The shared cleanup limitation remains.
+
+Debug/release each pass **952 unit tests and two integration tests**;
+**184 lowerer tests, 401 path-static tests**, architecture/static inventory
+and app build pass. No original execution or recorded gameplay was used.
