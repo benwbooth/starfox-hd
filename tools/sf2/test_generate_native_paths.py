@@ -428,6 +428,20 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "PathHold has outgoing edges"):
             lower_graph(extractor, PathAddress(0xF536), 0)
 
+    def test_suspension_is_terminal_movement_not_path_hold(self):
+        self.assertEqual(self.lower_record("00 1e"),
+                         ["Statement::Control(ControlCommand::SuspendAndMove)"])
+        changed = bytearray(self.rom)
+        changed[0x4F536:0x4F539] = bytes.fromhex("00 1e 0f")
+        extractor = PathExtractor(bytes(changed))
+        command = extractor.decode_command(PathAddress(0xF536))
+        self.assertEqual(command.raw_hex, "001e")
+        self.assertFalse(command.successors)
+        broken = replace(command, successors=[PathAddress(0xF538)])
+        extractor.decode_command = lambda address: broken
+        with self.assertRaisesRegex(UnsupportedPath, "SetFlag26Bit40AndHold has outgoing edges"):
+            lower_graph(extractor, command.address, 0)
+
     def test_script_parameter_decodes_to_a_separate_named_byte(self):
         self.assertEqual(byte_field(0x27), "ByteField::ScriptParameter")
         for record, fragment in [

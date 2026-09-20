@@ -92,6 +92,8 @@ pub trait StrategyHost {
     type Error;
 
     fn objects(&self) -> &ObjectStore;
+    /// Additional host-owned suspension. The schedule itself always honors
+    /// the actor's authored strategy_suspended flag.
     fn strategy_suspended(&self, object: ObjectId) -> bool;
     fn run_strategy(
         &mut self,
@@ -181,10 +183,14 @@ impl StrategySchedule {
 
     fn visit<H: StrategyHost>(&mut self, host: &mut H) -> Result<(), ScheduleError<H::Error>> {
         let actor = self.next.expect("nonempty strategy cursor");
-        if host.objects().get(actor).is_none() {
-            return Err(ScheduleError::MissingActor(actor));
-        }
-        let completion = if host.strategy_suspended(actor) {
+        let authored_suspension = host
+            .objects()
+            .get(actor)
+            .ok_or(ScheduleError::MissingActor(actor))?
+            .base
+            .flags
+            .strategy_suspended;
+        let completion = if authored_suspension || host.strategy_suspended(actor) {
             StrategyCompletion::Keep
         } else {
             host.run_strategy(actor, self.clock)
@@ -314,6 +320,7 @@ mod tests {
         child: Option<ObjectId>,
         retire: Option<ObjectId>,
         suspended: Option<ObjectId>,
+        suspend_during_visit: Option<ObjectId>,
     }
 
     fn actor() -> Object {
@@ -334,6 +341,14 @@ mod tests {
             clock: u16,
         ) -> Result<StrategyCompletion, Self::Error> {
             self.visits.push((object, clock));
+            if self.suspend_during_visit == Some(object) {
+                self.objects
+                    .get_mut(object)
+                    .unwrap()
+                    .base
+                    .flags
+                    .strategy_suspended = true;
+            }
             if self.spawn_from == Some(object) {
                 self.spawn_from = None;
                 self.child = Some(
@@ -399,6 +414,13 @@ mod tests {
             }
             let order = world.objects.active_ids().to_vec();
             world.suspended = Some(order[2]);
+            world
+                .objects
+                .get_mut(order[4])
+                .unwrap()
+                .base
+                .flags
+                .strategy_suspended = true;
             let mut schedule = StrategySchedule::default();
             schedule.begin::<&str>(&world.objects).unwrap();
             let mut checked = 0;
@@ -411,10 +433,66 @@ mod tests {
             schedule.run_remainder(&mut world).unwrap();
             let expected: Vec<_> = order
                 .into_iter()
-                .filter(|id| Some(*id) != world.suspended)
+                .filter(|id| {
+                    Some(*id) != world.suspended
+                        && !world
+                            .objects
+                            .get(*id)
+                            .unwrap()
+                            .base
+                            .flags
+                            .strategy_suspended
+                })
                 .map(|id| (id, 1))
                 .collect();
             assert_eq!(world.visits, expected);
+        }
+    }
+
+    #[test]
+    fn newly_suspended_actor_finishes_current_visit_and_keeps_live_successors() {
+        for boundary in 0..=3 {
+            let mut world = TestWorld::default();
+            let tail = world.objects.allocate(actor()).unwrap();
+            let owner = world.objects.allocate(actor()).unwrap();
+            world.suspend_during_visit = Some(owner);
+            world.spawn_from = Some(owner);
+            let mut schedule = StrategySchedule::default();
+            for epoch in 1..=3 {
+                schedule.begin::<&str>(&world.objects).unwrap();
+                let mut visits = 0;
+                schedule
+                    .run_overlapping(&mut world, || {
+                        visits += 1;
+                        visits <= boundary
+                    })
+                    .unwrap();
+                schedule.run_remainder(&mut world).unwrap();
+                assert_eq!(schedule.clock(), epoch);
+            }
+            let child = world.child.unwrap();
+            assert_eq!(
+                world.visits,
+                [
+                    (owner, 1),
+                    (child, 1),
+                    (tail, 1),
+                    (child, 2),
+                    (tail, 2),
+                    (child, 3),
+                    (tail, 3),
+                ]
+            );
+            assert_eq!(world.objects.active_ids(), &[owner, child, tail]);
+            assert!(
+                world
+                    .objects
+                    .get(owner)
+                    .unwrap()
+                    .base
+                    .flags
+                    .strategy_suspended
+            );
         }
     }
 

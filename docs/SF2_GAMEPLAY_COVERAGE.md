@@ -1483,3 +1483,23 @@ combination, all words at representative/extreme shifts, clipping boundaries,
 screen wrapping, statement atomicity and unrelated-state preservation.
 Complete-root coverage remains **28 roots / 670 source commands / 661 native
 statements**; the newly supported radar opcode is a primitive checkpoint.
+
+### Strategy suspension after the current movement visit
+
+The inherited `SetFlag26Bit40AndHold` name does not describe PATHHOLD.
+Its complete `$7F:BC80..BC88` handler sets the suspension flag and enters the
+ordinary movement routine. Native `SuspendAndMove` preserves the assigned
+behavior, hold latch, wait counter and logical terminal cursor. The current
+movement, callback batch, relative integration and contact-latch cleanup still
+run. Both portions of the shared strategy schedule now read the authored
+actor flag directly and skip subsequent visits without retirement or hiding.
+Host-owned suspension remains an additional, independent gate.
+
+Verification passes 108 lowerer tests, 270 static path tests, 279 native path
+tests and seven scheduler tests in debug/release, plus freshness, architecture,
+static audit and application build. Tests cover zero-budget atomicity,
+callback-terminal rejection, both initial hold-latch values, ordinary/relative
+movement, callback completion, every scheduler split and live child traversal
+after suspension. Complete-root coverage remains **28 roots / 670 source
+commands / 661 native statements**. Production Game scheduler integration
+remains open; this checkpoint does not claim runtime gameplay completion.

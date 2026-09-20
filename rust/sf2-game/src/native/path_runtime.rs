@@ -167,7 +167,8 @@ impl PathRuntime {
     pub(super) fn validate_terminal_command(&self) -> Result<(), PathRuntimeError> {
         // Callbacks enter by a jump and return through their own continuation.
         // END's main-invocation exit is not a valid callback-root return;
-        // PATHHOLD would attempt a nested movement/callback invocation.
+        // PATHHOLD and suspension would attempt a nested movement/callback
+        // invocation.
         if self.active.is_some() {
             return Err(PathRuntimeError::InvalidTerminalCallback);
         }

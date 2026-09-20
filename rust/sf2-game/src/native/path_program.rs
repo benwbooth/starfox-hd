@@ -4915,6 +4915,116 @@ mod tests {
     }
 
     #[test]
+    fn suspension_runs_current_movement_and_callbacks_without_becoming_path_hold() {
+        use super::super::path_motion::PlayerDisplacement;
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::Control(ControlCommand::SuspendAndMove),
+            Statement::Control(ControlCommand::Return),
+        ]])
+        .unwrap();
+        for held in [false, true] {
+            for relative in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let original_random = random;
+                runtime.branch.invert_next = true;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.extension.path_state.hold_latched = held;
+                actor.extension.path_state.motion.relative_coordinates = relative;
+                actor.base.position.x = 100;
+                actor.base.velocity.x = 10;
+                actor.base.wait_timer = 199;
+                actor.base.contacts.new_contact_latched = true;
+                runtime
+                    .add_trigger(
+                        &mut objects,
+                        owner,
+                        Trigger {
+                            path: cursor(0, 1),
+                            kind: TriggerKind::Always,
+                            timer: 0,
+                        },
+                    )
+                    .unwrap();
+                let before = objects.clone();
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        0,
+                    ),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 0),
+                        executed: 0
+                    })
+                );
+                assert_eq!(objects, before);
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1,
+                    ),
+                    Ok(ControlStep::Movement)
+                );
+                let mut expected = before;
+                expected
+                    .get_mut(owner)
+                    .unwrap()
+                    .base
+                    .flags
+                    .strategy_suspended = true;
+                assert_eq!(objects, expected);
+                assert!(runtime
+                    .begin_movement(&mut objects, owner, PlayerDisplacement::default())
+                    .unwrap());
+                assert_eq!(
+                    objects.get(owner).unwrap().base.position.x,
+                    if relative { 100 } else { 110 }
+                );
+                assert_eq!(
+                    runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                    Ok(CallbackStep::Run(cursor(0, 1)))
+                );
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1,
+                    ),
+                    Ok(ControlStep::ResumeCallbacks)
+                );
+                assert_eq!(
+                    runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                    Ok(CallbackStep::Complete)
+                );
+                runtime
+                    .finish_movement(&mut objects, &mut [None, None])
+                    .unwrap();
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(
+                    actor.extension.relative_position.x,
+                    if relative { 10 } else { 0 }
+                );
+                assert_eq!(actor.base.behavior, Behavior::FollowPath);
+                assert_eq!(actor.base.path, Some(cursor(0, 0)));
+                assert_eq!(actor.base.wait_timer, 199);
+                assert_eq!(actor.extension.path_state.hold_latched, held);
+                assert!(actor.base.flags.strategy_suspended);
+                assert!(!actor.base.flags.remove_after_tick);
+                assert!(!actor.base.contacts.new_contact_latched);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, original_random);
+            }
+        }
+    }
+
+    #[test]
     fn radar_marker_assignment_preserves_other_actor_state_and_reaches_native_projection() {
         use super::super::path_appearance::AppearanceCommand;
         use super::super::radar::{RadarMarker, RadarView};

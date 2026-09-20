@@ -15,6 +15,9 @@ use super::{ObjectId, ObjectStore, PathCursor};
 pub enum ControlCommand {
     End,
     Hold,
+    /// `$7F:BC80`: finish this movement invocation, then skip future actor
+    /// strategy visits. Unlike PATHHOLD, retain the assigned behavior.
+    SuspendAndMove,
     Wait {
         duration: u8,
         next: PathCursor,
@@ -549,6 +552,11 @@ impl PathRuntime {
                 actor.base.behavior = super::Behavior::PathMovement;
                 return Ok(ControlStep::Movement);
             }
+            ControlCommand::SuspendAndMove => {
+                self.validate_terminal_command()?;
+                actor.base.flags.strategy_suspended = true;
+                return Ok(ControlStep::Movement);
+            }
             ControlCommand::WaitOne { next } => {
                 actor.base.path = Some(next);
                 return Ok(ControlStep::Movement);
@@ -1019,7 +1027,11 @@ mod tests {
             CallbackStep::Run(cursor(20))
         );
         let before = objects.get(owner).unwrap().clone();
-        for command in [ControlCommand::End, ControlCommand::Hold] {
+        for command in [
+            ControlCommand::End,
+            ControlCommand::Hold,
+            ControlCommand::SuspendAndMove,
+        ] {
             assert_eq!(
                 runtime.execute_control(&mut objects, owner, command),
                 Err(PathRuntimeError::InvalidTerminalCallback)

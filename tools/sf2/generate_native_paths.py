@@ -1030,11 +1030,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             parameters(0)
             immediate = "true" if name == "ImmediateNext" else "false"
             statement = f"Statement::Control(ControlCommand::Next {{ immediate: {immediate}, next: {next_cursor()} }})"
-        elif name in ("End", "PathHold"):
+        elif name in ("End", "PathHold", "SetFlag26Bit40AndHold"):
             parameters(0)
             if command.successors:
                 raise UnsupportedPath(f"{name} has outgoing edges at {command.address.label()}")
-            operation = "End" if name == "End" else "Hold"
+            operation = {
+                "End": "End", "PathHold": "Hold",
+                "SetFlag26Bit40AndHold": "SuspendAndMove",
+            }[name]
             statement = f"Statement::Control(ControlCommand::{operation})"
         else:
             raise UnsupportedPath(f"unsupported {name} at {command.address.label()}")

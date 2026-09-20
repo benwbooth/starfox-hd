@@ -26,6 +26,22 @@ class PathControlStaticTests(unittest.TestCase):
         offset = source_offset(address)
         self.assertEqual(self.rom[offset:offset + len(expected)], expected)
 
+    def test_suspension_enters_movement_and_both_strategy_passes_skip_it(self):
+        self.assert_source(0x7FBC80, "B5 26 09 40 95 26 4C DE 9D")
+        self.assert_source(0x7F9DDE, "A5 5E 09 18 85 5E 8F 3A 30 00 B5 0B")
+        # Callbacks run unconditionally, even with the suspension bit set.
+        self.assert_source(0x7F9E66, "B5 22 29 01 D0 04 5C 70 9E 7F 20 A8 9A")
+        # Exit cleanup clears contact bits, never the suspension bit.
+        self.assert_source(0x7F9F09, "B5 26 29 FD 95 26 B5 26 29 FB 95 26 6B")
+        # Each skip leads directly to the next live actor, bypassing both
+        # strategy execution (and its sound service) and immediate retirement.
+        self.assert_source(0x7F3519,
+            "B5 26 29 40 F0 04 5C 2F 35 7F 9C D6 12 22 96 35 7F "
+            "AD D6 12 D0 07 B4 00 BB D0 DD")
+        self.assert_source(0x7F3565,
+            "B5 26 29 40 F0 04 5C 7B 35 7F 9C D6 12 22 96 35 7F "
+            "AD D6 12 D0 07 B4 00 BB D0 E5")
+
     def test_forward_projection_host_rotation_order_and_byte_inputs(self):
         self.assert_source(0x0DB751, "E2 20 64 02 64 08 A9 7F 85 97")
         self.assert_source(0x0DB7C0, "B5 16 22 F0 3B 7F")
