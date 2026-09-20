@@ -3741,3 +3741,16 @@ Debug/release pass **989 unit tests and two integration tests**; **194 lowerer
 tests and 426 path-static tests**, exact regeneration, architecture guard,
 static inventory and app build pass (existing unused icon-function warnings
 only). No recorded gameplay or original instruction execution was used.
+
+### Complete authored boss-label data
+
+Offline lowering now accepts all **sixteen** health-display labels actually
+referenced by the extracted paths, including the four Star Wolf pilots. Each
+pointer is decoded to its exact immutable text; every byte and terminator is
+verified. Unknown pointers, interior-string pointers and changed strings fail
+lowering. Tests cross-check the complete set against source commands and mutate
+every label byte independently. This is data coverage, not completion of the
+encounters using those labels. Catalog totals remain unchanged at 139 roots
+and five helper paths. **195 lowerer tests**, exact regeneration and the
+architecture guard pass; the preceding native debug/release and app build
+results remain applicable because generated Rust is unchanged.

@@ -68,6 +68,34 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(statements, ['Statement::PreserveSceneContinuation { next: cursor(0, 1) }',
                                       'Statement::Control(ControlCommand::End)'])
 
+    def test_all_authored_health_display_labels_are_data_bound_and_unknown_pointers_fail(self):
+        expected = [(0x8941, 'ALGY'), (0x8946, 'PIGMA'), (0x894C, 'LEON'),
+                    (0x8951, 'WOLF'), (0x8956, 'QUEEN DRAGOON'), (0x8964, 'KAMANTIS'),
+                    (0x896D, 'H.FANTRON'), (0x8977, 'TEKTRON'), (0x897F, 'MIRAGE DRAGON'),
+                    (0x898D, 'KNIGHT NACK'), (0x8999, 'KICK GUNNER'), (0x89A5, 'HEAVY CHARIOT'),
+                    (0x89B3, 'QUEEN DIORAY'), (0x89C0, 'TAL KONG'), (0x89C9, 'SPACE BLADE'),
+                    (0x89D5, 'KING DODORA')]
+        actual_pointers = set()
+        for command in PathExtractor(self.rom).extract().commands:
+            raw = bytes.fromhex(command.raw_hex)
+            if command.opcode == 0xFC and raw[1:3] == b'\x77\xd7':
+                actual_pointers.add(int.from_bytes(raw[3:5], 'little'))
+        self.assertEqual(actual_pointers, {pointer for pointer, _ in expected})
+        for pointer, label in expected:
+            record = bytes([0xFC, 0x77, 0xD7]) + pointer.to_bytes(2, 'little')
+            self.assertEqual(self.lower_record(record.hex())[0],
+                             f'Statement::SetHealthDisplayLabel {{ label: "{label}", next: cursor(0, 1) }}')
+            # Every character and the terminator is certified, not just the start.
+            for delta in range(len(label) + 1):
+                changed = bytearray(self.rom)
+                changed[0x10000 + pointer + delta] ^= 1
+                changed[0x4F536:0x4F53C] = record + b'\x0f'
+                with self.assertRaisesRegex(UnsupportedPath, 'unexpected .* display label'):
+                    lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF536), 0)
+        for pointer in [0, 0x8940, 0x8942, 0x89D6, 0x89E1, 0xFFFF]:
+            with self.assertRaisesRegex(UnsupportedPath, 'unreviewed health display label'):
+                self.lower_record((bytes([0xFC, 0x77, 0xD7]) + pointer.to_bytes(2, 'little')).hex())
+
     def test_completion_word_import_export_reject_unreviewed_neighbors_and_byte_views(self):
         self.assertIn('Statement::ImportObjectiveCompletion { destination: WordField::ScriptValue', self.lower_record('7b a3 43')[0])
         self.assertIn('Statement::ExportObjectiveCompletion { source: WordOperand::Actor(WordField::ScriptValue)', self.lower_record('80 a3 43')[0])

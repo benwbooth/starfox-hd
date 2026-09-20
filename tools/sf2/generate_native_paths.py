@@ -1694,7 +1694,18 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             low, high, value_low, value_high = parameters(4)
             if (low | high << 8) == 0xD777:
                 label_pointer = value_low | value_high << 8
-                labels = {0x8999: b'KICK GUNNER\0', 0x89A5: b'HEAVY CHARIOT\0', 0x89C0: b'TAL KONG\0'}
+                # All sixteen authored boss/Star Wolf labels, kept as immutable
+                # data. A text pointer is never a native callback identity.
+                labels = {
+                    0x8941: b'ALGY\0', 0x8946: b'PIGMA\0', 0x894C: b'LEON\0',
+                    0x8951: b'WOLF\0', 0x8956: b'QUEEN DRAGOON\0',
+                    0x8964: b'KAMANTIS\0', 0x896D: b'H.FANTRON\0',
+                    0x8977: b'TEKTRON\0', 0x897F: b'MIRAGE DRAGON\0',
+                    0x898D: b'KNIGHT NACK\0', 0x8999: b'KICK GUNNER\0',
+                    0x89A5: b'HEAVY CHARIOT\0', 0x89B3: b'QUEEN DIORAY\0',
+                    0x89C0: b'TAL KONG\0', 0x89C9: b'SPACE BLADE\0',
+                    0x89D5: b'KING DODORA\0',
+                }
                 if label_pointer not in labels:
                     raise UnsupportedPath(f'unreviewed health display label at {command.address.label()}')
                 start = source_offset(0x030000 | label_pointer)
