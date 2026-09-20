@@ -19,11 +19,13 @@ from extract_path import DEFAULT_ROM, PathAddress, PathCommand, PathExtractor
 from path_semantics import PATH_SEMANTICS
 from extract_shapes import SHAPE_HEADER_START, SHAPE_HEADER_SIZE, SHAPE_HEADER_COUNT
 from dump_runtime_routine import source_offset
+from extract_map import MapAddress, MapExtractor
 
 REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("PLANETARY_CORE_DEFENDER", PathAddress(0x5E68)),
     ("PLANETARY_CORE_OBJECTIVE", PathAddress(0x5E1D)),
     ("FOUR_TURRET_ENCOUNTER", PathAddress(0xF136)),
     ("MULTIPART_NODE_OBJECTIVE", PathAddress(0x546C)),
@@ -653,7 +655,8 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # core death clone immediately enters the normal death service.
     if (shape, path) == (0xEB6C, PathAddress(0x5EEB)):
         return index, "ObjectKind::Enemy"
-    if (shape, path) in ((0xF314, PathAddress(0x5EC4)), (0xEB6C, PathAddress(0x6002))):
+    if (shape, path) in ((0xF314, PathAddress(0x5EC4)), (0xEB6C, PathAddress(0x6002)),
+                        (0xF34C, PathAddress(0x6002)), (0xF330, PathAddress(0x7F78))):
         return index, "ObjectKind::Effect"
     # Launch-transition camera helper, exhaust and transient shield sprite.
     if (index, path) in ((0, PathAddress(0xDCB1)), (19, PathAddress(0xF32F)),
@@ -2061,6 +2064,30 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
     return indices[root], statements
 
 
+def verified_map_spawn_installer(rom: bytes, root: PathAddress) -> bool:
+    # Map-created path actors are not discovered by the path initializer's
+    # immediate stores. Admit this independent entry only through its exact
+    # decoded map spawn commands, including mesh, position and heading.
+    if root != PathAddress(0x5E68):
+        return False
+    expected = {
+        0x2B4B: '90200460ff201c404cf3685e',
+        0x2B57: '90e0fb60ff201c804cf3685e',
+        0x2BA0: '90200460ffe013004cf3685e',
+        0x2BAC: '90e0fb60ffe013c04cf3685e',
+        0x4FBC: '90201460ffe0fb004cf3685e',
+        0x4FC8: '90201460ff2004404cf3685e',
+        0x5270: '90200260ffe0e7004cf3685e',
+        0x527C: '90e0f960ffe0e7c04cf3685e',
+        0x5288: '90200260ff20f0404cf3685e',
+        0x5294: '90e0f960ff20f0804cf3685e',
+    }
+    commands = {c.address: c.raw_hex for c in MapExtractor(rom).extract().commands}
+    if any(commands.get(MapAddress(5, offset)) != raw for offset, raw in expected.items()):
+        raise UnsupportedPath('unverified planetary defender map spawn installer')
+    return True
+
+
 def generate(rom: bytes, roots=ROOTS) -> str:
     extractor = PathExtractor(rom)
     discovered = set(extractor.discover_roots())
@@ -2073,7 +2100,7 @@ def generate(rom: bytes, roots=ROOTS) -> str:
     indices = {address: index for index, address in enumerate(addresses)}
     unique_statements = {}
     for name, root in roots:
-        if root not in discovered:
+        if root not in discovered and not verified_map_spawn_installer(rom, root):
             installer = CHILD_INSTALLERS.get(root)
             if installer is None or installer[0] not in discovered:
                 raise UnsupportedPath(f"{name} has no verified source installer")

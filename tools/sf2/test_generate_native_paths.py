@@ -21,6 +21,33 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_map_spawned_core_defender_closes_head_gate_beam_and_progress_publication(self):
+        from generate_native_paths import verified_map_spawn_installer
+        root = PathAddress(0x5E68)
+        extractor = PathExtractor(self.rom)
+        self.assertNotIn(root, extractor.discover_roots())
+        self.assertTrue(verified_map_spawn_installer(self.rom, root))
+        self.assertFalse(verified_map_spawn_installer(self.rom, PathAddress(0x5E69)))
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 85)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         'f4a844b88662cb1742649c6d6023ba7d90dd711aa2aa5fc1520b2992533f18aa')
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertEqual(len(statements), 85)
+        mapped = dict(zip((c.address.offset for c in commands), statements))
+        self.assertIn('TriggerKind::PlayerContact', mapped[0x5E80])
+        self.assertIn('part: BytePart::High', mapped[0x5EBB])
+        self.assertIn('RetireChild { number: 11 }', mapped[0x5EC1])
+        for shape, path, index in [(0xF330, 0x7F78, 499), (0xF34C, 0x6002, 500)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, 'ObjectKind::Effect'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+        for offset in [0x2AB4C, 0x2AB54, 0x2AB55, 0x2ABAC, 0x2CFBD, 0x2D299]:
+            changed = bytearray(self.rom)
+            changed[offset] ^= 1
+            with self.assertRaises(UnsupportedPath):
+                generate(bytes(changed), (('CORE_DEFENDER', root),))
+
     def test_planetary_core_closes_shield_health_phases_and_live_count_decrements(self):
         from generate_native_paths import core_beam_coordinates
         extractor = PathExtractor(self.rom)

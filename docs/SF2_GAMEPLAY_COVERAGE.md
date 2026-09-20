@@ -3571,3 +3571,41 @@ icon-function warnings only). No recorded gameplay or original CPU/GSU
 execution was used. Map-installed defenders, scene scheduling/spawn
 integration, the previous cleanup diagnostic and whole-game completion
 remain separate work; these passing component checks do not establish them.
+
+### Map-installed planetary core defenders
+
+The `$44:5E68` defender's complete **85-command** graph is now lowered,
+adding **35 unique statements/source commands**. Totals are **139 roots,
+4241 source commands and 4197 typed statements**. This entry is installed
+by ten decoded map spawn commands, not the immediate path stores used by
+the original root scanner. Generation verifies those exact map records;
+it does not admit arbitrary undiscovered path offsets.
+
+The defender creates its decorative head once, waits for live progress
+255, becomes collidable, waits twenty visits plus a separate one-visit
+yield, then draws one random byte per firing retry. Its death callback is
+player-attributed contact, not the new-contact latch. It retains the signed
+wrapped health threshold, replaces its mesh, finds the nearest core
+controller and increments only that controller's progress high byte.
+Its independent death clone uses the existing death-marking service.
+
+Five native tests cover every live progress value, random seed, health
+byte and controller progress-high byte; head initialization; firing waits;
+nearest-controller publication; and the actual two-/four-defender sequence
+opening the controller's shield gate. Static tests bind the map spawns,
+gate, callback, high-byte publication and cleanup to original bytes.
+
+**Additional cleanup limitation:** death before a beam is created reaches
+the source's unguarded request to retire child eleven. Native execution
+reports `MissingChild` there. The preceding mesh/spawn/progress changes
+remain applied, and retrying the same statement does not repeat them.
+With a beam present, only that requested child is marked for retirement;
+the decorative head is retained. This is a diagnosed source null-target
+case, not a completed native substitute for writing through that null.
+
+Debug/release each pass **975 unit tests and two integration tests**;
+**189 lowerer tests and 417 path-static tests**, exact regeneration, static
+inventory, architecture guard and app build pass (existing unused
+icon-function warnings only). No original execution or recorded gameplay
+was used. Full scene scheduling, map/spawn integration and whole-game
+completion remain open, along with the explicit cleanup limitations.
