@@ -324,6 +324,10 @@ pub enum Statement {
     RefreshSelectedChargeAttachment {
         next: PathCursor,
     },
+    AttachedEffectMotion {
+        command: super::path_steering::AttachedEffectMotion,
+        next: PathCursor,
+    },
     PlayerControl {
         command: super::path_player_control::PlayerControlCommand,
         next: PathCursor,
@@ -1216,6 +1220,14 @@ impl PathRuntime {
                 ),
                 Statement::Mutate { mutation, next } => {
                     self.execute_mutation(objects, owner, mutation, next)
+                }
+                Statement::AttachedEffectMotion { command, next } => {
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated attached effect owner");
+                    command.apply(actor);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
                 }
                 Statement::Wait { duration, next } => {
                     let duration = duration.read(actor);
@@ -2802,6 +2814,58 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn attached_motion_dispatch_is_atomic_immediate_and_keeps_wait_repeat_ifnot_and_random() {
+        use super::super::path_steering::AttachedEffectMotion;
+        for command in [
+            AttachedEffectMotion::Settle,
+            AttachedEffectMotion::Center,
+            AttachedEffectMotion::Tumble,
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            let original_random = random;
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.wait_timer = 181;
+            actor.extension.path_state.repeat_counter = 43;
+            actor.extension.relative_position = super::super::Vector3 {
+                x: -32768,
+                y: 32767,
+                z: -199,
+            };
+            actor.extension.path_state.script_value = 40;
+            actor.extension.path_state.motion_phase = 0xA7F0;
+            let before = objects.clone();
+            let catalog = PathCatalog::new(vec![vec![Statement::AttachedEffectMotion {
+                command,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 0),
+                    executed: 0
+                })
+            );
+            assert_eq!(objects, before);
+            let mut expected = before;
+            let actor = expected.get_mut(owner).unwrap();
+            command.apply(actor);
+            actor.base.path = Some(cursor(0, 1));
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
         }
     }
 

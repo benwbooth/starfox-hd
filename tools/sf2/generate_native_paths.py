@@ -208,6 +208,7 @@ def word_field(variable: int) -> str:
         0x32: "WordField::Velocity(Axis::X)",
         0x34: "WordField::Velocity(Axis::Y)",
         0x36: "WordField::Velocity(Axis::Z)",
+        0x87: "WordField::DepthOffset",
         0x8E: "WordField::RelativePosition(Axis::X)",
         0x90: "WordField::RelativePosition(Axis::Y)",
         0x92: "WordField::RelativePosition(Axis::Z)",
@@ -245,7 +246,7 @@ def byte_field(variable: int) -> str:
         return fields[variable]
     # Each pair aliases one actual typed word; it must not create a separate
     # particle counter or independent byte shadow of the motion phase.
-    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1, 0xA3):
+    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x87, 0x8E, 0x90, 0x92, 0xA1, 0xA3):
         if variable in (base, base + 1):
             part = "Low" if variable == base else "High"
             return f"ByteField::WordPart {{ field: {word_field(base)}, part: BytePart::{part} }}"
@@ -449,6 +450,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF391): "LockForLinkedMode",
                 PathAddress(0xF39E): "FollowPrimaryPosition",
             }
+            attached_motion = {
+                PathAddress(0xF3F0): "Settle",
+                PathAddress(0xF45B): "Tumble",
+                PathAddress(0xF46E): "Center",
+            }
+            if command.address in attached_motion:
+                parameters(0)
+                statement = f"Statement::AttachedEffectMotion {{ command: super::path_steering::AttachedEffectMotion::{attached_motion[command.address]}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if command.address == PathAddress(0xF313):
                 parameters(0)
                 statement = f"Statement::Appearance {{ command: AppearanceCommand::SuppressDeathEffects(true), next: {next_cursor()} }}"

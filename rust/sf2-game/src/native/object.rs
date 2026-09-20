@@ -1014,7 +1014,9 @@ pub struct ObjectExtension {
     pub surface_contact: super::collision_surface::ActorSurfaceContact,
     /// Scene-owned snapshot; retirement detaches it before contact callbacks.
     pub scene_proxy: Option<super::scene_proxy::SceneProxyId>,
-    pub depth_offset: u8,
+    /// Authored depth word (source 1CC8/9). Render publication and sprite
+    /// colour use only its low byte; path arithmetic retains both bytes.
+    pub depth_offset: u16,
     pub color_frame: u8,
     pub animation_frame: u8,
     pub material_set: Option<MaterialSetId>,

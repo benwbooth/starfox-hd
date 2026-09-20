@@ -58,6 +58,7 @@ impl Axis {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WordField {
+    DepthOffset,
     MotionPhase,
     ScriptValue,
     Position(Axis),
@@ -68,6 +69,7 @@ pub enum WordField {
 impl WordField {
     pub fn read(self, actor: &Object) -> u16 {
         (match self {
+            Self::DepthOffset => actor.extension.depth_offset as i16,
             Self::MotionPhase => actor.extension.path_state.motion_phase as i16,
             Self::ScriptValue => actor.extension.path_state.script_value as i16,
             Self::Position(axis) => axis.get(actor.base.position),
@@ -78,6 +80,7 @@ impl WordField {
 
     pub fn write(self, actor: &mut Object, value: u16) {
         match self {
+            Self::DepthOffset => actor.extension.depth_offset = value,
             Self::MotionPhase => actor.extension.path_state.motion_phase = value,
             Self::ScriptValue => actor.extension.path_state.script_value = value,
             Self::Position(axis) => axis.set(&mut actor.base.position, value as i16),
@@ -406,6 +409,31 @@ mod tests {
 
     fn actor() -> Object {
         Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)
+    }
+
+    #[test]
+    fn depth_word_and_byte_views_alias_without_touching_animation_channels() {
+        let mut actual = actor();
+        let low = ByteField::WordPart {
+            field: WordField::DepthOffset,
+            part: BytePart::Low,
+        };
+        let high = ByteField::WordPart {
+            field: WordField::DepthOffset,
+            part: BytePart::High,
+        };
+        for value in 0..=u16::MAX {
+            WordField::DepthOffset.write(&mut actual, value);
+            assert_eq!(WordField::DepthOffset.read(&actual), value);
+            assert_eq!(low.read(&actual), value as u8);
+            assert_eq!(high.read(&actual), (value >> 8) as u8);
+            low.write(&mut actual, !(value as u8));
+            assert_eq!(actual.extension.depth_offset, value ^ 255);
+            high.write(&mut actual, !((value >> 8) as u8));
+            assert_eq!(actual.extension.depth_offset, !value);
+        }
+        actual.extension.depth_offset = 0;
+        assert_eq!(actual, actor());
     }
 
     #[test]

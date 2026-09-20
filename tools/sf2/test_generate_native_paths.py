@@ -148,6 +148,27 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises((UnsupportedPath, ValueError)):
                 lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF48B), 0)
 
+    def test_attached_effect_inline_helpers_require_complete_signatures_and_exact_continuations(self):
+        for address, continuation, action in ((0xF3F0, 0xF3FB, "Settle"),
+                                               (0xF45B, 0xF466, "Tumble"),
+                                               (0xF46E, 0xF479, "Center")):
+            # Isolate each reviewed helper at its real authored location.
+            # The replacement terminator is synthetic, not a complete-root claim.
+            isolated = bytearray(self.rom)
+            isolated[0x40000 + continuation] = 0x0F
+            entry, statements = lower_graph(PathExtractor(bytes(isolated)), PathAddress(address), 0)
+            self.assertEqual(entry, 0)
+            self.assertEqual(statements, [
+                f"Statement::AttachedEffectMotion {{ command: super::path_steering::AttachedEffectMotion::{action}, next: cursor(0, 1) }}",
+                "Statement::Control(ControlCommand::End)",
+            ])
+            for offset in range(address + 1, continuation):
+                for bit in range(8):
+                    changed = bytearray(isolated)
+                    changed[0x40000 + offset] ^= 1 << bit
+                    with self.assertRaises(ValueError):
+                        lower_graph(PathExtractor(bytes(changed)), PathAddress(address), 0)
+
     def test_three_homing_projectile_roots_retain_full_shared_callbacks_and_effect(self):
         for address, count in [(0xEE2D, 82), (0xEE3B, 78), (0xEE4C, 82)]:
             extractor = PathExtractor(self.rom)
@@ -1374,6 +1395,16 @@ class NativePathGenerationTests(unittest.TestCase):
         for field in (word_field, byte_field):
             with self.assertRaises(UnsupportedPath):
                 field(0x80)
+
+    def test_depth_word_and_byte_views_stop_before_animation_channels(self):
+        self.assertEqual(word_field(0x87), "WordField::DepthOffset")
+        for variable, part in ((0x87, "Low"), (0x88, "High")):
+            self.assertEqual(byte_field(variable),
+                             f"ByteField::WordPart {{ field: WordField::DepthOffset, part: BytePart::{part} }}")
+            self.assertIn(byte_field(variable), self.lower_record(f"0b 03 {variable:02x}")[0])
+        with self.assertRaises(UnsupportedPath):
+            word_field(0x88)
+        self.assertIn("WordField::DepthOffset", self.lower_record("0c 03 00 87")[0])
 
     def test_animation_byte_operands_alias_controls_without_authorizing_word_views(self):
         for variable, channel in ((0x89, "Color"), (0x8A, "Shape")):

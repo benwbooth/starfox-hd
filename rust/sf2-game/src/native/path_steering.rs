@@ -8,6 +8,51 @@ const LINKED_CHASE_DIVISOR: i8 = 8;
 const OFFSET_CHASE_DIVISOR: i8 = 8;
 const AIM_OFFSET_WORLD_SCALE: i16 = 16;
 
+/// Attached-effect inline helpers `$06:FAAE..FB81`. These change authored
+/// relative coordinates only; the attachment service publishes world pose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachedEffectMotion {
+    Settle,
+    Center,
+    Tumble,
+}
+
+impl AttachedEffectMotion {
+    pub fn apply(self, actor: &mut super::Object) {
+        const SETTLED_FORWARD_OFFSET: u16 = 200;
+        const TUMBLE_PITCH_STEP: u8 = 8;
+        const TUMBLE_POSITION_STEP: i16 = 10;
+        let chase = |current: i16, target: u16| {
+            super::path_fields::chase_word(current as u16, target) as i16
+        };
+        let position = &mut actor.extension.relative_position;
+        match self {
+            Self::Settle => {
+                position.z = chase(position.z, SETTLED_FORWARD_OFFSET);
+                position.z = chase(position.z, SETTLED_FORWARD_OFFSET);
+                position.y = chase(position.y, 0);
+                position.y = chase(position.y, 0);
+            }
+            Self::Center => {
+                position.x = chase(position.x, actor.extension.path_state.script_value);
+                position.z = chase(position.z, 0);
+                position.z = chase(position.z, 0);
+                position.y = chase(position.y, 0);
+            }
+            Self::Tumble => {
+                let rotation = &mut actor.extension.relative_rotation;
+                let turn = actor.extension.path_state.motion_phase as u8;
+                rotation.pitch =
+                    Angle::from_units(rotation.pitch.units().wrapping_sub(TUMBLE_PITCH_STEP));
+                position.y = position.y.wrapping_add(TUMBLE_POSITION_STEP);
+                position.z = position.z.wrapping_sub(TUMBLE_POSITION_STEP);
+                rotation.roll = Angle::from_units(rotation.roll.units().wrapping_add(turn));
+                rotation.yaw = Angle::from_units(rotation.yaw.units().wrapping_add(turn));
+            }
+        }
+    }
+}
+
 /// Authored signed-byte displacement in the selected actor's yaw frame.
 /// The offline lowerer folds its complete immediate preparation sequence
 /// into this value; no source scratch locations survive in native state.
@@ -342,6 +387,108 @@ pub fn face(
 mod tests {
     use super::*;
     use crate::{Behavior, Object, ObjectKind, ShapeId, Vector3};
+
+    fn source_attached_chase(current: i16, target: i16) -> i16 {
+        let mut delta = i32::from(target.wrapping_sub(current));
+        if delta == 0 {
+            return current;
+        }
+        if delta > 0 && delta < 8 {
+            delta = 8;
+        }
+        if delta < 0 && delta > -8 {
+            delta = -8;
+        }
+        for _ in 0..3 {
+            let discarded = delta & 1;
+            delta >>= 1;
+            if delta < 0 {
+                delta += discarded;
+            }
+        }
+        (i32::from(current) + delta) as i16
+    }
+
+    #[test]
+    fn attached_effect_chases_preserve_sequential_rounding_and_unrelated_state() {
+        for command in [AttachedEffectMotion::Settle, AttachedEffectMotion::Center] {
+            let mut actual = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
+            actual.base.position = Vector3 {
+                x: 100,
+                y: -500,
+                z: 300,
+            };
+            actual.base.velocity = Vector3 {
+                x: 17,
+                y: -23,
+                z: 49,
+            };
+            actual.extension.relative_rotation.pitch = Angle::from_units(199);
+            actual.extension.path_state.motion_phase = 0xABCD;
+            for value in 0..=u16::MAX {
+                actual.extension.relative_position = Vector3 {
+                    x: value as i16,
+                    y: (!value) as i16,
+                    z: value.rotate_left(5) as i16,
+                };
+                actual.extension.path_state.script_value = value.rotate_left(7);
+                let mut expected = actual.clone();
+                let target = expected.extension.path_state.script_value as i16;
+                let point = &mut expected.extension.relative_position;
+                match command {
+                    AttachedEffectMotion::Settle => {
+                        point.z = source_attached_chase(source_attached_chase(point.z, 200), 200);
+                        point.y = source_attached_chase(source_attached_chase(point.y, 0), 0);
+                    }
+                    AttachedEffectMotion::Center => {
+                        point.x = source_attached_chase(point.x, target);
+                        point.z = source_attached_chase(source_attached_chase(point.z, 0), 0);
+                        point.y = source_attached_chase(point.y, 0);
+                    }
+                    AttachedEffectMotion::Tumble => unreachable!(),
+                }
+                command.apply(&mut actual);
+                assert_eq!(actual, expected, "{command:?}, initial word {value}");
+            }
+        }
+    }
+
+    #[test]
+    fn attached_effect_tumble_wraps_each_axis_and_reads_only_the_phase_low_byte() {
+        let mut actual = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
+        actual.base.position = Vector3 {
+            x: 13,
+            y: 17,
+            z: -100,
+        };
+        actual.base.velocity = Vector3 {
+            x: -25,
+            y: 47,
+            z: 86,
+        };
+        for value in 0..=u16::MAX {
+            actual.extension.path_state.motion_phase = value;
+            actual.extension.relative_position = Vector3 {
+                x: 43,
+                y: value as i16,
+                z: (!value) as i16,
+            };
+            actual.extension.relative_rotation = Rotation {
+                pitch: Angle::from_units(value as u8),
+                yaw: Angle::from_units((value >> 8) as u8),
+                roll: Angle::from_units(!((value >> 8) as u8)),
+            };
+            let mut expected = actual.clone();
+            let angles = &mut expected.extension.relative_rotation;
+            angles.pitch = Angle::from_units((u16::from(angles.pitch.units()) + 248) as u8);
+            angles.yaw = Angle::from_units((u16::from(angles.yaw.units()) + (value & 255)) as u8);
+            angles.roll = Angle::from_units((u16::from(angles.roll.units()) + (value & 255)) as u8);
+            expected.extension.relative_position.y = (i32::from(value as i16) + 10) as i16;
+            expected.extension.relative_position.z = (i32::from(!value as i16) - 10) as i16;
+            AttachedEffectMotion::Tumble.apply(&mut actual);
+            assert_eq!(actual, expected);
+        }
+    }
 
     fn fixture() -> (ObjectStore, ObjectId, ObjectId, FacingTargets) {
         let mut objects = ObjectStore::new();

@@ -170,7 +170,7 @@ impl AnimationControl {
 /// texture Y, visibility and all other flags remain untouched.
 pub fn set_sprite(actor: &mut Object, color: u8, size: u8) {
     actor.base.flags.scaled_sprite = true;
-    actor.extension.depth_offset = color;
+    actor.extension.depth_offset = (actor.extension.depth_offset & 0xFF00) | u16::from(color);
     actor.extension.texture_scroll_x = size;
 }
 
@@ -364,5 +364,21 @@ mod tests {
         actor.extension.depth_offset = before.extension.depth_offset;
         actor.extension.texture_scroll_x = before.extension.texture_scroll_x;
         assert_eq!(actor, before);
+    }
+
+    #[test]
+    fn sprite_colour_preserves_the_authored_depth_high_byte() {
+        let mut actor = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Effect);
+        for high in 0..=u8::MAX {
+            for color in 0..=u8::MAX {
+                actor.extension.depth_offset = u16::from_le_bytes([!color, high]);
+                set_sprite(&mut actor, color, !color);
+                assert_eq!(
+                    actor.extension.depth_offset,
+                    u16::from_le_bytes([color, high])
+                );
+                assert_eq!(actor.extension.texture_scroll_x, !color);
+            }
+        }
     }
 }

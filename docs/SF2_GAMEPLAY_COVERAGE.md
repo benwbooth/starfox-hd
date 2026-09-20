@@ -1390,3 +1390,31 @@ batch contains two `HostileLaser` events before `RadioMessageClose`, while the
 test expects only the close cue. This baseline failure is not counted as a
 passing whole-library verification and is unchanged by this path port.
 No recorded gameplay, CPU execution or graphics-coprocessor execution was used.
+
+### Attached-effect motion and depth primitives
+
+The source inline helpers `$06:FAAE..FB81` now have typed Rust actions and
+reviewed lowering for `$44:F3F0`, `$44:F45B` and `$44:F46E`. Settle chases
+relative Z toward 200 twice and relative Y toward zero twice. Center chases
+relative X toward the live script word once, Z toward zero twice and Y toward
+zero once. Each chase retains its own wrapped difference and toward-zero
+rounding; two calls are not combined into a single larger step. Tumble wraps
+relative pitch by -8, relative Y/Z by +10/-10, and yaw/roll by phase low byte.
+These helpers do not update world pose, velocity, player selection or randomness.
+
+Depth operands now share the genuine sixteen-bit authored field: word 87 and
+bytes 87/88 alias one value, independently of the adjacent animation controls.
+Sprite colour overwrites only the low byte, and render publication truncates
+to that byte. Exhaustive word/byte tests and the Game render-boundary test
+cover retained high bytes, signed wrapping and unrelated-state preservation.
+Dispatcher tests cover immediate continuation, zero-budget atomicity and
+preservation of wait/repeat/IFNOT/random state. Static tests pin all three
+helper bodies, the chase leaf and returns, operand mapping, and byte-only
+sprite/render consumers; every bit of each inline signature is mutation-tested.
+
+Verification: 104 lowerer tests, 260 static path tests, 273 native path tests
+in debug and release, render-boundary test, catalog freshness, architecture
+check and application build pass. This is a primitive checkpoint, not another
+complete effect root: coverage remains **27 complete roots / 604 source
+commands / 595 native statements**. The parent effect's shared action gate,
+recovery requests, altitude input and shape metadata still require review.

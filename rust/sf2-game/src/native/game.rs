@@ -20182,7 +20182,7 @@ impl Game {
                     color_frame: object.extension.color_frame,
                     explosion_frame: object.base.explosion_timer,
                 },
-                depth_offset: object.extension.depth_offset,
+                depth_offset: object.extension.depth_offset as u8,
                 texture_scroll_x: object.extension.texture_scroll_x,
                 texture_scroll_y: object.extension.texture_scroll_y,
                 flags: RenderFlags {
@@ -23976,6 +23976,7 @@ mod tests {
             command_index: 0,
         };
         actor.base.path = Some(cursor);
+        actor.extension.depth_offset = 0xA7FF;
         let owner = game.state.objects.allocate(actor).unwrap();
         let mut runtime = super::super::path_runtime::PathRuntime::default();
         assert_eq!(
@@ -23987,6 +23988,10 @@ mod tests {
         assert!(entry.flags.scaled_sprite);
         assert_eq!(entry.depth_offset, 5);
         assert_eq!(entry.texture_scroll_x, 200);
+        assert_eq!(
+            game.state.objects.get(owner).unwrap().extension.depth_offset,
+            0xA705
+        );
     }
 
     #[test]
