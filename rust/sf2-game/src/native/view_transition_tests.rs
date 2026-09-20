@@ -14,6 +14,39 @@ fn cursor(path: u16, command_index: u16) -> PathCursor {
 }
 
 #[test]
+fn mode_changes_only_its_bit_and_drives_initializer_and_warning_views() {
+    for flags in 0..=u16::MAX {
+        for enabled in [false, true] {
+            let mut mode = ViewTransitionMode { flags };
+            mode.set_active(enabled);
+            assert_eq!(mode.flags, if enabled { flags | 2 } else { flags & !2 });
+            assert_eq!(mode.active(), enabled);
+            let defaults = mode.spawn_defaults(crate::ObjectSpawnDefaults {
+                group: flags as u8,
+                run_when_paused: !enabled,
+            });
+            assert_eq!(
+                defaults,
+                crate::ObjectSpawnDefaults {
+                    group: flags as u8,
+                    run_when_paused: enabled
+                }
+            );
+            let mut expected = crate::proximity_warning::WarningControl {
+                globally_disabled: !enabled,
+                movement_mode: flags as u8,
+                inhibited: flags & 4 != 0,
+                transition_mode: (flags >> 8) as u8,
+                transition_ready: flags & 8 != 0,
+            };
+            let actual = mode.warning_control(expected);
+            expected.globally_disabled = enabled;
+            assert_eq!(actual, expected);
+        }
+    }
+}
+
+#[test]
 fn cleanup_matches_every_class_and_preserves_non_target_state_and_pool() {
     for class in 0..=u8::MAX {
         for flags in 0..64 {

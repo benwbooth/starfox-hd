@@ -52,6 +52,11 @@ class ViewTransitionStaticTests(unittest.TestCase):
             'c2209838e9616aa8e220c2209848e220a9082260237fc2206899626a'
             'e220a9f820b8a34ce8ca')
 
+    def test_paired_cues_always_route_via_primary_pointer_not_selected_marker(self):
+        self.assert_source(0x7FA3B8, '5a8d311c9c321cacc3122039a47a60')
+        self.assert_source(0x7FA439, 'c220ad311cdaae161dccc312f008c03f03f0030900809df61c')
+        self.assert_source(0x7FCAE8, 'e220c220f62be2204c757e')
+
 
 if __name__ == '__main__':
     unittest.main()

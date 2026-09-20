@@ -3931,3 +3931,33 @@ ownership as well as actor fields.
 and app build pass. The reviewed scene, view-save, reflection-shape and impact
 records now share auxiliary-table accounting. C2/C3 dispatch remains the next
 dependency; catalog totals are still 140 roots and five helpers.
+
+### Paired scripted-view command dispatch
+
+Source opcodes C2/C3 now lower to one paired native view-transition action.
+Enable changes only the shared mode bit and owner's pause exemption, runs
+the class-based projectile cleanup, then captures the fixed primary view's
+typed base fields into owned program storage. Disable clears the mode and
+owner exemption, restores/frees a present save, and accepts an absent entry
+without requiring a view. The ordinary path advance follows restoration: an
+owner/view alias therefore uses the saved enable command's continuation.
+
+Both cues route directly to the primary player with a zero parameter, not
+through selected-player or marker/distance routing. Missing mode, audio or
+required fixed-view inputs fault before changes; allocation failures retain
+the source-ordered mode/cleanup prefix and any newly owned unpublished save.
+Neither action consumes IFNOT or randomness. The shared mode preserves all
+other word bits. Fresh path spawns and weapon/reflection launch inputs now
+read its pause exemption live, including when enable/disable and spawning
+happen in the same invocation. A typed adapter exposes the same bit to warning
+controls; shipping world-service assembly is still separate work.
+
+Tests cover all 65,536 mode words, fixed versus selected/live identities,
+base-only restoration with newer extension records, primary audio routing,
+missing inputs, no-save disable, owner/view aliasing, both allocation-failure
+stages and live spawn defaults. 1,016 native unit tests and two integration
+tests pass in debug and release; 198 lowerer tests, 437 path-static tests,
+exact regeneration, architecture guard, static inventory and app build pass.
+The catalog remains 140 roots plus five helpers. The shared exit's next
+unsupported command is fixed-view chase ($7F:B376), whose word-sized camera
+angles and view-distance interpretation still need explicit typed handling.

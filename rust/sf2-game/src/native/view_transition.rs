@@ -15,6 +15,45 @@ use super::{Object, ObjectStore, Vector3};
 
 const HOSTILE_PROJECTILE_CLASSES: ExclusionGroups = ExclusionGroups::from_authored_class(0x50);
 const VIEW_BASE_COST: u16 = 63;
+const SCRIPTED_VIEW_MODE: u16 = 0x0002;
+
+/// Shared execution-mode word ($1B84). Only the scripted-view bit is changed
+/// by C2/C3; the other mode bits and companion byte remain live. This mode
+/// determines fresh actors' pause exemption and suppresses nearby warnings.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ViewTransitionMode {
+    pub flags: u16,
+}
+
+impl ViewTransitionMode {
+    pub const fn active(self) -> bool {
+        self.flags & SCRIPTED_VIEW_MODE != 0
+    }
+
+    pub fn set_active(&mut self, active: bool) {
+        if active {
+            self.flags |= SCRIPTED_VIEW_MODE;
+        } else {
+            self.flags &= !SCRIPTED_VIEW_MODE;
+        }
+    }
+
+    pub fn spawn_defaults(
+        self,
+        mut defaults: super::ObjectSpawnDefaults,
+    ) -> super::ObjectSpawnDefaults {
+        defaults.run_when_paused = self.active();
+        defaults
+    }
+
+    pub fn warning_control(
+        self,
+        mut control: super::proximity_warning::WarningControl,
+    ) -> super::proximity_warning::WarningControl {
+        control.globally_disabled = self.active();
+        control
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ViewSaveError {

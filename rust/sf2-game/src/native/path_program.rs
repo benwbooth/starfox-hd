@@ -154,11 +154,17 @@ mod four_panel_tests;
 #[cfg(test)]
 #[path = "path_protection_override_tests.rs"]
 mod protection_override_tests;
+#[path = "path_view_transition.rs"]
+mod view_transition_commands;
+#[cfg(test)]
+#[path = "path_view_transition_tests.rs"]
+mod view_transition_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
+    pub view_transition_mode: Option<&'a mut super::view_transition::ViewTransitionMode>,
     pub handoff: Option<&'a mut super::path_scene_state::EncounterHandoff>,
     pub camera_focus: Option<&'a mut super::path_scene_state::EncounterCameraFocus>,
     pub camera_tracking: Option<&'a mut super::path_scene_state::CameraTrackingTarget>,
@@ -239,6 +245,16 @@ pub struct PathWorld<'a> {
     pub random: &'a mut RandomState,
     /// Shared strategy/animation clock (C4), also read by authored clock gates.
     pub animation_clock: u8,
+}
+
+impl PathWorld<'_> {
+    /// A transition may change the mode during this same invocation. Keep
+    /// allocation group observations, but read pause exemption live whenever
+    /// the shared mode is present rather than reusing its entry snapshot.
+    fn spawn_defaults(&self) -> Option<super::ObjectSpawnDefaults> {
+        self.spawn_defaults.map(|defaults| self.view_transition_mode.as_deref()
+            .map_or(defaults, |mode| mode.spawn_defaults(defaults)))
+    }
 }
 
 /// Shared scene selectors. The player configuration also selects the player
@@ -596,6 +612,7 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    ViewTransition { enabled: bool, next: PathCursor },
     /// This direct source branch preserves pending IFNOT state.
     IfProtectionOverride { taken: PathCursor, next: PathCursor },
     EncounterHandoff {
@@ -1016,6 +1033,10 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingViewTransitionMode,
+    MissingFixedView,
+    InvalidSavedViewPath(Option<PathCursor>),
+    ViewSave(super::view_transition::ViewSaveError),
     Auxiliary(super::actor_auxiliary::AuxiliaryError),
     MissingEncounterHandoff,
     MissingCameraHeading,
@@ -1220,16 +1241,17 @@ impl PathRuntime {
                     Ok(ControlStep::Continue)
                 }
                 Statement::ReflectContactShots { next } => {
+                    let defaults = world.spawn_defaults();
                     super::weapon_reflection::reflect_contacts(objects, &mut self.resources, owner, &mut super::weapon_reflection::ReflectionWorld {
                         contacts: world.contacts, rules: world.reflection, weapons: world.weapons.as_deref_mut(),
-                        defaults: world.spawn_defaults, primary: world.primary_player, secondary: world.secondary_player,
+                        defaults, primary: world.primary_player, secondary: world.secondary_player,
                         random: world.random,
                     }).map_err(ProgramError::Reflection)?;
                     objects.get_mut(owner).expect("validated reflecting actor").base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::SpawnOffset { kind, parameters, next } => {
-                    let defaults = world.spawn_defaults.ok_or(ProgramError::MissingSpawnDefaults)?;
+                    let defaults = world.spawn_defaults().ok_or(ProgramError::MissingSpawnDefaults)?;
                     if let Some(path) = parameters.actor.path { catalog.statement(path)?; }
                     self.spawns.offset(objects, owner, kind, parameters, defaults).map_err(ProgramError::Spawn)?;
                     objects.get_mut(owner).expect("validated offset spawn caller").base.path = Some(next);
@@ -1680,6 +1702,8 @@ impl PathRuntime {
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::ViewTransition { enabled, next } =>
+                    Ok(self.execute_view_transition(catalog, objects, owner, world, enabled, next)?),
                 Statement::IfProtectionOverride { taken, next } => {
                     let enabled = world.protection.as_ref()
                         .ok_or(ProgramError::MissingProtection)?.rules.minimum_override;
@@ -2061,7 +2085,7 @@ impl PathRuntime {
                     next,
                 } => {
                     let defaults = world
-                        .spawn_defaults
+                        .spawn_defaults()
                         .ok_or(ProgramError::MissingSpawnDefaults)?;
                     // Validate the independent child's native entry before
                     // allocating; absent catalog coverage is never a no-op.
@@ -2084,7 +2108,7 @@ impl PathRuntime {
                     next,
                 } => {
                     let defaults = world
-                        .spawn_defaults
+                        .spawn_defaults()
                         .ok_or(ProgramError::MissingSpawnDefaults)?;
                     if let Some(path) = parameters.path {
                         catalog.statement(path)?;
@@ -2108,7 +2132,7 @@ impl PathRuntime {
                     for &path in weapon.paths() {
                         catalog.statement(path)?;
                     }
-                    let defaults = world.spawn_defaults.ok_or(ProgramError::MissingSpawnDefaults)?;
+                    let defaults = world.spawn_defaults().ok_or(ProgramError::MissingSpawnDefaults)?;
                     let state = world.weapons.as_deref_mut().ok_or(ProgramError::MissingWeaponState)?;
                     // Admission or allocation can fail normally. The wrapper
                     // substitutes the reserved scene actor, then still applies
@@ -2583,6 +2607,7 @@ mod tests {
     pub(super) fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             scene: ScenePathInputs::default(),
+                view_transition_mode: None,
             health_display: None,
             camera_focus: None,
             camera_tracking: None,
@@ -9717,6 +9742,7 @@ mod tests {
             };
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                view_transition_mode: None,
                 health_display: None,
                 camera_focus: None,
                 camera_tracking: None,
@@ -13944,6 +13970,7 @@ mod tests {
         for phase in 1..=7 {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                view_transition_mode: None,
                 health_display: None,
                 camera_focus: None,
                 camera_tracking: None,
@@ -14098,6 +14125,7 @@ mod tests {
                     owner,
                     &mut PathWorld {
                         scene: ScenePathInputs::default(),
+                view_transition_mode: None,
                         health_display: None,
                         camera_focus: None,
                         camera_tracking: None,

@@ -62,6 +62,12 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(self.lower_record('30 36 f5')[0],
                          'Statement::IfProtectionOverride { taken: cursor(0, 0), next: cursor(0, 1) }')
 
+    def test_view_transition_commands_are_complete_paired_actions_not_simple_flags(self):
+        self.assertEqual(self.lower_record('c2')[0],
+                         'Statement::ViewTransition { enabled: true, next: cursor(0, 1) }')
+        self.assertEqual(self.lower_record('c3')[0],
+                         'Statement::ViewTransition { enabled: false, next: cursor(0, 1) }')
+
     def test_four_panel_objective_closes_panels_emitters_fighters_and_completion(self):
         root = PathAddress(0x5B96)
         extractor = PathExtractor(self.rom)
