@@ -65,6 +65,12 @@ pub enum SelectedAuxiliaryCondition {
     ModeClass(super::path_conditions::AuxiliaryModeClass),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrbitCenter {
+    Selected,
+    LocalOrigin,
+}
+
 impl SelectedAuxiliaryCondition {
     fn sample(self, input: AuxiliaryContinuationInput) -> Predicate {
         match self {
@@ -279,6 +285,15 @@ pub enum Statement {
     },
     Facing {
         command: super::path_steering::FacingCommand,
+        next: PathCursor,
+    },
+    YawOrbit {
+        center: OrbitCenter,
+        angle: ByteOperand,
+        next: PathCursor,
+    },
+    Radius {
+        command: super::path_steering::RadiusCommand,
         next: PathCursor,
     },
     Contact {
@@ -735,6 +750,25 @@ impl PathRuntime {
                 }
                 Statement::Random { mutation, next } => {
                     self.execute_random(objects, owner, world.random, mutation, next)
+                }
+                Statement::YawOrbit {
+                    center,
+                    angle,
+                    next,
+                } => {
+                    use super::path_steering::{SteeringError, YawOrbitTarget};
+                    let angle = super::Angle::from_units(angle.read(actor));
+                    let target =
+                        match center {
+                            OrbitCenter::Selected => YawOrbitTarget::Object(world.selected.ok_or(
+                                PathRuntimeError::Steering(SteeringError::MissingSelected),
+                            )?),
+                            OrbitCenter::LocalOrigin => YawOrbitTarget::LocalOrigin,
+                        };
+                    self.execute_yaw_orbit(objects, owner, target, angle, next)
+                }
+                Statement::Radius { command, next } => {
+                    self.execute_radius(objects, owner, command, world.selected, next)
                 }
                 Statement::RandomBranch { taken, next } => {
                     let take = super::path_random::take_branch(world.random);
@@ -1220,6 +1254,251 @@ mod tests {
             assert_eq!(selection, expected);
             assert!(runtime.branch.invert_next);
             assert_eq!(random, original_random);
+        }
+    }
+
+    #[test]
+    fn yaw_orbit_dispatch_samples_aliasing_angle_before_position_and_preserves_other_state() {
+        use super::super::path_fields::{Axis, BytePart};
+        use super::super::path_steering::yaw_orbit_position;
+        use super::super::{Angle, Vector3};
+        for center in [OrbitCenter::Selected, OrbitCenter::LocalOrigin] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let target = objects
+                .allocate(objects.get(owner).unwrap().clone())
+                .unwrap();
+            runtime.branch.invert_next = true;
+            let original_random = random;
+            let field = if center == OrbitCenter::LocalOrigin {
+                WordField::RelativePosition(Axis::X)
+            } else {
+                WordField::Position(Axis::X)
+            };
+            let catalog = PathCatalog::new(vec![vec![Statement::YawOrbit {
+                center,
+                angle: ByteOperand::Actor(ByteField::WordPart {
+                    field,
+                    part: BytePart::Low,
+                }),
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            for angle in 0..=u8::MAX {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(cursor(0, 0));
+                actor.base.wait_timer = 79;
+                actor.base.position = Vector3 {
+                    x: 31000,
+                    y: -17003,
+                    z: -32000,
+                };
+                actor.extension.relative_position = Vector3 {
+                    x: -1001,
+                    y: 30007,
+                    z: 2003,
+                };
+                let value = field.read(actor);
+                field.write(actor, (value & 0xFF00) | u16::from(angle));
+                let selected_position = Vector3 {
+                    x: -31000,
+                    y: 803,
+                    z: i16::from(angle),
+                };
+                objects.get_mut(target).unwrap().base.position = selected_position;
+                let selected = if angle % 2 == 0 { target } else { owner };
+                let actor = objects.get(owner).unwrap();
+                let position = if center == OrbitCenter::LocalOrigin {
+                    actor.extension.relative_position
+                } else {
+                    actor.base.position
+                };
+                let origin = if center == OrbitCenter::LocalOrigin {
+                    Vector3::default()
+                } else {
+                    objects.get(selected).unwrap().base.position
+                };
+                let result = yaw_orbit_position(position, origin, Angle::from_units(angle));
+                let mut expected = objects.clone();
+                let actor = expected.get_mut(owner).unwrap();
+                if center == OrbitCenter::LocalOrigin {
+                    actor.extension.relative_position = result;
+                } else {
+                    actor.base.position = result;
+                }
+                actor.base.path = Some(cursor(0, 1));
+                let mut inputs = world(&mut random);
+                inputs.selected = (center == OrbitCenter::Selected).then_some(selected);
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                assert_eq!(random, original_random);
+                assert!(runtime.branch.invert_next);
+            }
+        }
+    }
+
+    #[test]
+    fn radius_dispatch_preserves_center_choice_signed_amount_and_unrelated_fields() {
+        use super::super::path_steering::{RadiusCenter, RadiusCommand};
+        use super::super::Vector3;
+        for center in [
+            RadiusCenter::Selected,
+            RadiusCenter::Linked,
+            RadiusCenter::LocalOrigin,
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let target = objects
+                .allocate(objects.get(owner).unwrap().clone())
+                .unwrap();
+            let linked = objects
+                .allocate(objects.get(owner).unwrap().clone())
+                .unwrap();
+            let original_random = random;
+            runtime.branch.invert_next = true;
+            for amount in i8::MIN..=i8::MAX {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(cursor(0, 0));
+                actor.base.wait_timer = 59;
+                actor.base.position = Vector3 {
+                    x: 100,
+                    y: -300,
+                    z: 513,
+                };
+                actor.extension.relative_position = Vector3 {
+                    x: -30001,
+                    y: 1023,
+                    z: 29900,
+                };
+                actor.base.attachment = Some(if amount & 1 == 0 { linked } else { owner });
+                let selected = if amount & 2 == 0 { target } else { owner };
+                objects.get_mut(target).unwrap().base.position = Vector3 {
+                    x: i16::from(amount),
+                    y: 151,
+                    z: 10,
+                };
+                objects.get_mut(linked).unwrap().base.position = Vector3 {
+                    x: 88,
+                    y: -151,
+                    z: i16::from(amount),
+                };
+                let actor = objects.get(owner).unwrap();
+                let position = if center == RadiusCenter::LocalOrigin {
+                    actor.extension.relative_position
+                } else {
+                    actor.base.position
+                };
+                let origin = match center {
+                    RadiusCenter::Selected => objects.get(selected).unwrap().base.position,
+                    RadiusCenter::Linked => {
+                        objects
+                            .get(actor.base.attachment.unwrap())
+                            .unwrap()
+                            .base
+                            .position
+                    }
+                    RadiusCenter::LocalOrigin => Vector3::default(),
+                };
+                let result =
+                    super::super::path_math::change_radius(position, origin, i16::from(amount));
+                let mut expected = objects.clone();
+                let actor = expected.get_mut(owner).unwrap();
+                if center == RadiusCenter::LocalOrigin {
+                    actor.extension.relative_position = result;
+                } else {
+                    actor.base.position = result;
+                }
+                actor.base.path = Some(cursor(0, 1));
+                let catalog = PathCatalog::new(vec![vec![Statement::Radius {
+                    command: RadiusCommand {
+                        center,
+                        amount: i16::from(amount),
+                    },
+                    next: cursor(0, 1),
+                }]])
+                .unwrap();
+                let mut inputs = world(&mut random);
+                inputs.selected = (center == RadiusCenter::Selected).then_some(selected);
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                assert_eq!(random, original_random);
+                assert!(runtime.branch.invert_next);
+            }
+        }
+    }
+
+    #[test]
+    fn geometry_dispatch_missing_or_dangling_centers_fail_before_mutation() {
+        use super::super::path_steering::{RadiusCenter, RadiusCommand, SteeringError};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let absent = objects
+            .allocate(objects.get(owner).unwrap().clone())
+            .unwrap();
+        objects.remove(absent).unwrap();
+        let original_random = random;
+        runtime.branch.invert_next = true;
+        for statement in [
+            Statement::YawOrbit {
+                center: OrbitCenter::Selected,
+                angle: ByteOperand::Literal(64),
+                next: cursor(0, 1),
+            },
+            Statement::Radius {
+                command: RadiusCommand {
+                    center: RadiusCenter::Selected,
+                    amount: -128,
+                },
+                next: cursor(0, 1),
+            },
+            Statement::Radius {
+                command: RadiusCommand {
+                    center: RadiusCenter::Linked,
+                    amount: 127,
+                },
+                next: cursor(0, 1),
+            },
+        ] {
+            for center in [None, Some(absent)] {
+                objects.get_mut(owner).unwrap().base.attachment = center;
+                let before = objects.clone();
+                let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
+                let mut inputs = world(&mut random);
+                inputs.selected = center;
+                let error = match center {
+                    Some(id) => SteeringError::MissingActor(id),
+                    None if matches!(
+                        statement,
+                        Statement::Radius {
+                            command: RadiusCommand {
+                                center: RadiusCenter::Linked,
+                                ..
+                            },
+                            ..
+                        }
+                    ) =>
+                    {
+                        SteeringError::MissingLinked(owner)
+                    }
+                    None => SteeringError::MissingSelected,
+                };
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::Runtime(PathRuntimeError::Steering(error)))
+                );
+                assert_eq!(objects, before);
+                assert_eq!(random, original_random);
+                assert!(runtime.branch.invert_next);
+            }
         }
     }
 

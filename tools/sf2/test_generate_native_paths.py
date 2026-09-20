@@ -835,6 +835,25 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(self.lower_record("29 39 f5")[0],
             "Statement::RandomBranch { taken: cursor(0, 1), next: cursor(0, 1) }")
 
+    def test_orbit_angles_and_radial_literals_retain_their_distinct_widths_and_centers(self):
+        for value in range(256):
+            for opcode, center in [("a5", "LocalOrigin"), ("a8", "Selected")]:
+                self.assertEqual(self.lower_record(f"{opcode} {value:02x}")[0],
+                    f"Statement::YawOrbit {{ center: OrbitCenter::{center}, angle: ByteOperand::Literal({value}), next: cursor(0, 1) }}")
+            for opcode, center in [("ab", "LocalOrigin"), ("ae", "Selected"), ("00 22", "Linked")]:
+                signed = value if value < 128 else value - 256
+                self.assertEqual(self.lower_record(f"{opcode} {value:02x}")[0],
+                    f"Statement::Radius {{ command: RadiusCommand {{ center: RadiusCenter::{center}, amount: {signed} }}, next: cursor(0, 1) }}")
+        self.assertEqual(self.lower_record("a9 0c")[0],
+            "Statement::YawOrbit { center: OrbitCenter::Selected, angle: ByteOperand::Actor(ByteField::WordPart { field: WordField::Position(Axis::X), part: BytePart::Low }), next: cursor(0, 1) }")
+        with self.assertRaisesRegex(UnsupportedPath, "unported byte operand"):
+            self.lower_record("a9 ff")
+        changed = bytearray(self.rom)
+        changed[0x4F536:0x4F53B] = bytes.fromhex("a5 81 ab 81 0f")
+        generated = generate(bytes(changed), (("GEOMETRY", PathAddress(0xF536)),))
+        self.assertIn("use super::path_program::OrbitCenter;", generated)
+        self.assertIn("use super::path_steering::{RadiusCenter, RadiusCommand};", generated)
+
     def test_active_node_flags_import_requires_the_reviewed_live_word(self):
         self.assertEqual(self.lower_record("7b a3 9a")[0],
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")

@@ -656,6 +656,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "FaceMother": "LinkedImmediate",
             }[name]
             statement = f"Statement::Facing {{ command: FacingCommand::{operation}, next: {next_cursor()} }}"
+        elif name in ("RotateLocalOffsetYaw", "RotateAroundSelectedYaw", "RotateAroundSelectedYawVariable"):
+            value, = parameters(1)
+            center = "LocalOrigin" if name == "RotateLocalOffsetYaw" else "Selected"
+            operand = f"ByteOperand::Actor({byte_field(value)})" if name.endswith("Variable") else f"ByteOperand::Literal({value})"
+            statement = f"Statement::YawOrbit {{ center: OrbitCenter::{center}, angle: {operand}, next: {next_cursor()} }}"
+        elif name in ("ContractLocalRadius", "ContractSelectedRadius", "ContractLinkedRadius"):
+            value, = parameters(1)
+            center = {"ContractLocalRadius": "LocalOrigin", "ContractSelectedRadius": "Selected", "ContractLinkedRadius": "Linked"}[name]
+            amount = value if value < 128 else value - 256
+            statement = f"Statement::Radius {{ command: RadiusCommand {{ center: RadiusCenter::{center}, amount: {amount} }}, next: {next_cursor()} }}"
         elif name == "ImportWordIndexed":
             variable, index = parameters(2)
             # $7F:9FE7 widens the second literal without scaling it. Only
@@ -847,6 +857,10 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_conditions::SpatialCondition;\n"
     if any("FacingCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_steering::FacingCommand;\n"
+    if any("OrbitCenter::" in statement for statement in unique_statements.values()):
+        source += "use super::path_program::OrbitCenter;\n"
+    if any("RadiusCommand" in statement for statement in unique_statements.values()):
+        source += "use super::path_steering::{RadiusCenter, RadiusCommand};\n"
     if any("PlayerControlCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_player_control::PlayerControlCommand;\n"
     if any("CountdownCommand::" in statement for statement in unique_statements.values()):

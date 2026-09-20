@@ -1030,3 +1030,14 @@ combinations. Branch tests cover every possible byte outcome, both inversion
 states and whole-actor preservation. Verification passes 78 lowerer tests,
 223 static path tests, 214 native path tests in debug/release, both audits and
 the app build. Root coverage remains 15/167; no gameplay recording was used.
+
+Six yaw-orbit/radius commands now reach the existing source-derived geometry
+kernels through static lowering and the typed dispatcher. Literal angles keep
+their full byte; the variable-angle form samples its live byte before changing
+an overlapping position. Radius literals are sign-extended, and selected,
+linked and local origins remain distinct. Tests cover every angle/amount byte,
+self-centering, local versus world publication, repeated live target changes,
+and missing/dangling centers before mutation. Verification passes 79 lowerer
+tests, 224 static path tests, 217 native path tests in debug/release, both audits
+and the app build. No additional complete graph is unlocked: coverage remains
+15 roots/167 statements, with game integration still open.

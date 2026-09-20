@@ -64,6 +64,12 @@ class PathSteeringStaticTests(unittest.TestCase):
         self.assert_source(0x7FAC6A, "A5 B7 9D CF 1C A5 BB 9D D3 1C 4C D3 CA")
         self.assert_source(0x7FAD53, "A5 B7 18 79 0C 00 95 0C A5 BB 18 79 10 00 95 10 4C D3 CA")
 
+    def test_orbit_variable_samples_a_byte_while_literals_do_not_resolve_actor_fields(self):
+        self.assert_source(0x7FABE8, "20bcc485056404c220bdcf1c8502bdd31c8597")
+        self.assert_source(0x7FACA6, "20bcc42047cbb90000850564048018")
+        self.assert_source(0x7FACC6, "20bcc485056404ac1fcf")
+        self.assert_source(0x7FAE7C, "20bcc4c220898000f0050900ff800329ff008502")
+
 
 if __name__ == "__main__":
     unittest.main()
