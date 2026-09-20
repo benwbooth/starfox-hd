@@ -270,6 +270,11 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x0DDB91, "A5 97 29 00 FE EB 0A 0A 0A 18 65 5F AA")
         self.assert_source(0x0DDBA0, "BD 36 CF 25 0A 85 02")
 
+    def test_occupancy_path_handler_short_circuits_and_never_reads_ifnot(self):
+        self.assert_source(0x7FB73E, "AC 1F CF DA BB 7A 5A B4 2B B9 EB 6B 7A DA BB 7A 89 80 F0 04 5C BE CA 7F A5 5E 29 E7 85 5E 8F 3A 30 00 C2 20 B5 0C 85 02 B5 10 85 97 22 71 DB 0D E2 20 A5 02 F0 03 82 7C 13 4C BE CA")
+        self.assert_source(0x7FCAF3, "C2 20 20 20 C7 95 2B E2 20 4C 75 7E")
+        self.assert_source(0x7FCABE, "E2 20 C2 20 B5 2B 18 69 03 00 95 2B E2 20 4C 75 7E")
+
     def test_world_marker_half_row_boundary_and_countdown_widths(self):
         # At every eighth BYTE boundary, subtract a full 16-byte row.
         self.assert_source(

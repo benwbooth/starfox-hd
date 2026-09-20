@@ -20,6 +20,9 @@ pub struct PathWorld<'a> {
     pub campaign: Option<CampaignPathInputs>,
     pub guidance: Option<&'a mut GuidanceHistory>,
     pub control_style: Option<super::FlightControlStyle>,
+    /// Fresh selected-player exemption (auxiliary map flag bit 80).
+    pub selected_occupancy_exempt: Option<bool>,
+    pub occupancy: Option<&'a super::world_occupancy::WorldOccupancy>,
     /// Primary player identity, independent of the current selected slot.
     pub primary_player: Option<ObjectId>,
     pub selected: Option<ObjectId>,
@@ -352,6 +355,10 @@ pub enum Statement {
         destination: super::path_fields::ByteField,
         next: PathCursor,
     },
+    OccupiedCell {
+        taken: PathCursor,
+        next: PathCursor,
+    },
     Random {
         mutation: super::path_random::RandomMutation,
         next: PathCursor,
@@ -445,6 +452,8 @@ pub enum ProgramError {
     MissingCampaign,
     MissingGuidance,
     MissingControlStyle,
+    MissingOccupancyExemption,
+    MissingOccupancy,
     MissingSoundMarkers,
     MissingCountdown,
     Spawn(super::path_spawn::SpawnError),
@@ -870,6 +879,24 @@ impl PathRuntime {
                         },
                     )
                 }
+                Statement::OccupiedCell { taken, next } => {
+                    let exempt = world
+                        .selected_occupancy_exempt
+                        .ok_or(ProgramError::MissingOccupancyExemption)?;
+                    // The source exemption returns before the map lookup.
+                    // Neither edge enters or consumes the IFNOT machinery.
+                    let occupied = !exempt
+                        && world
+                            .occupancy
+                            .ok_or(ProgramError::MissingOccupancy)?
+                            .contains(actor.base.position);
+                    objects
+                        .get_mut(owner)
+                        .expect("validated occupancy owner")
+                        .base
+                        .path = Some(if occupied { taken } else { next });
+                    Ok(ControlStep::Continue)
+                }
                 Statement::Guidance { command, next } => {
                     let history = world
                         .guidance
@@ -1110,6 +1137,8 @@ mod tests {
             campaign: None,
             guidance: None,
             control_style: None,
+            selected_occupancy_exempt: None,
+            occupancy: None,
             primary_player: None,
             selected: None,
             fixed_players: [None; 2],
@@ -4384,6 +4413,8 @@ mod tests {
                 campaign: None,
                 guidance: None,
                 control_style: None,
+                selected_occupancy_exempt: None,
+                occupancy: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -4773,6 +4804,113 @@ mod tests {
         assert_eq!(request, original_request);
         assert_eq!(random, original_random);
         assert!(runtime.branch.invert_next);
+    }
+
+    #[test]
+    fn occupancy_branch_samples_live_owner_position_and_preserves_ifnot_and_wait() {
+        use super::super::world_occupancy::{
+            MarkerCoverage, OccupancyChange, WorldOccupancy, WorldRectangle,
+        };
+        use super::super::Vector3;
+        let catalog = PathCatalog::new(vec![vec![Statement::OccupiedCell {
+            taken: cursor(0, 2),
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let marker = MarkerCoverage::from_rectangle(WorldRectangle {
+            x: -512,
+            z: 512,
+            width: 1,
+            depth: 1,
+        })
+        .unwrap();
+        let mut occupancy = WorldOccupancy::default();
+        for occupied in [true, false, true] {
+            occupancy.apply(
+                &marker,
+                if occupied {
+                    OccupancyChange::Mark
+                } else {
+                    OccupancyChange::Erase
+                },
+            );
+            for exempt in [true, false] {
+                for inverted in [true, false] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let before_random = random;
+                    runtime.branch.invert_next = inverted;
+                    objects.get_mut(owner).unwrap().base.wait_timer = 59;
+                    for (x, z, inside) in [
+                        (-512, 512, true),
+                        (-1, 1023, true),
+                        (-513, 512, false),
+                        (0, 512, false),
+                        (-512, 511, false),
+                        (-512, 1024, false),
+                    ] {
+                        for y in [i16::MIN, 0, i16::MAX] {
+                            objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+                            objects.get_mut(owner).unwrap().base.position = Vector3 { x, y, z };
+                            let mut expected = objects.clone();
+                            let expected_cursor = if occupied && !exempt && inside {
+                                cursor(0, 2)
+                            } else {
+                                cursor(0, 1)
+                            };
+                            expected.get_mut(owner).unwrap().base.path = Some(expected_cursor);
+                            let mut inputs = world(&mut random);
+                            inputs.selected_occupancy_exempt = Some(exempt);
+                            // An exempt actor must not need a map at all.
+                            if !exempt {
+                                inputs.occupancy = Some(&occupancy);
+                            }
+                            assert_eq!(
+                                runtime.resume_program(
+                                    &catalog,
+                                    &mut objects,
+                                    owner,
+                                    &mut inputs,
+                                    1
+                                ),
+                                Err(ProgramError::BudgetExceeded {
+                                    cursor: expected_cursor,
+                                    executed: 1
+                                })
+                            );
+                            assert_eq!(objects, expected);
+                            assert_eq!(runtime.branch.invert_next, inverted);
+                            assert_eq!(random, before_random);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn occupancy_missing_inputs_fault_before_changing_any_actor_or_branch_state() {
+        let catalog = PathCatalog::new(vec![vec![Statement::OccupiedCell {
+            taken: cursor(0, 2),
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        runtime.branch.invert_next = true;
+        let before = objects.clone();
+        let before_random = random;
+        let mut inputs = world(&mut random);
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingOccupancyExemption)
+        );
+        inputs.selected_occupancy_exempt = Some(false);
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingOccupancy)
+        );
+        assert_eq!(objects, before);
+        assert!(runtime.branch.invert_next);
+        assert_eq!(random, before_random);
     }
 
     #[test]
@@ -5744,6 +5882,8 @@ mod tests {
                 campaign: None,
                 guidance: None,
                 control_style: None,
+                selected_occupancy_exempt: None,
+                occupancy: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -5856,6 +5996,8 @@ mod tests {
                         campaign: None,
                         guidance: None,
                         control_style: None,
+                        selected_occupancy_exempt: None,
+                        occupancy: None,
                         primary_player: None,
                         selected: None,
                         fixed_players: [None; 2],

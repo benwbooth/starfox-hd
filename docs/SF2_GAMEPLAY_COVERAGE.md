@@ -1110,3 +1110,14 @@ tests in debug/release, both audits and the app build. The complete spawn
 handler and pose-copy callees are pinned from static source. The root rescan
 finds no newly complete graphs, so coverage remains **17 roots / 222 unique
 statements**, with scheduler/spawn integration still open.
+
+The selected-player-gated occupancy branch (`$7F:B73E`) now calls the existing
+native world-occupancy service using the owner's live X/Z position. Its selected
+player exemption bypasses the map lookup, including the need for a map input.
+Both branch edges preserve IFNOT and the wait timer. Missing exemption/map
+inputs fault before mutation, rather than assuming an empty world. Static
+contracts pin the complete handler and both direct continuations; tests cover
+negative coordinates, cell edges, height independence and live map changes.
+Verification passes 87 lowerer tests, 235 static path tests, 235 native path
+tests in debug/release and all six world-occupancy tests, plus both audits and
+the app build. Root coverage remains 17/222 and full Game integration is open.

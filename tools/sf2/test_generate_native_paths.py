@@ -723,6 +723,10 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn("LOWERED_COMMAND_COUNT: usize = 3", generated)
             self.assertNotIn("0xBD98", generated)
 
+    def test_occupancy_branch_keeps_exemption_and_world_query_in_native_dispatch(self):
+        self.assertEqual(self.lower_record("00 5f 36 f5")[0],
+            "Statement::OccupiedCell { taken: cursor(0, 0), next: cursor(0, 1) }")
+
     def test_independent_spawn_keeps_literal_bytes_independent_entry_and_no_child_fields(self):
         for health, power in [(0, 255), (129, 254), (255, 0)]:
             changed = bytearray(self.rom)
