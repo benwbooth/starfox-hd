@@ -920,7 +920,7 @@ class NativePathGenerationTests(unittest.TestCase):
         for address, axis in [(0x1E1C, "X"), (0x1E1E, "Y"), (0x1E20, "Z")]:
             self.assertEqual(self.lower_record(f"7c a3 {address & 255:02x} {address >> 8:02x}")[0],
                 f"Statement::ImportPlayerMotion {{ axis: Axis::{axis}, destination: WordField::ScriptValue, next: cursor(0, 1) }}")
-        for address in [0x1E1B, 0x1E1D, 0x1E1F, 0x1E21, 0xD7EC]:
+        for address in [0x1E1B, 0x1E1D, 0x1E1F, 0x1E21, 0xD7ED]:
             with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                 self.lower_record(f"7c a3 {address & 255:02x} {address >> 8:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
@@ -1876,6 +1876,29 @@ class NativePathGenerationTests(unittest.TestCase):
                 with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
                     self.lower_record(record)
 
+    def test_published_position_imports_use_equivalent_absolute_and_indexed_coordinates(self):
+        for index, address, axis in [(0x90, 0xD7EC, "X"), (0x92, 0xD7EE, "Y"), (0x94, 0xD7F0, "Z")]:
+            expected = f"Statement::ImportPlayerPosition {{ axis: Axis::{axis}, destination: WordField::ScriptValue, next: cursor(0, 1) }}"
+            self.assertEqual(self.lower_record(f"7b a3 {index:02x}")[0], expected)
+            self.assertEqual(self.lower_record(f"7c a3 {address & 255:02x} {address >> 8:02x}")[0], expected)
+            for record in [f"80 a3 {index:02x}", f"7e a3 {address & 255:02x} {address >> 8:02x}"]:
+                with self.assertRaises(UnsupportedPath): self.lower_record(record)
+
+    def test_saved_world_position_and_texture_y_operands_alias_existing_native_fields(self):
+        for base, axis in [(0x39, "X"), (0x3B, "Y"), (0x3D, "Z")]:
+            field = f"WordField::SavedPosition(Axis::{axis})"
+            self.assertEqual(word_field(base), field)
+            for part, offset in [("Low", 0), ("High", 1)]:
+                self.assertEqual(byte_field(base + offset), f"ByteField::WordPart {{ field: {field}, part: BytePart::{part} }}")
+            self.assertIn(f"StackValueCommand::SaveWord({field})", self.lower_record(f"94 {base:02x}")[0])
+            self.assertIn(f"StackValueCommand::RestoreWord({field})", self.lower_record(f"96 {base:02x}")[0])
+        self.assertEqual(byte_field(0x9A), "ByteField::TextureScrollY")
+        for value in range(256):
+            self.assertIn(f"field: ByteField::TextureScrollY, operation: ByteOperation::Assign(ByteOperand::Literal({value}))",
+                self.lower_record(f"0b {value:02x} 9a")[0])
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
+            word_field(0x9A)
+
     def test_shield_pickup_adds_to_the_existing_recovery_request_with_a_byte_operand(self):
         self.assertEqual(self.lower_record("eb 1b 1e a1")[0],
             "Statement::AccumulateShieldRecovery { amount: ByteOperand::Actor(ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low }), next: cursor(0, 1) }")
@@ -1945,7 +1968,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
         self.assertIn("destination: WordField::MotionPhase", self.lower_record("7b a1 9a")[0])
         for index in range(256):
-            if index not in (0x32, 0x36, 0x9A):
+            if index not in (0x32, 0x36, 0x90, 0x92, 0x94, 0x9A):
                 with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                     self.lower_record(f"7b a3 {index:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):

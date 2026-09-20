@@ -142,6 +142,18 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x08C55F, "79 2F 4D 1B 8A 2A 2F 00 6D 45 0C 28 F5 04")
         self.assert_source(0x08C588, "8A 2A 2F 00 94 45 97 F4 01 A0 45 42 97 96 00 A0 45 42")
 
+    def test_path_saved_position_aliases_platform_history_and_texture_y_is_published(self):
+        self.assert_source(0x7FBAFF,
+            "C2 20 B5 0C 95 39 B5 0E 95 3B B5 10 95 3D A9 01 00 9D C1 1C "
+            "E2 20 BD 14 00 9D C3 1C 60")
+        self.assert_source(0x7FBB2D, "B9 ED 6B 38 F5 39 0A 0A 0A 0A")
+        self.assert_source(0x7FBB3B, "B9 EF 6B 38 F5 3B 85 08")
+        self.assert_source(0x7FBB45, "B9 F1 6B 38 F5 3D 0A 0A 0A 0A")
+        self.assert_source(0x098A1B, "94 39 7B A3 92 0C 18 FC 39 EF A3 39 2A 8A 48 4A 78 8A 0F 4A 7D 8A 10 96 39 42")
+        self.assert_source(0x7F142A, "B9 DA 1C 9D 1C 00 B9 DB 1C 9D 1D 00")
+        self.assert_source(0x07EA15,
+            "08 E2 20 C2 10 C2 20 B5 0C 8D EC D7 B5 0E 8D EE D7 B5 10 8D F0 D7 E2 20")
+
     def test_shield_pickup_adds_at_byte_width_to_the_existing_request(self):
         self.assert_source(0x7FB88D,
             "20 04 C5 20 47 CB B9 00 00 8D B7 16 C2 20 20 20 C7 A8 E2 20 "

@@ -344,6 +344,9 @@ def word_field(variable: int) -> str:
         0x32: "WordField::Velocity(Axis::X)",
         0x34: "WordField::Velocity(Axis::Y)",
         0x36: "WordField::Velocity(Axis::Z)",
+        0x39: "WordField::SavedPosition(Axis::X)",
+        0x3B: "WordField::SavedPosition(Axis::Y)",
+        0x3D: "WordField::SavedPosition(Axis::Z)",
         0x87: "WordField::DepthOffset",
         0x8E: "WordField::RelativePosition(Axis::X)",
         0x90: "WordField::RelativePosition(Axis::Y)",
@@ -377,6 +380,7 @@ def byte_field(variable: int) -> str:
         0x95: "ByteField::RelativeRotation(Axis::Y)",
         0x96: "ByteField::RelativeRotation(Axis::Z)",
         0x99: "ByteField::TextureScrollX",
+        0x9A: "ByteField::TextureScrollY",
         0xA9: "ByteField::Part",
         0xAE: "ByteField::ClippingPlane",
     }
@@ -384,7 +388,7 @@ def byte_field(variable: int) -> str:
         return fields[variable]
     # Each pair aliases one actual typed word; it must not create a separate
     # particle counter or independent byte shadow of the motion phase.
-    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x87, 0x8E, 0x90, 0x92, 0xA1, 0xA3):
+    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x39, 0x3B, 0x3D, 0x87, 0x8E, 0x90, 0x92, 0xA1, 0xA3):
         if variable in (base, base + 1):
             part = "Low" if variable == base else "High"
             return f"ByteField::WordPart {{ field: {word_field(base)}, part: BytePart::{part} }}"
@@ -1024,6 +1028,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::PickupHistory {{ command: super::path_program::PickupHistoryCommand::{operation}, next: {next_cursor()} }}"
             elif index == 0x9A and name.startswith("Import"):
                 statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
+            elif index in (0x90, 0x92, 0x94) and name.startswith("Import"):
+                axis = {0x90: "X", 0x92: "Y", 0x94: "Z"}[index]
+                statement = f"Statement::ImportPlayerPosition {{ axis: Axis::{axis}, destination: {word_field(variable)}, next: {next_cursor()} }}"
             else:
                 raise UnsupportedPath(f"unported shared word {0xD75C + index:04X} at {command.address.label()}")
         elif name == "InitializePlayerAuxWord":
@@ -1038,6 +1045,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if address == 0x1E0F:
                 statement = f"Statement::ImportEnvironmentPlaneHeight {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address in (0xD7EC, 0xD7EE, 0xD7F0):
+                axis = {0xD7EC: "X", 0xD7EE: "Y", 0xD7F0: "Z"}[address]
+                statement = f"Statement::ImportPlayerPosition {{ axis: Axis::{axis}, destination: {word_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             axes = {0x1E1C: "X", 0x1E1E: "Y", 0x1E20: "Z"}

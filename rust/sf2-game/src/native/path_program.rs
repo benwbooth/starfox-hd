@@ -435,6 +435,11 @@ pub enum Statement {
         destination: super::path_fields::WordField,
         next: PathCursor,
     },
+    ImportPlayerPosition {
+        axis: super::path_fields::Axis,
+        destination: super::path_fields::WordField,
+        next: PathCursor,
+    },
     ImportPlayerMotionByte {
         axis: super::path_fields::Axis,
         part: super::path_fields::BytePart,
@@ -1042,6 +1047,20 @@ impl PathRuntime {
                         input.displacement,
                         input.auxiliary_mode,
                     );
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportPlayerPosition { axis, destination, next } => {
+                    use super::path_fields::Axis;
+                    let position = world.published_motion
+                        .ok_or(ProgramError::MissingPublishedMotion)?.position;
+                    let value = match axis {
+                        Axis::X => position.x,
+                        Axis::Y => position.y,
+                        Axis::Z => position.z,
+                    };
+                    let actor = objects.get_mut(owner).expect("validated position-import owner");
+                    destination.write(actor, value as u16);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -4116,6 +4135,50 @@ mod tests {
                             assert_eq!(inputs.random, &initial_random);
                         }
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn published_position_imports_do_not_substitute_live_poses_or_displacement() {
+        use super::super::path_fields::Axis;
+        use super::super::path_motion::PublishedPlayerMotion;
+        for axis in [Axis::X, Axis::Y, Axis::Z] {
+            for inverted in [false, true] {
+                let catalog = PathCatalog::new(vec![vec![Statement::ImportPlayerPosition {
+                    axis, destination: WordField::ScriptValue, next: cursor(0, 0),
+                }]]).unwrap();
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                runtime.branch.invert_next = inverted;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.position = super::super::Vector3 { x: 123, y: -321, z: 791 };
+                actor.base.wait_timer = 179;
+                let initial = actor.clone();
+                let initial_random = random;
+                let mut inputs = world(&mut random);
+                inputs.selected = Some(owner);
+                inputs.primary_player = Some(owner);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::MissingPublishedMotion));
+                assert_eq!(objects.get(owner).unwrap(), &initial);
+                for bits in 0..=u16::MAX {
+                    let mut position = super::super::Vector3 { x: 13, y: 29, z: 43 };
+                    match axis { Axis::X => position.x = bits as i16, Axis::Y => position.y = bits as i16, Axis::Z => position.z = bits as i16 }
+                    let snapshot = PublishedPlayerMotion { position, delta: super::super::Vector3 { x: -19, y: -41, z: -83 } };
+                    inputs.published_motion = Some(snapshot);
+                    let before = objects.get(owner).unwrap().clone();
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                        Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                    assert_eq!(objects.get(owner).unwrap(), &before);
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
+                    let mut expected = initial.clone();
+                    expected.extension.path_state.script_value = bits;
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert_eq!(inputs.published_motion, Some(snapshot));
+                    assert_eq!(inputs.random, &initial_random);
+                    assert_eq!(runtime.branch.invert_next, inverted);
                 }
             }
         }

@@ -64,6 +64,8 @@ pub enum WordField {
     Position(Axis),
     Velocity(Axis),
     RelativePosition(Axis),
+    /// Source base 39/3B/3D, shared with platform-carry history.
+    SavedPosition(Axis),
 }
 
 impl WordField {
@@ -75,6 +77,7 @@ impl WordField {
             Self::Position(axis) => axis.get(actor.base.position),
             Self::Velocity(axis) => axis.get(actor.base.velocity),
             Self::RelativePosition(axis) => axis.get(actor.extension.relative_position),
+            Self::SavedPosition(axis) => axis.get(actor.extension.path_state.platform_carry.saved_position),
         }) as u16
     }
 
@@ -87,6 +90,9 @@ impl WordField {
             Self::Velocity(axis) => axis.set(&mut actor.base.velocity, value as i16),
             Self::RelativePosition(axis) => {
                 axis.set(&mut actor.extension.relative_position, value as i16)
+            }
+            Self::SavedPosition(axis) => {
+                axis.set(&mut actor.extension.path_state.platform_carry.saved_position, value as i16)
             }
         }
     }
@@ -106,6 +112,7 @@ pub enum ByteField {
     Animation(AnimationChannel),
     /// Source texture-X channel, also used as scaled-sprite size.
     TextureScrollX,
+    TextureScrollY,
     Rotation(Axis),
     RelativeRotation(Axis),
     Speed,
@@ -137,6 +144,7 @@ impl ByteField {
             }
             .packed(),
             Self::TextureScrollX => actor.extension.texture_scroll_x,
+            Self::TextureScrollY => actor.extension.texture_scroll_y,
             Self::Rotation(axis) => match axis {
                 Axis::X => actor.base.pitch,
                 Axis::Y => actor.base.yaw,
@@ -183,6 +191,7 @@ impl ByteField {
                 }
             }
             Self::TextureScrollX => actor.extension.texture_scroll_x = value,
+            Self::TextureScrollY => actor.extension.texture_scroll_y = value,
             Self::Rotation(axis) => {
                 let value = Angle::from_units(value);
                 match axis {
@@ -416,6 +425,73 @@ mod tests {
 
     fn actor() -> Object {
         Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)
+    }
+
+    #[test]
+    fn saved_position_operands_alias_platform_history_for_every_word_and_byte_value() {
+        for axis in [Axis::X, Axis::Y, Axis::Z] {
+            let field = WordField::SavedPosition(axis);
+            let low = ByteField::WordPart { field, part: BytePart::Low };
+            let high = ByteField::WordPart { field, part: BytePart::High };
+            for value in 0..=u16::MAX {
+                let mut actual = actor();
+                actual.base.position = Vector3 { x: 173, y: -497, z: 997 };
+                actual.extension.path_state.platform_carry.saved_position = Vector3 { x: -281, y: 831, z: -1471 };
+                actual.extension.path_state.platform_carry.continuity = 337;
+                actual.extension.path_state.platform_carry.saved_yaw = 517;
+                let mut expected = actual.clone();
+                axis.set(&mut expected.extension.path_state.platform_carry.saved_position, value as i16);
+                field.write(&mut actual, value);
+                assert_eq!(actual, expected);
+                assert_eq!((field.read(&actual), low.read(&actual), high.read(&actual)), (value, value as u8, (value >> 8) as u8));
+                low.write(&mut actual, !(value as u8));
+                assert_eq!(field.read(&actual), value ^ 0x00FF);
+                high.write(&mut actual, !((value >> 8) as u8));
+                axis.set(&mut expected.extension.path_state.platform_carry.saved_position, !value as i16);
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn platform_carry_consumes_path_written_position_and_republishes_the_same_fields() {
+        use super::super::platform_carry::{self, CarriedPlayer};
+        let owner = super::super::ObjectStore::new().allocate(actor()).unwrap();
+        for axis in [Axis::X, Axis::Y, Axis::Z] {
+            let field = WordField::SavedPosition(axis);
+            for value in [i16::MIN, -4097, -2048, -1, 0, 1, 2047, 4096, i16::MAX] {
+                let mut actual = actor();
+                actual.base.position = Vector3 { x: 10, y: -20, z: 30 };
+                actual.extension.path_state.motion.carry_selected_player = true;
+                actual.extension.path_state.platform_carry.continuity = 1;
+                field.write(&mut actual, value as u16);
+                let mut player = CarriedPlayer { enabled: true, carrier: Some(owner), ..CarriedPlayer::default() };
+                platform_carry::after_callbacks(&mut actual, owner, Some(&mut player));
+                let mut expected_origin = actual.base.position;
+                let delta = value.wrapping_neg();
+                let corrected = if matches!(axis, Axis::Y) { delta } else { delta.wrapping_mul(16) / 16 };
+                axis.set(&mut expected_origin, axis.get(actual.base.position).wrapping_add(corrected));
+                assert_eq!(player.origin, expected_origin);
+                for output_axis in [Axis::X, Axis::Y, Axis::Z] {
+                    assert_eq!(WordField::SavedPosition(output_axis).read(&actual), output_axis.get(actual.base.position) as u16);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn texture_y_operand_retains_a_full_byte_independent_of_texture_x() {
+        for x in 0..=u8::MAX {
+            for y in 0..=u8::MAX {
+                let mut actual = actor();
+                actual.extension.texture_scroll_x = x;
+                let mut expected = actual.clone();
+                expected.extension.texture_scroll_y = y;
+                ByteField::TextureScrollY.write(&mut actual, y);
+                assert_eq!(ByteField::TextureScrollY.read(&actual), y);
+                assert_eq!(actual, expected);
+            }
+        }
     }
 
     #[test]

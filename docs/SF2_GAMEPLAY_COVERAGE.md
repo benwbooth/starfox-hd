@@ -2166,3 +2166,27 @@ records, zero budget, unrelated actor state, wait, IFNOT and RNG remain
 covered. Complete-root counts remain **64 / 1,061 / 1,052**; the pickup
 closures now expose additional shared/actor fields rather than these reward
 helpers. This is static source porting, not gameplay-equivalence validation.
+
+### Pickup position/history aliases and published player coordinates
+
+Authored position operands `39/3B/3D` and their byte halves now alias the
+existing platform-carry `saved_position`, with no duplicate scratch vector.
+Source `$7F:BAF7` publishes exactly those words, and the correction helper
+reads them before moving the selected player. The pickup visibility helper
+at `$09:8A1B` temporarily saves, assigns, compares and restores this same
+word. Tests cover all word/byte values and prove platform carry consumes
+path-written history and republishes its snapshot through these operands.
+
+Operand `9A` similarly aliases the already-existing texture-Y byte, whose
+source render publication is adjacent to texture X. The lowerer now imports
+all three published player position words in either absolute or indexed
+form, using the existing `PublishedPlayerMotion.position`. These reads are
+distinct from displacement and do not use the live selected/primary pose.
+Exports and unreviewed widths remain rejected.
+
+Validation passes 139 lowerer tests, 302 source-static path tests and 339
+native path tests in debug/release, generated freshness, architecture/static
+audits and the app build. Complete-root counts remain **64 / 1,061 / 1,052**.
+The 140-command `$44BC` pickup closure now lowers successfully; promotion
+of its independently installed family requires whole-graph native checks
+and source-installer verification, not merely this operand coverage.
