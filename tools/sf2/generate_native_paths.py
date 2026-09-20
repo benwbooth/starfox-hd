@@ -24,6 +24,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("GATED_POPUP_TURRET", PathAddress(0x2F11)),
+    ("POPUP_TURRET", PathAddress(0x2F1A)),
     ("WIDE_RECTANGULAR_PATROL", PathAddress(0x1118)),
     ("GATED_RECTANGULAR_PATROL", PathAddress(0x111E)),
     ("RECTANGULAR_PATROL", PathAddress(0x1124)),
@@ -241,6 +243,22 @@ CHILD_INSTALLERS = {
 
 class UnsupportedPath(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class RandomPatrolDestination:
+    """Closed eight-choice destination block with all working writes kept."""
+
+    commands: tuple[PathCommand, ...]
+    offsets: tuple[tuple[int, int], ...]
+
+    @property
+    def address(self):
+        return self.commands[0].address
+
+    @property
+    def next(self):
+        return self.commands[-1].successors[0]
 
 
 @dataclass(frozen=True)
@@ -523,6 +541,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # their complete paths, including the projectile's first invisible visit.
     if (shape, path) in ((0xF49C, PathAddress(0x1283)), (0xCEE0, PathAddress(0x12E5))):
         return index, "ObjectKind::Effect"
+    # Expanding turret discharge: captures its launch pose, selects a linked
+    # frame, disables collision, then ends after ten scale increments.
+    if (shape, path) == (0xBECC, PathAddress(0x8C4A)):
+        return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
@@ -641,6 +663,35 @@ def lowering_units(extractor: PathExtractor, root: PathAddress):
     for command in commands:
         if command.address in consumed:
             continue
+        if command.address == PathAddress(0x2F8E):
+            block = []
+            address = command.address
+            for signature in ('58a107', '50398e', '503d92', '9173fe06a1a3',
+                              '5439a3', '9183fe06a1a3', '543da3'):
+                raw = bytes.fromhex(signature)
+                part = by_address.get(address)
+                after = PathAddress(address.offset + len(raw))
+                if (part is None or part.opcode != raw[0] or part.prefix_size != 0
+                        or part.handler_address != SEMANTICS[raw[0]].handler_address
+                        or part.raw_hex != signature or part.successors != (after,)):
+                    raise UnsupportedPath('unexpected random patrol destination block')
+                if block and (address in entries or predecessors.get(address) != {block[-1].address}):
+                    raise UnsupportedPath('external entry into random patrol destination block')
+                block.append(part)
+                address = after
+            # The closed block masks the selector BEFORE both word lookups.
+            # Only these sixteen source words are reachable. Do not snapshot
+            # the 256-entry window, whose tail wraps into mutable low memory.
+            tables = []
+            for table in (0x06FE73, 0x06FE83):
+                start = source_offset(table)
+                data = extractor.rom[start:start + 16]
+                if len(data) != 16:
+                    raise UnsupportedPath('truncated random patrol destination table')
+                tables.append(tuple(int.from_bytes(data[i:i+2], 'little', signed=True) for i in range(0, 16, 2)))
+            consumed.update(part.address for part in block[1:])
+            units.append(RandomPatrolDestination(tuple(block), tuple(zip(*tables))))
+            continue
         if command.address in (PathAddress(0x8054), PathAddress(0x805E)):
             capture = command.address == PathAddress(0x8054)
             opcode = 0x80 if capture else 0x7B
@@ -718,6 +769,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
 
     statements = []
     for command in commands:
+        if isinstance(command, RandomPatrolDestination):
+            offsets = ', '.join(f'({x}, {z})' for x, z in command.offsets)
+            statements.append(f'Statement::ChoosePatrolDestination {{ offsets: &[{offsets}], next: {cursor(command.next)} }}')
+            continue
         if isinstance(command, WorldPositionTransfer):
             operation = "Capture" if command.capture else "Restore"
             statements.append(f"Statement::{operation}WorldPosition {{ next: {cursor(command.next)} }}")
@@ -1470,8 +1525,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::SceneryDistance {{ command: super::path_program::SceneryDistanceCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0x1DE2, 0x1BB5, 0x1BA9, 0x1E70, 0xD7F4, 0xDB5B) and name.startswith("Import"):
-                source = {0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA9: "EntryHeading",
+            if address in (0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xD7F4, 0xDB5B) and name.startswith("Import"):
+                source = {0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
                           0x1E70: "WingmatePilot", 0xD7F4: "RemainingObjectives", 0xDB5B: "MapRegion"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)

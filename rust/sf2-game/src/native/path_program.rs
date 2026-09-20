@@ -102,6 +102,9 @@ mod fighter_emitter_tests;
 #[cfg(test)]
 #[path = "path_rectangular_patrol_tests.rs"]
 mod rectangular_patrol_tests;
+#[cfg(test)]
+#[path = "path_popup_turret_tests.rs"]
+mod popup_turret_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -200,6 +203,9 @@ pub struct ScenePathInputs {
     pub height_offset: Option<i16>,
     pub player_configuration: Option<u8>,
     pub encounter_location: Option<u8>,
+    /// Encounter layout byte ($1BA5), copied from the campaign node's
+    /// layout field at $04:B20C and retained independently of location.
+    pub encounter_layout: Option<u8>,
     /// Active player's published weapon level ($1DD4), copied from its
     /// per-player weapon record at $06:9CE1. This is not a fresh lookup of
     /// the path-selected actor; pilot exchange updates the published byte.
@@ -262,6 +268,7 @@ pub enum SceneByte {
     EntryHeading,
     PlayerConfiguration,
     EncounterLocation,
+    EncounterLayout,
     ActiveWeaponLevel,
 }
 
@@ -274,6 +281,7 @@ impl SceneByte {
             Self::EntryHeading => input.entry_heading,
             Self::PlayerConfiguration => input.player_configuration,
             Self::EncounterLocation => input.encounter_location,
+            Self::EncounterLayout => input.encounter_layout,
             Self::ActiveWeaponLevel => input.active_weapon_level,
         }
     }
@@ -514,6 +522,11 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    /// One complete source destination-selection block with eight choices.
+    ChoosePatrolDestination {
+        offsets: &'static [(i16, i16); 8],
+        next: PathCursor,
+    },
     IncludeSelectedParticleFlags { mask: u8, next: PathCursor },
     SetSceneryPlacementHeight { height: i16, next: PathCursor },
     CaptureWorldPosition { next: PathCursor },
@@ -1050,6 +1063,25 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::ChoosePatrolDestination { offsets, next } => {
+                    // The authored block masks one draw to eight choices.
+                    // Preserve its low-byte selector, final lookup word and
+                    // both saved coordinates; none are disposable scratch.
+                    let choice = usize::from(world.random.next_byte()) % offsets.len();
+                    let (x, z) = offsets[choice];
+                    let actor = objects.get_mut(owner).expect("validated patrol owner");
+                    super::path_fields::ByteField::WordPart {
+                        field: super::path_fields::WordField::MotionPhase,
+                        part: super::path_fields::BytePart::Low,
+                    }.write(actor, choice as u8);
+                    actor.extension.path_state.script_value = z as u16;
+                    actor.extension.path_state.platform_carry.saved_position.x =
+                        actor.extension.relative_position.x.wrapping_add(x);
+                    actor.extension.path_state.platform_carry.saved_position.z =
+                        actor.extension.relative_position.z.wrapping_add(z);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::AttachPublishedHomingTarget { next } => {
                     let target = world.published_homing_target.ok_or(ProgramError::MissingPublishedHomingTarget)?;
                     let actor = objects.get_mut(owner).expect("validated projectile attachment");
@@ -7815,7 +7847,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::ActiveWeaponLevel] {
+        for source in [SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -7836,6 +7868,7 @@ mod tests {
                     SceneByte::EntryHeading => inputs.scene.entry_heading = Some(value),
                     SceneByte::PlayerConfiguration => inputs.scene.player_configuration = Some(value),
                     SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(value),
+                    SceneByte::EncounterLayout => inputs.scene.encounter_layout = Some(value),
                     SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
                 }
                 assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
@@ -13370,9 +13403,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 126);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2855);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2872);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 128);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3018);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3041);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

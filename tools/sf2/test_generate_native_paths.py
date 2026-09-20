@@ -21,6 +21,51 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_popup_turrets_close_discharge_graph_and_fold_only_masked_eight_choice_block(self):
+        extractor = PathExtractor(self.rom)
+        for address, count, checksum in [
+            (0x2F11, 377, 'f2eac05282ea0e1607ea32fc904c8048f93f3fc82e5876bb72ae4cee93544222'),
+            (0x2F1A, 378, 'c30bf7ee2b615d48dbc5674ddff34091fe9038beed9b9f68c2e8909f216a4bfb'),
+        ]:
+            root = PathAddress(address)
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), checksum)
+            statements = lower_graph(extractor, root, 0)[1]
+            self.assertEqual(len(statements), count - 6)
+            self.assertEqual(sum('ChoosePatrolDestination' in s for s in statements), 1)
+            self.assertEqual(sum('SceneByte::EncounterLayout' in s for s in statements), 1)
+            for dependency in [0x8C4A, 0x8C75, 0x3016, 0x8402, 0x44B2]:
+                self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        for offset, changed_bytes, expected in [
+            (0x42F90, b'\xff', 'unexpected random patrol destination block'),
+            (0x42F98, b'\x75', 'unexpected random patrol destination block'),
+            (0x42FA5, b'\x80', 'unexpected random patrol destination block'),
+            (0x42F18, b'\x91\x2f', 'external entry into random patrol destination block'),
+        ]:
+            changed = bytearray(self.rom)
+            changed[offset:offset+len(changed_bytes)] = changed_bytes
+            with self.assertRaisesRegex(UnsupportedPath, expected):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(0x2F11), 0)
+        with self.assertRaisesRegex(UnsupportedPath, 'external entry into random patrol destination block'):
+            lower_graph(extractor, PathAddress(0x2F97), 0)
+        self.assertEqual(spawn_shape(0xBECC, PathAddress(0x8C4A)), (20, 'ObjectKind::Effect'))
+        with self.assertRaises(UnsupportedPath):
+            spawn_shape(0xBECC, PathAddress(0x8C4B))
+
+    def test_popup_destination_tables_remain_source_data_without_reading_unreachable_suffixes(self):
+        from generate_native_paths import RandomPatrolDestination, source_offset
+        for table in [0x06FE73, 0x06FE83]:
+            with self.assertRaisesRegex(UnsupportedPath, 'unreviewed constant-word lookup window'):
+                banked_word_values(self.rom, table)
+            for choice in range(8):
+                changed = bytearray(self.rom)
+                start = source_offset(table) + choice * 2
+                changed[start:start+2] = b'\x00\x80'
+                unit = next(u for u in lowering_units(PathExtractor(bytes(changed)), PathAddress(0x2F1A))
+                            if isinstance(u, RandomPatrolDestination))
+                self.assertEqual(unit.offsets[choice][table == 0x06FE83], -32768)
+
     def test_rectangular_patrols_close_attachment_and_ballistic_effect_graphs(self):
         extractor = PathExtractor(self.rom)
         for address, count, checksum in [

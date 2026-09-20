@@ -3167,3 +3167,45 @@ icon-function warnings only). Coverage is **126 complete roots, 2872 source
 commands, 2855 typed statements**. This is still catalog coverage: whole-game
 source coverage and shipping scheduler/spawn integration remain open. No
 original-code execution or recorded gameplay was used.
+
+## Popup turrets and captured-position discharges (2026-09-20)
+
+Complete roots `$44:2F11/2F1A` now include their emergence, three-shot firing,
+retreat, contact death, and independently spawned `$44:8C4A` discharge. This
+adds **169 source commands and 163 typed statements**, reaching **128 complete
+roots, 3041 source commands, and 3018 typed statements**.
+
+The source's seven-command destination block masks one random byte to eight
+choices before reading two word tables. It is lowered as one semantic action
+only after proving the exact commands, successors, and absence of external
+entry into the block. All selector, saved-position and final lookup-word
+writes remain observable. Only the sixteen reachable table words are decoded;
+the rejected 256-entry windows would extend into mutable low memory. Mutation
+tests reject changed masks, operands, tables, and interior branch entry.
+
+The scene layout byte (`1BA5`) is separately supplied from encounter location
+(`1BB5`), following their campaign-node publication. Only location eight and
+layout fifteen wait for the message signal. The two entry paths retain their
+different primary-sentinel behavior, retirement checks, and secondary gates.
+Moving variants preserve signed word chase and wrap; stationary variants draw
+their retry choice only after each 30-visit wait. Complete cycle tests check
+the seven-step emergence, animation/wait phases, three source-paced shots,
+retreat, hidden wait, and unchanged random state outside reached draws.
+
+Contact death preserves variant-specific retirement bits, 300/500-point
+low-word-saturating awards, primary/secondary progression, four authored fade
+spawns, and drop-choice draws. It signals the found discharge by incrementing
+its phase low byte, including wrap to zero, without replacing either actor's
+path context. The discharge captures all three position words, restores that
+launch pose before each selected-target radius change, grows for ten visits,
+then launches the native occupancy-limited weapon and ends. A nonzero signal
+instead ends it without a launch or health-death request.
+
+Nine new native tests cover these paths and the isolated destination action;
+the existing scene-input test now also covers every layout byte and missing
+input. Full debug and release suites pass **902 unit tests and two integration
+tests each**; **176 lowerer tests and 378 path-static tests**, architecture and
+static inventory checks, exact regeneration, and app build pass (existing
+unused icon-function warnings only). This is catalog coverage, not whole-game
+completion or shipping scheduler/spawn integration. No original-code execution
+or recorded gameplay was used.
