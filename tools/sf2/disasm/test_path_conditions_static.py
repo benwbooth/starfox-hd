@@ -108,6 +108,11 @@ class PathConditionsStaticTests(unittest.TestCase):
         self.assert_source(0x0DB83D, "A4 7F C2 20 B9 0C 00 38 F5 0C 8F 26 00 70 B9 0E 00 38 F5 0E 8F 28 00 70 B9 10 00 38 F5 10 8F 2A 00 70")
         self.assert_source(0x0DB872, "AF AA 00 70 EB E2 20 85 02")
 
+    def test_selected_action_bit_clear_branch_bypasses_ifnot_and_reads_only_action_flags(self):
+        self.assert_source(0x7FB702, "ac1fcfdabb7a5ab42bb9776b7adabb7a8904d0045c1db77f4cbeca4cf3ca")
+        self.assert_source(0x7FCABE, "e220c220b52b18690300952be2204c757e")
+        self.assert_source(0x7FCAF3, "c2202020c7952be2204c757e")
+
     def test_facing_arc_uses_selected_minus_current_and_current_heading(self):
         self.assert_source(0x7FAB4D, "B9 0C 00 38 F5 0C 85 02 B9 10 00 38 F5 10 85 08")
         self.assert_source(0x7FAB5F, "22 58 1D 7F EB 85 02 20 BC C4 85 97 06 97 18 75 14 18 65 02 C5 97")

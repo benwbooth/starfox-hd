@@ -814,6 +814,10 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "unsupported UpdatePlayerTargetAndFlagLinked"):
             self.lower_record("c6")
 
+    def test_selected_auxiliary_clear_action_gate_retains_both_branch_edges(self):
+        self.assertEqual(self.lower_record("00 60 36 f5")[0],
+            "Statement::SelectedAuxiliaryBranch { condition: SelectedAuxiliaryCondition::ActionBit04Clear, taken: cursor(0, 0), next: cursor(0, 1) }")
+
     def test_active_node_flags_import_requires_the_reviewed_live_word(self):
         self.assertEqual(self.lower_record("7b a3 9a")[0],
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")

@@ -1005,3 +1005,11 @@ Tests include every imported word, live flag/health changes, the complete
 target-service loop, full actor preservation and missing-input errors.
 Catalog coverage is now **15 complete roots and 167 unique statements**.
 This is source-only verification; scheduler/spawn integration remains open.
+
+The selected auxiliary action-bit-clear branch is also lowered. It samples
+only action bit 2, ignores the auxiliary mode and preserves pending IFNOT.
+All mode/action-byte combinations, live dispatcher resampling, missing-input
+atomicity and whole-store/RNG preservation are checked. Verification passes
+76 lowerer tests, 220 static path tests, 209 native path tests in debug/release,
+both architecture/dependency audits and the app build. Catalog coverage stays
+15 roots/167 statements; this adds command coverage, not an additional root.

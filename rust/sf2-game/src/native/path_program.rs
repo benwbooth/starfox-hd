@@ -61,6 +61,7 @@ pub struct PrimaryMotionInput {
 pub enum SelectedAuxiliaryCondition {
     Continuation,
     ActionBit40,
+    ActionBit04Clear,
     ModeClass(super::path_conditions::AuxiliaryModeClass),
 }
 
@@ -75,6 +76,7 @@ impl SelectedAuxiliaryCondition {
                 value: input.action_flags,
                 mask: 0x40,
             },
+            Self::ActionBit04Clear => Predicate::ZeroByte(input.action_flags & 0x04),
             Self::ModeClass(class) => Predicate::SelectedAuxiliaryModeClass {
                 mode: input.mode,
                 class,
@@ -3512,7 +3514,58 @@ mod tests {
                     action_flags & 0x40 != 0
                 );
                 assert!(branch.invert_next);
+                assert_eq!(
+                    branch.test(
+                        SelectedAuxiliaryCondition::ActionBit04Clear
+                            .sample(AuxiliaryContinuationInput { mode, action_flags })
+                    ),
+                    action_flags & 0x04 == 0
+                );
+                assert!(branch.invert_next);
             }
+        }
+    }
+
+    #[test]
+    fn auxiliary_clear_action_gate_resamples_and_requires_observation_before_mutation() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let original_random = random;
+        runtime.branch.invert_next = true;
+        objects.get_mut(owner).unwrap().base.wait_timer = 47;
+        let catalog = PathCatalog::new(vec![vec![Statement::SelectedAuxiliaryBranch {
+            condition: SelectedAuxiliaryCondition::ActionBit04Clear,
+            taken: cursor(0, 2),
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let original_objects = objects.clone();
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingSelectedAuxiliary)
+        );
+        assert_eq!(objects, original_objects);
+        // One dispatcher repeatedly observes changing flags; no selected
+        // pose, mode bit, inversion, or actor field stands in for this byte.
+        for action_flags in 0..=u8::MAX {
+            objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+            let destination = cursor(0, if action_flags & 0x04 == 0 { 2 } else { 1 });
+            let mut expected = objects.clone();
+            expected.get_mut(owner).unwrap().base.path = Some(destination);
+            let mut inputs = world(&mut random);
+            inputs.selected_auxiliary = Some(AuxiliaryContinuationInput {
+                mode: !action_flags,
+                action_flags,
+            });
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: destination,
+                    executed: 1
+                })
+            );
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
         }
     }
 

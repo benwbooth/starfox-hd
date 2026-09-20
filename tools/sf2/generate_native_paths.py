@@ -427,12 +427,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 field = word_field(variable) if wide else byte_field(variable)
                 mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation}({kind}Operand::Literal({value})) }}"
                 statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
-        elif name in ("IfSelectedAuxiliaryContinuation", "IfSelectedAuxBit40", "IfSelectedSlotClass1", "IfSelectedSlotClass2", "IfSelectedSlotClass3"):
+        elif name in ("IfSelectedAuxiliaryContinuation", "IfSelectedAuxBit40", "IfSelectedAuxiliaryFlag04Clear", "IfSelectedSlotClass1", "IfSelectedSlotClass2", "IfSelectedSlotClass3"):
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))
             condition = {
                 "IfSelectedAuxiliaryContinuation": "Continuation",
                 "IfSelectedAuxBit40": "ActionBit40",
+                "IfSelectedAuxiliaryFlag04Clear": "ActionBit04Clear",
                 "IfSelectedSlotClass1": "ModeClass(super::path_conditions::AuxiliaryModeClass::One)",
                 "IfSelectedSlotClass2": "ModeClass(super::path_conditions::AuxiliaryModeClass::Two)",
                 "IfSelectedSlotClass3": "ModeClass(super::path_conditions::AuxiliaryModeClass::Three)",
