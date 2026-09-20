@@ -864,6 +864,31 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
+    def test_four_pulse_emitter_and_signal_guided_projectile_complete_graphs(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, installer, spawn_hex in [
+            (0x23D0, 61, 0x23C8, "5d50f2d0230a0a"),
+            (0xA86F, 27, 0xA6DF, "5da4c16fa80104"),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            statements = lower_graph(extractor, PathAddress(root), 0)[1]
+            self.assertEqual((len(commands), len(statements)), (count, count))
+            self.assertEqual(extractor.decode_command(PathAddress(installer)).raw_hex, spawn_hex)
+            self.assertEqual(statements.count("Statement::MarkForDeath"), 1)
+            if root == 0x23D0:
+                self.assertEqual("".join(c.raw_hex for c in commands if c.address.offset < 0x2400), "41928610")
+                self.assertEqual("".join(c.raw_hex for c in commands if c.address.offset >= 0x8692), "61045d24bef98364329c07a906c49b4442")
+                self.assertEqual(sum("SpawnIndependent" in s for s in statements), 1)
+                self.assertTrue(any("iterations: 4" in s for s in statements))
+            else:
+                self.assertEqual("".join(c.raw_hex for c in commands), "005c0004740005050b042e0b012d063204002c4d0008fd16080306fd150014e80395a8168da84b9fa80314104c95a842e10800a8a84c95a842141027afa80a420942")
+                self.assertTrue(any("SelectedDistanceLess(10000)" in s for s in statements))
+                self.assertTrue(any("EncounterSignalCondition::AllClear(8)" in s for s in statements))
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+
     def test_complete_debris_graphs_pin_installers_death_tails_and_arc_data(self):
         extractor = PathExtractor(self.rom)
         for root, count, installer, spawn_hex, graph_hex in [

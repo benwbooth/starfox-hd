@@ -12943,9 +12943,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 105);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1651);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1660);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 107);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1688);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1697);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

@@ -63,6 +63,86 @@ fn callbacks(
 }
 
 #[test]
+fn signal_guided_projectile_delays_guidance_and_retires_after_each_exit_cause() {
+    let catalog = authored_paths::catalog();
+    for distance in [1000, 9999, 10000] {
+        // Exit by proximity, shared signal, new contact, or contact during
+        // the initial six-visit wait before guidance has been registered.
+        for cause in 0..4 {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let selected = player(&mut objects, Vector3 { x: 0, y: 800, z: distance });
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::SIGNAL_GUIDED_PROJECTILE);
+            actor.base.pitch = Angle::from_units(32);
+            actor.base.yaw = Angle::from_units(64);
+            let mut signals = EncounterSignals { raised: 0xA500 };
+            let mut events = AudioState::default();
+            let original_random = random;
+            let mut inputs = world(&mut random);
+            inputs.selected = Some(selected);
+            inputs.primary_player = Some(selected);
+            inputs.audio = Some(audio(&mut events));
+            inputs.encounter_signals = Some(&mut signals);
+            for visit in 0..if cause == 3 { 3 } else { 6 } {
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 24).unwrap().step, ControlStep::Movement);
+                let actor = objects.get(owner).unwrap();
+                assert_eq!((actor.base.hit_points, actor.base.attack_power, actor.base.speed), (1, 4, 50));
+                assert!(actor.extension.path_state.motion.quadruple_velocity);
+                assert!(actor.extension.path_state.motion.generate_velocity_each_step);
+                assert!(actor.base.contacts.suppress_hit_marker);
+                assert_eq!(actor.extension.spatial_loop, SpatialLoop::from_authored_control(5));
+                assert_eq!(actor.base.wait_timer, visit + 1);
+                assert_eq!(actor.extension.path_state.triggers.entries(&runtime.resources, owner).unwrap().len(), 1);
+                assert_eq!(super::effect_tests::cues(&mut inputs), if visit == 0 { vec![116] } else { vec![] });
+                assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs), 0);
+            }
+            if cause != 3 {
+                for visit in 0..3 {
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12).unwrap().step, ControlStep::Movement);
+                    assert_eq!(objects.get(owner).unwrap().base.wait_timer, 0);
+                    let old_pitch = objects.get(owner).unwrap().base.pitch;
+                    assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs), 1);
+                    let actor = objects.get(owner).unwrap();
+                    // The authored boundary is strict: distant guidance is
+                    // yaw-only, while closer guidance also chases pitch.
+                    if distance == 10000 { assert_eq!(actor.base.pitch, old_pitch); }
+                    else if visit == 0 { assert_ne!(actor.base.pitch, old_pitch); }
+                    assert_eq!(actor.extension.path_state.triggers.entries(&runtime.resources, owner).unwrap().len(), 2);
+                }
+            }
+            match cause {
+                0 => objects.get_mut(selected).unwrap().base.position.z = 999,
+                1 => inputs.encounter_signals.as_deref_mut().unwrap().raised |= 8,
+                _ => objects.get_mut(owner).unwrap().base.contacts.new_contact_latched = true,
+            }
+            if cause != 0 {
+                assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs), if cause == 2 { 2 } else { 1 });
+                objects.get_mut(owner).unwrap().base.contacts.new_contact_latched = false;
+            }
+            // FORCE clears the elapsed timer even for early contact during
+            // the initial wait, so each exit gets the full twenty visits.
+            for timer in 0..=20 {
+                let death = timer == 20;
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).unwrap().step,
+                    if death { ControlStep::MovementTail } else { ControlStep::Movement });
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.base.wait_timer, if death { 0 } else { timer + 1 });
+                assert_eq!(actor.base.hit_points, if death { 0 } else { 1 });
+                assert_eq!(actor.base.flags.suppress_death_effects, death);
+                assert!(!actor.base.flags.remove_after_tick);
+                let entries = actor.extension.path_state.triggers.entries(&runtime.resources, owner).unwrap();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].kind, TriggerKind::NewContact);
+                assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs), 0);
+            }
+            assert_eq!(inputs.random, &original_random);
+            assert!(super::effect_tests::cues(&mut inputs).is_empty());
+            assert_eq!(inputs.encounter_signals.as_deref().unwrap().raised, if cause == 1 { 0xA508 } else { 0xA500 });
+        }
+    }
+}
+
+#[test]
 fn authored_random_texture_contact_sprite_samples_once_then_clears_health_and_holds() {
     let catalog = authored_paths::catalog();
     for elapsed in 0..=u8::MAX {

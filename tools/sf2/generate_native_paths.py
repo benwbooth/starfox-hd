@@ -129,6 +129,8 @@ ROOTS = (
     ("PHASE_INCREMENTED_HIT_RELEASED_ARC_ATTACHMENT", PathAddress(0x432C)),
     ("HIT_RELEASED_ARC_ATTACHMENT", PathAddress(0x432E)),
     ("CONTACT_RELEASED_ARC_ATTACHMENT", PathAddress(0x32B9)),
+    ("FOUR_PULSE_DEATH_EMITTER", PathAddress(0x23D0)),
+    ("SIGNAL_GUIDED_PROJECTILE", PathAddress(0xA86F)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -208,6 +210,8 @@ CHILD_INSTALLERS = {
     PathAddress(0x432C): (PathAddress(0x419B), PathAddress(0x42B8)),
     PathAddress(0x432E): (PathAddress(0x419B), PathAddress(0x42E1)),
     PathAddress(0x32B9): (PathAddress(0x3114), PathAddress(0x327C)),
+    PathAddress(0x23D0): (PathAddress(0x22AA), PathAddress(0x23C8)),
+    PathAddress(0xA86F): (PathAddress(0xA552), PathAddress(0xA6DF)),
 }
 
 

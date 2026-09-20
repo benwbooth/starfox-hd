@@ -2573,3 +2573,23 @@ The catalog contains 105 roots, 1,660 source commands and 1,651 statements;
 source-static tests, freshness, both audits and app build (existing icon
 warning). Parent spawn classification and production scheduling are not
 implied by these independently verified child roots.
+
+### Four-pulse death emitter and signal-guided projectile
+
+The four-pulse emitter calls its complete shared emission routine, borrows
+each new actor to set its part/pause state, restores the caller, then marks
+itself dead after the fourth spawn. Tests independently complete and retire
+all four actual fade graphs without disturbing the caller's loop/call stack.
+
+The guided projectile now includes its initial delay, range-dependent yaw or
+full-angle guidance, encounter-signal/contact exits, guidance cancellation,
+twenty-visit wait and death marking. Tests cover both strict distance
+boundaries and all exit routes, including contact during initialization:
+the forced continuation clears that earlier wait timer. Its surviving
+contact callback, cue, spatial loop, health/attack and motion flags are also
+checked. Installer and full graph bytes are pinned without source execution.
+
+The catalog has 107 roots, 1,697 source commands and 1,688 typed statements.
+407 native path tests pass in debug/release, with 154 lowering and 321
+source-static tests, freshness, both audits and app build passing (existing
+icon warning). This remains catalog coverage, not production gameplay completion.
