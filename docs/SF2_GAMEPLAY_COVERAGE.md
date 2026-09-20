@@ -2424,3 +2424,38 @@ path subset, not a claim of complete Game integration.
 Validation: 381 native path tests pass in debug and release, 147 lowering
 tests and 314 source-static checks pass, generated output is current, both
 audits pass, and the app builds with the existing unused app-icon warning.
+
+### Mutable action gate, group operand and complete staged effects
+
+The authored action gate now borrows one mutable scene-owned byte rather than
+an immutable observation. Its literal assignment, clear, zero test, equality
+and inequality handlers are statically lowered; direct comparisons preserve
+IFNOT and WAIT. The existing import reads this same byte. Exhaustive byte-pair
+tests, interleaved producer/consumer actors, absent-input faults and resumed
+live observations cover the complete command family. The two previously
+unlisted handlers are checked against their actual dispatch-table entries as
+well as their full bodies (`$13D` clears; `$13F` tests zero).
+
+Operand `$AF` now resolves to the existing `spawn_group` byte, not a separate
+script counter. Full-byte field tests and path-write/spawn tests prove that
+new actors inherit the changed group even when allocation defaults differ.
+Word-width access remains rejected because it overlaps another source field.
+
+Three newly complete child graphs cover action-gated sound/animation hold,
+animated retirement after two waits and a live gate, and a timed spin/rise
+effect. Source bytes and parent installers are pinned end to end. Native
+lifecycle tests cover byte-wrap waits, group reassignment, one-time callback
+registration, every animation step, live final-gate replacement, cue ordering,
+random-draw order, yaw callbacks and ordinary movement integration. The
+spin/rise case also reaches callback expiry: the source's pass-budget change
+skips its remaining yaw callback on that pass only, then resumes it next time.
+
+Coverage is now 98 complete roots, 1,534 unique source commands and 1,525
+typed statements. These additions do not establish whole-game completion or
+production scheduler integration.
+Validation passes 388 native path tests in debug/release, 149 lowering tests,
+317 source-static checks, generated freshness, both architecture/static
+gameplay audits and the app build with its existing app-icon warning.
+The 11 extractor regressions also pass. Its semantic census now explicitly
+separates the 279 reachable handlers from three independently reviewed unused
+handlers, rather than treating extra reviewed coverage as a changed ROM graph.

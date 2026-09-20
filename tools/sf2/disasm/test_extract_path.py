@@ -259,21 +259,25 @@ class RetailPathExtractionTests(unittest.TestCase):
         self.assertTrue(any(instruction.m == 0 for instruction in instructions))
 
     def test_reviewed_semantics_are_unique_and_pinned_to_retail_handlers(self) -> None:
-        self.assertEqual(len(PATH_SEMANTICS), 279)
-        self.assertEqual(len({spec.opcode for spec in PATH_SEMANTICS}), 279)
-        self.assertEqual(len({spec.rust_name for spec in PATH_SEMANTICS}), 279)
+        # These handlers have complete static proofs and native lowering but
+        # are not installed by the discovered retail root graphs: action-gate
+        # clear/zero and the previously reviewed proximity-warning disable.
+        reviewed_without_retail_use = {0x13D, 0x13F, 0x168}
+        self.assertEqual(len(PATH_SEMANTICS), 282)
+        self.assertEqual(len({spec.opcode for spec in PATH_SEMANTICS}), 282)
+        self.assertEqual(len({spec.rust_name for spec in PATH_SEMANTICS}), 282)
         for spec in PATH_SEMANTICS:
-            self.assertIn(spec.opcode, self.result.handlers)
             self.assertEqual(
-                self.result.handlers[spec.opcode].handler_address,
+                self.extractor.handler_entry(spec.opcode).handler_address,
                 spec.handler_address,
                 spec.rust_name,
             )
 
-        # The allow-list now covers every reachable retail handler.  This is
-        # exact equality, not a lower bound that could hide a new opcode.
+        # Still exact equality: neither a missing reachable handler nor an
+        # unlisted addition outside the discovered roots can hide here.
         named = {spec.opcode for spec in PATH_SEMANTICS}
-        self.assertEqual(named, set(self.result.handlers))
+        self.assertEqual(named, set(self.result.handlers) | reviewed_without_retail_use)
+        self.assertFalse(reviewed_without_retail_use & set(self.result.handlers))
 
 
 if __name__ == "__main__":

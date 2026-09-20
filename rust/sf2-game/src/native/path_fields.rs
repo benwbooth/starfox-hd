@@ -107,6 +107,8 @@ pub enum BytePart {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ByteField {
     ChildNumber,
+    /// Actor allocation/retirement group, also inherited by spawned actors.
+    SpawnGroup,
     ClippingPlane,
     /// Packed path control, not the renderer's resolved frame snapshot.
     Animation(AnimationChannel),
@@ -136,6 +138,7 @@ impl ByteField {
     pub fn read(self, actor: &Object) -> u8 {
         match self {
             Self::ChildNumber => actor.base.child_number,
+            Self::SpawnGroup => actor.extension.spawn_group,
             Self::ClippingPlane => actor.extension.clipping_plane.selector_byte(),
             Self::WeaponSelection => actor.extension.path_state.weapon_selection,
             Self::Animation(channel) => match channel {
@@ -180,6 +183,7 @@ impl ByteField {
     pub fn write(self, actor: &mut Object, value: u8) {
         match self {
             Self::ChildNumber => actor.base.child_number = value,
+            Self::SpawnGroup => actor.extension.spawn_group = value,
             Self::WeaponSelection => actor.extension.path_state.weapon_selection = value,
             Self::ClippingPlane => actor.extension.clipping_plane =
                 super::render::ClippingPlaneSelection::from_selector_byte(value),
@@ -920,6 +924,7 @@ mod tests {
         let mut actor = actor();
         let fields = [
             ByteField::ChildNumber,
+            ByteField::SpawnGroup,
             ByteField::ClippingPlane,
             ByteField::WeaponSelection,
             ByteField::Rotation(Axis::X),

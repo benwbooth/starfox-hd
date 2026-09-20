@@ -119,6 +119,9 @@ ROOTS = (
     ("LINKED_SHAPE_REVEAL_ATTACHMENT", PathAddress(0x9A4B)),
     ("SIGNAL_GATED_RELATIVE_LIFT", PathAddress(0x9DA1)),
     ("SIGNAL_GATED_LOOPING_MESH", PathAddress(0xAE1E)),
+    ("ACTION_GATED_SOUND_HOLD", PathAddress(0xCFC8)),
+    ("ACTION_GATED_ANIMATED_RETIREMENT", PathAddress(0xD399)),
+    ("TIMED_SPIN_RISE_EFFECT", PathAddress(0xD3B2)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -189,6 +192,9 @@ CHILD_INSTALLERS = {
     PathAddress(0x9A4B): (PathAddress(0x9492), PathAddress(0x96DB)),
     PathAddress(0x9DA1): (PathAddress(0x9492), PathAddress(0x9CF1)),
     PathAddress(0xAE1E): (PathAddress(0xAA8A), PathAddress(0xAAD8)),
+    PathAddress(0xCFC8): (PathAddress(0x4D7E), PathAddress(0x4D99)),
+    PathAddress(0xD399): (PathAddress(0xD27B), PathAddress(0xD374)),
+    PathAddress(0xD3B2): (PathAddress(0xD27B), PathAddress(0xD2A4)),
 }
 
 
@@ -445,6 +451,7 @@ def byte_field(variable: int) -> str:
         0x9A: "ByteField::TextureScrollY",
         0xA9: "ByteField::Part",
         0xAE: "ByteField::ClippingPlane",
+        0xAF: "ByteField::SpawnGroup",
     }
     if variable in fields:
         return fields[variable]
@@ -578,7 +585,23 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name in ("OrExternalD77d", "ClearExternalD77dBits", "ClearExternalD77d"):
+        if name in ("SetExternal1d72", "ClearExternal1d72"):
+            if name == "SetExternal1d72":
+                value, = parameters(1)
+            else:
+                parameters(0)
+                value = 0
+            statement = f"Statement::SetActionGate {{ value: {value}, next: {next_cursor()} }}"
+        elif name in ("IfExternal1d72Equal", "IfExternal1d72NotEqual", "IfExternal1d72Zero"):
+            if name == "IfExternal1d72Zero":
+                low, high = parameters(2)
+                value = 0
+            else:
+                value, low, high = parameters(3)
+            condition = "NotEqual" if name == "IfExternal1d72NotEqual" else "Equal"
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::ActionGateBranch {{ condition: ActionGateCondition::{condition}({value}), taken: {taken}, next: {next_} }}"
+        elif name in ("OrExternalD77d", "ClearExternalD77dBits", "ClearExternalD77d"):
             if name == "ClearExternalD77d":
                 parameters(0)
                 operation = "Reset"
@@ -1399,6 +1422,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_actor_context::ActorSelection;\n"
     if any("EncounterSignalCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_program::EncounterSignalCommand;\n"
+    if any("ActionGateCondition::" in statement for statement in unique_statements.values()):
+        source += "use super::path_program::ActionGateCondition;\n"
     if any("EncounterSignalCondition::" in statement for statement in unique_statements.values()):
         source += "use super::path_program::EncounterSignalCondition;\n"
     if any("WordOperand::" in statement for statement in unique_statements.values()):

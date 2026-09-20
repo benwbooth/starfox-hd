@@ -37,6 +37,10 @@ mod actor_effect_tests;
 #[path = "path_encounter_signal_tests.rs"]
 mod encounter_signal_tests;
 
+#[cfg(test)]
+#[path = "path_action_gate_tests.rs"]
+mod action_gate_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -46,7 +50,7 @@ pub struct PathWorld<'a> {
     pub targeting_upgrade: Option<&'a mut super::path_target::TargetingUpgradeState>,
     pub shield_recovery: Option<&'a mut super::player_hit_control::ShieldRecoveryRequest>,
     /// Whole shared action-gate byte (1D72), not a narrowed protection flag.
-    pub action_gate: Option<u8>,
+    pub action_gate: Option<&'a mut ActionGate>,
     /// Shared environmental reference plane (1E0F), in world-Y coordinates.
     pub environment_plane_height: Option<i16>,
     pub projectile_trigger: Option<&'a mut ProjectileTrigger>,
@@ -123,6 +127,19 @@ pub struct SceneryDistanceState {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct EncounterSignals {
     pub raised: u16,
+}
+
+/// Shared authored action/stage gate ($1D72). A script may publish a full
+/// byte, wait for its replacement, or clear it; it is not a boolean latch.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ActionGate {
+    pub code: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionGateCondition {
+    Equal(u8),
+    NotEqual(u8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -388,6 +405,9 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    SetActionGate { value: u8, next: PathCursor },
+    /// Literal comparisons branch directly without consuming IFNOT.
+    ActionGateBranch { condition: ActionGateCondition, taken: PathCursor, next: PathCursor },
     EncounterSignal {
         command: EncounterSignalCommand,
         next: PathCursor,
@@ -848,6 +868,21 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::SetActionGate { value, next } => {
+                    world.action_gate.as_deref_mut().ok_or(ProgramError::MissingActionGate)?.code = value;
+                    objects.get_mut(owner).expect("validated action-gate writer").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ActionGateBranch { condition, taken, next } => {
+                    let actual = world.action_gate.as_deref().ok_or(ProgramError::MissingActionGate)?.code;
+                    let matches = match condition {
+                        ActionGateCondition::Equal(expected) => actual == expected,
+                        ActionGateCondition::NotEqual(expected) => actual != expected,
+                    };
+                    objects.get_mut(owner).expect("validated action-gate observer").base.path =
+                        Some(if matches { taken } else { next });
+                    Ok(ControlStep::Continue)
+                }
                 Statement::EncounterSignal { command, next } => {
                     let signals = world.encounter_signals.as_deref_mut()
                         .ok_or(ProgramError::MissingEncounterSignals)?;
@@ -953,7 +988,7 @@ impl PathRuntime {
                     Ok(ControlStep::Continue)
                 }
                 Statement::ImportActionGate { destination, next } => {
-                    let value = world.action_gate.ok_or(ProgramError::MissingActionGate)?;
+                    let value = world.action_gate.as_deref().ok_or(ProgramError::MissingActionGate)?.code;
                     let actor = objects
                         .get_mut(owner)
                         .expect("validated action-gate reader");
@@ -1880,8 +1915,9 @@ mod tests {
                     amount: !(value as u8),
                 };
                 let mut inputs = world(&mut random);
+                let mut action_gate = ActionGate { code: value as u8 };
                 inputs.shield_recovery = Some(&mut request);
-                inputs.action_gate = Some(value as u8);
+                inputs.action_gate = Some(&mut action_gate);
                 inputs.environment_plane_height = Some(value as i16);
                 assert_eq!(
                     runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
@@ -2112,7 +2148,8 @@ mod tests {
                         }
                         let mut inputs = world(&mut random);
                         inputs.shield_recovery = Some(&mut request);
-                        inputs.action_gate = Some(if gate_at == Some(visit) { 255 } else { 0 });
+                        let mut action_gate = ActionGate { code: if gate_at == Some(visit) { 255 } else { 0 } };
+                        inputs.action_gate = Some(&mut action_gate);
                         inputs.surface_mode = Some(SurfaceMode { flags: mode });
                         if mode == 2 {
                             inputs.environment_plane_height = Some(plane);
@@ -12879,9 +12916,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 95);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1478);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1487);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 98);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1525);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1534);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
