@@ -25,6 +25,7 @@ from extract_path import PathExtractor
 from path_semantics import PATH_SEMANTICS
 from generate_native_paths import OUTPUT as NATIVE_PATH_OUTPUT, ROOTS as NATIVE_PATH_ROOTS
 from generate_native_paths import generate as generate_native_paths, graph as native_path_graph
+from generate_native_paths import lowering_units as native_path_units
 
 
 def audit(rom_path: Path) -> dict:
@@ -47,6 +48,11 @@ def audit(rom_path: Path) -> dict:
         command.address
         for _, root in NATIVE_PATH_ROOTS
         for command in native_path_graph(native_path_extractor, root)
+    })
+    native_path_statements = len({
+        command.address
+        for _, root in NATIVE_PATH_ROOTS
+        for command in native_path_units(native_path_extractor, root)
     })
     if NATIVE_PATH_OUTPUT.read_text() != generate_native_paths(rom):
         errors.append("generated native path catalog differs from complete-graph lowering")
@@ -130,7 +136,8 @@ def audit(rom_path: Path) -> dict:
         "shipping_dependency_boundary": {name: name in present for name in excluded},
         "native_path_catalog": {
             "complete_lowered_roots": len(NATIVE_PATH_ROOTS),
-            "lowered_statements": native_path_commands,
+            "source_commands": native_path_commands,
+            "lowered_statements": native_path_statements,
             "named_roots": [name for name, _ in NATIVE_PATH_ROOTS],
             "caveat": "typed catalog lowering only; Game scheduler and spawn integration remain open",
         },
@@ -159,7 +166,7 @@ def main() -> int:
             name for name, present in result["shipping_dependency_boundary"].items() if not present
         ))
         native = result["native_path_catalog"]
-        print(f"Native catalog: roots={native['complete_lowered_roots']} statements={native['lowered_statements']}")
+        print(f"Native catalog: roots={native['complete_lowered_roots']} statements={native['lowered_statements']} source_commands={native['source_commands']}")
         print(native["caveat"])
         print("Static checks: " + ("PASS" if result["static_checks_passed"] else "FAIL"))
         for error in result["errors"]:

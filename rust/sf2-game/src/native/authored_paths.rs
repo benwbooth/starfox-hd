@@ -80,6 +80,7 @@ pub const DIFFICULTY_HOMING_PROJECTILE: PathCursor = cursor(0, 139);
 pub const VARIANT_GUIDED_PROJECTILE: PathCursor = cursor(0, 220);
 pub const LOWERED_ROOT_COUNT: usize = 24;
 pub const LOWERED_COMMAND_COUNT: usize = 444;
+pub const LOWERED_SOURCE_COMMAND_COUNT: usize = 444;
 pub fn catalog() -> PathCatalog {
     PathCatalog::new(vec![vec![
         Statement::Mutate {

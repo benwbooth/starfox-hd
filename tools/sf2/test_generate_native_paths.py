@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, spawn_shape, generate, graph, lower_graph, shape_index, trigger_kind, variable_bit_masks, word_field,
+    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, spawn_shape, generate, graph, lower_graph, lowering_units, SelectedOffsetAim, shape_index, trigger_kind, variable_bit_masks, word_field,
 )
 
 
@@ -19,6 +19,58 @@ class NativePathGenerationTests(unittest.TestCase):
 
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
+
+    def test_offset_argument_preparation_folds_to_one_typed_statement(self):
+        for value in range(256):
+            signed = value if value < 128 else value - 256
+            for axis in range(3):
+                offsets = [0, 0, 0]
+                offsets[axis] = value
+                record = f"fb b1 16 {offsets[0]:02x} fb b3 16 {offsets[1]:02x} fb b5 16 {offsets[2]:02x} 00 30"
+                statements = self.lower_record(record)
+                expected = [0, 0, 0]
+                expected[axis] = signed
+                self.assertEqual(statements, [
+                    "Statement::FaceSelectedOffset { offset: super::path_steering::AimOffset "
+                    f"{{ x: {expected[0]}, y: {expected[1]}, z: {expected[2]} }}, next: cursor(0, 1) }}",
+                    "Statement::Control(ControlCommand::End)",
+                ])
+        changed = bytearray(self.rom)
+        record = bytes.fromhex("fb b1 16 00 fb b3 16 00 fb b5 16 40 00 30 0f")
+        changed[0x4F536:0x4F536 + len(record)] = record
+        extractor = PathExtractor(bytes(changed))
+        self.assertEqual(len(graph(extractor, PathAddress(0xF536))), 5)
+        self.assertIsInstance(lowering_units(extractor, PathAddress(0xF536))[0], SelectedOffsetAim)
+        source = generate(bytes(changed), (("OFFSET", PathAddress(0xF536)),))
+        self.assertIn("LOWERED_COMMAND_COUNT: usize = 2", source)
+        self.assertIn("LOWERED_SOURCE_COMMAND_COUNT: usize = 5", source)
+        wrapped = bytearray(self.rom)
+        for index, value in enumerate(record):
+            wrapped[0x40000 + ((0xFFF8 + index) & 0xFFFF)] = value
+        extractor = PathExtractor(bytes(wrapped))
+        units = lowering_units(extractor, PathAddress(0xFFF8))
+        self.assertEqual([unit.address.offset for unit in units], [6, 0xFFF8])
+        entry, statements = lower_graph(extractor, PathAddress(0xFFF8), 0)
+        self.assertEqual(entry, 1)
+        self.assertEqual(len(statements), 2)
+        self.assertIn("next: cursor(0, 0)", statements[1])
+
+    def test_offset_folding_rejects_partial_sequences_or_interior_control_entries(self):
+        for record in [
+            "fb b1 16 00", "fb b3 16 00 fb b5 16 40 00 30",
+            "fb b1 16 00 fb b5 16 40 fb b3 16 00 00 30",
+            "fb b1 16 00 fb b3 16 00 fb b5 16 40 09",
+            "fb b1 16 00 fb b3 16 00 fb b5 16 40 78 00 30",
+            "fb b1 16 00 fb b3 16 00 fb b5 16 40 00 30 17 3a f5",
+            "fb b1 16 00 fb b3 16 00 fb b5 16 40 00 30 17 42 f5",
+        ]:
+            with self.subTest(record=record), self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+        changed = bytearray(self.rom)
+        record = bytes.fromhex("fb b1 16 00 fb b3 16 00 fb b5 16 40 00 30 0f")
+        changed[0x4F536:0x4F536 + len(record)] = record
+        with self.assertRaises(UnsupportedPath):
+            lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF53A), 0)
 
     def test_exhaust_graph_retains_all_five_statements_and_literal_operands(self):
         entry, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF536), 0)

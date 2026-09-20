@@ -1240,3 +1240,22 @@ Verification passes 94 lowerer tests, 243 static path tests and 248 native path
 tests in debug/release, both audits, catalog freshness and the app build.
 Coverage is **24 complete roots / 444 unique statements**. No recorded gameplay
 or source-machine execution was used; scheduler/Game integration remains open.
+
+Selected-player offset aiming (`$7F:C1B8..C2B2`) is ported as a typed operation.
+The offline lowerer combines three contiguous literal offset preparations and
+their immediate consumer, after verifying each handler, complete record and
+control edge. Incomplete sequences, reordered writes, intervening statements,
+and external entries into the middle are rejected. Bank-wrapped sequences are
+handled without retaining native scratch fields or temporary source objects.
+
+The operation byte-rotates X/Z by the selected player's yaw, preserves signed
+Y, scales by sixteen, wraps world coordinates, and steers pitch/yaw by eighth
+steps with a minimum nonzero step. It clears the shared steering result but
+does not alter relative rotation, velocity, wait count or pending IFNOT.
+Tests exercise all offset bytes and yaw values, wrapped arithmetic, self-target
+aliasing, missing-input atomicity, and complete source-handler signatures.
+The audit now distinguishes source-command counts from folded Rust statements.
+Verification passes 96 lowerer tests, 244 static path tests and 252 native path
+tests in debug/release, both audits, catalog freshness and the app build.
+No additional root is included in this primitive checkpoint; coverage remains
+24 roots, 444 source commands and 444 native statements.

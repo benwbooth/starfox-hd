@@ -56,6 +56,22 @@ class UnsupportedPath(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class SelectedOffsetAim:
+    """One reviewed argument-preparation sequence, not native scratch state."""
+
+    commands: tuple[PathCommand, ...]
+    offset: tuple[int, int, int]
+
+    @property
+    def address(self):
+        return self.commands[0].address
+
+    @property
+    def next(self):
+        return self.commands[-1].successors[0]
+
+
 def variable_bit_masks(rom: bytes) -> tuple[int, ...]:
     # $7F:B5FB decrements and doubles an eight-bit selector, then reads a
     # word from $7F:B5CF. The first sixteen entries are powers of two;
@@ -259,8 +275,66 @@ def graph(extractor: PathExtractor, root: PathAddress) -> list[PathCommand]:
     return [found[address] for address in sorted(found)]
 
 
-def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, indices=None):
+def lowering_units(extractor: PathExtractor, root: PathAddress):
+    """Fold a closed immediate offset-preparation block into its consumer.
+
+    Every original command remains in the source graph. Native cursors exist
+    only at semantic boundaries: entry/callback/spawn edges into the middle
+    of a folded sequence are rejected, never aliased to its beginning.
+    """
     commands = graph(extractor, root)
+    by_address = {command.address: command for command in commands}
+    predecessors = {}
+    entries = {root}
+    for command in commands:
+        for successor in command.successors:
+            predecessors.setdefault(successor, set()).add(command.address)
+        if command.opcode in (0x033, 0x0F5):
+            entries.add(child_spawn_parameters(command).path)
+        elif command.opcode == 0x05D:
+            raw = bytes.fromhex(command.raw_hex)
+            entries.add(PathAddress(int.from_bytes(raw[3:5], "little")))
+    consumed = set()
+    units = []
+    for command in commands:
+        if command.address in consumed:
+            continue
+        if not (command.opcode == 0x0FB and command.raw_hex.startswith("fbb116")):
+            units.append(command)
+            continue
+        block = []
+        values = []
+        current = command
+        for address in (0x16B1, 0x16B3, 0x16B5):
+            raw = bytes.fromhex(current.raw_hex)
+            if (current.opcode != 0x0FB or current.prefix_size != 0
+                    or current.handler_address != SEMANTICS[0x0FB].handler_address
+                    or len(raw) != 4 or raw[:3] != b"\xfb" + address.to_bytes(2, "little")
+                    or current.successors != (PathAddress((current.address.offset + 4) & 0xFFFF),)):
+                raise UnsupportedPath(f"incomplete selected-offset preparation at {command.address.label()}")
+            block.append(current)
+            values.append(int.from_bytes(raw[3:], "little", signed=True))
+            next_address = current.successors[0]
+            if next_address not in by_address:
+                raise UnsupportedPath(f"missing selected-offset consumer at {command.address.label()}")
+            current = by_address[next_address]
+        if (current.opcode != 0x130 or current.prefix_size != 1 or current.raw_hex != "0030"
+                or current.handler_address != SEMANTICS[0x130].handler_address
+                or current.successors != (PathAddress((current.address.offset + 2) & 0xFFFF),)):
+            raise UnsupportedPath(f"unexpected selected-offset consumer at {command.address.label()}")
+        block.append(current)
+        for previous, interior in zip(block, block[1:]):
+            if interior.address in entries or predecessors.get(interior.address) != {previous.address}:
+                raise UnsupportedPath(f"external entry into selected-offset preparation at {interior.address.label()}")
+        consumed.update(part.address for part in block[1:])
+        units.append(SelectedOffsetAim(tuple(block), tuple(values)))
+    # A preparation can wrap the bank boundary, so an interior command can
+    # sort before its leading store. Remove it only after all folds are known.
+    return [unit for unit in units if unit.address not in consumed]
+
+
+def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, indices=None):
+    commands = lowering_units(extractor, root)
     if indices is None:
         indices = {command.address: index for index, command in enumerate(commands)}
 
@@ -269,6 +343,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
 
     statements = []
     for command in commands:
+        if isinstance(command, SelectedOffsetAim):
+            x, y, z = command.offset
+            statements.append(f"Statement::FaceSelectedOffset {{ offset: super::path_steering::AimOffset {{ x: {x}, y: {y}, z: {z} }}, next: {cursor(command.next)} }}")
+            continue
         spec = SEMANTICS.get(command.opcode)
         if spec is None or spec.handler_address != command.handler_address:
             raise UnsupportedPath(f"unreviewed handler at {command.address.label()}")
@@ -898,7 +976,8 @@ def generate(rom: bytes, roots=ROOTS) -> str:
     # One shared address-to-semantic-index layout across all lowered roots.
     # Duplicating a callee in each root graph would give the same source path
     # multiple identities, breaking callback cancellation/cursor comparisons.
-    addresses = sorted({command.address for _, root in roots for command in graph(extractor, root)})
+    addresses = sorted({command.address for _, root in roots for command in lowering_units(extractor, root)})
+    source_addresses = {command.address for _, root in roots for command in graph(extractor, root)}
     indices = {address: index for index, address in enumerate(addresses)}
     unique_statements = {}
     for name, root in roots:
@@ -906,7 +985,7 @@ def generate(rom: bytes, roots=ROOTS) -> str:
             raise UnsupportedPath(f"{name} has no verified source installer")
         entry, statements = lower_graph(extractor, root, 0, indices)
         declarations.append(f"pub const {name}: PathCursor = cursor(0, {entry});")
-        for command, statement in zip(graph(extractor, root), statements, strict=True):
+        for command, statement in zip(lowering_units(extractor, root), statements, strict=True):
             previous = unique_statements.setdefault(command.address, statement)
             if previous != statement:
                 raise UnsupportedPath(f"inconsistent shared statement at {command.address.label()}")
@@ -979,6 +1058,7 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
     source += "\n".join(declarations)
     source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(roots)};"
     source += f"\npub const LOWERED_COMMAND_COUNT: usize = {len(unique_statements)};"
+    source += f"\npub const LOWERED_SOURCE_COMMAND_COUNT: usize = {len(source_addresses)};"
     source += "\npub fn catalog() -> PathCatalog {\nPathCatalog::new(vec!["
     source += "vec![" + ",\n".join(unique_statements[address] for address in addresses) + "]"
     source += "]).expect(\"generated catalog indices fit native cursors\")\n}\n"

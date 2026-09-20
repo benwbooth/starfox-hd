@@ -374,6 +374,37 @@ impl PathRuntime {
         Ok(ControlStep::Continue)
     }
 
+    pub fn execute_facing_offset(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        selected: Option<ObjectId>,
+        offset: super::path_steering::AimOffset,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let actor = objects
+            .get(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        super::path_steering::face_selected_offset(
+            objects,
+            owner,
+            selected,
+            offset,
+            &mut self.steering,
+        )
+        .map_err(PathRuntimeError::Steering)?;
+        objects
+            .get_mut(owner)
+            .expect("validated offset-facing actor")
+            .base
+            .path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     pub fn execute_motion(
         &mut self,
         objects: &mut ObjectStore,

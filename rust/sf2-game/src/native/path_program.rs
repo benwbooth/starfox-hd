@@ -399,6 +399,10 @@ pub enum Statement {
         command: super::path_steering::FacingCommand,
         next: PathCursor,
     },
+    FaceSelectedOffset {
+        offset: super::path_steering::AimOffset,
+        next: PathCursor,
+    },
     YawOrbit {
         center: OrbitCenter,
         angle: ByteOperand,
@@ -890,6 +894,9 @@ impl PathRuntime {
                         },
                     )
                 }
+                Statement::FaceSelectedOffset { offset, next } => {
+                    self.execute_facing_offset(objects, owner, world.selected, offset, next)
+                }
                 Statement::OccupiedCell { taken, next } => {
                     let exempt = world
                         .selected_occupancy_exempt
@@ -1216,6 +1223,76 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn offset_facing_statement_preserves_wait_and_inversion_and_faults_before_mutation() {
+        use super::super::path_steering::{face_selected_offset, AimOffset, SteeringError};
+        let offset = AimOffset {
+            x: -128,
+            y: 127,
+            z: 64,
+        };
+        let catalog = PathCatalog::new(vec![vec![Statement::FaceSelectedOffset {
+            offset,
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let target = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        objects.get_mut(owner).unwrap().base.wait_timer = 173;
+        runtime.branch.invert_next = true;
+        runtime.steering.unchanged_axes = 199;
+        let before = objects.clone();
+        let initial_random = random;
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::Runtime(PathRuntimeError::Steering(
+                SteeringError::MissingSelected
+            )))
+        );
+        assert_eq!(objects, before);
+        assert_eq!(runtime.steering.unchanged_axes, 199);
+        assert!(runtime.branch.invert_next);
+        let mut inputs = world(&mut random);
+        inputs.selected = Some(target);
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            Err(ProgramError::BudgetExceeded {
+                cursor: cursor(0, 0),
+                executed: 0
+            })
+        );
+        assert_eq!(objects, before);
+        assert_eq!(runtime.steering.unchanged_axes, 199);
+        let mut expected = before.clone();
+        let mut expected_steering = runtime.steering;
+        face_selected_offset(
+            &mut expected,
+            owner,
+            Some(target),
+            offset,
+            &mut expected_steering,
+        )
+        .unwrap();
+        expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::BudgetExceeded {
+                cursor: cursor(0, 1),
+                executed: 1
+            })
+        );
+        assert_eq!(objects, expected);
+        assert_eq!(runtime.steering, expected_steering);
+        assert!(runtime.branch.invert_next);
+        assert_eq!(random, initial_random);
     }
 
     #[test]

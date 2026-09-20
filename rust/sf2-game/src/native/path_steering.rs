@@ -5,6 +5,75 @@ use sf_core::aim_angle::{sf2_pitch_to_target, sf2_xz_angle_distance, sf2_yaw_to_
 
 const SELECTED_CHASE_DIVISOR: i8 = 4;
 const LINKED_CHASE_DIVISOR: i8 = 8;
+const OFFSET_CHASE_DIVISOR: i8 = 8;
+const AIM_OFFSET_WORLD_SCALE: i16 = 16;
+
+/// Authored signed-byte displacement in the selected actor's yaw frame.
+/// The offline lowerer folds its complete immediate preparation sequence
+/// into this value; no source scratch locations survive in native state.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct AimOffset {
+    pub x: i8,
+    pub y: i8,
+    pub z: i8,
+}
+
+/// `$7F:C1B8..C235` rotates only X/Z with byte-truncated products, then
+/// sign-extends and scales all axes. Even zero yaw runs the quantized rotate.
+pub fn selected_offset_point(position: Vector3, yaw: Angle, offset: AimOffset) -> Vector3 {
+    let (x, z) = sf_core::snes_trig::rotate_8xz(yaw.units(), offset.x, offset.z);
+    Vector3 {
+        x: position
+            .x
+            .wrapping_add(x.wrapping_mul(AIM_OFFSET_WORLD_SCALE)),
+        y: position
+            .y
+            .wrapping_add(i16::from(offset.y).wrapping_mul(AIM_OFFSET_WORLD_SCALE)),
+        z: position
+            .z
+            .wrapping_add(z.wrapping_mul(AIM_OFFSET_WORLD_SCALE)),
+    }
+}
+
+/// `$7F:C236..C2B2`: face a computed point, not a persistent external actor.
+/// Clears the shared result, applies eighth-step smoothing, and deliberately
+/// does NOT refresh relative yaw or regenerate velocity.
+pub fn face_selected_offset(
+    objects: &mut ObjectStore,
+    owner: ObjectId,
+    selected: Option<ObjectId>,
+    offset: AimOffset,
+    state: &mut SteeringState,
+) -> Result<(), SteeringError> {
+    let actor = objects
+        .get(owner)
+        .ok_or(SteeringError::MissingActor(owner))?;
+    let selected = selected.ok_or(SteeringError::MissingSelected)?;
+    let target = objects
+        .get(selected)
+        .ok_or(SteeringError::MissingActor(selected))?;
+    let point = selected_offset_point(target.base.position, target.base.yaw, offset);
+    let dx = point.x.wrapping_sub(actor.base.position.x);
+    let dy = point.y.wrapping_sub(actor.base.position.y);
+    let dz = point.z.wrapping_sub(actor.base.position.z);
+    let pitch = chase(
+        actor.base.pitch,
+        sf2_pitch_to_target(dy, sf2_xz_angle_distance(dx, dz)),
+        OFFSET_CHASE_DIVISOR,
+    );
+    let yaw = chase(
+        actor.base.yaw,
+        sf2_yaw_to_target(dx, dz),
+        OFFSET_CHASE_DIVISOR,
+    );
+    let actor = objects
+        .get_mut(owner)
+        .expect("validated offset-facing actor");
+    actor.base.pitch = pitch;
+    actor.base.yaw = yaw;
+    state.unchanged_axes = 0;
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FacingCommand {
@@ -301,6 +370,172 @@ mod tests {
                 fixed_players: [Some(target), Some(owner)],
             },
         )
+    }
+
+    #[test]
+    fn selected_offset_point_preserves_byte_products_wrap_and_unrotated_height() {
+        use sf_core::snes_trig::{COSTAB, SINTAB};
+        let product = |a: i8, b: i8| {
+            let doubled = (i16::from(a).abs() * 2) % 256;
+            let magnitude = doubled * i16::from(b).abs() / 256;
+            (if (a < 0) != (b < 0) {
+                -magnitude
+            } else {
+                magnitude
+            }) as i8
+        };
+        let position = Vector3 {
+            x: 32760,
+            y: -32760,
+            z: 32000,
+        };
+        for yaw in 0..=u8::MAX {
+            let angle = usize::from(yaw.wrapping_neg());
+            for value in 0..=u8::MAX {
+                for offset in [
+                    AimOffset {
+                        x: value as i8,
+                        y: value as i8,
+                        z: 127,
+                    },
+                    AimOffset {
+                        x: -128,
+                        y: value as i8,
+                        z: value as i8,
+                    },
+                    AimOffset {
+                        x: 127,
+                        y: value as i8,
+                        z: value as i8,
+                    },
+                ] {
+                    let x = product(offset.x, COSTAB[angle])
+                        .wrapping_add(product(offset.z, SINTAB[angle]));
+                    let z = product(offset.x, SINTAB[angle])
+                        .wrapping_neg()
+                        .wrapping_add(product(offset.z, COSTAB[angle]));
+                    assert_eq!(
+                        selected_offset_point(position, Angle::from_units(yaw), offset),
+                        Vector3 {
+                            x: position.x.wrapping_add(i16::from(x) * 16),
+                            y: position.y.wrapping_add(i16::from(offset.y) * 16),
+                            z: position.z.wrapping_add(i16::from(z) * 16),
+                        }
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            selected_offset_point(
+                Vector3::default(),
+                Angle::ZERO,
+                AimOffset { x: 0, y: 0, z: 64 }
+            ),
+            Vector3 {
+                x: 0,
+                y: 0,
+                z: 1008
+            }
+        );
+    }
+
+    #[test]
+    fn offset_facing_changes_only_world_pitch_yaw_and_clears_shared_result() {
+        for initial in 0..=u8::MAX {
+            for self_target in [false, true] {
+                let (mut objects, owner, selected, _) = fixture();
+                let selected = if self_target { owner } else { selected };
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.position = Vector3 {
+                    x: 32760,
+                    y: -1234,
+                    z: -32760,
+                };
+                actor.base.pitch = Angle::from_units(initial);
+                actor.base.yaw = Angle::from_units(initial.wrapping_add(83));
+                actor.base.velocity = Vector3 {
+                    x: 11,
+                    y: -222,
+                    z: 3333,
+                };
+                actor.extension.path_state.motion.relative_coordinates = true;
+                actor.extension.parent = None; // This form never calls relative-yaw refresh.
+                actor.extension.relative_rotation.yaw = Angle::from_units(57);
+                let offset = AimOffset {
+                    x: 127,
+                    y: -128,
+                    z: 64,
+                };
+                let target = objects.get(selected).unwrap();
+                let point = selected_offset_point(target.base.position, target.base.yaw, offset);
+                let before = objects.clone();
+                let actor = before.get(owner).unwrap();
+                let (target_pitch, target_yaw) =
+                    super::super::path_control::target_angles(actor.base.position, point);
+                let expected_angle = |current: Angle, target: Angle| {
+                    let delta = i16::from(target.units().wrapping_sub(current.units()) as i8);
+                    let step = if delta == 0 {
+                        0
+                    } else {
+                        delta.signum() * delta.abs().max(8) / 8
+                    };
+                    Angle::from_units(current.units().wrapping_add(step as u8))
+                };
+                let mut expected = before.clone();
+                expected.get_mut(owner).unwrap().base.pitch =
+                    expected_angle(actor.base.pitch, target_pitch);
+                expected.get_mut(owner).unwrap().base.yaw =
+                    expected_angle(actor.base.yaw, target_yaw);
+                let mut state = SteeringState {
+                    unchanged_axes: 171,
+                };
+                face_selected_offset(&mut objects, owner, Some(selected), offset, &mut state)
+                    .unwrap();
+                assert_eq!(objects, expected);
+                assert_eq!(state.unchanged_axes, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn offset_facing_validates_targets_before_changing_actor_or_shared_result() {
+        let (mut objects, owner, selected, _) = fixture();
+        let mut state = SteeringState {
+            unchanged_axes: 173,
+        };
+        let before = objects.clone();
+        assert_eq!(
+            face_selected_offset(&mut objects, owner, None, AimOffset::default(), &mut state),
+            Err(SteeringError::MissingSelected)
+        );
+        assert_eq!(objects, before);
+        assert_eq!(state.unchanged_axes, 173);
+        objects.remove(selected).unwrap();
+        let before = objects.clone();
+        assert_eq!(
+            face_selected_offset(
+                &mut objects,
+                owner,
+                Some(selected),
+                AimOffset::default(),
+                &mut state
+            ),
+            Err(SteeringError::MissingActor(selected))
+        );
+        assert_eq!(objects, before);
+        assert_eq!(state.unchanged_axes, 173);
+        assert_eq!(
+            face_selected_offset(
+                &mut objects,
+                selected,
+                Some(owner),
+                AimOffset::default(),
+                &mut state
+            ),
+            Err(SteeringError::MissingActor(selected))
+        );
+        assert_eq!(objects, before);
+        assert_eq!(state.unchanged_axes, 173);
     }
 
     #[test]
