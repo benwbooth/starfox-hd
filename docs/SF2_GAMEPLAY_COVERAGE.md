@@ -1949,3 +1949,27 @@ path tests (debug and release) pass, as do generated freshness,
 architecture/static audits and the app build. This path does not disable
 collision, so its shape's spawn category is deliberately still rejected
 until separately reviewed; no parent or allocation integration is claimed.
+
+### Byte-width imports of published player motion
+
+`ImportPlayerMotionByte` now decodes each low/high byte of the three motion
+snapshot components into typed axis/byte-part selectors. It uses the same
+published observation as the word import, not the currently selected actor
+or its live velocity. Source `$7F:9F4F` invokes the shared word loader but
+stores in byte mode. Absolute source addresses stay in the offline lowerer;
+exports and neighboring unreviewed fields remain rejected.
+
+The shared callback at `44:8463` consequently lowers completely: it saves
+phase low, imports motion X/Z low bytes, doubles and negates each as a byte,
+adds each signed byte to the corresponding world coordinate, then restores
+phase low. Static tests pin this full callback, the source importer/helper,
+and the other authored byte-import site. Native import tests exhaust all
+65,536 word values on every axis, source half and destination half under
+both IFNOT states. They verify unrelated-state preservation, missing-input
+atomicity, zero-budget precedence and changed snapshots between resumes.
+
+All 128 lowerer tests, 291 static path tests, and 314 native path tests in
+debug/release pass, alongside generated freshness, architecture/static
+audits and the app build. Complete-root coverage remains **57 roots / 998
+source commands / 989 native statements** until the newly unblocked sprite
+graphs receive their independent whole-graph tests.

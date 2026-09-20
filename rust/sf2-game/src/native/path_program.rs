@@ -412,6 +412,12 @@ pub enum Statement {
         destination: super::path_fields::WordField,
         next: PathCursor,
     },
+    ImportPlayerMotionByte {
+        axis: super::path_fields::Axis,
+        part: super::path_fields::BytePart,
+        destination: super::path_fields::ByteField,
+        next: PathCursor,
+    },
     ImportChargeThreshold {
         destination: super::path_fields::ByteField,
         next: PathCursor,
@@ -1008,6 +1014,24 @@ impl PathRuntime {
                         .get_mut(owner)
                         .expect("validated motion-import owner");
                     destination.write(actor, value as u16);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportPlayerMotionByte { axis, part, destination, next } => {
+                    use super::path_fields::{Axis, BytePart};
+                    let delta = world.published_motion
+                        .ok_or(ProgramError::MissingPublishedMotion)?.delta;
+                    let word = match axis {
+                        Axis::X => delta.x,
+                        Axis::Y => delta.y,
+                        Axis::Z => delta.z,
+                    } as u16;
+                    let value = match part {
+                        BytePart::Low => word as u8,
+                        BytePart::High => (word >> u8::BITS) as u8,
+                    };
+                    let actor = objects.get_mut(owner).expect("validated motion-byte import owner");
+                    destination.write(actor, value);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -3878,6 +3902,70 @@ mod tests {
             assert_eq!(inputs.random, &original_random);
         }
         runtime.release_actor_programs(&mut objects, owner).unwrap();
+    }
+
+    #[test]
+    fn published_motion_byte_imports_preserve_other_halves_and_require_a_live_snapshot() {
+        use super::super::path_fields::{Axis, BytePart};
+        use super::super::path_motion::PublishedPlayerMotion;
+        use super::super::Vector3;
+        for axis in [Axis::X, Axis::Y, Axis::Z] {
+            for part in [BytePart::Low, BytePart::High] {
+                for destination_part in [BytePart::Low, BytePart::High] {
+                    let catalog = PathCatalog::new(vec![vec![Statement::ImportPlayerMotionByte {
+                        axis, part, destination: ByteField::WordPart {
+                            field: WordField::MotionPhase, part: destination_part,
+                        }, next: cursor(0, 0),
+                    }]]).unwrap();
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    actor.base.wait_timer = 193;
+                    actor.base.velocity = Vector3 { x: -31, y: 1234, z: -32768 };
+                    let initial = actor.clone();
+                    let initial_random = random;
+                    for inverted in [false, true] {
+                        runtime.branch.invert_next = inverted;
+                        let before_missing = objects.clone();
+                        // Budget exhaustion is reported before consulting a
+                        // missing snapshot; neither fault changes the actor.
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                            Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                            Err(ProgramError::MissingPublishedMotion));
+                        assert_eq!(objects, before_missing);
+                        for bits in 0..=u16::MAX {
+                            let mut delta = Vector3 { x: 13, y: 29, z: 43 };
+                            match axis {
+                                Axis::X => delta.x = bits as i16,
+                                Axis::Y => delta.y = bits as i16,
+                                Axis::Z => delta.z = bits as i16,
+                            }
+                            let snapshot = PublishedPlayerMotion {
+                                position: Vector3 { x: -123, y: -456, z: -789 }, delta,
+                            };
+                            let mut inputs = world(&mut random);
+                            inputs.published_motion = Some(snapshot);
+                            let value = match part {
+                                BytePart::Low => bits % 256,
+                                BytePart::High => bits / 256,
+                            };
+                            let mut expected = initial.clone();
+                            expected.extension.path_state.motion_phase = match destination_part {
+                                BytePart::Low => 0xAB00 | value,
+                                BytePart::High => value * 256 | 0xCD,
+                            };
+                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                                Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
+                            assert_eq!(objects.get(owner).unwrap(), &expected);
+                            assert_eq!(inputs.published_motion, Some(snapshot));
+                            assert_eq!(runtime.branch.invert_next, inverted);
+                            assert_eq!(inputs.random, &initial_random);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

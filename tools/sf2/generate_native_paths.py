@@ -1026,6 +1026,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             else:
                 low, high = parameters(2)
                 address = low | (high << 8)
+            if name == "ImportByteAbsolute" and 0x1E1C <= address <= 0x1E21:
+                axis = ("X", "Y", "Z")[(address - 0x1E1C) // 2]
+                part = "High" if address & 1 else "Low"
+                statement = f"Statement::ImportPlayerMotionByte {{ axis: Axis::{axis}, part: BytePart::{part}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address == 0x1DD6 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)

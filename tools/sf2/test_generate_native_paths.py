@@ -159,6 +159,28 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(shape, PathAddress(root))
 
+    def test_motion_snapshot_byte_imports_decode_axis_and_half_without_exporting_memory(self):
+        for address in range(0x1E1C, 0x1E22):
+            axis = ("X", "Y", "Z")[(address - 0x1E1C) // 2]
+            part = "High" if address & 1 else "Low"
+            self.assertEqual(self.lower_record(f"79 a1 {address & 255:02x} {address >> 8:02x}")[0],
+                f"Statement::ImportPlayerMotionByte {{ axis: Axis::{axis}, part: BytePart::{part}, destination: ByteField::WordPart {{ field: WordField::MotionPhase, part: BytePart::Low }}, next: cursor(0, 1) }}")
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
+                self.lower_record(f"7d a1 {address & 255:02x} {address >> 8:02x}")
+        for address in (0x1E1B, 0x1E22):
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
+                self.lower_record(f"79 a1 {address & 255:02x} {address >> 8:02x}")
+        extractor = PathExtractor(self.rom)
+        _, statements = lower_graph(extractor, PathAddress(0x8463), 0)
+        self.assertEqual(len(statements), 11)
+        self.assertIn("StackValueCommand::SaveByte", statements[0])
+        self.assertIn("ImportPlayerMotionByte { axis: Axis::X, part: BytePart::Low", statements[1])
+        self.assertIn("ByteOperation::Add(ByteOperand::Actor", statements[2])
+        self.assertIn("ByteOperation::Negate", statements[3])
+        self.assertIn("SignedByte", statements[4])
+        self.assertIn("ImportPlayerMotionByte { axis: Axis::Z, part: BytePart::Low", statements[5])
+        self.assertIn("StackValueCommand::RestoreByte", statements[9])
+
     def test_hit_cycled_shape_keeps_both_callbacks_and_all_loop_transition_commands(self):
         extractor = PathExtractor(self.rom)
         commands = graph(extractor, PathAddress(0x20CD))

@@ -49,6 +49,18 @@ class PathMovementStaticTests(unittest.TestCase):
         expected = bytes.fromhex("5c 00 29 7c 32 1c 1e 7c 36 20 1e 57 32 57 36 00 44 0b 40 12 0b 80 16 16 68 be")
         self.assertEqual(self.rom[0x4BE65:0x4BE65 + len(expected)], expected)
 
+    def test_byte_motion_import_uses_same_snapshot_but_truncates_before_authored_arithmetic(self):
+        self.assert_source(0x7F9F4F, "20 D2 9F AD B7 16 99 00 00 4C A9 CA")
+        # The shared loader reads a word, then returns in byte mode after
+        # resolving the actor destination. The import stores only its low
+        # byte, even when the address is an odd byte inside a motion word.
+        self.assert_source(0x7F9FD2,
+            "C2 20 20 4C C7 A8 B9 00 00 8D B7 16 E2 20 20 BC C4 20 47 CB 60")
+        self.assert_source(0x098463,
+            "93 A1 79 A1 1C 1E 52 A1 A1 56 A1 55 0C A1 79 A1 20 1E "
+            "52 A1 A1 56 A1 55 10 A1 95 A1 42")
+        self.assert_source(0x08CE8B, "79 A1 20 1E EE A2 A1 9A 4E")
+
     def test_acceleration_writes_target_and_amount_without_regenerating(self):
         self.assert_source(0x7F8C96, "20 BC C4 95 0A 20 E0 C4 95 0B 4C BE CA")
 
