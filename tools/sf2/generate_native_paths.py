@@ -113,11 +113,15 @@ def child_spawn_parameters(command: PathCommand) -> ChildSpawnParameters:
     )
 
 
-def child_spawn_shape(shape: int) -> tuple[int, str]:
+def shape_index(shape: int) -> int:
     delta = shape - SHAPE_HEADER_START
     if delta < 0 or delta % SHAPE_HEADER_SIZE or delta // SHAPE_HEADER_SIZE >= SHAPE_HEADER_COUNT:
-        raise UnsupportedPath(f"child spawn shape is not a catalog header: {shape:04X}")
-    index = delta // SHAPE_HEADER_SIZE
+        raise UnsupportedPath(f"shape is not a catalog header: {shape:04X}")
+    return delta // SHAPE_HEADER_SIZE
+
+
+def child_spawn_shape(shape: int) -> tuple[int, str]:
+    index = shape_index(shape)
     # Reviewed transient sprite family, also named by the source pool-pressure
     # sweep. Other shapes need native metadata review; never guess enemy vs
     # scenery vs projectile from a numerically valid shape header alone.
@@ -349,9 +353,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                     variable = operands[0]
                     value = int.from_bytes(operands[1:], "little")
             operation = "Assign" if name.startswith("Set") else "Add"
-            field = word_field(variable) if wide else byte_field(variable)
-            mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation}({kind}Operand::Literal({value})) }}"
-            statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
+            if name == "SetWord" and variable == 0x04:
+                # A literal shape header becomes a semantic catalog ID. Do
+                # not expose raw shape pointers as ordinary word arithmetic.
+                statement = f"Statement::Appearance {{ command: AppearanceCommand::Shape(ShapeId::from_catalog_index({shape_index(value)})), next: {next_cursor()} }}"
+            else:
+                field = word_field(variable) if wide else byte_field(variable)
+                mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation}({kind}Operand::Literal({value})) }}"
+                statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
         elif name in ("IfSelectedAuxiliaryContinuation", "IfSelectedAuxBit40"):
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))
@@ -433,6 +442,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             variable, expected, low, high = parameters(4)
             taken, next_ = branch_cursors(low | (high << 8))
             condition = f"ActorCondition::EqualByte(ByteOperand::Actor({byte_field(variable)}), ByteOperand::Literal({expected}))"
+            statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
+        elif name == "IfSameWord":
+            operands = parameters(5)
+            variable = operands[0]
+            expected = int.from_bytes(operands[1:3], "little")
+            taken, next_ = branch_cursors(int.from_bytes(operands[3:], "little"))
+            if variable == 0x04:
+                condition = f"ActorCondition::EqualShape(ShapeId::from_catalog_index({shape_index(expected)}))"
+            else:
+                condition = f"ActorCondition::EqualWord(WordOperand::Actor({word_field(variable)}), WordOperand::Literal({expected}))"
             statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
         elif name == "SetObjectBytes0a0b":
             target, amount = parameters(2)
@@ -562,6 +581,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_control::TriggerPeriod;\n"
     if any("Statement::SpawnChild" in statement for statement in unique_statements.values()):
         source += "use super::path_spawn::ChildSpawn;\nuse super::{Angle, ObjectKind, Rotation, ShapeId, Vector3};\n"
+    elif any("ShapeId::" in statement for statement in unique_statements.values()):
+        source += "use super::ShapeId;\n"
     source += "\n".join(declarations)
     source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(roots)};"
     source += f"\npub const LOWERED_COMMAND_COUNT: usize = {len(unique_statements)};"

@@ -662,3 +662,14 @@ the immediate command sequence. Verification passes 39 lowerer tests, 161
 static path checks, 150 native path tests in debug/release, the architecture/
 dependency audit and the app build. The catalog is still nine roots/97 unique
 statements, not a claim of complete scene or rendering integration.
+
+Literal shape assignment and equality now decode aligned source headers into
+semantic ShapeIds during extraction; raw shape pointers remain unavailable to
+runtime arithmetic or variable copies. Every one of the 577 catalog headers
+is checked for assignment/comparison lowering, invalid headers are rejected,
+and native tests prove that changing shape leaves visibility, sprite state,
+animation and other actor state intact. Equality consumes IFNOT normally, and
+ordinary full-width literal word equality also lowers. Verification passes 41
+lowerer tests, 162 static path checks, 151 native path tests in debug/release,
+architecture/dependency checks and the app build. These are handler additions;
+the complete native catalog remains nine roots/97 statements.

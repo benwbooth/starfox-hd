@@ -22,6 +22,9 @@ class PathConditionsStaticTests(unittest.TestCase):
         self.assert_source(0x7FA320, "A9 01 8D 72 B2 4C E8 CA")
         self.assert_source(0x7F8F4D, "AD 72 B2 F0 0D 9C 72 B2 28 D0 04 5C 94 CA 7F 4C 0B CB")
 
+    def test_word_equality_reads_full_literal_and_consumes_ifnot_before_six_byte_continuation(self):
+        self.assert_source(0x7F8F69, "20 BC C4 20 47 CB C2 20 20 4C C7 D9 00 00 E2 20 08 AD 72 B2 F0 0D 9C 72 B2 28 D0 04 5C 83 CA 7F 4C 17 CB 28 F0 04 5C 83 CA 7F 4C 17 CB")
+
     def test_auxiliary_continuation_reads_selected_slot_twice_and_does_not_consume_ifnot(self):
         self.assert_source(0x7FB9BC, "AC 1F CF DA BB 7A 5A B4 2B B9 63 6B 7A DA BB 7A 89 40 F0 04 5C DC B9 7F 29 80 F0 04 5C EE B9 7F DA BB 5A B4 2B B9 77 6B 7A FA 89 20 F0 04 5C F1 B9 7F 4C BE CA 4C F3 CA")
 

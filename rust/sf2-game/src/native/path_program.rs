@@ -60,6 +60,7 @@ impl SelectedAuxiliaryCondition {
 /// In particular, an immediate loop must not retain the first iteration's value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActorCondition {
+    EqualShape(super::ShapeId),
     EqualByte(ByteOperand, ByteOperand),
     EqualWord(WordOperand, WordOperand),
     BetweenByte {
@@ -85,6 +86,10 @@ pub enum ActorCondition {
 impl ActorCondition {
     fn sample(self, actor: &Object) -> Predicate {
         match self {
+            Self::EqualShape(shape) => Predicate::EqualWord {
+                value: actor.base.shape.catalog_index() as u16,
+                expected: shape.catalog_index() as u16,
+            },
             Self::EqualByte(a, b) => Predicate::EqualByte {
                 value: a.read(actor),
                 expected: b.read(actor),
@@ -559,6 +564,66 @@ mod tests {
                 number: 3,
             },
             next: cursor(0, 1),
+        }
+    }
+
+    #[test]
+    fn shape_assignment_and_equality_use_semantic_ids_without_reinitializing_actor() {
+        use super::super::path_appearance::AppearanceCommand;
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let original_random = random;
+        for index in 0..577 {
+            for equal in [false, true] {
+                for inverted in [false, true] {
+                    let shape = ShapeId::from_catalog_index(index);
+                    let other =
+                        ShapeId::from_catalog_index(if equal { index } else { (index + 1) % 577 });
+                    let catalog = PathCatalog::new(vec![vec![
+                        Statement::Appearance {
+                            command: AppearanceCommand::Shape(shape),
+                            next: cursor(0, 1),
+                        },
+                        Statement::Compare {
+                            condition: ActorCondition::EqualShape(other),
+                            taken: cursor(0, 2),
+                            next: cursor(0, 3),
+                        },
+                        Statement::Control(ControlCommand::End),
+                        Statement::Control(ControlCommand::End),
+                    ]])
+                    .unwrap();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(cursor(0, 0));
+                    actor.base.flags.visible = false;
+                    actor.base.flags.scaled_sprite = true;
+                    actor.base.flags.casts_shadow = true;
+                    actor.base.flags.collision_disabled = true;
+                    actor.extension.texture_scroll_x = 67;
+                    actor.extension.animation_frame = 12;
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    let mut expected = actor.clone();
+                    expected.base.shape = shape;
+                    let next = cursor(0, if equal != inverted { 2 } else { 3 });
+                    expected.base.path = Some(next);
+                    runtime.branch.invert_next = inverted;
+                    assert_eq!(
+                        runtime.resume_program(
+                            &catalog,
+                            &mut objects,
+                            owner,
+                            &mut world(&mut random),
+                            2
+                        ),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: next,
+                            executed: 2
+                        })
+                    );
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert!(!runtime.branch.invert_next);
+                    assert_eq!(random, original_random);
+                }
+            }
         }
     }
 

@@ -13,6 +13,9 @@ const FRAME_VALUE: u8 = 0x7f;
 /// command does not change visibility or consume pending contacts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppearanceCommand {
+    /// Literal shape assignment changes only the catalog selection; it does
+    /// not initialize a strategy, animation, visibility or collision state.
+    Shape(super::ShapeId),
     Visibility(bool),
     Collision(bool),
     Shadow(bool),
@@ -22,6 +25,7 @@ pub enum AppearanceCommand {
 impl AppearanceCommand {
     pub fn apply(self, actor: &mut Object) {
         match self {
+            Self::Shape(shape) => actor.base.shape = shape,
             Self::Visibility(visible) => {
                 actor.base.flags.visible = visible;
                 actor.base.flags.collision_disabled = !visible;
@@ -202,6 +206,7 @@ mod tests {
                 ] {
                     let mut expected = original.clone();
                     match command {
+                        AppearanceCommand::Shape(shape) => expected.base.shape = shape,
                         AppearanceCommand::Visibility(value) => {
                             expected.base.flags.visible = value;
                             expected.base.flags.collision_disabled = !value;

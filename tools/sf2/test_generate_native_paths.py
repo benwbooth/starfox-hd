@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, trigger_kind, variable_bit_masks, word_field,
+    byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, shape_index, trigger_kind, variable_bit_masks, word_field,
 )
 
 
@@ -228,6 +228,38 @@ class NativePathGenerationTests(unittest.TestCase):
             changed[0x4F536:0x4F538] = bytes.fromhex(record + " 0f")
             generated = generate(bytes(changed), (("APPEARANCE", PathAddress(0xF536)),))
             self.assertIn("use super::path_appearance::AppearanceCommand;", generated)
+
+    def test_literal_shape_assignment_and_equality_decode_every_catalog_header(self):
+        for index in range(577):
+            shape = 0xBC9C + index * 28
+            self.assertEqual(shape_index(shape), index)
+            low, high = shape.to_bytes(2, "little")
+            assigned = self.lower_record(f"0c {low:02x} {high:02x} 04")[0]
+            self.assertEqual(assigned, f"Statement::Appearance {{ command: AppearanceCommand::Shape(ShapeId::from_catalog_index({index})), next: cursor(0, 1) }}")
+            compared = self.lower_record(f"2b 04 {low:02x} {high:02x} 36 f5")[0]
+            self.assertEqual(compared, f"Statement::Compare {{ condition: ActorCondition::EqualShape(ShapeId::from_catalog_index({index})), taken: cursor(0, 0), next: cursor(0, 1) }}")
+        for shape in [0, 0xBC9B, 0xBC9D, 0xFBB8, 0xFFFF]:
+            low, high = shape.to_bytes(2, "little")
+            for record in [f"0c {low:02x} {high:02x} 04", f"2b 04 {low:02x} {high:02x} 36 f5"]:
+                with self.assertRaisesRegex(UnsupportedPath, "not a catalog header"):
+                    self.lower_record(record)
+        # Generic arithmetic and variable copies cannot expose a shape pointer.
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
+            self.lower_record("08 04 01 00")
+        for record in ["0c 40 be 04", "2b 04 40 be 36 f5"]:
+            changed = bytearray(self.rom)
+            program = bytes.fromhex(record + " 0f")
+            changed[0x4F536:0x4F536 + len(program)] = program
+            generated = generate(bytes(changed), (("SHAPE", PathAddress(0xF536)),))
+            self.assertIn("use super::ShapeId;", generated)
+            self.assertNotIn("48704", generated)
+            self.assertNotIn("0xBE40", generated)
+
+    def test_word_literal_equality_keeps_full_width_and_branch_edges(self):
+        for value in [0, 1, 255, 256, 32767, 32768, 65535]:
+            low, high = value.to_bytes(2, "little")
+            self.assertEqual(self.lower_record(f"2b a1 {low:02x} {high:02x} 36 f5")[0],
+                f"Statement::Compare {{ condition: ActorCondition::EqualWord(WordOperand::Actor(WordField::MotionPhase), WordOperand::Literal({value})), taken: cursor(0, 0), next: cursor(0, 1) }}")
 
     def test_break_pair_discard_and_consuming_hit_branches_keep_their_edges(self):
         self.assertEqual(self.lower_record("46 36 f5")[0],
