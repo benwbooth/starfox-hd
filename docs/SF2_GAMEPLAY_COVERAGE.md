@@ -841,3 +841,15 @@ tests in debug/release, a separate all-control selector test in both builds,
 15 audio-adapter tests per app target, architecture/dependency checks and the
 app build. Complete-root coverage remains 11 roots/126 statements; positional
 PCM-bank completion and scheduler integration remain separate open work.
+
+Byte-indexed constant-ROM lookups now lower to typed byte operands backed by
+decoded 256-entry arrays. Selection reads the live actor byte before any
+overlapping destination write, preserving packed animation controls and word
+byte views. Decoding retains the entire byte-index domain, including adjacent
+instruction bytes when the source reads them as data; it never executes them.
+Mutable windows, unresolved bank mappings, low-word wrap out of ROM and
+truncated tables still reject the graph. Tests cover all indices, live
+self-aliasing, literal/source-data edits and those rejection boundaries.
+Verification passes 62 lowerer tests, 191 static path tests, 178 native path
+tests in debug/release, architecture/dependency checks and the app build.
+Catalog coverage remains 11 complete roots/126 statements.

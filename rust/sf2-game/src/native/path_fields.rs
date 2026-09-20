@@ -216,6 +216,11 @@ pub enum ByteOperand {
     Literal(u8),
     Actor(ByteField),
     LowWord(WordField),
+    /// Source constant table decoded offline over the complete byte index.
+    Lookup {
+        selector: ByteField,
+        values: &'static [u8; 256],
+    },
 }
 
 impl ByteOperand {
@@ -224,6 +229,7 @@ impl ByteOperand {
             Self::Literal(value) => value,
             Self::Actor(field) => field.read(actor),
             Self::LowWord(field) => field.read(actor) as u8,
+            Self::Lookup { selector, values } => values[usize::from(selector.read(actor))],
         }
     }
 }
@@ -340,6 +346,51 @@ mod tests {
 
     fn actor() -> Object {
         Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)
+    }
+
+    #[test]
+    fn byte_lookup_reads_live_unsigned_index_before_an_overlapping_write() {
+        static VALUES: [u8; 256] = {
+            let mut values = [0; 256];
+            let mut index = 0;
+            while index < values.len() {
+                values[index] = (index as u8).wrapping_mul(53).wrapping_add(129);
+                index += 1;
+            }
+            values
+        };
+        for selector in [
+            ByteField::Part,
+            ByteField::WordPart {
+                field: WordField::MotionPhase,
+                part: BytePart::High,
+            },
+            ByteField::Animation(AnimationChannel::Color),
+        ] {
+            for initial in 0..=u8::MAX {
+                let mut actual = actor();
+                actual.extension.path_state.motion_phase = 0xAC53;
+                actual.extension.color_frame = 19;
+                actual.base.wait_timer = 71;
+                selector.write(&mut actual, initial);
+                let mut expected = actual.clone();
+                let operand = ByteOperand::Lookup {
+                    selector,
+                    values: &VALUES,
+                };
+                let mutation = Mutation::Byte {
+                    field: selector,
+                    operation: ByteOperation::Assign(operand),
+                };
+                for _ in 0..3 {
+                    let old = selector.read(&expected);
+                    let value = ((u16::from(old) * 53 + 129) & 255) as u8;
+                    selector.write(&mut expected, value);
+                    mutation.apply(&mut actual);
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
     }
 
     #[test]

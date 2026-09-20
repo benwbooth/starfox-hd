@@ -56,6 +56,23 @@ def variable_bit_masks(rom: bytes) -> tuple[int, ...]:
     return tuple(int.from_bytes(data[index:index + 2], "little") for index in range(0, 256, 2))
 
 
+def banked_byte_values(rom: bytes, address: int) -> tuple[int, ...]:
+    """Decode every possible byte index, never freeze a mutable memory view.
+
+    The helper adds a zero-extended byte to the low word only. Retaining a
+    table that crosses out of the proven ROM window would require a live
+    domain-state mapping, not a constant snapshot of those bytes.
+    """
+    bank, base = address >> 16, address & 0xFFFF
+    if not 0 <= bank < 0x40 or base < 0x8000 or base + 255 > 0xFFFF:
+        raise UnsupportedPath(f"unreviewed constant-byte lookup window {address:06X}")
+    start = source_offset(address)
+    data = rom[start:start + 256]
+    if len(data) != 256:
+        raise UnsupportedPath(f"truncated constant-byte lookup {address:06X}")
+    return tuple(data)
+
+
 def trigger_kind(condition: int) -> str:
     # Source dispatch table $7F:9B0F. Decode once; no numeric condition
     # selector or handler lookup is retained in the native catalog.
@@ -586,6 +603,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "FaceMother": "LinkedImmediate",
             }[name]
             statement = f"Statement::Facing {{ command: FacingCommand::{operation}, next: {next_cursor()} }}"
+        elif name == "IndexByteBanked":
+            low, high, bank, selector, destination = parameters(5)
+            values = banked_byte_values(extractor.rom, low | (high << 8) | (bank << 16))
+            operand = f"ByteOperand::Lookup {{ selector: {byte_field(selector)}, values: &[{', '.join(map(str, values))}] }}"
+            statement = f"Statement::Mutate {{ mutation: Mutation::Byte {{ field: {byte_field(destination)}, operation: ByteOperation::Assign({operand}) }}, next: {next_cursor()} }}"
         elif name == "WriteObject1ccc":
             value, = parameters(1)
             statement = f"Statement::SpatialLoop {{ sound: super::SpatialLoop::from_authored_control({value}), next: {next_cursor()} }}"

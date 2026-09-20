@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, shape_index, trigger_kind, variable_bit_masks, word_field,
+    banked_byte_values, byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, shape_index, trigger_kind, variable_bit_masks, word_field,
 )
 
 
@@ -137,6 +137,34 @@ class NativePathGenerationTests(unittest.TestCase):
         for value in range(256):
             self.assertEqual(self.lower_record(f"00 05 {value:02x}")[0],
                 f"Statement::SpatialLoop {{ sound: super::SpatialLoop::from_authored_control({value}), next: cursor(0, 1) }}")
+
+    def test_banked_byte_table_decodes_all_indices_and_live_field_roles(self):
+        statement = self.lower_record("90 55 fb 07 a2 8a")[0]
+        self.assertTrue(statement.startswith("Statement::Mutate { mutation: Mutation::Byte"))
+        self.assertIn("field: ByteField::Animation(AnimationChannel::Shape)", statement)
+        self.assertIn("selector: ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::High }", statement)
+        values = tuple(map(int, re.search(r"values: &\[([^]]+)\]", statement)[1].split(", ")))
+        self.assertEqual(values, tuple(self.rom[0x3FB55:0x3FC55]))
+        self.assertIn("next: cursor(0, 1)", statement)
+        # A source-data edit must reach every decoder, including index 255.
+        changed = bytearray(self.rom)
+        changed[0x3FC54] ^= 255
+        self.assertEqual(banked_byte_values(changed, 0x07FB55)[255], self.rom[0x3FC54] ^ 255)
+        for value in range(256):
+            self.assertEqual(banked_byte_values(self.rom, 0x07FB55)[value], self.rom[0x3FB55 + value])
+        self.assertEqual(banked_byte_values(self.rom, 0x07FF00), tuple(self.rom[0x3FF00:0x40000]))
+        # A table's suffix can be instructions read as DATA, never executed.
+        self.assertEqual(len(values), 256)
+
+    def test_banked_byte_lookup_rejects_mutable_windows_and_truncated_data(self):
+        for address in (0x071234, 0x077FFF, 0x07FF01, 0x07FFFF, 0x407FFF, 0x7E8000):
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed constant-byte lookup window"):
+                banked_byte_values(self.rom, address)
+        with self.assertRaisesRegex(UnsupportedPath, "truncated constant-byte lookup"):
+            banked_byte_values(self.rom[:0x3FC54], 0x07FB55)
+        for record in ("90 55 fb 07 80 8a", "90 55 fb 07 a2 80"):
+            with self.assertRaisesRegex(UnsupportedPath, "unported byte operand 80"):
+                self.lower_record(record)
 
     def test_spawned_sound_graph_is_complete_and_shared_with_standalone_entry(self):
         _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
