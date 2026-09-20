@@ -15,14 +15,18 @@ const ENTRY_COST: u16 = 4;
 pub enum AuxiliaryKind {
     SceneContinuation,
     SavedView,
+    OrdinaryImpactMaterial,
+    SuppressedImpactMaterial,
 }
 
-/// Reviewed source types 3 and 8. Extend with typed payloads as the other
+/// Reviewed source types 3, 8, 11 and 13. Extend with typed payloads as the other
 /// auxiliary producers migrate; unknown source kinds are not generic bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuxiliaryRecord {
     SceneContinuation(PathCursor),
     SavedView(ProgramResourceId),
+    OrdinaryImpactMaterial(u8),
+    SuppressedImpactMaterial(u8),
 }
 
 impl AuxiliaryRecord {
@@ -30,6 +34,8 @@ impl AuxiliaryRecord {
         match self {
             Self::SceneContinuation(_) => AuxiliaryKind::SceneContinuation,
             Self::SavedView(_) => AuxiliaryKind::SavedView,
+            Self::OrdinaryImpactMaterial(_) => AuxiliaryKind::OrdinaryImpactMaterial,
+            Self::SuppressedImpactMaterial(_) => AuxiliaryKind::SuppressedImpactMaterial,
         }
     }
 }
@@ -39,7 +45,7 @@ pub struct AuxiliaryRecords {
     entries: Vec<AuxiliaryRecord>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuxiliaryError {
     MissingStorage,
     CountOverflow,
@@ -53,6 +59,26 @@ pub struct ActorAuxiliary {
 }
 
 impl ActorAuxiliary {
+    pub fn impact_materials(
+        &self,
+        resources: &ProgramResources<ProgramData>,
+        owner: ObjectId,
+    ) -> Result<super::path_impact::ImpactMaterials, AuxiliaryError> {
+        let ordinary = match self.find(resources, owner, AuxiliaryKind::OrdinaryImpactMaterial)? {
+            Some(AuxiliaryRecord::OrdinaryImpactMaterial(value)) => Some(value),
+            _ => None,
+        };
+        let suppressed =
+            match self.find(resources, owner, AuxiliaryKind::SuppressedImpactMaterial)? {
+                Some(AuxiliaryRecord::SuppressedImpactMaterial(value)) => Some(value),
+                _ => None,
+            };
+        Ok(super::path_impact::ImpactMaterials {
+            ordinary,
+            suppressed,
+        })
+    }
+
     pub fn scene_continuation(
         &self,
         resources: &ProgramResources<ProgramData>,

@@ -171,7 +171,8 @@ fn aimed_impact_projectile_contact_exits_select_every_material_cue_and_spawn_onl
                 target.base.flags.exclude_from_shape_footprint_search = true;
                 target.base.hit_points = if class == 0 { 0 } else { 100 };
                 target.base.contacts.suppress_contacts_next_epoch = class == 2;
-                target.extension.impact_materials = ImpactMaterials { ordinary: Some(material), suppressed: Some(material) };
+                super::super::path_impact::material_fixture(target, &mut runtime.resources, peer,
+                    ImpactMaterials { ordinary: Some(material), suppressed: Some(material) });
                 let actor = objects.get_mut(owner).unwrap();
                 actor.base.path = Some(authored_paths::AIMED_IMPACT_PROJECTILE);
                 actor.base.position.y = -100;

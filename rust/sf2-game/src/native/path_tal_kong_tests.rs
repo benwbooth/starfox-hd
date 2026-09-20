@@ -148,7 +148,7 @@ fn tal_kong_initialization_preserves_pose_and_installs_asymmetric_limb_controlle
         assert_eq!(actor.base.shape, ShapeId::from_catalog_index(326));
         assert_eq!(actor.extension.spawn_group, 255);
         assert_eq!(actor.extension.path_state.motion_phase, 0xFC28);
-        assert_eq!(actor.extension.impact_materials.ordinary, Some(3));
+        assert_eq!(actor.extension.auxiliary.impact_materials(&runtime.resources, owner).unwrap().ordinary, Some(3));
         assert_eq!(
             actor.extension.spatial_loop,
             super::super::SpatialLoop::from_authored_control(9)

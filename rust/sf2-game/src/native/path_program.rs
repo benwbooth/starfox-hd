@@ -2236,7 +2236,7 @@ impl PathRuntime {
                 Statement::ImpactBranch { first, second, third, next } => {
                     let state = world.impact.as_deref_mut().ok_or(ProgramError::MissingImpactState)?;
                     let result = super::path_impact::classify(
-                        objects, world.contacts, owner,
+                        objects, &self.resources, world.contacts, owner,
                         [world.primary_player, world.secondary_player],
                         world.surface_mode, world.animation_clock, state,
                     ).map_err(ProgramError::Impact)?;
@@ -2448,7 +2448,7 @@ impl PathRuntime {
                 }
                 Statement::Contact { command, next } => {
                     let actor = objects.get_mut(owner).expect("validated contact owner");
-                    command.apply(actor);
+                    command.apply(actor, &mut self.resources, owner).map_err(ProgramError::Auxiliary)?;
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }

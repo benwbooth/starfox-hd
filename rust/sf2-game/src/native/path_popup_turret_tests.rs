@@ -613,7 +613,7 @@ fn location_and_layout_gate_waits_only_for_the_exact_pair_and_shared_message_sig
                     .get(owner)
                     .unwrap()
                     .extension
-                    .impact_materials
+                    .auxiliary.impact_materials(&runtime.resources, owner).unwrap()
                     .ordinary,
                 Some(2)
             );

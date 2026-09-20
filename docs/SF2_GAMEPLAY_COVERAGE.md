@@ -3887,3 +3887,23 @@ Validation passes 1,006 native unit tests and two integration tests in debug
 and release, 197 lowerer tests, 436 path-static tests, exact regeneration,
 architecture guard, static inventory and app build. Verification remains
 static source plus native execution, without recorded gameplay.
+
+### Impact-material auxiliary ownership
+
+Ordinary/suppressed impact materials (source auxiliary types 11 and 13) now
+live in the shared typed table rather than independent optional actor fields.
+The path contact commands allocate or grow that table, and classification
+reads its live entries only after the source's player and zero-health exits.
+`ImpactMaterials` is now a read-only view, not persistent duplicate storage.
+Missing entries still produce no material cue; zero is a present cue value,
+not absence. Allocation failure does not advance the authored command.
+
+Updated native scenarios use actual owned material records across ground,
+surface, rapid-projectile and objective paths. They verify every cue byte,
+preservation of other table entries and resources, exact first/growth costs,
+failure under shared capacity pressure and retry after capacity is restored.
+1,007 native unit tests and two integration tests pass in debug and release;
+436 path-static tests, exact regeneration, architecture guard, static inventory
+and app build pass. The catalog is unchanged. Retained weapon shape is the
+remaining separate optional auxiliary field; outer view-transition dispatch
+is still pending.

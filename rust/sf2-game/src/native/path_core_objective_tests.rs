@@ -473,7 +473,7 @@ fn core_contact_thresholds_keep_signed_byte_wrap_and_do_not_duplicate_periodic_r
             }))
         );
         assert_eq!(
-            actor.extension.impact_materials.ordinary,
+            actor.extension.auxiliary.impact_materials(&runtime.resources, owner).unwrap().ordinary,
             inner.then_some(4)
         );
         assert_eq!(

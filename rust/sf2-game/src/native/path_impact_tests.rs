@@ -1,7 +1,8 @@
+use super::super::actor_auxiliary::AuxiliaryRecord;
 use super::super::collision_contacts::ContactStore;
 use super::super::path_contact::ContactCommand;
 use super::super::path_fields::ByteField;
-use super::super::path_impact::ImpactState;
+use super::super::path_impact::{material_fixture, ImpactMaterials, ImpactState};
 use super::super::{Behavior, ObjectKind, PathId, ShapeId};
 use super::tests::{setup, world};
 use super::*;
@@ -305,19 +306,43 @@ fn material_commands_replace_only_their_optional_record_and_import_preserves_oth
                 let (mut runtime, mut objects, owner, mut random) = setup();
                 runtime.branch.invert_next = true;
                 let actor = objects.get_mut(owner).unwrap();
-                actor.extension.impact_materials.ordinary = Some(!value);
-                actor.extension.impact_materials.suppressed = Some(!value);
+                material_fixture(
+                    actor,
+                    &mut runtime.resources,
+                    owner,
+                    ImpactMaterials {
+                        ordinary: Some(!value),
+                        suppressed: Some(!value),
+                    },
+                );
                 actor.base.wait_timer = 79;
                 actor.extension.path_state.part = !value;
                 let mut expected = objects.clone();
+                let mut expected_resources = runtime.resources.clone();
                 let actor = expected.get_mut(owner).unwrap();
                 actor.base.path = Some(at(1));
                 if importing {
                     actor.extension.path_state.part = value;
                 } else if suppressed {
-                    actor.extension.impact_materials.suppressed = Some(value);
+                    actor
+                        .extension
+                        .auxiliary
+                        .set(
+                            &mut expected_resources,
+                            owner,
+                            AuxiliaryRecord::SuppressedImpactMaterial(value),
+                        )
+                        .unwrap();
                 } else {
-                    actor.extension.impact_materials.ordinary = Some(value);
+                    actor
+                        .extension
+                        .auxiliary
+                        .set(
+                            &mut expected_resources,
+                            owner,
+                            AuxiliaryRecord::OrdinaryImpactMaterial(value),
+                        )
+                        .unwrap();
                 }
                 let mut impact = ImpactState {
                     material: value,
@@ -334,6 +359,7 @@ fn material_commands_replace_only_their_optional_record_and_import_preserves_oth
                     })
                 );
                 assert_eq!(objects, expected);
+                assert_eq!(runtime.resources, expected_resources);
                 assert_eq!(
                     impact,
                     ImpactState {
@@ -344,6 +370,96 @@ fn material_commands_replace_only_their_optional_record_and_import_preserves_oth
                 assert!(runtime.branch.invert_next);
                 assert_eq!(random, before_random);
             }
+        }
+    }
+}
+
+#[test]
+fn material_insertion_uses_shared_capacity_and_failed_growth_can_retry_without_path_changes() {
+    use super::super::actor_auxiliary::AuxiliaryError;
+    use super::super::program_resources::{AllocationFailure, PROGRAM_CAPACITY};
+    use super::super::program_state::ProgramData;
+    for suppressed in [false, true] {
+        for other_kind in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let command = if suppressed {
+                ContactCommand::SuppressedImpactMaterial(0)
+            } else {
+                ContactCommand::OrdinaryImpactMaterial(255)
+            };
+            let catalog = PathCatalog::new(vec![vec![Statement::Contact {
+                command,
+                next: at(1),
+            }]])
+            .unwrap();
+            if other_kind {
+                objects
+                    .get_mut(owner)
+                    .unwrap()
+                    .extension
+                    .auxiliary
+                    .set(
+                        &mut runtime.resources,
+                        owner,
+                        AuxiliaryRecord::SceneContinuation(at(127)),
+                    )
+                    .unwrap();
+            }
+            let old_cost = if other_kind { 10 } else { 0 };
+            let remaining = if other_kind { 12 } else { 8 };
+            let reserve = runtime
+                .resources
+                .allocate_shared(
+                    PROGRAM_CAPACITY - old_cost - remaining - 2,
+                    ProgramData::PathStack(Default::default()),
+                )
+                .unwrap();
+            let before = objects.clone();
+            let resources_before = runtime.resources.clone();
+            let random_before = random;
+            runtime.branch.invert_next = true;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::Auxiliary(AuxiliaryError::Allocation(
+                    AllocationFailure::NoContiguousFit
+                )))
+            );
+            assert_eq!(objects, before);
+            assert_eq!(runtime.resources, resources_before);
+            assert_eq!(random, random_before);
+            assert!(runtime.branch.invert_next);
+            runtime.resources.release_shared(reserve).unwrap();
+            assert!(
+                matches!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded { cursor, executed: 1 }) if cursor == at(1))
+            );
+            assert_eq!(
+                runtime.resources.available_capacity(),
+                PROGRAM_CAPACITY - if other_kind { 14 } else { 10 }
+            );
+            assert_eq!(
+                objects
+                    .get(owner)
+                    .unwrap()
+                    .extension
+                    .auxiliary
+                    .impact_materials(&runtime.resources, owner)
+                    .unwrap(),
+                ImpactMaterials {
+                    ordinary: (!suppressed).then_some(255),
+                    suppressed: suppressed.then_some(0)
+                }
+            );
+            assert_eq!(
+                objects
+                    .get(owner)
+                    .unwrap()
+                    .extension
+                    .auxiliary
+                    .scene_continuation(&runtime.resources, owner)
+                    .unwrap(),
+                other_kind.then_some(at(127))
+            );
         }
     }
 }
@@ -371,8 +487,15 @@ fn impact_dispatch_selects_each_edge_immediately_without_consuming_ifnot_or_rand
             target.base.flags.exclude_from_shape_footprint_search = true;
             target.base.hit_points = if expected_edge == 1 { 0 } else { 255 };
             target.base.contacts.suppress_contacts_next_epoch = expected_edge == 3;
-            target.extension.impact_materials.ordinary = Some(42);
-            target.extension.impact_materials.suppressed = Some(51);
+            material_fixture(
+                target,
+                &mut runtime.resources,
+                peer,
+                ImpactMaterials {
+                    ordinary: Some(42),
+                    suppressed: Some(51),
+                },
+            );
             objects.get_mut(owner).unwrap().base.contacts.pending_hit = expected_edge != 4;
             let mut contacts = ContactStore::default();
             contacts.record_pair(owner, peer, [None; 2]).unwrap();

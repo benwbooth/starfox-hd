@@ -413,11 +413,12 @@ fn rapid_shot_all_materials_and_contact_stages_release_count_and_spawn_only_ordi
                         peer.base.flags.exclude_from_shape_footprint_search = true;
                         peer.base.hit_points = if class == 0 { 0 } else { 80 };
                         peer.base.contacts.suppress_contacts_next_epoch = class == 2;
-                        peer.extension.impact_materials = ImpactMaterials {
+                        let materials = ImpactMaterials {
                             ordinary: Some(material),
                             suppressed: Some(material),
                         };
                         let peer = objects.allocate(peer).unwrap();
+                        super::super::path_impact::material_fixture(objects.get_mut(peer).unwrap(), &mut runtime.resources, peer, materials);
                         let peer_before = objects.get(peer).unwrap().clone();
                         let mut contacts = ContactStore::default();
                         contacts.record_pair(owner, peer, [None; 2]).unwrap();
@@ -589,8 +590,9 @@ fn rapid_shot_surface_latch_retains_previous_pair_suppression_for_burst_decision
             surface.base.hit_points = 30;
             surface.base.contacts.first_strategy_visit = false;
             surface.base.contacts.latch_new_contact = true;
-            surface.extension.impact_materials.ordinary = Some(1);
             let surface = objects.allocate(surface).unwrap();
+            super::super::path_impact::material_fixture(objects.get_mut(surface).unwrap(), &mut runtime.resources, surface,
+                ImpactMaterials { ordinary: Some(1), suppressed: None });
             let mut events = AudioState::default();
             let mut impact = ImpactState {
                 material: 99,

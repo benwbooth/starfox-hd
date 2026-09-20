@@ -6,15 +6,34 @@ use super::collision_contacts::ContactStore;
 use super::collision_surface::{self, SurfaceMode, SurfaceQueryError};
 use super::path_control::PlayerTarget;
 use super::{ObjectId, ObjectStore};
+use super::program_resources::ProgramResources;
+use super::program_state::ProgramData;
 
 const GROUND_CONTACT_MARGIN: i16 = 20;
 
-/// Optional authored auxiliary records 11 and 13. Updating an existing
-/// record replaces its cue; neither record aliases render materials.
+/// Read-only view of authored auxiliary records 11 and 13. The records live
+/// in ActorAuxiliary, not in a second persistent copy on the actor. Updating
+/// an existing record replaces its cue; neither aliases render materials.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ImpactMaterials {
     pub ordinary: Option<u8>,
     pub suppressed: Option<u8>,
+}
+
+#[cfg(test)]
+pub(super) fn material_fixture(
+    actor: &mut super::Object,
+    resources: &mut ProgramResources<ProgramData>,
+    owner: ObjectId,
+    materials: ImpactMaterials,
+) {
+    use super::actor_auxiliary::AuxiliaryRecord;
+    if let Some(value) = materials.ordinary {
+        actor.extension.auxiliary.set(resources, owner, AuxiliaryRecord::OrdinaryImpactMaterial(value)).unwrap();
+    }
+    if let Some(value) = materials.suppressed {
+        actor.extension.auxiliary.set(resources, owner, AuxiliaryRecord::SuppressedImpactMaterial(value)).unwrap();
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +56,7 @@ pub enum ImpactBranch {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImpactError {
+    Auxiliary(super::actor_auxiliary::AuxiliaryError),
     MissingActor(ObjectId),
     MissingContacts,
     MissingPair(ObjectId),
@@ -79,6 +99,7 @@ mod tests {
     fn pair_classification_reads_head_live_health_and_correct_material_without_consuming_contacts()
     {
         let mut objects = ObjectStore::new();
+        let mut resources = ProgramResources::default();
         let owner = objects.allocate(actor(0, 300)).unwrap();
         let peer = objects.allocate(actor(0, 0)).unwrap();
         let ignored = objects.allocate(actor(0, 0)).unwrap();
@@ -99,10 +120,12 @@ mod tests {
                             let target = objects.get_mut(peer).unwrap();
                             target.base.hit_points = health;
                             target.base.contacts.suppress_contacts_next_epoch = suppressed;
-                            target.extension.impact_materials = ImpactMaterials {
+                            resources.release_owner(peer);
+                            target.extension.auxiliary.clear_after_owner_release(&resources, peer).unwrap();
+                            material_fixture(target, &mut resources, peer, ImpactMaterials {
                                 ordinary: present.then_some(value),
                                 suppressed: present.then_some(!value),
-                            };
+                            });
                             let before = objects.clone();
                             let mut state = ImpactState {
                                 material: 87,
@@ -110,6 +133,7 @@ mod tests {
                             };
                             let result = classify(
                                 &mut objects,
+                                &resources,
                                 Some(&contacts),
                                 owner,
                                 [None; 2],
@@ -153,6 +177,7 @@ mod tests {
     #[test]
     fn both_live_player_pointers_override_health_materials_and_have_all_sixty_slot_choices() {
         let mut objects = ObjectStore::new();
+        let mut resources = ProgramResources::default();
         let ids: Vec<_> = (0..super::super::OBJECT_CAPACITY)
             .map(|_| objects.allocate(actor(0, 0)).unwrap())
             .collect();
@@ -166,15 +191,16 @@ mod tests {
                     let target = objects.get_mut(peer).unwrap();
                     target.base.hit_points = health;
                     target.base.contacts.suppress_contacts_next_epoch = suppressed;
-                    target.extension.impact_materials = ImpactMaterials {
+                    material_fixture(target, &mut resources, peer, ImpactMaterials {
                         ordinary: Some(255),
                         suppressed: Some(128),
-                    };
+                    });
                     for players in [[Some(peer), None], [None, Some(peer)], [Some(peer); 2]] {
                         let before = objects.clone();
                         let mut state = ImpactState::default();
                         let result = classify(
                             &mut objects,
+                            &resources,
                             Some(&contacts),
                             owner,
                             players,
@@ -201,6 +227,7 @@ mod tests {
     #[test]
     fn ground_gate_uses_wrapping_signed_height_and_only_low_three_mode_bits() {
         let mut objects = ObjectStore::new();
+        let resources = ProgramResources::default();
         let owner = objects.allocate(actor(0, 0)).unwrap();
         for raw in 0..=u16::MAX {
             for flags in [0, 1, 7, 8, 128, 255] {
@@ -227,6 +254,7 @@ mod tests {
                 assert_eq!(
                     classify(
                         &mut objects,
+                        &resources,
                         None,
                         owner,
                         [None; 2],
@@ -253,6 +281,7 @@ mod tests {
     fn surface_probe_retains_group_publishes_link_and_flags_and_credits_path_selected_side() {
         for bits in 0..32 {
             let mut objects = ObjectStore::new();
+            let mut resources = ProgramResources::default();
             let owner = objects.allocate(actor(0, -403)).unwrap();
             let surface = objects.allocate(actor(156, 0)).unwrap();
             let other = objects.allocate(actor(0, 0)).unwrap();
@@ -281,13 +310,13 @@ mod tests {
             let target = objects.get_mut(surface).unwrap();
             target.base.contacts.latch_new_contact = bits & 8 != 0;
             target.base.contacts.suppress_contacts_next_epoch = bits & 16 != 0;
-            target.extension.impact_materials = ImpactMaterials {
+            material_fixture(target, &mut resources, surface, ImpactMaterials {
                 ordinary: Some(33),
                 suppressed: Some(44),
-            };
+            });
             let target = objects.get_mut(other).unwrap();
             target.base.contacts.suppress_contacts_next_epoch = false;
-            target.extension.impact_materials.ordinary = Some(55);
+            material_fixture(target, &mut resources, other, ImpactMaterials { ordinary: Some(55), suppressed: None });
             let mut expected = objects.clone();
             expected.get_mut(owner).unwrap().extension.surface_contact =
                 collision_surface::ActorSurfaceContact {
@@ -310,6 +339,7 @@ mod tests {
             assert_eq!(
                 classify(
                     &mut objects,
+                    &resources,
                     Some(&contacts),
                     owner,
                     [None; 2],
@@ -344,6 +374,7 @@ mod tests {
     #[test]
     fn missing_inputs_and_stale_pair_links_are_errors_not_synthetic_hits() {
         let mut objects = ObjectStore::new();
+        let resources = ProgramResources::default();
         let owner = objects.allocate(actor(0, 0)).unwrap();
         let peer = objects.allocate(actor(0, 0)).unwrap();
         let mut contacts = ContactStore::default();
@@ -353,18 +384,19 @@ mod tests {
         };
         let before = objects.clone();
         assert_eq!(
-            classify(&mut objects, None, owner, [None; 2], None, 0, &mut state),
+            classify(&mut objects, &resources, None, owner, [None; 2], None, 0, &mut state),
             Err(ImpactError::MissingSurfaceMode)
         );
         assert_eq!(objects, before);
         objects.get_mut(owner).unwrap().base.contacts.pending_hit = true;
         assert_eq!(
-            classify(&mut objects, None, owner, [None; 2], None, 0, &mut state),
+            classify(&mut objects, &resources, None, owner, [None; 2], None, 0, &mut state),
             Err(ImpactError::MissingContacts)
         );
         assert_eq!(
             classify(
                 &mut objects,
+                &resources,
                 Some(&contacts),
                 owner,
                 [None; 2],
@@ -379,6 +411,7 @@ mod tests {
         assert_eq!(
             classify(
                 &mut objects,
+                &resources,
                 Some(&contacts),
                 owner,
                 [None; 2],
@@ -419,6 +452,7 @@ fn pair_peer(
 
 pub fn classify(
     objects: &mut ObjectStore,
+    resources: &ProgramResources<ProgramData>,
     contacts: Option<&ContactStore>,
     owner: ObjectId,
     players: [Option<ObjectId>; 2],
@@ -484,7 +518,8 @@ pub fn classify(
     if actor.base.hit_points == 0 {
         return Ok(Some(ImpactBranch::First));
     }
-    let materials = actor.extension.impact_materials;
+    let materials = actor.extension.auxiliary.impact_materials(resources, peer)
+        .map_err(ImpactError::Auxiliary)?;
     if actor.base.contacts.suppress_contacts_next_epoch {
         state.material = materials.suppressed.unwrap_or(0);
         Ok(Some(ImpactBranch::Third))

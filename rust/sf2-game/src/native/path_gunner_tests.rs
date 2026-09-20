@@ -435,7 +435,7 @@ fn authored_gunners_publish_names_and_health_before_waiting_then_update_display_
                 inputs.health_display.as_ref().unwrap().maximum,
                 if arena == 0 { 35 } else { 15 }
             );
-            assert_eq!(actor.extension.impact_materials.ordinary, Some(2));
+            assert_eq!(actor.extension.auxiliary.impact_materials(&runtime.resources, owner).unwrap().ordinary, Some(2));
             assert_eq!(inputs.random, &expected_random);
             let waiting = actor.base.path;
             let actor = objects.get_mut(owner).unwrap();

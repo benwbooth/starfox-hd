@@ -2,6 +2,10 @@
 //! each source bit, including exclusion/attribution aliases (31:08/31:80).
 
 use super::collision_pass::ExclusionGroups;
+use super::actor_auxiliary::{AuxiliaryError, AuxiliaryRecord};
+use super::program_resources::ProgramResources;
+use super::program_state::ProgramData;
+use super::ObjectId;
 use super::Object;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,11 +29,11 @@ pub enum ContactCommand {
 }
 
 impl ContactCommand {
-    pub fn apply(self, actor: &mut Object) {
+    pub fn apply(self, actor: &mut Object, resources: &mut ProgramResources<ProgramData>, owner: ObjectId) -> Result<(), AuxiliaryError> {
         let contacts = &mut actor.base.contacts;
         match self {
-            Self::OrdinaryImpactMaterial(value) => actor.extension.impact_materials.ordinary = Some(value),
-            Self::SuppressedImpactMaterial(value) => actor.extension.impact_materials.suppressed = Some(value),
+            Self::OrdinaryImpactMaterial(value) => actor.extension.auxiliary.set(resources, owner, AuxiliaryRecord::OrdinaryImpactMaterial(value))?,
+            Self::SuppressedImpactMaterial(value) => actor.extension.auxiliary.set(resources, owner, AuxiliaryRecord::SuppressedImpactMaterial(value))?,
             Self::ShapeFootprintSearch(enabled) => {
                 actor.base.flags.exclude_from_shape_footprint_search = !enabled;
             }
@@ -59,6 +63,7 @@ impl ContactCommand {
                     .excludes(ExclusionGroups::MUTUALLY_NON_DAMAGING_CLASS);
             }
         }
+        Ok(())
     }
 }
 
@@ -66,6 +71,14 @@ impl ContactCommand {
 mod tests {
     use super::*;
     use crate::{Behavior, ObjectKind, ShapeId};
+
+    fn apply(command: ContactCommand, actor: &mut Object) {
+        let mut objects = super::super::ObjectStore::new();
+        let owner = objects.allocate(Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)).unwrap();
+        let mut resources = ProgramResources::default();
+        command.apply(actor, &mut resources, owner).unwrap();
+        assert_eq!(resources.owner_count(owner), 0, "flag commands must not allocate");
+    }
 
     fn mask(value: u8) -> ContactClassMask {
         ContactClassMask {
@@ -102,7 +115,7 @@ mod tests {
                     let mut actual = original.clone();
                     let mut expected = original.clone();
                     class(&mut expected, result);
-                    command.apply(&mut actual);
+                    apply(command, &mut actual);
                     assert_eq!(actual, expected);
                 }
             }
@@ -124,7 +137,7 @@ mod tests {
                 actual.base.wait_timer = 253;
                 let mut expected = actual.clone();
                 expected.base.flags.exclude_from_shape_footprint_search = !enabled;
-                ContactCommand::ShapeFootprintSearch(enabled).apply(&mut actual);
+                apply(ContactCommand::ShapeFootprintSearch(enabled), &mut actual);
                 assert_eq!(actual, expected);
             }
         }
@@ -144,7 +157,7 @@ mod tests {
         scenery.base.flags.collision_disabled = true;
         let candidate = objects.allocate(scenery).unwrap();
         for enabled in [false, true, false, true] {
-            ContactCommand::ShapeFootprintSearch(enabled).apply(objects.get_mut(candidate).unwrap());
+            apply(ContactCommand::ShapeFootprintSearch(enabled), objects.get_mut(candidate).unwrap());
             let result = query_object_surface(&objects, owner, 0, SurfaceSearch::Full).unwrap();
             assert_eq!(result.contact.supporting_object, enabled.then_some(candidate));
             assert_eq!(result.height, if enabled { -16 } else { FULL_SEARCH_MISS_HEIGHT });
@@ -163,13 +176,13 @@ mod tests {
                 actual.base.contacts.hit_marked = current;
                 let mut expected = actual.clone();
                 expected.base.contacts.suppress_contacts_next_epoch = enabled;
-                ContactCommand::SuppressContactsNextEpoch(enabled).apply(&mut actual);
+                apply(ContactCommand::SuppressContactsNextEpoch(enabled), &mut actual);
                 assert_eq!(actual, expected);
                 expected.base.contacts.suppress_hit_marker = enabled;
-                ContactCommand::SuppressHitMarker(enabled).apply(&mut actual);
+                apply(ContactCommand::SuppressHitMarker(enabled), &mut actual);
                 assert_eq!(actual, expected);
                 expected.base.contacts.hit_marked = true;
-                ContactCommand::MarkHit.apply(&mut actual);
+                apply(ContactCommand::MarkHit, &mut actual);
                 assert_eq!(actual, expected);
             }
         }
