@@ -167,11 +167,13 @@ ROOTS = (
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Complete callable graphs, not independently scheduled actor roots. Each
-# entry is bound to a direct call reachable from a discovered actor root.
+# entry is bound to a direct call or always-callback registration reachable
+# from a discovered actor root.
 SUBROUTINES = (
     ("QUERY_OBJECTIVE_COMPLETION", PathAddress(0x87D3), PathAddress(0x2102), PathAddress(0x2105)),
     ("RECORD_OBJECTIVE_COMPLETION", PathAddress(0x87E5), PathAddress(0x2102), PathAddress(0x80B4)),
     ("WAIT_FOR_TRANSITION_READY", PathAddress(0x872C), PathAddress(0x2102), PathAddress(0x2132)),
+    ("CONSIDER_TARGET_AND_MARK_SCENE_PROXY", PathAddress(0x8D08), PathAddress(0x2102), PathAddress(0x21B2)),
 )
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
 # This proves installation only; it does not claim the parent graph is lowered.
@@ -1408,6 +1410,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "UpdatePlayerTargetFlag08":
             parameters(0)
             statement = f"Statement::ConsiderPrimaryTarget {{ next: {next_cursor()} }}"
+        elif name == "UpdatePlayerTargetAndFlagLinked":
+            parameters(0)
+            statement = f"Statement::ConsiderPrimaryTargetAndMarkSceneProxy {{ next: {next_cursor()} }}"
         elif name == "FindShape":
             low, high = parameters(2)
             shape = low | (high << 8)
@@ -2105,8 +2110,8 @@ def generate(rom: bytes, roots=ROOTS, *, subroutines=()) -> str:
     declarations = []
     for name, root, parent, callsite in subroutines:
         call = next((c for c in graph(extractor, parent) if c.address == callsite), None)
-        if (parent not in discovered or call is None or call.opcode != 0x41
-                or bytes.fromhex(call.raw_hex) != b'\x41' + root.offset.to_bytes(2, 'little')):
+        if (parent not in discovered or call is None or call.opcode not in (0x41, 0xF8)
+                or bytes.fromhex(call.raw_hex) != bytes([call.opcode]) + root.offset.to_bytes(2, 'little')):
             raise UnsupportedPath(f"{name} has no verified source caller")
     entries = tuple(roots) + tuple((name, root) for name, root, _, _ in subroutines)
     # One shared address-to-semantic-index layout across all lowered roots.

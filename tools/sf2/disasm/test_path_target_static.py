@@ -27,6 +27,17 @@ class PathTargetStaticTests(unittest.TestCase):
             "C2 20 B9 BA 6B 8D DE 12 E2 20 A0 3F 03 22 9F 24 7F C2 20 AD DE 12 8D B4 1D E2 20 20 90 AE C2 20 "
             "AD B0 1D 8D BA 1D AD AE 1D 8D B8 1D E2 20")
 
+    def test_linked_proxy_marker_is_unconditional_after_preserving_request_mode(self):
+        self.assert_source(0x7FB24E, 'a55e29e7855e8f3a300022fdb1072073b24ce8ca')
+        self.assert_source(0x7FB273, 'bce61cf008b91200092099120060')
+        self.assert_source(0x07B1FD, '8bda5a08a97e48abe220c2109cb21d')
+        self.assertEqual(self.rom[0x421B2:0x421B5], bytes.fromhex('f8088d'))
+        self.assertEqual(self.rom[0x48D08:0x48D0A], bytes.fromhex('c642'))
+
+    def test_scene_proxy_producer_owns_link_and_distinct_flags_not_actor_pitch(self):
+        self.assert_source(0x7F2B1F, 'b50c990400b50e990600b510990800b504990d008a991300989de61c')
+        self.assert_source(0x7F2B4B, 'e220b51b991100a901991200800cb52b990f00e220a903991200b512990a00b514990b00b516990c00')
+
     def test_forced_owner_or_strict_unsigned_distance_then_publication(self):
         self.assert_source(0x07B32F,
             "AE C3 12 C2 20 B4 2B B9 CA 6B F0 13 CD C0 1D D0 0E E2 20 B9 C2 6B 09 10 99 C2 6B C2 20 80 0E AD "

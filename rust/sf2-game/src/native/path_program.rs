@@ -142,6 +142,9 @@ mod objective_completion_tests;
 #[cfg(test)]
 #[path = "path_transition_wait_tests.rs"]
 mod transition_wait_tests;
+#[cfg(test)]
+#[path = "path_target_proxy_tests.rs"]
+mod target_proxy_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -206,6 +209,7 @@ pub struct PathWorld<'a> {
     pub selected_charge: Option<super::path_charge::SelectedChargeInput>,
     pub primary_control: Option<super::path_player_control::PrimaryControl<'a>>,
     pub primary_target: Option<super::path_target::PrimaryTarget<'a>>,
+    pub scene_proxies: Option<&'a mut super::scene_proxy::SceneProxyStore>,
     pub published_homing_target: Option<super::path_target::PublishedHomingTarget>,
     /// Live active campaign-node flags. Source node loading updates only the
     /// low byte, while path imports and node writeback retain the whole word.
@@ -848,6 +852,9 @@ pub enum Statement {
     ConsiderPrimaryTarget {
         next: PathCursor,
     },
+    ConsiderPrimaryTargetAndMarkSceneProxy {
+        next: PathCursor,
+    },
     ChildMissing {
         number: u8,
         taken: PathCursor,
@@ -1032,6 +1039,8 @@ pub enum ProgramError {
     MissingSelectedCharge,
     MissingPrimaryControl,
     MissingPrimaryTarget,
+    MissingSceneProxies,
+    MissingSceneProxy(super::scene_proxy::SceneProxyId),
     MissingActiveNodeFlags,
     MissingAudio,
     MissingRadio,
@@ -1711,7 +1720,17 @@ impl PathRuntime {
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
-                Statement::ConsiderPrimaryTarget { next } => {
+                Statement::ConsiderPrimaryTarget { next }
+                | Statement::ConsiderPrimaryTargetAndMarkSceneProxy { next } => {
+                    let mark_proxy = matches!(statement, Statement::ConsiderPrimaryTargetAndMarkSceneProxy { .. });
+                    let proxy = if mark_proxy { actor.extension.scene_proxy } else { None };
+                    // Validate the optional scene-owned record before mutating target
+                    // selection: a missing service can then be supplied and retried.
+                    if let Some(id) = proxy {
+                        world.scene_proxies.as_ref()
+                            .ok_or(ProgramError::MissingSceneProxies)?
+                            .get(id).ok_or(ProgramError::MissingSceneProxy(id))?;
+                    }
                     let primary = world
                         .primary_player
                         .ok_or(ProgramError::MissingPrimaryPlayer)?;
@@ -1722,12 +1741,19 @@ impl PathRuntime {
                         .primary_target
                         .as_mut()
                         .ok_or(ProgramError::MissingPrimaryTarget)?;
-                    super::path_target::consider(
-                        input.selection,
-                        owner,
-                        actor.base.position,
-                        input.anchor,
-                    );
+                    if mark_proxy {
+                        super::path_target::consider_with_request(
+                            input.selection, owner, actor.base.position, input.anchor,
+                            super::path_target::PathTargetRequest::Preserve,
+                        );
+                    } else {
+                        super::path_target::consider(input.selection, owner, actor.base.position, input.anchor);
+                    }
+                    if let Some(id) = proxy {
+                        world.scene_proxies.as_mut().expect("validated scene store")
+                            .get_mut(id).expect("validated target scene proxy")
+                            .flags.mark_target_considered();
+                    }
                     objects
                         .get_mut(owner)
                         .expect("validated target candidate")
@@ -2566,6 +2592,7 @@ mod tests {
             primary_control: None,
             published_homing_target: None,
             primary_target: None,
+            scene_proxies: None,
             active_node_flags: None,
             countdown: None,
             selected_auxiliary: None,
@@ -9701,6 +9728,7 @@ mod tests {
                 primary_control: None,
                 published_homing_target: None,
                 primary_target: None,
+                scene_proxies: None,
                 active_node_flags: None,
                 spawn_defaults: None,
                 countdown: None,
@@ -13742,9 +13770,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
         assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 139);
-        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 3);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4225);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4269);
+        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 4);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4227);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4271);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13927,6 +13955,7 @@ mod tests {
                 primary_control: None,
                 published_homing_target: None,
                 primary_target: None,
+                scene_proxies: None,
                 active_node_flags: None,
                 selected_auxiliary: None,
                 selected_particle_effects: None,
@@ -14080,6 +14109,7 @@ mod tests {
                         primary_control: None,
                         published_homing_target: None,
                         primary_target: None,
+                        scene_proxies: None,
                         active_node_flags: None,
                         selected_auxiliary: None,
                         selected_particle_effects: None,

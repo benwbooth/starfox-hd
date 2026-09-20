@@ -8,6 +8,7 @@ pub const SCENE_PROXY_CAPACITY: usize = 512;
 const ACTOR_ATTACHED: u8 = 0x01;
 const ACTOR_CAPTURED: u8 = 0x02;
 const ACTOR_RETIRED: u8 = 0x10;
+const TARGET_CONSIDERED: u8 = 0x20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SceneProxyId(usize);
@@ -34,6 +35,10 @@ impl SceneProxyFlags {
     }
     pub const fn actor_retired(self) -> bool {
         self.0 & ACTOR_RETIRED != 0
+    }
+    /// `$7F:B273`: published even when target selection rejects the actor.
+    pub fn mark_target_considered(&mut self) {
+        self.0 |= TARGET_CONSIDERED;
     }
     fn retire_actor(&mut self) {
         self.0 = (self.0 & !ACTOR_ATTACHED) | ACTOR_RETIRED;

@@ -36,14 +36,27 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
         self.assertIn('LOWERED_ROOT_COUNT: usize = 139;', source)
-        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 3;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4269;', source)
+        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 4;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4271;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
                 changed[0x40000 + callsite.offset + delta] ^= 1
                 with self.assertRaises(UnsupportedPath):
                     generate_reviewed_catalog(bytes(changed))
+
+    def test_target_proxy_callback_is_a_complete_registered_graph(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x8D08)
+        self.assertNotIn(root, extractor.discover_roots())
+        commands = graph(extractor, root)
+        self.assertEqual([c.raw_hex for c in commands], ['c6', '42'])
+        entry, statements = lower_graph(extractor, root, 0)
+        self.assertEqual(entry, 0)
+        self.assertEqual(statements, ['Statement::ConsiderPrimaryTargetAndMarkSceneProxy { next: cursor(0, 1) }',
+                                      'Statement::Control(ControlCommand::Return)'])
+        self.assertIn('Statement::ConsiderPrimaryTarget {', self.lower_record('c7')[0])
+        self.assertIn('Statement::ConsiderPrimaryTargetAndMarkSceneProxy {', self.lower_record('c6')[0])
 
     def test_completion_word_import_export_reject_unreviewed_neighbors_and_byte_views(self):
         self.assertIn('Statement::ImportObjectiveCompletion { destination: WordField::ScriptValue', self.lower_record('7b a3 43')[0])
@@ -3050,10 +3063,9 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_primary_target_update_uses_the_full_native_selection_service(self):
         self.assertEqual(self.lower_record("c7")[0],
             "Statement::ConsiderPrimaryTarget { next: cursor(0, 1) }")
-        # C6 uses a different mode and writes a separate linked-object field;
-        # it cannot alias the target-only command before that field is ported.
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported UpdatePlayerTargetAndFlagLinked"):
-            self.lower_record("c6")
+        # C6 preserves request mode and marks a distinct scene-owned proxy.
+        self.assertEqual(self.lower_record("c6")[0],
+            "Statement::ConsiderPrimaryTargetAndMarkSceneProxy { next: cursor(0, 1) }")
 
     def test_selected_auxiliary_clear_action_gate_retains_both_branch_edges(self):
         self.assertEqual(self.lower_record("00 60 36 f5")[0],

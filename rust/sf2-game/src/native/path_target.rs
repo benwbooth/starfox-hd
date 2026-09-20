@@ -223,6 +223,24 @@ pub fn consider(
     position: Vector3,
     anchor: TargetAnchor,
 ) -> bool {
+    consider_with_request(selection, owner, position, anchor, PathTargetRequest::Set)
+}
+
+/// The two authored entry points differ only in the request bit they OR into
+/// an accepted selection. Preserve does not clear an existing request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathTargetRequest {
+    Preserve,
+    Set,
+}
+
+pub fn consider_with_request(
+    selection: &mut TargetSelection,
+    owner: ObjectId,
+    position: Vector3,
+    anchor: TargetAnchor,
+    request: PathTargetRequest,
+) -> bool {
     if selection.control_flags & LOCKED != 0 {
         return false;
     }
@@ -240,7 +258,9 @@ pub fn consider(
     if forced {
         selection.control_flags |= LOCKED;
     }
-    selection.control_flags |= PATH_REQUESTED;
+    if request == PathTargetRequest::Set {
+        selection.control_flags |= PATH_REQUESTED;
+    }
     selection.candidate = Some(owner);
     selection.distance = distance as u16;
     selection.auxiliary_distance = auxiliary_distance;

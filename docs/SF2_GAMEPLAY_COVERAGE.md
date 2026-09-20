@@ -3682,3 +3682,31 @@ architecture guard, static inventory and app build pass (existing unused
 icon-function warnings only). No recorded gameplay or original instruction
 execution was used. Remaining actor graphs and scene integration are still
 open; these component results do not establish whole-game completion.
+
+### Target consideration and scene-proxy publication
+
+The complete `$44:8D08` two-command callback now lowers to typed Rust,
+including its return, with the always-registration at `$44:21B2` bound to
+source bytes. Callable-graph installation checks now accept verified direct
+calls and always-callback registrations. Totals are **139 actor roots,
+four callable subroutines, 4271 source commands and 4227 typed statements**.
+
+The second targeting entry reuses the source-derived projection and candidate
+selection, but preserves the request bit rather than setting it. A linked
+scene proxy's flags receive bit `0x20` even when the candidate is rejected or
+selection is locked. The source producer establishes that this is a distinct
+scene-owned snapshot, not another actor's pitch field. A null proxy needs no
+scene store; missing stores or dangling handles fail before selection changes
+so the caller can supply the missing state and retry safely.
+
+Three new Rust tests cover actual always-callback execution and completion,
+every proxy-flag byte, every selection-control byte, acceptance, rejection,
+forced selection, locked selection, unrelated proxies, whole actor-state
+preservation, IFNOT, randomness, null links and missing-state retries. Static
+tests bind both targeting wrappers, the proxy producer and publication,
+registration and complete callback bytes. No recorded gameplay or original
+instruction execution is used. Debug/release pass **986 unit tests and two
+integration tests**; **193 lowerer tests and 424 path-static tests**, exact
+regeneration, architecture guard, static inventory and app build pass
+(existing unused icon-function warnings only). Caller graph completion and
+scene/scheduler integration remain separate unfinished work.
