@@ -20,6 +20,45 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_warning_and_cooldown_graphs_and_parent_installers_are_complete(self):
+        extractor = PathExtractor(self.rom)
+        parent = graph(extractor, PathAddress(0x22AA))
+        for root, installer, count, source in [
+            (0x888E, 0x8886, 21,
+             '487aa12e0b03a2daa2a1cb887999701e2a99ffcb8851a39979a1d01d67a1b188'
+             '77a36077a320dfa361037aa12ed8a2a17fa12e447aa12ed9a2a17fa12e0f'),
+            (0x88DA, 0x88D2, 13,
+             '487aa12e0b03a2daa2a1fb8861467aa12ed8a2a17fa12e447aa12ed9a2a17fa12e0f'),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(len(commands), count)
+            self.assertEqual(''.join(c.raw_hex for c in commands), source)
+            self.assertEqual(len(lower_graph(extractor, PathAddress(root), 0)[1]), count)
+            spawn = extractor.decode_command(PathAddress(installer))
+            self.assertIn(spawn, parent)
+            self.assertEqual(spawn.raw_hex, '5d9cbc' + root.to_bytes(2, 'little').hex() + '6400')
+            self.assertEqual(independent_spawn_parameters(spawn).path, PathAddress(root))
+            self.assertEqual(spawn_shape(0xBC9C, PathAddress(root)), (0, 'ObjectKind::Effect'))
+            changed = bytearray(self.rom)
+            changed[0x40000 + installer + 3:0x40000 + installer + 5] = (root + 1).to_bytes(2, 'little')
+            with self.assertRaisesRegex(UnsupportedPath, 'no verified child installer'):
+                generate(bytes(changed), (('WARNING', PathAddress(root)),))
+        with self.assertRaises(UnsupportedPath):
+            spawn_shape(0xBC9C, PathAddress(0x888F))
+
+    def test_deferred_radio_word_and_live_scene_byte_imports_remain_distinct(self):
+        for record, operation in [('7b a3 34', 'CopyTo(WordField::ScriptValue)'),
+                                  ('80 a3 34', 'Assign(WordOperand::Actor(WordField::ScriptValue))')]:
+            statement = self.lower_record(record)[0]
+            self.assertIn(f'DeferredMessageCommand::{operation}', statement)
+        for record, field in [('79 99 70 1e', 'WingmatePilot'),
+                              ('79 a1 f4 d7', 'RemainingObjectives'),
+                              ('7a a1 98', 'RemainingObjectives')]:
+            self.assertIn(f'SceneByte::{field}', self.lower_record(record)[0])
+        for record in ['7d a1 70 1e', 'fb 70 1e 00', '7f a1 98', '7b a3 35']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_scene_reset_complete_graph_preserves_parameter_driven_initialization(self):
         extractor = PathExtractor(self.rom)
         commands = graph(extractor, PathAddress(0x7BA0))
@@ -591,7 +630,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::PickupHistory { command: super::path_program::PickupHistoryCommand::CopyTo(WordField::ScriptValue), next: cursor(0, 1) }")
         self.assertEqual(self.lower_record("80 a3 32")[0],
             "Statement::PickupHistory { command: super::path_program::PickupHistoryCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
-        for index in (0x31, 0x33, 0x34, 0x35):
+        for index in (0x31, 0x33, 0x35):
             for opcode in (0x7B, 0x80):
                 with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                     self.lower_record(f"{opcode:02x} a3 {index:02x}")
@@ -2453,7 +2492,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
         self.assertIn("destination: WordField::MotionPhase", self.lower_record("7b a1 9a")[0])
         for index in range(256):
-            if index not in (0x32, 0x36, 0x90, 0x92, 0x94, 0x9A):
+            if index not in (0x32, 0x34, 0x36, 0x90, 0x92, 0x94, 0x9A):
                 with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                     self.lower_record(f"7b a3 {index:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
@@ -2471,7 +2510,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::Guidance { command: GuidanceCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
         self.assertIn("Statement::ImportControlStyle", self.lower_record("79 a1 d0 1d")[0])
         for index in range(256):
-            if index not in (0x32, 0x36):
+            if index not in (0x32, 0x34, 0x36):
                 with self.assertRaises(UnsupportedPath):
                     self.lower_record(f"80 a3 {index:02x}")
         for record in ["7b a2 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:

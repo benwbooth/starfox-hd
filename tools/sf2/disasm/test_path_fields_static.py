@@ -183,6 +183,20 @@ class PathFieldsStaticTests(unittest.TestCase):
             self.assertEqual(self.rom[offset:offset + len(data)], data)
         self.assert_source(0x069E03, 'ad87d7c9fff00f8019ad87d7c9fef006c9ffd00e800c')
 
+    def test_wingmate_publication_keeps_old_primary_during_exchange_and_absence_sentinel(self):
+        self.assert_source(0x06A331, 'ad141e8d701ead141e48ad151e8d141e688d151e')
+        self.assert_source(0x0B8A9C, '2225a306c220a9ffff8d701e')
+        self.assert_source(0x04FA08, 'ad701e8d151e8f11d87e')
+
+    def test_objective_count_is_initialized_from_both_nibbles_and_also_gates_contacts(self):
+        self.assert_source(0x04B28E, 'bdc2d78da1d748290f8502684a4a4a4a1865028df4d7')
+        self.assert_source(0x069EF0, 'ad721dd02cadf4d7f0132270cd07')
+
+    def test_deferred_message_word_is_zeroed_at_scene_start_and_cleared_after_request(self):
+        self.assert_source(0x04B1D9, '9c90d79c33cf')
+        data = bytes.fromhex('7b3b34683bb405553b9adf3b6c3b803b34')
+        self.assertEqual(self.rom[0x405A3:0x405A3 + len(data)], data)
+
     def test_signed_halves_increment_negatives_before_sign_preserving_shift(self):
         self.assert_source(0x7FA5BF, "20 BC C4 20 47 CB B9 00 00 10 01 1A C9 80 6A 99 00 00 4C D3 CA")
         self.assert_source(0x7FA5D4, "20 BC C4 20 47 CB C2 20 B9 00 00 10 01 1A C9 00 80 6A 99 00 00 4C D3 CA")

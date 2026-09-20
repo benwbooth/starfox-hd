@@ -135,11 +135,15 @@ ROOTS = (
     ("SURFACE_LIMITED_BALLISTIC_EFFECT", PathAddress(0x12E5)),
     ("HEIGHT_STAGED_HOMING_PROJECTILE", PathAddress(0x6991)),
     ("SCENE_COORDINATION_RESET", PathAddress(0x7BA0)),
+    ("WINGMATE_PROXIMITY_WARNING", PathAddress(0x888E)),
+    ("PROXIMITY_WARNING_COOLDOWN", PathAddress(0x88DA)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
 # This proves installation only; it does not claim the parent graph is lowered.
 CHILD_INSTALLERS = {
+    PathAddress(0x888E): (PathAddress(0x22AA), PathAddress(0x8886)),
+    PathAddress(0x88DA): (PathAddress(0x22AA), PathAddress(0x88D2)),
     PathAddress(0x7FAA): (PathAddress(0x787D), PathAddress(0x7887)),
     PathAddress(0x81E1): (PathAddress(0x787D), PathAddress(0x7895)),
     PathAddress(0x8488): (PathAddress(0x00BC), PathAddress(0x01CA)),
@@ -409,6 +413,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     if (index, path) in ((37, PathAddress(0x90FD)), (22, PathAddress(0x9277))):
         return index, "ObjectKind::Effect"
     if (index, path) in ((18, PathAddress(0x4DF1)), (0, PathAddress(0xCFD4)), (0, PathAddress(0x5667))):
+        return index, "ObjectKind::Effect"
+    # Invisible, noncolliding scene-radio services. Their shape is empty;
+    # neither has enemy motion, damage or a drawable projectile lifetime.
+    if index == 0 and path in (PathAddress(0x888E), PathAddress(0x88DA)):
         return index, "ObjectKind::Effect"
     if (index, path) == (14, PathAddress(0x83F9)):
         return index, "ObjectKind::Effect"
@@ -1182,6 +1190,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             elif index == 0x32:
                 operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
                 statement = f"Statement::PickupHistory {{ command: super::path_program::PickupHistoryCommand::{operation}, next: {next_cursor()} }}"
+            elif index == 0x34:
+                operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
+                statement = f"Statement::DeferredMessage {{ command: super::path_radio::DeferredMessageCommand::{operation}, next: {next_cursor()} }}"
             elif index == 0x9A and name.startswith("Import"):
                 statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
             elif index in (0x90, 0x92, 0x94) and name.startswith("Import"):
@@ -1272,8 +1283,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::SceneryDistance {{ command: super::path_program::SceneryDistanceCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0x1DE2, 0x1BB5, 0x1BA9) and name == "ImportByteAbsolute":
-                source = {0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA9: "EntryHeading"}[address]
+            if address in (0x1DE2, 0x1BB5, 0x1BA9, 0x1E70, 0xD7F4) and name.startswith("Import"):
+                source = {0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA9: "EntryHeading",
+                          0x1E70: "WingmatePilot", 0xD7F4: "RemainingObjectives"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue

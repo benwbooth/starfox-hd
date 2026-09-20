@@ -2778,3 +2778,29 @@ with 161 lowerer tests, 342 source-static path tests, catalog freshness, both
 audits and the app build passing (existing icon warning). The catalog now has
 111 complete roots, 1,811 source commands and 1,802 typed statements; this is
 not a claim of complete gameplay or production integration.
+
+### Wingmate warning services and deferred radio state
+
+The complete warning and cooldown services at `$44:888E/$44:88DA` are now
+native catalog roots with verified parent installers. The warning observes
+the published wingmate pilot, selects its message family by flight-control
+style, raises a shared message bit across three DO/NEXT iterations, then
+clears it and ends. The cooldown holds the same bit for seventy iterations
+(sixty-nine yields). Every iteration rereads the live shared mask, preserving
+changes made by other actors. A pending IFNOT survives the direct bit gate;
+only the later pilot equality comparison consumes it.
+
+Paths can also retain/import/export the separate deferred-message word and
+import the complete published wingmate byte and remaining-objective byte.
+Source producer checks tie those inputs to pilot exchange and packed campaign
+objective counts. The latter also gates player contacts; it is not narrowed
+to a boolean. Publishing a deferred word does not create an immediate radio
+presentation request.
+
+Tests cover all deferred words, all pilot bytes, both control styles and
+IFNOT states, absence and already-busy exits, and live mask changes throughout
+both complete service lifetimes. Debug/release pass 429 native path tests;
+163 lowering and 345 source-static tests, freshness, both audits and the app
+build pass (existing icon warning). The catalog reaches 113 complete roots,
+1,845 source commands and 1,836 statements. The parent encounter controllers,
+radio presentation and production scheduling remain separate integration work.

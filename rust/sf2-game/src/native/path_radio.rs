@@ -33,6 +33,20 @@ pub struct RadioRequest {
     pub top_placement: bool,
 }
 
+/// Authored deferred message word ($D790). The guidance controller imports
+/// it, adds the published wingmate identity, requests a message and clears
+/// it. This is separate from the already formatted presentation request.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DeferredMessage {
+    pub number: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeferredMessageCommand {
+    CopyTo(super::path_fields::WordField),
+    Assign(super::path_fields::WordOperand),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RadioLayout {
     /// The live nonzero compact-layout flag read by the source radio service.
