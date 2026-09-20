@@ -61,6 +61,7 @@ pub mod path_protection;
 pub mod path_shots;
 pub mod path_countdown;
 pub mod path_scene_state;
+pub mod path_launch;
 pub mod path_radio;
 pub mod path_charge;
 pub mod path_program;

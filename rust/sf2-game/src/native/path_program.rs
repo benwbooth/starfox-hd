@@ -118,11 +118,18 @@ mod tal_kong_tests;
 #[path = "path_chariot_tests.rs"]
 mod chariot_tests;
 
+#[cfg(test)]
+#[path = "path_launch_tests.rs"]
+mod launch_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
     pub camera_focus: Option<&'a mut super::path_scene_state::EncounterCameraFocus>,
+    pub camera_tracking: Option<&'a mut super::path_scene_state::CameraTrackingTarget>,
+    /// High byte of the camera orientation word, not an actor counter.
+    pub camera_heading: Option<super::Angle>,
     pub reflection: Option<super::weapon_reflection::ReflectionRules>,
     pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
     pub primary_feedback: Option<super::player_hit_control::PrimaryFeedback<'a>>,
@@ -202,6 +209,10 @@ pub struct PathWorld<'a> {
 /// (`$04:B1FC`). Keep full bytes, not the special-case predicates they drive.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ScenePathInputs {
+    /// Active pilot selector ($1E14), refreshed by pilot exchange.
+    pub active_pilot: Option<u8>,
+    /// Published active shield ($1DD1), independent of selected actor health.
+    pub active_shield: Option<u8>,
     /// Strategic-map region ($DB5B), sampled from the campaign actor's
     /// map coordinates through the region grid. Not the encounter node kind.
     pub map_region: Option<u8>,
@@ -278,6 +289,8 @@ pub enum SceneryDistanceCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneByte {
+    ActivePilot,
+    ActiveShield,
     MapRegion,
     WingmatePilot,
     RemainingObjectives,
@@ -291,6 +304,8 @@ pub enum SceneByte {
 impl SceneByte {
     fn read(self, input: ScenePathInputs) -> Option<u8> {
         match self {
+            Self::ActivePilot => input.active_pilot,
+            Self::ActiveShield => input.active_shield,
             Self::MapRegion => input.map_region,
             Self::WingmatePilot => input.wingmate_pilot,
             Self::RemainingObjectives => input.remaining_objectives,
@@ -538,6 +553,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    SelectActivePilotCraft { appearances: &'static [super::path_launch::PilotCraftAppearance; 6], next: PathCursor },
+    AlignCameraHeading { next: PathCursor },
+    PublishCameraTrackingTarget { next: PathCursor },
+    UpdateLowShieldVisual { next: PathCursor },
     ChooseGunnerRoute { routes: &'static [super::path_scene_state::GunnerRoute; 8], next: PathCursor },
     HealthDisplay { field: super::path_scene_state::HealthDisplayField, command: super::path_scene_state::CoordinationCommand, next: PathCursor },
     SetHealthDisplayLabel { label: &'static str, next: PathCursor },
@@ -922,6 +941,8 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingCameraHeading,
+    MissingCameraTrackingTarget,
     Reflection(super::weapon_reflection::ReflectionError),
     MissingEncounterCameraFocus,
     MissingHealthDisplay,
@@ -1090,6 +1111,32 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::SelectActivePilotCraft { appearances, next } => {
+                    let pilot = world.scene.active_pilot.ok_or(ProgramError::MissingSceneByte(SceneByte::ActivePilot))?;
+                    let actor = objects.get_mut(owner).expect("validated launch actor");
+                    super::path_launch::select_appearance(actor, pilot, appearances);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::AlignCameraHeading { next } => {
+                    let heading = world.camera_heading.ok_or(ProgramError::MissingCameraHeading)?;
+                    let actor = objects.get_mut(owner).expect("validated camera-aligned actor");
+                    super::path_launch::align_camera_heading(actor, heading);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::PublishCameraTrackingTarget { next } => {
+                    world.camera_tracking.as_deref_mut().ok_or(ProgramError::MissingCameraTrackingTarget)?.actor = Some(owner);
+                    objects.get_mut(owner).expect("validated camera tracking actor").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::UpdateLowShieldVisual { next } => {
+                    let shield = world.scene.active_shield.ok_or(ProgramError::MissingSceneByte(SceneByte::ActiveShield))?;
+                    let actor = objects.get_mut(owner).expect("validated shield visual actor");
+                    super::path_launch::update_low_shield_visual(actor, shield, world.animation_clock);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ReflectContactShots { next } => {
                     super::weapon_reflection::reflect_contacts(objects, owner, &mut super::weapon_reflection::ReflectionWorld {
                         contacts: world.contacts, rules: world.reflection, weapons: world.weapons.as_deref_mut(),
@@ -2357,6 +2404,8 @@ mod tests {
             scene: ScenePathInputs::default(),
             health_display: None,
             camera_focus: None,
+            camera_tracking: None,
+            camera_heading: None,
             reflection: None,
             primary_feedback: None,
             friend_health: None,
@@ -7942,7 +7991,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
+        for source in [SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -7957,6 +8006,8 @@ mod tests {
                 assert_eq!(objects, before);
                 let mut inputs = world(&mut random);
                 match source {
+                    SceneByte::ActivePilot => inputs.scene.active_pilot = Some(value),
+                    SceneByte::ActiveShield => inputs.scene.active_shield = Some(value),
                     SceneByte::MapRegion => inputs.scene.map_region = Some(value),
                     SceneByte::WingmatePilot => inputs.scene.wingmate_pilot = Some(value),
                     SceneByte::RemainingObjectives => inputs.scene.remaining_objectives = Some(value),
@@ -9418,6 +9469,8 @@ mod tests {
                 scene: ScenePathInputs::default(),
                 health_display: None,
                 camera_focus: None,
+                camera_tracking: None,
+                camera_heading: None,
                 reflection: None,
                 primary_feedback: None,
                 friend_health: None,
@@ -13502,9 +13555,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 132);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3585);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3629);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 133);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3636);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3680);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13638,6 +13691,8 @@ mod tests {
                 scene: ScenePathInputs::default(),
                 health_display: None,
                 camera_focus: None,
+                camera_tracking: None,
+                camera_heading: None,
                 reflection: None,
                 primary_feedback: None,
                 friend_health: None,
@@ -13786,6 +13841,8 @@ mod tests {
                         scene: ScenePathInputs::default(),
                         health_display: None,
                         camera_focus: None,
+                        camera_tracking: None,
+                        camera_heading: None,
                         reflection: None,
                         primary_feedback: None,
                         friend_health: None,

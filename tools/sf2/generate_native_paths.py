@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("CRAFT_LAUNCH_TRANSITION", PathAddress(0xDC42)),
     ("HEAVY_CHARIOT", PathAddress(0x0F7E)),
     ("TAL_KONG", PathAddress(0xA2E6)),
     ("INNER_ARENA_KICK_GUNNER", PathAddress(0x32EF)),
@@ -385,6 +386,20 @@ def rapid_shot_shapes(rom: bytes, address: int) -> tuple[int, ...]:
                  for index in range(0, len(data), 2))
 
 
+def pilot_craft_appearances(rom: bytes) -> tuple[tuple[int, int], ...]:
+    """Six decoded shape/material pairs; no runtime source table lookup."""
+    leaf = bytes.fromhex('da5a08c2309b290f00c906009003a905000a0aaabf358106990400bf37810699cd1c287afa6b')
+    start = source_offset(0x06810F)
+    if rom[start:start + len(leaf)] != leaf:
+        raise UnsupportedPath('unexpected pilot craft appearance selector')
+    start = source_offset(0x068135)
+    data = rom[start:start + 24]
+    if len(data) != 24:
+        raise UnsupportedPath('truncated pilot craft appearance table')
+    return tuple((shape_index(int.from_bytes(data[i:i+2], 'little')),
+                  int.from_bytes(data[i+2:i+4], 'little')) for i in range(0, 24, 4))
+
+
 def trigger_kind(condition: int) -> str:
     # Source dispatch table $7F:9B0F. Decode once; no numeric condition
     # selector or handler lookup is retained in the native catalog.
@@ -545,6 +560,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     if index == 0 and path in (PathAddress(0x888E), PathAddress(0x88DA), PathAddress(0x07B6), PathAddress(0xAFDD)):
         return index, "ObjectKind::Effect"
     if (index, path) == (14, PathAddress(0x83F9)):
+        return index, "ObjectKind::Effect"
+    # Launch-transition camera helper, exhaust and transient shield sprite.
+    if (index, path) in ((0, PathAddress(0xDCB1)), (19, PathAddress(0xF32F)),
+                        (36, PathAddress(0xF521))):
         return index, "ObjectKind::Effect"
     # These complete child graphs disable collision before yielding. Do not
     # infer a kind for other uses of their mesh shapes or parent graphs.
@@ -1053,6 +1072,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF348): "LatchPrimaryViewFilter",
                 PathAddress(0xE78A): "InheritPrimaryHorizontalMotion",
                 PathAddress(0xF078): "RefreshSelectedChargeAttachment",
+                PathAddress(0xDCBD): "AlignCameraHeading",
+                PathAddress(0xE939): "UpdateLowShieldVisual",
             }
             if command.address == PathAddress(0xB0CB):
                 parameters(0)
@@ -1570,6 +1591,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "CopyWorldPositionTo1e01":
             parameters(0)
             statement = f"Statement::PublishEncounterCameraFocus {{ next: {next_cursor()} }}"
+        elif name == "SelectCurrentAsRotationTarget":
+            parameters(0)
+            statement = f"Statement::PublishCameraTrackingTarget {{ next: {next_cursor()} }}"
+        elif name == "CallExternalStrategy1e14":
+            parameters(0)
+            # Despite the disassembler label, this calls a fixed selector,
+            # passing the pilot byte; it is not an indirect strategy call.
+            entries = ', '.join(f'super::path_launch::PilotCraftAppearance {{ shape: ShapeId::from_catalog_index({shape}), material: super::render::MaterialSetId::from_catalog_token({material}) }}'
+                                for shape, material in pilot_craft_appearances(extractor.rom))
+            statement = f"Statement::SelectActivePilotCraft {{ appearances: &const {{ [{entries}] }}, next: {next_cursor()} }}"
         elif name == "SpawnLinkedObjectEffects":
             parameters(0)
             statement = f"Statement::ReflectContactShots {{ next: {next_cursor()} }}"

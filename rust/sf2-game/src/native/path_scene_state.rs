@@ -10,6 +10,13 @@ pub struct EncounterCameraFocus {
     pub position: super::Vector3,
 }
 
+/// Actor selected by paths for camera-follow orientation ($1DFF), distinct
+/// from the encounter's world-space focus point and player selection.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CameraTrackingTarget {
+    pub actor: Option<super::ObjectId>,
+}
+
 /// These bytes are script-owned, not actor counters. Their precise stage and
 /// bit assignments vary by encounter. Keep their complete wrapping values.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

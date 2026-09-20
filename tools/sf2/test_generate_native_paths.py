@@ -21,6 +21,39 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_launch_transition_closes_camera_and_both_sprite_callbacks(self):
+        from generate_native_paths import pilot_craft_appearances
+        from dump_runtime_routine import source_offset
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xDC42)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 74)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '12cf4096a656c44f6bf616ab44e358d6900e244df45ecb368f4758b575bd1ff7')
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertEqual(len(statements), 74)
+        for operation in ['SelectActivePilotCraft', 'AlignCameraHeading', 'PublishCameraTrackingTarget', 'UpdateLowShieldVisual']:
+            self.assertEqual(sum(f'Statement::{operation}' in s for s in statements), 1)
+        for dependency in [0xDC8F, 0xDCA7, 0xDCB1, 0xE937, 0xE927, 0xF32F, 0xF521]:
+            self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        self.assertEqual(pilot_craft_appearances(self.rom),
+                         ((52, 0x81F4), (52, 0x82FE), (53, 0x81F4), (53, 0x82FE), (85, 0x81F4), (85, 0x82FE)))
+        for shape, path, index in [(0xBC9C, 0xDCB1, 0), (0xBEB0, 0xF32F, 19), (0xC08C, 0xF521, 36)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, 'ObjectKind::Effect'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+        for offset in [0x04DCBE, 0x04E93A]:
+            # Path bank 44 comes from file 04xxxx, not a live CPU alias.
+            changed = bytearray(self.rom)
+            changed[offset] ^= 1
+            with self.assertRaises((UnsupportedPath, ValueError)):
+                lower_graph(PathExtractor(bytes(changed)), root, 0)
+        for address in [0x068117, 0x068135]:
+            changed = bytearray(self.rom)
+            changed[source_offset(address)] ^= 1
+            with self.assertRaises(UnsupportedPath):
+                pilot_craft_appearances(bytes(changed))
+
     def test_heavy_chariot_closes_rotated_spawner_dependencies_and_reflection_callbacks(self):
         from generate_native_paths import offset_spawn_parameters
         e = PathExtractor(self.rom)
@@ -2654,7 +2687,8 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_sprite_shape_metadata_requires_the_reviewed_transient_path(self):
         self.assertEqual(spawn_shape(0xBEB0, PathAddress(0xF5A1)), (19, "ObjectKind::Effect"))
         self.assertEqual(spawn_shape(0xBEB0, PathAddress(0xF306)), (19, "ObjectKind::Effect"))
-        for path in [None, PathAddress(0), PathAddress(0x8489), PathAddress(0xF32F)]:
+        self.assertEqual(spawn_shape(0xBEB0, PathAddress(0xF32F)), (19, "ObjectKind::Effect"))
+        for path in [None, PathAddress(0), PathAddress(0x8489), PathAddress(0xF330)]:
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(0xBEB0, path)
         extractor = PathExtractor(self.rom)

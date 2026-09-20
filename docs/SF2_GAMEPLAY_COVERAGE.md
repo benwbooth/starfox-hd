@@ -3337,3 +3337,43 @@ eight static-data catalog tests**, architecture/static inventory checks, exact
 regeneration and app build (pre-existing unused icon warnings only). No original
 CPU/GSU program execution or recorded gameplay was used. Shipping scheduler,
 world-service integration and whole-game completion remain separate work.
+
+## Craft launch, camera tracking and low-shield presentation (2026-09-20)
+
+Complete root `$44:DC42`, installed at `$0D:CE1C`, now lowers its full
+**74-command** graph, including the camera helper, exhaust, low-shield callback
+and jitter child. **51 new source commands and typed statements** bring the
+catalog to **133 complete roots, 3680 source commands and 3636 statements**.
+
+The source's misleading `CallExternalStrategy1e14` name actually describes a
+fixed appearance selector. Extraction decodes six shape/material pairs; native
+selection masks the active pilot's low nibble then clamps to the last entry.
+No indirect function call or source-address table lookup enters gameplay.
+The camera alignment leaf smooths toward the negative coarse camera heading,
+using signed division by eight rounded down, without the minimum-one-step
+correction used by ordinary facing. A separate typed camera-tracking record
+publishes the current actor, not the selected player or encounter focus point.
+
+The parent decrements pitch thirty times over its three counted loops, reaches
+its held movement state on visit 28, and switches from banking to retained
+horizontal displacement on visit eight. Later published displacement updates
+do not overwrite its captured values. Its camera helper waits eight complete
+passes, publishes itself on visit nine, selects pitch 246 and speed 30, then
+holds. Exhaust grows for three yields, resets on its fourth visit, and cycles
+its color while retaining the run-when-paused flag.
+
+Low-shield presentation reads the published active shield, not actor health.
+It replaces the full depth word and only the low phase byte; the enclosing
+callback restores that phase byte. Shields below 13 spawn a jitter child on
+even ticks, while depth flashing also requires clock bit two to be clear.
+The parent consumes no randomness. Child initialization draws six bytes as
+three big-endian words for X/Y/Z offsets, masked by 31 and centered at 15.
+
+Nine native tests cover every pilot byte, every camera/yaw pair, every
+shield/clock pair, missing inputs and budget boundaries, complete parent/helper
+sequences, exhaust animation, phase restoration and exact random accounting.
+Debug and release suites each pass **935 unit tests and two integration tests**;
+**181 lowerer tests and 393 path-static tests**, architecture/static inventory,
+exact regeneration and app build also pass (pre-existing icon warnings only).
+These are static-source and native-Rust results, not recorded gameplay,
+original-program execution, shipping integration or whole-game completion.

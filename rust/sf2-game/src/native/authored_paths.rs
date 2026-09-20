@@ -59,6 +59,7 @@ use super::path_spawn::ChildSpawn;
 use super::path_spawn::IndependentSpawn;
 use super::path_triggers::{Trigger, TriggerKind};
 use super::{Angle, ObjectKind, Rotation, ShapeId, Vector3};
+pub const CRAFT_LAUNCH_TRANSITION: PathCursor = cursor(0, 2619);
 pub const HEAVY_CHARIOT: PathCursor = cursor(0, 167);
 pub const TAL_KONG: PathCursor = cursor(0, 2210);
 pub const INNER_ARENA_KICK_GUNNER: PathCursor = cursor(0, 834);
@@ -74,34 +75,34 @@ pub const PAIRED_PART_YAW_PATROL: PathCursor = cursor(0, 674);
 pub const PAIRED_PART_PITCH_PATROL: PathCursor = cursor(0, 723);
 pub const SELECTED_SCENERY_SPRITE_EMITTER: PathCursor = cursor(0, 2482);
 pub const SELECTED_SCENERY_ARC_EMITTER: PathCursor = cursor(0, 2487);
-pub const ALTERNATE_EXHAUST: PathCursor = cursor(0, 3512);
-pub const COLOR_CYCLE_SPRITE: PathCursor = cursor(0, 3548);
-pub const RANDOMIZED_COLOR_PARTICLE: PathCursor = cursor(0, 3310);
-pub const LOCAL_JITTER_SPRITE: PathCursor = cursor(0, 3504);
-pub const AUXILIARY_GATED_SPRITE: PathCursor = cursor(0, 3374);
-pub const CHILD_DETACHING_SPRITE: PathCursor = cursor(0, 3517);
-pub const REPEATED_CHILD_SPRITE: PathCursor = cursor(0, 3529);
-pub const SOUND_COLOR_SPRITE: PathCursor = cursor(0, 3539);
-pub const CALLBACK_GATED_SPRITE: PathCursor = cursor(0, 3356);
-pub const PRIMARY_MOTION_GROUND_LIMITED: PathCursor = cursor(0, 3198);
-pub const PRIMARY_TARGET_FOLLOWER: PathCursor = cursor(0, 3385);
+pub const ALTERNATE_EXHAUST: PathCursor = cursor(0, 3563);
+pub const COLOR_CYCLE_SPRITE: PathCursor = cursor(0, 3599);
+pub const RANDOMIZED_COLOR_PARTICLE: PathCursor = cursor(0, 3361);
+pub const LOCAL_JITTER_SPRITE: PathCursor = cursor(0, 3555);
+pub const AUXILIARY_GATED_SPRITE: PathCursor = cursor(0, 3425);
+pub const CHILD_DETACHING_SPRITE: PathCursor = cursor(0, 3568);
+pub const REPEATED_CHILD_SPRITE: PathCursor = cursor(0, 3580);
+pub const SOUND_COLOR_SPRITE: PathCursor = cursor(0, 3590);
+pub const CALLBACK_GATED_SPRITE: PathCursor = cursor(0, 3407);
+pub const PRIMARY_MOTION_GROUND_LIMITED: PathCursor = cursor(0, 3249);
+pub const PRIMARY_TARGET_FOLLOWER: PathCursor = cursor(0, 3436);
 pub const SHARED_COUNTDOWN_SERVICE: PathCursor = cursor(0, 35);
 pub const COUNTER_MOTION_EFFECT: PathCursor = cursor(0, 2544);
-pub const PLAYER_CHARGE_ORB: PathCursor = cursor(0, 3213);
+pub const PLAYER_CHARGE_ORB: PathCursor = cursor(0, 3264);
 pub const NODE_GATED_TARGET_SERVICE: PathCursor = cursor(0, 1348);
 pub const ENCOUNTER_RADIO_SERVICE: PathCursor = cursor(0, 1524);
 pub const FIRST_CONTROL_GUIDANCE: PathCursor = cursor(0, 8);
-pub const SURFACE_OR_GROUND_LIMITED: PathCursor = cursor(0, 3101);
-pub const PRIMARY_MOTION_SURFACE_LIMITED: PathCursor = cursor(0, 3023);
-pub const OCCUPANCY_SURFACE_LIMITED: PathCursor = cursor(0, 2906);
-pub const DOUBLED_MOTION_HOMING_PROJECTILE: PathCursor = cursor(0, 3033);
-pub const PRIMARY_MOTION_HOMING_PROJECTILE: PathCursor = cursor(0, 3038);
-pub const DIFFICULTY_HOMING_PROJECTILE: PathCursor = cursor(0, 3044);
-pub const VARIANT_GUIDED_PROJECTILE: PathCursor = cursor(0, 3125);
-pub const OFFSET_GUIDED_PROJECTILE: PathCursor = cursor(0, 2939);
-pub const LINKED_PROTECTION_EFFECT: PathCursor = cursor(0, 3322);
-pub const TRIGGERED_LINKED_PROJECTILE: PathCursor = cursor(0, 3460);
-pub const ATTACHED_RECOVERY_EFFECT: PathCursor = cursor(0, 3394);
+pub const SURFACE_OR_GROUND_LIMITED: PathCursor = cursor(0, 3152);
+pub const PRIMARY_MOTION_SURFACE_LIMITED: PathCursor = cursor(0, 3074);
+pub const OCCUPANCY_SURFACE_LIMITED: PathCursor = cursor(0, 2957);
+pub const DOUBLED_MOTION_HOMING_PROJECTILE: PathCursor = cursor(0, 3084);
+pub const PRIMARY_MOTION_HOMING_PROJECTILE: PathCursor = cursor(0, 3089);
+pub const DIFFICULTY_HOMING_PROJECTILE: PathCursor = cursor(0, 3095);
+pub const VARIANT_GUIDED_PROJECTILE: PathCursor = cursor(0, 3176);
+pub const OFFSET_GUIDED_PROJECTILE: PathCursor = cursor(0, 2990);
+pub const LINKED_PROTECTION_EFFECT: PathCursor = cursor(0, 3373);
+pub const TRIGGERED_LINKED_PROJECTILE: PathCursor = cursor(0, 3511);
+pub const ATTACHED_RECOVERY_EFFECT: PathCursor = cursor(0, 3445);
 pub const SCENE_MATERIAL_SCENERY: PathCursor = cursor(0, 1586);
 pub const DISTANCE_GATED_SCENERY: PathCursor = cursor(0, 1553);
 pub const HEALTH_ROTATED_DISTANCE_SCENERY: PathCursor = cursor(0, 1552);
@@ -125,11 +126,11 @@ pub const BIASED_DEPTH_HOLD: PathCursor = cursor(0, 2571);
 pub const TABLE_COLOR_REVEAL: PathCursor = cursor(0, 1357);
 pub const RELATIVE_YAW_EFFECT: PathCursor = cursor(0, 2121);
 pub const RELATIVE_DRIFT_ROLL_EFFECT: PathCursor = cursor(0, 2136);
-pub const FOOTPRINT_YAW_EFFECT: PathCursor = cursor(0, 3298);
-pub const TIMED_FALLING_YAW_EFFECT: PathCursor = cursor(0, 3293);
-pub const RESET_ANIMATION_YAW_EFFECT: PathCursor = cursor(0, 3304);
+pub const FOOTPRINT_YAW_EFFECT: PathCursor = cursor(0, 3349);
+pub const TIMED_FALLING_YAW_EFFECT: PathCursor = cursor(0, 3344);
+pub const RESET_ANIMATION_YAW_EFFECT: PathCursor = cursor(0, 3355);
 pub const SIX_STEP_SHAPE_EFFECT: PathCursor = cursor(0, 2554);
-pub const DEPTH_BIASED_WAIT_EFFECT: PathCursor = cursor(0, 3581);
+pub const DEPTH_BIASED_WAIT_EFFECT: PathCursor = cursor(0, 3632);
 pub const HIT_CYCLED_SHAPE: PathCursor = cursor(0, 513);
 pub const PHASE_INCREMENTED_MOTION_FADE_SPRITE: PathCursor = cursor(0, 1760);
 pub const RANDOM_SIZE_MOTION_FADE_SPRITE: PathCursor = cursor(0, 1762);
@@ -143,7 +144,7 @@ pub const WEAPON_UPGRADE_PICKUP: PathCursor = cursor(0, 1104);
 pub const CONSUMABLE_PICKUP_TYPE_ZERO: PathCursor = cursor(0, 1105);
 pub const CONSUMABLE_PICKUP_TYPE_THREE: PathCursor = cursor(0, 1107);
 pub const CONSUMABLE_PICKUP_TYPE_ONE: PathCursor = cursor(0, 1108);
-pub const RANDOM_TEXTURE_CONTACT_SPRITE: PathCursor = cursor(0, 3562);
+pub const RANDOM_TEXTURE_CONTACT_SPRITE: PathCursor = cursor(0, 3613);
 pub const DISTANCE_AIMED_PROJECTILE: PathCursor = cursor(0, 1328);
 pub const RANDOMIZED_YAW_GUIDED_PROJECTILE: PathCursor = cursor(0, 1443);
 pub const DELAYED_CONTACT_PROJECTILE: PathCursor = cursor(0, 2183);
@@ -155,7 +156,7 @@ pub const NONCOLLIDING_ROLL_ATTACHMENT: PathCursor = cursor(0, 2125);
 pub const NONCOLLIDING_MESH_ATTACHMENT: PathCursor = cursor(0, 2158);
 pub const CONTACT_SUPPRESSED_ATTACHMENT: PathCursor = cursor(0, 2433);
 pub const CLIPPED_SHADOWLESS_ATTACHMENT: PathCursor = cursor(0, 1989);
-pub const DEFERRED_FAST_CONTACT_MESH: PathCursor = cursor(0, 3571);
+pub const DEFERRED_FAST_CONTACT_MESH: PathCursor = cursor(0, 3622);
 pub const HIT_RELEASED_RELATIVE_RISE: PathCursor = cursor(0, 1374);
 pub const ALTERNATING_DRIFT_SPRITE: PathCursor = cursor(0, 1691);
 pub const HIT_RELEASED_ROTATING_ATTACHMENT: PathCursor = cursor(0, 1386);
@@ -188,12 +189,12 @@ pub const SCENE_COORDINATION_RESET: PathCursor = cursor(0, 1509);
 pub const WINGMATE_PROXIMITY_WARNING: PathCursor = cursor(0, 1915);
 pub const PROXIMITY_WARNING_COOLDOWN: PathCursor = cursor(0, 1936);
 pub const GUIDANCE_RADIO_CONTROLLER: PathCursor = cursor(0, 43);
-pub const AIMED_IMPACT_PROJECTILE: PathCursor = cursor(0, 3230);
-pub const RAPID_IMPACT_PROJECTILE: PathCursor = cursor(0, 2656);
-pub const ALTERNATE_RAPID_IMPACT_PROJECTILE: PathCursor = cursor(0, 2789);
-pub const LOWERED_ROOT_COUNT: usize = 132;
-pub const LOWERED_COMMAND_COUNT: usize = 3585;
-pub const LOWERED_SOURCE_COMMAND_COUNT: usize = 3629;
+pub const AIMED_IMPACT_PROJECTILE: PathCursor = cursor(0, 3281);
+pub const RAPID_IMPACT_PROJECTILE: PathCursor = cursor(0, 2707);
+pub const ALTERNATE_RAPID_IMPACT_PROJECTILE: PathCursor = cursor(0, 2840);
+pub const LOWERED_ROOT_COUNT: usize = 133;
+pub const LOWERED_COMMAND_COUNT: usize = 3636;
+pub const LOWERED_SOURCE_COMMAND_COUNT: usize = 3680;
 pub fn catalog() -> PathCatalog {
     PathCatalog::new(vec![vec![
         Statement::DisableCollision { next: cursor(0, 1) },
@@ -1502,7 +1503,7 @@ pub fn catalog() -> PathCatalog {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3556)),
+                path: Some(cursor(0, 3607)),
                 position: Vector3 {
                     x: 0,
                     y: -40,
@@ -2838,7 +2839,7 @@ pub fn catalog() -> PathCatalog {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3556)),
+                path: Some(cursor(0, 3607)),
                 position: Vector3 {
                     x: 0,
                     y: -20,
@@ -8680,7 +8681,7 @@ pub fn catalog() -> PathCatalog {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3345)),
+                path: Some(cursor(0, 3396)),
                 position: Vector3 {
                     x: 0,
                     y: 0,
@@ -8763,7 +8764,7 @@ pub fn catalog() -> PathCatalog {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3345)),
+                path: Some(cursor(0, 3396)),
                 position: Vector3 {
                     x: 0,
                     y: 0,
@@ -15338,8 +15339,282 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 2618),
         },
         Statement::Control(ControlCommand::Return),
-        Statement::InheritPrimaryHorizontalMotion {
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::WordPart {
+                    field: WordField::MotionPhase,
+                    part: BytePart::High,
+                },
+                operation: ByteOperation::Assign(ByteOperand::Literal(0)),
+            },
             next: cursor(0, 2620),
+        },
+        Statement::DisableCollision {
+            next: cursor(0, 2621),
+        },
+        Statement::Control(ControlCommand::Register {
+            trigger: Trigger {
+                path: cursor(0, 2700),
+                kind: TriggerKind::Always,
+                timer: 0,
+            },
+            next: cursor(0, 2622),
+        }),
+        Statement::SelectActivePilotCraft {
+            appearances: &const {
+                [
+                    super::path_launch::PilotCraftAppearance {
+                        shape: ShapeId::from_catalog_index(52),
+                        material: super::render::MaterialSetId::from_catalog_token(33268),
+                    },
+                    super::path_launch::PilotCraftAppearance {
+                        shape: ShapeId::from_catalog_index(52),
+                        material: super::render::MaterialSetId::from_catalog_token(33534),
+                    },
+                    super::path_launch::PilotCraftAppearance {
+                        shape: ShapeId::from_catalog_index(53),
+                        material: super::render::MaterialSetId::from_catalog_token(33268),
+                    },
+                    super::path_launch::PilotCraftAppearance {
+                        shape: ShapeId::from_catalog_index(53),
+                        material: super::render::MaterialSetId::from_catalog_token(33534),
+                    },
+                    super::path_launch::PilotCraftAppearance {
+                        shape: ShapeId::from_catalog_index(85),
+                        material: super::render::MaterialSetId::from_catalog_token(33268),
+                    },
+                    super::path_launch::PilotCraftAppearance {
+                        shape: ShapeId::from_catalog_index(85),
+                        material: super::render::MaterialSetId::from_catalog_token(33534),
+                    },
+                ]
+            },
+            next: cursor(0, 2623),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::RelativeRotation(Axis::Z),
+                operation: ByteOperation::Assign(ByteOperand::Literal(48)),
+            },
+            next: cursor(0, 2624),
+        },
+        Statement::Control(ControlCommand::Register {
+            trigger: Trigger {
+                path: cursor(0, 2646),
+                kind: TriggerKind::Always,
+                timer: 0,
+            },
+            next: cursor(0, 2625),
+        }),
+        Statement::Motion {
+            command: MotionCommand::GenerateVelocityEachStep(true),
+            next: cursor(0, 2626),
+        },
+        Statement::SpawnIndependent {
+            kind: ObjectKind::Effect,
+            parameters: IndependentSpawn {
+                shape: ShapeId::from_catalog_index(0),
+                path: Some(cursor(0, 2653)),
+                hit_points: 1,
+                attack_power: 1,
+            },
+            next: cursor(0, 2627),
+        },
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 8,
+            next: cursor(0, 2628),
+        }),
+        Statement::Motion {
+            command: MotionCommand::AccelerateTo {
+                target: 25,
+                amount: 5,
+            },
+            next: cursor(0, 2629),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::Rotation(Axis::X),
+                operation: ByteOperation::Decrement,
+            },
+            next: cursor(0, 2630),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: false,
+            next: cursor(0, 2631),
+        }),
+        Statement::Motion {
+            command: MotionCommand::AccelerateTo {
+                target: 0,
+                amount: 0,
+            },
+            next: cursor(0, 2632),
+        },
+        Statement::Motion {
+            command: MotionCommand::SetSpeed(35),
+            next: cursor(0, 2633),
+        },
+        Statement::Sound {
+            cue: AuthoredCue::new(26, 0, PlayerTarget::Primary),
+            next: cursor(0, 2634),
+        },
+        Statement::SpawnChild {
+            kind: ObjectKind::Effect,
+            parameters: ChildSpawn {
+                shape: ShapeId::from_catalog_index(19),
+                path: Some(cursor(0, 3408)),
+                position: Vector3 { x: 0, y: 0, z: -20 },
+                rotation: Rotation {
+                    pitch: Angle::from_units(0),
+                    yaw: Angle::from_units(0),
+                    roll: Angle::from_units(0),
+                },
+                hit_points: 100,
+                attack_power: 100,
+                number: 32,
+            },
+            next: cursor(0, 2635),
+        },
+        Statement::Control(ControlCommand::Cancel {
+            path: cursor(0, 2646),
+            next: cursor(0, 2636),
+        }),
+        Statement::ImportPlayerMotion {
+            axis: Axis::X,
+            destination: WordField::RelativePosition(Axis::X),
+            next: cursor(0, 2637),
+        },
+        Statement::ImportPlayerMotion {
+            axis: Axis::Z,
+            destination: WordField::RelativePosition(Axis::Z),
+            next: cursor(0, 2638),
+        },
+        Statement::Control(ControlCommand::Register {
+            trigger: Trigger {
+                path: cursor(0, 2649),
+                kind: TriggerKind::Always,
+                timer: 0,
+            },
+            next: cursor(0, 2639),
+        }),
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 2,
+            next: cursor(0, 2640),
+        }),
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::Rotation(Axis::X),
+                operation: ByteOperation::Decrement,
+            },
+            next: cursor(0, 2641),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: false,
+            next: cursor(0, 2642),
+        }),
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 20,
+            next: cursor(0, 2643),
+        }),
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::Rotation(Axis::X),
+                operation: ByteOperation::Decrement,
+            },
+            next: cursor(0, 2644),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: false,
+            next: cursor(0, 2645),
+        }),
+        Statement::Control(ControlCommand::Hold),
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::Rotation(Axis::Z),
+                operation: ByteOperation::Add(ByteOperand::Actor(ByteField::RelativeRotation(
+                    Axis::Z,
+                ))),
+            },
+            next: cursor(0, 2647),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::RelativeRotation(Axis::Z),
+                operation: ByteOperation::Chase(ByteOperand::Literal(0)),
+            },
+            next: cursor(0, 2648),
+        },
+        Statement::Control(ControlCommand::Return),
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::X),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::RelativePosition(
+                    Axis::X,
+                ))),
+            },
+            next: cursor(0, 2650),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::Z),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::RelativePosition(
+                    Axis::Z,
+                ))),
+            },
+            next: cursor(0, 2651),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::Rotation(Axis::Z),
+                operation: ByteOperation::Chase(ByteOperand::Literal(0)),
+            },
+            next: cursor(0, 2652),
+        },
+        Statement::Control(ControlCommand::Return),
+        Statement::DisableCollision {
+            next: cursor(0, 2654),
+        },
+        Statement::Control(ControlCommand::Register {
+            trigger: Trigger {
+                path: cursor(0, 2649),
+                kind: TriggerKind::Always,
+                timer: 0,
+            },
+            next: cursor(0, 2655),
+        }),
+        Statement::ImportPlayerMotion {
+            axis: Axis::X,
+            destination: WordField::RelativePosition(Axis::X),
+            next: cursor(0, 2656),
+        },
+        Statement::ImportPlayerMotion {
+            axis: Axis::Z,
+            destination: WordField::RelativePosition(Axis::Z),
+            next: cursor(0, 2657),
+        },
+        Statement::AlignCameraHeading {
+            next: cursor(0, 2658),
+        },
+        Statement::Wait {
+            duration: ByteOperand::Literal(8),
+            next: cursor(0, 2659),
+        },
+        Statement::PublishCameraTrackingTarget {
+            next: cursor(0, 2660),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::Rotation(Axis::X),
+                operation: ByteOperation::Assign(ByteOperand::Literal(246)),
+            },
+            next: cursor(0, 2661),
+        },
+        Statement::Motion {
+            command: MotionCommand::SetSpeed(30),
+            next: cursor(0, 2662),
+        },
+        Statement::Control(ControlCommand::Hold),
+        Statement::InheritPrimaryHorizontalMotion {
+            next: cursor(0, 2664),
         },
         Statement::Control(ControlCommand::Return),
         Statement::StackValue {
@@ -15347,14 +15622,14 @@ pub fn catalog() -> PathCatalog {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             }),
-            next: cursor(0, 2622),
+            next: cursor(0, 2666),
         },
         Statement::ImportImpactMaterial {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 2623),
+            next: cursor(0, 2667),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -15364,8 +15639,8 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(6),
             ),
-            taken: cursor(0, 2641),
-            next: cursor(0, 2624),
+            taken: cursor(0, 2685),
+            next: cursor(0, 2668),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -15375,8 +15650,8 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(5),
             ),
-            taken: cursor(0, 2639),
-            next: cursor(0, 2625),
+            taken: cursor(0, 2683),
+            next: cursor(0, 2669),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -15386,8 +15661,8 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(4),
             ),
-            taken: cursor(0, 2637),
-            next: cursor(0, 2626),
+            taken: cursor(0, 2681),
+            next: cursor(0, 2670),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -15397,8 +15672,8 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(3),
             ),
-            taken: cursor(0, 2635),
-            next: cursor(0, 2627),
+            taken: cursor(0, 2679),
+            next: cursor(0, 2671),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -15408,8 +15683,8 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 2633),
-            next: cursor(0, 2628),
+            taken: cursor(0, 2677),
+            next: cursor(0, 2672),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -15419,68 +15694,68 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 2631),
-            next: cursor(0, 2629),
+            taken: cursor(0, 2675),
+            next: cursor(0, 2673),
         },
         Statement::MarkerSound {
             id: 113,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2630),
+            next: cursor(0, 2674),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2642),
+            target: cursor(0, 2686),
         }),
         Statement::MarkerSound {
             id: 179,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2632),
+            next: cursor(0, 2676),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2642),
+            target: cursor(0, 2686),
         }),
         Statement::MarkerSound {
             id: 128,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2634),
+            next: cursor(0, 2678),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2642),
+            target: cursor(0, 2686),
         }),
         Statement::MarkerSound {
             id: 68,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2636),
+            next: cursor(0, 2680),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2642),
+            target: cursor(0, 2686),
         }),
         Statement::MarkerSound {
             id: 101,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2638),
+            next: cursor(0, 2682),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2642),
+            target: cursor(0, 2686),
         }),
         Statement::MarkerSound {
             id: 191,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2640),
+            next: cursor(0, 2684),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2642),
+            target: cursor(0, 2686),
         }),
         Statement::MarkerSound {
             id: 101,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2642),
+            next: cursor(0, 2686),
         },
         Statement::StackValue {
             command: super::path_commands::StackValueCommand::RestoreByte(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             }),
-            next: cursor(0, 2643),
+            next: cursor(0, 2687),
         },
         Statement::Control(ControlCommand::Return),
         Statement::StackValue {
@@ -15488,14 +15763,14 @@ pub fn catalog() -> PathCatalog {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             }),
-            next: cursor(0, 2645),
+            next: cursor(0, 2689),
         },
         Statement::ImportImpactMaterial {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 2646),
+            next: cursor(0, 2690),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -15505,28 +15780,28 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 2649),
-            next: cursor(0, 2647),
+            taken: cursor(0, 2693),
+            next: cursor(0, 2691),
         },
         Statement::MarkerSound {
             id: 158,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2648),
+            next: cursor(0, 2692),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2650),
+            target: cursor(0, 2694),
         }),
         Statement::MarkerSound {
             id: 35,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2650),
+            next: cursor(0, 2694),
         },
         Statement::StackValue {
             command: super::path_commands::StackValueCommand::RestoreByte(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             }),
-            next: cursor(0, 2651),
+            next: cursor(0, 2695),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Random {
@@ -15534,49 +15809,97 @@ pub fn catalog() -> PathCatalog {
                 field: WordField::RelativePosition(Axis::X),
                 mask: 31,
             },
-            next: cursor(0, 2653),
+            next: cursor(0, 2697),
         },
         Statement::Random {
             mutation: RandomMutation::AddCenteredWord {
                 field: WordField::RelativePosition(Axis::Y),
                 mask: 31,
             },
-            next: cursor(0, 2654),
+            next: cursor(0, 2698),
         },
         Statement::Random {
             mutation: RandomMutation::AddCenteredWord {
                 field: WordField::RelativePosition(Axis::Z),
                 mask: 31,
             },
-            next: cursor(0, 2655),
+            next: cursor(0, 2699),
+        },
+        Statement::Control(ControlCommand::Return),
+        Statement::StackValue {
+            command: super::path_commands::StackValueCommand::SaveByte(ByteField::WordPart {
+                field: WordField::MotionPhase,
+                part: BytePart::Low,
+            }),
+            next: cursor(0, 2701),
+        },
+        Statement::UpdateLowShieldVisual {
+            next: cursor(0, 2702),
+        },
+        Statement::Compare {
+            condition: ActorCondition::ZeroByte(ByteOperand::Actor(ByteField::WordPart {
+                field: WordField::MotionPhase,
+                part: BytePart::Low,
+            })),
+            taken: cursor(0, 2705),
+            next: cursor(0, 2703),
+        },
+        Statement::ClockBitsSet {
+            mask: 1,
+            taken: cursor(0, 2705),
+            next: cursor(0, 2704),
+        },
+        Statement::SpawnChild {
+            kind: ObjectKind::Effect,
+            parameters: ChildSpawn {
+                shape: ShapeId::from_catalog_index(36),
+                path: Some(cursor(0, 3555)),
+                position: Vector3 { x: 0, y: 0, z: 0 },
+                rotation: Rotation {
+                    pitch: Angle::from_units(0),
+                    yaw: Angle::from_units(0),
+                    roll: Angle::from_units(0),
+                },
+                hit_points: 1,
+                attack_power: 1,
+                number: 99,
+            },
+            next: cursor(0, 2705),
+        },
+        Statement::StackValue {
+            command: super::path_commands::StackValueCommand::RestoreByte(ByteField::WordPart {
+                field: WordField::MotionPhase,
+                part: BytePart::Low,
+            }),
+            next: cursor(0, 2706),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 2657),
+            next: cursor(0, 2708),
         },
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2764),
-            next: cursor(0, 2658),
+            target: cursor(0, 2815),
+            next: cursor(0, 2709),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 2762),
+                path: cursor(0, 2813),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 2659),
+            next: cursor(0, 2710),
         }),
         Statement::Appearance {
             command: AppearanceCommand::RadarMarker(super::radar::RadarMarker::from_packed(31)),
-            next: cursor(0, 2660),
+            next: cursor(0, 2711),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 2661),
+            next: cursor(0, 2712),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -15586,39 +15909,39 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 2663),
-            next: cursor(0, 2662),
+            taken: cursor(0, 2714),
+            next: cursor(0, 2713),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Add(ByteOperand::Literal(12)),
             },
-            next: cursor(0, 2663),
+            next: cursor(0, 2714),
         },
         Statement::Compare {
             condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(358)),
-            taken: cursor(0, 2667),
-            next: cursor(0, 2664),
+            taken: cursor(0, 2718),
+            next: cursor(0, 2715),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Add(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 2665),
+            next: cursor(0, 2716),
         },
         Statement::Compare {
             condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(360)),
-            taken: cursor(0, 2667),
-            next: cursor(0, 2666),
+            taken: cursor(0, 2718),
+            next: cursor(0, 2717),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Add(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 2667),
+            next: cursor(0, 2718),
         },
         Statement::SelectShape {
             selector: ByteField::ScriptParameter,
@@ -15650,41 +15973,41 @@ pub fn catalog() -> PathCatalog {
                     ShapeId::from_catalog_index(0),
                 ]
             },
-            next: cursor(0, 2668),
+            next: cursor(0, 2719),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 2669),
+            next: cursor(0, 2720),
         },
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Shape,
                 value: 0,
             },
-            next: cursor(0, 2670),
+            next: cursor(0, 2721),
         },
         Statement::ImpactBranch {
-            first: cursor(0, 2739),
-            second: cursor(0, 2751),
-            third: cursor(0, 2757),
-            next: cursor(0, 2671),
+            first: cursor(0, 2790),
+            second: cursor(0, 2802),
+            third: cursor(0, 2808),
+            next: cursor(0, 2722),
         },
         Statement::OccupiedCell {
-            taken: cursor(0, 2760),
-            next: cursor(0, 2672),
+            taken: cursor(0, 2811),
+            next: cursor(0, 2723),
         },
         Statement::Control(ControlCommand::WaitOne {
-            next: cursor(0, 2673),
+            next: cursor(0, 2724),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Add(ByteOperand::Literal(238)),
             },
-            next: cursor(0, 2674),
+            next: cursor(0, 2725),
         },
         Statement::SelectShape {
             selector: ByteField::ScriptParameter,
@@ -15716,347 +16039,32 @@ pub fn catalog() -> PathCatalog {
                     ShapeId::from_catalog_index(0),
                 ]
             },
-            next: cursor(0, 2675),
+            next: cursor(0, 2726),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 2676),
+            next: cursor(0, 2727),
         },
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Shape,
                 value: 1,
             },
-            next: cursor(0, 2677),
+            next: cursor(0, 2728),
         },
         Statement::ImpactBranch {
-            first: cursor(0, 2739),
-            second: cursor(0, 2751),
-            third: cursor(0, 2757),
-            next: cursor(0, 2678),
-        },
-        Statement::OccupiedCell {
-            taken: cursor(0, 2760),
-            next: cursor(0, 2679),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::X),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
-            },
-            next: cursor(0, 2680),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::Y),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
-            },
-            next: cursor(0, 2681),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::Z),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
-            },
-            next: cursor(0, 2682),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::X),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
-            },
-            next: cursor(0, 2683),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::Y),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
-            },
-            next: cursor(0, 2684),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::Z),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
-            },
-            next: cursor(0, 2685),
-        },
-        Statement::Compare {
-            condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(140)),
-            taken: cursor(0, 2697),
-            next: cursor(0, 2686),
-        },
-        Statement::Compare {
-            condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(363)),
-            taken: cursor(0, 2697),
-            next: cursor(0, 2687),
-        },
-        Statement::Control(ControlCommand::BeginLoop {
-            iterations: 2,
-            next: cursor(0, 2688),
-        }),
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::X),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
-            },
-            next: cursor(0, 2689),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::Y),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
-            },
-            next: cursor(0, 2690),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::Z),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
-            },
-            next: cursor(0, 2691),
-        },
-        Statement::Control(ControlCommand::Next {
-            immediate: true,
-            next: cursor(0, 2692),
-        }),
-        Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 2693),
-        }),
-        Statement::Compare {
-            condition: ActorCondition::EqualByte(
-                ByteOperand::Actor(ByteField::WordPart {
-                    field: WordField::MotionPhase,
-                    part: BytePart::High,
-                }),
-                ByteOperand::Literal(0),
-            ),
-            taken: cursor(0, 2697),
-            next: cursor(0, 2694),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::X),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
-            },
-            next: cursor(0, 2695),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::Y),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
-            },
-            next: cursor(0, 2696),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Position(Axis::Z),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
-            },
-            next: cursor(0, 2697),
-        },
-        Statement::Control(ControlCommand::WaitOne {
-            next: cursor(0, 2698),
-        }),
-        Statement::Compare {
-            condition: ActorCondition::EqualByte(
-                ByteOperand::Actor(ByteField::WordPart {
-                    field: WordField::MotionPhase,
-                    part: BytePart::High,
-                }),
-                ByteOperand::Literal(0),
-            ),
-            taken: cursor(0, 2728),
-            next: cursor(0, 2699),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Byte {
-                field: ByteField::TargetSpeed,
-                operation: ByteOperation::Assign(ByteOperand::Literal(25)),
-            },
-            next: cursor(0, 2700),
-        },
-        Statement::ImportSceneByte {
-            source: super::path_program::SceneByte::PlayerConfiguration,
-            destination: ByteField::Part,
-            next: cursor(0, 2701),
-        },
-        Statement::Compare {
-            condition: ActorCondition::EqualByte(
-                ByteOperand::Actor(ByteField::Part),
-                ByteOperand::Literal(9),
-            ),
-            taken: cursor(0, 2716),
-            next: cursor(0, 2702),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Byte {
-                field: ByteField::TargetSpeed,
-                operation: ByteOperation::Add(ByteOperand::Literal(241)),
-            },
-            next: cursor(0, 2703),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::X),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
-            },
-            next: cursor(0, 2704),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::Y),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
-            },
-            next: cursor(0, 2705),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::Z),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
-            },
-            next: cursor(0, 2706),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::ScriptValue,
-                operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::X))),
-            },
-            next: cursor(0, 2707),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::ScriptValue,
-                operation: WordOperation::HalfTowardZero,
-            },
-            next: cursor(0, 2708),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::X),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
-            },
-            next: cursor(0, 2709),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::ScriptValue,
-                operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::Y))),
-            },
-            next: cursor(0, 2710),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::ScriptValue,
-                operation: WordOperation::HalfTowardZero,
-            },
-            next: cursor(0, 2711),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::Y),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
-            },
-            next: cursor(0, 2712),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::ScriptValue,
-                operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::Z))),
-            },
-            next: cursor(0, 2713),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::ScriptValue,
-                operation: WordOperation::HalfTowardZero,
-            },
-            next: cursor(0, 2714),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Word {
-                field: WordField::Velocity(Axis::Z),
-                operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
-            },
-            next: cursor(0, 2715),
-        },
-        Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2717),
-        }),
-        Statement::Control(ControlCommand::Register {
-            trigger: Trigger {
-                path: cursor(0, 2723),
-                kind: TriggerKind::Always,
-                timer: 0,
-            },
-            next: cursor(0, 2717),
-        }),
-        Statement::BeginLoop {
-            iterations: WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed)),
-            next: cursor(0, 2718),
-        },
-        Statement::ImpactBranch {
-            first: cursor(0, 2741),
-            second: cursor(0, 2750),
-            third: cursor(0, 2756),
-            next: cursor(0, 2719),
-        },
-        Statement::OccupiedCell {
-            taken: cursor(0, 2759),
-            next: cursor(0, 2720),
-        },
-        Statement::Mutate {
-            mutation: Mutation::Byte {
-                field: ByteField::Rotation(Axis::Z),
-                operation: ByteOperation::Add(ByteOperand::Actor(ByteField::RelativeRotation(
-                    Axis::Z,
-                ))),
-            },
-            next: cursor(0, 2721),
-        },
-        Statement::Control(ControlCommand::Next {
-            immediate: false,
-            next: cursor(0, 2722),
-        }),
-        Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2739),
-        }),
-        Statement::Compare {
-            condition: ActorCondition::BetweenWord {
-                value: WordOperand::Actor(WordField::Position(Axis::Y)),
-                lower: WordOperand::Literal(65236),
-                upper: WordOperand::Literal(0),
-            },
-            taken: cursor(0, 2725),
-            next: cursor(0, 2724),
-        },
-        Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 2726),
-            next: cursor(0, 2725),
-        }),
-        Statement::Control(ControlCommand::Return),
-        Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 2723),
-            next: cursor(0, 2727),
-        }),
-        Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2739),
-        }),
-        Statement::Control(ControlCommand::Register {
-            trigger: Trigger {
-                path: cursor(0, 2743),
-                kind: TriggerKind::Always,
-                timer: 0,
-            },
+            first: cursor(0, 2790),
+            second: cursor(0, 2802),
+            third: cursor(0, 2808),
             next: cursor(0, 2729),
-        }),
-        Statement::Control(ControlCommand::BeginLoop {
-            iterations: 4,
+        },
+        Statement::OccupiedCell {
+            taken: cursor(0, 2811),
             next: cursor(0, 2730),
-        }),
+        },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::X),
@@ -16078,19 +16086,250 @@ pub fn catalog() -> PathCatalog {
             },
             next: cursor(0, 2733),
         },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::X),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
+            },
+            next: cursor(0, 2734),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::Y),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
+            },
+            next: cursor(0, 2735),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::Z),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
+            },
+            next: cursor(0, 2736),
+        },
+        Statement::Compare {
+            condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(140)),
+            taken: cursor(0, 2748),
+            next: cursor(0, 2737),
+        },
+        Statement::Compare {
+            condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(363)),
+            taken: cursor(0, 2748),
+            next: cursor(0, 2738),
+        },
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 2,
+            next: cursor(0, 2739),
+        }),
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::X),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
+            },
+            next: cursor(0, 2740),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::Y),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
+            },
+            next: cursor(0, 2741),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::Z),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
+            },
+            next: cursor(0, 2742),
+        },
         Statement::Control(ControlCommand::Next {
             immediate: true,
-            next: cursor(0, 2734),
+            next: cursor(0, 2743),
         }),
-        Statement::Control(ControlCommand::BeginLoop {
-            iterations: 7,
-            next: cursor(0, 2735),
+        Statement::Branch(BranchCommand::InvertNext {
+            next: cursor(0, 2744),
         }),
+        Statement::Compare {
+            condition: ActorCondition::EqualByte(
+                ByteOperand::Actor(ByteField::WordPart {
+                    field: WordField::MotionPhase,
+                    part: BytePart::High,
+                }),
+                ByteOperand::Literal(0),
+            ),
+            taken: cursor(0, 2748),
+            next: cursor(0, 2745),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::X),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
+            },
+            next: cursor(0, 2746),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::Y),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
+            },
+            next: cursor(0, 2747),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Position(Axis::Z),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
+            },
+            next: cursor(0, 2748),
+        },
+        Statement::Control(ControlCommand::WaitOne {
+            next: cursor(0, 2749),
+        }),
+        Statement::Compare {
+            condition: ActorCondition::EqualByte(
+                ByteOperand::Actor(ByteField::WordPart {
+                    field: WordField::MotionPhase,
+                    part: BytePart::High,
+                }),
+                ByteOperand::Literal(0),
+            ),
+            taken: cursor(0, 2779),
+            next: cursor(0, 2750),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::TargetSpeed,
+                operation: ByteOperation::Assign(ByteOperand::Literal(25)),
+            },
+            next: cursor(0, 2751),
+        },
+        Statement::ImportSceneByte {
+            source: super::path_program::SceneByte::PlayerConfiguration,
+            destination: ByteField::Part,
+            next: cursor(0, 2752),
+        },
+        Statement::Compare {
+            condition: ActorCondition::EqualByte(
+                ByteOperand::Actor(ByteField::Part),
+                ByteOperand::Literal(9),
+            ),
+            taken: cursor(0, 2767),
+            next: cursor(0, 2753),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::TargetSpeed,
+                operation: ByteOperation::Add(ByteOperand::Literal(241)),
+            },
+            next: cursor(0, 2754),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::X),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
+            },
+            next: cursor(0, 2755),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::Y),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
+            },
+            next: cursor(0, 2756),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::Z),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
+            },
+            next: cursor(0, 2757),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::ScriptValue,
+                operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::X))),
+            },
+            next: cursor(0, 2758),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::ScriptValue,
+                operation: WordOperation::HalfTowardZero,
+            },
+            next: cursor(0, 2759),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::X),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
+            },
+            next: cursor(0, 2760),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::ScriptValue,
+                operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::Y))),
+            },
+            next: cursor(0, 2761),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::ScriptValue,
+                operation: WordOperation::HalfTowardZero,
+            },
+            next: cursor(0, 2762),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::Y),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
+            },
+            next: cursor(0, 2763),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::ScriptValue,
+                operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::Z))),
+            },
+            next: cursor(0, 2764),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::ScriptValue,
+                operation: WordOperation::HalfTowardZero,
+            },
+            next: cursor(0, 2765),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::Z),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
+            },
+            next: cursor(0, 2766),
+        },
+        Statement::Control(ControlCommand::Jump {
+            target: cursor(0, 2768),
+        }),
+        Statement::Control(ControlCommand::Register {
+            trigger: Trigger {
+                path: cursor(0, 2774),
+                kind: TriggerKind::Always,
+                timer: 0,
+            },
+            next: cursor(0, 2768),
+        }),
+        Statement::BeginLoop {
+            iterations: WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed)),
+            next: cursor(0, 2769),
+        },
         Statement::ImpactBranch {
-            first: cursor(0, 2741),
-            second: cursor(0, 2750),
-            third: cursor(0, 2756),
-            next: cursor(0, 2736),
+            first: cursor(0, 2792),
+            second: cursor(0, 2801),
+            third: cursor(0, 2807),
+            next: cursor(0, 2770),
+        },
+        Statement::OccupiedCell {
+            taken: cursor(0, 2810),
+            next: cursor(0, 2771),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -16099,49 +16338,133 @@ pub fn catalog() -> PathCatalog {
                     Axis::Z,
                 ))),
             },
-            next: cursor(0, 2737),
-        },
-        Statement::OccupiedCell {
-            taken: cursor(0, 2759),
-            next: cursor(0, 2738),
+            next: cursor(0, 2772),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 2739),
+            next: cursor(0, 2773),
+        }),
+        Statement::Control(ControlCommand::Jump {
+            target: cursor(0, 2790),
+        }),
+        Statement::Compare {
+            condition: ActorCondition::BetweenWord {
+                value: WordOperand::Actor(WordField::Position(Axis::Y)),
+                lower: WordOperand::Literal(65236),
+                upper: WordOperand::Literal(0),
+            },
+            taken: cursor(0, 2776),
+            next: cursor(0, 2775),
+        },
+        Statement::Control(ControlCommand::ForceAfterCallbacks {
+            target: cursor(0, 2777),
+            next: cursor(0, 2776),
+        }),
+        Statement::Control(ControlCommand::Return),
+        Statement::Control(ControlCommand::Cancel {
+            path: cursor(0, 2774),
+            next: cursor(0, 2778),
+        }),
+        Statement::Control(ControlCommand::Jump {
+            target: cursor(0, 2790),
+        }),
+        Statement::Control(ControlCommand::Register {
+            trigger: Trigger {
+                path: cursor(0, 2794),
+                kind: TriggerKind::Always,
+                timer: 0,
+            },
+            next: cursor(0, 2780),
+        }),
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 4,
+            next: cursor(0, 2781),
+        }),
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::X),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
+            },
+            next: cursor(0, 2782),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::Y),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
+            },
+            next: cursor(0, 2783),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Word {
+                field: WordField::Velocity(Axis::Z),
+                operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
+            },
+            next: cursor(0, 2784),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: true,
+            next: cursor(0, 2785),
+        }),
+        Statement::Control(ControlCommand::BeginLoop {
+            iterations: 7,
+            next: cursor(0, 2786),
+        }),
+        Statement::ImpactBranch {
+            first: cursor(0, 2792),
+            second: cursor(0, 2801),
+            third: cursor(0, 2807),
+            next: cursor(0, 2787),
+        },
+        Statement::Mutate {
+            mutation: Mutation::Byte {
+                field: ByteField::Rotation(Axis::Z),
+                operation: ByteOperation::Add(ByteOperand::Actor(ByteField::RelativeRotation(
+                    Axis::Z,
+                ))),
+            },
+            next: cursor(0, 2788),
+        },
+        Statement::OccupiedCell {
+            taken: cursor(0, 2810),
+            next: cursor(0, 2789),
+        },
+        Statement::Control(ControlCommand::Next {
+            immediate: false,
+            next: cursor(0, 2790),
         }),
         Statement::LinkedShotCount {
             command: super::path_shots::ShotCountCommand::Decrement,
-            next: cursor(0, 2740),
+            next: cursor(0, 2791),
         },
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 2742),
+            next: cursor(0, 2793),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2739),
+            target: cursor(0, 2790),
         }),
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Increment,
             },
-            next: cursor(0, 2744),
+            next: cursor(0, 2795),
         },
         Statement::Compare {
             condition: ActorCondition::EqualWord(
                 WordOperand::Actor(WordField::ScriptValue),
                 WordOperand::Literal(1),
             ),
-            taken: cursor(0, 2747),
-            next: cursor(0, 2745),
+            taken: cursor(0, 2798),
+            next: cursor(0, 2796),
         },
         Statement::Compare {
             condition: ActorCondition::EqualWord(
                 WordOperand::Actor(WordField::ScriptValue),
                 WordOperand::Literal(3),
             ),
-            taken: cursor(0, 2747),
-            next: cursor(0, 2746),
+            taken: cursor(0, 2798),
+            next: cursor(0, 2797),
         },
         Statement::Control(ControlCommand::Return),
         Statement::SelectShape {
@@ -16174,29 +16497,29 @@ pub fn catalog() -> PathCatalog {
                     ShapeId::from_catalog_index(0),
                 ]
             },
-            next: cursor(0, 2748),
+            next: cursor(0, 2799),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 2749),
+            next: cursor(0, 2800),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 2751),
+            next: cursor(0, 2802),
         }),
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2621),
-            next: cursor(0, 2752),
+            target: cursor(0, 2665),
+            next: cursor(0, 2803),
         }),
         Statement::ImportPairSuppression {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 2753),
+            next: cursor(0, 2804),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -16206,8 +16529,8 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 2755),
-            next: cursor(0, 2754),
+            taken: cursor(0, 2806),
+            next: cursor(0, 2805),
         },
         Statement::SpawnIndependent {
             kind: ObjectKind::Effect,
@@ -16217,96 +16540,96 @@ pub fn catalog() -> PathCatalog {
                 hit_points: 10,
                 attack_power: 10,
             },
-            next: cursor(0, 2755),
+            next: cursor(0, 2806),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2739),
+            target: cursor(0, 2790),
         }),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 2757),
+            next: cursor(0, 2808),
         }),
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2644),
-            next: cursor(0, 2758),
+            target: cursor(0, 2688),
+            next: cursor(0, 2809),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2739),
+            target: cursor(0, 2790),
         }),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 2760),
+            next: cursor(0, 2811),
         }),
         Statement::MarkerSound {
             id: 158,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2761),
+            next: cursor(0, 2812),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2739),
+            target: cursor(0, 2790),
         }),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 2739),
-            next: cursor(0, 2763),
+            target: cursor(0, 2790),
+            next: cursor(0, 2814),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::LinkedShotCount {
             command: super::path_shots::ShotCountCommand::Increment,
-            next: cursor(0, 2765),
+            next: cursor(0, 2816),
         },
         Statement::Compare {
             condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(363)),
-            taken: cursor(0, 2773),
-            next: cursor(0, 2766),
+            taken: cursor(0, 2824),
+            next: cursor(0, 2817),
         },
         Statement::Compare {
             condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(360)),
-            taken: cursor(0, 2770),
-            next: cursor(0, 2767),
+            taken: cursor(0, 2821),
+            next: cursor(0, 2818),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(1)),
             },
-            next: cursor(0, 2768),
+            next: cursor(0, 2819),
         },
         Statement::Sound {
             cue: AuthoredCue::new(38, 0, PlayerTarget::Primary),
-            next: cursor(0, 2769),
+            next: cursor(0, 2820),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2775),
+            target: cursor(0, 2826),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(2)),
             },
-            next: cursor(0, 2771),
+            next: cursor(0, 2822),
         },
         Statement::Sound {
             cue: AuthoredCue::new(39, 0, PlayerTarget::Primary),
-            next: cursor(0, 2772),
+            next: cursor(0, 2823),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2775),
+            target: cursor(0, 2826),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 2774),
+            next: cursor(0, 2825),
         },
         Statement::Sound {
             cue: AuthoredCue::new(58, 0, PlayerTarget::Primary),
-            next: cursor(0, 2775),
+            next: cursor(0, 2826),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(120)),
             },
-            next: cursor(0, 2776),
+            next: cursor(0, 2827),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -16315,7 +16638,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 2777),
+            next: cursor(0, 2828),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -16324,7 +16647,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 2778),
+            next: cursor(0, 2829),
         },
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
@@ -16333,14 +16656,14 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
-            next: cursor(0, 2779),
+            next: cursor(0, 2830),
         },
         Statement::ProjectileFlightOverride {
             command: super::path_shots::FlightOverrideCommand::CopyTo(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::High,
             }),
-            next: cursor(0, 2780),
+            next: cursor(0, 2831),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -16350,15 +16673,15 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 2783),
-            next: cursor(0, 2781),
+            taken: cursor(0, 2834),
+            next: cursor(0, 2832),
         },
         Statement::ImportSurfaceMode {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::High,
             },
-            next: cursor(0, 2782),
+            next: cursor(0, 2833),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -16368,76 +16691,76 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 2786),
-            next: cursor(0, 2783),
+            taken: cursor(0, 2837),
+            next: cursor(0, 2834),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(62),
-            next: cursor(0, 2784),
+            next: cursor(0, 2835),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(23)),
             },
-            next: cursor(0, 2785),
+            next: cursor(0, 2836),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Motion {
             command: MotionCommand::SetSpeed(62),
-            next: cursor(0, 2787),
+            next: cursor(0, 2838),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(23)),
             },
-            next: cursor(0, 2788),
+            next: cursor(0, 2839),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Contact {
             command: ContactCommand::SuppressHitMarker(true),
-            next: cursor(0, 2790),
+            next: cursor(0, 2841),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 2791),
+            next: cursor(0, 2842),
         },
         Statement::Appearance {
             command: AppearanceCommand::RadarMarker(super::radar::RadarMarker::from_packed(31)),
-            next: cursor(0, 2792),
+            next: cursor(0, 2843),
         },
         Statement::Compare {
             condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(25)),
-            taken: cursor(0, 2795),
-            next: cursor(0, 2793),
+            taken: cursor(0, 2846),
+            next: cursor(0, 2844),
         },
         Statement::Sound {
             cue: AuthoredCue::new(58, 0, PlayerTarget::Primary),
-            next: cursor(0, 2794),
+            next: cursor(0, 2845),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2796),
+            target: cursor(0, 2847),
         }),
         Statement::Sound {
             cue: AuthoredCue::new(40, 0, PlayerTarget::Primary),
-            next: cursor(0, 2796),
+            next: cursor(0, 2847),
         },
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2890),
-            next: cursor(0, 2797),
+            target: cursor(0, 2941),
+            next: cursor(0, 2848),
         }),
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2896),
-            next: cursor(0, 2798),
+            target: cursor(0, 2947),
+            next: cursor(0, 2849),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 2886),
+                path: cursor(0, 2937),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 2799),
+            next: cursor(0, 2850),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -16447,30 +16770,30 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 2801),
-            next: cursor(0, 2800),
+            taken: cursor(0, 2852),
+            next: cursor(0, 2851),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Add(ByteOperand::Literal(8)),
             },
-            next: cursor(0, 2801),
+            next: cursor(0, 2852),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 2802),
+            next: cursor(0, 2853),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(25)),
-            taken: cursor(0, 2804),
-            next: cursor(0, 2803),
+            taken: cursor(0, 2855),
+            next: cursor(0, 2854),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Add(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 2804),
+            next: cursor(0, 2855),
         },
         Statement::SelectShape {
             selector: ByteField::ScriptParameter,
@@ -16494,53 +16817,53 @@ pub fn catalog() -> PathCatalog {
                     ShapeId::from_catalog_index(0),
                 ]
             },
-            next: cursor(0, 2805),
+            next: cursor(0, 2856),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 2806),
+            next: cursor(0, 2857),
         },
         Statement::Compare {
             condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(26)),
-            taken: cursor(0, 2810),
-            next: cursor(0, 2807),
+            taken: cursor(0, 2861),
+            next: cursor(0, 2858),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::X),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
             },
-            next: cursor(0, 2808),
+            next: cursor(0, 2859),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 2809),
+            next: cursor(0, 2860),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::Z),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
             },
-            next: cursor(0, 2810),
+            next: cursor(0, 2861),
         },
         Statement::ImpactBranch {
-            first: cursor(0, 2865),
-            second: cursor(0, 2868),
-            third: cursor(0, 2874),
-            next: cursor(0, 2811),
+            first: cursor(0, 2916),
+            second: cursor(0, 2919),
+            third: cursor(0, 2925),
+            next: cursor(0, 2862),
         },
         Statement::OccupiedCell {
-            taken: cursor(0, 2877),
-            next: cursor(0, 2812),
+            taken: cursor(0, 2928),
+            next: cursor(0, 2863),
         },
         Statement::Control(ControlCommand::WaitOne {
-            next: cursor(0, 2813),
+            next: cursor(0, 2864),
         }),
         Statement::SelectShape {
             selector: ByteField::ScriptParameter,
@@ -16564,35 +16887,35 @@ pub fn catalog() -> PathCatalog {
                     ShapeId::from_catalog_index(0),
                 ]
             },
-            next: cursor(0, 2814),
+            next: cursor(0, 2865),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 2815),
+            next: cursor(0, 2866),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::X),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
             },
-            next: cursor(0, 2816),
+            next: cursor(0, 2867),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 2817),
+            next: cursor(0, 2868),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Z),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
             },
-            next: cursor(0, 2818),
+            next: cursor(0, 2869),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -16602,146 +16925,146 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 2847),
-            next: cursor(0, 2819),
+            taken: cursor(0, 2898),
+            next: cursor(0, 2870),
         },
         Statement::ImportSceneByte {
             source: super::path_program::SceneByte::PlayerConfiguration,
             destination: ByteField::Part,
-            next: cursor(0, 2820),
+            next: cursor(0, 2871),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::Part),
                 ByteOperand::Literal(9),
             ),
-            taken: cursor(0, 2837),
-            next: cursor(0, 2821),
+            taken: cursor(0, 2888),
+            next: cursor(0, 2872),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Add(ByteOperand::Literal(241)),
             },
-            next: cursor(0, 2822),
+            next: cursor(0, 2873),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::X),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
             },
-            next: cursor(0, 2823),
+            next: cursor(0, 2874),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 2824),
+            next: cursor(0, 2875),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Z),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
             },
-            next: cursor(0, 2825),
+            next: cursor(0, 2876),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::X))),
             },
-            next: cursor(0, 2826),
+            next: cursor(0, 2877),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::HalfTowardZero,
             },
-            next: cursor(0, 2827),
+            next: cursor(0, 2878),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::X),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
             },
-            next: cursor(0, 2828),
+            next: cursor(0, 2879),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 2829),
+            next: cursor(0, 2880),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::HalfTowardZero,
             },
-            next: cursor(0, 2830),
+            next: cursor(0, 2881),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
             },
-            next: cursor(0, 2831),
+            next: cursor(0, 2882),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Assign(WordOperand::Actor(WordField::Velocity(Axis::Z))),
             },
-            next: cursor(0, 2832),
+            next: cursor(0, 2883),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::HalfTowardZero,
             },
-            next: cursor(0, 2833),
+            next: cursor(0, 2884),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Z),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::ScriptValue)),
             },
-            next: cursor(0, 2834),
+            next: cursor(0, 2885),
         },
         Statement::OccupiedCell {
-            taken: cursor(0, 2877),
-            next: cursor(0, 2835),
+            taken: cursor(0, 2928),
+            next: cursor(0, 2886),
         },
         Statement::ImpactBranch {
-            first: cursor(0, 2865),
-            second: cursor(0, 2868),
-            third: cursor(0, 2874),
-            next: cursor(0, 2836),
+            first: cursor(0, 2916),
+            second: cursor(0, 2919),
+            third: cursor(0, 2925),
+            next: cursor(0, 2887),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 2859),
+            target: cursor(0, 2910),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 2841),
+                path: cursor(0, 2892),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 2838),
+            next: cursor(0, 2889),
         }),
         Statement::ImpactBranch {
-            first: cursor(0, 2865),
-            second: cursor(0, 2868),
-            third: cursor(0, 2874),
-            next: cursor(0, 2839),
+            first: cursor(0, 2916),
+            second: cursor(0, 2919),
+            third: cursor(0, 2925),
+            next: cursor(0, 2890),
         },
         Statement::OccupiedCell {
-            taken: cursor(0, 2877),
-            next: cursor(0, 2840),
+            taken: cursor(0, 2928),
+            next: cursor(0, 2891),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 2859),
+            target: cursor(0, 2910),
         }),
         Statement::Compare {
             condition: ActorCondition::BetweenWord {
@@ -16749,140 +17072,140 @@ pub fn catalog() -> PathCatalog {
                 lower: WordOperand::Literal(65236),
                 upper: WordOperand::Literal(0),
             },
-            taken: cursor(0, 2843),
-            next: cursor(0, 2842),
+            taken: cursor(0, 2894),
+            next: cursor(0, 2893),
         },
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 2844),
-            next: cursor(0, 2843),
+            target: cursor(0, 2895),
+            next: cursor(0, 2894),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 2841),
-            next: cursor(0, 2845),
+            path: cursor(0, 2892),
+            next: cursor(0, 2896),
         }),
         Statement::ImpactBranch {
-            first: cursor(0, 2865),
-            second: cursor(0, 2868),
-            third: cursor(0, 2874),
-            next: cursor(0, 2846),
+            first: cursor(0, 2916),
+            second: cursor(0, 2919),
+            third: cursor(0, 2925),
+            next: cursor(0, 2897),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2865),
+            target: cursor(0, 2916),
         }),
         Statement::ImpactBranch {
-            first: cursor(0, 2865),
-            second: cursor(0, 2868),
-            third: cursor(0, 2874),
-            next: cursor(0, 2848),
+            first: cursor(0, 2916),
+            second: cursor(0, 2919),
+            third: cursor(0, 2925),
+            next: cursor(0, 2899),
         },
         Statement::OccupiedCell {
-            taken: cursor(0, 2877),
-            next: cursor(0, 2849),
+            taken: cursor(0, 2928),
+            next: cursor(0, 2900),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::X),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
             },
-            next: cursor(0, 2850),
+            next: cursor(0, 2901),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 2851),
+            next: cursor(0, 2902),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::Z),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
             },
-            next: cursor(0, 2852),
+            next: cursor(0, 2903),
         },
         Statement::Control(ControlCommand::WaitOne {
-            next: cursor(0, 2853),
+            next: cursor(0, 2904),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 4,
-            next: cursor(0, 2854),
+            next: cursor(0, 2905),
         }),
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::X),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
             },
-            next: cursor(0, 2855),
+            next: cursor(0, 2906),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 2856),
+            next: cursor(0, 2907),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Z),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
             },
-            next: cursor(0, 2857),
+            next: cursor(0, 2908),
         },
         Statement::Control(ControlCommand::Next {
             immediate: true,
-            next: cursor(0, 2858),
+            next: cursor(0, 2909),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 2879),
+                path: cursor(0, 2930),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 2859),
+            next: cursor(0, 2910),
         }),
         Statement::BeginLoop {
             iterations: WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed)),
-            next: cursor(0, 2860),
+            next: cursor(0, 2911),
         },
         Statement::ImpactBranch {
-            first: cursor(0, 2864),
-            second: cursor(0, 2867),
-            third: cursor(0, 2873),
-            next: cursor(0, 2861),
+            first: cursor(0, 2915),
+            second: cursor(0, 2918),
+            third: cursor(0, 2924),
+            next: cursor(0, 2912),
         },
         Statement::OccupiedCell {
-            taken: cursor(0, 2876),
-            next: cursor(0, 2862),
+            taken: cursor(0, 2927),
+            next: cursor(0, 2913),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 2863),
+            next: cursor(0, 2914),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2865),
+            target: cursor(0, 2916),
         }),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 2865),
+            next: cursor(0, 2916),
         }),
         Statement::LinkedShotCount {
             command: super::path_shots::ShotCountCommand::Decrement,
-            next: cursor(0, 2866),
+            next: cursor(0, 2917),
         },
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 2868),
+            next: cursor(0, 2919),
         }),
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2621),
-            next: cursor(0, 2869),
+            target: cursor(0, 2665),
+            next: cursor(0, 2920),
         }),
         Statement::ImportPairSuppression {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 2870),
+            next: cursor(0, 2921),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -16892,8 +17215,8 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 2872),
-            next: cursor(0, 2871),
+            taken: cursor(0, 2923),
+            next: cursor(0, 2922),
         },
         Statement::SpawnIndependent {
             kind: ObjectKind::Effect,
@@ -16903,54 +17226,54 @@ pub fn catalog() -> PathCatalog {
                 hit_points: 10,
                 attack_power: 10,
             },
-            next: cursor(0, 2872),
+            next: cursor(0, 2923),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2865),
+            target: cursor(0, 2916),
         }),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 2874),
+            next: cursor(0, 2925),
         }),
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2644),
-            next: cursor(0, 2875),
+            target: cursor(0, 2688),
+            next: cursor(0, 2926),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2865),
+            target: cursor(0, 2916),
         }),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 2877),
+            next: cursor(0, 2928),
         }),
         Statement::MarkerSound {
             id: 158,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2878),
+            next: cursor(0, 2929),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2865),
+            target: cursor(0, 2916),
         }),
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Increment,
             },
-            next: cursor(0, 2880),
+            next: cursor(0, 2931),
         },
         Statement::Compare {
             condition: ActorCondition::EqualWord(
                 WordOperand::Actor(WordField::ScriptValue),
                 WordOperand::Literal(1),
             ),
-            taken: cursor(0, 2883),
-            next: cursor(0, 2881),
+            taken: cursor(0, 2934),
+            next: cursor(0, 2932),
         },
         Statement::Compare {
             condition: ActorCondition::EqualWord(
                 WordOperand::Actor(WordField::ScriptValue),
                 WordOperand::Literal(4),
             ),
-            taken: cursor(0, 2883),
-            next: cursor(0, 2882),
+            taken: cursor(0, 2934),
+            next: cursor(0, 2933),
         },
         Statement::Control(ControlCommand::Return),
         Statement::SelectShape {
@@ -16975,42 +17298,42 @@ pub fn catalog() -> PathCatalog {
                     ShapeId::from_catalog_index(0),
                 ]
             },
-            next: cursor(0, 2884),
+            next: cursor(0, 2935),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ScriptParameter,
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 2885),
+            next: cursor(0, 2936),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 2888),
-            next: cursor(0, 2887),
+            target: cursor(0, 2939),
+            next: cursor(0, 2938),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 2886),
-            next: cursor(0, 2889),
+            path: cursor(0, 2937),
+            next: cursor(0, 2940),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2865),
+            target: cursor(0, 2916),
         }),
         Statement::LinkedShotCount {
             command: super::path_shots::ShotCountCommand::Increment,
-            next: cursor(0, 2891),
+            next: cursor(0, 2942),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(100)),
             },
-            next: cursor(0, 2892),
+            next: cursor(0, 2943),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(0),
-            next: cursor(0, 2893),
+            next: cursor(0, 2944),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -17019,7 +17342,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 2894),
+            next: cursor(0, 2945),
         },
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
@@ -17028,7 +17351,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
-            next: cursor(0, 2895),
+            next: cursor(0, 2946),
         },
         Statement::Control(ControlCommand::Return),
         Statement::ProjectileFlightOverride {
@@ -17036,7 +17359,7 @@ pub fn catalog() -> PathCatalog {
                 field: WordField::MotionPhase,
                 part: BytePart::High,
             }),
-            next: cursor(0, 2897),
+            next: cursor(0, 2948),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -17046,15 +17369,15 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 2900),
-            next: cursor(0, 2898),
+            taken: cursor(0, 2951),
+            next: cursor(0, 2949),
         },
         Statement::ImportSurfaceMode {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::High,
             },
-            next: cursor(0, 2899),
+            next: cursor(0, 2950),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -17064,19 +17387,19 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 2903),
-            next: cursor(0, 2900),
+            taken: cursor(0, 2954),
+            next: cursor(0, 2951),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(25)),
             },
-            next: cursor(0, 2901),
+            next: cursor(0, 2952),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(60),
-            next: cursor(0, 2902),
+            next: cursor(0, 2953),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Mutate {
@@ -17084,71 +17407,71 @@ pub fn catalog() -> PathCatalog {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(6)),
             },
-            next: cursor(0, 2904),
+            next: cursor(0, 2955),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(60),
-            next: cursor(0, 2905),
+            next: cursor(0, 2956),
         },
         Statement::Control(ControlCommand::Return),
         Statement::ImportCampaignByte {
             source: CampaignByte::Difficulty,
             destination: ByteField::AttackPower,
-            next: cursor(0, 2907),
+            next: cursor(0, 2958),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::AttackPower),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 2913),
-            next: cursor(0, 2908),
+            taken: cursor(0, 2964),
+            next: cursor(0, 2959),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::AttackPower),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 2911),
-            next: cursor(0, 2909),
+            taken: cursor(0, 2962),
+            next: cursor(0, 2960),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 2910),
+            next: cursor(0, 2961),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2914),
+            target: cursor(0, 2965),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(6)),
             },
-            next: cursor(0, 2912),
+            next: cursor(0, 2963),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2914),
+            target: cursor(0, 2965),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(2)),
             },
-            next: cursor(0, 2914),
+            next: cursor(0, 2965),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(120)),
             },
-            next: cursor(0, 2915),
+            next: cursor(0, 2966),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(44)),
-            next: cursor(0, 2916),
+            next: cursor(0, 2967),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -17157,103 +17480,103 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 2917),
+            next: cursor(0, 2968),
         },
         Statement::Sprite {
             color: 0,
             size: 5,
-            next: cursor(0, 2918),
+            next: cursor(0, 2969),
         },
         Statement::SpawnIndependent {
             kind: ObjectKind::Effect,
             parameters: IndependentSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3556)),
+                path: Some(cursor(0, 3607)),
                 hit_points: 1,
                 attack_power: 1,
             },
-            next: cursor(0, 2919),
+            next: cursor(0, 2970),
         },
         Statement::MarkerSound {
             id: 117,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2920),
+            next: cursor(0, 2971),
         },
         Statement::SpatialLoop {
             sound: super::SpatialLoop::from_authored_control(3),
-            next: cursor(0, 2921),
+            next: cursor(0, 2972),
         },
         Statement::SelectedAuxiliaryBranch {
             condition: SelectedAuxiliaryCondition::ModeClass(
                 super::path_conditions::AuxiliaryModeClass::One,
             ),
-            taken: cursor(0, 2923),
-            next: cursor(0, 2922),
+            taken: cursor(0, 2974),
+            next: cursor(0, 2973),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::X),
                 operation: ByteOperation::Add(ByteOperand::Literal(253)),
             },
-            next: cursor(0, 2923),
+            next: cursor(0, 2974),
         },
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 2924),
+            next: cursor(0, 2975),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(20),
-            next: cursor(0, 2925),
+            next: cursor(0, 2976),
         },
         Statement::DisableCollision {
-            next: cursor(0, 2926),
+            next: cursor(0, 2977),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(3),
-            next: cursor(0, 2927),
+            next: cursor(0, 2978),
         },
         Statement::Appearance {
             command: AppearanceCommand::Collision(true),
-            next: cursor(0, 2928),
+            next: cursor(0, 2979),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3195),
+                path: cursor(0, 3246),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 2929),
+            next: cursor(0, 2980),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 2932),
+                path: cursor(0, 2983),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 2930),
+            next: cursor(0, 2981),
         }),
         Statement::Wait {
             duration: ByteOperand::Literal(50),
-            next: cursor(0, 2931),
+            next: cursor(0, 2982),
         },
         Statement::Control(ControlCommand::End),
         Statement::OccupiedCell {
-            taken: cursor(0, 2936),
-            next: cursor(0, 2933),
+            taken: cursor(0, 2987),
+            next: cursor(0, 2984),
         },
         Statement::Spatial {
             condition: SpatialCondition::GroundThreshold(0),
-            taken: cursor(0, 2936),
-            next: cursor(0, 2934),
+            taken: cursor(0, 2987),
+            next: cursor(0, 2985),
         },
         Statement::AtOrAboveSurface {
-            taken: cursor(0, 2936),
-            next: cursor(0, 2935),
+            taken: cursor(0, 2987),
+            next: cursor(0, 2986),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 2938),
-            next: cursor(0, 2937),
+            target: cursor(0, 2989),
+            next: cursor(0, 2988),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::End),
@@ -17262,68 +17585,68 @@ pub fn catalog() -> PathCatalog {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(1)),
             },
-            next: cursor(0, 2940),
+            next: cursor(0, 2991),
         },
         Statement::ImportCampaignByte {
             source: CampaignByte::Difficulty,
             destination: ByteField::AttackPower,
-            next: cursor(0, 2941),
+            next: cursor(0, 2992),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::AttackPower),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 2947),
-            next: cursor(0, 2942),
+            taken: cursor(0, 2998),
+            next: cursor(0, 2993),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::AttackPower),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 2945),
-            next: cursor(0, 2943),
+            taken: cursor(0, 2996),
+            next: cursor(0, 2994),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 2944),
+            next: cursor(0, 2995),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2948),
+            target: cursor(0, 2999),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(6)),
             },
-            next: cursor(0, 2946),
+            next: cursor(0, 2997),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2948),
+            target: cursor(0, 2999),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(2)),
             },
-            next: cursor(0, 2948),
+            next: cursor(0, 2999),
         },
         Statement::SpatialLoop {
             sound: super::SpatialLoop::from_authored_control(12),
-            next: cursor(0, 2949),
+            next: cursor(0, 3000),
         },
         Statement::MarkerSound {
             id: 115,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 2950),
+            next: cursor(0, 3001),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 2951),
+            next: cursor(0, 3002),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -17332,36 +17655,36 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 2952),
+            next: cursor(0, 3003),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(31)),
-            next: cursor(0, 2953),
+            next: cursor(0, 3004),
         },
         Statement::Sprite {
             color: 0,
             size: 5,
-            next: cursor(0, 2954),
+            next: cursor(0, 3005),
         },
         Statement::Motion {
             command: MotionCommand::GenerateVelocityEachStep(true),
-            next: cursor(0, 2955),
+            next: cursor(0, 3006),
         },
         Statement::Motion {
             command: MotionCommand::GenerateVelocityEachStep(true),
-            next: cursor(0, 2956),
+            next: cursor(0, 3007),
         },
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 2957),
+            next: cursor(0, 3008),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3195),
+                path: cursor(0, 3246),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 2958),
+            next: cursor(0, 3009),
         }),
         Statement::Random {
             mutation: RandomMutation::AssignByte {
@@ -17371,17 +17694,17 @@ pub fn catalog() -> PathCatalog {
                 },
                 mask: 7,
             },
-            next: cursor(0, 2959),
+            next: cursor(0, 3010),
         },
         Statement::ImportSurfaceMode {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 2960),
+            next: cursor(0, 3011),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 2961),
+            next: cursor(0, 3012),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -17391,8 +17714,8 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 2995),
-            next: cursor(0, 2962),
+            taken: cursor(0, 3046),
+            next: cursor(0, 3013),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -17421,74 +17744,74 @@ pub fn catalog() -> PathCatalog {
                     ],
                 }),
             },
-            next: cursor(0, 2963),
+            next: cursor(0, 3014),
         },
         Statement::Random {
             mutation: RandomMutation::AssignByte {
                 field: ByteField::RelativeRotation(Axis::Y),
                 mask: 7,
             },
-            next: cursor(0, 2964),
+            next: cursor(0, 3015),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::Y),
                 operation: ByteOperation::Add(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 2965),
+            next: cursor(0, 3016),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(5000),
-            taken: cursor(0, 2976),
-            next: cursor(0, 2966),
+            taken: cursor(0, 3027),
+            next: cursor(0, 3017),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(7500),
-            taken: cursor(0, 2974),
-            next: cursor(0, 2967),
+            taken: cursor(0, 3025),
+            next: cursor(0, 3018),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(10000),
-            taken: cursor(0, 2972),
-            next: cursor(0, 2968),
+            taken: cursor(0, 3023),
+            next: cursor(0, 3019),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(13000),
-            taken: cursor(0, 2970),
-            next: cursor(0, 2969),
+            taken: cursor(0, 3021),
+            next: cursor(0, 3020),
         },
         Statement::Control(ControlCommand::End),
         Statement::Motion {
             command: MotionCommand::SetSpeed(45),
-            next: cursor(0, 2971),
+            next: cursor(0, 3022),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2977),
+            target: cursor(0, 3028),
         }),
         Statement::Motion {
             command: MotionCommand::SetSpeed(41),
-            next: cursor(0, 2973),
+            next: cursor(0, 3024),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2977),
+            target: cursor(0, 3028),
         }),
         Statement::Motion {
             command: MotionCommand::SetSpeed(38),
-            next: cursor(0, 2975),
+            next: cursor(0, 3026),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2977),
+            target: cursor(0, 3028),
         }),
         Statement::Motion {
             command: MotionCommand::SetSpeed(35),
-            next: cursor(0, 2977),
+            next: cursor(0, 3028),
         },
         Statement::Random {
             mutation: RandomMutation::AssignByte {
                 field: ByteField::Part,
                 mask: 3,
             },
-            next: cursor(0, 2978),
+            next: cursor(0, 3029),
         },
         Statement::Random {
             mutation: RandomMutation::AssignByte {
@@ -17498,27 +17821,27 @@ pub fn catalog() -> PathCatalog {
                 },
                 mask: 255,
             },
-            next: cursor(0, 2979),
+            next: cursor(0, 3030),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3009),
+                path: cursor(0, 3060),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 2980),
+            next: cursor(0, 3031),
         }),
         Statement::FaceSelectedOffset {
             offset: super::path_steering::AimOffset { x: 0, y: 0, z: 64 },
-            next: cursor(0, 2981),
+            next: cursor(0, 3032),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(4000),
-            taken: cursor(0, 2983),
-            next: cursor(0, 2982),
+            taken: cursor(0, 3034),
+            next: cursor(0, 3033),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 2980),
+            target: cursor(0, 3031),
         }),
         Statement::Compare {
             condition: ActorCondition::BetweenByte {
@@ -17526,96 +17849,96 @@ pub fn catalog() -> PathCatalog {
                 lower: ByteOperand::Literal(0),
                 upper: ByteOperand::Literal(38),
             },
-            taken: cursor(0, 2985),
-            next: cursor(0, 2984),
+            taken: cursor(0, 3036),
+            next: cursor(0, 3035),
         },
         Statement::Motion {
             command: MotionCommand::AccelerateTo {
                 target: 38,
                 amount: 2,
             },
-            next: cursor(0, 2985),
+            next: cursor(0, 3036),
         },
         Statement::FaceSelectedOffset {
             offset: super::path_steering::AimOffset { x: 0, y: 0, z: 64 },
-            next: cursor(0, 2986),
+            next: cursor(0, 3037),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(1500),
-            taken: cursor(0, 2988),
-            next: cursor(0, 2987),
+            taken: cursor(0, 3039),
+            next: cursor(0, 3038),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 2985),
+            target: cursor(0, 3036),
         }),
         Statement::Motion {
             command: MotionCommand::AccelerateTo {
                 target: 25,
                 amount: 2,
             },
-            next: cursor(0, 2989),
+            next: cursor(0, 3040),
         },
         Statement::Control(ControlCommand::Register {
-            trigger: Trigger::timed(cursor(0, 3005), TriggerKind::Always, 13),
-            next: cursor(0, 2990),
+            trigger: Trigger::timed(cursor(0, 3056), TriggerKind::Always, 13),
+            next: cursor(0, 3041),
         }),
         Statement::Control(ControlCommand::Hold),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 3009),
-            next: cursor(0, 2992),
+            path: cursor(0, 3060),
+            next: cursor(0, 3043),
         }),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 3195),
-            next: cursor(0, 2993),
+            path: cursor(0, 3246),
+            next: cursor(0, 3044),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 2994),
+            target: cursor(0, 3045),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3015),
+                path: cursor(0, 3066),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 2996),
+            next: cursor(0, 3047),
         }),
         Statement::SelectedAuxiliaryBranch {
             condition: SelectedAuxiliaryCondition::ModeClass(
                 super::path_conditions::AuxiliaryModeClass::One,
             ),
-            taken: cursor(0, 2998),
-            next: cursor(0, 2997),
+            taken: cursor(0, 3049),
+            next: cursor(0, 3048),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::X),
                 operation: ByteOperation::Add(ByteOperand::Literal(253)),
             },
-            next: cursor(0, 2998),
+            next: cursor(0, 3049),
         },
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 2999),
+            next: cursor(0, 3050),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(30),
-            next: cursor(0, 3000),
+            next: cursor(0, 3051),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3001),
+            next: cursor(0, 3052),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(3),
-            next: cursor(0, 3002),
+            next: cursor(0, 3053),
         },
         Statement::Appearance {
             command: AppearanceCommand::Collision(true),
-            next: cursor(0, 3003),
+            next: cursor(0, 3054),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(50),
-            next: cursor(0, 3004),
+            next: cursor(0, 3055),
         },
         Statement::Control(ControlCommand::End),
         Statement::Spatial {
@@ -17623,76 +17946,76 @@ pub fn catalog() -> PathCatalog {
                 lower: 224,
                 upper: 32,
             },
-            taken: cursor(0, 3007),
-            next: cursor(0, 3006),
+            taken: cursor(0, 3058),
+            next: cursor(0, 3057),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Facing {
             command: FacingCommand::SelectedSmooth,
-            next: cursor(0, 3008),
+            next: cursor(0, 3059),
         },
         Statement::Control(ControlCommand::Return),
         Statement::OccupiedCell {
-            taken: cursor(0, 3021),
-            next: cursor(0, 3010),
+            taken: cursor(0, 3072),
+            next: cursor(0, 3061),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Increment,
             },
-            next: cursor(0, 3011),
+            next: cursor(0, 3062),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3012),
+            next: cursor(0, 3063),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualWord(
                 WordOperand::Actor(WordField::ScriptValue),
                 WordOperand::Literal(110),
             ),
-            taken: cursor(0, 3014),
-            next: cursor(0, 3013),
+            taken: cursor(0, 3065),
+            next: cursor(0, 3064),
         },
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 2991),
-            next: cursor(0, 3014),
+            target: cursor(0, 3042),
+            next: cursor(0, 3065),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::OccupiedCell {
-            taken: cursor(0, 3021),
-            next: cursor(0, 3016),
+            taken: cursor(0, 3072),
+            next: cursor(0, 3067),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Increment,
             },
-            next: cursor(0, 3017),
+            next: cursor(0, 3068),
         },
         Statement::AtOrAboveSurface {
-            taken: cursor(0, 3021),
-            next: cursor(0, 3018),
+            taken: cursor(0, 3072),
+            next: cursor(0, 3069),
         },
         Statement::Spatial {
             condition: SpatialCondition::GroundThreshold(0),
-            taken: cursor(0, 3021),
-            next: cursor(0, 3019),
+            taken: cursor(0, 3072),
+            next: cursor(0, 3070),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3020),
+            next: cursor(0, 3071),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualWord(
                 WordOperand::Actor(WordField::ScriptValue),
                 WordOperand::Literal(110),
             ),
-            taken: cursor(0, 3022),
-            next: cursor(0, 3021),
+            taken: cursor(0, 3073),
+            next: cursor(0, 3072),
         },
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 2991),
-            next: cursor(0, 3022),
+            target: cursor(0, 3042),
+            next: cursor(0, 3073),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Mutate {
@@ -17700,191 +18023,191 @@ pub fn catalog() -> PathCatalog {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(10)),
             },
-            next: cursor(0, 3024),
+            next: cursor(0, 3075),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 3025),
+            next: cursor(0, 3076),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(40)),
             },
-            next: cursor(0, 3026),
+            next: cursor(0, 3077),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(80),
-            next: cursor(0, 3027),
+            next: cursor(0, 3078),
         },
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2619),
-            next: cursor(0, 3028),
+            target: cursor(0, 2663),
+            next: cursor(0, 3079),
         }),
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(31)),
-            next: cursor(0, 3029),
+            next: cursor(0, 3080),
         },
         Statement::Sprite {
             color: 0,
             size: 5,
-            next: cursor(0, 3030),
+            next: cursor(0, 3081),
         },
         Statement::SpatialLoop {
             sound: super::SpatialLoop::from_authored_control(12),
-            next: cursor(0, 3031),
+            next: cursor(0, 3082),
         },
         Statement::MarkerSound {
             id: 115,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 3032),
+            next: cursor(0, 3083),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3107),
+            target: cursor(0, 3158),
         }),
         Statement::Motion {
             command: MotionCommand::SetSpeed(75),
-            next: cursor(0, 3034),
+            next: cursor(0, 3085),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::X),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
             },
-            next: cursor(0, 3035),
+            next: cursor(0, 3086),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 3036),
+            next: cursor(0, 3087),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Z),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
             },
-            next: cursor(0, 3037),
+            next: cursor(0, 3088),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3039),
+            target: cursor(0, 3090),
         }),
         Statement::Motion {
             command: MotionCommand::SetSpeed(90),
-            next: cursor(0, 3039),
+            next: cursor(0, 3090),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(10)),
             },
-            next: cursor(0, 3040),
+            next: cursor(0, 3091),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(2)),
             },
-            next: cursor(0, 3041),
+            next: cursor(0, 3092),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(33)),
             },
-            next: cursor(0, 3042),
+            next: cursor(0, 3093),
         },
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2619),
-            next: cursor(0, 3043),
+            target: cursor(0, 2663),
+            next: cursor(0, 3094),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3056),
+            target: cursor(0, 3107),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(10)),
             },
-            next: cursor(0, 3045),
+            next: cursor(0, 3096),
         },
         Statement::ImportCampaignByte {
             source: CampaignByte::Difficulty,
             destination: ByteField::AttackPower,
-            next: cursor(0, 3046),
+            next: cursor(0, 3097),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::AttackPower),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 3052),
-            next: cursor(0, 3047),
+            taken: cursor(0, 3103),
+            next: cursor(0, 3098),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::AttackPower),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 3050),
-            next: cursor(0, 3048),
+            taken: cursor(0, 3101),
+            next: cursor(0, 3099),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(3)),
             },
-            next: cursor(0, 3049),
+            next: cursor(0, 3100),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3053),
+            target: cursor(0, 3104),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 3051),
+            next: cursor(0, 3102),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3053),
+            target: cursor(0, 3104),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(2)),
             },
-            next: cursor(0, 3053),
+            next: cursor(0, 3104),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(45)),
             },
-            next: cursor(0, 3054),
+            next: cursor(0, 3105),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(12000),
-            taken: cursor(0, 3056),
-            next: cursor(0, 3055),
+            taken: cursor(0, 3107),
+            next: cursor(0, 3106),
         },
         Statement::Control(ControlCommand::End),
         Statement::MarkerSound {
             id: 114,
             mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned),
-            next: cursor(0, 3057),
+            next: cursor(0, 3108),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 3058),
+            next: cursor(0, 3109),
         },
         Statement::Motion {
             command: MotionCommand::GenerateVelocityEachStep(true),
-            next: cursor(0, 3059),
+            next: cursor(0, 3110),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -17893,47 +18216,47 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 3060),
+            next: cursor(0, 3111),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3195),
+                path: cursor(0, 3246),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 3061),
+            next: cursor(0, 3112),
         }),
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 3062),
+            next: cursor(0, 3113),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(30),
-            next: cursor(0, 3063),
+            next: cursor(0, 3114),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(357)),
-            next: cursor(0, 3064),
+            next: cursor(0, 3115),
         },
         Statement::SpawnIndependent {
             kind: ObjectKind::Effect,
             parameters: IndependentSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3556)),
+                path: Some(cursor(0, 3607)),
                 hit_points: 1,
                 attack_power: 1,
             },
-            next: cursor(0, 3065),
+            next: cursor(0, 3116),
         },
         Statement::ImportSurfaceMode {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 3066),
+            next: cursor(0, 3117),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3067),
+            next: cursor(0, 3118),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -17943,181 +18266,181 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 3107),
-            next: cursor(0, 3068),
+            taken: cursor(0, 3158),
+            next: cursor(0, 3119),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3095),
+                path: cursor(0, 3146),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3069),
+            next: cursor(0, 3120),
         }),
         Statement::Motion {
             command: MotionCommand::SetSpeed(63),
-            next: cursor(0, 3070),
+            next: cursor(0, 3121),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(1000),
-            taken: cursor(0, 3076),
-            next: cursor(0, 3071),
+            taken: cursor(0, 3127),
+            next: cursor(0, 3122),
         },
         Statement::Radius {
             command: RadiusCommand {
                 center: RadiusCenter::Selected,
                 amount: 127,
             },
-            next: cursor(0, 3072),
+            next: cursor(0, 3123),
         },
         Statement::Radius {
             command: RadiusCommand {
                 center: RadiusCenter::Selected,
                 amount: 127,
             },
-            next: cursor(0, 3073),
+            next: cursor(0, 3124),
         },
         Statement::Radius {
             command: RadiusCommand {
                 center: RadiusCenter::Selected,
                 amount: 127,
             },
-            next: cursor(0, 3074),
+            next: cursor(0, 3125),
         },
         Statement::Facing {
             command: FacingCommand::SelectedImmediate,
-            next: cursor(0, 3075),
+            next: cursor(0, 3126),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3070),
+            target: cursor(0, 3121),
         }),
         Statement::Facing {
             command: FacingCommand::SelectedImmediate,
-            next: cursor(0, 3077),
+            next: cursor(0, 3128),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(63),
-            next: cursor(0, 3078),
+            next: cursor(0, 3129),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3080),
+            target: cursor(0, 3131),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3091),
+                path: cursor(0, 3142),
                 kind: TriggerKind::Periodic(TriggerPeriod::Two),
                 timer: 0,
             },
-            next: cursor(0, 3081),
+            next: cursor(0, 3132),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3085),
+                path: cursor(0, 3136),
                 kind: TriggerKind::PlayerCrossing,
                 timer: 0,
             },
-            next: cursor(0, 3082),
+            next: cursor(0, 3133),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 40,
-            next: cursor(0, 3083),
+            next: cursor(0, 3134),
         }),
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3084),
+            next: cursor(0, 3135),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3087),
-            next: cursor(0, 3086),
+            target: cursor(0, 3138),
+            next: cursor(0, 3137),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 3091),
-            next: cursor(0, 3088),
+            path: cursor(0, 3142),
+            next: cursor(0, 3139),
         }),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 3085),
-            next: cursor(0, 3089),
+            path: cursor(0, 3136),
+            next: cursor(0, 3140),
         }),
         Statement::Wait {
             duration: ByteOperand::Literal(15),
-            next: cursor(0, 3090),
+            next: cursor(0, 3141),
         },
         Statement::Control(ControlCommand::End),
         Statement::Spatial {
             condition: SpatialCondition::SelectedWithinYawArc(32),
-            taken: cursor(0, 3093),
-            next: cursor(0, 3092),
+            taken: cursor(0, 3144),
+            next: cursor(0, 3143),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Facing {
             command: FacingCommand::SelectedSmooth,
-            next: cursor(0, 3094),
+            next: cursor(0, 3145),
         },
         Statement::Control(ControlCommand::Return),
         Statement::OccupiedCell {
-            taken: cursor(0, 3099),
-            next: cursor(0, 3096),
+            taken: cursor(0, 3150),
+            next: cursor(0, 3147),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Increment,
             },
-            next: cursor(0, 3097),
+            next: cursor(0, 3148),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3098),
+            next: cursor(0, 3149),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualWord(
                 WordOperand::Actor(WordField::ScriptValue),
                 WordOperand::Literal(60),
             ),
-            taken: cursor(0, 3100),
-            next: cursor(0, 3099),
+            taken: cursor(0, 3151),
+            next: cursor(0, 3150),
         },
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3079),
-            next: cursor(0, 3100),
+            target: cursor(0, 3130),
+            next: cursor(0, 3151),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Contact {
             command: ContactCommand::SuppressHitMarker(true),
-            next: cursor(0, 3102),
+            next: cursor(0, 3153),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(10)),
             },
-            next: cursor(0, 3103),
+            next: cursor(0, 3154),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(50),
-            next: cursor(0, 3104),
+            next: cursor(0, 3155),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3105),
+            next: cursor(0, 3156),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualShape(ShapeId::from_catalog_index(363)),
-            taken: cursor(0, 3107),
-            next: cursor(0, 3106),
+            taken: cursor(0, 3158),
+            next: cursor(0, 3157),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3123),
+                path: cursor(0, 3174),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3107),
+            next: cursor(0, 3158),
         }),
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 3108),
+            next: cursor(0, 3159),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -18126,22 +18449,22 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 3109),
+            next: cursor(0, 3160),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3195),
+                path: cursor(0, 3246),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 3110),
+            next: cursor(0, 3161),
         }),
         Statement::ImportSurfaceMode {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 3111),
+            next: cursor(0, 3162),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -18151,55 +18474,55 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 3114),
-            next: cursor(0, 3112),
+            taken: cursor(0, 3165),
+            next: cursor(0, 3163),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3118),
+                path: cursor(0, 3169),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3113),
+            next: cursor(0, 3164),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3115),
+            target: cursor(0, 3166),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3119),
+                path: cursor(0, 3170),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3115),
+            next: cursor(0, 3166),
         }),
         Statement::BeginLoop {
             iterations: WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed)),
-            next: cursor(0, 3116),
+            next: cursor(0, 3167),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3117),
+            next: cursor(0, 3168),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Spatial {
             condition: SpatialCondition::GroundThreshold(0),
-            taken: cursor(0, 3121),
-            next: cursor(0, 3119),
+            taken: cursor(0, 3172),
+            next: cursor(0, 3170),
         },
         Statement::AtOrAboveSurface {
-            taken: cursor(0, 3121),
-            next: cursor(0, 3120),
+            taken: cursor(0, 3172),
+            next: cursor(0, 3171),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3117),
-            next: cursor(0, 3122),
+            target: cursor(0, 3168),
+            next: cursor(0, 3173),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Facing {
             command: FacingCommand::FixedPlayerImmediate,
-            next: cursor(0, 3124),
+            next: cursor(0, 3175),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Mutate {
@@ -18207,24 +18530,24 @@ pub fn catalog() -> PathCatalog {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(1)),
             },
-            next: cursor(0, 3126),
+            next: cursor(0, 3177),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(6)),
             },
-            next: cursor(0, 3127),
+            next: cursor(0, 3178),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(10000),
-            taken: cursor(0, 3129),
-            next: cursor(0, 3128),
+            taken: cursor(0, 3180),
+            next: cursor(0, 3179),
         },
         Statement::Control(ControlCommand::End),
         Statement::SpatialLoop {
             sound: super::SpatialLoop::from_authored_control(2),
-            next: cursor(0, 3130),
+            next: cursor(0, 3181),
         },
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
@@ -18233,156 +18556,156 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
-            next: cursor(0, 3131),
+            next: cursor(0, 3182),
         },
         Statement::Sound {
             cue: AuthoredCue::new(116, 0, PlayerTarget::Primary),
-            next: cursor(0, 3132),
+            next: cursor(0, 3183),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3193),
+                path: cursor(0, 3244),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 3133),
+            next: cursor(0, 3184),
         }),
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 3134),
+            next: cursor(0, 3185),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(2),
-            next: cursor(0, 3135),
+            next: cursor(0, 3186),
         },
         Statement::Motion {
             command: MotionCommand::GenerateVelocityEachStep(true),
-            next: cursor(0, 3136),
+            next: cursor(0, 3187),
         },
         Statement::ImportSurfaceMode {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 3137),
+            next: cursor(0, 3188),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::ScriptParameter),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 3143),
-            next: cursor(0, 3138),
+            taken: cursor(0, 3194),
+            next: cursor(0, 3189),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::ScriptParameter),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 3141),
-            next: cursor(0, 3139),
+            taken: cursor(0, 3192),
+            next: cursor(0, 3190),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(111)),
-            next: cursor(0, 3140),
+            next: cursor(0, 3191),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3144),
+            target: cursor(0, 3195),
         }),
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(109)),
-            next: cursor(0, 3142),
+            next: cursor(0, 3193),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3144),
+            target: cursor(0, 3195),
         }),
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(110)),
-            next: cursor(0, 3144),
+            next: cursor(0, 3195),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3145),
+            next: cursor(0, 3196),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::ScriptParameter),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 3150),
-            next: cursor(0, 3146),
+            taken: cursor(0, 3201),
+            next: cursor(0, 3197),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 10,
-            next: cursor(0, 3147),
+            next: cursor(0, 3198),
         }),
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::Y),
                 operation: WordOperation::Add(WordOperand::SignedByte(ByteOperand::Literal(10))),
             },
-            next: cursor(0, 3148),
+            next: cursor(0, 3199),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::Z),
                 operation: ByteOperation::Add(ByteOperand::Literal(5)),
             },
-            next: cursor(0, 3149),
+            next: cursor(0, 3200),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3150),
+            next: cursor(0, 3201),
         }),
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3151),
+            next: cursor(0, 3202),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::ScriptParameter),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 3155),
-            next: cursor(0, 3152),
+            taken: cursor(0, 3206),
+            next: cursor(0, 3203),
         },
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 3153),
+            next: cursor(0, 3204),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(45),
-            next: cursor(0, 3154),
+            next: cursor(0, 3205),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3156),
+            target: cursor(0, 3207),
         }),
         Statement::Motion {
             command: MotionCommand::AccelerateTo {
                 target: 20,
                 amount: 2,
             },
-            next: cursor(0, 3156),
+            next: cursor(0, 3207),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::ScriptParameter),
                 ByteOperand::Literal(1),
             ),
-            taken: cursor(0, 3162),
-            next: cursor(0, 3157),
+            taken: cursor(0, 3213),
+            next: cursor(0, 3208),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::ScriptParameter),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 3160),
-            next: cursor(0, 3158),
+            taken: cursor(0, 3211),
+            next: cursor(0, 3209),
         },
         Statement::SpawnChild {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3345)),
+                path: Some(cursor(0, 3396)),
                 position: Vector3 {
                     x: 0,
                     y: 0,
@@ -18397,16 +18720,16 @@ pub fn catalog() -> PathCatalog {
                 attack_power: 1,
                 number: 1,
             },
-            next: cursor(0, 3159),
+            next: cursor(0, 3210),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3163),
+            target: cursor(0, 3214),
         }),
         Statement::SpawnChild {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3345)),
+                path: Some(cursor(0, 3396)),
                 position: Vector3 {
                     x: 0,
                     y: 0,
@@ -18421,16 +18744,16 @@ pub fn catalog() -> PathCatalog {
                 attack_power: 1,
                 number: 1,
             },
-            next: cursor(0, 3161),
+            next: cursor(0, 3212),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3163),
+            target: cursor(0, 3214),
         }),
         Statement::SpawnChild {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(19),
-                path: Some(cursor(0, 3345)),
+                path: Some(cursor(0, 3396)),
                 position: Vector3 { x: 0, y: 0, z: -60 },
                 rotation: Rotation {
                     pitch: Angle::from_units(0),
@@ -18441,32 +18764,32 @@ pub fn catalog() -> PathCatalog {
                 attack_power: 1,
                 number: 1,
             },
-            next: cursor(0, 3163),
+            next: cursor(0, 3214),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3171),
+                path: cursor(0, 3222),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3164),
+            next: cursor(0, 3215),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 120,
-            next: cursor(0, 3165),
+            next: cursor(0, 3216),
         }),
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3166),
+            next: cursor(0, 3217),
         }),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 3171),
-            next: cursor(0, 3167),
+            path: cursor(0, 3222),
+            next: cursor(0, 3218),
         }),
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(1000),
-            taken: cursor(0, 3169),
-            next: cursor(0, 3168),
+            taken: cursor(0, 3220),
+            next: cursor(0, 3219),
         },
         Statement::Control(ControlCommand::End),
         Statement::Mutate {
@@ -18474,49 +18797,49 @@ pub fn catalog() -> PathCatalog {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3170),
+            next: cursor(0, 3221),
         },
         Statement::Control(ControlCommand::Hold),
         Statement::Appearance {
             command: AppearanceCommand::Collision(true),
-            next: cursor(0, 3172),
+            next: cursor(0, 3223),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedRelativeYawBetween {
                 lower: 206,
                 upper: 50,
             },
-            taken: cursor(0, 3175),
-            next: cursor(0, 3173),
+            taken: cursor(0, 3226),
+            next: cursor(0, 3224),
         },
         Statement::Spatial {
             condition: SpatialCondition::NegativeSelectedPlane(PlaneAxis::Forward),
-            taken: cursor(0, 3186),
-            next: cursor(0, 3174),
+            taken: cursor(0, 3237),
+            next: cursor(0, 3225),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3175),
+            next: cursor(0, 3226),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::ScriptParameter),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 3183),
-            next: cursor(0, 3176),
+            taken: cursor(0, 3234),
+            next: cursor(0, 3227),
         },
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(500),
-            taken: cursor(0, 3188),
-            next: cursor(0, 3177),
+            taken: cursor(0, 3239),
+            next: cursor(0, 3228),
         },
         Statement::Facing {
             command: FacingCommand::SelectedImmediate,
-            next: cursor(0, 3178),
+            next: cursor(0, 3229),
         },
         Statement::AtOrAboveSurface {
-            taken: cursor(0, 3185),
-            next: cursor(0, 3179),
+            taken: cursor(0, 3236),
+            next: cursor(0, 3230),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -18526,90 +18849,90 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 3181),
-            next: cursor(0, 3180),
+            taken: cursor(0, 3232),
+            next: cursor(0, 3231),
         },
         Statement::Spatial {
             condition: SpatialCondition::GroundThreshold(0),
-            taken: cursor(0, 3185),
-            next: cursor(0, 3181),
+            taken: cursor(0, 3236),
+            next: cursor(0, 3232),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::Z),
                 operation: ByteOperation::Add(ByteOperand::Literal(5)),
             },
-            next: cursor(0, 3182),
+            next: cursor(0, 3233),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Spatial {
             condition: SpatialCondition::SelectedDistanceLess(100),
-            taken: cursor(0, 3188),
-            next: cursor(0, 3184),
+            taken: cursor(0, 3239),
+            next: cursor(0, 3235),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3177),
+            target: cursor(0, 3228),
         }),
         Statement::Contact {
             command: ContactCommand::MarkHit,
-            next: cursor(0, 3186),
+            next: cursor(0, 3237),
         },
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3166),
-            next: cursor(0, 3187),
+            target: cursor(0, 3217),
+            next: cursor(0, 3238),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3190),
-            next: cursor(0, 3189),
+            target: cursor(0, 3241),
+            next: cursor(0, 3240),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 3171),
-            next: cursor(0, 3191),
+            path: cursor(0, 3222),
+            next: cursor(0, 3242),
         }),
         Statement::Wait {
             duration: ByteOperand::Literal(30),
-            next: cursor(0, 3192),
+            next: cursor(0, 3243),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3167),
+            target: cursor(0, 3218),
         }),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3166),
-            next: cursor(0, 3194),
+            target: cursor(0, 3217),
+            next: cursor(0, 3245),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3197),
-            next: cursor(0, 3196),
+            target: cursor(0, 3248),
+            next: cursor(0, 3247),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::End),
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 3199),
+            next: cursor(0, 3250),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(120)),
             },
-            next: cursor(0, 3200),
+            next: cursor(0, 3251),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::AttackPower,
                 operation: ByteOperation::Assign(ByteOperand::Literal(2)),
             },
-            next: cursor(0, 3201),
+            next: cursor(0, 3252),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(10)),
             },
-            next: cursor(0, 3202),
+            next: cursor(0, 3253),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -18618,7 +18941,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 3203),
+            next: cursor(0, 3254),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -18627,7 +18950,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 3204),
+            next: cursor(0, 3255),
         },
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
@@ -18636,87 +18959,87 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
-            next: cursor(0, 3205),
+            next: cursor(0, 3256),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(60),
-            next: cursor(0, 3206),
+            next: cursor(0, 3257),
         },
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2619),
-            next: cursor(0, 3207),
+            target: cursor(0, 2663),
+            next: cursor(0, 3258),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3195),
+                path: cursor(0, 3246),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 3208),
+            next: cursor(0, 3259),
         }),
         Statement::Contact {
             command: ContactCommand::SuppressHitMarker(true),
-            next: cursor(0, 3209),
+            next: cursor(0, 3260),
         },
         Statement::BeginLoop {
             iterations: WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed)),
-            next: cursor(0, 3210),
+            next: cursor(0, 3261),
         },
         Statement::Spatial {
             condition: SpatialCondition::GroundThreshold(0),
-            taken: cursor(0, 3212),
-            next: cursor(0, 3211),
+            taken: cursor(0, 3263),
+            next: cursor(0, 3262),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3212),
+            next: cursor(0, 3263),
         }),
         Statement::Control(ControlCommand::End),
         Statement::DisableCollision {
-            next: cursor(0, 3214),
+            next: cursor(0, 3265),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(2),
-            next: cursor(0, 3215),
+            next: cursor(0, 3266),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(15)),
-            next: cursor(0, 3216),
+            next: cursor(0, 3267),
         },
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3217),
+            next: cursor(0, 3268),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3228),
+                path: cursor(0, 3279),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3218),
+            next: cursor(0, 3269),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 8,
-            next: cursor(0, 3219),
+            next: cursor(0, 3270),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TextureScrollX,
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 3220),
+            next: cursor(0, 3271),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3221),
+            next: cursor(0, 3272),
         }),
         Statement::ImportChargeThreshold {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::High,
             },
-            next: cursor(0, 3222),
+            next: cursor(0, 3273),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -18729,54 +19052,54 @@ pub fn catalog() -> PathCatalog {
                     part: BytePart::High,
                 }),
             ),
-            taken: cursor(0, 3224),
-            next: cursor(0, 3223),
+            taken: cursor(0, 3275),
+            next: cursor(0, 3274),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3221),
+            target: cursor(0, 3272),
         }),
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3225),
+            next: cursor(0, 3276),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TextureScrollX,
                 operation: ByteOperation::Assign(ByteOperand::Literal(8)),
             },
-            next: cursor(0, 3226),
+            next: cursor(0, 3277),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(17)),
-            next: cursor(0, 3227),
+            next: cursor(0, 3278),
         },
         Statement::Control(ControlCommand::Hold),
         Statement::RefreshSelectedChargeAttachment {
-            next: cursor(0, 3229),
+            next: cursor(0, 3280),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 3231),
+            next: cursor(0, 3282),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 3232),
+            next: cursor(0, 3283),
         },
         Statement::AttachPublishedHomingTarget {
-            next: cursor(0, 3233),
+            next: cursor(0, 3284),
         },
         Statement::Sound {
             cue: AuthoredCue::new(32, 0, PlayerTarget::Primary),
-            next: cursor(0, 3234),
+            next: cursor(0, 3285),
         },
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Shape,
                 value: 4,
             },
-            next: cursor(0, 3235),
+            next: cursor(0, 3286),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -18785,7 +19108,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 3236),
+            next: cursor(0, 3287),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -18794,7 +19117,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 3237),
+            next: cursor(0, 3288),
         },
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
@@ -18803,14 +19126,14 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
-            next: cursor(0, 3238),
+            next: cursor(0, 3289),
         },
         Statement::ImportSurfaceMode {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::High,
             },
-            next: cursor(0, 3239),
+            next: cursor(0, 3290),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -18820,66 +19143,66 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(0),
             ),
-            taken: cursor(0, 3243),
-            next: cursor(0, 3240),
+            taken: cursor(0, 3294),
+            next: cursor(0, 3291),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(60),
-            next: cursor(0, 3241),
+            next: cursor(0, 3292),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(40)),
             },
-            next: cursor(0, 3242),
+            next: cursor(0, 3293),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3245),
+            target: cursor(0, 3296),
         }),
         Statement::Motion {
             command: MotionCommand::SetSpeed(120),
-            next: cursor(0, 3244),
+            next: cursor(0, 3295),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(40)),
             },
-            next: cursor(0, 3245),
+            next: cursor(0, 3296),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::X),
                 operation: ByteOperation::Assign(ByteOperand::Actor(ByteField::Rotation(Axis::X))),
             },
-            next: cursor(0, 3246),
+            next: cursor(0, 3297),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::Y),
                 operation: ByteOperation::Assign(ByteOperand::Actor(ByteField::Rotation(Axis::Y))),
             },
-            next: cursor(0, 3247),
+            next: cursor(0, 3298),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::Z),
                 operation: ByteOperation::Assign(ByteOperand::Actor(ByteField::Rotation(Axis::Z))),
             },
-            next: cursor(0, 3248),
+            next: cursor(0, 3299),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3289),
+                path: cursor(0, 3340),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3249),
+            next: cursor(0, 3300),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 4,
-            next: cursor(0, 3250),
+            next: cursor(0, 3301),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -18887,13 +19210,13 @@ pub fn catalog() -> PathCatalog {
                 amount: 255,
                 period: 8,
             },
-            next: cursor(0, 3251),
+            next: cursor(0, 3302),
         },
         Statement::ImpactBranch {
-            first: cursor(0, 3287),
-            second: cursor(0, 3280),
-            third: cursor(0, 3284),
-            next: cursor(0, 3252),
+            first: cursor(0, 3338),
+            second: cursor(0, 3331),
+            third: cursor(0, 3335),
+            next: cursor(0, 3303),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -18902,34 +19225,34 @@ pub fn catalog() -> PathCatalog {
                     Axis::Z,
                 ))),
             },
-            next: cursor(0, 3253),
+            next: cursor(0, 3304),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3254),
+            next: cursor(0, 3305),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Add(ByteOperand::Literal(246)),
             },
-            next: cursor(0, 3255),
+            next: cursor(0, 3306),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(127)),
-            next: cursor(0, 3256),
+            next: cursor(0, 3307),
         },
         Statement::BeginLoop {
             iterations: WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed)),
-            next: cursor(0, 3257),
+            next: cursor(0, 3308),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
                 ByteOperand::Actor(ByteField::Animation(AnimationChannel::Shape)),
                 ByteOperand::Literal(135),
             ),
-            taken: cursor(0, 3259),
-            next: cursor(0, 3258),
+            taken: cursor(0, 3310),
+            next: cursor(0, 3309),
         },
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -18937,7 +19260,7 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 8,
             },
-            next: cursor(0, 3259),
+            next: cursor(0, 3310),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -18946,7 +19269,7 @@ pub fn catalog() -> PathCatalog {
                     Axis::X,
                 ))),
             },
-            next: cursor(0, 3260),
+            next: cursor(0, 3311),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -18955,7 +19278,7 @@ pub fn catalog() -> PathCatalog {
                     Axis::Y,
                 ))),
             },
-            next: cursor(0, 3261),
+            next: cursor(0, 3312),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -18964,111 +19287,111 @@ pub fn catalog() -> PathCatalog {
                     Axis::Z,
                 ))),
             },
-            next: cursor(0, 3262),
+            next: cursor(0, 3313),
         },
         Statement::AttachmentAbsent {
-            taken: cursor(0, 3269),
-            next: cursor(0, 3263),
+            taken: cursor(0, 3320),
+            next: cursor(0, 3314),
         },
         Statement::Facing {
             command: FacingCommand::LinkedSmooth,
-            next: cursor(0, 3264),
+            next: cursor(0, 3315),
         },
         Statement::Radius {
             command: RadiusCommand {
                 center: RadiusCenter::Linked,
                 amount: 100,
             },
-            next: cursor(0, 3265),
+            next: cursor(0, 3316),
         },
         Statement::Radius {
             command: RadiusCommand {
                 center: RadiusCenter::Linked,
                 amount: 100,
             },
-            next: cursor(0, 3266),
+            next: cursor(0, 3317),
         },
         Statement::Radius {
             command: RadiusCommand {
                 center: RadiusCenter::Linked,
                 amount: 100,
             },
-            next: cursor(0, 3267),
+            next: cursor(0, 3318),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(120),
-            next: cursor(0, 3268),
+            next: cursor(0, 3319),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3273),
+            target: cursor(0, 3324),
         }),
         Statement::Motion {
             command: MotionCommand::SetSpeed(120),
-            next: cursor(0, 3270),
+            next: cursor(0, 3321),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::X),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::X))),
             },
-            next: cursor(0, 3271),
+            next: cursor(0, 3322),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 3272),
+            next: cursor(0, 3323),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Z),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Z))),
             },
-            next: cursor(0, 3273),
+            next: cursor(0, 3324),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::X),
                 operation: ByteOperation::Assign(ByteOperand::Actor(ByteField::Rotation(Axis::X))),
             },
-            next: cursor(0, 3274),
+            next: cursor(0, 3325),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::Y),
                 operation: ByteOperation::Assign(ByteOperand::Actor(ByteField::Rotation(Axis::Y))),
             },
-            next: cursor(0, 3275),
+            next: cursor(0, 3326),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::Z),
                 operation: ByteOperation::Assign(ByteOperand::Actor(ByteField::Rotation(Axis::Z))),
             },
-            next: cursor(0, 3276),
+            next: cursor(0, 3327),
         },
         Statement::ImpactBranch {
-            first: cursor(0, 3287),
-            second: cursor(0, 3280),
-            third: cursor(0, 3284),
-            next: cursor(0, 3277),
+            first: cursor(0, 3338),
+            second: cursor(0, 3331),
+            third: cursor(0, 3335),
+            next: cursor(0, 3328),
         },
         Statement::OccupiedCell {
-            taken: cursor(0, 3287),
-            next: cursor(0, 3278),
+            taken: cursor(0, 3338),
+            next: cursor(0, 3329),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3279),
+            next: cursor(0, 3330),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 3281),
+            next: cursor(0, 3332),
         }),
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2621),
-            next: cursor(0, 3282),
+            target: cursor(0, 2665),
+            next: cursor(0, 3333),
         }),
         Statement::SpawnIndependent {
             kind: ObjectKind::Effect,
@@ -19078,19 +19401,19 @@ pub fn catalog() -> PathCatalog {
                 hit_points: 10,
                 attack_power: 10,
             },
-            next: cursor(0, 3283),
+            next: cursor(0, 3334),
         },
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 3285),
+            next: cursor(0, 3336),
         }),
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2644),
-            next: cursor(0, 3286),
+            target: cursor(0, 2688),
+            next: cursor(0, 3337),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 3288),
+            next: cursor(0, 3339),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Random {
@@ -19098,134 +19421,134 @@ pub fn catalog() -> PathCatalog {
                 field: ByteField::Rotation(Axis::X),
                 mask: 255,
             },
-            next: cursor(0, 3290),
+            next: cursor(0, 3341),
         },
         Statement::Random {
             mutation: RandomMutation::AssignByte {
                 field: ByteField::Rotation(Axis::Y),
                 mask: 255,
             },
-            next: cursor(0, 3291),
+            next: cursor(0, 3342),
         },
         Statement::Random {
             mutation: RandomMutation::AssignByte {
                 field: ByteField::Rotation(Axis::Z),
                 mask: 255,
             },
-            next: cursor(0, 3292),
+            next: cursor(0, 3343),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::Register {
-            trigger: Trigger::timed(cursor(0, 3296), TriggerKind::Always, 30),
-            next: cursor(0, 3294),
+            trigger: Trigger::timed(cursor(0, 3347), TriggerKind::Always, 30),
+            next: cursor(0, 3345),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::X),
                 operation: ByteOperation::Assign(ByteOperand::Literal(128)),
             },
-            next: cursor(0, 3295),
+            next: cursor(0, 3346),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3299),
+            target: cursor(0, 3350),
         }),
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::Y),
                 operation: WordOperation::Add(WordOperand::SignedByte(ByteOperand::Literal(246))),
             },
-            next: cursor(0, 3297),
+            next: cursor(0, 3348),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::Call {
             target: cursor(0, 2089),
-            next: cursor(0, 3299),
+            next: cursor(0, 3350),
         }),
         Statement::Contact {
             command: ContactCommand::SuppressContactsNextEpoch(true),
-            next: cursor(0, 3300),
+            next: cursor(0, 3351),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3301),
+            next: cursor(0, 3352),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 3302),
+            next: cursor(0, 3353),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::Y),
                 operation: ByteOperation::Add(ByteOperand::Literal(254)),
             },
-            next: cursor(0, 3303),
+            next: cursor(0, 3354),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3302),
+            target: cursor(0, 3353),
         }),
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 3305),
+            next: cursor(0, 3356),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3306),
+            next: cursor(0, 3357),
         },
         Statement::Control(ControlCommand::Call {
             target: cursor(0, 2089),
-            next: cursor(0, 3307),
+            next: cursor(0, 3358),
         }),
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Shape,
                 value: 0,
             },
-            next: cursor(0, 3308),
+            next: cursor(0, 3359),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::Y),
                 operation: ByteOperation::Add(ByteOperand::Literal(254)),
             },
-            next: cursor(0, 3309),
+            next: cursor(0, 3360),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3307),
+            target: cursor(0, 3358),
         }),
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3311),
+            next: cursor(0, 3362),
         },
         Statement::Random {
             mutation: RandomMutation::AddCenteredWord {
                 field: WordField::Position(Axis::X),
                 mask: 15,
             },
-            next: cursor(0, 3312),
+            next: cursor(0, 3363),
         },
         Statement::Random {
             mutation: RandomMutation::AddCenteredWord {
                 field: WordField::Position(Axis::Y),
                 mask: 15,
             },
-            next: cursor(0, 3313),
+            next: cursor(0, 3364),
         },
         Statement::Random {
             mutation: RandomMutation::AddCenteredWord {
                 field: WordField::Position(Axis::Z),
                 mask: 15,
             },
-            next: cursor(0, 3314),
+            next: cursor(0, 3365),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 8,
-            next: cursor(0, 3315),
+            next: cursor(0, 3366),
         }),
         Statement::Motion {
             command: MotionCommand::AccelerateTo {
                 target: 0,
                 amount: 5,
             },
-            next: cursor(0, 3316),
+            next: cursor(0, 3367),
         },
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -19233,7 +19556,7 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 8,
             },
-            next: cursor(0, 3317),
+            next: cursor(0, 3368),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -19243,7 +19566,7 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 3318),
+            next: cursor(0, 3369),
         },
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -19253,38 +19576,38 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(7),
             ),
-            taken: cursor(0, 3321),
-            next: cursor(0, 3319),
+            taken: cursor(0, 3372),
+            next: cursor(0, 3370),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Velocity(Axis::Y),
                 operation: WordOperation::Decrement,
             },
-            next: cursor(0, 3320),
+            next: cursor(0, 3371),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3321),
+            next: cursor(0, 3372),
         }),
         Statement::Control(ControlCommand::End),
         Statement::DisableCollision {
-            next: cursor(0, 3323),
+            next: cursor(0, 3374),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shadow(false),
-            next: cursor(0, 3324),
+            next: cursor(0, 3375),
         },
         Statement::CopySelectedTransform {
             command: SelectedTransformCommand::WorldPosition,
-            next: cursor(0, 3325),
+            next: cursor(0, 3376),
         },
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Shape,
                 value: 0,
             },
-            next: cursor(0, 3326),
+            next: cursor(0, 3377),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -19294,7 +19617,7 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Assign(ByteOperand::Literal(1)),
             },
-            next: cursor(0, 3327),
+            next: cursor(0, 3378),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -19304,24 +19627,24 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3328),
+            next: cursor(0, 3379),
         },
         Statement::LinkedEffectActivity {
             command: super::path_protection::ActivityCommand::CopyTo(ByteField::TextureScrollX),
-            next: cursor(0, 3329),
+            next: cursor(0, 3380),
         },
         Statement::Compare {
             condition: ActorCondition::NonzeroByte(ByteOperand::Actor(ByteField::TextureScrollX)),
-            taken: cursor(0, 3334),
-            next: cursor(0, 3330),
+            taken: cursor(0, 3385),
+            next: cursor(0, 3381),
         },
         Statement::Sound {
             cue: AuthoredCue::new(20, 0, PlayerTarget::Primary),
-            next: cursor(0, 3331),
+            next: cursor(0, 3382),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 9,
-            next: cursor(0, 3332),
+            next: cursor(0, 3383),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -19329,46 +19652,46 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 10,
             },
-            next: cursor(0, 3333),
+            next: cursor(0, 3384),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3334),
+            next: cursor(0, 3385),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3340),
+                path: cursor(0, 3391),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3335),
+            next: cursor(0, 3386),
         }),
         Statement::LinkedEffectActivity {
             command: super::path_protection::ActivityCommand::Assign(ByteOperand::Literal(0)),
-            next: cursor(0, 3336),
+            next: cursor(0, 3387),
         },
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Shape,
                 value: 9,
             },
-            next: cursor(0, 3337),
+            next: cursor(0, 3388),
         },
         Statement::Compare {
             condition: ActorCondition::NonzeroByte(ByteOperand::Actor(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             })),
-            taken: cursor(0, 3339),
-            next: cursor(0, 3338),
+            taken: cursor(0, 3390),
+            next: cursor(0, 3389),
         },
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3335),
+            target: cursor(0, 3386),
         }),
         Statement::UpdateProtectionEffect {
-            ordinary_return: cursor(0, 3341),
-            flicker: cursor(0, 3342),
+            ordinary_return: cursor(0, 3392),
+            flicker: cursor(0, 3393),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Mutate {
@@ -19397,7 +19720,7 @@ pub fn catalog() -> PathCatalog {
                     ],
                 }),
             },
-            next: cursor(0, 3343),
+            next: cursor(0, 3394),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -19407,42 +19730,42 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 3344),
+            next: cursor(0, 3395),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Sprite {
             color: 0,
             size: 16,
-            next: cursor(0, 3346),
+            next: cursor(0, 3397),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TextureScrollX,
                 operation: ByteOperation::Add(ByteOperand::Actor(ByteField::Health)),
             },
-            next: cursor(0, 3347),
+            next: cursor(0, 3398),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(100)),
             },
-            next: cursor(0, 3348),
+            next: cursor(0, 3399),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3354),
+                path: cursor(0, 3405),
                 kind: TriggerKind::ZeroHealth,
                 timer: 0,
             },
-            next: cursor(0, 3349),
+            next: cursor(0, 3400),
         }),
         Statement::Appearance {
             command: AppearanceCommand::SuppressDeathEffects(true),
-            next: cursor(0, 3350),
+            next: cursor(0, 3401),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3351),
+            next: cursor(0, 3402),
         },
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -19450,40 +19773,40 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 2,
             },
-            next: cursor(0, 3352),
+            next: cursor(0, 3403),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3351),
+            target: cursor(0, 3402),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3353),
-            next: cursor(0, 3355),
+            target: cursor(0, 3404),
+            next: cursor(0, 3406),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3368),
+                path: cursor(0, 3419),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3357),
+            next: cursor(0, 3408),
         }),
         Statement::RunWhenPaused {
             enabled: true,
-            next: cursor(0, 3358),
+            next: cursor(0, 3409),
         },
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3359),
+            next: cursor(0, 3410),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3360),
+            next: cursor(0, 3411),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 4,
-            next: cursor(0, 3361),
+            next: cursor(0, 3412),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -19491,23 +19814,23 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 4,
             },
-            next: cursor(0, 3362),
+            next: cursor(0, 3413),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TextureScrollX,
                 operation: ByteOperation::Add(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 3363),
+            next: cursor(0, 3414),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3364),
+            next: cursor(0, 3415),
         }),
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3365),
+            next: cursor(0, 3416),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -19517,7 +19840,7 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3366),
+            next: cursor(0, 3417),
         },
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -19525,44 +19848,44 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 2,
             },
-            next: cursor(0, 3367),
+            next: cursor(0, 3418),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3365),
+            target: cursor(0, 3416),
         }),
         Statement::LatchPrimaryViewFilter {
-            next: cursor(0, 3369),
+            next: cursor(0, 3420),
         },
         Statement::Compare {
             condition: ActorCondition::NonzeroByte(ByteOperand::Actor(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             })),
-            taken: cursor(0, 3371),
-            next: cursor(0, 3370),
+            taken: cursor(0, 3422),
+            next: cursor(0, 3421),
         },
         Statement::SelectedAuxiliaryBranch {
             condition: SelectedAuxiliaryCondition::ActionBit40,
-            taken: cursor(0, 3372),
-            next: cursor(0, 3371),
+            taken: cursor(0, 3423),
+            next: cursor(0, 3422),
         },
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3373),
-            next: cursor(0, 3372),
+            target: cursor(0, 3424),
+            next: cursor(0, 3423),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::End),
         Statement::Sprite {
             color: 0,
             size: 255,
-            next: cursor(0, 3375),
+            next: cursor(0, 3426),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3376),
+            next: cursor(0, 3427),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 4,
-            next: cursor(0, 3377),
+            next: cursor(0, 3428),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -19570,23 +19893,23 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 4,
             },
-            next: cursor(0, 3378),
+            next: cursor(0, 3429),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TextureScrollX,
                 operation: ByteOperation::Add(ByteOperand::Literal(2)),
             },
-            next: cursor(0, 3379),
+            next: cursor(0, 3430),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3380),
+            next: cursor(0, 3431),
         }),
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3381),
+            next: cursor(0, 3432),
         },
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -19594,58 +19917,58 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 2,
             },
-            next: cursor(0, 3382),
+            next: cursor(0, 3433),
         },
         Statement::SelectedAuxiliaryBranch {
             condition: SelectedAuxiliaryCondition::Continuation,
-            taken: cursor(0, 3384),
-            next: cursor(0, 3383),
+            taken: cursor(0, 3435),
+            next: cursor(0, 3434),
         },
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3381),
+            target: cursor(0, 3432),
         }),
         Statement::DisableCollision {
-            next: cursor(0, 3386),
+            next: cursor(0, 3437),
         },
         Statement::Sound {
             cue: AuthoredCue::new(50, 0, PlayerTarget::Primary),
-            next: cursor(0, 3387),
+            next: cursor(0, 3438),
         },
         Statement::PlayerControl {
             command: PlayerControlCommand::Configure(-8),
-            next: cursor(0, 3388),
+            next: cursor(0, 3439),
         },
         Statement::PlayerControl {
             command: PlayerControlCommand::LockForLinkedMode,
-            next: cursor(0, 3389),
+            next: cursor(0, 3440),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 8,
-            next: cursor(0, 3390),
+            next: cursor(0, 3441),
         }),
         Statement::PlayerControl {
             command: PlayerControlCommand::FollowPrimaryPosition,
-            next: cursor(0, 3391),
+            next: cursor(0, 3442),
         },
         Statement::PlayerControl {
             command: PlayerControlCommand::RefreshOwnedOrigin,
-            next: cursor(0, 3392),
+            next: cursor(0, 3443),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3393),
+            next: cursor(0, 3444),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Sound {
             cue: AuthoredCue::new(55, 0, PlayerTarget::Primary),
-            next: cursor(0, 3395),
+            next: cursor(0, 3446),
         },
         Statement::SpawnChild {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(112),
-                path: Some(cursor(0, 3402)),
+                path: Some(cursor(0, 3453)),
                 position: Vector3 {
                     x: 5,
                     y: -100,
@@ -19660,13 +19983,13 @@ pub fn catalog() -> PathCatalog {
                 attack_power: 1,
                 number: 41,
             },
-            next: cursor(0, 3396),
+            next: cursor(0, 3447),
         },
         Statement::SpawnChild {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(113),
-                path: Some(cursor(0, 3405)),
+                path: Some(cursor(0, 3456)),
                 position: Vector3 {
                     x: -5,
                     y: -100,
@@ -19681,29 +20004,29 @@ pub fn catalog() -> PathCatalog {
                 attack_power: 1,
                 number: 42,
             },
-            next: cursor(0, 3397),
+            next: cursor(0, 3448),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 45,
-            next: cursor(0, 3398),
+            next: cursor(0, 3449),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::Z),
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3399),
+            next: cursor(0, 3450),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::X),
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3400),
+            next: cursor(0, 3451),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3401),
+            next: cursor(0, 3452),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Mutate {
@@ -19711,35 +20034,35 @@ pub fn catalog() -> PathCatalog {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(3)),
             },
-            next: cursor(0, 3403),
+            next: cursor(0, 3454),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Assign(WordOperand::Literal(40)),
             },
-            next: cursor(0, 3404),
+            next: cursor(0, 3455),
         },
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3407),
+            target: cursor(0, 3458),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::TargetSpeed,
                 operation: ByteOperation::Assign(ByteOperand::Literal(8)),
             },
-            next: cursor(0, 3406),
+            next: cursor(0, 3457),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::ScriptValue,
                 operation: WordOperation::Assign(WordOperand::Literal(65496)),
             },
-            next: cursor(0, 3407),
+            next: cursor(0, 3458),
         },
         Statement::Control(ControlCommand::Register {
-            trigger: Trigger::timed(cursor(0, 3453), TriggerKind::Always, 35),
-            next: cursor(0, 3408),
+            trigger: Trigger::timed(cursor(0, 3504), TriggerKind::Always, 35),
+            next: cursor(0, 3459),
         }),
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
@@ -19748,102 +20071,102 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
-            next: cursor(0, 3409),
+            next: cursor(0, 3460),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3410),
+            next: cursor(0, 3461),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 5,
-            next: cursor(0, 3411),
+            next: cursor(0, 3462),
         }),
         Statement::AttachedEffectMotion {
             command: super::path_steering::AttachedEffectMotion::Settle,
-            next: cursor(0, 3412),
+            next: cursor(0, 3463),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3413),
+            next: cursor(0, 3464),
         }),
         Statement::Control(ControlCommand::Register {
-            trigger: Trigger::timed(cursor(0, 3451), TriggerKind::Always, 25),
-            next: cursor(0, 3414),
+            trigger: Trigger::timed(cursor(0, 3502), TriggerKind::Always, 25),
+            next: cursor(0, 3465),
         }),
         Statement::Wait {
             duration: ByteOperand::Literal(5),
-            next: cursor(0, 3415),
+            next: cursor(0, 3466),
         },
         Statement::RequestShieldRecovery {
             amount: ByteOperand::Literal(40),
-            next: cursor(0, 3416),
+            next: cursor(0, 3467),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(10),
-            next: cursor(0, 3417),
+            next: cursor(0, 3468),
         },
         Statement::RequestShieldRecovery {
             amount: ByteOperand::Literal(40),
-            next: cursor(0, 3418),
+            next: cursor(0, 3469),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(10),
-            next: cursor(0, 3419),
+            next: cursor(0, 3470),
         },
         Statement::RequestShieldRecovery {
             amount: ByteOperand::Literal(40),
-            next: cursor(0, 3420),
+            next: cursor(0, 3471),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 10,
-            next: cursor(0, 3421),
+            next: cursor(0, 3472),
         }),
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::DepthOffset,
                 operation: WordOperation::Assign(WordOperand::Literal(3)),
             },
-            next: cursor(0, 3422),
+            next: cursor(0, 3473),
         },
         Statement::ClockBitsSet {
             mask: 1,
-            taken: cursor(0, 3424),
-            next: cursor(0, 3423),
+            taken: cursor(0, 3475),
+            next: cursor(0, 3474),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::DepthOffset,
                 operation: WordOperation::Assign(WordOperand::Literal(1)),
             },
-            next: cursor(0, 3424),
+            next: cursor(0, 3475),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3425),
+            next: cursor(0, 3476),
         }),
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::DepthOffset,
                 operation: WordOperation::Assign(WordOperand::Literal(3)),
             },
-            next: cursor(0, 3426),
+            next: cursor(0, 3477),
         },
         Statement::BeginLoop {
             iterations: WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed)),
-            next: cursor(0, 3427),
+            next: cursor(0, 3478),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3428),
+            next: cursor(0, 3479),
         }),
         Statement::ImportSurfaceMode {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::High,
             },
-            next: cursor(0, 3429),
+            next: cursor(0, 3480),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3430),
+            next: cursor(0, 3481),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -19853,20 +20176,20 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 3443),
-            next: cursor(0, 3431),
+            taken: cursor(0, 3494),
+            next: cursor(0, 3482),
         },
         Statement::ImportEnvironmentPlaneHeight {
             destination: WordField::ScriptValue,
-            next: cursor(0, 3432),
+            next: cursor(0, 3483),
         },
         Statement::Compare {
             condition: ActorCondition::SecondWordLess(
                 WordOperand::Actor(WordField::ScriptValue),
                 WordOperand::Actor(WordField::Position(Axis::Y)),
             ),
-            taken: cursor(0, 3443),
-            next: cursor(0, 3433),
+            taken: cursor(0, 3494),
+            next: cursor(0, 3484),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -19878,36 +20201,36 @@ pub fn catalog() -> PathCatalog {
                     WordField::RelativePosition(Axis::X),
                 )),
             },
-            next: cursor(0, 3434),
+            next: cursor(0, 3485),
         },
         Statement::Relationship {
             command: RelationshipCommand::UseSelfRelativeFrame,
-            next: cursor(0, 3435),
+            next: cursor(0, 3486),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::RelativePosition(Axis::X),
                 operation: WordOperation::Assign(WordOperand::Literal(0)),
             },
-            next: cursor(0, 3436),
+            next: cursor(0, 3487),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::RelativePosition(Axis::Y),
                 operation: WordOperation::Assign(WordOperand::Literal(0)),
             },
-            next: cursor(0, 3437),
+            next: cursor(0, 3488),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::RelativePosition(Axis::Z),
                 operation: WordOperation::Assign(WordOperand::Literal(0)),
             },
-            next: cursor(0, 3438),
+            next: cursor(0, 3489),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 10,
-            next: cursor(0, 3439),
+            next: cursor(0, 3490),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -19917,21 +20240,21 @@ pub fn catalog() -> PathCatalog {
                     part: BytePart::Low,
                 })),
             },
-            next: cursor(0, 3440),
+            next: cursor(0, 3491),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::Position(Axis::Y),
                 operation: WordOperation::Add(WordOperand::SignedByte(ByteOperand::Literal(252))),
             },
-            next: cursor(0, 3441),
+            next: cursor(0, 3492),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3442),
+            next: cursor(0, 3493),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3449),
+            target: cursor(0, 3500),
         }),
         Statement::Random {
             mutation: RandomMutation::AssignByte {
@@ -19941,7 +20264,7 @@ pub fn catalog() -> PathCatalog {
                 },
                 mask: 31,
             },
-            next: cursor(0, 3444),
+            next: cursor(0, 3495),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -19951,35 +20274,35 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Add(ByteOperand::Literal(240)),
             },
-            next: cursor(0, 3445),
+            next: cursor(0, 3496),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 10,
-            next: cursor(0, 3446),
+            next: cursor(0, 3497),
         }),
         Statement::AttachedEffectMotion {
             command: super::path_steering::AttachedEffectMotion::Tumble,
-            next: cursor(0, 3447),
+            next: cursor(0, 3498),
         },
         Statement::AtOrAboveSurface {
-            taken: cursor(0, 3449),
-            next: cursor(0, 3448),
+            taken: cursor(0, 3500),
+            next: cursor(0, 3499),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3449),
+            next: cursor(0, 3500),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3450),
+            next: cursor(0, 3501),
         },
         Statement::Control(ControlCommand::Hold),
         Statement::AttachedEffectMotion {
             command: super::path_steering::AttachedEffectMotion::Center,
-            next: cursor(0, 3452),
+            next: cursor(0, 3503),
         },
         Statement::Control(ControlCommand::Return),
         Statement::StackValue {
@@ -19987,44 +20310,44 @@ pub fn catalog() -> PathCatalog {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             }),
-            next: cursor(0, 3454),
+            next: cursor(0, 3505),
         },
         Statement::ImportActionGate {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             },
-            next: cursor(0, 3455),
+            next: cursor(0, 3506),
         },
         Statement::Compare {
             condition: ActorCondition::ZeroByte(ByteOperand::Actor(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             })),
-            taken: cursor(0, 3457),
-            next: cursor(0, 3456),
+            taken: cursor(0, 3508),
+            next: cursor(0, 3507),
         },
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3459),
-            next: cursor(0, 3457),
+            target: cursor(0, 3510),
+            next: cursor(0, 3508),
         }),
         Statement::StackValue {
             command: super::path_commands::StackValueCommand::RestoreByte(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             }),
-            next: cursor(0, 3458),
+            next: cursor(0, 3509),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::End),
         Statement::DisableCollision {
-            next: cursor(0, 3461),
+            next: cursor(0, 3512),
         },
         Statement::SpawnChild {
             kind: ObjectKind::Projectile,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(7),
-                path: Some(cursor(0, 3477)),
+                path: Some(cursor(0, 3528)),
                 position: Vector3 { x: 0, y: -10, z: 0 },
                 rotation: Rotation {
                     pitch: Angle::from_units(231),
@@ -20035,193 +20358,193 @@ pub fn catalog() -> PathCatalog {
                 attack_power: 1,
                 number: 1,
             },
-            next: cursor(0, 3462),
+            next: cursor(0, 3513),
         },
         Statement::LinkPrimaryCollisionExclusion {
-            next: cursor(0, 3463),
+            next: cursor(0, 3514),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3472),
+                path: cursor(0, 3523),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3464),
+            next: cursor(0, 3515),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 12,
-            next: cursor(0, 3465),
+            next: cursor(0, 3516),
         }),
         Statement::ProjectileTrigger {
             command: super::path_program::ProjectileTriggerCommand::CopyTo(ByteField::AttackPower),
-            next: cursor(0, 3466),
+            next: cursor(0, 3517),
         },
         Statement::Compare {
             condition: ActorCondition::NonzeroByte(ByteOperand::Actor(ByteField::AttackPower)),
-            taken: cursor(0, 3469),
-            next: cursor(0, 3467),
+            taken: cursor(0, 3520),
+            next: cursor(0, 3518),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3468),
+            next: cursor(0, 3519),
         }),
         Statement::Control(ControlCommand::Jump {
-            target: cursor(0, 3470),
+            target: cursor(0, 3521),
         }),
         Statement::Control(ControlCommand::PopStackPair {
-            next: cursor(0, 3470),
+            next: cursor(0, 3521),
         }),
         Statement::Wait {
             duration: ByteOperand::Literal(20),
-            next: cursor(0, 3471),
+            next: cursor(0, 3522),
         },
         Statement::Control(ControlCommand::End),
         Statement::CopySelectedTransform {
             command: SelectedTransformCommand::WorldPosition,
-            next: cursor(0, 3473),
+            next: cursor(0, 3524),
         },
         Statement::FaceSelectedOffset {
             offset: super::path_steering::AimOffset { x: 0, y: 0, z: 127 },
-            next: cursor(0, 3474),
+            next: cursor(0, 3525),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::X),
                 operation: ByteOperation::HalfTowardZero,
             },
-            next: cursor(0, 3475),
+            next: cursor(0, 3526),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Rotation(Axis::Z),
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3476),
+            next: cursor(0, 3527),
         },
         Statement::Control(ControlCommand::Return),
         Statement::LinkPrimaryCollisionExclusion {
-            next: cursor(0, 3478),
+            next: cursor(0, 3529),
         },
         Statement::Sound {
             cue: AuthoredCue::new(42, 0, PlayerTarget::Primary),
-            next: cursor(0, 3479),
+            next: cursor(0, 3530),
         },
         Statement::Contact {
             command: ContactCommand::SuppressContactsNextEpoch(true),
-            next: cursor(0, 3480),
+            next: cursor(0, 3531),
         },
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3481),
+            next: cursor(0, 3532),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(25),
-            next: cursor(0, 3482),
+            next: cursor(0, 3533),
         },
         Statement::Motion {
             command: MotionCommand::GenerateVelocityEachStep(true),
-            next: cursor(0, 3483),
+            next: cursor(0, 3534),
         },
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3501),
+                path: cursor(0, 3552),
                 kind: TriggerKind::Always,
                 timer: 0,
             },
-            next: cursor(0, 3484),
+            next: cursor(0, 3535),
         }),
         Statement::Control(ControlCommand::Register {
             trigger: Trigger {
-                path: cursor(0, 3490),
+                path: cursor(0, 3541),
                 kind: TriggerKind::NewContact,
                 timer: 0,
             },
-            next: cursor(0, 3485),
+            next: cursor(0, 3536),
         }),
         Statement::ProjectileTrigger {
             command: super::path_program::ProjectileTriggerCommand::CopyTo(ByteField::AttackPower),
-            next: cursor(0, 3486),
+            next: cursor(0, 3537),
         },
         Statement::Compare {
             condition: ActorCondition::NonzeroByte(ByteOperand::Actor(ByteField::AttackPower)),
-            taken: cursor(0, 3492),
-            next: cursor(0, 3487),
+            taken: cursor(0, 3543),
+            next: cursor(0, 3538),
         },
         Statement::OccupiedCell {
-            taken: cursor(0, 3492),
-            next: cursor(0, 3488),
+            taken: cursor(0, 3543),
+            next: cursor(0, 3539),
         },
         Statement::AtOrAboveSurface {
-            taken: cursor(0, 3492),
-            next: cursor(0, 3489),
+            taken: cursor(0, 3543),
+            next: cursor(0, 3540),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3485),
+            target: cursor(0, 3536),
         }),
         Statement::Control(ControlCommand::ForceAfterCallbacks {
-            target: cursor(0, 3492),
-            next: cursor(0, 3491),
+            target: cursor(0, 3543),
+            next: cursor(0, 3542),
         }),
         Statement::Control(ControlCommand::Return),
         Statement::Control(ControlCommand::Cancel {
-            path: cursor(0, 3490),
-            next: cursor(0, 3493),
+            path: cursor(0, 3541),
+            next: cursor(0, 3544),
         }),
         Statement::ProjectileTrigger {
             command: super::path_program::ProjectileTriggerCommand::Assign(ByteOperand::Literal(1)),
-            next: cursor(0, 3494),
+            next: cursor(0, 3545),
         },
         Statement::InitializePrimaryPitchRecoil {
             amount: 128,
-            next: cursor(0, 3495),
+            next: cursor(0, 3546),
         },
         Statement::PlayerControl {
             command: PlayerControlCommand::LockToProjectile,
-            next: cursor(0, 3496),
+            next: cursor(0, 3547),
         },
         Statement::Sound {
             cue: AuthoredCue::new(43, 0, PlayerTarget::Primary),
-            next: cursor(0, 3497),
+            next: cursor(0, 3548),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(0),
-            next: cursor(0, 3498),
+            next: cursor(0, 3549),
         },
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(0)),
-            next: cursor(0, 3499),
+            next: cursor(0, 3550),
         },
         Statement::PlayerControl {
             command: PlayerControlCommand::RefreshOwnedOrigin,
-            next: cursor(0, 3500),
+            next: cursor(0, 3551),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3499),
+            target: cursor(0, 3550),
         }),
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::RelativeRotation(Axis::X),
                 operation: ByteOperation::Add(ByteOperand::Literal(4)),
             },
-            next: cursor(0, 3502),
+            next: cursor(0, 3553),
         },
         Statement::Mutate {
             mutation: Mutation::Word {
                 field: WordField::RelativePosition(Axis::Y),
                 operation: WordOperation::Add(WordOperand::Actor(WordField::Velocity(Axis::Y))),
             },
-            next: cursor(0, 3503),
+            next: cursor(0, 3554),
         },
         Statement::Control(ControlCommand::Return),
         Statement::Sprite {
             color: 0,
             size: 252,
-            next: cursor(0, 3505),
+            next: cursor(0, 3556),
         },
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2652),
-            next: cursor(0, 3506),
+            target: cursor(0, 2696),
+            next: cursor(0, 3557),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -20229,7 +20552,7 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 3,
             },
-            next: cursor(0, 3507),
+            next: cursor(0, 3558),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -20239,10 +20562,10 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 3508),
+            next: cursor(0, 3559),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3509),
+            next: cursor(0, 3560),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -20252,21 +20575,21 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(3),
             ),
-            taken: cursor(0, 3511),
-            next: cursor(0, 3510),
+            taken: cursor(0, 3562),
+            next: cursor(0, 3561),
         },
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3506),
+            target: cursor(0, 3557),
         }),
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3513),
+            next: cursor(0, 3564),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 3,
-            next: cursor(0, 3514),
+            next: cursor(0, 3565),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -20274,17 +20597,17 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 2,
             },
-            next: cursor(0, 3515),
+            next: cursor(0, 3566),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3516),
+            next: cursor(0, 3567),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Sprite {
             color: 0,
             size: 250,
-            next: cursor(0, 3518),
+            next: cursor(0, 3569),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -20294,7 +20617,7 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3519),
+            next: cursor(0, 3570),
         },
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -20302,7 +20625,7 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 2,
             },
-            next: cursor(0, 3520),
+            next: cursor(0, 3571),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -20312,10 +20635,10 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Increment,
             },
-            next: cursor(0, 3521),
+            next: cursor(0, 3572),
         },
         Statement::Branch(BranchCommand::InvertNext {
-            next: cursor(0, 3522),
+            next: cursor(0, 3573),
         }),
         Statement::Compare {
             condition: ActorCondition::EqualByte(
@@ -20325,16 +20648,16 @@ pub fn catalog() -> PathCatalog {
                 }),
                 ByteOperand::Literal(2),
             ),
-            taken: cursor(0, 3528),
-            next: cursor(0, 3523),
+            taken: cursor(0, 3579),
+            next: cursor(0, 3574),
         },
         Statement::SelectedAuxiliaryBranch {
             condition: SelectedAuxiliaryCondition::ActionBit40,
-            taken: cursor(0, 3527),
-            next: cursor(0, 3524),
+            taken: cursor(0, 3578),
+            next: cursor(0, 3575),
         },
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3525),
+            target: cursor(0, 3576),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -20342,18 +20665,18 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 2,
             },
-            next: cursor(0, 3526),
+            next: cursor(0, 3577),
         },
         Statement::Relationship {
             command: RelationshipCommand::UnlinkChild { number: 1 },
-            next: cursor(0, 3527),
+            next: cursor(0, 3578),
         },
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::Goto {
-            target: cursor(0, 3519),
+            target: cursor(0, 3570),
         }),
         Statement::DisableCollision {
-            next: cursor(0, 3530),
+            next: cursor(0, 3581),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -20363,25 +20686,25 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3531),
+            next: cursor(0, 3582),
         },
         Statement::BeginLoop {
             iterations: WordOperand::UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed)),
-            next: cursor(0, 3532),
+            next: cursor(0, 3583),
         },
         Statement::Compare {
             condition: ActorCondition::NonzeroByte(ByteOperand::Actor(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
             })),
-            taken: cursor(0, 3535),
-            next: cursor(0, 3533),
+            taken: cursor(0, 3586),
+            next: cursor(0, 3584),
         },
         Statement::SpawnChild {
             kind: ObjectKind::Effect,
             parameters: ChildSpawn {
                 shape: ShapeId::from_catalog_index(9),
-                path: Some(cursor(0, 3538)),
+                path: Some(cursor(0, 3589)),
                 position: Vector3 { x: 0, y: 0, z: 0 },
                 rotation: Rotation {
                     pitch: Angle::from_units(0),
@@ -20392,7 +20715,7 @@ pub fn catalog() -> PathCatalog {
                 attack_power: 1,
                 number: 1,
             },
-            next: cursor(0, 3534),
+            next: cursor(0, 3585),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -20402,7 +20725,7 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Assign(ByteOperand::Literal(5)),
             },
-            next: cursor(0, 3535),
+            next: cursor(0, 3586),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
@@ -20412,42 +20735,42 @@ pub fn catalog() -> PathCatalog {
                 },
                 operation: ByteOperation::Decrement,
             },
-            next: cursor(0, 3536),
+            next: cursor(0, 3587),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3537),
+            next: cursor(0, 3588),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Control(ControlCommand::Call {
-            target: cursor(0, 2652),
-            next: cursor(0, 3539),
+            target: cursor(0, 2696),
+            next: cursor(0, 3590),
         }),
         Statement::Sound {
             cue: AuthoredCue::new(18, 0, PlayerTarget::Primary),
-            next: cursor(0, 3540),
+            next: cursor(0, 3591),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3541),
+            next: cursor(0, 3592),
         },
         Statement::Sprite {
             color: 0,
             size: 254,
-            next: cursor(0, 3542),
+            next: cursor(0, 3593),
         },
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Color,
                 value: 0,
             },
-            next: cursor(0, 3543),
+            next: cursor(0, 3594),
         },
         Statement::Control(ControlCommand::WaitOne {
-            next: cursor(0, 3544),
+            next: cursor(0, 3595),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 3,
-            next: cursor(0, 3545),
+            next: cursor(0, 3596),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -20455,34 +20778,34 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 4,
             },
-            next: cursor(0, 3546),
+            next: cursor(0, 3597),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3547),
+            next: cursor(0, 3598),
         }),
         Statement::Control(ControlCommand::End),
         Statement::DisableCollision {
-            next: cursor(0, 3549),
+            next: cursor(0, 3600),
         },
         Statement::Sprite {
             color: 0,
             size: 10,
-            next: cursor(0, 3550),
+            next: cursor(0, 3601),
         },
         Statement::Animation {
             command: AnimationCommand::Initialize {
                 channel: AnimationChannel::Color,
                 value: 0,
             },
-            next: cursor(0, 3551),
+            next: cursor(0, 3602),
         },
         Statement::Control(ControlCommand::WaitOne {
-            next: cursor(0, 3552),
+            next: cursor(0, 3603),
         }),
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 7,
-            next: cursor(0, 3553),
+            next: cursor(0, 3604),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -20490,24 +20813,24 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 8,
             },
-            next: cursor(0, 3554),
+            next: cursor(0, 3605),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3555),
+            next: cursor(0, 3606),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Sprite {
             color: 0,
             size: 16,
-            next: cursor(0, 3557),
+            next: cursor(0, 3608),
         },
         Statement::DisableCollision {
-            next: cursor(0, 3558),
+            next: cursor(0, 3609),
         },
         Statement::Control(ControlCommand::BeginLoop {
             iterations: 3,
-            next: cursor(0, 3559),
+            next: cursor(0, 3610),
         }),
         Statement::Animation {
             command: AnimationCommand::Advance {
@@ -20515,17 +20838,17 @@ pub fn catalog() -> PathCatalog {
                 amount: 1,
                 period: 2,
             },
-            next: cursor(0, 3560),
+            next: cursor(0, 3611),
         },
         Statement::Control(ControlCommand::Next {
             immediate: false,
-            next: cursor(0, 3561),
+            next: cursor(0, 3612),
         }),
         Statement::Control(ControlCommand::End),
         Statement::Sprite {
             color: 0,
             size: 0,
-            next: cursor(0, 3563),
+            next: cursor(0, 3614),
         },
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
@@ -20534,7 +20857,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
-            next: cursor(0, 3564),
+            next: cursor(0, 3615),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -20543,33 +20866,33 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 3565),
+            next: cursor(0, 3616),
         },
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 3566),
+            next: cursor(0, 3617),
         },
         Statement::Random {
             mutation: RandomMutation::AddCenteredByte {
                 field: ByteField::TextureScrollX,
                 mask: 3,
             },
-            next: cursor(0, 3567),
+            next: cursor(0, 3618),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(60),
-            next: cursor(0, 3568),
+            next: cursor(0, 3619),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(30),
-            next: cursor(0, 3569),
+            next: cursor(0, 3620),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::Health,
                 operation: ByteOperation::Assign(ByteOperand::Literal(0)),
             },
-            next: cursor(0, 3570),
+            next: cursor(0, 3621),
         },
         Statement::Control(ControlCommand::Hold),
         Statement::Contact {
@@ -20579,7 +20902,7 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
-            next: cursor(0, 3572),
+            next: cursor(0, 3623),
         },
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
@@ -20588,49 +20911,49 @@ pub fn catalog() -> PathCatalog {
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
-            next: cursor(0, 3573),
+            next: cursor(0, 3624),
         },
         Statement::Contact {
             command: ContactCommand::SuppressContactsNextEpoch(true),
-            next: cursor(0, 3574),
+            next: cursor(0, 3625),
         },
         Statement::Motion {
             command: MotionCommand::QuadrupleVelocity(true),
-            next: cursor(0, 3575),
+            next: cursor(0, 3626),
         },
         Statement::Mutate {
             mutation: Mutation::Byte {
                 field: ByteField::ClippingPlane,
                 operation: ByteOperation::Assign(ByteOperand::Literal(5)),
             },
-            next: cursor(0, 3576),
+            next: cursor(0, 3627),
         },
         Statement::Control(ControlCommand::WaitOne {
-            next: cursor(0, 3577),
+            next: cursor(0, 3628),
         }),
         Statement::Appearance {
             command: AppearanceCommand::Shape(ShapeId::from_catalog_index(118)),
-            next: cursor(0, 3578),
+            next: cursor(0, 3629),
         },
         Statement::Motion {
             command: MotionCommand::SetSpeed(127),
-            next: cursor(0, 3579),
+            next: cursor(0, 3630),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(20),
-            next: cursor(0, 3580),
+            next: cursor(0, 3631),
         },
         Statement::Control(ControlCommand::End),
         Statement::DisableCollision {
-            next: cursor(0, 3582),
+            next: cursor(0, 3633),
         },
         Statement::Appearance {
             command: AppearanceCommand::FarSortBias(true),
-            next: cursor(0, 3583),
+            next: cursor(0, 3634),
         },
         Statement::Wait {
             duration: ByteOperand::Literal(20),
-            next: cursor(0, 3584),
+            next: cursor(0, 3635),
         },
         Statement::Control(ControlCommand::End),
     ]])
