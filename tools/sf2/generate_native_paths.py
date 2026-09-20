@@ -132,6 +132,7 @@ ROOTS = (
     ("FOUR_PULSE_DEATH_EMITTER", PathAddress(0x23D0)),
     ("SIGNAL_GUIDED_PROJECTILE", PathAddress(0xA86F)),
     ("NEAREST_SHAPE_WEAPON_DISABLE_SERVICE", PathAddress(0x5A02)),
+    ("SURFACE_LIMITED_BALLISTIC_EFFECT", PathAddress(0x12E5)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -214,6 +215,7 @@ CHILD_INSTALLERS = {
     PathAddress(0x23D0): (PathAddress(0x22AA), PathAddress(0x23C8)),
     PathAddress(0xA86F): (PathAddress(0xA552), PathAddress(0xA6DF)),
     PathAddress(0x5A02): (PathAddress(0x58B9), PathAddress(0x5A0D)),
+    PathAddress(0x12E5): (PathAddress(0x1118), PathAddress(0x12DA)),
 }
 
 

@@ -26,6 +26,10 @@ mod targeting_pickup_tests;
 mod debris_tests;
 
 #[cfg(test)]
+#[path = "path_ballistic_tests.rs"]
+mod ballistic_tests;
+
+#[cfg(test)]
 #[path = "path_projectile_tests.rs"]
 mod projectile_tests;
 
@@ -12946,9 +12950,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 108);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1693);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1702);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 109);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1749);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1758);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

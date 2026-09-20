@@ -55,6 +55,32 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
             generate(bytes(changed), (("SEARCH_SERVICE", PathAddress(0x5A02)),))
 
+    def test_ballistic_effect_complete_arc_callbacks_and_installer(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x12E5)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 56)
+        self.assertEqual(''.join(c.raw_hex for c in commands),
+            "fd67004878495c00654a1311057b8e90578e548e0c61048f8e4550a38e61038f8e45578e"
+            "548ea3578e7b9294579254921061048f924550a39261038f924557925492a35792000377fc"
+            "06a10e0e78f7ef610d000377fc06a10e0e44780b32a1550ea11641135b42721000536213"
+            "540c8e5410921a00005e13424c6613424c6813426c0e10")
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertEqual(len(statements), 56)
+        self.assertIn("AtOrAboveSurface", statements[45])
+        self.assertIn("GroundThreshold(0)", statements[48])
+        self.assertEqual(statements[-1], "Statement::MarkForDeath")
+        self.assertIn("WordOperation::Assign(WordOperand::Literal(0))", statements[-2])
+        self.assertEqual(self.rom[0x37C77:0x37C85], bytes.fromhex("ced8e0e8eef4fc040c1218202832"))
+        command = extractor.decode_command(PathAddress(0x12DA))
+        self.assertEqual(command.raw_hex, "5de0cee5126404")
+        self.assertIn(command, graph(extractor, PathAddress(0x1118)))
+        self.assertEqual(independent_spawn_parameters(command).path, root)
+        changed = bytearray(self.rom)
+        changed[0x412DD:0x412DF] = (0x12E6).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed), (("BALLISTIC", root),))
+
     def test_numbered_child_retirement_uses_literal_full_byte_and_immediate_continuation(self):
         for number in range(256):
             self.assertEqual(self.lower_record(f"66 {number:02x}")[0],

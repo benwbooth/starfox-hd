@@ -2616,3 +2616,21 @@ statements. All 412 native path tests pass in debug/release, with 156 lowering
 and 323 source-static tests, freshness, both audits and app build passing
 (existing icon warning). Production scheduler/spawn integration remains open; these
 checks do not establish full gameplay completion.
+
+### Surface-limited ballistic effect
+
+The installed ballistic graph now includes its hidden first visit, published
+player-position imports, separately truncated drift calculation, fourteen
+signed vertical samples, delayed collision enable, roll-free yaw callback
+and constant-speed descent. Its surface exit skips horizontal drift and
+retains Y; its ground exit performs that drift and snaps Y to zero before
+death marking. Neither exit performs scheduler retirement.
+
+Static tests pin all 56 commands, the installer and the complete arc. Native
+tests cover signed endpoint/wrap cases, all phases through both death routes,
+callback timer lifetime, preserved surface group, sampled player position and
+unchanged random state. The catalog has 109 roots, 1,758 source commands and
+1,749 typed statements. All 414 native path tests pass in debug/release,
+with 157 lowering tests, 323 source-static tests, freshness, both audits and
+app build passing (existing icon warning). This remains independently verified catalog coverage,
+not production scheduling or complete gameplay.
