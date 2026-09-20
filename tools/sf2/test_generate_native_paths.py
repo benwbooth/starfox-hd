@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    banked_byte_values, byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, shape_index, trigger_kind, variable_bit_masks, word_field,
+    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, shape_index, trigger_kind, variable_bit_masks, word_field,
 )
 
 
@@ -165,6 +165,33 @@ class NativePathGenerationTests(unittest.TestCase):
         for record in ("90 55 fb 07 80 8a", "90 55 fb 07 a2 80"):
             with self.assertRaisesRegex(UnsupportedPath, "unported byte operand 80"):
                 self.lower_record(record)
+
+    def test_banked_word_lookup_doubles_the_unsigned_byte_index_at_word_width(self):
+        statement = self.lower_record("91 55 fc 06 a1 92")[0]
+        self.assertIn("Mutation::Word { field: WordField::RelativePosition(Axis::Z)", statement)
+        self.assertIn("WordOperation::Assign(WordOperand::Lookup", statement)
+        self.assertIn("selector: ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low }", statement)
+        values = tuple(map(int, re.search(r"values: &\[([^]]+)\]", statement)[1].split(", ")))
+        expected = tuple(self.rom[0x37C55 + 2 * i] | (self.rom[0x37C56 + 2 * i] << 8) for i in range(256))
+        self.assertEqual(values, expected)
+        changed = bytearray(self.rom)
+        for index in range(256):
+            changed[0x37C55 + 2 * index:0x37C57 + 2 * index] = bytes((index, index ^ 0xA5))
+        self.assertEqual(banked_word_values(changed, 0x06FC55),
+                         tuple(i | ((i ^ 0xA5) << 8) for i in range(256)))
+        self.assertIn("next: cursor(0, 1)", statement)
+        # Ending exactly at the last ROM byte is valid; crossing is not.
+        self.assertEqual(len(banked_word_values(self.rom, 0x06FE00)), 256)
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed constant-word lookup window"):
+            banked_word_values(self.rom, 0x06FE01)
+        for address in (0x061234, 0x067FFF, 0x7E8000):
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed constant-byte lookup window"):
+                banked_word_values(self.rom, address)
+        with self.assertRaisesRegex(UnsupportedPath, "truncated constant-byte lookup"):
+            banked_word_values(self.rom[:0x37E54], 0x06FC55)
+        # Shape-token destinations still need semantic decoding, not u16 writes.
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
+            self.lower_record("91 55 fc 06 a1 04")
 
     def test_spawned_sound_graph_is_complete_and_shared_with_standalone_entry(self):
         _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)

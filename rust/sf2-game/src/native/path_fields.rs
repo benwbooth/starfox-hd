@@ -238,6 +238,10 @@ impl ByteOperand {
 pub enum WordOperand {
     Literal(u16),
     Actor(WordField),
+    Lookup {
+        selector: ByteField,
+        values: &'static [u16; 256],
+    },
     /// Byte-to-word copies and adds sign-extend (`$7F:8976`, `$7F:8925`).
     SignedByte(ByteOperand),
     /// Variable-byte loop counts are zero-extended (`$7F:95E9`).
@@ -256,6 +260,7 @@ impl WordOperand {
         match self {
             Self::Literal(value) => value,
             Self::Actor(field) => field.read(actor),
+            Self::Lookup { selector, values } => values[usize::from(selector.read(actor))],
             Self::SignedByte(value) => value.read(actor) as i8 as i16 as u16,
             Self::UnsignedByte(value) => u16::from(value.read(actor)),
             Self::IndexedBitMask { selector, masks } => {
@@ -386,6 +391,45 @@ mod tests {
                     let old = selector.read(&expected);
                     let value = ((u16::from(old) * 53 + 129) & 255) as u8;
                     selector.write(&mut expected, value);
+                    mutation.apply(&mut actual);
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn word_lookup_preserves_upper_indices_and_reads_before_overlapping_word_write() {
+        static VALUES: [u16; 256] = {
+            let mut values = [0; 256];
+            let mut index = 0;
+            while index < values.len() {
+                values[index] = (index as u16) | (((index ^ 0xA5) as u16) << 8);
+                index += 1;
+            }
+            values
+        };
+        for part in [BytePart::Low, BytePart::High] {
+            let field = WordField::MotionPhase;
+            let selector = ByteField::WordPart { field, part };
+            for initial in 0..=u8::MAX {
+                let mut actual = actor();
+                field.write(&mut actual, 0xABCD);
+                actual.base.wait_timer = 93;
+                actual.extension.path_state.script_value = 0xBEAD;
+                selector.write(&mut actual, initial);
+                let mut expected = actual.clone();
+                let mutation = Mutation::Word {
+                    field,
+                    operation: WordOperation::Assign(WordOperand::Lookup {
+                        selector,
+                        values: &VALUES,
+                    }),
+                };
+                for _ in 0..3 {
+                    let index = selector.read(&expected);
+                    let value = u16::from_le_bytes([index, index ^ 0xA5]);
+                    field.write(&mut expected, value);
                     mutation.apply(&mut actual);
                     assert_eq!(actual, expected);
                 }

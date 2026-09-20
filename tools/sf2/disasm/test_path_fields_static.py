@@ -32,6 +32,11 @@ class PathFieldsStaticTests(unittest.TestCase):
                               (0x42B3B, "9041fc06a9a9")):
             self.assertEqual(self.rom[address:address + 6], bytes.fromhex(data))
 
+    def test_banked_word_lookup_doubles_after_helper_has_entered_word_width(self):
+        self.assert_source(0x7FA62D, "20 FF A6 AD B7 16 0A 18 65 54 85 54 E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 C2 20 A7 54 99 00 00 4C 83 CA")
+        self.assert_source(0x7FA713, "B9 00 00 8C B3 16 8D B7 16 9C B8 16 20 4C C5 20 47 CB C2 20 60")
+        self.assertEqual(self.rom[0x45585:0x4558B], bytes.fromhex("9155fc06a192"))
+
     def test_script_parameter_is_path_owned_not_a_health_or_height_alias(self):
         # Authored COPY byte stores health, then decrements the saved byte.
         self.assertEqual(self.rom[0x45E1D:0x45E22], bytes.fromhex("4E 27 2D 6F 27"))

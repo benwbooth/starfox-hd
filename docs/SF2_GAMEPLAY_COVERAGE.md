@@ -853,3 +853,12 @@ self-aliasing, literal/source-data edits and those rejection boundaries.
 Verification passes 62 lowerer tests, 191 static path tests, 178 native path
 tests in debug/release, architecture/dependency checks and the app build.
 Catalog coverage remains 11 complete roots/126 statements.
+
+Word-table lookups now use the same offline constant-data boundary. The source
+widens its byte index before doubling, so all 256 little-endian entries remain
+distinct. Native tests exercise low/high-byte selectors overlapping the word
+destination over repeated live reads. Shape-pointer destinations and tables
+crossing the reviewed ROM window remain hard errors. Verification passes 63
+lowerer tests, 192 static path tests, 179 native path tests in debug/release,
+architecture/dependency checks and the app build; complete-root coverage is
+unchanged.
