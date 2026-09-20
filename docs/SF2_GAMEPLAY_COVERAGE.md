@@ -1013,3 +1013,11 @@ atomicity and whole-store/RNG preservation are checked. Verification passes
 76 lowerer tests, 220 static path tests, 209 native path tests in debug/release,
 both architecture/dependency audits and the app build. Catalog coverage stays
 15 roots/167 statements; this adds command coverage, not an additional root.
+
+Variable-word swapping now saves both original operands, writes the second
+field first and then the first, and advances immediately. Only reviewed typed
+word fields are accepted; unmapped and partial-word aliases still fail lowering.
+Tests cover all mapped field pairs, same-field swaps, every word value, live
+dispatcher inputs and preservation of IFNOT, wait state, actors and RNG.
+Verification passes 77 lowerer tests, 221 static path tests, 211 native path
+tests in debug/release, both audits and the app build. Root coverage stays 15/167.

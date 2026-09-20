@@ -367,6 +367,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
             spawn_ = f"ChildSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, position: {position}, rotation: {rotation}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power}, number: {spawn.number} }}"
             statement = f"Statement::SpawnChild {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name == "SwapVariableWords":
+            first, second = parameters(2)
+            statement = f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: {next_cursor()} }}"
         elif name in ("SetVariableBit", "ClearVariableBit", "IfVariableBitSet"):
             operands = parameters(4 if name == "IfVariableBitSet" else 2)
             selector, destination = operands[:2]

@@ -118,6 +118,9 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7F8995, "08 E2 20 20 E0 C4 20 47 CB 5A 20 BC C4 20 47 CB FA 28 60")
         self.assert_source(0x7FCB47, "08 C2 20 8E B1 16 29 FF 00 89 80 00 F0 04 18 69 41 1C 18 6D B1 16 A8 28 60")
 
+    def test_word_swap_reads_both_words_then_writes_second_before_first(self):
+        self.assert_source(0x7FC452, "20bcc42047cb5ac220b900008db316e22020e0c42047cbc220b9000048adb316990000687a9900004cbeca")
+
     def test_variable_copies_and_adds_keep_widths_and_immediate_continuation(self):
         self.assert_source(0x7F88FF, "DA 20 95 89 BD 00 00 18 79 00 00 99 00 00 FA 4C BE CA")
         self.assert_source(0x7F8911, "DA 20 95 89 C2 20 BD 00 00 18 79 00 00 99 00 00 FA 4C BE CA")

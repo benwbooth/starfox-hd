@@ -304,6 +304,10 @@ pub enum IndexedAddField {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mutation {
+    SwapWords {
+        first: WordField,
+        second: WordField,
+    },
     Byte {
         field: ByteField,
         operation: ByteOperation,
@@ -323,6 +327,14 @@ pub enum Mutation {
 impl Mutation {
     pub fn apply(self, actor: &mut Object) {
         match self {
+            Self::SwapWords { first, second } => {
+                // $7F:C452 saves both original words before either store;
+                // the second operand is written first, then the first.
+                let first_value = first.read(actor);
+                let second_value = second.read(actor);
+                second.write(actor, first_value);
+                first.write(actor, second_value);
+            }
             Self::IndexedAddAndAdvance {
                 field,
                 selector,
@@ -896,6 +908,54 @@ mod tests {
                 decremented.extension.path_state.script_parameter = value.wrapping_sub(1);
                 assert_eq!(actual, decremented);
             }
+        }
+    }
+
+    #[test]
+    fn word_swaps_preserve_full_width_and_all_other_fields_including_self_alias() {
+        let fields = [
+            WordField::ScriptValue,
+            WordField::MotionPhase,
+            WordField::Position(Axis::X),
+            WordField::Position(Axis::Y),
+            WordField::Position(Axis::Z),
+            WordField::Velocity(Axis::X),
+            WordField::Velocity(Axis::Y),
+            WordField::Velocity(Axis::Z),
+            WordField::RelativePosition(Axis::X),
+            WordField::RelativePosition(Axis::Y),
+            WordField::RelativePosition(Axis::Z),
+        ];
+        for first in fields {
+            for second in fields {
+                for value in [0, 1, 255, 256, 32767, 32768, 65535] {
+                    let mut actual = actor();
+                    first.write(&mut actual, value);
+                    second.write(&mut actual, !value);
+                    let before = actual.clone();
+                    let mut expected = before.clone();
+                    second.write(&mut expected, first.read(&before));
+                    first.write(&mut expected, second.read(&before));
+                    Mutation::SwapWords { first, second }.apply(&mut actual);
+                    assert_eq!(actual, expected);
+                    Mutation::SwapWords { first, second }.apply(&mut actual);
+                    assert_eq!(actual, before);
+                }
+            }
+        }
+        for value in 0..=u16::MAX {
+            let mut actual = actor();
+            actual.base.position.x = value as i16;
+            actual.extension.path_state.motion_phase = value.rotate_left(7);
+            let mut expected = actual.clone();
+            expected.base.position.x = value.rotate_left(7) as i16;
+            expected.extension.path_state.motion_phase = value;
+            Mutation::SwapWords {
+                first: WordField::Position(Axis::X),
+                second: WordField::MotionPhase,
+            }
+            .apply(&mut actual);
+            assert_eq!(actual, expected);
         }
     }
 

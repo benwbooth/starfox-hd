@@ -1211,6 +1211,53 @@ mod tests {
     }
 
     #[test]
+    fn word_swap_dispatch_reads_live_fields_and_advances_without_yielding_or_consuming_ifnot() {
+        for second in [WordField::MotionPhase, WordField::ScriptValue] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            let original_random = random;
+            objects.get_mut(owner).unwrap().base.wait_timer = 181;
+            let catalog = PathCatalog::new(vec![vec![Statement::Mutate {
+                mutation: Mutation::SwapWords {
+                    first: WordField::ScriptValue,
+                    second,
+                },
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            for value in [0, 32768, 65535] {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(cursor(0, 0));
+                actor.extension.path_state.script_value = value;
+                actor.extension.path_state.motion_phase = !value;
+                let mut expected = objects.clone();
+                let actor = expected.get_mut(owner).unwrap();
+                if second != WordField::ScriptValue {
+                    actor.extension.path_state.script_value = !value;
+                    actor.extension.path_state.motion_phase = value;
+                }
+                actor.base.path = Some(cursor(0, 1));
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1
+                    ),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, original_random);
+            }
+        }
+    }
+
+    #[test]
     fn indexed_add_and_advance_is_immediate_and_preserves_branch_rng_and_wait_state() {
         use super::super::path_fields::{BytePart, IndexedAddField};
         static VALUES: [u8; 256] = [255; 256];

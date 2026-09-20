@@ -818,6 +818,17 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(self.lower_record("00 60 36 f5")[0],
             "Statement::SelectedAuxiliaryBranch { condition: SelectedAuxiliaryCondition::ActionBit04Clear, taken: cursor(0, 0), next: cursor(0, 1) }")
 
+    def test_word_swaps_decode_both_fields_without_exposing_unmapped_storage(self):
+        fields = [0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1, 0xA3]
+        for first in fields:
+            for second in fields:
+                self.assertEqual(self.lower_record(f"00 78 {first:02x} {second:02x}")[0],
+                    f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: cursor(0, 1) }}")
+        for invalid in [0x04, 0x0D, 0x2B, 0xA2, 0xA4]:
+            for record in [f"00 78 {invalid:02x} a3", f"00 78 a3 {invalid:02x}"]:
+                with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
+                    self.lower_record(record)
+
     def test_active_node_flags_import_requires_the_reviewed_live_word(self):
         self.assertEqual(self.lower_record("7b a3 9a")[0],
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
