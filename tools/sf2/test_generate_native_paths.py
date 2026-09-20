@@ -1802,18 +1802,15 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn("ContactCommand::SuppressContactsNextEpoch", statement)
             self.assertNotIn("QuadrupleVelocity", statement)
 
-    def test_contact_class_masks_decode_every_reviewed_bit_and_reject_unknown_mutations(self):
+    def test_contact_class_masks_decode_every_bit_including_weapon_formatted_class(self):
         for mask in range(256):
             for record, operation, retain in [(f"f7 {mask:02x}", "RetainClass", True),
                                                (f"00 76 {mask:02x}", "IncludeClass", False)]:
-                if bool(mask & 2) != retain:
-                    with self.assertRaisesRegex(UnsupportedPath, "unreviewed contact class bit 02"):
-                        self.lower_record(record)
-                    continue
                 statement = self.lower_record(record)[0]
                 self.assertIn(f"ContactCommand::{operation}(ContactClassMask", statement)
                 self.assertIn(f"groups: ExclusionGroups::from_authored_class({mask & 0xf8})", statement)
                 self.assertIn(f"first_strategy_visit: {str(bool(mask & 4)).lower()}", statement)
+                self.assertIn(f"weapon_formatted: {str(bool(mask & 2)).lower()}", statement)
                 self.assertIn(f"suppress_attack_damage: {str(bool(mask & 1)).lower()}", statement)
                 self.assertIn("next: cursor(0, 1)", statement)
         for record, operation in [("2e", "SuppressContactsNextEpoch(true)"),

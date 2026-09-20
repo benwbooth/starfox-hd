@@ -1137,12 +1137,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name in ("MaskFlag31", "OrFlag31"):
             mask, = parameters(1)
             retain = name == "MaskFlag31"
-            # Bit 02 has no reviewed domain meaning. Permit preserving it,
-            # never silently discard an authored mutation to that source bit.
-            if bool(mask & 2) != retain:
-                raise UnsupportedPath(f"unreviewed contact class bit 02 at {command.address.label()}")
             operation = "RetainClass" if retain else "IncludeClass"
-            selection = f"ContactClassMask {{ groups: ExclusionGroups::from_authored_class({mask & 0xF8}), first_strategy_visit: {str(bool(mask & 4)).lower()}, suppress_attack_damage: {str(bool(mask & 1)).lower()} }}"
+            selection = f"ContactClassMask {{ groups: ExclusionGroups::from_authored_class({mask & 0xF8}), weapon_formatted: {str(bool(mask & 2)).lower()}, first_strategy_visit: {str(bool(mask & 4)).lower()}, suppress_attack_damage: {str(bool(mask & 1)).lower()} }}"
             statement = f"Statement::Contact {{ command: ContactCommand::{operation}({selection}), next: {next_cursor()} }}"
         elif name in ("SetFlag22Bit08", "ClearFlag22Bit08", "SetFlag24Bit08"):
             parameters(0)

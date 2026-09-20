@@ -368,6 +368,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -621,6 +622,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -1371,6 +1373,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -2731,6 +2734,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -3224,6 +3228,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -3355,6 +3360,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -3754,6 +3760,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -3859,6 +3866,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -3916,6 +3924,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -4131,6 +4140,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -4498,6 +4508,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -4668,6 +4679,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -6626,6 +6638,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(8),
+                weapon_formatted: false,
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
@@ -6800,6 +6813,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(8),
+                weapon_formatted: false,
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
@@ -7360,6 +7374,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(8),
+                weapon_formatted: false,
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
@@ -7592,6 +7607,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(8),
+                weapon_formatted: false,
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
@@ -7698,6 +7714,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(240),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -8082,6 +8099,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(8),
+                weapon_formatted: false,
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
@@ -8090,6 +8108,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(128),
+                weapon_formatted: false,
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
@@ -8098,6 +8117,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -8850,6 +8870,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -9635,6 +9656,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -9643,6 +9665,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(32),
+                weapon_formatted: false,
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),
@@ -9678,6 +9701,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::RetainClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(232),
+                weapon_formatted: true,
                 first_strategy_visit: true,
                 suppress_attack_damage: true,
             }),
@@ -9686,6 +9710,7 @@ pub fn catalog() -> PathCatalog {
         Statement::Contact {
             command: ContactCommand::IncludeClass(ContactClassMask {
                 groups: ExclusionGroups::from_authored_class(32),
+                weapon_formatted: false,
                 first_strategy_visit: false,
                 suppress_attack_damage: false,
             }),

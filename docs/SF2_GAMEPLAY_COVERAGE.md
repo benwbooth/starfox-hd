@@ -2652,3 +2652,15 @@ execution. The catalog has 110 roots, 1,796 source commands and 1,787 statements
 416 native path tests pass in debug/release, with 158 lowering tests, 323
 source-static tests, freshness, both audits and app build passing (existing
 icon warning). Production integration and full gameplay completion remain open.
+
+### Weapon-class preservation prerequisite
+
+The shared weapon formatter's class bit is now represented independently of
+high-level weapon type and collision-exclusion groups. Both authored class
+mask operations preserve/change it exactly, with all 256 old values against
+all 256 masks tested for AND and OR. Static checks pin its producers and
+ordinary target-scan exclusions. Weapon allocation/dispatch itself remains
+unported; no additional complete root is claimed here. Validation passes
+416 native path tests in debug/release, 40 collision tests, 158 lowering and
+325 source-static tests, freshness, both audits and app build (existing icon
+warning).

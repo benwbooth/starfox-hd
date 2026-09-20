@@ -7,6 +7,7 @@ use super::Object;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ContactClassMask {
     pub groups: ExclusionGroups,
+    pub weapon_formatted: bool,
     pub first_strategy_visit: bool,
     pub suppress_attack_damage: bool,
 }
@@ -34,6 +35,7 @@ impl ContactCommand {
             }
             Self::SuppressHitMarker(enabled) => contacts.suppress_hit_marker = enabled,
             Self::RetainClass(mask) => {
+                contacts.weapon_formatted &= mask.weapon_formatted;
                 contacts.exclusion_groups = contacts.exclusion_groups.intersection(mask.groups);
                 contacts.first_strategy_visit &= mask.first_strategy_visit;
                 contacts.suppress_attack_damage &= mask.suppress_attack_damage;
@@ -43,6 +45,7 @@ impl ContactCommand {
                     .excludes(ExclusionGroups::MUTUALLY_NON_DAMAGING_CLASS);
             }
             Self::IncludeClass(mask) => {
+                contacts.weapon_formatted |= mask.weapon_formatted;
                 contacts.exclusion_groups = contacts.exclusion_groups.union(mask.groups);
                 contacts.first_strategy_visit |= mask.first_strategy_visit;
                 contacts.suppress_attack_damage |= mask.suppress_attack_damage;
@@ -63,12 +66,14 @@ mod tests {
     fn mask(value: u8) -> ContactClassMask {
         ContactClassMask {
             groups: ExclusionGroups::from_authored_class(value),
+            weapon_formatted: value & 2 != 0,
             first_strategy_visit: value & 4 != 0,
             suppress_attack_damage: value & 1 != 0,
         }
     }
 
     fn class(actor: &mut Object, value: u8) {
+        actor.base.contacts.weapon_formatted = value & 2 != 0;
         actor.base.contacts.exclusion_groups = ExclusionGroups::from_authored_class(value);
         actor.base.contacts.first_strategy_visit = value & 4 != 0;
         actor.base.contacts.suppress_attack_damage = value & 1 != 0;

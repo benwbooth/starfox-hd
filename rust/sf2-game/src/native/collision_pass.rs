@@ -41,6 +41,9 @@ impl ExclusionGroups {
 /// disable, explosion, links, and accumulated hit flags use ordinary fields.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ActorContacts {
+    /// Source class bit 02, set by the weapon formatter ($03:AB1D).
+    /// Ordinary target scans ($7F:20A0, $07:F0CD) reject this class.
+    pub weapon_formatted: bool,
     /// Source class bit 04; cleared by the first strategy visit.
     pub first_strategy_visit: bool,
     pub exclusion_groups: ExclusionGroups,
