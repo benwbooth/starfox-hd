@@ -63,6 +63,167 @@ fn callbacks(
 }
 
 #[test]
+fn height_staged_projectile_saturates_vertical_drift_until_published_height_is_crossed() {
+    use super::super::{path_motion::PublishedPlayerMotion, ObjectSpawnDefaults};
+    let catalog = authored_paths::catalog();
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    let selected = player(&mut objects, Vector3 { x: 0, y: 0, z: 10000 });
+    objects.get_mut(owner).unwrap().base.path = Some(authored_paths::HEIGHT_STAGED_HOMING_PROJECTILE);
+    let mut events = AudioState::default();
+    let mut inputs = world(&mut random);
+    inputs.selected = Some(selected);
+    inputs.published_motion = Some(PublishedPlayerMotion { position: Vector3 { x: 0, y: 10000, z: 0 }, ..Default::default() });
+    inputs.audio = Some(audio(&mut events));
+    inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+    let mut height = 0i16;
+    let mut drift = 10i16;
+    for visit in 1..=25 {
+        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 20).unwrap().step,
+            ControlStep::Movement);
+        height += drift;
+        if drift != 100 { drift += 5; }
+        if visit == 10 {
+            // Final NEXT does not yield: the post-arc height loop also
+            // contributes in this invocation before its GOTO boundary.
+            height += drift;
+            drift += 5;
+        }
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.base.position.y, height);
+        assert_eq!(actor.extension.relative_position.y, drift);
+        assert_eq!(actor.base.first_child, None);
+        assert_eq!(actor.base.target_speed, 0);
+        if visit >= 10 { assert_eq!(actor.extension.path_state.script_value, 10000); }
+    }
+    assert_eq!(drift, 100);
+    // Equality still executes one vertical step, since the source height
+    // comparison is strict; only the next invocation enters guidance.
+    inputs.published_motion.as_mut().unwrap().position.y = height;
+    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 20).unwrap().step,
+        ControlStep::Movement);
+    height += 100;
+    assert_eq!(objects.get(owner).unwrap().base.position.y, height);
+    assert_eq!(objects.get(owner).unwrap().base.first_child, None);
+    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 20).unwrap().step,
+        ControlStep::Movement);
+    let actor = objects.get(owner).unwrap();
+    assert_eq!(actor.base.position.y, height);
+    assert_eq!(actor.base.target_speed, 45);
+    assert_eq!(actor.base.acceleration, 5);
+    assert_eq!(actor.extension.path_state.script_value, 1);
+    assert!(actor.base.first_child.is_some());
+    assert_eq!(objects.len(), 3);
+    assert_eq!(super::effect_tests::cues(&mut inputs), [116]);
+}
+
+#[test]
+fn height_staged_projectile_both_launch_routes_guidance_exits_and_independent_child() {
+    use super::super::{path_motion::PublishedPlayerMotion, ObjectSpawnDefaults};
+    let catalog = authored_paths::catalog();
+    for above in [false, true] {
+        for close in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let selected = player(&mut objects, Vector3 { x: 0, y: if above { -100 } else { 1000 }, z: if close { 1000 } else { 10000 } });
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::HEIGHT_STAGED_HOMING_PROJECTILE);
+            actor.base.hit_points = 1;
+            actor.base.attack_power = 4;
+            let original_random = random;
+            let mut events = AudioState::default();
+            let mut inputs = world(&mut random);
+            inputs.selected = Some(selected);
+            inputs.published_motion = Some(PublishedPlayerMotion { position: Vector3 { x: 0, y: if above { -100 } else { 300 }, z: 0 }, ..Default::default() });
+            inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+            inputs.audio = Some(audio(&mut events));
+            let mut height = 0;
+            for visit in 1..=if above { 2 } else { 9 } {
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 20).unwrap().step,
+                    ControlStep::Movement);
+                let actor = objects.get(owner).unwrap();
+                if above {
+                    assert_eq!(actor.base.pitch.units(), 192);
+                    assert!(actor.base.first_child.is_some());
+                } else {
+                    height += 5 + 5 * visit;
+                    assert_eq!(actor.base.position.y, height);
+                    assert_eq!(actor.extension.relative_position.y, 10 + 5 * visit);
+                    assert_eq!(actor.base.first_child, None);
+                }
+                assert!(actor.extension.path_state.motion.generate_velocity_each_step);
+                assert!(actor.extension.path_state.motion.quadruple_velocity);
+                assert!(actor.extension.path_state.triggers.entries(&runtime.resources, owner).unwrap().is_empty());
+            }
+            if above {
+                // The height gate reads the published snapshot, not selected
+                // actor Y. Changing this input admits guidance immediately.
+                inputs.published_motion.as_mut().unwrap().position.y = 1;
+            }
+            // Drive path/callback phases without ordinary integration so
+            // near/far guidance stays at its explicitly controlled distance.
+            let total = if close { 31 } else { 100 };
+            for visit in 1..=total {
+                let death = visit == total;
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 24).unwrap().step,
+                    if death { ControlStep::MovementTail } else { ControlStep::Movement });
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.base.position.y, if above { 0 } else { 325 });
+                assert_eq!(actor.base.target_speed, 45);
+                assert_eq!(actor.base.acceleration, 5);
+                assert_eq!(actor.extension.path_state.script_value, if close { 1 } else { visit as u16 });
+                assert_eq!(actor.base.wait_timer, if close && !death { visit as u8 } else { 0 });
+                assert_eq!(actor.extension.spatial_loop,
+                    if above { None } else { SpatialLoop::from_authored_control(2) });
+                assert_eq!(actor.base.hit_points, if death { 0 } else { 1 });
+                assert_eq!(actor.base.flags.suppress_death_effects, death);
+                assert!(!actor.base.flags.remove_after_tick);
+                assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs), 1);
+                assert_eq!(objects.get(owner).unwrap().base.roll.units(), 16u8.wrapping_mul(visit as u8));
+                if visit == 1 {
+                    let child = objects.get(owner).unwrap().base.first_child.unwrap();
+                    let parent_before = objects.get(owner).unwrap().clone();
+                    let spawned = objects.get(child).unwrap();
+                    assert_eq!((spawned.base.hit_points, spawned.base.attack_power, spawned.base.child_number), (80, 1, 1));
+                    assert!(spawned.extension.path_state.needs_path_initialization);
+                    runtime.initialize_path_strategy(&mut objects, child).unwrap();
+                    for child_visit in 1..=4 {
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 12).unwrap().step,
+                            ControlStep::Movement);
+                        let actor = objects.get(child).unwrap();
+                        assert_eq!(actor.base.hit_points, 100);
+                        assert_eq!(actor.extension.texture_scroll_x, 96);
+                        assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(child_visit % 2));
+                        assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, child, &mut inputs), 0);
+                    }
+                    assert_eq!(objects.get(owner), Some(&parent_before));
+                }
+            }
+            let child = objects.get(owner).unwrap().base.first_child.unwrap();
+            let parent_before = objects.get(owner).unwrap().clone();
+            let spawned = objects.get(child).unwrap();
+            assert_eq!(spawned.base.shape, ShapeId::from_catalog_index(19));
+            // Parent death marks its direct child dead, without unlinking
+            // or running that child's independently retained callback.
+            assert_eq!((spawned.base.hit_points, spawned.base.attack_power, spawned.base.child_number), (0, 1, 1));
+            assert_eq!(spawned.base.attachment, Some(owner));
+            assert_eq!(spawned.extension.parent, Some(owner));
+            assert_eq!(spawned.extension.relative_position, Vector3 { x: 0, y: 0, z: -480 });
+            assert!(!spawned.base.flags.remove_after_tick);
+            assert!(spawned.base.flags.suppress_death_effects);
+            assert!(!spawned.extension.path_state.needs_path_initialization);
+            assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, child, &mut inputs), 1);
+            assert_eq!(runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 1).unwrap().step,
+                ControlStep::Ended);
+            assert!(objects.get(child).unwrap().base.flags.remove_after_tick);
+            assert_eq!(objects.get(owner), Some(&parent_before));
+            let cues = super::effect_tests::cues(&mut inputs);
+            assert_eq!(cues.len(), if above { 0 } else { 1 });
+            if !above { assert_eq!(cues[0], 116); }
+            assert_eq!(inputs.random, &original_random);
+        }
+    }
+}
+
+#[test]
 fn signal_guided_projectile_delays_guidance_and_retires_after_each_exit_cause() {
     let catalog = authored_paths::catalog();
     for distance in [1000, 9999, 10000] {

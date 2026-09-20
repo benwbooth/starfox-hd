@@ -81,6 +81,29 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
             generate(bytes(changed), (("BALLISTIC", root),))
 
+    def test_height_staged_projectile_both_routes_and_shared_sprite_closure(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x6991)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 49)
+        self.assertEqual(''.join(c.raw_hex for c in commands),
+            "04005c0001f269fa740c0a0090610a540e90779005447ba392ef0ea3be69540e902b906400"
+            "bb6977900516a769000502182d05f5b0be06f350010000000020fe01fd40006ca36ea32b"
+            "a36400f16909a410e76916d76914c409ef6916d769031e100bc012f5b0be06f350010000"
+            "000020fe01182d050a7ba392efa30ed26916066a7310424d001052992d0b642d4a28f30c"
+            "895c1e01021621f30f4c27f342")
+        self.assertEqual(len(lower_graph(extractor, root, 0)[1]), 49)
+        self.assertTrue({c.address for c in graph(extractor, PathAddress(0xF306))} <=
+                        {c.address for c in commands})
+        command = extractor.decode_command(PathAddress(0x6918))
+        self.assertEqual(command.raw_hex, "5d88c891690104")
+        self.assertIn(command, graph(extractor, PathAddress(0x66EA)))
+        self.assertEqual(independent_spawn_parameters(command).path, root)
+        changed = bytearray(self.rom)
+        changed[0x4691B:0x4691D] = (0x6992).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed), (("HEIGHT_STAGED", root),))
+
     def test_numbered_child_retirement_uses_literal_full_byte_and_immediate_continuation(self):
         for number in range(256):
             self.assertEqual(self.lower_record(f"66 {number:02x}")[0],

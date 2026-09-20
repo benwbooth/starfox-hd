@@ -2634,3 +2634,21 @@ unchanged random state. The catalog has 109 roots, 1,758 source commands and
 with 157 lowering tests, 323 source-static tests, freshness, both audits and
 app build passing (existing icon warning). This remains independently verified catalog coverage,
 not production scheduling or complete gameplay.
+
+### Height-staged homing projectile
+
+Both launch routes now lower completely: the ten-step vertical ramp with a
+100-unit drift cap and published-height gate, and the pitched yaw-only route.
+They join the rolling guidance loop, which either waits thirty visits after
+close/aligned acquisition or reaches its hundred-step timeout. Only the first
+route requests the positioned cue and spatial loop.
+
+Tests exercise both routes and exits, strict/equal published-height cases,
+drift saturation, source NEXT fall-through, both motion flags and callback
+continuity. The actual attached sprite is initialized and serviced separately;
+parent death zeros its health without unlinking it, and its own callback then
+redirects it to END. Full graph and installer bytes are pinned without source
+execution. The catalog has 110 roots, 1,796 source commands and 1,787 statements.
+416 native path tests pass in debug/release, with 158 lowering tests, 323
+source-static tests, freshness, both audits and app build passing (existing
+icon warning). Production integration and full gameplay completion remain open.
