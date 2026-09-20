@@ -95,6 +95,59 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(f"{opcode} ff")
 
+    def test_triggered_projectile_full_parent_child_graph_and_folded_aim(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xF48B)
+        self.assertEqual(len(graph(extractor, root)), 47)
+        _, statements = lower_graph(extractor, root, 0)
+        self.assertEqual(len(statements), 44)
+        mapped = dict(zip((unit.address.offset for unit in lowering_units(extractor, root)), statements))
+        for offset, fragment in [
+            (0xF48B, "DisableCollision"), (0xF48C, "ObjectKind::Projectile"),
+            (0xF48C, "x: 0, y: -10, z: 0"), (0xF48C, "Angle::from_units(231)"),
+            (0xF49D, "LinkPrimaryCollisionExclusion"), (0xF4CA, "LinkPrimaryCollisionExclusion"),
+            (0xF4A4, "iterations: 12"), (0xF4A6, "CopyTo(ByteField::AttackPower)"),
+            (0xF4B2, "PopStackPair"), (0xF4B3, "Literal(20)"),
+            (0xF4B6, "WorldPosition"), (0xF4B7, "x: 0, y: 0, z: 127"),
+            (0xF4C5, "HalfTowardZero"), (0xF4C7, "Rotation(Axis::Z)"),
+            (0xF4CE, "AuthoredCue::new(42"), (0xF4D1, "SuppressContactsNextEpoch(true)"),
+            (0xF4D5, "SetSpeed(25)"), (0xF4D7, "GenerateVelocityEachStep(true)"),
+            (0xF4DB, "TriggerKind::NewContact"), (0xF4E7, "OccupiedCell"),
+            (0xF4EB, "AtOrAboveSurface"), (0xF4F2, "ForceAfterCallbacks"),
+            (0xF4F6, "ControlCommand::Cancel"), (0xF4F9, "Assign(ByteOperand::Literal(1))"),
+            (0xF4FD, "InitializePrimaryPitchRecoil { amount: 128"),
+            (0xF500, "LockToProjectile"), (0xF50B, "AuthoredCue::new(43"),
+            (0xF50E, "SetSpeed(0)"), (0xF510, "ShapeId::from_catalog_index(0)"),
+            (0xF514, "RefreshOwnedOrigin"), (0xF51A, "RelativeRotation(Axis::X)"),
+            (0xF51D, "WordField::Velocity(Axis::Y)"),
+        ]:
+            self.assertIn(fragment, mapped[offset])
+        for offset in (0xF4BB, 0xF4BF, 0xF4C3):
+            self.assertNotIn(offset, mapped)
+        self.assertEqual(spawn_shape(0xBD60, PathAddress(0xF4CA)), (7, "ObjectKind::Projectile"))
+        with self.assertRaises(UnsupportedPath):
+            spawn_shape(0xBD60, PathAddress(0xF536))
+
+    def test_primary_link_and_recoil_decode_to_semantic_state_not_numeric_pointer_fields(self):
+        self.assertIn("LinkPrimaryCollisionExclusion", self.lower_record("7c 1c c3 12")[0])
+        for encoded, expected in [(0, 0), (128, 128), (32767, 32767), (32768, -32768), (65535, -1)]:
+            self.assertIn(f"amount: {expected},", self.lower_record(f"bf {encoded & 255:02x} {encoded >> 8:02x}")[0])
+        for record in ("7c 0c c3 12", "7c 1c 1f cf", "7c 1c 1c 1e", "94 1c"):
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+        self.assertIn("CopyTo(ByteField::AttackPower)", self.lower_record("79 2e 59 1e")[0])
+        self.assertIn("Assign(ByteOperand::Literal(255))", self.lower_record("fb 59 1e ff")[0])
+        for record in ("7b 2e 59 1e", "7c 0c 59 1e"):
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
+    def test_projectile_inline_call_signature_is_required_for_lowering(self):
+        for at in range(0x4F501, 0x4F50B):
+            changed = bytearray(self.rom)
+            changed[at] ^= 1
+            with self.assertRaises((UnsupportedPath, ValueError)):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF48B), 0)
+
     def test_three_homing_projectile_roots_retain_full_shared_callbacks_and_effect(self):
         for address, count in [(0xEE2D, 82), (0xEE3B, 78), (0xEE4C, 82)]:
             extractor = PathExtractor(self.rom)

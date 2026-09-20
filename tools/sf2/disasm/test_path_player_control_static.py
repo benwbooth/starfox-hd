@@ -33,6 +33,16 @@ class PathPlayerControlStaticTests(unittest.TestCase):
     def test_configuration_wrapper_does_not_skip_final_owner_refresh_when_locked(self):
         self.assert_source(0x07B746, "DA 08 E2 20 C2 10 A9 03 85 3C A9 1F 85 3E 22 9F B7 07 A9 04 85 3A A9 08 85 3C A9 08 85 3E 22 9B B8 07 A9 1F 85 3A 85 3C 85 3E 22 61 B8 07 22 33 B8 07 28 FA 6B")
 
+    def test_projectile_target_temporarily_unlocks_replaces_owner_and_locks_again(self):
+        self.assert_source(0x07B67D, "da 08 e2 20 c2 10 a0 00 00 84 3a ac c3 12 da bb 7a 5a b4 2b b9 8c 6a 29 7f 99 8c 6a 7a da bb 7a 5a da b6 2b 9b fa a9 0a 99 ea 6b 7a a9 03 85 3c a9 1f 85 3e 22 9f b7 07 a9 03 85 3a a9 03 85 3c a9 02 85 3e 22 9b b8 07 a9 19 85 3a 85 3c a9 1f 85 3e 22 61 b8 07 22 33 b8 07 ac c3 12 da bb 7a 5a b4 2b b9 8c 6a 09 80 99 8c 6a 7a da bb 7a 28 fa 6b")
+        # Consumer establishes a delay, not a projectile lifetime counter.
+        self.assert_source(0x07EA73, "ae c3 12 b4 2b b9 ea 6b f0 15 3a 99 ea 6b f0 07 b9 e9 6b 09 18 80 05 b9 e9 6b 29 f7 99 e9 6b")
+
+    def test_pitch_recoil_is_initialized_only_at_zero_then_reversed_and_damped(self):
+        self.assert_source(0x7FB1DF, "ac c3 12 20 bc c4 85 02 20 e0 c4 85 03 da bb 7a 5a b4 2b c2 20 b9 3b 6b c9 00 00 e2 20 f0 04 5c 0b b2 7f c2 20 a5 02 99 3b 6b e2 20 7a da bb 7a 4c be ca")
+        self.assert_source(0x079AAB, "5a 08 e2 20 c2 10 b4 2b c2 20 b9 3b 6b 49 ff ff 1a 99 3b 6b e2 20 c2 20 b9 3b 6b c9 00 00 f0 1c 30 0e 38 e9 10 00 c9 00 00 10 11 a9 00 00 80 0c 18 69 10 00 c9 00 00 30 03 a9 00 00 99 3b 6b e2 20 28 7a 6b")
+        self.assert_source(0x0796A3, "c2 20 b9 3b 6b 0a 18 75 12 95 12 e2 20")
+
     def test_alternate_configuration_handlers_use_distinct_helpers_and_low_byte_only_shift(self):
         self.assert_source(0x7FC155, "C2 20 20 20 C7 85 3A E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 22 26 B7 07 4C BE CA C2 20 20 20 C7 85 3A E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 22 EF B6 07 4C BE CA")
         self.assert_source(0x07B6EF, "DA 08 E2 20 C2 10 06 3A A9 03 85 3C A9 1F 85 3E 22 9F B7 07 A9 01 85 3A A9 02 85 3C A9 02 85 3E 22 9B B8 07 A9 1F 85 3A 85 3C 85 3E 22 61 B8 07 22 33 B8 07 28 FA 6B DA 08 E2 20 C2 10 A9 03 85 3C A9 1F 85 3E 22 9F B7 07 A9 06 85 3A A9 06 85 3C A9 03 85 3E 80 1E")

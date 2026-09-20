@@ -50,6 +50,7 @@ ROOTS = (
     ("VARIANT_GUIDED_PROJECTILE", PathAddress(0xEF2D)),
     ("OFFSET_GUIDED_PROJECTILE", PathAddress(0xECF7)),
     ("LINKED_PROTECTION_EFFECT", PathAddress(0xF2B9)),
+    ("TRIGGERED_LINKED_PROJECTILE", PathAddress(0xF48B)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -189,6 +190,9 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # the mesh alone is insufficient evidence for other uses of that shape.
     if index == 19 and path in (PathAddress(0xF5A1), PathAddress(0xF306)):
         return index, "ObjectKind::Effect"
+    # Moving/contact-triggered child of the primary weapon service D11D.
+    if index == 7 and path == PathAddress(0xF4CA):
+        return index, "ObjectKind::Projectile"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
@@ -441,6 +445,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF078): "RefreshSelectedChargeAttachment",
             }
             controls = {
+                PathAddress(0xF500): "LockToProjectile",
                 PathAddress(0xF391): "LockForLinkedMode",
                 PathAddress(0xF39E): "FollowPrimaryPosition",
             }
@@ -830,9 +835,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
             else:
                 raise UnsupportedPath(f"unported shared word {0xD75C + index:04X} at {command.address.label()}")
+        elif name == "InitializePlayerAuxWord":
+            amount = int.from_bytes(parameters(2), "little", signed=True)
+            statement = f"Statement::InitializePrimaryPitchRecoil {{ amount: {amount}, next: {next_cursor()} }}"
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
+            if address == 0x12C3 and variable == 0x1C:
+                statement = f"Statement::LinkPrimaryCollisionExclusion {{ next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             axes = {0x1E1C: "X", 0x1E1E: "Y", 0x1E20: "Z"}
             if address not in axes:
                 raise UnsupportedPath(f"unported shared word {address:04X} at {command.address.label()}")
@@ -863,6 +875,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if address == 0x1DD0 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportControlStyle {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1E59 and name in ("ImportByteAbsolute", "StoreExternalByte"):
+                operation = f"CopyTo({byte_field(variable)})" if name == "ImportByteAbsolute" else f"Assign(ByteOperand::Literal({value}))"
+                statement = f"Statement::ProjectileTrigger {{ command: super::path_program::ProjectileTriggerCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address == 0x1B4D and name == "ImportByteAbsolute":

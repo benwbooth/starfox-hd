@@ -15,6 +15,8 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
+    pub projectile_trigger: Option<&'a mut ProjectileTrigger>,
+    pub primary_pitch_recoil: Option<&'a mut super::path_player_control::PitchRecoil>,
     pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
     pub protection: Option<super::path_protection::PathProtection<'a>>,
     pub audio: Option<super::path_sound::PathAudio<'a>>,
@@ -66,6 +68,20 @@ pub struct SelectedAuxiliaryState {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct GuidanceHistory {
     pub flags: u16,
+}
+
+/// Shared trigger for the F48B/F4CA projectile family (1E59). Launch clears
+/// it; either the input service or a projectile contact can set it. Preserve
+/// the full byte when an authored path imports it into its attack variable.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ProjectileTrigger {
+    pub activation: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectileTriggerCommand {
+    CopyTo(super::path_fields::ByteField),
+    Assign(ByteOperand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,6 +269,17 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    ProjectileTrigger {
+        command: ProjectileTriggerCommand,
+        next: PathCursor,
+    },
+    InitializePrimaryPitchRecoil {
+        amount: i16,
+        next: PathCursor,
+    },
+    LinkPrimaryCollisionExclusion {
+        next: PathCursor,
+    },
     LinkedEffectActivity {
         command: super::path_protection::ActivityCommand,
         next: PathCursor,
@@ -466,6 +493,8 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingProjectileTrigger,
+    MissingPrimaryPitchRecoil,
     MissingLinkedEffectActivity,
     MissingProtection,
     Protection(super::path_protection::ProtectionError),
@@ -582,6 +611,56 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::ProjectileTrigger { command, next } => {
+                    let trigger = world
+                        .projectile_trigger
+                        .as_mut()
+                        .ok_or(ProgramError::MissingProjectileTrigger)?;
+                    let actor = objects.get_mut(owner).expect("validated projectile owner");
+                    match command {
+                        ProjectileTriggerCommand::CopyTo(field) => {
+                            field.write(actor, trigger.activation)
+                        }
+                        ProjectileTriggerCommand::Assign(value) => {
+                            trigger.activation = value.read(actor)
+                        }
+                    }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::InitializePrimaryPitchRecoil { amount, next } => {
+                    let primary = world
+                        .primary_player
+                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                    objects
+                        .get(primary)
+                        .ok_or(PathRuntimeError::MissingActor(primary))?;
+                    world
+                        .primary_pitch_recoil
+                        .as_mut()
+                        .ok_or(ProgramError::MissingPrimaryPitchRecoil)?
+                        .initialize_if_idle(amount);
+                    objects
+                        .get_mut(owner)
+                        .expect("validated recoil owner")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::LinkPrimaryCollisionExclusion { next } => {
+                    let primary = world
+                        .primary_player
+                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                    objects
+                        .get(primary)
+                        .ok_or(PathRuntimeError::MissingActor(primary))?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated collision-link owner");
+                    actor.base.linked_object = Some(primary);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::LinkedEffectActivity { command, next } => {
                     let activity = world
                         .linked_effect_activity
@@ -789,6 +868,9 @@ impl PathRuntime {
                         .get_mut(owner)
                         .expect("validated player-control owner");
                     match command {
+                        PlayerControlCommand::LockToProjectile => {
+                            input.target.lock_to_projectile(owner, actor.base.position)
+                        }
                         PlayerControlCommand::Configure(range) => {
                             input.target.configure(owner, actor.base.position, range)
                         }
@@ -1240,6 +1322,8 @@ mod tests {
 
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
+            projectile_trigger: None,
+            primary_pitch_recoil: None,
             linked_effect_activity: None,
             protection: None,
             audio: None,
@@ -1265,6 +1349,538 @@ mod tests {
             spawn_defaults: None,
             random,
             animation_clock: 0,
+        }
+    }
+
+    #[test]
+    fn authored_triggered_projectile_parent_keeps_aiming_through_loop_break_and_final_wait() {
+        use super::super::path_steering::{face_selected_offset, AimOffset};
+        use super::super::{authored_paths, Angle, ObjectSpawnDefaults, Vector3};
+        let catalog = authored_paths::catalog();
+        for trigger_visit in [None, Some(0), Some(1), Some(10), Some(11), Some(12)] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let primary = objects
+                .allocate(Object::new(
+                    ObjectKind::Player,
+                    ShapeId::EMPTY,
+                    Behavior::PlayerFlight,
+                ))
+                .unwrap();
+            let selected = objects
+                .allocate(Object::new(
+                    ObjectKind::Player,
+                    ShapeId::EMPTY,
+                    Behavior::PlayerFlight,
+                ))
+                .unwrap();
+            objects.get_mut(owner).unwrap().base.path =
+                Some(authored_paths::TRIGGERED_LINKED_PROJECTILE);
+            objects
+                .get_mut(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .conditions
+                .selected_player = PlayerTarget::Secondary;
+            let mut trigger = ProjectileTrigger::default();
+            let original_random = random;
+            let wait_start = trigger_visit.unwrap_or(11).min(11);
+            let last_visit = wait_start + 20;
+            let mut child = None;
+            for visit in 0..=last_visit {
+                let selected_actor = objects.get_mut(selected).unwrap();
+                selected_actor.base.position = Vector3 {
+                    x: visit as i16 * 13,
+                    y: -500,
+                    z: 900,
+                };
+                selected_actor.base.pitch = Angle::from_units(visit as u8 * 7);
+                selected_actor.base.yaw = Angle::from_units(visit as u8 * 3);
+                let copied = selected_actor.base.position;
+                if trigger_visit == Some(visit) {
+                    trigger.activation = 255;
+                }
+                let expected_attack = if trigger_visit.is_some_and(|at| at <= visit && at <= 11) {
+                    255
+                } else {
+                    0
+                };
+                let mut inputs = world(&mut random);
+                inputs.primary_player = Some(primary);
+                inputs.selected = Some(selected);
+                inputs.projectile_trigger = Some(&mut trigger);
+                inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+                assert_eq!(
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30),
+                    Ok(if visit == last_visit {
+                        ControlStep::Ended
+                    } else {
+                        ControlStep::Movement
+                    }),
+                    "trigger={trigger_visit:?} visit={visit}"
+                );
+                if visit == 0 {
+                    child = runtime.spawns.last_spawn;
+                    let spawned = objects.get(child.unwrap()).unwrap();
+                    assert_eq!(spawned.base.kind, ObjectKind::Projectile);
+                    assert_eq!(spawned.base.shape, ShapeId::from_catalog_index(7));
+                    assert_eq!(
+                        spawned.extension.relative_position,
+                        Vector3 { x: 0, y: -10, z: 0 }
+                    );
+                    assert_eq!(spawned.extension.relative_rotation.pitch.units(), 231);
+                    assert_eq!((spawned.base.hit_points, spawned.base.attack_power), (1, 1));
+                    assert_eq!(spawned.base.attachment, Some(owner));
+                    assert_eq!(spawned.extension.parent, Some(owner));
+                    assert_eq!(spawned.base.linked_object, None);
+                    assert_eq!(
+                        spawned.extension.path_state.conditions.selected_player,
+                        PlayerTarget::Secondary
+                    );
+                }
+                if visit != last_visit {
+                    let mut expected = objects.clone();
+                    expected.get_mut(owner).unwrap().base.position = copied;
+                    face_selected_offset(
+                        &mut expected,
+                        owner,
+                        Some(selected),
+                        AimOffset { x: 0, y: 0, z: 127 },
+                        &mut Default::default(),
+                    )
+                    .unwrap();
+                    let expected = &expected.get(owner).unwrap().base;
+                    let pitch = (i16::from(expected.pitch.units() as i8) / 2) as u8;
+                    assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                    assert!(matches!(
+                        runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                        Ok(CallbackStep::Run(_))
+                    ));
+                    assert_eq!(
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                        Ok(ControlStep::ResumeCallbacks)
+                    );
+                    assert_eq!(
+                        runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                        Ok(CallbackStep::Complete)
+                    );
+                    let actual = &objects.get(owner).unwrap().base;
+                    assert_eq!(actual.position, copied);
+                    assert_eq!(
+                        (actual.pitch.units(), actual.yaw, actual.roll),
+                        (pitch, expected.yaw, Angle::ZERO)
+                    );
+                }
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.base.linked_object, Some(primary));
+                assert!(actor.base.flags.collision_disabled);
+                assert_eq!(actor.base.attack_power, expected_attack);
+                assert_eq!(
+                    actor.base.wait_timer,
+                    if visit < wait_start || visit == last_visit {
+                        0
+                    } else {
+                        (visit - wait_start + 1) as u8
+                    }
+                );
+                assert_eq!(runtime.spawns.last_spawn, child);
+                assert_eq!(objects.len(), 4);
+            }
+            assert_eq!(random, original_random);
+            // END is not actor retirement: the child and callback allocation
+            // remain until the surrounding strategy owner retires them.
+            assert_eq!(
+                objects
+                    .get(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .triggers
+                    .entries(&runtime.resources, owner)
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn projectile_shared_import_link_and_recoil_require_live_inputs_without_partial_statement_writes(
+    ) {
+        use super::super::path_player_control::PitchRecoil;
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let primary = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        let removed = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        objects.remove(removed).unwrap();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.wait_timer = 17;
+        actor.extension.path_state.repeat_counter = 31;
+        actor.base.attachment = Some(primary);
+        runtime.branch.invert_next = true;
+        let original = objects.clone();
+        let initial_random = random;
+        for (statement, needs_recoil) in [
+            (
+                Statement::LinkPrimaryCollisionExclusion { next: cursor(0, 1) },
+                false,
+            ),
+            (
+                Statement::InitializePrimaryPitchRecoil {
+                    amount: 128,
+                    next: cursor(0, 1),
+                },
+                true,
+            ),
+        ] {
+            objects = original.clone();
+            let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
+            let mut recoil = PitchRecoil::default();
+            let mut missing_player_recoil = PitchRecoil::default();
+            let mut inputs = world(&mut random);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::MissingPrimaryPlayer)
+            );
+            assert_eq!(objects, original);
+            inputs.primary_player = Some(removed);
+            inputs.primary_pitch_recoil = Some(&mut missing_player_recoil);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::Runtime(PathRuntimeError::MissingActor(
+                    removed
+                )))
+            );
+            assert_eq!(objects, original);
+            assert_eq!(inputs.primary_pitch_recoil.as_ref().unwrap().amount, 0);
+            inputs.primary_player = Some(primary);
+            inputs.primary_pitch_recoil = None;
+            if needs_recoil {
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::MissingPrimaryPitchRecoil)
+                );
+                assert_eq!(objects, original);
+            }
+            inputs.primary_pitch_recoil = Some(&mut recoil);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 0),
+                    executed: 0
+                })
+            );
+            assert_eq!(objects, original);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            let mut expected = original.clone();
+            expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+            if !needs_recoil {
+                expected.get_mut(owner).unwrap().base.linked_object = Some(primary);
+            }
+            assert_eq!(objects, expected);
+            assert_eq!(recoil.amount, if needs_recoil { 128 } else { 0 });
+        }
+        for writing in [false, true] {
+            let command = if writing {
+                ProjectileTriggerCommand::Assign(ByteOperand::Actor(ByteField::AttackPower))
+            } else {
+                ProjectileTriggerCommand::CopyTo(ByteField::AttackPower)
+            };
+            let catalog = PathCatalog::new(vec![vec![Statement::ProjectileTrigger {
+                command,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            objects = original.clone();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingProjectileTrigger)
+            );
+            assert_eq!(objects, original);
+            for byte in 0..=u8::MAX {
+                objects = original.clone();
+                let mut trigger = ProjectileTrigger {
+                    activation: if writing { 0 } else { byte },
+                };
+                if writing {
+                    objects.get_mut(owner).unwrap().base.attack_power = byte;
+                }
+                let mut expected = objects.clone();
+                expected.get_mut(owner).unwrap().base.attack_power = byte;
+                expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+                let mut inputs = world(&mut random);
+                inputs.projectile_trigger = Some(&mut trigger);
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                assert_eq!(trigger.activation, byte);
+            }
+        }
+        assert_eq!(random, initial_random);
+        assert!(runtime.branch.invert_next);
+    }
+
+    #[test]
+    fn authored_triggered_child_enters_locked_target_on_request_contact_occupancy_or_surface() {
+        use super::super::collision_surface::SurfaceMode;
+        use super::super::path_player_control::{PitchRecoil, PlayerTargetControl, PrimaryControl};
+        use super::super::path_sound::AuthoredCue;
+        use super::super::path_sound::{CueListener, PathAudio};
+        use super::super::world_occupancy::{
+            MarkerCoverage, OccupancyChange, WorldOccupancy, WorldRectangle,
+        };
+        use super::super::{authored_paths, Angle, ObjectSpawnDefaults, Vector3};
+        use super::super::{AudioState, SoundEvent};
+        let catalog = authored_paths::catalog();
+        for cause in 0..6 {
+            for initial_recoil in [0, 64, -32768] {
+                let (mut runtime, mut objects, parent, mut random) = setup();
+                let primary = objects
+                    .allocate(Object::new(
+                        ObjectKind::Player,
+                        ShapeId::EMPTY,
+                        Behavior::PlayerFlight,
+                    ))
+                    .unwrap();
+                let selected = objects
+                    .allocate(Object::new(
+                        ObjectKind::Player,
+                        ShapeId::EMPTY,
+                        Behavior::PlayerFlight,
+                    ))
+                    .unwrap();
+                objects.get_mut(parent).unwrap().base.path =
+                    Some(authored_paths::TRIGGERED_LINKED_PROJECTILE);
+                objects
+                    .get_mut(parent)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .conditions
+                    .selected_player = PlayerTarget::Secondary;
+                let mut trigger = ProjectileTrigger::default();
+                let mut recoil = PitchRecoil {
+                    amount: initial_recoil,
+                };
+                let mut control = PlayerTargetControl {
+                    configuration_locked: true,
+                    owner: Some(parent),
+                    transition_delay: 59,
+                    ..Default::default()
+                };
+                let mut audio = AudioState::default();
+                let mut occupancy = WorldOccupancy::default();
+                occupancy.apply(
+                    &MarkerCoverage::from_rectangle(WorldRectangle {
+                        x: 0,
+                        z: 0,
+                        width: 512,
+                        depth: 512,
+                    })
+                    .unwrap(),
+                    OccupancyChange::Mark,
+                );
+                let mut inputs = world(&mut random);
+                inputs.primary_player = Some(primary);
+                inputs.projectile_trigger = Some(&mut trigger);
+                inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+                assert_eq!(
+                    runtime.enter_program(&catalog, &mut objects, parent, &mut inputs, 30),
+                    Ok(ControlStep::Movement)
+                );
+                let child = runtime.spawns.last_spawn.unwrap();
+                let original_random = *inputs.random;
+                objects.get_mut(child).unwrap().base.pitch = Angle::from_units(20);
+                objects.get_mut(child).unwrap().base.position = Vector3 {
+                    x: 0,
+                    y: -500,
+                    z: 0,
+                };
+                let activated_at = if cause == 0 {
+                    0
+                } else if cause == 5 {
+                    99
+                } else {
+                    4
+                };
+                let mut expected_relative_y: i16 = -10;
+                for visit in 0..8 {
+                    if cause == 0 && visit == 0 || cause == 1 && visit == 4 {
+                        trigger.activation = 255;
+                    }
+                    if cause == 4 && visit == 4 {
+                        objects.get_mut(child).unwrap().base.position.y = 0;
+                    }
+                    if visit > activated_at {
+                        // Explicit world service changes are observed live;
+                        // this path loop does not secretly tick player state.
+                        objects.get_mut(child).unwrap().base.position.x = 1200 + visit;
+                        control.transition_delay = 3;
+                    }
+                    let mut inputs = world(&mut random);
+                    inputs.primary_player = Some(primary);
+                    inputs.selected = Some(selected);
+                    inputs.projectile_trigger = Some(&mut trigger);
+                    inputs.primary_pitch_recoil = Some(&mut recoil);
+                    inputs.primary_control = Some(PrimaryControl {
+                        target: &mut control,
+                        linked_mode: true,
+                    });
+                    inputs.selected_occupancy_exempt = Some(!(cause == 3 && visit == 4));
+                    if cause == 3 && visit == 4 {
+                        inputs.occupancy = Some(&occupancy);
+                    }
+                    inputs.surface_mode = Some(SurfaceMode { flags: 1 });
+                    inputs.audio = Some(PathAudio {
+                        events: &mut audio,
+                        listeners: [CueListener::Other; 2],
+                        markers: None,
+                    });
+                    assert_eq!(
+                        runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 30),
+                        Ok(ControlStep::Movement),
+                        "cause={cause} visit={visit}"
+                    );
+                    let active = visit >= activated_at;
+                    assert!(runtime
+                        .begin_movement(&mut objects, child, Default::default())
+                        .unwrap());
+                    let actor = objects.get(child).unwrap();
+                    let velocity_y = actor.base.velocity.y;
+                    // Authored callback explicitly adds vertical velocity,
+                    // then ordinary attached movement adds it a second time.
+                    expected_relative_y =
+                        expected_relative_y.wrapping_add(velocity_y.wrapping_mul(2));
+                    if !active && visit == 0 {
+                        assert_ne!(velocity_y, 0);
+                    } else if active {
+                        assert_eq!(velocity_y, 0);
+                    }
+                    objects
+                        .get_mut(child)
+                        .unwrap()
+                        .base
+                        .contacts
+                        .new_contact_latched = cause == 2 && visit == 3;
+                    let mut runs = 0;
+                    loop {
+                        match runtime
+                            .step_callbacks(&mut objects, child, TriggerWorldInputs::default())
+                            .unwrap()
+                        {
+                            CallbackStep::Run(_) => {
+                                runs += 1;
+                                assert_eq!(
+                                    runtime.resume_program(
+                                        &catalog,
+                                        &mut objects,
+                                        child,
+                                        &mut inputs,
+                                        8
+                                    ),
+                                    Ok(ControlStep::ResumeCallbacks)
+                                );
+                            }
+                            CallbackStep::Skipped => {}
+                            CallbackStep::Complete => break,
+                            other => panic!("unexpected {other:?}"),
+                        }
+                    }
+                    runtime
+                        .finish_movement(&mut objects, &mut [None; 2])
+                        .unwrap();
+                    assert_eq!(runs, if cause == 2 && visit == 3 { 2 } else { 1 });
+                    let actor = objects.get(child).unwrap();
+                    assert_eq!(actor.base.linked_object, Some(primary));
+                    assert_eq!(actor.base.attachment, Some(parent));
+                    assert_eq!(actor.base.speed, if active { 0 } else { 25 });
+                    assert_eq!(
+                        actor.base.shape,
+                        ShapeId::from_catalog_index(if active { 0 } else { 7 })
+                    );
+                    assert_eq!(actor.extension.relative_position.y, expected_relative_y);
+                    assert_eq!(
+                        actor.extension.relative_rotation.pitch.units(),
+                        231u8.wrapping_add((visit as u8 + 1) * 4)
+                    );
+                    assert_eq!(
+                        actor
+                            .extension
+                            .path_state
+                            .triggers
+                            .entries(&runtime.resources, child)
+                            .unwrap()
+                            .len(),
+                        if active { 1 } else { 2 }
+                    );
+                    if active {
+                        assert_eq!(control.owner, Some(child));
+                        assert_eq!(control.origin, actor.base.position);
+                        assert!(control.configuration_locked);
+                        assert!(!control.offset_enabled);
+                        assert_eq!(control.axis_rates, [3, 3, 2]);
+                        assert_eq!(control.axis_limits, [25, 25, 31]);
+                        assert_eq!(
+                            control.transition_delay,
+                            if visit == activated_at { 10 } else { 3 }
+                        );
+                        assert_eq!(
+                            recoil.amount,
+                            if initial_recoil == 0 {
+                                128
+                            } else {
+                                initial_recoil
+                            }
+                        );
+                        assert_eq!(trigger.activation, 1);
+                    } else {
+                        assert_eq!(control.owner, Some(parent));
+                        assert_eq!(control.transition_delay, 59);
+                        assert_eq!(recoil.amount, initial_recoil);
+                    }
+                }
+                let events = audio
+                    .take_events()
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
+                let expected = if cause == 5 { vec![42] } else { vec![42, 43] };
+                assert_eq!(
+                    events,
+                    expected
+                        .into_iter()
+                        .map(|cue| SoundEvent::Authored(AuthoredCue::new(
+                            cue,
+                            0,
+                            PlayerTarget::Secondary
+                        )))
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(random, original_random);
+                assert_eq!(objects.len(), 4);
+            }
         }
     }
 
@@ -4815,6 +5431,8 @@ mod tests {
                 action_flags: 0x20,
             };
             let mut inputs = PathWorld {
+                projectile_trigger: None,
+                primary_pitch_recoil: None,
                 linked_effect_activity: None,
                 protection: None,
                 audio: None,
@@ -8429,6 +9047,7 @@ mod tests {
             primary_position, PlayerControlCommand, PlayerTargetControl, PrimaryControl,
         };
         for command in [
+            PlayerControlCommand::LockToProjectile,
             PlayerControlCommand::Configure(-8),
             PlayerControlCommand::ConfigureDoubledLowByte(-8),
             PlayerControlCommand::ConfigureAlternateAxes(-8),
@@ -8464,6 +9083,9 @@ mod tests {
             let mut expected_control = control;
             let mut expected = before.clone();
             match command {
+                PlayerControlCommand::LockToProjectile => {
+                    expected_control.lock_to_projectile(owner, before.base.position)
+                }
                 PlayerControlCommand::Configure(range) => {
                     expected_control.configure(owner, before.base.position, range)
                 }
@@ -8657,9 +9279,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 26);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 551);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 557);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 27);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 595);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 604);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -8790,6 +9412,8 @@ mod tests {
         let catalog = authored_paths::catalog();
         for phase in 1..=7 {
             let mut inputs = PathWorld {
+                projectile_trigger: None,
+                primary_pitch_recoil: None,
                 linked_effect_activity: None,
                 protection: None,
                 audio: None,
@@ -8907,6 +9531,8 @@ mod tests {
                     &mut objects,
                     owner,
                     &mut PathWorld {
+                        projectile_trigger: None,
+                        primary_pitch_recoil: None,
                         linked_effect_activity: None,
                         protection: None,
                         audio: None,

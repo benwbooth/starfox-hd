@@ -16,9 +16,45 @@ const LOCKED_RATES: [u8; 3] = [3, 3, 4];
 const LOCKED_LIMITS: [u8; 3] = [16, 16, 31];
 const LINKED_TARGET_RANGE: i16 = 8;
 const LINKED_FORWARD_OFFSET: i8 = 80;
+const PROJECTILE_TARGET_RATES: [u8; 3] = [3, 3, 2];
+const PROJECTILE_TARGET_LIMITS: [u8; 3] = [25, 25, 31];
+const PROJECTILE_TARGET_DELAY: u8 = 10;
+const RECOIL_DECAY: i16 = 16;
+
+/// Signed, fine-angle pitch recoil (auxiliary 6B3B). The flight pose adds
+/// twice this word to pitch; player service reverses and damps it each visit.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PitchRecoil {
+    pub amount: i16,
+}
+
+impl PitchRecoil {
+    /// `$7F:B1DF`: an already active recoil is never restarted or replaced.
+    pub fn initialize_if_idle(&mut self, amount: i16) {
+        if self.amount == 0 {
+            self.amount = amount;
+        }
+    }
+
+    /// Complete `$07:9AAB..9AEE` leaf. Negation wraps BEFORE the signed
+    /// approach to zero, including the most-negative fine-angle word.
+    pub fn advance(&mut self) {
+        let reversed = self.amount.wrapping_neg();
+        self.amount = if reversed > 0 {
+            (reversed - RECOIL_DECAY).max(0)
+        } else if reversed < 0 {
+            (reversed + RECOIL_DECAY).min(0)
+        } else {
+            0
+        };
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerTargetControl {
+    /// Auxiliary 6BEA, consumed by the separate primary target-transition
+    /// service at $07:EA78. Path execution sets it but does not tick it.
+    pub transition_delay: u8,
     /// Source control bit 80 blocks target/rate/limit configuration.
     pub configuration_locked: bool,
     /// Source control bit 40 selects separately authored target offsets.
@@ -44,6 +80,7 @@ pub struct PrimaryControl<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerControlCommand {
+    LockToProjectile,
     Configure(i16),
     ConfigureDoubledLowByte(i16),
     ConfigureAlternateAxes(i16),
@@ -53,6 +90,17 @@ pub enum PlayerControlCommand {
 }
 
 impl PlayerTargetControl {
+    /// Complete `$07:B67D..B6EE`: temporarily unlock, replace ownership and
+    /// configure a zero-range target, then lock it again even if previously
+    /// locked to a different actor. The transition delay is restarted.
+    pub fn lock_to_projectile(&mut self, owner: ObjectId, position: Vector3) {
+        self.configuration_locked = false;
+        self.transition_delay = PROJECTILE_TARGET_DELAY;
+        self.configure_with_rates(owner, position, 0, PROJECTILE_TARGET_RATES);
+        self.axis_limits = PROJECTILE_TARGET_LIMITS;
+        self.configuration_locked = true;
+    }
+
     pub fn refresh_owned_origin(&mut self, owner: ObjectId, position: Vector3) {
         if self.owner == Some(owner) {
             self.origin = position;
@@ -152,6 +200,7 @@ mod tests {
 
     fn retained(owner: Option<ObjectId>) -> PlayerTargetControl {
         PlayerTargetControl {
+            transition_delay: 73,
             configuration_locked: false,
             offset_enabled: true,
             mode: 17,
@@ -168,6 +217,70 @@ mod tests {
             control: 127,
             axis_rates: [21, 22, 23],
             axis_limits: [51, 52, 53],
+        }
+    }
+
+    #[test]
+    fn projectile_lock_replaces_prior_owner_and_lock_but_ordinary_configuration_keeps_delay() {
+        let (owner, other) = identities();
+        let position = Vector3 {
+            x: i16::MIN,
+            y: 177,
+            z: i16::MAX,
+        };
+        for locked in [false, true] {
+            for previous in [None, Some(owner), Some(other)] {
+                for delay in 0..=u8::MAX {
+                    let mut actual = retained(previous);
+                    actual.configuration_locked = locked;
+                    actual.transition_delay = delay;
+                    actual.lock_to_projectile(owner, position);
+                    assert_eq!(
+                        actual,
+                        PlayerTargetControl {
+                            transition_delay: 10,
+                            configuration_locked: true,
+                            offset_enabled: false,
+                            mode: 2,
+                            owner: Some(owner),
+                            origin: position,
+                            range: 0,
+                            positive_range: 0,
+                            limit: 255,
+                            axis_mode: 3,
+                            control: 31,
+                            axis_rates: [3, 3, 2],
+                            axis_limits: [25, 25, 31],
+                        }
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pitch_recoil_initialization_and_reversal_preserve_every_word() {
+        for encoded in 0..=u16::MAX {
+            let mut recoil = PitchRecoil {
+                amount: encoded as i16,
+            };
+            recoil.initialize_if_idle(128);
+            assert_eq!(
+                recoil.amount,
+                if encoded == 0 { 128 } else { encoded as i16 }
+            );
+            recoil.amount = 0;
+            recoil.initialize_if_idle(encoded as i16);
+            assert_eq!(recoil.amount, encoded as i16);
+            recoil.advance();
+            let reversed = (65536u32 - u32::from(encoded)) as u16 as i16 as i32;
+            let expected = reversed.signum() * (reversed.abs() - 16).max(0);
+            assert_eq!(i32::from(recoil.amount), expected);
+        }
+        let mut recoil = PitchRecoil { amount: 128 };
+        for expected in [-112, 96, -80, 64, -48, 32, -16, 0, 0] {
+            recoil.advance();
+            assert_eq!(recoil.amount, expected);
         }
     }
 

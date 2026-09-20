@@ -1342,4 +1342,51 @@ tests in debug/release, both audits, catalog freshness and the app build.
 Coverage is **26 complete roots / 557 source commands / 551 native statements**.
 The general Game scheduler, live protection-state ownership/producer wiring,
 and automatic source protection-effect spawning remain integration work.
+
+### Triggered attached projectile: complete parent, child and callbacks
+
+`$44:F48B` now lowers its full 47-command graph to 44 typed statements. The
+parent creates the shape-seven child at relative Y -10/pitch 231, excludes
+the primary player from pair contacts, and follows the separately selected
+player while aiming toward a 127-unit forward offset. Its callback continues
+through both the twelve-pass trigger polling loop and the final twenty-update
+wait. An early trigger discards the outstanding loop entry before waiting.
+
+The child retains its primary collision-exclusion link independently of its
+attachment parent. Shared activation, a new contact, occupied terrain or the
+surface condition enters the same transition: cancel the contact callback,
+publish shared activation, initialize primary pitch recoil only when zero,
+replace and lock the primary target configuration, emit the second cue and
+stop. Its remaining loop continuously refreshes the target origin; it does
+not contain an END. The always callback survives, adding four to relative
+pitch and adding vertical velocity before ordinary attached integration adds
+that velocity again. End-of-parent handling is not automatic child retirement.
+
+The typed primary-target transition ports `$07:B67D..B6EE`, including temporary
+unlock, ownership replacement even when previously locked, zero range, rates
+3/3/2, limits 25/25/31, a ten-update transition delay and final relock. The
+independent pitch-recoil leaf `$07:9AAB..9AEE` wraps its word negation, then
+damps toward zero by sixteen. Exhaustive word tests cover recoil initialization
+and damping; byte tests cover shared activation without boolean narrowing.
+Missing live primary identity or required state faults before statement writes.
+
+Whole-graph tests cover every trigger route, absent activation, early and late
+parent triggers, selected-versus-primary identity, retained recoil, initial
+and subsequent target ownership, both movement/callback phases, cue order and
+unchanged random state. Static signatures pin the entire graph, inline call,
+target helper, recoil helper, source installer and shared-trigger producers.
+
+Verification passes 102 lowerer tests, 255 static path tests and 268 native path
+tests in debug and release, plus generated freshness, architecture/audit checks
+and the application build. Coverage is **27 complete roots / 604 source
+commands / 595 native statements**. General Game scheduling, automatic weapon
+spawning/retirement, live player-state ownership, target-transition countdown
+consumption and player-service recoil scheduling remain integration work.
+
+The broader library run passes 632 of 633 tests. The unrelated
+`reengagement_guidance_message_matches_the_retail_timeline_and_cues` assertion
+also fails in an isolated clean checkout of prior commit `5ebf050`: the cue
+batch contains two `HostileLaser` events before `RadioMessageClose`, while the
+test expects only the close cue. This baseline failure is not counted as a
+passing whole-library verification and is unchanged by this path port.
 No recorded gameplay, CPU execution or graphics-coprocessor execution was used.
