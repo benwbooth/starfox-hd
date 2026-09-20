@@ -40,7 +40,7 @@ fn callbacks(
             CallbackStep::Run(_) => {
                 count += 1;
                 assert_eq!(
-                    runtime.resume_program(catalog, objects, owner, inputs, 64),
+                    runtime.resume_program(catalog, objects, owner, inputs, 64).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::ResumeCallbacks)
                 );
             }
@@ -104,7 +104,7 @@ fn authored_pickups_initialize_collect_cancel_and_award_each_kind() {
                         markers: None,
                     });
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     let actor = objects.get(owner).unwrap();
@@ -160,7 +160,7 @@ fn authored_pickups_initialize_collect_cancel_and_award_each_kind() {
                     );
                     assert_ne!(objects.get(owner).unwrap().base.path, interrupted);
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     let actor = objects.get(owner).unwrap();
@@ -181,7 +181,7 @@ fn authored_pickups_initialize_collect_cancel_and_award_each_kind() {
                     );
                     // Collection waits exactly one visit after cancellation.
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 24),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 24).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Ended)
                     );
                     let actor = objects.get(owner).unwrap();
@@ -260,7 +260,7 @@ fn authored_pickup_history_suppresses_every_already_collected_identity_before_wo
             // Equipment, surface, score, audio and players are absent: the
             // already-collected branch must not touch any of them.
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::Ended)
             );
             let actor = objects.get(owner).unwrap();
@@ -316,7 +316,7 @@ fn authored_weapon_pickup_fallback_uses_published_level_and_one_shared_random_dr
             inputs.surface_mode = Some(SurfaceMode { flags: 1 });
             // No fresh equipment input: eligibility reads only publication.
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::Movement)
             );
             let actor = objects.get(owner).unwrap();
@@ -390,7 +390,7 @@ fn authored_consumable_full_retry_reinstalls_collection_and_only_success_signals
                         markers: None,
                     });
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     let full = packed & 15 >= 9;
@@ -408,12 +408,12 @@ fn authored_consumable_full_retry_reinstalls_collection_and_only_success_signals
                             2
                         );
                         assert_eq!(
-                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(ControlStep::Movement)
                         );
                         let rejects_now = rejected && attempt == 0;
                         assert_eq!(
-                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 48),
+                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 48).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(if rejects_now {
                                 ControlStep::Movement
                             } else {
@@ -618,7 +618,7 @@ fn authored_pickup_proximity_uses_strict_depth_and_xy_sum_with_three_authored_li
                 inputs.primary_player = Some(player);
                 inputs.fixed_players = [Some(player); 2];
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 let held = objects.get(owner).unwrap().base.path;
@@ -668,7 +668,7 @@ fn authored_pickup_timed_lifetime_keeps_callbacks_through_wait_and_blink_loops()
         for visit in 1..=movement_count + 1 {
             let final_visit = visit == movement_count + 1;
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(if final_visit {
                     ControlStep::Ended
                 } else {
@@ -772,7 +772,7 @@ fn authored_pickup_part_gate_preserves_saved_position_and_uses_published_height_
                     inputs.surface_mode = Some(SurfaceMode { flags: 1 });
                 }
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 let actor = objects.get(owner).unwrap();
@@ -822,7 +822,7 @@ fn authored_pickup_part_gate_preserves_saved_position_and_uses_published_height_
                     // The part gate yields without reading surface mode and
                     // keeps the always callback alive until its hit event.
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     assert_eq!(objects.get(owner).unwrap().base.path, gate);
@@ -835,7 +835,7 @@ fn authored_pickup_part_gate_preserves_saved_position_and_uses_published_height_
                         .hit_event_pending = true;
                     inputs.surface_mode = Some(SurfaceMode { flags: 1 });
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     assert!(

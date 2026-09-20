@@ -62,6 +62,11 @@ class PathActorContextStaticTests(unittest.TestCase):
     def test_child_lookup_uses_complete_number_byte_and_first_matching_sibling(self):
         self.assert_source(0x7F2A7B, "8D 2A 19 DA B4 29 F0 0B B9 13 00 CD 2A 19 F0 03 BB 80 F1 FA 6B")
 
+    def test_callback_root_restores_batch_actor_independently_of_temporary_context(self):
+        self.assert_source(0x7F9AFF, "DA")
+        self.assert_source(0x7F95A6, "AC 6D B2 F0 09 CE 1D 6A D0 04 5C 88 9D 7F")
+        self.assert_source(0x7F9D88, "FA AC 40 D7 C8 C8 C8 C8 E2 20 AD 42 D7 3A F0 04 5C CE 9A 7F")
+
 
 if __name__ == "__main__":
     unittest.main()

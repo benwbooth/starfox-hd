@@ -2340,3 +2340,33 @@ Dispatcher and lowerer integration is still pending, so this service does
 not add any complete catalog roots: coverage remains 86 roots / 1,381 source
 commands / 1,372 statements. No recorded gameplay or original-program
 execution was used for these transcriptions.
+
+### Context-aware path dispatch and lowering
+
+The six temporary actor-selection handlers are now wired into the native
+dispatcher and offline lowerer. Literal and field-derived child numbers are
+resolved before switching; all subsequent statements read and mutate the
+current actor. The dispatcher returns a typed `ProgramExit` containing both
+the scheduling action and the actual actor. Diagnostic failures retain the
+current identity through `program_actor()`, allowing continuation after a
+budget boundary without selecting a new player or rerunning the caller's
+selection statement. Existing lifecycle assertions now also check the exit
+actor, not just the scheduling action.
+
+Callback execution accepts the currently borrowed actor for calls, stack
+storage and mutation while rejecting unrelated actors. Source callback-root
+return (`$7F:95A6`, `$7F:9D88`) restores the trigger batch's actor independently
+of the single saved path context. Tests cover that return both with and
+without an explicit UNBECOME, borrowed-actor call storage, error/resume
+boundaries, all 256 literal/field child numbers, missing-child branches,
+selection and wait retention, and reuse of saved context by a later common
+entry. A movement-boundary test uses the returned actor to move only the
+borrowed object, then restores the caller and its continuation.
+
+Validation passes 144 lowerer tests, 311 source-static path tests and 370
+native path tests in debug/release, generated freshness, both architecture
+and static-gameplay audits, and the app build with its existing app-icon
+warning. These new statements have not yet added authored roots; coverage
+remains 86 complete roots / 1,381 source commands / 1,372 statements. This
+establishes the typed dispatch contract, not the remaining Game scheduler
+or whole-game completeness.

@@ -51,7 +51,7 @@ fn callbacks(
             CallbackStep::Run(_) => {
                 count += 1;
                 assert_eq!(
-                    runtime.resume_program(catalog, objects, owner, inputs, 16),
+                    runtime.resume_program(catalog, objects, owner, inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::ResumeCallbacks)
                 );
             }
@@ -103,7 +103,7 @@ fn authored_random_texture_contact_sprite_samples_once_then_clears_health_and_ho
                             owner,
                             &mut world(&mut random),
                             16
-                        ),
+                        ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     let actor = objects.get(owner).unwrap();
@@ -158,7 +158,7 @@ fn authored_random_texture_contact_sprite_samples_once_then_clears_health_and_ho
                         owner,
                         &mut world(&mut random),
                         1
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 assert_eq!(objects.get(owner).unwrap(), &held);
@@ -220,7 +220,7 @@ fn authored_distance_aimed_projectile_preserves_far_pitch_and_retires_after_plan
             inputs.selected = Some(selected);
             inputs.audio = Some(audio(&mut events));
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::Movement)
             );
             let actor = objects.get(owner).unwrap();
@@ -265,7 +265,7 @@ fn authored_distance_aimed_projectile_preserves_far_pitch_and_retires_after_plan
             let waits = 5;
             for visit in 0..=waits {
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(if visit == waits {
                         ControlStep::Ended
                     } else {
@@ -365,7 +365,7 @@ fn authored_delayed_contact_projectile_uses_eight_offsets_then_arms_and_expires_
                 };
                 for visit in 1..=ends_after {
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     let actor = objects.get_mut(owner).unwrap();
@@ -418,7 +418,7 @@ fn authored_delayed_contact_projectile_uses_eight_offsets_then_arms_and_expires_
                     }
                 }
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Ended)
                 );
                 assert!(objects.get(owner).unwrap().base.flags.remove_after_tick);
@@ -511,7 +511,7 @@ fn authored_randomized_guided_projectile_preserves_rng_sign_order_yaw_gate_and_t
                         has_aimed = true;
                     }
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 48),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 48).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if terminal {
                             ControlStep::Ended
                         } else {

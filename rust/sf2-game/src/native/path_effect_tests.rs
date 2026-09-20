@@ -59,7 +59,7 @@ fn callbacks(
             CallbackStep::Run(_) => {
                 count += 1;
                 assert_eq!(
-                    runtime.resume_program(catalog, objects, owner, inputs, 24),
+                    runtime.resume_program(catalog, objects, owner, inputs, 24).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::ResumeCallbacks)
                 );
             }
@@ -115,7 +115,7 @@ fn authored_terminal_children_preserve_pose_and_distinguish_retirement_from_hold
             let suppression = root == authored_paths::CONTACT_SUPPRESSED_ATTACHMENT;
             let clipped = root == authored_paths::CLIPPED_SHADOWLESS_ATTACHMENT;
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(if end {
                     ControlStep::Ended
                 } else {
@@ -163,7 +163,7 @@ fn authored_terminal_children_preserve_pose_and_distinguish_retirement_from_hold
                             owner,
                             &mut world(&mut random),
                             1
-                        ),
+                        ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     assert_eq!(objects.get(owner).unwrap(), &held);
@@ -187,7 +187,7 @@ fn authored_ten_tick_child_waits_for_byte_equality_then_ends() {
         let count = usize::from(10u8.wrapping_sub(elapsed));
         for visit in 0..=count {
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(if visit == count {
                     ControlStep::Ended
                 } else {
@@ -237,7 +237,7 @@ fn authored_fast_contact_mesh_defers_shape_and_speed_until_after_first_yield() {
                 .generate_velocity_each_step = each_step;
             let initial = actor.clone();
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::Movement)
             );
             let actor = objects.get(owner).unwrap();
@@ -261,7 +261,7 @@ fn authored_fast_contact_mesh_defers_shape_and_speed_until_after_first_yield() {
                         owner,
                         &mut world(&mut random),
                         5
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(if visit == count {
                         ControlStep::Ended
                     } else {
@@ -337,7 +337,7 @@ fn authored_hit_released_rise_chases_relative_height_and_signals_link_only_after
             inputs.audio = Some(audio(&mut events));
             for _ in 0..3 {
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 10),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 10).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 let actor = objects.get(owner).unwrap();
@@ -374,7 +374,7 @@ fn authored_hit_released_rise_chases_relative_height_and_signals_link_only_after
                 height = height.wrapping_add(step);
                 ended = 0i16.wrapping_sub(height) < 0;
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(if ended {
                         ControlStep::Ended
                     } else {
@@ -442,7 +442,7 @@ fn authored_alternating_sprite_keeps_all_phase_bytes_and_callback_motion_until_f
             for visit in 1..=25u8 {
                 let mut inputs = world(&mut random);
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(if visit == 25 {
                         ControlStep::Ended
                     } else {
@@ -506,7 +506,7 @@ fn authored_hit_released_attachment_waits_then_rotates_rises_and_exits_footprint
                 let mut inputs = world(&mut random);
                 inputs.audio = Some(audio(&mut events));
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 24),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 24).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 let actor = objects.get(owner).unwrap();
@@ -538,7 +538,7 @@ fn authored_hit_released_attachment_waits_then_rotates_rises_and_exits_footprint
                 assert!(!actor.extension.path_state.conditions.hit_event_pending);
                 for _ in 0..15 {
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     assert_eq!(
@@ -549,7 +549,7 @@ fn authored_hit_released_attachment_waits_then_rotates_rises_and_exits_footprint
                 assert!(cues(&mut inputs).is_empty());
                 for visit in 1..=20u8 {
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if visit == 20 {
                             ControlStep::Ended
                         } else {
@@ -661,7 +661,7 @@ fn authored_height_effect_selects_timed_retirement_or_complete_arc_and_independe
                     let total = first_wait + if yaw_inside { 90 } else { 0 };
                     for visit in 0..=total {
                         assert_eq!(
-                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12),
+                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(if visit == total {
                                 ControlStep::Ended
                             } else {
@@ -703,7 +703,7 @@ fn authored_height_effect_selects_timed_retirement_or_complete_arc_and_independe
                     let mut first = None;
                     for visit in 0..=12u8 {
                         assert_eq!(
-                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(if visit == 12 {
                                 ControlStep::Ended
                             } else {
@@ -774,7 +774,7 @@ fn authored_height_effect_selects_timed_retirement_or_complete_arc_and_independe
                                     child,
                                     &mut inputs,
                                     8
-                                ),
+                                ).map(|exit| { assert_eq!(exit.actor, child); exit.step }),
                                 Ok(if visit == 8 {
                                     ControlStep::Ended
                                 } else {

@@ -560,7 +560,24 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name == "ShapeDead":
+        if name in ("Become", "BecomeLinked"):
+            parameters(0)
+            selection = "LastSpawn" if name == "Become" else "Linked"
+            statement = f"Statement::SelectActor {{ selection: ActorSelection::{selection}, next: {next_cursor()} }}"
+        elif name == "BecomeMotherOrGoto":
+            low, high = parameters(2)
+            missing, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::SelectActor {{ selection: ActorSelection::LinkedOrBranch {{ missing: {missing} }}, next: {next_} }}"
+        elif name in ("BecomeChildLiteralOrGoto", "BecomeChildVariableOrGoto"):
+            number, low, high = parameters(3)
+            missing, next_ = branch_cursors(low | (high << 8))
+            number_ = (f"ByteOperand::Literal({number})" if name == "BecomeChildLiteralOrGoto"
+                       else f"ByteOperand::Actor({byte_field(number)})")
+            statement = f"Statement::SelectChild {{ number: {number_}, missing: {missing}, next: {next_} }}"
+        elif name == "Unbecome":
+            parameters(0)
+            statement = f"Statement::RestoreActor {{ next: {next_cursor()} }}"
+        elif name == "ShapeDead":
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))
             statement = f"Statement::AttachmentAbsent {{ taken: {taken}, next: {next_} }}"
@@ -1346,6 +1363,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
     PathCursor { path: PathId::from_catalog_index(path), command_index }
 }
 """
+    if any("ActorSelection::" in statement for statement in unique_statements.values()):
+        source += "use super::path_actor_context::ActorSelection;\n"
     if any("WordOperand::" in statement for statement in unique_statements.values()):
         source += "use super::path_fields::WordOperand;\n"
     if any("AppearanceCommand::" in statement for statement in unique_statements.values()):

@@ -110,6 +110,7 @@ pub struct PathRuntime {
     runner: TriggerRunner,
     active: Option<ActiveCallbacks>,
     movement: Option<ObjectId>,
+    pub(super) program_actor: Option<ObjectId>,
     selected: PlayerTarget,
 }
 
@@ -125,6 +126,7 @@ impl Default for PathRuntime {
             runner: TriggerRunner::default(),
             active: None,
             movement: None,
+            program_actor: None,
             selected: PlayerTarget::Primary,
         }
     }
@@ -187,6 +189,13 @@ impl PathRuntime {
         self.selected
     }
 
+    /// Current immediate-program actor, also retained on dispatch errors so
+    /// diagnostic-budget continuation can resume a temporarily borrowed actor.
+    /// A new common entry or callback entry selects its own actor explicitly.
+    pub fn program_actor(&self) -> Option<ObjectId> {
+        self.program_actor
+    }
+
     /// Start exactly one movement invocation. The returned flag tells the
     /// caller whether to service callbacks before calling finish_movement.
     /// Displacement must be sampled using the selection that exists now;
@@ -241,6 +250,7 @@ impl PathRuntime {
         objects: &ObjectStore,
         owner: ObjectId,
     ) -> Result<PathCursor, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
         let actor = objects
             .get(owner)
             .ok_or(PathRuntimeError::MissingActor(owner))?;
@@ -249,6 +259,7 @@ impl PathRuntime {
             .path
             .ok_or(PathRuntimeError::MissingPath(owner))?;
         self.selected = actor.extension.path_state.conditions.selected_player;
+        self.program_actor = Some(owner);
         Ok(cursor)
     }
 
@@ -323,6 +334,7 @@ impl PathRuntime {
         self.runner
             .begin(list, &self.resources, owner)
             .map_err(PathRuntimeError::Triggers)?;
+        self.program_actor = Some(owner);
         self.active = Some(ActiveCallbacks {
             owner,
             executing: false,
@@ -395,6 +407,7 @@ impl PathRuntime {
                     .map_err(PathRuntimeError::Calls)?;
                 actor.base.path = Some(trigger.path);
                 self.selected = state.conditions.selected_player;
+                self.program_actor = Some(owner);
                 self.active
                     .as_mut()
                     .expect("active callback pass")
@@ -439,7 +452,11 @@ impl PathRuntime {
         match result {
             PathReturn::Resume(cursor) => actor.base.path = Some(cursor),
             PathReturn::CallbackComplete => {
-                self.active.as_mut().expect("callback root").executing = false
+                let active = self.active.as_mut().expect("callback root");
+                active.executing = false;
+                // $7F:9D88 restores the trigger pass's actor independently
+                // of any outstanding temporary path-context selection.
+                self.program_actor = Some(active.owner);
             }
         }
         Ok(result)
@@ -447,7 +464,7 @@ impl PathRuntime {
 
     pub(super) fn check_execution_owner(&self, owner: ObjectId) -> Result<(), PathRuntimeError> {
         if let Some(active) = self.active {
-            if active.owner != owner {
+            if self.program_actor.unwrap_or(active.owner) != owner {
                 return Err(PathRuntimeError::WrongCallbackOwner);
             }
             if !active.executing {

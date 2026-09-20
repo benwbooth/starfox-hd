@@ -7,6 +7,7 @@
 //! scheduler boundaries; dispatch does not advance time or tick other actors.
 
 use super::path_commands::{BranchCommand, ControlCommand, ControlStep, MotionCommand};
+use super::path_actor_context::{ActorContextError, ActorSelection};
 use super::path_conditions::{Predicate, SpatialCondition};
 use super::path_fields::{ByteOperand, Mutation, WordOperand};
 use super::path_runtime::{PathRuntime, PathRuntimeError};
@@ -23,6 +24,10 @@ mod projectile_tests;
 #[cfg(test)]
 #[path = "path_effect_tests.rs"]
 mod effect_tests;
+
+#[cfg(test)]
+#[path = "path_actor_context_program_tests.rs"]
+mod actor_context_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -353,6 +358,9 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    SelectActor { selection: ActorSelection, next: PathCursor },
+    SelectChild { number: ByteOperand, missing: PathCursor, next: PathCursor },
+    RestoreActor { next: PathCursor },
     /// The operand is a literal byte and the source branch bypasses IFNOT.
     /// Keep all eight bits even though normal weapon levels are one to three.
     ActiveWeaponLevelEquals {
@@ -658,6 +666,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    ActorContext(ActorContextError),
     MissingTargetingUpgrade,
     MissingSceneryDistance,
     MissingSceneByte(SceneByte),
@@ -714,6 +723,16 @@ impl From<PathRuntimeError> for ProgramError {
     }
 }
 
+/// The actual actor at a scheduler boundary. Temporary ownership can make
+/// it differ from the invocation's initial actor. Callback-root return
+/// restores the callback batch actor independently of path-context saves.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProgramExit {
+    pub actor: ObjectId,
+    pub step: ControlStep,
+}
+
 /// Dense, immutable semantic indices. There is no fallback to encoded scripts
 /// or an original-program executor when a path has not been lowered.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -754,7 +773,7 @@ impl PathRuntime {
         owner: ObjectId,
         world: &mut PathWorld<'_>,
         budget: usize,
-    ) -> Result<ControlStep, ProgramError> {
+    ) -> Result<ProgramExit, ProgramError> {
         self.check_execution_owner(owner)?;
         self.initialize_path_strategy(objects, owner)?;
         self.enter(objects, owner)?;
@@ -763,15 +782,18 @@ impl PathRuntime {
 
     /// Run only immediate statements. Budget exhaustion retains the next live
     /// cursor and returns an error; it must never manufacture a movement tick.
+    /// `owner` is the current actor, which may differ from an earlier entry.
+    /// After an error, `program_actor()` identifies that current actor.
     pub fn resume_program(
         &mut self,
         catalog: &PathCatalog,
         objects: &mut ObjectStore,
-        owner: ObjectId,
+        mut owner: ObjectId,
         world: &mut PathWorld<'_>,
         budget: usize,
-    ) -> Result<ControlStep, ProgramError> {
+    ) -> Result<ProgramExit, ProgramError> {
         self.check_execution_owner(owner)?;
+        self.program_actor = Some(owner);
         for executed in 0..=budget {
             let actor = objects
                 .get(owner)
@@ -785,6 +807,27 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::SelectActor { selection, next } => {
+                    owner = self.actor_context
+                        .select(objects, owner, self.spawns.last_spawn, selection, next)
+                        .map_err(ProgramError::ActorContext)?;
+                    self.program_actor = Some(owner);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SelectChild { number, missing, next } => {
+                    let number = number.read(actor);
+                    owner = self.actor_context.select(objects, owner, self.spawns.last_spawn,
+                        ActorSelection::ChildOrBranch { number, missing }, next)
+                        .map_err(ProgramError::ActorContext)?;
+                    self.program_actor = Some(owner);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::RestoreActor { next } => {
+                    owner = self.actor_context.restore(objects, owner, next)
+                        .map_err(ProgramError::ActorContext)?;
+                    self.program_actor = Some(owner);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ActiveWeaponLevelEquals { expected, taken, next } => {
                     let actual = world.scene.active_weapon_level
                         .ok_or(ProgramError::MissingSceneByte(SceneByte::ActiveWeaponLevel))?;
@@ -1645,7 +1688,10 @@ impl PathRuntime {
                     objects.get_mut(owner).expect("executed actor remains live"),
                     world.animation_clock,
                 );
-                return Ok(outcome);
+                return Ok(ProgramExit {
+                    actor: self.program_actor.expect("executed program actor"),
+                    step: outcome,
+                });
             }
         }
         unreachable!("inclusive budget iteration always returns")
@@ -1743,7 +1789,7 @@ mod tests {
             let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
             let before = objects.clone();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(error)
             );
             assert_eq!(objects, before);
@@ -1774,7 +1820,7 @@ mod tests {
                 inputs.action_gate = Some(value as u8);
                 inputs.environment_plane_height = Some(value as i16);
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 0),
                         executed: 0
@@ -1785,7 +1831,7 @@ mod tests {
                     !(value as u8)
                 );
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 1),
                         executed: 1
@@ -1827,7 +1873,7 @@ mod tests {
                     let mut inputs = world(&mut random);
                     inputs.animation_clock = clock;
                     assert_eq!(
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: next,
                             executed: 1
@@ -1865,7 +1911,7 @@ mod tests {
                 markers: None,
             });
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(if visit == 44 {
                     ControlStep::Ended
                 } else {
@@ -1945,7 +1991,7 @@ mod tests {
                         markers: None,
                     });
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, parent, &mut inputs, 16),
+                        runtime.enter_program(&catalog, &mut objects, parent, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, parent); exit.step }),
                         Ok(ControlStep::Movement)
                     );
                     let child = objects
@@ -2009,7 +2055,7 @@ mod tests {
                         }
                         inputs.animation_clock = (visit + 1) as u8;
                         let outcome = runtime
-                            .enter_program(&catalog, &mut objects, child, &mut inputs, 48)
+                            .enter_program(&catalog, &mut objects, child, &mut inputs, 48).map(|exit| { assert_eq!(exit.actor, child); exit.step })
                             .unwrap();
                         if early_end == Some(visit) {
                             assert_eq!(outcome, ControlStep::Ended);
@@ -2071,7 +2117,7 @@ mod tests {
                                             child,
                                             &mut inputs,
                                             12
-                                        ),
+                                        ).map(|exit| { assert_eq!(exit.actor, child); exit.step }),
                                         Ok(ControlStep::ResumeCallbacks)
                                     );
                                 }
@@ -2216,7 +2262,7 @@ mod tests {
                 inputs.projectile_trigger = Some(&mut trigger);
                 inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(if visit == last_visit {
                         ControlStep::Ended
                     } else {
@@ -2262,7 +2308,7 @@ mod tests {
                         Ok(CallbackStep::Run(_))
                     ));
                     assert_eq!(
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::ResumeCallbacks)
                     );
                     assert_eq!(
@@ -2355,14 +2401,14 @@ mod tests {
             let mut missing_player_recoil = PitchRecoil::default();
             let mut inputs = world(&mut random);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingPrimaryPlayer)
             );
             assert_eq!(objects, original);
             inputs.primary_player = Some(removed);
             inputs.primary_pitch_recoil = Some(&mut missing_player_recoil);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::Runtime(PathRuntimeError::MissingActor(
                     removed
                 )))
@@ -2373,14 +2419,14 @@ mod tests {
             inputs.primary_pitch_recoil = None;
             if needs_recoil {
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::MissingPrimaryPitchRecoil)
                 );
                 assert_eq!(objects, original);
             }
             inputs.primary_pitch_recoil = Some(&mut recoil);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 0),
                     executed: 0
@@ -2388,7 +2434,7 @@ mod tests {
             );
             assert_eq!(objects, original);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -2415,7 +2461,7 @@ mod tests {
             .unwrap();
             objects = original.clone();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingProjectileTrigger)
             );
             assert_eq!(objects, original);
@@ -2433,7 +2479,7 @@ mod tests {
                 let mut inputs = world(&mut random);
                 inputs.projectile_trigger = Some(&mut trigger);
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 1),
                         executed: 1
@@ -2512,7 +2558,7 @@ mod tests {
                 inputs.projectile_trigger = Some(&mut trigger);
                 inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, parent, &mut inputs, 30),
+                    runtime.enter_program(&catalog, &mut objects, parent, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, parent); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 let child = runtime.spawns.last_spawn.unwrap();
@@ -2564,7 +2610,7 @@ mod tests {
                         markers: None,
                     });
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 30),
+                        runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, child); exit.step }),
                         Ok(ControlStep::Movement),
                         "cause={cause} visit={visit}"
                     );
@@ -2604,7 +2650,7 @@ mod tests {
                                         child,
                                         &mut inputs,
                                         8
-                                    ),
+                                    ).map(|exit| { assert_eq!(exit.actor, child); exit.step }),
                                     Ok(ControlStep::ResumeCallbacks)
                                 );
                             }
@@ -2795,7 +2841,7 @@ mod tests {
         for visit in 0..6 {
             let mut inputs = world(&mut random);
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(if visit == 5 {
                     ControlStep::Ended
                 } else {
@@ -2809,7 +2855,7 @@ mod tests {
                     Ok(CallbackStep::Run(callback))
                 );
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 12),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 12).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::ResumeCallbacks)
                 );
                 assert_eq!(
@@ -2863,9 +2909,10 @@ mod tests {
             .repeat_counter = 37;
         runtime.branch.invert_next = true;
         let mut inputs = world(&mut random);
+        runtime.enter(&objects, owner).unwrap();
         let before = (runtime.clone(), objects.clone());
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded {
                 cursor: cursor(0, 0),
                 executed: 0
@@ -2873,7 +2920,7 @@ mod tests {
         );
         assert_eq!((&runtime, &objects), (&before.0, &before.1));
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded {
                 cursor: cursor(0, 1),
                 executed: 1
@@ -2881,7 +2928,7 @@ mod tests {
         );
         let before = (runtime.clone(), objects.clone());
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::Runtime(PathRuntimeError::Stack(
                 PathStackError::IncompatibleSavedValue
             )))
@@ -2955,7 +3002,7 @@ mod tests {
         let before = objects.clone();
         let initial_random = random;
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::Runtime(PathRuntimeError::Steering(
                 SteeringError::MissingSelected
             )))
@@ -2966,7 +3013,7 @@ mod tests {
         let mut inputs = world(&mut random);
         inputs.selected = Some(target);
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded {
                 cursor: cursor(0, 0),
                 executed: 0
@@ -2986,7 +3033,7 @@ mod tests {
         .unwrap();
         expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded {
                 cursor: cursor(0, 1),
                 executed: 1
@@ -3011,7 +3058,7 @@ mod tests {
         .unwrap();
         let before = objects.clone();
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingActiveNodeFlags)
         );
         assert_eq!(objects, before);
@@ -3023,7 +3070,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.active_node_flags = Some(flags);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1,
@@ -3125,7 +3172,7 @@ mod tests {
                     });
                 }
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(if ended {
                         ControlStep::Ended
                     } else {
@@ -3172,7 +3219,7 @@ mod tests {
                 selection: &mut selection,
             });
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(if visit == 2 {
                     ControlStep::Ended
                 } else {
@@ -3241,7 +3288,7 @@ mod tests {
                 });
             }
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(error)
             );
             assert_eq!(objects, before);
@@ -3292,7 +3339,7 @@ mod tests {
                 selection: &mut selection,
             });
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -3377,7 +3424,7 @@ mod tests {
                 let mut inputs = world(&mut random);
                 inputs.selected = (center == OrbitCenter::Selected).then_some(selected);
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 1),
                         executed: 1
@@ -3472,7 +3519,7 @@ mod tests {
                 let mut inputs = world(&mut random);
                 inputs.selected = (center == RadiusCenter::Selected).then_some(selected);
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 1),
                         executed: 1
@@ -3540,7 +3587,7 @@ mod tests {
                     None => SteeringError::MissingSelected,
                 };
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::Runtime(PathRuntimeError::Steering(error)))
                 );
                 assert_eq!(objects, before);
@@ -3563,7 +3610,7 @@ mod tests {
             let mut random = RandomState::default();
             let original = random;
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 0),
                     executed: 0
@@ -3595,7 +3642,7 @@ mod tests {
                                 owner,
                                 &mut world(&mut random),
                                 1
-                            ),
+                            ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::BudgetExceeded {
                                 cursor: destination,
                                 executed: 1
@@ -3638,7 +3685,7 @@ mod tests {
             }]])
             .unwrap();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 0),
                     executed: 0
@@ -3650,7 +3697,7 @@ mod tests {
             command.apply(actor);
             actor.base.path = Some(cursor(0, 1));
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -3696,7 +3743,7 @@ mod tests {
                         owner,
                         &mut world(&mut random),
                         1
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 1),
                         executed: 1
@@ -3765,7 +3812,7 @@ mod tests {
                             owner,
                             &mut world(&mut random),
                             1
-                        ),
+                        ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: cursor(0, 0),
                             executed: 1
@@ -3822,7 +3869,7 @@ mod tests {
             .motion_phase = 0xF37D;
         let before = objects.get(owner).unwrap().clone();
         assert_eq!(
-            runtime.resume_program(&import, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&import, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingChargeThreshold)
         );
         assert_eq!(objects.get(owner).unwrap(), &before);
@@ -3840,7 +3887,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.selected = selected;
             assert_eq!(
-                runtime.resume_program(&callback, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&callback, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(expected)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
@@ -3856,7 +3903,7 @@ mod tests {
             expected.extension.path_state.motion_phase =
                 (u16::from(value) << 8) | (expected.extension.path_state.motion_phase & 255);
             assert_eq!(
-                runtime.resume_program(&import, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&import, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 expected_outcome
             );
             assert_eq!(objects.get(owner).unwrap(), &expected);
@@ -3877,7 +3924,7 @@ mod tests {
                         expected.extension.texture_scroll_x = 255;
                     }
                     assert_eq!(
-                        runtime.resume_program(&callback, &mut objects, owner, &mut inputs, 1),
+                        runtime.resume_program(&callback, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         expected_outcome
                     );
                     assert_eq!(objects.get(owner).unwrap(), &expected);
@@ -3935,7 +3982,7 @@ mod tests {
                 .hold_latched
             {
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
             }
@@ -3976,7 +4023,7 @@ mod tests {
                     Ok(CallbackStep::Run(_))
                 ));
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::ResumeCallbacks)
                 );
                 assert_eq!(
@@ -4039,9 +4086,9 @@ mod tests {
             for inverted in [false, true] {
                 runtime.branch.invert_next = inverted;
                 let before_missing = objects.clone();
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::MissingPickupHistory));
                 assert_eq!(objects, before_missing);
                 for value in 0..=u16::MAX {
@@ -4051,7 +4098,7 @@ mod tests {
                     let mut history = PickupHistory { collected_mask: if importing { value } else { opposite } };
                     let mut inputs = world(&mut random);
                     inputs.pickup_history = Some(&mut history);
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
                     if importing { expected.get_mut(owner).unwrap().extension.path_state.script_value = value; }
                     assert_eq!(objects, expected);
@@ -4073,16 +4120,16 @@ mod tests {
         let mut history = PickupHistory { collected_mask: 0xF0F0 };
         let mut inputs = world(&mut random);
         inputs.pickup_history = Some(&mut history);
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
         assert_eq!(objects.get(owner).unwrap().extension.path_state.script_value, 0xF0F0);
         let paused_history = inputs.pickup_history.take().unwrap();
         let before = objects.clone();
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1), Err(ProgramError::MissingPickupHistory));
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Err(ProgramError::MissingPickupHistory));
         assert_eq!(objects, before);
         paused_history.collected_mask = 0x0F0F;
         inputs.pickup_history = Some(paused_history);
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded { cursor: cursor(0, 2), executed: 1 }));
         assert_eq!(history.collected_mask, 0xF0F0); // replacement, not OR or a fresh import
         assert_eq!(objects.get(owner).unwrap().extension.path_state.script_value, 0xF0F0);
@@ -4113,9 +4160,9 @@ mod tests {
                         let before_missing = objects.clone();
                         // Budget exhaustion is reported before consulting a
                         // missing snapshot; neither fault changes the actor.
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::MissingPublishedMotion));
                         assert_eq!(objects, before_missing);
                         for bits in 0..=u16::MAX {
@@ -4139,7 +4186,7 @@ mod tests {
                                 BytePart::Low => 0xAB00 | value,
                                 BytePart::High => value * 256 | 0xCD,
                             };
-                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                 Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
                             assert_eq!(objects.get(owner).unwrap(), &expected);
                             assert_eq!(inputs.published_motion, Some(snapshot));
@@ -4171,7 +4218,7 @@ mod tests {
                 let mut inputs = world(&mut random);
                 inputs.selected = Some(owner);
                 inputs.primary_player = Some(owner);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::MissingPublishedMotion));
                 assert_eq!(objects.get(owner).unwrap(), &initial);
                 for bits in 0..=u16::MAX {
@@ -4180,10 +4227,10 @@ mod tests {
                     let snapshot = PublishedPlayerMotion { position, delta: super::super::Vector3 { x: -19, y: -41, z: -83 } };
                     inputs.published_motion = Some(snapshot);
                     let before = objects.get(owner).unwrap().clone();
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                     assert_eq!(objects.get(owner).unwrap(), &before);
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
                     let mut expected = initial.clone();
                     expected.extension.path_state.script_value = bits;
@@ -4213,7 +4260,7 @@ mod tests {
             let before = objects.get(owner).unwrap().clone();
             let original_random = random;
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingPublishedMotion)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
@@ -4237,7 +4284,7 @@ mod tests {
                 let mut expected = before.clone();
                 expected.extension.path_state.script_value = bits;
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 0),
                         executed: 1
@@ -4311,7 +4358,7 @@ mod tests {
                 inputs.published_motion = Some(snapshot);
                 inputs.selected = Some(selected);
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 10),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 10).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 assert_eq!(objects.get(owner).unwrap(), &expected);
@@ -4361,7 +4408,7 @@ mod tests {
                         owner,
                         &mut world(&mut random),
                         1
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 1),
                         executed: 1
@@ -4395,7 +4442,7 @@ mod tests {
             }]])
             .unwrap();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingCountdown)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
@@ -4416,7 +4463,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.countdown = Some(&mut countdown);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -4467,7 +4514,7 @@ mod tests {
                 inputs.countdown = Some(&mut countdown);
                 assert_eq!(
                     runtime
-                        .resume_program(&catalog, &mut objects, owner, &mut inputs, 8)
+                        .resume_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                         .unwrap(),
                     ControlStep::Movement
                 );
@@ -4545,7 +4592,7 @@ mod tests {
                 inputs.primary_player = observations.primary;
                 inputs.fixed_players = observations.fixed_players;
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 0),
                         executed: 1
@@ -4590,7 +4637,7 @@ mod tests {
             }]])
             .unwrap();
             let result =
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1);
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
             if let Some(error) = error {
                 assert_eq!(
                     result,
@@ -4651,7 +4698,7 @@ mod tests {
                 .conditions
                 .hit_event_pending = true;
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -4676,7 +4723,7 @@ mod tests {
                         target,
                         &mut world(&mut random),
                         1
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, target); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: destination,
                         executed: 1
@@ -4730,7 +4777,7 @@ mod tests {
                             owner,
                             &mut world(&mut random),
                             1
-                        ),
+                        ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: destination,
                             executed: 1
@@ -4766,7 +4813,7 @@ mod tests {
         ] {
             let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::Relationship(RelationshipError::MissingActor(
                     parent
                 )))
@@ -4825,7 +4872,7 @@ mod tests {
             }
             expected.base.path = Some(cursor(0, 1));
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -4841,7 +4888,7 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
         let before = objects.get(owner).unwrap().clone();
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::Relationship(RelationshipError::MissingActor(
                 linked
             )))
@@ -4890,7 +4937,7 @@ mod tests {
             }]])
             .unwrap();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -4945,7 +4992,7 @@ mod tests {
             .unwrap();
             let before = objects.get(owner).unwrap().clone();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::Relationship(
                     RelationshipError::MissingSelected
                 ))
@@ -4956,7 +5003,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.selected = Some(removed);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::Relationship(RelationshipError::MissingActor(
                     removed
                 )))
@@ -5045,7 +5092,7 @@ mod tests {
                     let mut inputs = world(&mut random);
                     inputs.selected = Some(selected);
                     assert_eq!(
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: cursor(0, 1),
                             executed: 1
@@ -5088,7 +5135,7 @@ mod tests {
                     owner,
                     &mut world(&mut random),
                     1,
-                );
+                ).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
                 if current == target {
                     expected.base.path = Some(cursor(0, 1));
                     assert_eq!(
@@ -5170,7 +5217,7 @@ mod tests {
                     displacement,
                 });
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 0),
                         executed: 1
@@ -5199,7 +5246,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.primary_player = primary;
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(error)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
@@ -5272,7 +5319,7 @@ mod tests {
                             owner,
                             &mut world(&mut random),
                             2
-                        ),
+                        ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: next,
                             executed: 2
@@ -5345,7 +5392,7 @@ mod tests {
             let next = cursor(0, index as u16 + 1);
             expected.base.path = Some(next);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: next,
                     executed: 1
@@ -5380,13 +5427,13 @@ mod tests {
                 actor.base.hit_flags = previous;
                 actor.extension.path_state.conditions.hit_event_pending = true;
                 let original = objects.clone();
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                 assert_eq!(objects, original);
                 let mut expected = objects.get(owner).unwrap().clone();
                 expected.extension.clipping_plane = ClippingPlaneSelection::FIRST;
                 expected.base.path = Some(cursor(0, 1));
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
                 assert_eq!(objects.get(owner).unwrap(), &expected);
                 assert_eq!(runtime.branch.invert_next, inverted);
@@ -5418,12 +5465,12 @@ mod tests {
                             operation: ByteOperation::Assign(ByteOperand::Literal(value)) },
                         next: cursor(0, 1),
                     }]]).unwrap();
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                     assert_eq!(objects.get(owner).unwrap(), &expected);
                     expected.extension.path_state.weapon_selection = value;
                     expected.base.path = Some(cursor(0, 1));
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
                     assert_eq!(objects.get(owner).unwrap(), &expected);
                     assert_eq!(ByteField::WeaponSelection.read(objects.get(owner).unwrap()), value);
@@ -5457,7 +5504,7 @@ mod tests {
                 expected.extension.clipping_plane = ClippingPlaneSelection::from_selector_byte(expected_byte);
                 let next = cursor(0, index as u16 + 1);
                 expected.base.path = Some(next);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: next, executed: 1 }));
                 assert_eq!(objects.get(owner).unwrap(), &expected);
                 assert_eq!(ByteField::ClippingPlane.read(objects.get(owner).unwrap()), expected_byte);
@@ -5484,16 +5531,16 @@ mod tests {
                 let initial = objects.clone();
                 let initial_random = random;
                 let mut scenery = SceneryDistanceState { near_mask: value ^ 0xFF };
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::MissingSceneryDistance));
                 assert_eq!(objects, initial);
                 let mut inputs = world(&mut random);
                 inputs.scenery_distance = Some(&mut scenery);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                 assert_eq!(objects, initial);
                 assert_eq!(inputs.scenery_distance.as_ref().unwrap().near_mask, value ^ 0xFF);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
                 let mut expected = initial;
                 let actor = expected.get_mut(owner).unwrap();
@@ -5546,10 +5593,10 @@ mod tests {
                 ].into_iter().enumerate() {
                     objects.get_mut(selected).unwrap().base.position.x = distance;
                     let result = if visit == 0 {
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 60)
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 60).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                     } else {
                         // The previous GOTO already selected the next loop.
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 15)
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 15).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                     };
                     assert_eq!(result, Ok(ControlStep::Movement), "selector {selector}, visit {visit}");
                     if selector != 0 {
@@ -5591,31 +5638,31 @@ mod tests {
         let mut inputs = world(&mut random);
         inputs.scene.player_configuration = Some(0);
         inputs.selected = Some(selected);
-        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 60),
+        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 60).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSceneryDistance));
         let before = objects.clone();
         let failed = objects.get(owner).unwrap().base.path.unwrap();
         assert!(matches!(catalog.statement(failed), Ok(Statement::SceneryDistance { command: SceneryDistanceCommand::CopyTo(_), .. })));
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSceneryDistance));
         assert_eq!(objects, before);
         let mut scenery = SceneryDistanceState { near_mask: 0x33 };
         inputs.scenery_distance = Some(&mut scenery);
-        let result = runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2);
+        let result = runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
         let exporting = objects.get(owner).unwrap().base.path.unwrap();
         assert_eq!(result, Err(ProgramError::BudgetExceeded { cursor: exporting, executed: 2 }));
         assert!(matches!(catalog.statement(exporting), Ok(Statement::SceneryDistance { command: SceneryDistanceCommand::Assign(_), .. })));
         assert_eq!(objects.get(owner).unwrap().extension.path_state.motion_phase, 0xA533);
         let paused_scene = inputs.scenery_distance.take().unwrap();
         let before = objects.clone();
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSceneryDistance));
         assert_eq!(objects, before);
         // An intervening scene writer changes the shared byte, but the
         // pending export must use the actor's earlier imported value.
         paused_scene.near_mask = 0x88;
         inputs.scenery_distance = Some(paused_scene);
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2), Ok(ControlStep::Movement));
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
         assert_eq!(scenery.near_mask, 0x33);
     }
 
@@ -5643,7 +5690,7 @@ mod tests {
                     let mut inputs = world(&mut random);
                     inputs.selected = Some(selected);
                     inputs.scene.active_weapon_level = Some(actual);
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
                     assert_eq!(objects, expected_objects);
                     assert_eq!(runtime.branch.invert_next, invert);
@@ -5662,10 +5709,10 @@ mod tests {
         runtime.branch.invert_next = true;
         let initial = objects.clone();
         let initial_random = random;
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
         for _ in 0..2 {
-            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingSceneByte(SceneByte::ActiveWeaponLevel)));
             assert_eq!(objects, initial);
             assert!(runtime.branch.invert_next);
@@ -5674,7 +5721,7 @@ mod tests {
         for (actual, destination) in [(3, cursor(0, 0)), (3, cursor(0, 0)), (255, cursor(0, 1))] {
             let mut inputs = world(&mut random);
             inputs.scene.active_weapon_level = Some(actual);
-            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
             let mut expected = initial.clone();
             expected.get_mut(owner).unwrap().base.path = Some(destination);
@@ -5752,7 +5799,7 @@ mod tests {
                                             });
                                         }
                                     }
-                                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 64),
+                                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 64).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                         Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }),
                                         "entry={entry} initial={initial} mode={mode} inverted={inverted} skip_jitter={skip_jitter} health={health} visit={visit}");
                                     assert_eq!(audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
@@ -5770,7 +5817,7 @@ mod tests {
                                                 delta: Vector3 { x: (0xA500 | u16::from(motion_x)) as i16,
                                                     y: -32768, z: (0x5A00 | u16::from(motion_z)) as i16 },
                                             });
-                                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 11), Ok(ControlStep::ResumeCallbacks));
+                                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 11).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::ResumeCallbacks));
                                             assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
                                             position.x = position.x.wrapping_add(i16::from(motion_x.wrapping_mul(2).wrapping_neg() as i8));
                                             position.z = position.z.wrapping_add(i16::from(motion_z.wrapping_mul(2).wrapping_neg() as i8));
@@ -5816,17 +5863,17 @@ mod tests {
         let mut auxiliary = SelectedAuxiliaryState { mode: 0, action_flags: 0 };
         let mut inputs = world(&mut random);
         inputs.selected_auxiliary = Some(&mut auxiliary);
-        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16), Ok(ControlStep::Movement));
+        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
         assert!(runtime.begin_callbacks(&objects, owner).unwrap());
         assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
         // Save the phase byte once, then stop immediately before importing X.
-        let result = runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1);
+        let result = runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
         assert!(matches!(result, Err(ProgramError::BudgetExceeded { executed: 1, .. })));
         for delta in [None, Some(Vector3 { x: 100, y: 999, z: 7 })] {
             let before = objects.clone();
             let mut inputs = world(&mut random);
             inputs.published_motion = delta.map(|delta| PublishedPlayerMotion { position: Vector3::default(), delta });
-            let result = runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4);
+            let result = runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
             if delta.is_none() {
                 assert_eq!(result, Err(ProgramError::MissingPublishedMotion));
                 assert_eq!(objects, before);
@@ -5838,7 +5885,7 @@ mod tests {
         assert_eq!(actor.base.position, Vector3 { x: 32767i16.wrapping_add(56), y: -456, z: -32768 });
         assert_eq!(actor.extension.path_state.motion_phase, 0x0138);
         let before = objects.clone();
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 6),
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingPublishedMotion));
         assert_eq!(objects, before);
         let mut inputs = world(&mut random);
@@ -5846,13 +5893,13 @@ mod tests {
         inputs.published_motion = Some(PublishedPlayerMotion {
             position: Vector3::default(), delta: Vector3 { x: -3000, y: -999, z: 300 },
         });
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6), Ok(ControlStep::ResumeCallbacks));
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::ResumeCallbacks));
         assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
         let actor = objects.get(owner).unwrap();
         assert_eq!(actor.base.position, Vector3 { x: 32767i16.wrapping_add(56), y: -456, z: (-32768i16).wrapping_sub(88) });
         assert_eq!(actor.extension.path_state.motion_phase, 0x0111);
         for visit in 1..=7 {
-            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4),
+            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
             assert_eq!(objects.get(owner).unwrap().extension.path_state.animation.color.fixed_frame(), Some(visit));
         }
@@ -5891,7 +5938,7 @@ mod tests {
                 let initial_random = random;
                 runtime.branch.invert_next = true;
                 for _ in 0..3 {
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 5),
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 5).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement));
                     let actor = objects.get(owner).unwrap();
                     assert_eq!(actor.extension.path_state.animation.shape.fixed_frame(), Some(0));
@@ -5911,7 +5958,7 @@ mod tests {
                         assert!(runtime.begin_callbacks(&objects, owner).unwrap());
                         assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
                         assert!(!objects.get(owner).unwrap().extension.path_state.conditions.hit_event_pending);
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2),
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(ControlStep::ResumeCallbacks));
                         assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
                         assert_ne!(objects.get(owner).unwrap().base.path, held);
@@ -5921,7 +5968,7 @@ mod tests {
                             if visit == 2 && queue_during_animation {
                                 objects.get_mut(owner).unwrap().extension.path_state.conditions.hit_event_pending = true;
                             }
-                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                 Ok(ControlStep::Movement));
                             let actor = objects.get(owner).unwrap();
                             let held = visit + 1 == frames.len();
@@ -5996,7 +6043,7 @@ mod tests {
                     let local = (actor.extension.relative_position, actor.extension.relative_rotation);
                     runtime.branch.invert_next = inverted;
                     for visit in 1..=80u8 {
-                        let result = runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 13);
+                        let result = runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 13).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
                         assert_eq!(result, Ok(if visit == 80 { ControlStep::Ended } else { ControlStep::Movement }));
                         let actor = objects.get(owner).unwrap();
                         assert_eq!(actor.base.pitch.units(), pitch.wrapping_add(pitch_step.wrapping_mul(visit)));
@@ -6049,12 +6096,12 @@ mod tests {
                 let terminal = usize::from(12u8.wrapping_sub(initial));
                 for visit in 0..=terminal {
                     let ended = visit == terminal;
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 7),
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 7).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if ended { ControlStep::Ended } else { ControlStep::Movement }));
                     if !ended {
                         assert!(runtime.begin_callbacks(&objects, owner).unwrap());
                         assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2),
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(ControlStep::ResumeCallbacks));
                         assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
                     }
@@ -6101,7 +6148,7 @@ mod tests {
                 let before = actor.clone();
                 let initial_random = random;
                 runtime.branch.invert_next = true;
-                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6), Ok(ControlStep::Movement));
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                 let actor = objects.get(owner).unwrap();
                 let mut expected = before;
                 expected.base.path = actor.base.path;
@@ -6120,7 +6167,7 @@ mod tests {
                 }
                 assert_eq!(actor, &expected);
                 for _ in 0..4 {
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1), Ok(ControlStep::Movement));
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                     assert_eq!(objects.get(owner).unwrap(), &expected);
                     assert!(runtime.branch.invert_next);
                     assert_eq!(random, initial_random);
@@ -6157,7 +6204,7 @@ mod tests {
                     let initial_random = random;
                     runtime.branch.invert_next = true;
                     for visit in 1..=70i16 {
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6),
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(ControlStep::Movement));
                         let actor = objects.get(owner).unwrap();
                         let local = if drift { position.wrapping_sub(20 * visit) } else { position };
@@ -6212,7 +6259,7 @@ mod tests {
                         let live_animation = initial.wrapping_add(visit as u8);
                         objects.get_mut(owner).unwrap().extension.path_state.animation.shape =
                             AnimationControl::from_packed(live_animation);
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(ControlStep::Movement));
                         let actor = objects.get(owner).unwrap();
                         assert_eq!(actor.extension.relative_rotation.yaw.units(), initial.wrapping_sub((visit * 2) as u8));
@@ -6256,14 +6303,14 @@ mod tests {
                 let initial_random = random;
                 runtime.branch.invert_next = true;
                 for visit in 0..70u8 {
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Movement));
                     if visit <= 30 {
                         assert!(runtime.begin_callbacks(&objects, owner).unwrap());
                         let step = runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()).unwrap();
                         if visit < 30 {
                             assert!(matches!(step, CallbackStep::Run(_)));
-                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2),
+                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                 Ok(ControlStep::ResumeCallbacks));
                         } else {
                             assert_eq!(step, CallbackStep::Expired);
@@ -6315,7 +6362,7 @@ mod tests {
                 let terminal_visit = if wait { usize::from(20u8.wrapping_sub(initial)) } else { 5 };
                 let mut packed = initial;
                 for visit in 0..=terminal_visit {
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 5),
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 5).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if visit == terminal_visit { ControlStep::Ended } else { ControlStep::Movement }));
                     if !wait {
                         // Wide source arithmetic, including the sign-conditioned
@@ -6365,7 +6412,7 @@ mod tests {
                     runtime.branch.invert_next = true;
                     let initial_random = random;
                     for _ in 0..4 {
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4), Ok(ControlStep::Movement));
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                         let actor = objects.get(owner).unwrap();
                         assert_eq!(actor.extension.texture_scroll_x, if solid { 64 } else { retained });
                         assert_eq!(actor.extension.depth_offset, if solid { u16::from(retained) << 8 } else { 3 });
@@ -6424,13 +6471,13 @@ mod tests {
                         let reveal_visit = usize::from(3u8.wrapping_sub(retained_wait));
                         let mut phase = initial_phase;
                         for visit in 0..(reveal_visit + 270) {
-                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6), Ok(ControlStep::Movement));
+                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                             if visit == 0 {
                                 assert_eq!(objects.get(owner).unwrap().extension.path_state.animation.color.packed(), 129);
                             }
                             assert!(runtime.begin_callbacks(&objects, owner).unwrap());
                             assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
-                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 6), Ok(ControlStep::ResumeCallbacks));
+                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::ResumeCallbacks));
                             assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
                             let color = table[usize::from(phase)];
                             phase = phase.wrapping_add(1);
@@ -6480,7 +6527,7 @@ mod tests {
                     runtime.branch.invert_next = true;
                     let initial_random = random;
                     for visit in 0..8 {
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
                         let actor = objects.get(owner).unwrap();
                         assert_eq!(actor.base.position, Vector3 { x: -1234, y: if shrinking { y.wrapping_add(600) } else { y }, z: 32767 });
@@ -6536,7 +6583,7 @@ mod tests {
                     color &= 0x7F;
                     if color >= 8 { color -= 8; }
                     color |= 0x80;
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 9),
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 9).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
                     let actor = objects.get(owner).unwrap();
                     assert_eq!(actor.extension.path_state.animation.color.packed(), color);
@@ -6592,7 +6639,7 @@ mod tests {
                             }),
                         });
                     }
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12),
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if visit == iterations { ControlStep::Ended } else { ControlStep::Movement }));
                     assert_eq!(audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
                         // Source atan(0, 0) takes its zero-denominator
@@ -6646,13 +6693,13 @@ mod tests {
                 let mut size = 8u8.wrapping_add(retained);
                 for visit in 0..=movements {
                     let ending = visit == movements;
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16),
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if ending { ControlStep::Ended } else { ControlStep::Movement }));
                     assert_eq!(objects.get(owner).unwrap().base.position, expected_position);
                     if !ending {
                         assert!(runtime.begin_callbacks(&objects, owner).unwrap());
                         assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4), Ok(ControlStep::ResumeCallbacks));
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::ResumeCallbacks));
                         assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
                         high = high.wrapping_add(1);
                         expected_position.y = expected_position.y.wrapping_add(i16::from(high as i8));
@@ -6718,7 +6765,7 @@ mod tests {
                                 }),
                             });
                         }
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(if visit == iterations { ControlStep::Ended } else { ControlStep::Movement }));
                         assert_eq!(audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
                             expected_cue.into_iter().map(|id| SoundEvent::Authored(AuthoredCue::new(id, 32, PlayerTarget::Secondary))).collect::<Vec<_>>());
@@ -6764,13 +6811,13 @@ mod tests {
             let mut expected_position = actor.base.position;
             for (visit, &color) in colors.iter().enumerate() {
                 let ending = visit + 1 == colors.len();
-                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16),
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(if ending { ControlStep::Ended } else { ControlStep::Movement }), "visit {visit}");
                 assert_eq!(objects.get(owner).unwrap().base.position, expected_position);
                 if !ending {
                     assert!(runtime.begin_callbacks(&objects, owner).unwrap());
                     assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 5), Ok(ControlStep::ResumeCallbacks));
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 5).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::ResumeCallbacks));
                     assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
                     expected_position.x = expected_position.x.wrapping_add(i16::from(power as i8));
                     expected_position.y = expected_position.y.wrapping_sub(20);
@@ -6825,7 +6872,7 @@ mod tests {
                     runtime.branch.invert_next = invert;
                     // Small slices prove that immediate loops resume without
                     // inventing movement, reinitializing, or drawing again.
-                    let mut result = runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 127);
+                    let mut result = runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 127).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
                     let mut slices = 0;
                     while let Err(ProgramError::BudgetExceeded { executed, cursor }) = result {
                         assert_eq!(executed, 127);
@@ -6833,13 +6880,13 @@ mod tests {
                         assert!(!objects.get(owner).unwrap().base.flags.remove_after_tick);
                         slices += 1;
                         assert!(slices < 4000);
-                        result = runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 127);
+                        result = runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 127).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
                     }
                     assert_eq!(result, Ok(ControlStep::Movement));
                     assert_eq!(slices, (if skip { 10 } else { 20 + 6 * iterations } - 1) / 127);
                     for visit in 0..8 {
                         if visit != 0 {
-                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4),
+                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                 Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
                         }
                         let actor = objects.get(owner).unwrap();
@@ -6882,7 +6929,7 @@ mod tests {
                 runtime.branch.invert_next = true;
                 let initial_random = random;
                 for visit in 0..8 {
-                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4),
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
                     let actor = objects.get(owner).unwrap();
                     assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(visit));
@@ -6924,7 +6971,7 @@ mod tests {
             runtime.branch.invert_next = true;
             let initial_random = random;
             for visit in 0..20 {
-                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8), Ok(ControlStep::Movement));
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                 let actor = objects.get(owner).unwrap();
                 assert_eq!(actor.extension.texture_scroll_x, 16 + 2 * (visit + 1).min(15));
                 assert_eq!(actor.extension.texture_scroll_y, retained);
@@ -6977,7 +7024,7 @@ mod tests {
                     inputs.scene.player_configuration = Some(configuration);
                     inputs.scene.encounter_location = (configuration == 9).then_some(location);
                     for visit in 0..3 {
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, if visit == 0 { 32 } else { 1 }), Ok(ControlStep::Movement));
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, if visit == 0 { 32 } else { 1 }).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                         let actor = objects.get(owner).unwrap();
                         let material = match (configuration, location) {
                             (9, 2) => MaterialSetId::from_catalog_token(33_796),
@@ -7036,7 +7083,7 @@ mod tests {
                     let visits = if effective_parameter == 0 { 32 } else { 3 + 2 * iterations };
                     for visit in 0..visits {
                         let ending = effective_parameter != 0 && visit + 1 == visits;
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16),
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(if ending { ControlStep::Ended } else { ControlStep::Movement }),
                             "increments={increments} parameter={parameter} health={health} visit={visit}");
                         let actor = objects.get(owner).unwrap();
@@ -7073,7 +7120,7 @@ mod tests {
             runtime.branch.invert_next = true;
             let initial_random = random;
             for _ in 0..=hit_visit {
-                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16),
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement));
             }
             for visible in [false, true, false, true] {
@@ -7087,14 +7134,14 @@ mod tests {
                 assert!(runtime.begin_callbacks(&objects, owner).unwrap());
                 assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
                 assert!(!objects.get(owner).unwrap().extension.path_state.conditions.hit_event_pending);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4), Ok(ControlStep::ResumeCallbacks));
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::ResumeCallbacks));
                 assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
                 let actor = objects.get(owner).unwrap();
                 assert_eq!(actor.base.flags.visible, visible);
                 assert!(actor.base.flags.collision_disabled);
                 let redirected = actor.base.path;
                 assert_ne!(redirected, saved_main);
-                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 12), Ok(ControlStep::Movement));
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 12).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                 let actor = objects.get(owner).unwrap();
                 let triggers = actor.extension.path_state.triggers.entries(&runtime.resources, owner).unwrap();
                 assert_eq!(triggers.len(), 1);
@@ -7106,7 +7153,7 @@ mod tests {
                 } else {
                     let held = actor.base.path;
                     for _ in 0..3 {
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1), Ok(ControlStep::Movement));
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                         assert_eq!(objects.get(owner).unwrap().base.path, held);
                     }
                 }
@@ -7147,11 +7194,11 @@ mod tests {
                         let before = objects.clone();
                         let initial_random = random;
                         let mut inputs = world(&mut random);
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                         assert_eq!(objects, before);
                         let destination = cursor(0, if link_case == 0 { 2 } else { 1 });
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
                         let mut expected = before;
                         expected.get_mut(owner).unwrap().base.path = Some(destination);
@@ -7178,19 +7225,19 @@ mod tests {
                     objects.get_mut(owner).unwrap().base.wait_timer = 193;
                     let before = objects.clone();
                     let initial_random = random;
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::MissingTargetingUpgrade));
                     assert_eq!(objects, before);
                     assert_eq!(runtime.branch.invert_next, inverted);
                     let mut upgrade = TargetingUpgradeState { pilot_flags: flags };
                     let mut inputs = world(&mut random);
                     inputs.targeting_upgrade = Some(&mut upgrade);
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                     assert_eq!(objects, before);
                     assert_eq!(inputs.targeting_upgrade.as_ref().unwrap().pilot_flags, flags);
                     let next = cursor(0, if !acquiring && flags & 0x80 != 0 { 2 } else { 1 });
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: next, executed: 1 }));
                     let mut expected = before;
                     expected.get_mut(owner).unwrap().base.path = Some(next);
@@ -7215,7 +7262,7 @@ mod tests {
         runtime.branch.invert_next = true;
         let initial_random = random;
         for visit in 0..256 {
-            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4), Ok(ControlStep::Movement));
+            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
             let actor = objects.get(owner).unwrap();
             assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(if visit % 2 == 0 { 2 } else { 3 }));
             assert_eq!(actor.base.hit_points, 10);
@@ -7242,7 +7289,7 @@ mod tests {
                 objects.get_mut(owner).unwrap().extension.path_state.motion_phase = 0xA57E;
                 let before = objects.clone();
                 let initial_random = random;
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::MissingSceneByte(source)));
                 assert_eq!(objects, before);
                 let mut inputs = world(&mut random);
@@ -7251,10 +7298,10 @@ mod tests {
                     SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(value),
                     SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
                 }
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                 assert_eq!(objects, before);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
                 let mut expected = before;
                 let actor = expected.get_mut(owner).unwrap();
@@ -7291,7 +7338,7 @@ mod tests {
                 if configuration == 9 {
                     inputs.scene.encounter_location = Some(location);
                 }
-                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30), Ok(ControlStep::Movement));
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                 let actor = objects.get(owner).unwrap();
                 let expected = match (configuration, location) {
                     (9, 2) => MaterialSetId::from_catalog_token(33_796),
@@ -7330,7 +7377,7 @@ mod tests {
                 actor.extension.path_state.motion_phase = 0xA57E;
                 let mut inputs = world(&mut random);
                 inputs.scene.player_configuration = Some(9);
-                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30),
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::MissingSceneByte(SceneByte::EncounterLocation)));
                 let actor = objects.get(owner).unwrap();
                 assert_eq!(actor.extension.path_state.motion_phase, 0xA509);
@@ -7339,7 +7386,7 @@ mod tests {
                 // the resumed command samples location, not configuration again.
                 inputs.scene.player_configuration = None;
                 inputs.scene.encounter_location = Some(5);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 30), Ok(ControlStep::Movement));
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                 let actor = objects.get(owner).unwrap();
                 assert_eq!(actor.extension.path_state.motion_phase, 0xA57E);
                 assert_eq!(actor.extension.material_set, Some(MaterialSetId::from_catalog_token(33_944)));
@@ -7372,12 +7419,12 @@ mod tests {
             actor.extension.material_set = Some(MaterialSetId::from_catalog_token(33_534));
             let before = objects.clone();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 })
             );
             assert_eq!(objects, before);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 })
             );
             let mut expected = before;
@@ -7409,7 +7456,7 @@ mod tests {
             actor.base.wait_timer = 233;
             let before = objects.clone();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 0),
                     executed: 0
@@ -7417,7 +7464,7 @@ mod tests {
             );
             assert_eq!(objects, before);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -7472,7 +7519,7 @@ mod tests {
                         owner,
                         &mut world(&mut random),
                         0,
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 0),
                         executed: 0
@@ -7486,7 +7533,7 @@ mod tests {
                         owner,
                         &mut world(&mut random),
                         1,
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 let mut expected = before;
@@ -7515,7 +7562,7 @@ mod tests {
                         owner,
                         &mut world(&mut random),
                         1,
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::ResumeCallbacks)
                 );
                 assert_eq!(
@@ -7568,7 +7615,7 @@ mod tests {
             objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
             let before = objects.clone();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 0),
                     executed: 0
@@ -7580,7 +7627,7 @@ mod tests {
             actor.extension.radar_marker = marker;
             actor.base.path = Some(cursor(0, 1));
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -7643,7 +7690,7 @@ mod tests {
                         owner,
                         &mut world(&mut random),
                         1
-                    ),
+                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: next,
                         executed: 1
@@ -7679,7 +7726,7 @@ mod tests {
             .unwrap();
             let before = objects.get(owner).unwrap().clone();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingAudio)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
@@ -7692,7 +7739,7 @@ mod tests {
                 markers: None,
             });
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingSoundMarkers)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
@@ -7787,7 +7834,7 @@ mod tests {
                             .queue(SoundEvent::HostileLaser);
                         runtime.branch.invert_next = true;
                         assert_eq!(
-                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::BudgetExceeded {
                                 cursor: cursor(0, 1),
                                 executed: 1
@@ -7832,7 +7879,7 @@ mod tests {
         ]])
         .unwrap();
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingAudio)
         );
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
@@ -7853,7 +7900,7 @@ mod tests {
             markers: None,
         });
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 4),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         // Immediate/callback resume uses the retained selected slot, not the
@@ -7866,11 +7913,11 @@ mod tests {
             .conditions
             .selected_player = PlayerTarget::Primary;
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 4),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         assert_eq!(inputs.random, &before_random);
@@ -7911,7 +7958,7 @@ mod tests {
         let before_random = random;
         let mut inputs = world(&mut random);
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingPrimaryPlayer)
         );
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
@@ -7938,7 +7985,7 @@ mod tests {
                         expected.extension.path_state.motion_phase = high | 1;
                     }
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: cursor(0, 1),
                             executed: 1
@@ -7954,7 +8001,7 @@ mod tests {
         objects.remove(primary).unwrap();
         objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::Runtime(PathRuntimeError::MissingActor(
                 primary
             )))
@@ -7992,7 +8039,7 @@ mod tests {
                 inputs.selected = Some(owner);
                 inputs.selected_auxiliary = Some(&mut auxiliary);
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::Movement)
                 );
                 let saved_main = objects.get(owner).unwrap().base.path;
@@ -8040,7 +8087,7 @@ mod tests {
                     }
                 }
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(ControlStep::ResumeCallbacks)
                 );
                 assert_eq!(
@@ -8066,7 +8113,7 @@ mod tests {
                     );
                     assert!(!actor.base.flags.remove_after_tick);
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 2),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::Ended)
                     );
                     assert!(objects.get(owner).unwrap().base.flags.remove_after_tick);
@@ -8099,7 +8146,7 @@ mod tests {
             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
             // No audio is needed until the independently scheduled child runs.
             let outcome = runtime
-                .enter_program(&catalog, &mut objects, owner, &mut inputs, 16)
+                .enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                 .unwrap();
             assert_eq!(
                 outcome,
@@ -8169,7 +8216,7 @@ mod tests {
                     markers: None,
                 });
                 let outcome = runtime
-                    .enter_program(&catalog, &mut objects, child, &mut inputs, 16)
+                    .enter_program(&catalog, &mut objects, child, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, child); exit.step })
                     .unwrap();
                 assert_eq!(
                     outcome,
@@ -8249,7 +8296,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 0),
                     executed: 0
@@ -8257,7 +8304,7 @@ mod tests {
             );
             assert_eq!(objects, before);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::Movement)
             );
             assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 2)));
@@ -8279,7 +8326,7 @@ mod tests {
                 inputs.spawn_defaults = None;
                 let mut spawned_runtime = PathRuntime::default();
                 assert_eq!(
-                    spawned_runtime.enter_program(&catalog, &mut objects, created, &mut inputs, 1),
+                    spawned_runtime.enter_program(&catalog, &mut objects, created, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, created); exit.step }),
                     Ok(ControlStep::Ended)
                 );
                 assert!(objects.get(created).unwrap().base.flags.remove_after_tick);
@@ -8306,12 +8353,12 @@ mod tests {
         runtime.spawns.last_spawn = Some(owner);
         let mut inputs = world(&mut random);
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSpawnDefaults)
         );
         inputs.spawn_defaults = Some(super::super::ObjectSpawnDefaults::default());
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingStatement(cursor(1, 0)))
         );
         assert_eq!(objects, before);
@@ -8352,7 +8399,7 @@ mod tests {
             group: 99,
         });
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         let child = runtime.spawns.last_spawn.unwrap();
@@ -8380,7 +8427,7 @@ mod tests {
         );
         inputs.spawn_defaults = None; // this child's path needs no spawn inputs
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 8),
+            runtime.enter_program(&catalog, &mut objects, child, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, child); exit.step }),
             Ok(ControlStep::Ended)
         );
         assert_eq!(objects.get(child).unwrap().extension.texture_scroll_x, 12);
@@ -8415,13 +8462,13 @@ mod tests {
         let before = objects.clone();
         let mut inputs = world(&mut random);
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSpawnDefaults)
         );
         assert_eq!(objects, before);
         inputs.spawn_defaults = Some(super::super::ObjectSpawnDefaults::default());
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingStatement(cursor(1, 0)))
         );
         assert_eq!(objects, before);
@@ -8450,7 +8497,7 @@ mod tests {
         let mut inputs = world(&mut random);
         inputs.spawn_defaults = Some(super::super::ObjectSpawnDefaults::default());
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::Spawn(
                 super::super::path_spawn::SpawnError::PoolExhausted
             ))
@@ -8496,7 +8543,7 @@ mod tests {
                 let mut inputs = world(&mut random);
                 inputs.selected_auxiliary = Some(&mut auxiliary);
                 let outcome = runtime
-                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 16)
+                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                     .unwrap();
                 assert_eq!(
                     outcome,
@@ -8570,7 +8617,7 @@ mod tests {
         .unwrap();
         let original_objects = objects.clone();
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSelectedAuxiliary)
         );
         assert_eq!(objects, original_objects);
@@ -8588,7 +8635,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.selected_auxiliary = Some(&mut auxiliary);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: destination,
                     executed: 1
@@ -8659,7 +8706,7 @@ mod tests {
             };
             for visit in 1..=expected {
                 let result = runtime
-                    .enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6)
+                    .enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                     .unwrap();
                 assert_eq!(
                     result,
@@ -8739,7 +8786,7 @@ mod tests {
                 animation_clock: 61,
             };
             let outcome = runtime
-                .enter_program(&catalog, &mut objects, owner, &mut inputs, 16)
+                .enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                 .unwrap();
             assert_eq!(
                 outcome,
@@ -8794,7 +8841,7 @@ mod tests {
             }]])
             .unwrap();
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingSelectedAuxiliary)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
@@ -8806,7 +8853,7 @@ mod tests {
                     inputs.selected_auxiliary = Some(&mut auxiliary);
                     let destination = cursor(0, if mode / 16 == expected_class { 2 } else { 1 });
                     assert_eq!(
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: destination,
                             executed: 1
@@ -8841,10 +8888,10 @@ mod tests {
                 let mut request = ShieldRecoveryRequest { amount: pending };
                 let mut inputs = world(&mut random);
                 inputs.shield_recovery = Some(&mut request);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                 assert_eq!(inputs.shield_recovery.as_deref().unwrap().amount, pending);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
                 let total = ((u16::from(pending) + u16::from(amount)) % 256) as u8;
                 assert_eq!(request.amount, total);
@@ -8864,7 +8911,7 @@ mod tests {
         }
         let (mut runtime, mut objects, owner, mut random) = setup();
         let before = objects.clone();
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingShieldRecovery));
         assert_eq!(objects, before);
     }
@@ -8886,11 +8933,11 @@ mod tests {
                 let original_score = score;
                 let mut inputs = world(&mut random);
                 inputs.selected_score = Some(&mut score);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                 assert_eq!(inputs.selected_score.as_deref(), Some(&original_score));
                 for visits in 1..=2 {
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
                     let sum = u32::from(value) + u32::from(points) * visits;
                     let expected_low = if sum > 65535 { 65535 } else { sum };
@@ -8910,7 +8957,7 @@ mod tests {
         runtime.branch.invert_next = true;
         let original_objects = objects.clone();
         let original_random = random;
-        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSelectedScore));
         assert_eq!(objects, original_objects);
         assert_eq!(random, original_random);
@@ -8929,9 +8976,9 @@ mod tests {
             let original_objects = objects.clone();
             let original_random = random;
             let mut inputs = world(&mut random);
-            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
-            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingSelectedEquipment));
             assert_eq!(objects, original_objects);
             assert!(runtime.branch.invert_next);
@@ -8968,7 +9015,7 @@ mod tests {
                         inputs.scene.active_weapon_level = Some(217);
                         inputs.selected_equipment = Some(&mut equipment);
                         inputs.selected_auxiliary = Some(&mut auxiliary);
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                         assert_eq!(inputs.selected_equipment.as_deref(), Some(&initial));
                         assert_eq!(objects, before);
@@ -8980,7 +9027,7 @@ mod tests {
                             consumable_type: kind,
                             weapon_level: !kind,
                         };
-                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
                         assert_eq!(inputs.selected_equipment.as_deref(), Some(&expected_equipment));
                         assert_eq!(inputs.scene.active_weapon_level, Some(217));
@@ -9013,11 +9060,11 @@ mod tests {
                 let mut inputs = world(&mut random);
                 inputs.selected_equipment = Some(&mut equipment);
                 inputs.scene.active_weapon_level = Some(!level);
-                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
                 assert_eq!(inputs.selected_equipment.as_deref(), Some(&original));
                 for visits in 1..=4 {
-                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
                     assert_eq!(inputs.selected_equipment.as_deref(), Some(&SelectedEquipment {
                         weapon_level: if level >= 3 { level } else { (level + visits).min(3) },
@@ -9111,7 +9158,7 @@ mod tests {
                 let mut inputs = world(&mut random);
                 inputs.selected_auxiliary = Some(&mut auxiliary);
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 0),
                         executed: 0
@@ -9130,7 +9177,7 @@ mod tests {
                     (3, mode / 16 * 16 + 1, !mode / 2 * 2),
                 ] {
                     assert_eq!(
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: cursor(0, index),
                             executed: 1
@@ -9151,7 +9198,7 @@ mod tests {
                 }
                 let destination = cursor(0, if mode / 16 == 2 { 5 } else { 4 });
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: destination,
                         executed: 1
@@ -9180,7 +9227,7 @@ mod tests {
             let before = objects.clone();
             let before_random = random;
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingSelectedAuxiliary)
             );
             assert_eq!(objects, before);
@@ -9247,7 +9294,7 @@ mod tests {
                             tracked_screen_y,
                         };
                         assert_eq!(
-                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Err(ProgramError::BudgetExceeded {
                                 cursor: cursor(0, 1),
                                 executed: 1
@@ -9293,7 +9340,7 @@ mod tests {
         }]])
         .unwrap();
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingRadio)
         );
         let mut request = RadioRequest {
@@ -9310,7 +9357,7 @@ mod tests {
             },
         });
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded {
                 cursor: cursor(0, 0),
                 executed: 0
@@ -9345,7 +9392,7 @@ mod tests {
         let before = objects.clone();
         let before_random = random;
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSurfaceMode)
         );
         assert_eq!(objects, before);
@@ -9363,7 +9410,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.surface_mode = Some(mode);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -9476,7 +9523,7 @@ mod tests {
                         },
                     });
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if visit == last_visit {
                             ControlStep::Ended
                         } else {
@@ -9494,7 +9541,7 @@ mod tests {
                             Ok(CallbackStep::Run(_))
                         ));
                         assert_eq!(
-                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4),
+                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(ControlStep::ResumeCallbacks)
                         );
                         assert_eq!(
@@ -9648,7 +9695,7 @@ mod tests {
                 }),
             });
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::Movement)
             );
             objects
@@ -9663,7 +9710,7 @@ mod tests {
                 Ok(CallbackStep::Run(_))
             ));
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::ResumeCallbacks)
             );
             assert_eq!(
@@ -9738,7 +9785,7 @@ mod tests {
                     }),
                 });
                 assert_eq!(
-                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 80),
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 80).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Ok(if speed == 0 {
                         ControlStep::Ended
                     } else {
@@ -9961,7 +10008,7 @@ mod tests {
                                 });
                             }
                             let result = runtime
-                                .enter_program(&catalog, &mut objects, owner, &mut inputs, 80)
+                                .enter_program(&catalog, &mut objects, owner, &mut inputs, 80).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                                 .unwrap();
                             if mode == 0 {
                                 let actual = &objects.get(owner).unwrap().base;
@@ -10018,7 +10065,7 @@ mod tests {
                                                     owner,
                                                     &mut inputs,
                                                     16
-                                                ),
+                                                ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                                 Ok(ControlStep::ResumeCallbacks)
                                             );
                                         }
@@ -10134,7 +10181,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.selected = Some(selected);
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 20),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 20).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 if distance < 10000 {
                     Err(ProgramError::MissingAudio)
                 } else {
@@ -10215,7 +10262,7 @@ mod tests {
                 markers: None,
             });
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 48),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 48).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::Movement)
             );
             if forward_exit {
@@ -10229,7 +10276,7 @@ mod tests {
                 {
                     CallbackStep::Complete => break,
                     CallbackStep::Run(_) => assert_eq!(
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 24),
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 24).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::ResumeCallbacks)
                     ),
                     CallbackStep::Skipped | CallbackStep::Expired => {}
@@ -10241,7 +10288,7 @@ mod tests {
             );
             assert!(!objects.get(owner).unwrap().base.contacts.hit_marked);
             assert_eq!(
-                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 if forward_exit {
                     Ok(ControlStep::Ended)
                 } else {
@@ -10345,7 +10392,7 @@ mod tests {
                             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
                         }
                         let outcome = runtime
-                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 64)
+                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 64).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                             .unwrap();
                         assert_eq!(
                             outcome,
@@ -10401,7 +10448,7 @@ mod tests {
                                             owner,
                                             &mut inputs,
                                             24
-                                        ),
+                                        ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                         Ok(ControlStep::ResumeCallbacks)
                                     ),
                                     CallbackStep::Skipped | CallbackStep::Expired => {}
@@ -10479,7 +10526,7 @@ mod tests {
                                             effect_id,
                                             &mut world(&mut random),
                                             16
-                                        )
+                                        ).map(|exit| { assert_eq!(exit.actor, effect_id); exit.step })
                                         .unwrap(),
                                     if child_steps == 4 {
                                         ControlStep::Ended
@@ -10506,7 +10553,7 @@ mod tests {
                                                     effect_id,
                                                     &mut world(&mut random),
                                                     3
-                                                ),
+                                                ).map(|exit| { assert_eq!(exit.actor, effect_id); exit.step }),
                                                 Ok(ControlStep::ResumeCallbacks)
                                             ),
                                             CallbackStep::Skipped | CallbackStep::Expired => {}
@@ -10603,7 +10650,7 @@ mod tests {
                         encounter_variant: 0,
                     });
                     let result =
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 40);
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 40).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
                     assert_eq!(
                         result,
                         if multiplier == 0 && distance >= 12000 {
@@ -10729,7 +10776,7 @@ mod tests {
                 let terminal = visit == chase_visits + 39;
                 assert_eq!(
                     runtime
-                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 80)
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 80).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                         .unwrap(),
                     if terminal {
                         ControlStep::Ended
@@ -10760,7 +10807,7 @@ mod tests {
                                     owner,
                                     &mut inputs,
                                     12
-                                ),
+                                ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                 Ok(ControlStep::ResumeCallbacks)
                             ),
                             CallbackStep::Skipped | CallbackStep::Expired => {}
@@ -10938,7 +10985,7 @@ mod tests {
                                 inputs.occupancy = Some(&occupancy);
                             }
                             let mut outcome = runtime
-                                .enter_program(&catalog, &mut objects, owner, &mut inputs, 80)
+                                .enter_program(&catalog, &mut objects, owner, &mut inputs, 80).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                                 .unwrap();
                             if visit == 0 {
                                 child = runtime.spawns.last_spawn;
@@ -10984,7 +11031,7 @@ mod tests {
                                                     owner,
                                                     &mut inputs,
                                                     12
-                                                ),
+                                                ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                                 Ok(ControlStep::ResumeCallbacks)
                                             );
                                         }
@@ -11015,7 +11062,7 @@ mod tests {
                                             owner,
                                             &mut inputs,
                                             2,
-                                        )
+                                        ).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                                         .unwrap();
                                 }
                             }
@@ -11245,7 +11292,7 @@ mod tests {
                             }
                         }
                         let mut outcome = runtime
-                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 40)
+                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 40).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                             .unwrap();
                         if visit == 0 {
                             child = runtime.spawns.last_spawn;
@@ -11302,7 +11349,7 @@ mod tests {
                                                 owner,
                                                 &mut inputs,
                                                 8
-                                            ),
+                                            ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                             Ok(ControlStep::ResumeCallbacks)
                                         ),
                                         CallbackStep::Skipped | CallbackStep::Expired => {}
@@ -11317,7 +11364,7 @@ mod tests {
                                     Statement::Control(ControlCommand::End)
                                 );
                                 outcome = runtime
-                                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
+                                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                                     .unwrap();
                             }
                         }
@@ -11361,7 +11408,7 @@ mod tests {
                                         child,
                                         &mut world(&mut random),
                                         10
-                                    )
+                                    ).map(|exit| { assert_eq!(exit.actor, child); exit.step })
                                     .unwrap(),
                                 if visit == 2 {
                                     ControlStep::Ended
@@ -11468,7 +11515,7 @@ mod tests {
                 }
                 assert_eq!(
                     runtime
-                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 32)
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 32).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                         .unwrap(),
                     if visit == 39 {
                         ControlStep::Ended
@@ -11494,7 +11541,7 @@ mod tests {
                                         owner,
                                         &mut inputs,
                                         4
-                                    ),
+                                    ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                     Ok(ControlStep::ResumeCallbacks)
                                 );
                             }
@@ -11613,7 +11660,7 @@ mod tests {
                         inputs.selected = Some(player);
                         inputs.fixed_players = [Some(player); 2];
                         let mut outcome = runtime
-                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 32)
+                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 32).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                             .unwrap();
                         if outcome == ControlStep::Movement {
                             if contact_visit == Some(visit) {
@@ -11647,7 +11694,7 @@ mod tests {
                                             owner,
                                             &mut inputs,
                                             8
-                                        ),
+                                        ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                         Ok(ControlStep::ResumeCallbacks)
                                     ),
                                     CallbackStep::Skipped | CallbackStep::Expired => {}
@@ -11661,7 +11708,7 @@ mod tests {
                                     Statement::Control(ControlCommand::End)
                                 );
                                 outcome = runtime
-                                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
+                                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                                     .unwrap();
                             }
                         }
@@ -11763,7 +11810,7 @@ mod tests {
                     flags: if search == SurfaceSearch::Full { 0 } else { 1 },
                 });
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: expected_cursor,
                         executed: 1
@@ -11799,19 +11846,19 @@ mod tests {
         let before_random = random;
         let mut inputs = world(&mut random);
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSurfaceMode)
         );
         inputs.surface_mode = Some(super::super::collision_surface::SurfaceMode { flags: 0 });
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded {
                 cursor: cursor(0, 0),
                 executed: 0
             })
         );
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::SurfaceQuery(
                 SurfaceQueryError::UnknownShape {
                     object: candidate,
@@ -11889,7 +11936,7 @@ mod tests {
                                     owner,
                                     &mut inputs,
                                     1
-                                ),
+                                ).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                                 Err(ProgramError::BudgetExceeded {
                                     cursor: expected_cursor,
                                     executed: 1
@@ -11918,12 +11965,12 @@ mod tests {
         let before_random = random;
         let mut inputs = world(&mut random);
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingOccupancyExemption)
         );
         inputs.selected_occupancy_exempt = Some(false);
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingOccupancy)
         );
         assert_eq!(objects, before);
@@ -11949,7 +11996,7 @@ mod tests {
             let before = objects.clone();
             let before_random = random;
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingGuidance)
             );
             assert_eq!(objects, before);
@@ -11967,7 +12014,7 @@ mod tests {
                 let mut inputs = world(&mut random);
                 inputs.guidance = Some(&mut history);
                 assert_eq!(
-                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
                         cursor: cursor(0, 1),
                         executed: 1
@@ -12015,7 +12062,7 @@ mod tests {
         let before = objects.clone();
         let before_random = random;
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingControlStyle)
         );
         assert_eq!(objects, before);
@@ -12028,7 +12075,7 @@ mod tests {
             let mut inputs = world(&mut random);
             inputs.control_style = Some(style);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -12106,7 +12153,7 @@ mod tests {
                         if visit == 244 {
                             inputs.control_style = Some(style);
                         }
-                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 64), Ok(if visit == final_visit { ControlStep::Ended } else { ControlStep::Movement }), "difficulty {difficulty:?}, style {style:?}, flags {flags:04x}, visit {visit}");
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 64).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(if visit == final_visit { ControlStep::Ended } else { ControlStep::Movement }), "difficulty {difficulty:?}, style {style:?}, flags {flags:04x}, visit {visit}");
                         if request.pending {
                             messages.push((visit, request.message.index() + 1));
                             assert_eq!(countdown.remaining, 80);
@@ -12193,7 +12240,7 @@ mod tests {
             let before = objects.clone();
             let before_random = random;
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingCampaign)
             );
             assert_eq!(objects, before);
@@ -12210,7 +12257,7 @@ mod tests {
                         encounter_variant,
                     });
                     assert_eq!(
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Err(ProgramError::BudgetExceeded {
                             cursor: cursor(0, 1),
                             executed: 1
@@ -12274,7 +12321,7 @@ mod tests {
                         });
                     }
                     assert_eq!(
-                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32),
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(if visit == final_visit {
                             ControlStep::Ended
                         } else {
@@ -12332,7 +12379,7 @@ mod tests {
             let Err(ProgramError::BudgetExceeded {
                 cursor: late_import,
                 executed: 7,
-            }) = runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 7)
+            }) = runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 7).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
             else {
                 panic!("first seven statements stop before the second variant import");
             };
@@ -12353,7 +12400,7 @@ mod tests {
                 },
             });
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Ok(ControlStep::Ended)
             );
             assert_eq!(request.message.index() + 1, message);
@@ -12375,7 +12422,7 @@ mod tests {
         ]])
         .unwrap();
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingSelectedAuxiliary)
         );
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
@@ -12386,7 +12433,7 @@ mod tests {
         let mut inputs = world(&mut random);
         inputs.selected_auxiliary = Some(&mut auxiliary);
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 2)));
@@ -12452,7 +12499,7 @@ mod tests {
                     });
                 }
                 let mut outcome = runtime
-                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 32)
+                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 32).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                     .unwrap();
                 if contact_visit == Some(visit) {
                     assert_eq!(outcome, ControlStep::Movement);
@@ -12470,7 +12517,7 @@ mod tests {
                         CallbackStep::Run(_)
                     ));
                     assert_eq!(
-                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4),
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                         Ok(ControlStep::ResumeCallbacks)
                     );
                     assert_eq!(
@@ -12486,7 +12533,7 @@ mod tests {
                     );
                     assert!(!actor.base.flags.remove_after_tick);
                     outcome = runtime
-                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                         .unwrap();
                 }
                 assert_eq!(
@@ -12553,13 +12600,13 @@ mod tests {
             .unwrap();
             let mut inputs = world(&mut random);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingPrimaryPlayer)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
             inputs.primary_player = Some(owner);
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::MissingPrimaryControl)
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
@@ -12604,7 +12651,7 @@ mod tests {
                 linked_mode: true,
             });
             assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
                     cursor: cursor(0, 1),
                     executed: 1
@@ -12704,7 +12751,7 @@ mod tests {
                         });
                         runtime.branch.invert_next = true;
                         assert_eq!(
-                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                             Ok(if visit < 7 {
                                 ControlStep::Movement
                             } else {
@@ -12774,7 +12821,7 @@ mod tests {
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
             let outcome = runtime
-                .enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8)
+                .enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                 .unwrap();
             assert_eq!(
                 outcome,
@@ -12827,7 +12874,7 @@ mod tests {
         // adds 1..7; the last NEXT completes and END retires without a yield.
         for color in 0..8u8 {
             let outcome = runtime
-                .enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8)
+                .enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                 .unwrap();
             assert_eq!(
                 outcome,
@@ -12938,7 +12985,7 @@ mod tests {
                 animation_clock: 93,
             };
             let outcome = runtime
-                .enter_program(&catalog, &mut objects, owner, &mut inputs, 16)
+                .enter_program(&catalog, &mut objects, owner, &mut inputs, 16).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                 .unwrap();
             assert_eq!(
                 outcome,
@@ -12984,7 +13031,7 @@ mod tests {
             expected_random.next_byte();
         }
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, second, &mut world(&mut random), 16),
+            runtime.enter_program(&catalog, &mut objects, second, &mut world(&mut random), 16).map(|exit| { assert_eq!(exit.actor, second); exit.step }),
             Ok(ControlStep::Movement)
         );
         assert_eq!(random, expected_random);
@@ -13066,7 +13113,7 @@ mod tests {
                         animation_clock: 29,
                     },
                     16,
-                )
+                ).map(|exit| { assert_eq!(exit.actor, owner); exit.step })
                 .unwrap();
             assert_eq!(
                 outcome,
@@ -13123,7 +13170,7 @@ mod tests {
         ]])
         .unwrap();
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         let actor = objects.get(owner).unwrap();
@@ -13131,7 +13178,7 @@ mod tests {
         assert_eq!(actor.base.path, Some(cursor(0, 4)));
         assert!(!actor.base.flags.remove_after_tick);
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Ended)
         );
     }
@@ -13158,7 +13205,7 @@ mod tests {
         .unwrap();
         objects.get_mut(owner).unwrap().base.hit_points = 2;
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 2),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         assert_eq!(objects.get(owner).unwrap().base.wait_timer, 1);
@@ -13166,7 +13213,7 @@ mod tests {
         // duration=2 would yield again instead of completing this call.
         objects.get_mut(owner).unwrap().base.hit_points = 1;
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Ended)
         );
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 1)));
@@ -13201,7 +13248,7 @@ mod tests {
             Ok(CallbackStep::Run(cursor(1, 0)))
         );
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::ResumeCallbacks)
         );
         assert_eq!(objects.get(owner).unwrap().base.hit_points, 7);
@@ -13229,12 +13276,12 @@ mod tests {
             .conditions
             .selected_player = PlayerTarget::Secondary;
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         assert_eq!(runtime.selected_player(), PlayerTarget::Primary);
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Ok(ControlStep::Movement)
         );
         assert_eq!(runtime.selected_player(), PlayerTarget::Secondary);
@@ -13252,7 +13299,7 @@ mod tests {
         .unwrap();
         objects.get_mut(owner).unwrap().base.hit_points = 0;
         assert_eq!(
-            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3),
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 3).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded {
                 cursor: cursor(0, 1),
                 executed: 3
@@ -13260,7 +13307,7 @@ mod tests {
         );
         assert_eq!(objects.get(owner).unwrap().base.hit_points, 2);
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::BudgetExceeded {
                 cursor: cursor(0, 1),
                 executed: 0
@@ -13268,7 +13315,7 @@ mod tests {
         );
         objects.get_mut(owner).unwrap().base.path = Some(cursor(1, 0));
         assert_eq!(
-            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 5),
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 5).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
             Err(ProgramError::MissingStatement(cursor(1, 0)))
         );
     }

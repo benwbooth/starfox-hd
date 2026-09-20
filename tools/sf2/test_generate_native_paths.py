@@ -20,6 +20,30 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_actor_selection_and_restore_lower_to_immediate_typed_operations(self):
+        for record, expected in [
+            ("9c", "Statement::SelectActor { selection: ActorSelection::LastSpawn, next: cursor(0, 1) }"),
+            ("9a", "Statement::SelectActor { selection: ActorSelection::Linked, next: cursor(0, 1) }"),
+            ("99 36 f5", "Statement::SelectActor { selection: ActorSelection::LinkedOrBranch { missing: cursor(0, 0) }, next: cursor(0, 1) }"),
+            ("9b", "Statement::RestoreActor { next: cursor(0, 1) }"),
+        ]:
+            self.assertEqual(self.lower_record(record)[0], expected)
+            changed = bytearray(self.rom)
+            program = bytes.fromhex(record + " 0f")
+            changed[0x4F536:0x4F536 + len(program)] = program
+            generated = generate(bytes(changed), (("CONTEXT", PathAddress(0xF536)),))
+            self.assertEqual("use super::path_actor_context::ActorSelection;" in generated, record != "9b")
+
+    def test_numbered_actor_selection_keeps_full_literal_byte_and_decodes_field_before_switch(self):
+        for number in range(256):
+            self.assertEqual(self.lower_record(f"98 {number:02x} 36 f5")[0],
+                f"Statement::SelectChild {{ number: ByteOperand::Literal({number}), missing: cursor(0, 0), next: cursor(0, 1) }}")
+        for variable in (0x18, 0x27, 0x2D, 0x2E, 0xA1, 0xA2):
+            self.assertEqual(self.lower_record(f"b7 {variable:02x} 36 f5")[0],
+                f"Statement::SelectChild {{ number: ByteOperand::Actor({byte_field(variable)}), missing: cursor(0, 0), next: cursor(0, 1) }}")
+        with self.assertRaisesRegex(UnsupportedPath, "unported byte operand 04"):
+            self.lower_record("b7 04 36 f5")
+
     def test_pickup_roots_share_the_complete_collection_fallback_and_visibility_graph(self):
         extractor = PathExtractor(self.rom)
         shared = graph(extractor, PathAddress(0x44BC))
