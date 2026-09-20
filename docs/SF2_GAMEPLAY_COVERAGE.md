@@ -2515,3 +2515,23 @@ statements. The production scheduler boundary is still open.
 Validation passes 398 native path tests in debug/release, 151 lowering tests,
 320 source-static path checks, catalog freshness, both audits and the app
 build (existing app-icon warning only).
+
+### Numbered-child deferred retirement
+
+The `RemoveChild` handler now lowers to a typed relationship operation. Its
+owner flag selects the caller's chain or the caller's mother; the first full
+byte-number match is marked for deferred retirement. It does not unlink the
+child, change health, free callback resources, clean exit latches or yield.
+Unlike child signaling, the original has no null-parent or null-result guard;
+missing targets therefore produce explicit native diagnostics rather than
+pretending success or writing through a null source pointer.
+
+Tests cover all number bytes, both owner-selection paths and IFNOT states,
+duplicate matches, repeated marks, retained resources/links and malformed
+chains with no partial writes. Static tests pin the handler, ordered lookup
+and immediate continuation. The lowerer now accepts all 87 source uses of
+this command; their enclosing unported graphs are not automatically claimed
+complete, and the complete-root catalog remains at 100.
+Validation passes 400 native path tests in debug/release, 152 lowering tests,
+321 source-static path tests, generated freshness, both audits and the app
+build with its existing app-icon warning.

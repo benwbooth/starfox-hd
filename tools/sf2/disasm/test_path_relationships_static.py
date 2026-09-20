@@ -66,6 +66,14 @@ class PathRelationshipsStaticTests(unittest.TestCase):
     def test_child_lookup_walks_in_order_and_compares_full_number_byte(self):
         self.assert_source(0x7F2A7B, "8D 2A 19 DA B4 29 F0 0B B9 13 00 CD 2A 19 F0 03 BB 80 F1 FA 6B")
 
+    def test_child_retirement_marks_first_match_without_null_guards_unlink_or_health_write(self):
+        from extract_path import PathExtractor
+        self.assertEqual(PathExtractor(self.rom).handler_entry(0x66).handler_address, 0x7F8B64)
+        self.assert_source(0x7F8B64,
+            "20bcc48db116dab5232910f0045c788b7fb406bbadb116227b2a7f"
+            "b925000908992500fa4cd3ca")
+        self.assert_source(0x7FCAD3, "e220c220b52b18690200952be2204c757e")
+
     def test_linked_signals_are_identical_event_latches_without_motion_gate(self):
         expected = "B4 06 C0 00 00 D0 04 5C E8 CA 7F B9 23 00 09 08 99 23 00 4C E8 CA"
         self.assert_source(0x7F94DB, expected)

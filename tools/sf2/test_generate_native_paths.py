@@ -20,6 +20,11 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_numbered_child_retirement_uses_literal_full_byte_and_immediate_continuation(self):
+        for number in range(256):
+            self.assertEqual(self.lower_record(f"66 {number:02x}")[0],
+                f"Statement::Relationship {{ command: RelationshipCommand::RetireChild {{ number: {number} }}, next: cursor(0, 1) }}")
+
     def test_death_is_terminal_and_bouncing_part_keeps_all_commands_and_its_installer(self):
         self.assertEqual(self.lower_record("10"), ["Statement::MarkForDeath"])
         extractor = PathExtractor(self.rom)
@@ -874,8 +879,11 @@ class NativePathGenerationTests(unittest.TestCase):
         source = generate(self.rom)
         self.assertIn("TARGETING_UPGRADE_GLOW", source)
         self.assertNotIn("TARGETING_UPGRADE_PICKUP", source)
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported RemoveChild"):
-            lower_graph(extractor, PathAddress(0x787D), 0)
+        # Deferred child retirement now completes the parent lowering. Its
+        # publication still requires the separate authored lifecycle review.
+        parent_statements = lower_graph(extractor, PathAddress(0x787D), 0)[1]
+        self.assertTrue(any("RetireChild { number: 1 }" in statement for statement in parent_statements))
+        self.assertTrue(any("RetireChild { number: 2 }" in statement for statement in parent_statements))
         changed = bytearray(self.rom)
         changed[0x47898:0x4789A] = (0x81E2).to_bytes(2, "little")
         with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):

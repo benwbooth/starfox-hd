@@ -45,6 +45,10 @@ mod action_gate_tests;
 #[path = "path_death_tests.rs"]
 mod death_tests;
 
+#[cfg(test)]
+#[path = "path_child_retirement_tests.rs"]
+mod child_retirement_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {

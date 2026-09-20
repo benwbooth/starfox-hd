@@ -10,6 +10,7 @@ pub enum RelationshipError {
     MissingSelected,
     MissingActor(ObjectId),
     MissingParent(ObjectId),
+    MissingChild { owner: ObjectId, number: u8 },
     ChildCycle(ObjectId),
     ChildNotFresh(ObjectId),
 }
@@ -18,6 +19,9 @@ pub enum RelationshipError {
 pub enum RelationshipCommand {
     UnlinkSelf,
     UnlinkChild { number: u8 },
+    /// Mark the first numbered child for later retirement; do not unlink,
+    /// clear health or release its independently owned path resources.
+    RetireChild { number: u8 },
     SignalLinked,
     SignalChild { number: u8 },
     RefreshLinkedRotation,
@@ -313,6 +317,19 @@ pub fn apply(
     command: RelationshipCommand,
 ) -> Result<(), RelationshipError> {
     let child = match command {
+        RelationshipCommand::RetireChild { number } => {
+            let actor = objects.get(owner).ok_or(RelationshipError::MissingActor(owner))?;
+            // $7F:8B64 has neither a null-mother guard nor a null-result
+            // guard. Diagnose invalid native links instead of writing flags
+            // through a null source pointer into unrelated global state.
+            if !actor.extension.path_state.motion.refresh_child_chain && actor.base.attachment.is_none() {
+                return Err(RelationshipError::MissingParent(owner));
+            }
+            let child = find_child(objects, owner, number)?
+                .ok_or(RelationshipError::MissingChild { owner, number })?;
+            objects.get_mut(child).expect("validated retirement child").base.flags.remove_after_tick = true;
+            return Ok(());
+        }
         RelationshipCommand::SignalLinked | RelationshipCommand::SignalChild { .. } => {
             let target = if let RelationshipCommand::SignalChild { number } = command {
                 find_child(objects, owner, number)?

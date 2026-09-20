@@ -916,8 +916,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             number, low, high = parameters(3)
             taken, next_ = branch_cursors(low | (high << 8))
             statement = f"Statement::ChildMissing {{ number: {number}, taken: {taken}, next: {next_} }}"
-        elif name in ("UnlinkSelf", "UnlinkChild", "FlagLinkedObject", "FlagMother", "FlagChild", "RefreshLinkedRotationDeltas", "ClearObjectRelativeReference", "SelectSelfAndClearRelativeTransform"):
-            if name not in ("UnlinkChild", "FlagChild"):
+        elif name in ("UnlinkSelf", "UnlinkChild", "RemoveChild", "FlagLinkedObject", "FlagMother", "FlagChild", "RefreshLinkedRotationDeltas", "ClearObjectRelativeReference", "SelectSelfAndClearRelativeTransform"):
+            if name not in ("UnlinkChild", "FlagChild", "RemoveChild"):
                 parameters(0)
                 command_ = "RelationshipCommand::" + {
                     "UnlinkSelf": "UnlinkSelf",
@@ -929,7 +929,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 }[name]
             else:
                 number, = parameters(1)
-                operation = "SignalChild" if name == "FlagChild" else "UnlinkChild"
+                operation = {"FlagChild": "SignalChild", "UnlinkChild": "UnlinkChild", "RemoveChild": "RetireChild"}[name]
                 command_ = f"RelationshipCommand::{operation} {{ number: {number} }}"
             statement = f"Statement::Relationship {{ command: {command_}, next: {next_cursor()} }}"
         elif name == "Gosub":
