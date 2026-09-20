@@ -895,11 +895,21 @@ class NativePathGenerationTests(unittest.TestCase):
                 spawn_shape(shape, PathAddress(root + 1))
 
     def test_scene_imports_are_full_byte_reads_and_do_not_allow_unreviewed_writes(self):
-        for address, source in [(0x1DE2, "PlayerConfiguration"), (0x1BB5, "EncounterLocation")]:
+        for address, source in [(0x1DE2, "PlayerConfiguration"), (0x1BB5, "EncounterLocation"), (0x1BA9, "EntryHeading")]:
             low, high = address.to_bytes(2, "little")
             self.assertIn(f"SceneByte::{source}", self.lower_record(f"79 a1 {low:02x} {high:02x}")[0])
             with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
                 self.lower_record(f"fb {low:02x} {high:02x} 09")
+
+    def test_shared_scene_height_addition_decodes_destination_and_rejects_other_words(self):
+        for variable, field in ((0x0E, "WordField::Position(Axis::Y)"),
+                (0x90, "WordField::RelativePosition(Axis::Y)"), (0xA1, "WordField::MotionPhase")):
+            self.assertEqual(self.lower_record(f"ea {variable:02x} d3 d7")[0],
+                f"Statement::AddSceneHeightOffset {{ destination: {field}, next: cursor(0, 1) }}")
+        for address in (0xD7D2, 0xD7D4, 0x1E0F, 0xFFFF):
+            raw = address.to_bytes(2, 'little').hex(' ')
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared word addition"):
+                self.lower_record(f"ea 0e {raw}")
 
     def test_distance_scenery_roots_keep_both_threshold_loops_and_nested_helpers(self):
         extractor = PathExtractor(self.rom)

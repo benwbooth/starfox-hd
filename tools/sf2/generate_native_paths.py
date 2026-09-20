@@ -1207,6 +1207,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if address not in axes:
                 raise UnsupportedPath(f"unported shared word {address:04X} at {command.address.label()}")
             statement = f"Statement::ImportPlayerMotion {{ axis: Axis::{axes[address]}, destination: {word_field(variable)}, next: {next_cursor()} }}"
+        elif name == "AddExternalWordToVariableWord":
+            variable, low, high = parameters(3)
+            address = low | (high << 8)
+            if address != 0xD7D3:
+                raise UnsupportedPath(f"unported shared word addition {address:04X} at {command.address.label()}")
+            statement = f"Statement::AddSceneHeightOffset {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
         elif name == "AddVariableByteToExternalByte":
             low, high, variable = parameters(3)
             address = low | (high << 8)
@@ -1243,8 +1249,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::SceneryDistance {{ command: super::path_program::SceneryDistanceCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0x1DE2, 0x1BB5) and name == "ImportByteAbsolute":
-                source = "PlayerConfiguration" if address == 0x1DE2 else "EncounterLocation"
+            if address in (0x1DE2, 0x1BB5, 0x1BA9) and name == "ImportByteAbsolute":
+                source = {0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA9: "EntryHeading"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue

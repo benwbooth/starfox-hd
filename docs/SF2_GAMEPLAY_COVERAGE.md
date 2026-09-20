@@ -2731,3 +2731,20 @@ source-static tests, catalog freshness, both audits and app build (existing
 icon warning). Catalog coverage remains 110 roots and 1,796 source commands:
 the remaining player mesh/auxiliary variants, scene fallback allocation and
 production scheduling are still separate open work.
+
+### Scene-entry heading and retained vertical offset
+
+Paths can now import the scene-entry heading and add the scene's retained
+signed vertical offset to a typed actor word. Static producer checks separate
+the heading from live player/camera orientation and show that height selection
+occurs once during scene setup; these path operations consume no randomness.
+The add preserves full-word wraparound and IFNOT, requires a live scene input,
+and faults rather than supplying a default when it is missing.
+
+Tests cover all 65,536 height words against four boundary values in three
+actor destinations, every heading byte, complete actor preservation and
+missing inputs. Source tests pin the initializer, eight signed height-table
+entries and the addition handler. All 422 native path tests pass in both
+debug/release, with 159 lowering and 339 source-static tests, freshness,
+architecture/static audits and app build passing (existing icon warning).
+No additional complete root or production scene integration is claimed.

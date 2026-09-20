@@ -203,5 +203,15 @@ class PathFieldsStaticTests(unittest.TestCase):
             "04a9ff7f850ae220dabb7a5ab42bb9776b090499776ba50899ae6ac220a50299")
 
 
+    def test_scene_entry_heading_is_published_from_map_actor_not_live_camera_or_player(self):
+        self.assert_source(0x04B11B, "b925008da91b")
+
+    def test_scene_height_offset_is_chosen_once_and_paths_add_it_at_word_width(self):
+        self.assert_source(0x04B1E2, "228c057f290e00aabff1fc068dd3d7e220")
+        self.assert_source(0x06FCF1, "80f3800c74f58c0a68f798085cf9a406")
+        self.assert_source(0x7FB86A,
+            "c220204cc7a8b900008db716e22020bcc42047cbc220b90000186db7169900004ca9ca")
+
+
 if __name__ == "__main__":
     unittest.main()

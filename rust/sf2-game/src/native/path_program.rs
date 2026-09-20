@@ -34,6 +34,10 @@ mod ballistic_tests;
 mod weapon_tests;
 
 #[cfg(test)]
+#[path = "path_scene_input_tests.rs"]
+mod scene_input_tests;
+
+#[cfg(test)]
 #[path = "path_projectile_tests.rs"]
 mod projectile_tests;
 
@@ -133,6 +137,12 @@ pub struct PathWorld<'a> {
 /// (`$04:B1FC`). Keep full bytes, not the special-case predicates they drive.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ScenePathInputs {
+    /// Scene-entry heading ($1BA9), published from the selected map actor's
+    /// heading at $04:B11B. Not the current player's or camera's yaw.
+    pub entry_heading: Option<u8>,
+    /// Shared scene vertical offset ($D7D3), chosen once at $04:B1E2 from
+    /// the signed encounter-height table. Paths do not draw randomness here.
+    pub height_offset: Option<i16>,
     pub player_configuration: Option<u8>,
     pub encounter_location: Option<u8>,
     /// Active player's published weapon level ($1DD4), copied from its
@@ -191,6 +201,7 @@ pub enum SceneryDistanceCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneByte {
+    EntryHeading,
     PlayerConfiguration,
     EncounterLocation,
     ActiveWeaponLevel,
@@ -199,6 +210,7 @@ pub enum SceneByte {
 impl SceneByte {
     fn read(self, input: ScenePathInputs) -> Option<u8> {
         match self {
+            Self::EntryHeading => input.entry_heading,
             Self::PlayerConfiguration => input.player_configuration,
             Self::EncounterLocation => input.encounter_location,
             Self::ActiveWeaponLevel => input.active_weapon_level,
@@ -496,6 +508,10 @@ pub enum Statement {
         destination: super::path_fields::ByteField,
         next: PathCursor,
     },
+    AddSceneHeightOffset {
+        destination: super::path_fields::WordField,
+        next: PathCursor,
+    },
     ImportEnvironmentPlaneHeight {
         destination: super::path_fields::WordField,
         next: PathCursor,
@@ -764,6 +780,7 @@ pub enum ProgramError {
     MissingTargetingUpgrade,
     MissingSceneryDistance,
     MissingSceneByte(SceneByte),
+    MissingSceneHeightOffset,
     MissingShieldRecovery,
     MissingActionGate,
     MissingEnvironmentPlaneHeight,
@@ -1036,6 +1053,13 @@ impl PathRuntime {
                         .get_mut(owner)
                         .expect("validated action-gate reader");
                     destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::AddSceneHeightOffset { destination, next } => {
+                    let offset = world.scene.height_offset.ok_or(ProgramError::MissingSceneHeightOffset)?;
+                    let actor = objects.get_mut(owner).expect("validated scene-height actor");
+                    destination.write(actor, destination.read(actor).wrapping_add(offset as u16));
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -7468,7 +7492,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::ActiveWeaponLevel] {
+        for source in [SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::ActiveWeaponLevel] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -7483,6 +7507,7 @@ mod tests {
                 assert_eq!(objects, before);
                 let mut inputs = world(&mut random);
                 match source {
+                    SceneByte::EntryHeading => inputs.scene.entry_heading = Some(value),
                     SceneByte::PlayerConfiguration => inputs.scene.player_configuration = Some(value),
                     SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(value),
                     SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
