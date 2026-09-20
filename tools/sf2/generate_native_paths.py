@@ -473,6 +473,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))
             statement = f"Statement::AttachmentAbsent {{ taken: {taken}, next: {next_} }}"
+        elif name == "IfVariableEqualsExternal1dd4":
+            # Despite the legacy census name, C4BC reads a literal operand
+            # byte, not an encoded actor variable. BF58 compares it directly
+            # with the published active-player weapon level and takes CAFF
+            # or CAA9 without consulting or consuming the IFNOT state.
+            expected, low, high = parameters(3)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::ActiveWeaponLevelEquals {{ expected: {expected}, taken: {taken}, next: {next_} }}"
         elif name == "IfExternal1dddBit80":
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))

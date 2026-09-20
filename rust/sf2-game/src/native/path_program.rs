@@ -73,6 +73,10 @@ pub struct PathWorld<'a> {
 pub struct ScenePathInputs {
     pub player_configuration: Option<u8>,
     pub encounter_location: Option<u8>,
+    /// Active player's published weapon level ($1DD4), copied from its
+    /// per-player weapon record at $06:9CE1. This is not a fresh lookup of
+    /// the path-selected actor; pilot exchange updates the published byte.
+    pub active_weapon_level: Option<u8>,
 }
 
 /// Shared scenery proximity mask ($D78C). Authored paths select which bits
@@ -93,6 +97,7 @@ pub enum SceneryDistanceCommand {
 pub enum SceneByte {
     PlayerConfiguration,
     EncounterLocation,
+    ActiveWeaponLevel,
 }
 
 impl SceneByte {
@@ -100,6 +105,7 @@ impl SceneByte {
         match self {
             Self::PlayerConfiguration => input.player_configuration,
             Self::EncounterLocation => input.encounter_location,
+            Self::ActiveWeaponLevel => input.active_weapon_level,
         }
     }
 }
@@ -316,6 +322,13 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    /// The operand is a literal byte and the source branch bypasses IFNOT.
+    /// Keep all eight bits even though normal weapon levels are one to three.
+    ActiveWeaponLevelEquals {
+        expected: u8,
+        taken: PathCursor,
+        next: PathCursor,
+    },
     /// Source ShapeDead tests only attachment absence, not health or slot
     /// liveness. Like the source direct branch, this leaves IFNOT intact.
     AttachmentAbsent {
@@ -707,6 +720,13 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::ActiveWeaponLevelEquals { expected, taken, next } => {
+                    let actual = world.scene.active_weapon_level
+                        .ok_or(ProgramError::MissingSceneByte(SceneByte::ActiveWeaponLevel))?;
+                    objects.get_mut(owner).expect("validated weapon-level observer").base.path =
+                        Some(if actual == expected { taken } else { next });
+                    Ok(ControlStep::Continue)
+                }
                 Statement::AttachmentAbsent { taken, next } => {
                     let destination = if actor.base.attachment.is_none() { taken } else { next };
                     objects.get_mut(owner).expect("validated attachment observer").base.path = Some(destination);
@@ -5174,6 +5194,71 @@ mod tests {
     }
 
     #[test]
+    fn weapon_level_branch_compares_all_literal_bytes_to_published_level_and_preserves_ifnot() {
+        for expected in 0..=u8::MAX {
+            let catalog = PathCatalog::new(vec![vec![Statement::ActiveWeaponLevelEquals {
+                expected, taken: cursor(0, 1), next: cursor(0, 2),
+            }]]).unwrap();
+            for actual in 0..=u8::MAX {
+                for invert in [false, true] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let selected = objects.allocate(Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight)).unwrap();
+                    objects.get_mut(selected).unwrap().base.hit_points = actual ^ 255;
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.hit_points = expected ^ 255;
+                    actor.base.attack_power = actual ^ 255;
+                    actor.base.wait_timer = 193;
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    runtime.branch.invert_next = invert;
+                    let mut expected_objects = objects.clone();
+                    let destination = cursor(0, if actual == expected { 1 } else { 2 });
+                    expected_objects.get_mut(owner).unwrap().base.path = Some(destination);
+                    let initial_random = random;
+                    let mut inputs = world(&mut random);
+                    inputs.selected = Some(selected);
+                    inputs.scene.active_weapon_level = Some(actual);
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
+                    assert_eq!(objects, expected_objects);
+                    assert_eq!(runtime.branch.invert_next, invert);
+                    assert_eq!(random, initial_random);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn weapon_level_branch_faults_before_mutation_and_reads_changed_publication_on_resume() {
+        let catalog = PathCatalog::new(vec![vec![Statement::ActiveWeaponLevelEquals {
+            expected: 3, taken: cursor(0, 0), next: cursor(0, 1),
+        }]]).unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        runtime.branch.invert_next = true;
+        let initial = objects.clone();
+        let initial_random = random;
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+            Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+        for _ in 0..2 {
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingSceneByte(SceneByte::ActiveWeaponLevel)));
+            assert_eq!(objects, initial);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, initial_random);
+        }
+        for (actual, destination) in [(3, cursor(0, 0)), (3, cursor(0, 0)), (255, cursor(0, 1))] {
+            let mut inputs = world(&mut random);
+            inputs.scene.active_weapon_level = Some(actual);
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
+            let mut expected = initial.clone();
+            expected.get_mut(owner).unwrap().base.path = Some(destination);
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, initial_random);
+        }
+    }
+
+    #[test]
     fn held_sprite_and_depth_effects_preserve_distinct_full_word_and_sprite_contracts() {
         use super::super::{authored_paths, Vector3};
         let catalog = authored_paths::catalog();
@@ -6061,7 +6146,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::PlayerConfiguration, SceneByte::EncounterLocation] {
+        for source in [SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::ActiveWeaponLevel] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -6078,6 +6163,7 @@ mod tests {
                 match source {
                     SceneByte::PlayerConfiguration => inputs.scene.player_configuration = Some(value),
                     SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(value),
+                    SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
                 }
                 assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));

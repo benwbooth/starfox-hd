@@ -1855,3 +1855,29 @@ statements**. Validation passes 124 lowerer tests, 287 static path tests,
 306 native path tests in debug and release, generated freshness,
 architecture/static audits and the application build. Parent graph lowering
 and whole-game scheduling remain separate, unclaimed work.
+
+### Published active-player weapon-level literal branch
+
+The branch at `$7F:BF58` now lowers to `ActiveWeaponLevelEquals`. Its first
+operand is a literal byte read by `$7F:C4BC`, despite the legacy census name
+`IfVariableEqualsExternal1dd4`. It compares against the full published
+active-player weapon-level byte and branches directly, without consulting
+or consuming IFNOT. It does not read an actor variable, mask the level to
+two bits, or infer the global publication from the path-selected actor.
+
+Static source tests pin the operand reader, both direct continuations,
+player publication from the per-player weapon record, pilot exchange and
+writeback. The weapon-use and upgrade consumers corroborate the record's
+role; their masking/saturation rules are not incorrectly transferred into
+this equality branch. The excluded legacy implementation is not used as
+an oracle for these semantics.
+
+Native tests exhaust all 65,536 literal/publication byte pairs under both
+IFNOT states, preserve all actor state except the continuation, and check
+missing-input atomicity, zero-budget ordering and changed publications on
+resume. The new scene observation is optional and required only if the
+branch is reached. All 308 native path tests pass in debug and release,
+along with 125 lowerer tests, 288 static path tests, generated freshness,
+architecture/static audits and the app build. Complete-root coverage remains
+**49 roots / 935 source commands / 926 native statements**: graphs using
+this new primitive still contain other unported services and are not published.

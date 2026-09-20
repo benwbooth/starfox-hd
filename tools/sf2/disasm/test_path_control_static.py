@@ -91,6 +91,26 @@ class PathControlStaticTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.rom[start:start + 256]).hexdigest(),
                          "541f238f2bc0ac7b2f91a6cf6ce778a756b3ed903ac0afbc55bd6fe037d99b03")
 
+    def test_published_weapon_level_branch_uses_literal_operand_and_direct_targets(self):
+        self.assert_source(0x7FBF58, "20 BC C4 CD D4 1D D0 03 4C FF CA 4C A9 CA")
+        self.assert_source(0x7FC4BC,
+            "84 79 A0 01 00 A5 5E 29 EF 85 5E 8F 3A 30 00 B7 F9 8D 11 19 "
+            "A5 5E 09 10 85 5E 8F 3A 30 00 AD 11 19 A4 79 60")
+        self.assert_source(0x7FCAA9, "E2 20 C2 20 B5 2B 18 69 04 00 95 2B E2 20 4C 75 7E")
+        self.assert_source(0x7FCAFF, "C2 20 20 4C C7 95 2B E2 20 4C 75 7E")
+        self.assert_source(0x7FC74C,
+            "84 79 A0 02 00 E2 20 A5 5E 29 EF 85 5E 8F 3A 30 00 C2 20 B7 F9 "
+            "8D 11 19 E2 20 A5 5E 09 10 85 5E 8F 3A 30 00 C2 20 AD 11 19 A4 79 60")
+        # Player publication and pilot exchange are separate from the path's
+        # selected actor. The compared byte must not be recomputed there.
+        self.assert_source(0x069CE1, "B9 06 6C 8D D4 1D")
+        self.assert_source(0x06A38B, "AD D4 1D 48 AD DA 1D 8D D4 1D 68 8D DA 1D")
+        self.assert_source(0x06DA07, "AD D4 1D 99 06 6C")
+        # Weapon use masks the per-player level, but this path branch does
+        # not. The separately scheduled upgrade saturates levels at three.
+        self.assert_source(0x0DDDC0, "B4 2B B9 06 6C 29 03 D0 04 5C CE E0 0D")
+        self.assert_source(0x7FBA7C, "B4 2B B9 06 6C C9 03 B0 04 1A 99 06 6C")
+
     def test_suspension_enters_movement_and_both_strategy_passes_skip_it(self):
         self.assert_source(0x7FBC80, "B5 26 09 40 95 26 4C DE 9D")
         self.assert_source(0x7F9DDE, "A5 5E 09 18 85 5E 8F 3A 30 00 B5 0B")

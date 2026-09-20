@@ -24,6 +24,17 @@ class NativePathGenerationTests(unittest.TestCase):
         statements = self.lower_record("20 36 f5")
         self.assertEqual(statements[0], "Statement::AttachmentAbsent { taken: cursor(0, 0), next: cursor(0, 1) }")
 
+    def test_weapon_level_branch_uses_literal_byte_not_an_actor_field_or_inverted_compare(self):
+        for level in range(256):
+            self.assertEqual(self.lower_record(f"00 47 {level:02x} 36 f5")[0],
+                f"Statement::ActiveWeaponLevelEquals {{ expected: {level}, taken: cursor(0, 0), next: cursor(0, 1) }}")
+        # The three source uses compare literals 2/3, not object bytes 2/3.
+        extractor = PathExtractor(self.rom)
+        for address, expected in [(0x44C2, "004703e244"), (0x730F, "0047022273"), (0x7314, "0047032b73")]:
+            command = extractor.decode_command(PathAddress(address))
+            self.assertEqual(command.raw_hex, expected)
+            self.assertEqual(command.opcode, 0x147)
+
     def test_independent_sprite_roots_keep_nested_loops_callbacks_and_shared_fade(self):
         extractor = PathExtractor(self.rom)
         for root, count in [(0x82E3, 22), (0x8285, 30), (0x8458, 7)]:
