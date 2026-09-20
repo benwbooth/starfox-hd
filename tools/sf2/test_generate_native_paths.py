@@ -159,6 +159,25 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(shape, PathAddress(root))
 
+    def test_pickup_history_word_import_export_maps_only_the_reviewed_shared_record(self):
+        self.assertEqual(self.lower_record("7b a3 32")[0],
+            "Statement::PickupHistory { command: super::path_program::PickupHistoryCommand::CopyTo(WordField::ScriptValue), next: cursor(0, 1) }")
+        self.assertEqual(self.lower_record("80 a3 32")[0],
+            "Statement::PickupHistory { command: super::path_program::PickupHistoryCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
+        for index in (0x31, 0x33, 0x34, 0x35):
+            for opcode in (0x7B, 0x80):
+                with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
+                    self.lower_record(f"{opcode:02x} a3 {index:02x}")
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x45DF))
+        _, statements = lower_graph(extractor, PathAddress(0x45DF), 0)
+        self.assertEqual(len(commands), 5)
+        self.assertIn("ZeroByte", statements[0])
+        self.assertIn("PickupHistoryCommand::CopyTo", statements[1])
+        self.assertIn("Set", statements[2])
+        self.assertIn("PickupHistoryCommand::Assign", statements[3])
+        self.assertIn("Return", statements[4])
+
     def test_motion_fade_sprites_lower_complete_setup_jitter_audio_and_snapshot_callback(self):
         extractor = PathExtractor(self.rom)
         for root, count, installer, shape, index in [
@@ -1817,7 +1836,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
         self.assertIn("destination: WordField::MotionPhase", self.lower_record("7b a1 9a")[0])
         for index in range(256):
-            if index not in (0x36, 0x9A):
+            if index not in (0x32, 0x36, 0x9A):
                 with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                     self.lower_record(f"7b a3 {index:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
@@ -1835,7 +1854,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::Guidance { command: GuidanceCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
         self.assertIn("Statement::ImportControlStyle", self.lower_record("79 a1 d0 1d")[0])
         for index in range(256):
-            if index != 0x36:
+            if index not in (0x32, 0x36):
                 with self.assertRaises(UnsupportedPath):
                     self.lower_record(f"80 a3 {index:02x}")
         for record in ["7b a2 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:

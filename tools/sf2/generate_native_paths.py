@@ -997,6 +997,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if index == 0x36:
                 operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
                 statement = f"Statement::Guidance {{ command: GuidanceCommand::{operation}, next: {next_cursor()} }}"
+            elif index == 0x32:
+                operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
+                statement = f"Statement::PickupHistory {{ command: super::path_program::PickupHistoryCommand::{operation}, next: {next_cursor()} }}"
             elif index == 0x9A and name.startswith("Import"):
                 statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
             else:

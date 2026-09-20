@@ -91,6 +91,26 @@ class PathControlStaticTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.rom[start:start + 256]).hexdigest(),
                          "541f238f2bc0ac7b2f91a6cf6ce778a756b3ed903ac0afbc55bd6fe037d99b03")
 
+    def test_pickup_history_import_export_and_collection_lifecycle(self):
+        self.assert_source(0x7F9F75, "20 E7 9F C2 20 AD B7 16 99 00 00 4C BE CA")
+        self.assert_source(0x7F9FE7,
+            "20 E0 C4 C2 20 29 FF 00 A8 B9 5C D7 8D B7 16 E2 20 20 BC C4 20 47 CB 60")
+        self.assert_source(0x7F9FAF, "20 BF 9F 29 FF 00 A8 AD B7 16 99 5C D7 4C BE CA")
+        self.assert_source(0x7F9FBF, "20 BC C4 20 47 CB C2 20 B9 00 00 8D B7 16 20 4C C7 A8 60")
+        # Authored yaw is copied to pickup identity. An already-collected
+        # bit hides/ends the actor; successful collection imports, sets and
+        # exports that same full mask. Zero identity bypasses both checks.
+        self.assert_source(0x08C4CA,
+            "4E 2E 14 6B 12 6B 14 6B 16 67 2E FD 44 7B A3 32 DA 2E A3 F9 44 17 FD 44")
+        self.assert_source(0x08C4F9, "48 0F")
+        self.assert_source(0x08C5DF, "67 2E EC 45 7B A3 32 D8 2E A3 80 A3 32 42")
+        self.assert_source(0x08C5BB, "41 DF 45 9D 64 00 00 04 45 0F")
+        self.assert_source(0x08C5C5, "41 DF 45 9D 64 00 00 1B 00 04 43 0F")
+        self.assert_source(0x08C5D1, "41 DF 45 0B 08 A1 EB 1B 1E A1 9D 01 00 0F")
+        self.assert_source(0x04B1C0,
+            "8B 08 E2 20 A9 7E 48 AB C2 30 9C 86 D7 9C 88 D7 9C 8A D7 9C 8C D7 9C 8E D7")
+        self.assert_source(0x08FBBA, "80 A3 32")
+
     def test_motion_fade_sprite_setup_and_independent_installers(self):
         # The full shared jitter/fade and saved-byte callback are pinned by
         # their own tests. These three entry prefixes join that exact tail.

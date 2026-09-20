@@ -31,6 +31,7 @@ pub struct PathWorld<'a> {
     pub radio: Option<super::path_radio::PathRadio<'a>>,
     pub campaign: Option<CampaignPathInputs>,
     pub guidance: Option<&'a mut GuidanceHistory>,
+    pub pickup_history: Option<&'a mut PickupHistory>,
     pub control_style: Option<super::FlightControlStyle>,
     /// Fresh selected-player exemption (auxiliary map flag bit 80).
     pub selected_occupancy_exempt: Option<bool>,
@@ -121,6 +122,21 @@ pub struct SelectedAuxiliaryState {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct GuidanceHistory {
     pub flags: u16,
+}
+
+/// Shared collected-pickup mask ($D78E). The pickup family tests its authored
+/// identity before showing itself, then sets that bit after collection.
+/// Source initialization clears the word; path import/export replaces the
+/// complete word and is not an implicit atomic bit-update service.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PickupHistory {
+    pub collected_mask: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PickupHistoryCommand {
+    CopyTo(super::path_fields::WordField),
+    Assign(WordOperand),
 }
 
 /// Shared trigger for the F48B/F4CA projectile family (1E59). Launch clears
@@ -502,6 +518,10 @@ pub enum Statement {
         command: GuidanceCommand,
         next: PathCursor,
     },
+    PickupHistory {
+        command: PickupHistoryCommand,
+        next: PathCursor,
+    },
     ImportControlStyle {
         destination: super::path_fields::ByteField,
         next: PathCursor,
@@ -625,6 +645,7 @@ pub enum ProgramError {
     MissingRadio,
     MissingCampaign,
     MissingGuidance,
+    MissingPickupHistory,
     MissingControlStyle,
     MissingOccupancyExemption,
     MissingOccupancy,
@@ -1324,6 +1345,17 @@ impl PathRuntime {
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::PickupHistory { command, next } => {
+                    let history = world.pickup_history.as_deref_mut()
+                        .ok_or(ProgramError::MissingPickupHistory)?;
+                    let actor = objects.get_mut(owner).expect("validated pickup-history owner");
+                    match command {
+                        PickupHistoryCommand::CopyTo(field) => field.write(actor, history.collected_mask),
+                        PickupHistoryCommand::Assign(value) => history.collected_mask = value.read(actor),
+                    }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ImportControlStyle { destination, next } => {
                     let style = world
                         .control_style
@@ -1568,6 +1600,7 @@ mod tests {
             radio: None,
             campaign: None,
             guidance: None,
+            pickup_history: None,
             control_style: None,
             selected_occupancy_exempt: None,
             occupancy: None,
@@ -3902,6 +3935,71 @@ mod tests {
             assert_eq!(inputs.random, &original_random);
         }
         runtime.release_actor_programs(&mut objects, owner).unwrap();
+    }
+
+    #[test]
+    fn pickup_history_import_export_preserves_full_words_and_unrelated_actor_state() {
+        assert_eq!(PickupHistory::default().collected_mask, 0);
+        for importing in [false, true] {
+            let command = if importing { PickupHistoryCommand::CopyTo(WordField::ScriptValue) }
+                else { PickupHistoryCommand::Assign(WordOperand::Actor(WordField::ScriptValue)) };
+            let catalog = PathCatalog::new(vec![vec![Statement::PickupHistory {
+                command, next: cursor(0, 0),
+            }]]).unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            objects.get_mut(owner).unwrap().base.wait_timer = 193;
+            objects.get_mut(owner).unwrap().extension.path_state.motion_phase = 0xABCD;
+            let initial_random = random;
+            for inverted in [false, true] {
+                runtime.branch.invert_next = inverted;
+                let before_missing = objects.clone();
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                    Err(ProgramError::MissingPickupHistory));
+                assert_eq!(objects, before_missing);
+                for value in 0..=u16::MAX {
+                    let opposite = value ^ u16::MAX;
+                    objects.get_mut(owner).unwrap().extension.path_state.script_value = if importing { opposite } else { value };
+                    let mut expected = objects.clone();
+                    let mut history = PickupHistory { collected_mask: if importing { value } else { opposite } };
+                    let mut inputs = world(&mut random);
+                    inputs.pickup_history = Some(&mut history);
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
+                    if importing { expected.get_mut(owner).unwrap().extension.path_state.script_value = value; }
+                    assert_eq!(objects, expected);
+                    assert_eq!(history.collected_mask, value);
+                    assert_eq!(runtime.branch.invert_next, inverted);
+                    assert_eq!(random, initial_random);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pickup_history_export_resumes_from_actor_copy_and_replaces_intervening_scene_writes() {
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::PickupHistory { command: PickupHistoryCommand::CopyTo(WordField::ScriptValue), next: cursor(0, 1) },
+            Statement::PickupHistory { command: PickupHistoryCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 2) },
+        ]]).unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let mut history = PickupHistory { collected_mask: 0xF0F0 };
+        let mut inputs = world(&mut random);
+        inputs.pickup_history = Some(&mut history);
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
+        assert_eq!(objects.get(owner).unwrap().extension.path_state.script_value, 0xF0F0);
+        let paused_history = inputs.pickup_history.take().unwrap();
+        let before = objects.clone();
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1), Err(ProgramError::MissingPickupHistory));
+        assert_eq!(objects, before);
+        paused_history.collected_mask = 0x0F0F;
+        inputs.pickup_history = Some(paused_history);
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::BudgetExceeded { cursor: cursor(0, 2), executed: 1 }));
+        assert_eq!(history.collected_mask, 0xF0F0); // replacement, not OR or a fresh import
+        assert_eq!(objects.get(owner).unwrap().extension.path_state.script_value, 0xF0F0);
     }
 
     #[test]
@@ -8205,6 +8303,7 @@ mod tests {
                 radio: None,
                 campaign: None,
                 guidance: None,
+                pickup_history: None,
                 control_style: None,
                 selected_occupancy_exempt: None,
                 occupancy: None,
@@ -12192,6 +12291,7 @@ mod tests {
                 radio: None,
                 campaign: None,
                 guidance: None,
+                pickup_history: None,
                 control_style: None,
                 selected_occupancy_exempt: None,
                 occupancy: None,
@@ -12317,6 +12417,7 @@ mod tests {
                         radio: None,
                         campaign: None,
                         guidance: None,
+                        pickup_history: None,
                         control_style: None,
                         selected_occupancy_exempt: None,
                         occupancy: None,

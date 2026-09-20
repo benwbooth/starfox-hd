@@ -2007,3 +2007,28 @@ statements**. All 129 lowerer tests, 292 static path tests, 316 native path
 tests in debug/release, generated freshness, architecture/static audits and
 the app build pass. The parent graphs and shipping scheduler integration
 remain separate work; no gameplay recordings were used.
+
+### Shared collected-pickup history
+
+The indexed word at `$D78E` is now a typed `PickupHistory` scene record.
+The source pickup family copies its authored yaw into an identity, tests
+that identity's bit before presentation, and hides/ends already-collected
+pickups. After collection, `44:45DF` imports the same word, sets the bit,
+and exports it. Zero identity bypasses both accesses. Static tests pin this
+read/test and read/set/write lifecycle, its three reward continuations,
+the independent word export at `44:7BBA`, the initialization clear, and the
+full indexed load/store handlers.
+
+Imports and exports replace complete words. The native API deliberately
+does not fold them into an atomic OR: a budget-sliced export must retain the
+actor's earlier copy even after another scene writer changes the history.
+Tests exhaust every word value in both directions and both IFNOT states,
+verify missing-input atomicity and zero-budget ordering, and preserve all
+unrelated actor/random state. Neighboring indexed fields and unreviewed
+access widths still fail lowering.
+
+Validation passes 130 lowerer tests, 293 static path tests and 318 native
+path tests in debug/release, plus generated freshness, architecture/static
+audits and the application build. Coverage remains **60 roots / 1,028
+source commands / 1,019 native statements**; the larger pickup graphs still
+require other presentation and reward services before publication.
