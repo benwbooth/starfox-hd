@@ -3983,3 +3983,21 @@ tests and two integration tests pass in debug and release; 198 lowerer tests,
 439 path-static tests, architecture guard, exact regeneration, static audit
 and app build pass. Catalog totals remain 140 roots and five helpers; this
 does not yet close the shared exit or shipping scheduler integration.
+
+### Selected-player retained position
+
+The extended position-copy command now reads the selected player's live
+auxiliary record, whose retained world position is distinct from both the
+actor's current coordinates and the published motion snapshot. The command
+copies all three signed words and advances without changing angles, IFNOT,
+random state, allocations or the source record. A missing auxiliary record
+faults before mutation even if a selected actor exists. Tests include owner
+aliasing, different primary/selected identities, source changes between two
+invocations and preservation of the retained pose by existing mode commands.
+The complete handler-byte fixture confirms the source record and order.
+
+1,020 native unit tests and two integration tests pass in debug and release;
+198 lowerer tests, 440 path-static tests, exact regeneration, architecture
+guard, static audit and app build pass. Catalog totals remain unchanged.
+The next shared-exit dependency is the placement-anchor word publication,
+including its overlap with the already-ported scenery-height mailbox.

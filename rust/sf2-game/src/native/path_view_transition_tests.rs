@@ -12,6 +12,95 @@ use super::tests::{setup, world};
 use super::*;
 
 #[test]
+fn selected_stored_pose_is_live_auxiliary_data_not_actor_or_published_motion() {
+    for alias in [false, true] {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let selected = if alias { owner } else { actor(&mut objects) };
+        let primary = actor(&mut objects);
+        objects.get_mut(selected).unwrap().base.position = Vector3 { x: 1, y: 2, z: 3 };
+        let mut auxiliary = SelectedAuxiliaryState {
+            mode: 137,
+            action_flags: 79,
+            stored_world_position: Vector3 {
+                x: -32768,
+                y: -123,
+                z: 32767,
+            },
+        };
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::CopySelectedStoredPosition { next: at(1) },
+            Statement::CopySelectedStoredPosition { next: at(2) },
+        ]])
+        .unwrap();
+        let mut expected = objects.clone();
+        let expected_actor = expected.get_mut(owner).unwrap();
+        expected_actor.base.position = auxiliary.stored_world_position;
+        expected_actor.base.path = Some(at(1));
+        let random_before = random;
+        runtime.branch.invert_next = true;
+        let resources_before = runtime.resources.clone();
+        let auxiliary_before = auxiliary;
+        let mut inputs = world(&mut random);
+        inputs.primary_player = Some(primary);
+        inputs.selected = Some(selected);
+        inputs.selected_auxiliary = Some(&mut auxiliary);
+        inputs.published_motion = Some(super::super::path_motion::PublishedPlayerMotion::capture(
+            objects.get(primary).unwrap(),
+            Vector3::default(),
+            0,
+        ));
+        expect_advance(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            at(1),
+            1,
+        );
+        assert_eq!(objects, expected);
+        assert_eq!(
+            *inputs.selected_auxiliary.as_deref().unwrap(),
+            auxiliary_before
+        );
+        let newer_position = Vector3 {
+            x: 234,
+            y: 32767,
+            z: -32768,
+        };
+        inputs
+            .selected_auxiliary
+            .as_deref_mut()
+            .unwrap()
+            .stored_world_position = newer_position;
+        expect_advance(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            at(2),
+            1,
+        );
+        expected.get_mut(owner).unwrap().base.position = newer_position;
+        expected.get_mut(owner).unwrap().base.path = Some(at(2));
+        assert_eq!(objects, expected);
+        assert!(runtime.branch.invert_next);
+        assert_eq!(runtime.resources, resources_before);
+        assert_eq!(random, random_before);
+    }
+}
+
+#[test]
+fn selected_stored_pose_requires_auxiliary_even_when_selected_actor_is_present() {
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    let before = objects.clone();
+    let catalog = PathCatalog::new(vec![vec![Statement::CopySelectedStoredPosition {
+        next: at(1),
+    }]])
+    .unwrap();
+    let mut inputs = world(&mut random);
+    inputs.selected = Some(owner);
+    assert_eq!(
+        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+        Err(ProgramError::MissingSelectedAuxiliary)
+    );
+    assert_eq!(objects, before);
+}
+
+#[test]
 fn fixed_view_motion_preserves_aliases_targets_identity_and_double_depth_chase() {
     use super::super::Angle;
     // Independent scalar model: wrapping subtraction, signed truncation, min step.

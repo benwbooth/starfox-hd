@@ -43,7 +43,7 @@ impl Default for Services {
             request: RadioRequest::default(),
             guidance: GuidanceHistory::default(),
             countdown: PathCountdown::default(),
-            auxiliary: SelectedAuxiliaryState {
+            auxiliary: SelectedAuxiliaryState { stored_world_position: Default::default(),
                 mode: 0x10,
                 action_flags: 0,
             },

@@ -205,7 +205,7 @@ fn selected_particle_mask_ors_every_byte_without_touching_action_flags_mode_or_i
         let (mut runtime, mut objects, owner, mut random) = setup();
         for flags in 0..=u8::MAX {
             runtime.branch.invert_next = flags & 1 != 0;
-            let mut auxiliary = SelectedAuxiliaryState {
+            let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
                 mode: !flags,
                 action_flags: flags,
             };
@@ -228,7 +228,7 @@ fn selected_particle_mask_ors_every_byte_without_touching_action_flags_mode_or_i
             );
             assert_eq!(
                 auxiliary,
-                SelectedAuxiliaryState {
+                SelectedAuxiliaryState { stored_world_position: Default::default(),
                     mode: !flags,
                     action_flags: flags
                 }
@@ -339,7 +339,7 @@ fn sprite_emitter_runs_its_own_fallthrough_and_finishes_after_the_authored_waits
         actor.base.path = Some(authored_paths::SELECTED_SCENERY_SPRITE_EMITTER);
         actor.base.position.y = initial_y;
         let mut events = AudioState::default();
-        let mut auxiliary = SelectedAuxiliaryState {
+        let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
             mode: 143,
             action_flags: 0,
         };

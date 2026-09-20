@@ -30,6 +30,11 @@ class ViewTransitionStaticTests(unittest.TestCase):
             'b316b51629ff00eb49ffff1a8db516e220c220b91200853aadb11622a3257f991200e220c220b914'
             '00853aadb31622a3257f991400e220c220b91600853aadb51622a3257f991600e2204ce8ca')
 
+    def test_selected_position_reads_auxiliary_record_not_current_actor_coordinates(self):
+        self.assertEqual(PathExtractor(self.rom).handler_entry(0x14E).handler_address, 0x7FC107)
+        self.assert_source(0x7FC107,
+            'ac1fcfdab62b9bfac220b9c16a950cb9c36a950eb9c56a9510e2204ce8ca')
+
     def test_snap_computes_all_negated_coarse_angle_targets_before_any_word_angle_store(self):
         self.assertEqual(PathExtractor(self.rom).handler_entry(0x111).handler_address, 0x7FB43B)
         self.assert_source(0x7FB43B,

@@ -38,7 +38,7 @@ fn finish_fade(
             .needs_path_initialization
     );
     runtime.initialize_path_strategy(objects, child).unwrap();
-    let mut auxiliary = SelectedAuxiliaryState {
+    let mut auxiliary = SelectedAuxiliaryState { stored_world_position: Default::default(),
         mode: 0x20,
         action_flags: 0,
     };

@@ -63,6 +63,8 @@ class NativePathGenerationTests(unittest.TestCase):
                          'Statement::IfProtectionOverride { taken: cursor(0, 0), next: cursor(0, 1) }')
 
     def test_view_transition_commands_are_complete_paired_actions_not_simple_flags(self):
+        self.assertEqual(self.lower_record('00 4e')[0],
+                         'Statement::CopySelectedStoredPosition { next: cursor(0, 1) }')
         self.assertEqual(self.lower_record('00 10')[0],
                          'Statement::MoveFixedView { snap: false, next: cursor(0, 1) }')
         self.assertEqual(self.lower_record('00 11')[0],
