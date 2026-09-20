@@ -203,7 +203,7 @@ fn placement_height_is_shared_and_preserves_every_signed_word_and_other_actor_fi
             })
         );
         assert_eq!(objects, expected);
-        assert_eq!(runtime.placement.lateral_or_height, Some(height));
+        assert_eq!(runtime.placement.primary, Some(height));
         assert_eq!(runtime.branch.invert_next, bits & 1 != 0);
     }
     assert_eq!(random, before_random);
@@ -466,7 +466,7 @@ fn arc_emitter_repeats_with_selected_jitter_and_retains_the_fresh_attachment() {
                         if rejected { 16_384 } else { 0 }
                     );
                     assert_eq!(objects.get(owner).unwrap().base.attachment, Some(spawned));
-                    assert_eq!(runtime.placement.lateral_or_height, Some(-500));
+                    assert_eq!(runtime.placement.primary, Some(-500));
                     previous = Some(spawned);
                 }
                 assert_eq!(inputs.random, &expected_random);

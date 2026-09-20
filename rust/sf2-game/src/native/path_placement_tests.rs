@@ -37,7 +37,7 @@ fn unaligned_control_word_aliases_live_phase_and_script_bytes() {
 #[test]
 fn placement_words_round_trip_all_signed_values_and_preserve_other_coordinates() {
     for coordinate in [
-        PlacementCoordinate::LateralOrHeight,
+        PlacementCoordinate::Primary,
         PlacementCoordinate::Depth,
     ] {
         let mut placement = PlacementCoordinates::default();
@@ -55,7 +55,7 @@ fn placement_words_round_trip_all_signed_values_and_preserve_other_coordinates()
         );
         assert_eq!(actor, before);
         for bits in 0..=u16::MAX {
-            placement.lateral_or_height = Some(-79);
+            placement.primary = Some(-79);
             placement.depth = Some(357);
             actor = before.clone();
             placement
@@ -69,12 +69,12 @@ fn placement_words_round_trip_all_signed_values_and_preserve_other_coordinates()
                 .unwrap();
             assert_eq!(actor, before);
             let expected = match coordinate {
-                PlacementCoordinate::LateralOrHeight => PlacementCoordinates {
-                    lateral_or_height: Some(bits as i16),
+                PlacementCoordinate::Primary => PlacementCoordinates {
+                    primary: Some(bits as i16),
                     depth: Some(357),
                 },
                 PlacementCoordinate::Depth => PlacementCoordinates {
-                    lateral_or_height: Some(-79),
+                    primary: Some(-79),
                     depth: Some(bits as i16),
                 },
             };
@@ -114,7 +114,7 @@ fn scenery_and_exit_placement_share_first_coordinate_across_actor_invocations() 
     let catalog = PathCatalog::new(vec![vec![
         Statement::Placement {
             command: PlacementCommand::Export {
-                coordinate: PlacementCoordinate::LateralOrHeight,
+                coordinate: PlacementCoordinate::Primary,
                 source: WordOperand::Actor(WordField::Position(Axis::X)),
             },
             next: at(1),
@@ -133,7 +133,7 @@ fn scenery_and_exit_placement_share_first_coordinate_across_actor_invocations() 
         },
         Statement::Placement {
             command: PlacementCommand::Import {
-                coordinate: PlacementCoordinate::LateralOrHeight,
+                coordinate: PlacementCoordinate::Primary,
                 destination: WordField::Position(Axis::X),
             },
             next: at(5),
@@ -178,7 +178,7 @@ fn scenery_and_exit_placement_share_first_coordinate_across_actor_invocations() 
     assert_eq!(
         runtime.placement,
         PlacementCoordinates {
-            lateral_or_height: Some(-500),
+            primary: Some(-500),
             depth: Some(32767)
         }
     );
@@ -190,7 +190,7 @@ fn scenery_and_exit_placement_share_first_coordinate_across_actor_invocations() 
 #[test]
 fn missing_placement_coordinate_does_not_advance_or_change_owner() {
     for coordinate in [
-        PlacementCoordinate::LateralOrHeight,
+        PlacementCoordinate::Primary,
         PlacementCoordinate::Depth,
     ] {
         let (mut runtime, mut objects, owner, mut random) = setup();

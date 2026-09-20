@@ -3,19 +3,20 @@
 use super::path_fields::{ByteField, ByteOperand};
 use super::Object;
 
-/// Shared placement anchor used by encounter exits and scenery helpers.
-/// The first coordinate is lateral position for exits and height for scenery
-/// (source D767); these uses observe the same last publication. Depth is D769.
+/// Shared placement arguments used by exits, scenery and child constructors.
+/// The primary scalar is lateral position for exits, height for scenery or a
+/// child-relative offset (source D767); all observe the same last publication.
+/// The separately retained depth coordinate is D769.
 /// Actor-identity publications are separate typed operations, not coordinates.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlacementCoordinates {
-    pub lateral_or_height: Option<i16>,
+    pub primary: Option<i16>,
     pub depth: Option<i16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlacementCoordinate {
-    LateralOrHeight,
+    Primary,
     Depth,
 }
 
@@ -43,7 +44,7 @@ impl PlacementCoordinates {
             | PlacementCommand::Export { coordinate, .. } => coordinate,
         };
         let value = match coordinate {
-            PlacementCoordinate::LateralOrHeight => &mut self.lateral_or_height,
+            PlacementCoordinate::Primary => &mut self.primary,
             PlacementCoordinate::Depth => &mut self.depth,
         };
         match command {

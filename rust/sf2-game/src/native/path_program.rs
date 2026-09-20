@@ -169,6 +169,9 @@ mod articulated_tests;
 #[cfg(test)]
 #[path = "path_progress_exit_tests.rs"]
 mod progress_exit_tests;
+#[cfg(test)]
+#[path = "path_numbered_sprite_tests.rs"]
+mod numbered_sprite_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -1456,7 +1459,7 @@ impl PathRuntime {
                     Ok(ControlStep::Continue)
                 }
                 Statement::SetSceneryPlacementHeight { height, next } => {
-                    self.placement.lateral_or_height = Some(height);
+                    self.placement.primary = Some(height);
                     objects.get_mut(owner).expect("validated placement writer").base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -1479,7 +1482,7 @@ impl PathRuntime {
                     Ok(ControlStep::Continue)
                 }
                 Statement::ImportSceneryPlacementHeight { next } => {
-                    let height = self.placement.lateral_or_height.ok_or(ProgramError::MissingSceneryPlacementHeight)?;
+                    let height = self.placement.primary.ok_or(ProgramError::MissingSceneryPlacementHeight)?;
                     let actor = objects.get_mut(owner).expect("validated placement reader");
                     actor.base.position.y = height;
                     actor.base.path = Some(next);
@@ -13916,9 +13919,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
         assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 145);
-        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 5);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 5407);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 5451);
+        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 7);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 5437);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 5481);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

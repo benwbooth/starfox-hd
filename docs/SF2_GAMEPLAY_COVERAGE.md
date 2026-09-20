@@ -4126,3 +4126,25 @@ All 1,036 native unit tests and two integration tests pass in debug and
 release; 205 lowerer tests, 444 path-static tests, exact regeneration,
 architecture guard, static audit and app build pass. Catalog totals remain
 145 roots and five helpers; this primitive does not complete their callers.
+
+### Numbered child-sprite constructors
+
+The complete small/large sprite constructors (`$44:85C3`, `$44:85F0`) now
+lower from their reachable call sites, including the child's hit-toggle
+callbacks. Both retain the parent's arguments, publish attack and placement,
+borrow each new child, replace its number from the companion argument, then
+advance that argument with byte wrap. Placement uses the same retained primary
+scalar as scenery/exit publication, not a disconnected constructor copy.
+Shape and identity publications remain excluded from scalar placement access.
+
+Native checks cover every starting child number, both shapes, one/three
+children, signed offset boundaries, unchanged parent argument bytes, restored
+ownership, an empty return stack, retained branch inversion and no random
+consumption. A zero loop count keeps spawning until actual pool exhaustion;
+missing companion input faults after allocation, in source operation order.
+
+The catalog now has **145 actor roots, seven callable helpers, 5,481 source
+commands and 5,437 typed statements**. All 1,038 native unit tests and two
+integration tests pass in debug and release; 206 lowering tests, exact
+regeneration, architecture guard, static audit and app build pass. These are
+complete callable graphs, not completion claims for their encounter callers.

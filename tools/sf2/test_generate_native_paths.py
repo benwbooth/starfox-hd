@@ -36,8 +36,8 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
         self.assertIn('LOWERED_ROOT_COUNT: usize = 145;', source)
-        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 5;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5451;', source)
+        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 7;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5481;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -83,7 +83,7 @@ class NativePathGenerationTests(unittest.TestCase):
             self.lower_record('7d a2 e0 1d')
         self.assertIn('ByteField::RadarMarker', self.lower_record('2a ad 86 36 f5')[0])
         for opcode, operation in [('7b', 'Import'), ('80', 'Export')]:
-            for variable, index, coordinate, axis in [('0c', '0b', 'LateralOrHeight', 'X'), ('10', '0d', 'Depth', 'Z')]:
+            for variable, index, coordinate, axis in [('0c', '0b', 'Primary', 'X'), ('10', '0d', 'Depth', 'Z')]:
                 statement = self.lower_record(f'{opcode} {variable} {index}')[0]
                 self.assertIn(f'PlacementCommand::{operation}', statement)
                 self.assertIn(f'PlacementCoordinate::{coordinate}', statement)
@@ -915,6 +915,37 @@ class NativePathGenerationTests(unittest.TestCase):
                 statement = self.lower_record(record)[0]
                 self.assertIn(f'SpawnArgument::{argument}', statement)
                 self.assertIn(f'SpawnParameterCommand::{operation}', statement)
+
+    def test_numbered_sprite_helpers_close_their_children_and_exact_argument_handoffs(self):
+        extractor = PathExtractor(self.rom)
+        for root, parent, callsite, installer, shape, index, digest in [
+                (0x85C3, 0x23D4, 0x2404, 0x85CB, 0xBEB0, 19,
+                 '64152accccaa12d8661b106eca343a4f61ef826d3ff58e8a9be706b1062c77e3'),
+                (0x85F0, 0x6230, 0x6278, 0x85F8, 0xBEE8, 21,
+                 'df7274e4b3c7b24bea9c9e845cc988580e972f4bb317f5f5c2deb490e7735b63')]:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(len(commands), 52)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
+            self.assertIn(PathAddress(parent), extractor.discover_roots())
+            self.assertIn(extractor.decode_command(PathAddress(callsite)), graph(extractor, PathAddress(parent)))
+            self.assertEqual(extractor.decode_command(PathAddress(callsite)).raw_hex, '41' + root.to_bytes(2, 'little').hex())
+            spawn = child_spawn_parameters(extractor.decode_command(PathAddress(installer)))
+            self.assertEqual(spawn.path, PathAddress(0x8488))
+            self.assertEqual(spawn_shape(shape, spawn.path), (index, 'ObjectKind::Effect'))
+            statements = lower_graph(extractor, PathAddress(root), 0)[1]
+            self.assertEqual(len(statements), 52)
+            self.assertEqual(sum('SpawnArgument::Companion' in s for s in statements), 2)
+            self.assertEqual(sum('SpawnArgument::Primary' in s for s in statements), 2)
+            self.assertEqual(sum('Statement::Placement' in s for s in statements), 2)
+        for record, operation, field in [('80 a3 0b', 'Export', 'ScriptValue'),
+                                          ('7b 92 0b', 'Import', 'RelativePosition(Axis::Z)')]:
+            statement = self.lower_record(record)[0]
+            self.assertIn('PlacementCoordinate::Primary', statement)
+            self.assertIn(f'PlacementCommand::{operation}', statement)
+            self.assertIn(f'WordField::{field}', statement)
+        for record in ['7b a3 0b', '80 92 0b', '80 04 0b', '7b 04 0b']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
 
     def test_warning_and_cooldown_graphs_and_parent_installers_are_complete(self):
         extractor = PathExtractor(self.rom)
@@ -3437,7 +3468,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("Statement::ImportControlStyle", self.lower_record("79 a1 d0 1d")[0])
         self.assertIn("GuidanceCommand::CopyTo(WordField::MotionScriptOverlap)", self.lower_record("7b a2 36")[0])
         for index in range(256):
-            if index not in (0x32, 0x34, 0x36, 0x43, 0x9A):
+            if index not in (0x0B, 0x32, 0x34, 0x36, 0x43, 0x9A):
                 with self.assertRaises(UnsupportedPath):
                     self.lower_record(f"80 a3 {index:02x}")
         for record in ["7b a4 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:

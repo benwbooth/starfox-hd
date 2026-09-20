@@ -176,6 +176,8 @@ SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # entry is bound to a direct call or callback registration/redirection reachable
 # from a discovered actor root.
 SUBROUTINES = (
+    ("SPAWN_NUMBERED_HIT_SPRITES", PathAddress(0x85C3), PathAddress(0x23D4), PathAddress(0x2404)),
+    ("SPAWN_NUMBERED_LARGE_HIT_SPRITES", PathAddress(0x85F0), PathAddress(0x6230), PathAddress(0x6278)),
     ("QUERY_OBJECTIVE_COMPLETION", PathAddress(0x87D3), PathAddress(0x2102), PathAddress(0x2105)),
     ("RECORD_OBJECTIVE_COMPLETION", PathAddress(0x87E5), PathAddress(0x2102), PathAddress(0x80B4)),
     ("WAIT_FOR_TRANSITION_READY", PathAddress(0x872C), PathAddress(0x2102), PathAddress(0x2132)),
@@ -656,6 +658,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # the mesh alone is insufficient evidence for other uses of that shape.
     if index == 19 and path in (PathAddress(0xF5A1), PathAddress(0xF306),
                                PathAddress(0x8486), PathAddress(0x8488)):
+        return index, "ObjectKind::Effect"
+    # Complete numbered constructors install the same collision-disabled,
+    # hit-toggle sprite behavior with its small and large shape variants.
+    if shape in (0xBEB0, 0xBEE8) and path == PathAddress(0x8488):
         return index, "ObjectKind::Effect"
     # Moving/contact-triggered child of the primary weapon service D11D.
     if index == 7 and path == PathAddress(0xF4CA):
@@ -1735,8 +1741,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::AttachLastSpawn {{ next: {next_cursor()} }}"
             elif command.address == PathAddress(0xB136) and name == "ImportWordIndexed" and (variable, index) == (0x0E, 0x0B):
                 statement = f"Statement::ImportSceneryPlacementHeight {{ next: {next_cursor()} }}"
-            elif (variable, index) in ((0x0C, 0x0B), (0x10, 0x0D)):
-                coordinate = "LateralOrHeight" if index == 0x0B else "Depth"
+            elif ((variable, index) in ((0x0C, 0x0B), (0x10, 0x0D))
+                  or (name, variable, index) in (("ExportWordIndexed", 0xA3, 0x0B),
+                                                 ("ImportWordIndexed", 0x92, 0x0B))):
+                coordinate = "Primary" if index == 0x0B else "Depth"
                 operation = (f"Import {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, destination: {word_field(variable)} }}"
                              if name.startswith("Import") else
                              f"Export {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, source: WordOperand::Actor({word_field(variable)}) }}")
