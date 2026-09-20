@@ -25,6 +25,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("ORIENTED_PROGRESS_GATED_EXIT", PathAddress(0x0AE7)),
+    ("PROGRESS_GATED_EXIT", PathAddress(0x0AEA)),
     ("QUEEN_DIORAY", PathAddress(0x8D82)),
     ("SCRIPTED_ENCOUNTER_EXIT_VIEW", PathAddress(0x78D2)),
     ("SCRIPTED_ENCOUNTER_EXIT_ANCHOR", PathAddress(0x7B8F)),

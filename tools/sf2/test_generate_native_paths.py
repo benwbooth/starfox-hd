@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 143;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 145;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 5;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5394;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5451;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -177,6 +177,19 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn('distance: ByteOperand::Actor(ByteField::Rotation(Axis::X))', self.lower_record('00 2f 12')[0])
         with self.assertRaises(UnsupportedPath):
             self.lower_record('00 2f 06')
+
+    def test_progress_gated_exits_are_complete_independently_installed_graphs(self):
+        extractor = PathExtractor(self.rom)
+        for address, count, digest in [
+                (0x0AE7, 399, '0933ddb28ecc7cdda0095e4d9e6b69fde157f4e0ce53f2db5b1e6816a2606620'),
+                (0x0AEA, 398, '5559c25d50e76c8f995fc3d4c5d2bf71d4e5e3a214c849376b12fb60c0e6aed6')]:
+            root = PathAddress(address)
+            self.assertIn(root, extractor.discover_roots())
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
+            self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
+        self.assertEqual(extractor.decode_command(PathAddress(0x0AE7)).raw_hex, '4e142d')
 
     def test_child_auxiliary_link_thunks_and_identity_swap_are_typed_not_scalar(self):
         extractor = PathExtractor(self.rom)

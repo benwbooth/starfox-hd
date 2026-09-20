@@ -4090,3 +4090,24 @@ release; 203 lowerer tests, 444 path-static tests, exact regeneration,
 architecture guard, static audit and app build pass. This is static source
 closure and native scenario coverage, not proof of full boss runtime parity
 or completion of the still-open shipping world/scheduler integration.
+
+### Progress-gated exit roots
+
+Both independently installed exit roots (`$44:0AE7` and `$44:0AEA`) now lower
+their complete 399/398-command graphs. The first additionally copies its
+initial health byte into yaw before shared initialization. This adds 57 unique
+commands, bringing the shared catalog to **145 actor roots, five helpers,
+5,451 source commands and 5,407 typed statements**.
+
+Native tests cover every progress byte against boundary-valued authored stage
+bytes for both roots. They retain the signed wrapping subtraction, comparison
+before the 254 sentinel, live progress polling, stage extraction from the low
+height byte, yaw distinction, and the full fifteen movement yields before
+the opening continuation. The sentinel directly selects the held exit shape
+and its shape-footprint exclusion; a successful comparison takes precedence
+over that sentinel. No camera/audio services are fabricated for these tests.
+
+All 1,036 native unit tests and two integration tests pass in debug and
+release; 204 lowerer tests, 444 path-static tests, exact regeneration,
+architecture guard, static audit and app build pass. These checks do not
+establish complete gameplay or shipping scheduler/world integration.
