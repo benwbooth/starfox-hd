@@ -73,6 +73,30 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("ByteOperation::Assign(ByteOperand::Literal(128))", statements[8])
         self.assertIn("target: cursor(0, 2)", statements[9])
 
+    def test_charge_orb_complete_root_retains_live_threshold_and_callback(self):
+        self.assertEqual(self.lower_record("79 a2 d6 1d")[0],
+            "Statement::ImportChargeThreshold { destination: ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::High }, next: cursor(0, 1) }")
+        for record in ["79 a2 d5 1d", "79 a2 d7 1d", "7d a2 d6 1d", "fb d6 1d 19", "e5 d6 1d", "e7 d6 1d"]:
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
+                self.lower_record(record)
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0xF04F))
+        _, statements = lower_graph(extractor, PathAddress(0xF04F), 0)
+        self.assertEqual(len(statements), 17)
+        mapped = dict(zip((command.address.offset for command in commands), statements))
+        self.assertIn("Literal(2)", mapped[0xF050])
+        self.assertIn("iterations: 8", mapped[0xF05C])
+        self.assertIn("ImportChargeThreshold", mapped[0xF061])
+        self.assertIn("EqualByte", mapped[0xF065])
+        self.assertIn("RefreshSelectedChargeAttachment", mapped[0xF078])
+        self.assertIn("ControlCommand::Hold", mapped[0xF077])
+        self.assertIn("ControlCommand::Return", mapped[0xF083])
+        for offset in (0xF07A, 0xF080):
+            changed = bytearray(self.rom)
+            changed[0x40000 + offset] ^= 1
+            with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF04F), 0)
+
     def test_lowering_reads_authored_parameters_instead_of_hardcoding_fixture(self):
         changed = bytearray(self.rom)
         changed[0x40000 + 0xF537] = 17
@@ -329,7 +353,7 @@ class NativePathGenerationTests(unittest.TestCase):
 
     def test_unported_or_changed_inline_actions_are_rejected(self):
         with self.assertRaisesRegex(UnsupportedPath, "unported inline action"):
-            lower_graph(PathExtractor(self.rom), PathAddress(0xF078), 0)
+            lower_graph(PathExtractor(self.rom), PathAddress(0xF2E4), 0)
         changed = bytearray(self.rom)
         changed[0x4F350] = 0x40  # change the primary flag mask inside the action
         with self.assertRaisesRegex(ValueError, "inline signature mismatch"):

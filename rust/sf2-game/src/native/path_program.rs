@@ -26,6 +26,9 @@ pub struct PathWorld<'a> {
     pub primary_motion: Option<PrimaryMotionInput>,
     /// Published player-service snapshot, distinct from fresh primary inputs.
     pub published_motion: Option<super::path_motion::PublishedPlayerMotion>,
+    /// Shared active-pilot threshold; it can change independently of selection.
+    pub active_charge_threshold: Option<u8>,
+    pub selected_charge: Option<super::path_charge::SelectedChargeInput>,
     pub primary_control: Option<super::path_player_control::PrimaryControl<'a>>,
     pub countdown: Option<&'a mut super::path_countdown::PathCountdown>,
     /// Fresh selected auxiliary observations for this invocation; absent
@@ -178,6 +181,13 @@ pub enum Statement {
         destination: super::path_fields::WordField,
         next: PathCursor,
     },
+    ImportChargeThreshold {
+        destination: super::path_fields::ByteField,
+        next: PathCursor,
+    },
+    RefreshSelectedChargeAttachment {
+        next: PathCursor,
+    },
     PlayerControl {
         command: super::path_player_control::PlayerControlCommand,
         next: PathCursor,
@@ -287,6 +297,8 @@ pub enum ProgramError {
     MissingPrimaryPlayer,
     MissingPrimaryMotion,
     MissingPublishedMotion,
+    MissingChargeThreshold,
+    MissingSelectedCharge,
     MissingPrimaryControl,
     MissingAudio,
     MissingSoundMarkers,
@@ -471,6 +483,35 @@ impl PathRuntime {
                         .get_mut(owner)
                         .expect("validated motion-import owner");
                     destination.write(actor, value as u16);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportChargeThreshold { destination, next } => {
+                    let value = world
+                        .active_charge_threshold
+                        .ok_or(ProgramError::MissingChargeThreshold)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated charge-import owner");
+                    destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::RefreshSelectedChargeAttachment { next } => {
+                    use super::path_relationships::RelationshipError;
+                    let selected = world.selected.ok_or(ProgramError::Relationship(
+                        RelationshipError::MissingSelected,
+                    ))?;
+                    objects.get(selected).ok_or(ProgramError::Relationship(
+                        RelationshipError::MissingActor(selected),
+                    ))?;
+                    let input = world
+                        .selected_charge
+                        .ok_or(ProgramError::MissingSelectedCharge)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated charge-callback owner");
+                    super::path_charge::refresh_attachment(actor, selected, input);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -761,6 +802,8 @@ mod tests {
             fixed_players: [None; 2],
             primary_motion: None,
             published_motion: None,
+            active_charge_threshold: None,
+            selected_charge: None,
             primary_control: None,
             countdown: None,
             selected_auxiliary: None,
@@ -781,6 +824,250 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn charge_inputs_are_live_and_missing_observations_fault_before_mutation() {
+        use super::super::path_charge::SelectedChargeInput;
+        use super::super::path_fields::BytePart;
+        use super::super::path_relationships::RelationshipError;
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let other = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        let removed = objects
+            .allocate(Object::new(
+                ObjectKind::Enemy,
+                ShapeId::EMPTY,
+                Behavior::FollowPath,
+            ))
+            .unwrap();
+        objects.remove(removed).unwrap();
+        let original_random = random;
+        runtime.branch.invert_next = true;
+        let import = PathCatalog::new(vec![vec![Statement::ImportChargeThreshold {
+            destination: ByteField::WordPart {
+                field: WordField::MotionPhase,
+                part: BytePart::High,
+            },
+            next: cursor(0, 0),
+        }]])
+        .unwrap();
+        let callback = PathCatalog::new(vec![vec![Statement::RefreshSelectedChargeAttachment {
+            next: cursor(0, 0),
+        }]])
+        .unwrap();
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .motion_phase = 0xF37D;
+        let before = objects.get(owner).unwrap().clone();
+        assert_eq!(
+            runtime.resume_program(&import, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingChargeThreshold)
+        );
+        assert_eq!(objects.get(owner).unwrap(), &before);
+        for (selected, expected) in [
+            (
+                None,
+                ProgramError::Relationship(RelationshipError::MissingSelected),
+            ),
+            (
+                Some(removed),
+                ProgramError::Relationship(RelationshipError::MissingActor(removed)),
+            ),
+            (Some(other), ProgramError::MissingSelectedCharge),
+        ] {
+            let mut inputs = world(&mut random);
+            inputs.selected = selected;
+            assert_eq!(
+                runtime.resume_program(&callback, &mut objects, owner, &mut inputs, 1),
+                Err(expected)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+        }
+        let expected_outcome = Err(ProgramError::BudgetExceeded {
+            cursor: cursor(0, 0),
+            executed: 1,
+        });
+        for value in 0..=u8::MAX {
+            let mut inputs = world(&mut random);
+            inputs.active_charge_threshold = Some(value);
+            let mut expected = objects.get(owner).unwrap().clone();
+            expected.extension.path_state.motion_phase =
+                (u16::from(value) << 8) | (expected.extension.path_state.motion_phase & 255);
+            assert_eq!(
+                runtime.resume_program(&import, &mut objects, owner, &mut inputs, 1),
+                expected_outcome
+            );
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            for selected in [owner, other] {
+                for linked_mode in [false, true] {
+                    inputs.selected = Some(selected);
+                    inputs.selected_charge = Some(SelectedChargeInput {
+                        linked_mode,
+                        level: !value,
+                    });
+                    expected.extension.parent = Some(selected);
+                    expected.extension.relative_position.y = 0;
+                    expected.extension.relative_position.z =
+                        expected.extension.path_state.script_value as i16;
+                    expected.extension.path_state.motion_phase =
+                        (u16::from(value) << 8) | u16::from(!value);
+                    if linked_mode {
+                        expected.extension.texture_scroll_x = 255;
+                    }
+                    assert_eq!(
+                        runtime.resume_program(&callback, &mut objects, owner, &mut inputs, 1),
+                        expected_outcome
+                    );
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(inputs.random, &original_random);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn complete_charge_orb_waits_grows_and_holds_while_callback_remains_live() {
+        use super::super::path_charge::SelectedChargeInput;
+        use super::super::{authored_paths, path_motion, Vector3};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let other = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        let other_before = objects.get(other).unwrap().clone();
+        objects.get_mut(owner).unwrap().base.path = Some(authored_paths::PLAYER_CHARGE_ORB);
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .relative_position
+            .x = -193;
+        let original_random = random;
+        let catalog = authored_paths::catalog();
+        let mut size = 0_u8;
+        for visit in 0..15 {
+            let mut inputs = world(&mut random);
+            // Readiness changes after the first comparison. The next visit
+            // compares the complete prior callback byte, including bit 80.
+            inputs.active_charge_threshold = Some(if visit < 10 { 25 } else { 165 });
+            let selected = if visit % 2 == 0 { other } else { owner };
+            inputs.selected = Some(selected);
+            let linked_mode = visit == 4 || visit == 12;
+            let level = if visit == 9 { 165 } else { 5 };
+            inputs.selected_charge = Some(SelectedChargeInput { linked_mode, level });
+            objects
+                .get_mut(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .script_value = 32765 + visit;
+            if !objects
+                .get(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .hold_latched
+            {
+                assert_eq!(
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32),
+                    Ok(ControlStep::Movement)
+                );
+            }
+            let actor = objects.get(owner).unwrap();
+            assert!(actor.base.flags.collision_disabled);
+            assert_eq!(
+                actor.base.wait_timer,
+                if visit < 2 { visit as u8 + 1 } else { 0 }
+            );
+            if (2..=9).contains(&visit) {
+                size = size.wrapping_add(1);
+            }
+            if visit == 10 {
+                size = 8;
+            }
+            if visit >= 2 {
+                assert_eq!(actor.extension.texture_scroll_x, size);
+            }
+            assert_eq!(actor.extension.path_state.hold_latched, visit >= 10);
+            if visit >= 2 {
+                assert_eq!(
+                    actor.base.shape,
+                    ShapeId::from_catalog_index(if visit < 10 { 15 } else { 17 })
+                );
+            }
+            assert!(!actor.base.flags.remove_after_tick);
+            let callbacks = runtime
+                .begin_movement(
+                    &mut objects,
+                    owner,
+                    path_motion::PlayerDisplacement::default(),
+                )
+                .unwrap();
+            assert_eq!(callbacks, visit >= 2);
+            if callbacks {
+                assert!(matches!(
+                    runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                    Ok(CallbackStep::Run(_))
+                ));
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2),
+                    Ok(ControlStep::ResumeCallbacks)
+                );
+                assert_eq!(
+                    runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                    Ok(CallbackStep::Complete)
+                );
+                if linked_mode {
+                    size = 255;
+                }
+            }
+            runtime
+                .finish_movement(&mut objects, &mut [None, None])
+                .unwrap();
+            let actor = objects.get(owner).unwrap();
+            if callbacks {
+                assert_eq!(actor.extension.parent, Some(selected));
+                assert_eq!(
+                    actor.extension.relative_position,
+                    Vector3 {
+                        x: -193,
+                        y: 0,
+                        z: (32765 + visit) as i16
+                    }
+                );
+                assert_eq!(actor.extension.texture_scroll_x, size);
+                assert_eq!(actor.extension.path_state.motion_phase as u8, level);
+                assert_eq!(
+                    actor.extension.path_state.motion_phase >> 8,
+                    if visit < 9 {
+                        0
+                    } else if visit == 9 {
+                        25
+                    } else {
+                        165
+                    }
+                );
+            }
+            assert_eq!(actor.base.position, Vector3::default());
+            assert_eq!(actor.base.attachment, None);
+            assert!(!actor.extension.path_state.motion.attached_coordinates);
+            assert_eq!(objects.get(other).unwrap(), &other_before);
+            assert_eq!(inputs.random, &original_random);
+        }
+        runtime.release_actor_programs(&mut objects, owner).unwrap();
     }
 
     #[test]
@@ -2599,6 +2886,8 @@ mod tests {
                 fixed_players: [None; 2],
                 primary_motion: None,
                 published_motion: None,
+                active_charge_threshold: None,
+                selected_charge: None,
                 primary_control: None,
                 spawn_defaults: None,
                 countdown: None,
@@ -3048,8 +3337,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 13);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 144);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 14);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 161);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -3186,6 +3475,8 @@ mod tests {
                 fixed_players: [None; 2],
                 primary_motion: None,
                 published_motion: None,
+                active_charge_threshold: None,
+                selected_charge: None,
                 primary_control: None,
                 selected_auxiliary: None,
                 countdown: None,
@@ -3290,6 +3581,8 @@ mod tests {
                         fixed_players: [None; 2],
                         primary_motion: None,
                         published_motion: None,
+                        active_charge_threshold: None,
+                        selected_charge: None,
                         primary_control: None,
                         selected_auxiliary: None,
                         countdown: None,

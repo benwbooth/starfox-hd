@@ -37,6 +37,7 @@ ROOTS = (
     ("PRIMARY_TARGET_FOLLOWER", PathAddress(0xF38A)),
     ("SHARED_COUNTDOWN_SERVICE", PathAddress(0x04FF)),
     ("COUNTER_MOTION_EFFECT", PathAddress(0xBE65)),
+    ("PLAYER_CHARGE_ORB", PathAddress(0xF04F)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -342,6 +343,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             actions = {
                 PathAddress(0xF348): "LatchPrimaryViewFilter",
                 PathAddress(0xE78A): "InheritPrimaryHorizontalMotion",
+                PathAddress(0xF078): "RefreshSelectedChargeAttachment",
             }
             controls = {
                 PathAddress(0xF391): "LockForLinkedMode",
@@ -636,6 +638,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             else:
                 low, high = parameters(2)
                 address = low | (high << 8)
+            if address == 0x1DD6 and name == "ImportByteAbsolute":
+                statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address != 0xD786:
                 raise UnsupportedPath(f"unported shared byte {address:04X} at {command.address.label()}")
             if name.startswith("Import"):

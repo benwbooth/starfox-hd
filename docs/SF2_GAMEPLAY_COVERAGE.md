@@ -904,3 +904,20 @@ preservation and IFNOT/RNG retention. Verification passes 66 lowerer tests,
 199 static path tests, 186 native path tests in debug/release, the architecture
 and dependency audits, and the app build. The catalog now has **13 complete
 roots and 144 unique statements**; scheduler integration remains open.
+
+The complete 17-command `PLAYER_CHARGE_ORB` root now retains its two-visit
+wait, eight-pass size loop, live active-pilot threshold comparison, ready
+shape transition and persistent callback after HOLD. The callback samples
+the selected player's complete charge-level byte and linked-mode observation;
+it updates the relative reference and retained offsets without changing the
+child-list attachment or world pose. The threshold is a separate shared input,
+not inferred from the selected player or frozen to the initial pilot.
+
+Static fixtures pin the complete path, callback, threshold table and active
+pilot swap. Tests cover all offset words and charge bytes, preserved high-byte
+thresholds, missing inputs, self-selection, size wrapping, live threshold
+changes, post-HOLD callbacks and IFNOT/RNG preservation. Verification passes
+67 lowerer tests, 202 static path tests, 189 native path tests in debug/release,
+the architecture/dependency audits and the app build. The catalog now contains
+**14 complete roots and 161 unique statements**. This remains static native
+translation with scheduler integration open, not a claim of whole-game parity.
