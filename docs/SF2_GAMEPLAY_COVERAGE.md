@@ -1574,3 +1574,36 @@ open, and no original instructions or recorded gameplay were executed.
 Checkpoint validation passes 112 lowerer tests, 277 static path tests and
 284 native path tests in both debug and release, plus generated freshness,
 architecture/static audits and the application build.
+
+### Complete distance-gated scenery graphs
+
+`DISTANCE_GATED_SCENERY` and `HEALTH_ROTATED_DISTANCE_SCENERY` now retain
+their complete 45/46-statement source graphs, including the material helper,
+nested footprint-admission helper and both yielding distance loops. Their
+independent strategy installers are verified before catalog publication.
+The second entry copies original health to yaw before the shared initializer
+replaces health; both capture the low byte of original world Y as the bit
+selector, then clear world Y. Near mode begins below 512 units and persists
+until 600; far mode persists through the 512..599 interval.
+
+The scene-owned proximity mask has separate full-byte import and export
+commands. Missing state faults at the exact command without partial writes;
+selector zero bypasses the shared record. The intervening bit operation
+retains its source word width, including changes to the high phase byte,
+before export stores only the low byte. Import/mutate/export are not fused:
+a resumed export publishes the previously imported value even if another
+scene writer has since changed the shared record.
+
+Both reviewed inline footprint helpers now lower to a named contact command.
+Every signature byte and return target is checked. The real surface-query
+test verifies candidate admission independently of visibility and damage
+collision. Native graph tests cover all 256 selectors for both roots through
+eight threshold transitions, zero-selector short-circuiting, original-health
+yaw, initializer flags, retained random state and command fault/resume cases.
+
+Coverage is **31 complete roots / 728 source commands / 719 native
+statements**. Validation passes 115 lowerer tests, 279 static path tests and
+289 native path tests in debug and release, generated freshness,
+architecture/static audits and the application build. This remains static
+lowering and native service verification, not completed Game scheduler/spawn
+integration or recorded-gameplay verification.

@@ -16,6 +16,7 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
+    pub scenery_distance: Option<&'a mut SceneryDistanceState>,
     pub shield_recovery: Option<&'a mut super::player_hit_control::ShieldRecoveryRequest>,
     /// Whole shared action-gate byte (1D72), not a narrowed protection flag.
     pub action_gate: Option<u8>,
@@ -71,6 +72,20 @@ pub struct PathWorld<'a> {
 pub struct ScenePathInputs {
     pub player_configuration: Option<u8>,
     pub encounter_location: Option<u8>,
+}
+
+/// Shared scenery proximity mask ($D78C). Authored paths select which bits
+/// to replace using their script parameter; importing/exporting preserves
+/// the full byte. This record belongs to the scene, not to any one actor.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SceneryDistanceState {
+    pub near_mask: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SceneryDistanceCommand {
+    CopyTo(super::path_fields::ByteField),
+    Assign(ByteOperand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,6 +315,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    SceneryDistance {
+        command: SceneryDistanceCommand,
+        next: PathCursor,
+    },
     ClockBitsSet {
         mask: u8,
         taken: PathCursor,
@@ -550,6 +569,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingSceneryDistance,
     MissingSceneByte(SceneByte),
     MissingShieldRecovery,
     MissingActionGate,
@@ -711,6 +731,17 @@ impl PathRuntime {
                     let value = source.read(world.scene).ok_or(ProgramError::MissingSceneByte(source))?;
                     let actor = objects.get_mut(owner).expect("validated scene-selector reader");
                     destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SceneryDistance { command, next } => {
+                    let scenery = world.scenery_distance.as_deref_mut()
+                        .ok_or(ProgramError::MissingSceneryDistance)?;
+                    let actor = objects.get_mut(owner).expect("validated scenery owner");
+                    match command {
+                        SceneryDistanceCommand::CopyTo(field) => field.write(actor, scenery.near_mask),
+                        SceneryDistanceCommand::Assign(value) => scenery.near_mask = value.read(actor),
+                    }
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -1445,6 +1476,7 @@ mod tests {
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             scene: ScenePathInputs::default(),
+            scenery_distance: None,
             shield_recovery: None,
             action_gate: None,
             environment_plane_height: None,
@@ -4954,6 +4986,158 @@ mod tests {
     }
 
     #[test]
+    fn scenery_transfers_preserve_full_bytes_and_fault_before_mutation() {
+        use super::super::path_fields::BytePart;
+        let field = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
+        for importing in [false, true] {
+            let command = if importing { SceneryDistanceCommand::CopyTo(field) }
+                else { SceneryDistanceCommand::Assign(ByteOperand::Actor(field)) };
+            let catalog = PathCatalog::new(vec![vec![Statement::SceneryDistance { command, next: cursor(0, 1) }]]).unwrap();
+            for value in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                runtime.branch.invert_next = true;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.extension.path_state.motion_phase = 0xA500 | u16::from(value);
+                actor.base.wait_timer = 251;
+                let initial = objects.clone();
+                let initial_random = random;
+                let mut scenery = SceneryDistanceState { near_mask: value ^ 0xFF };
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                    Err(ProgramError::MissingSceneryDistance));
+                assert_eq!(objects, initial);
+                let mut inputs = world(&mut random);
+                inputs.scenery_distance = Some(&mut scenery);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                assert_eq!(objects, initial);
+                assert_eq!(inputs.scenery_distance.as_ref().unwrap().near_mask, value ^ 0xFF);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
+                let mut expected = initial;
+                let actor = expected.get_mut(owner).unwrap();
+                actor.base.path = Some(cursor(0, 1));
+                if importing { actor.extension.path_state.motion_phase = 0xA500 | u16::from(value ^ 0xFF); }
+                assert_eq!(objects, expected);
+                assert_eq!(scenery.near_mask, if importing { value ^ 0xFF } else { value });
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, initial_random);
+            }
+        }
+    }
+
+    #[test]
+    fn distance_scenery_keeps_hysteresis_all_selectors_and_word_sized_bit_mutation() {
+        use super::super::{authored_paths, path_fields::WordOperation};
+        use crate::{Angle, Vector3};
+        let catalog = authored_paths::catalog();
+        // Source table contents are independently verified by the static
+        // extractor tests. Here check their end-to-end use by both graphs.
+        let masks = catalog.paths.iter().flatten().find_map(|statement| match statement {
+            Statement::Mutate { mutation: Mutation::Word { operation: WordOperation::SetBits(WordOperand::IndexedBitMask { masks, .. }), .. }, .. } => Some(*masks),
+            _ => None,
+        }).unwrap();
+        for root in [authored_paths::DISTANCE_GATED_SCENERY, authored_paths::HEALTH_ROTATED_DISTANCE_SCENERY] {
+            for selector in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let selected = objects.allocate(Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight)).unwrap();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(root);
+                actor.base.position.y = (0xAB00 | u16::from(selector)) as i16;
+                actor.base.hit_points = selector ^ 0xFF;
+                actor.base.yaw = Angle::from_units(37);
+                actor.extension.path_state.motion_phase = 0xA57E;
+                actor.base.flags.exclude_from_shape_footprint_search = true;
+                let initial_random = random;
+                let mut scenery = SceneryDistanceState { near_mask: 0x5A };
+                let mut expected_mask = scenery.near_mask;
+                let mut phase = 0xA57E;
+                let mask = masks[usize::from(selector.wrapping_sub(1) & 0x7F)];
+                let mut inputs = world(&mut random);
+                inputs.scene.player_configuration = Some(0);
+                inputs.selected = Some(selected);
+                if selector != 0 { inputs.scenery_distance = Some(&mut scenery); }
+                // Far side includes 512. Once near, 512..599 retain near;
+                // once far, 512..599 retain far. Equality at 600 exits near.
+                for (visit, (distance, near)) in [
+                    (600, false), (599, false), (512, false), (511, true),
+                    (512, true), (599, true), (600, false), (511, true),
+                ].into_iter().enumerate() {
+                    objects.get_mut(selected).unwrap().base.position.x = distance;
+                    let result = if visit == 0 {
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 60)
+                    } else {
+                        // The previous GOTO already selected the next loop.
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 15)
+                    };
+                    assert_eq!(result, Ok(ControlStep::Movement), "selector {selector}, visit {visit}");
+                    if selector != 0 {
+                        phase = (phase & 0xFF00) | u16::from(expected_mask);
+                        phase = if near { phase | mask } else { phase & !mask };
+                        expected_mask = phase as u8;
+                        assert_eq!(inputs.scenery_distance.as_ref().unwrap().near_mask, expected_mask);
+                    }
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(actor.extension.path_state.motion_phase, phase);
+                    assert_eq!(actor.base.flags.far_sort_bias, !near);
+                    assert_eq!(actor.extension.path_state.script_parameter, selector);
+                    assert_eq!(actor.base.position, Vector3::default());
+                    assert_eq!(actor.base.yaw.units(), if root == authored_paths::HEALTH_ROTATED_DISTANCE_SCENERY { selector ^ 0xFF } else { 37 });
+                    assert_eq!((actor.base.hit_points, actor.base.attack_power), (100, 4));
+                    assert!(actor.base.flags.maximum_draw_distance);
+                    assert!(actor.base.flags.collision_disabled);
+                    assert!(!actor.base.flags.exclude_from_shape_footprint_search);
+                    assert!(!actor.base.flags.casts_shadow);
+                    assert!(actor.base.contacts.suppress_contacts_next_epoch);
+                    assert!(!actor.base.flags.strategy_suspended);
+                    assert!(!runtime.branch.invert_next);
+                }
+                assert_eq!(random, initial_random);
+            }
+        }
+    }
+
+    #[test]
+    fn scenery_import_and_export_are_separate_resumable_commands_not_an_atomic_mask_update() {
+        use super::super::authored_paths;
+        let catalog = authored_paths::catalog();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let selected = objects.allocate(Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight)).unwrap();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.path = Some(authored_paths::DISTANCE_GATED_SCENERY);
+        actor.base.position.y = 9;
+        actor.extension.path_state.motion_phase = 0xA47E;
+        let mut inputs = world(&mut random);
+        inputs.scene.player_configuration = Some(0);
+        inputs.selected = Some(selected);
+        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 60),
+            Err(ProgramError::MissingSceneryDistance));
+        let before = objects.clone();
+        let failed = objects.get(owner).unwrap().base.path.unwrap();
+        assert!(matches!(catalog.statement(failed), Ok(Statement::SceneryDistance { command: SceneryDistanceCommand::CopyTo(_), .. })));
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingSceneryDistance));
+        assert_eq!(objects, before);
+        let mut scenery = SceneryDistanceState { near_mask: 0x33 };
+        inputs.scenery_distance = Some(&mut scenery);
+        let result = runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2);
+        let exporting = objects.get(owner).unwrap().base.path.unwrap();
+        assert_eq!(result, Err(ProgramError::BudgetExceeded { cursor: exporting, executed: 2 }));
+        assert!(matches!(catalog.statement(exporting), Ok(Statement::SceneryDistance { command: SceneryDistanceCommand::Assign(_), .. })));
+        assert_eq!(objects.get(owner).unwrap().extension.path_state.motion_phase, 0xA533);
+        let paused_scene = inputs.scenery_distance.take().unwrap();
+        let before = objects.clone();
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingSceneryDistance));
+        assert_eq!(objects, before);
+        // An intervening scene writer changes the shared byte, but the
+        // pending export must use the actor's earlier imported value.
+        paused_scene.near_mask = 0x88;
+        inputs.scenery_distance = Some(paused_scene);
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2), Ok(ControlStep::Movement));
+        assert_eq!(scenery.near_mask, 0x33);
+    }
+
+    #[test]
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
@@ -6425,6 +6609,7 @@ mod tests {
             };
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                scenery_distance: None,
                 shield_recovery: None,
                 action_gate: None,
                 environment_plane_height: None,
@@ -10276,9 +10461,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 29);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 686);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 695);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 31);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 719);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 728);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -10410,6 +10595,7 @@ mod tests {
         for phase in 1..=7 {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                scenery_distance: None,
                 shield_recovery: None,
                 action_gate: None,
                 environment_plane_height: None,
@@ -10533,6 +10719,7 @@ mod tests {
                     owner,
                     &mut PathWorld {
                         scene: ScenePathInputs::default(),
+                        scenery_distance: None,
                         shield_recovery: None,
                         action_gate: None,
                         environment_plane_height: None,

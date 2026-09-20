@@ -53,6 +53,8 @@ ROOTS = (
     ("TRIGGERED_LINKED_PROJECTILE", PathAddress(0xF48B)),
     ("ATTACHED_RECOVERY_EFFECT", PathAddress(0xF3AD)),
     ("SCENE_MATERIAL_SCENERY", PathAddress(0x7FAA)),
+    ("DISTANCE_GATED_SCENERY", PathAddress(0x7F27)),
+    ("HEALTH_ROTATED_DISTANCE_SCENERY", PathAddress(0x7F24)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -464,6 +466,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF45B): "Tumble",
                 PathAddress(0xF46E): "Center",
             }
+            if command.address in (PathAddress(0x8D54), PathAddress(0x8D62)):
+                parameters(0)
+                enabled = str(command.address == PathAddress(0x8D54)).lower()
+                statement = f"Statement::Contact {{ command: ContactCommand::ShapeFootprintSearch({enabled}), next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if command.address in attached_motion:
                 parameters(0)
                 statement = f"Statement::AttachedEffectMotion {{ command: super::path_steering::AttachedEffectMotion::{attached_motion[command.address]}, next: {next_cursor()} }}"
@@ -901,6 +909,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 address = low | (high << 8)
             if address == 0x1DD6 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0xD78C and name in ("ImportByteIndexed", "ExportByteIndexed"):
+                operation = f"CopyTo({byte_field(variable)})" if name.startswith("Import") else f"Assign(ByteOperand::Actor({byte_field(variable)}))"
+                statement = f"Statement::SceneryDistance {{ command: super::path_program::SceneryDistanceCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address in (0x1DE2, 0x1BB5) and name == "ImportByteAbsolute":

@@ -49,6 +49,53 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
                 self.lower_record(f"fb {low:02x} {high:02x} 09")
 
+    def test_distance_scenery_roots_keep_both_threshold_loops_and_nested_helpers(self):
+        extractor = PathExtractor(self.rom)
+        for root, count in [(0x7F27, 45), (0x7F24, 46)]:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((command.address.offset for command in commands), statements))
+            for offset, fragment in [
+                (0x7F2A, "LowWord(WordField::Position(Axis::Y))"),
+                (0x7F3E, "SelectedDistanceLess(512)"),
+                (0x7F49, "SceneryDistanceCommand::CopyTo"),
+                (0x7F4C, "WordOperation::ClearBits"),
+                (0x7F4F, "SceneryDistanceCommand::Assign"),
+                (0x7F52, "ControlCommand::Goto"),
+                (0x7F55, "BranchCommand::InvertNext"),
+                (0x7F56, "SelectedDistanceLess(600)"),
+                (0x7F64, "WordOperation::SetBits"),
+                (0x7F6A, "ControlCommand::Goto"),
+                (0x8653, "SuppressContactsNextEpoch(true)"),
+                (0x8D54, "ShapeFootprintSearch(true)"),
+            ]:
+                self.assertIn(fragment, mapped[offset])
+            if root == 0x7F24:
+                self.assertIn("Rotation(Axis::Y)", statements[0])
+                self.assertIn("Actor(ByteField::Health)", statements[0])
+
+    def test_footprint_helpers_require_every_source_byte_and_the_exact_continuation(self):
+        for offset, enabled in [(0x8D54, "true"), (0x8D62, "false")]:
+            _, statements = lower_graph(PathExtractor(self.rom), PathAddress(offset), 0)
+            self.assertEqual(statements, [
+                f"Statement::Contact {{ command: ContactCommand::ShapeFootprintSearch({enabled}), next: cursor(0, 1) }}",
+                "Statement::Control(ControlCommand::Return)",
+            ])
+            for delta in range(1, 13):
+                changed = bytearray(self.rom)
+                changed[0x40000 + offset + delta] ^= 1
+                with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
+                    lower_graph(PathExtractor(bytes(changed)), PathAddress(offset), 0)
+
+    def test_scenery_mask_only_accepts_reviewed_indexed_byte_transfers(self):
+        for opcode, fragment in [("7a", "CopyTo"), ("7f", "Assign")]:
+            self.assertIn(f"SceneryDistanceCommand::{fragment}", self.lower_record(f"{opcode} a1 30")[0])
+        for record in ["79 a1 8c d7", "7e a1 8c d7", "fb 8c d7 09", "7b a1 30", "80 a1 30"]:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_offset_argument_preparation_folds_to_one_typed_statement(self):
         for value in range(256):
             signed = value if value < 128 else value - 256

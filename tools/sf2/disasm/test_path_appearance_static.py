@@ -67,6 +67,24 @@ class PathAppearanceStaticTests(unittest.TestCase):
             "B9 09 00 89 01 C2 20 F0 05 A9 98 3A 80 03 A9 00 00 9D 02 00 "
             "B9 0C 00 9D 20 00 B9 0E 00 9D 22 00 B9 10 00 9D 24 00 B9 04 00 9D 08 00")
 
+    def test_distance_scenery_complete_loops_and_footprint_helpers(self):
+        self.assert_source(0x08FF24, "4E 14 2D 41 B6 81 4F 27 0E 6C 0E 41 52 86 CD 17 3E 7F")
+        self.assert_source(0x08FF3E,
+            "14 00 02 55 7F 00 29 67 27 52 7F 7A A1 30 D9 27 A1 7F A1 30 16 3E 7F "
+            "8A 14 58 02 3E 7F 00 2A 67 27 6A 7F 7A A1 30 D8 27 A1 7F A1 30 16 55 7F")
+        self.assert_source(0x098652, "8D 2E 0B 64 2D 0B 04 2E 41 54 8D 5C CC F7 EF 42")
+        self.assert_source(0x098D54, "89 B5 24 29 FB 95 24 C2 20 A9 61 8D 6B 42")
+        self.assert_source(0x098D62, "89 B5 24 09 04 95 24 C2 20 A9 6F 8D 6B 42")
+        self.assert_source(0x7F1BFE, "E4 3A F0 6E B5 31 29 04 00 D0 67 B5 24 29 04 00 D0 60 B4 04")
+
+    def test_scenery_mask_transfer_is_byte_wide_even_though_import_helper_reads_a_word(self):
+        self.assert_source(0x7F9F5B, "20 E7 9F AD B7 16 99 00 00 4C BE CA")
+        self.assert_source(0x7F9FE7,
+            "20 E0 C4 C2 20 29 FF 00 A8 B9 5C D7 8D B7 16 E2 20 20 BC C4 20 47 CB 60")
+        self.assert_source(0x7F9F9D, "20 BF 9F 29 FF 00 A8 E2 20 AD B7 16 99 5C D7 4C BE CA")
+        self.assert_source(0x7F9FBF, "20 BC C4 20 47 CB C2 20 B9 00 00 8D B7 16 20 4C C7 A8 60")
+        self.assert_source(0x04B1C8, "C2 30 9C 86 D7 9C 88 D7 9C 8A D7 9C 8C D7")
+
     def test_zero_frame_short_form_is_manual_shape_initialization_not_automatic_animation(self):
         self.assert_source(0x7FC3CF, "A9 00 09 80 9D CB 1C 4C E8 CA")
 
