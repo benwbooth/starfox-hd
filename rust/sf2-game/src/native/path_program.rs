@@ -226,6 +226,11 @@ pub enum Statement {
         duration: ByteOperand,
         next: PathCursor,
     },
+    WaitChase {
+        field: super::path_fields::ByteField,
+        target: ByteOperand,
+        next: PathCursor,
+    },
     Repeat {
         count: ByteOperand,
         target: PathCursor,
@@ -503,6 +508,24 @@ impl PathRuntime {
                     let duration = duration.read(actor);
                     self.execute_control(objects, owner, ControlCommand::Wait { duration, next })
                 }
+                Statement::WaitChase {
+                    field,
+                    target,
+                    next,
+                } => {
+                    let current = field.read(actor);
+                    let target = target.read(actor);
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated waiting chase owner");
+                    field.write(actor, super::path_fields::chase_byte(current, target));
+                    if current == target {
+                        actor.base.path = Some(next);
+                        Ok(ControlStep::Continue)
+                    } else {
+                        Ok(ControlStep::Movement)
+                    }
+                }
                 Statement::Repeat {
                     count,
                     target,
@@ -737,6 +760,55 @@ mod tests {
             assert_eq!(objects.get(owner).unwrap(), &expected);
             assert_eq!(runtime.steering.unchanged_axes, 11);
             assert!(runtime.branch.invert_next);
+        }
+    }
+
+    #[test]
+    fn waiting_chase_checks_equality_before_update_and_does_not_reset_elapsed_wait() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let catalog = PathCatalog::new(vec![vec![Statement::WaitChase {
+            field: ByteField::ScriptParameter,
+            target: ByteOperand::Actor(ByteField::Health),
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let original_random = random;
+        runtime.branch.invert_next = true;
+        for current in 0..=u8::MAX {
+            for target in 0..=u8::MAX {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(cursor(0, 0));
+                actor.extension.path_state.script_parameter = current;
+                actor.base.hit_points = target;
+                actor.base.wait_timer = 57;
+                actor.base.velocity.x = 123;
+                let mut expected = actor.clone();
+                expected.extension.path_state.script_parameter =
+                    super::super::path_fields::chase_byte(current, target);
+                let result = runtime.resume_program(
+                    &catalog,
+                    &mut objects,
+                    owner,
+                    &mut world(&mut random),
+                    1,
+                );
+                if current == target {
+                    expected.base.path = Some(cursor(0, 1));
+                    assert_eq!(
+                        result,
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: cursor(0, 1),
+                            executed: 1
+                        })
+                    );
+                } else {
+                    // Even a final one-unit step yields at the same cursor.
+                    assert_eq!(result, Ok(ControlStep::Movement));
+                }
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, original_random);
+            }
         }
     }
 

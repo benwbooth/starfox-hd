@@ -5,6 +5,31 @@
 
 use super::{Angle, Object, Vector3};
 
+const ARITHMETIC_CHASE_DIVISOR: i16 = 8;
+
+fn chase_step(delta: i16) -> i16 {
+    if delta == 0 {
+        return 0;
+    }
+    let delta = if delta < 0 {
+        delta.min(-ARITHMETIC_CHASE_DIVISOR)
+    } else {
+        delta.max(ARITHMETIC_CHASE_DIVISOR)
+    };
+    delta / ARITHMETIC_CHASE_DIVISOR
+}
+
+/// Source arithmetic chase ($7F:9FFF/$7F:A054). Subtraction wraps at the
+/// authored field width before its sign is interpreted; minimum progress is
+/// one unit, and division rounds toward zero.
+pub fn chase_byte(current: u8, target: u8) -> u8 {
+    current.wrapping_add(chase_step(i16::from(target.wrapping_sub(current) as i8)) as u8)
+}
+
+pub fn chase_word(current: u16, target: u16) -> u16 {
+    current.wrapping_add(chase_step(target.wrapping_sub(current) as i16) as u16)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Axis {
     X,
@@ -224,6 +249,7 @@ impl WordOperand {
 pub enum ByteOperation {
     Assign(ByteOperand),
     Add(ByteOperand),
+    Chase(ByteOperand),
     Increment,
     Decrement,
     Negate,
@@ -235,6 +261,7 @@ pub enum ByteOperation {
 pub enum WordOperation {
     Assign(WordOperand),
     Add(WordOperand),
+    Chase(WordOperand),
     SetBits(WordOperand),
     ClearBits(WordOperand),
     Increment,
@@ -263,6 +290,7 @@ impl Mutation {
                 let value = match operation {
                     ByteOperation::Assign(value) => value.read(actor),
                     ByteOperation::Add(value) => old.wrapping_add(value.read(actor)),
+                    ByteOperation::Chase(value) => chase_byte(old, value.read(actor)),
                     ByteOperation::Increment => old.wrapping_add(1),
                     ByteOperation::Decrement => old.wrapping_sub(1),
                     ByteOperation::Negate => old.wrapping_neg(),
@@ -276,6 +304,7 @@ impl Mutation {
                 let value = match operation {
                     WordOperation::Assign(value) => value.read(actor),
                     WordOperation::Add(value) => old.wrapping_add(value.read(actor)),
+                    WordOperation::Chase(value) => chase_word(old, value.read(actor)),
                     WordOperation::SetBits(mask) => old | mask.read(actor),
                     WordOperation::ClearBits(mask) => old & !mask.read(actor),
                     WordOperation::Increment => old.wrapping_add(1),
@@ -308,6 +337,80 @@ mod tests {
         }
         masks
     };
+
+    fn source_chase_step(mut difference: i32) -> i32 {
+        if difference == 0 {
+            return 0;
+        }
+        if (1..8).contains(&difference) {
+            difference = 8;
+        }
+        if (-7..0).contains(&difference) {
+            difference = -8;
+        }
+        // Three separate signed halves, adding the lost low bit back to
+        // a negative result on each half, as in the source kernel.
+        for _ in 0..3 {
+            let lost = difference & 1;
+            difference >>= 1;
+            if difference < 0 {
+                difference += lost;
+            }
+        }
+        difference
+    }
+
+    #[test]
+    fn arithmetic_chase_preserves_wrapped_difference_width_and_samples_live_targets() {
+        let mut original = actor();
+        original.base.wait_timer = 31;
+        original.base.hit_flags = 0xA5;
+        for current in 0..=u8::MAX {
+            for target in 0..=u8::MAX {
+                let mut actual = original.clone();
+                actual.extension.path_state.script_parameter = current;
+                actual.base.hit_points = target;
+                let mut expected = actual.clone();
+                expected.extension.path_state.script_parameter = current.wrapping_add(
+                    source_chase_step(i32::from(target.wrapping_sub(current) as i8)) as u8,
+                );
+                Mutation::Byte {
+                    field: ByteField::ScriptParameter,
+                    operation: ByteOperation::Chase(ByteOperand::Actor(ByteField::Health)),
+                }
+                .apply(&mut actual);
+                assert_eq!(actual, expected);
+                Mutation::Byte {
+                    field: ByteField::ScriptParameter,
+                    operation: ByteOperation::Chase(ByteOperand::Actor(ByteField::ScriptParameter)),
+                }
+                .apply(&mut actual);
+                assert_eq!(actual, expected);
+            }
+        }
+        for current in [0_u16, 1, 0x7FFF, 0x8000, 0xFFFF] {
+            for delta in 0..=u16::MAX {
+                let mut actual = original.clone();
+                actual.extension.path_state.script_value = current;
+                actual.extension.path_state.motion_phase = current.wrapping_add(delta);
+                let mut expected = actual.clone();
+                expected.extension.path_state.script_value =
+                    current.wrapping_add(source_chase_step(i32::from(delta as i16)) as u16);
+                Mutation::Word {
+                    field: WordField::ScriptValue,
+                    operation: WordOperation::Chase(WordOperand::Actor(WordField::MotionPhase)),
+                }
+                .apply(&mut actual);
+                assert_eq!(actual, expected);
+                Mutation::Word {
+                    field: WordField::ScriptValue,
+                    operation: WordOperation::Chase(WordOperand::Actor(WordField::ScriptValue)),
+                }
+                .apply(&mut actual);
+                assert_eq!(actual, expected);
+            }
+        }
+    }
 
     #[test]
     fn signed_halves_round_toward_zero_and_logical_half_keeps_unsigned_meaning() {

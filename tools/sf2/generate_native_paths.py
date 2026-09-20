@@ -511,6 +511,22 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 }[name]
             taken, next_ = branch_cursors(int.from_bytes(operands[-2:], "little"))
             statement = f"Statement::Spatial {{ condition: SpatialCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("AchaseByte", "AchaseWord", "WaitAchaseByte", "ChaseVariableByte", "ChaseVariableWord"):
+            wide = name.endswith("Word")
+            kind = "Word" if wide else "Byte"
+            if name.startswith("ChaseVariable"):
+                destination, source = parameters(2)
+                field = word_field(destination) if wide else byte_field(destination)
+                source_field = word_field(source) if wide else byte_field(source)
+                target = f"{kind}Operand::Actor({source_field})"
+            else:
+                operands = parameters(3 if wide else 2)
+                field = word_field(operands[-1]) if wide else byte_field(operands[-1])
+                target = f"{kind}Operand::Literal({int.from_bytes(operands[:-1], 'little')})"
+            if name == "WaitAchaseByte":
+                statement = f"Statement::WaitChase {{ field: {field}, target: {target}, next: {next_cursor()} }}"
+            else:
+                statement = f"Statement::Mutate {{ mutation: Mutation::{kind} {{ field: {field}, operation: {kind}Operation::Chase({target}) }}, next: {next_cursor()} }}"
         elif name in ("MaskFlag31", "OrFlag31"):
             mask, = parameters(1)
             retain = name == "MaskFlag31"

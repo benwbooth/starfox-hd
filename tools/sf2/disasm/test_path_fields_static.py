@@ -96,6 +96,32 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7FA5D4, "20 BC C4 20 47 CB C2 20 B9 00 00 10 01 1A C9 00 80 6A 99 00 00 4C D3 CA")
         self.assert_source(0x7FA5EC, "20 BC C4 20 47 CB B9 00 00 4A 99 00 00 4C D3 CA")
 
+    def test_arithmetic_chase_literals_wrap_difference_and_apply_three_signed_halves(self):
+        self.assert_source(0x7F9FFF,
+            "20bcc48db31620e0c42047cbb900008db116adb316cdb116f02f38edb116c9003008"
+            "c908100aa9088006c9f83002a9f8c9806a10026900c9806a10026900c9806a10026900"
+            "186db1168db116adb1169900004cbeca")
+        self.assert_source(0x7FA054,
+            "c2202020c78db316e2202004c52047cbc220b900008db116e220c220adb316cdb116f03a"
+            "38edb116c90000300ac90800100da908008008c9f8ff3003a9f8ffc900806a1003690000"
+            "c900806a1003690000c900806a1003690000186db1168db116e220c220adb116990000e2204ca9ca")
+
+    def test_variable_chase_samples_both_fields_before_writing_destination(self):
+        self.assert_source(0x7FA1B5,
+            "da209589b900008db116bd00008db316adb316cdb116f02f38edb116c9003008c908100a"
+            "a9088006c9f83002a9f8c9806a10026900c9806a10026900c9806a10026900186db116"
+            "8db116adb116990000fa4cbeca")
+        self.assert_source(0x7FA209,
+            "da209589c220b900008db116bd00008db316e220c220adb316cdb116f03a38edb116c90000"
+            "300ac90800100da908008008c9f8ff3003a9f8ffc900806a1003690000c900806a1003690000"
+            "c900806a1003690000186db1168db116e220c220adb116990000fa4cbeca")
+
+    def test_waiting_chase_checks_original_equality_and_only_unequal_case_runs_movement(self):
+        self.assert_source(0x7FA0C4,
+            "20bcc48db31620e0c42047cbb900008db116adb316cdb116d0045c16a17f38edb116c9003008"
+            "c908100aa9088006c9f83002a9f8c9806a10026900c9806a10026900c9806a10026900186db116"
+            "8db11680045c23a17fadb1169900004cde9dadb1169900004cbeca")
+
     def test_variable_bit_handlers_mutate_words_and_test_without_ifnot(self):
         self.assert_source(0x7FB637, "20 EF B5 19 00 00 99 00 00 4C BE CA")
         self.assert_source(0x7FB643, "20 EF B5 49 FF FF 39 00 00 99 00 00 4C BE CA")

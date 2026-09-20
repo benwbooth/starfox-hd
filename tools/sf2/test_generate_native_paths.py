@@ -314,6 +314,19 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(self.lower_record(record)[0],
                 f"Statement::Contact {{ command: ContactCommand::{operation}, next: cursor(0, 1) }}")
 
+    def test_arithmetic_chase_preserves_literal_and_variable_operand_order_and_waiting(self):
+        for record, fragment in [
+            ("81 ff 27", "field: ByteField::ScriptParameter, operation: ByteOperation::Chase(ByteOperand::Literal(255))"),
+            ("82 01 80 a3", "field: WordField::ScriptValue, operation: WordOperation::Chase(WordOperand::Literal(32769))"),
+            ("85 27 2d", "field: ByteField::ScriptParameter, operation: ByteOperation::Chase(ByteOperand::Actor(ByteField::Health))"),
+            ("87 a3 a1", "field: WordField::ScriptValue, operation: WordOperation::Chase(WordOperand::Actor(WordField::MotionPhase))"),
+        ]:
+            self.assertIn(fragment, self.lower_record(record)[0])
+        self.assertEqual(self.lower_record("83 ff 27")[0],
+            "Statement::WaitChase { field: ByteField::ScriptParameter, target: ByteOperand::Literal(255), next: cursor(0, 1) }")
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
+            self.lower_record("82 00 00 04")
+
     def test_halves_preserve_width_and_signed_vs_unsigned_operation(self):
         for record, kind, field, operation in [
             ("8e 18", "Byte", "ByteField::Speed", "HalfTowardZero"),

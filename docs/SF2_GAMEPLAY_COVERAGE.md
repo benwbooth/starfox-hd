@@ -738,3 +738,13 @@ broader native library suite passes 516/517 tests. Its guidance-message cue
 test fails with two extra HostileLaser cues; an isolated clean checkout of
 pre-change commit `5a3eec4` reproduces the identical failure. That pre-existing
 timeline test was not changed or weakened as part of this static path port.
+
+Arithmetic chase now supports literal and variable byte/word targets plus the
+waiting byte form. Differences wrap at the field width before signed minimum
+step selection and division by eight. Waiting checks equality before updating:
+the final nonzero step still yields, and the next invocation advances without
+clearing elapsed wait state. Full handler signatures, all byte pairs, every
+word difference at five wrap-boundary origins, self-aliasing and dispatcher
+yield behavior are checked. Verification passes 52 lowerer tests, 172 static
+path tests, 162 native path tests in debug/release, architecture/dependency
+checks and the app build. Catalog coverage remains 10 roots/117 statements.
