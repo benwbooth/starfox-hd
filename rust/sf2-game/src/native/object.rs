@@ -949,6 +949,9 @@ pub struct ObjectFlags {
     /// Source 09 bit 01 adds the fixed far-sort bias to the draw record
     /// (`$7F:122C`); it does not change world position or draw distance.
     pub far_sort_bias: bool,
+    /// Formatter-owned marker (source actor 09 bit 02). Separate from the
+    /// searchable weapon class in actor 31 and from high-level WeaponKind.
+    pub weapon_launch_formatted: bool,
     /// Source 25 bit 20 enables view-side filtering. Draw preparation rejects
     /// the actor when its source 23 bit 40 side disagrees with the active view
     /// (`$7F:1262`, `$7F:130F`); this is not a death or damage flag.

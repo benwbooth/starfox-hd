@@ -84,6 +84,7 @@ pub mod scene_proxy;
 mod state;
 pub mod strategy_schedule;
 pub mod weapon_launch;
+pub mod weapon_creation;
 pub mod world_occupancy;
 
 mod astropolis_assault;

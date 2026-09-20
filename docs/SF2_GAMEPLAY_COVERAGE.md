@@ -2683,3 +2683,24 @@ contracts; these corrections add no claimed complete roots.
 All 417 native path tests pass in debug/release, with 158 lowering tests, 327
 source-static tests, freshness, both audits and app build passing (existing
 icon warning). The catalog remains at 110 roots and 1,796 source commands.
+
+### Shared weapon creation and player-linked wrapper
+
+The common allocator now creates the authored empty-shape weapon, formats its
+pose, seeds the later child-number/loop/wait aliases, and installs reciprocal
+links. It preserves world allocation defaults and source-scoped pressure
+retirement. Allocation exhaustion changes nothing; choosing the reserved
+fallback remains the calling path service's responsibility.
+
+The player-linked wrapper assigns group 255, attachment and mutual-damage
+exclusion without constructing a child chain. Its path-selected player follows
+the firing actor's hit-attribution side, not its own path selection. Source
+actor flag 09:02 is retained as a formatter marker, independently of class
+31:02; no additional behavior is inferred from that marker.
+
+Five native tests cover all heading bytes, both pause defaults, full fresh
+records, caller preservation, nonzero muzzle/target geometry, both attribution
+sides and selected slots, initializer aliases, failure atomicity and last-slot
+pressure. Four new static checks pin both complete creation routines and the
+formatter tail. This is a shared service milestone, not completed dispatch,
+new catalog roots or production weapon integration.
