@@ -1876,6 +1876,17 @@ class NativePathGenerationTests(unittest.TestCase):
                 with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
                     self.lower_record(record)
 
+    def test_selected_equipment_collection_and_upgrade_preserve_branch_edges_and_widths(self):
+        for amount in range(256):
+            for target, expected in [("36 f5", 0), ("3a f5", 1)]:
+                self.assertEqual(self.lower_record(f"bb {amount:02x} {target}")[0],
+                    f"Statement::CollectSelectedConsumables {{ amount: {amount}, already_full: cursor(0, {expected}), next: cursor(0, 1) }}")
+        self.assertEqual(self.lower_record("00 1b")[0],
+            "Statement::UpgradeSelectedWeapon { next: cursor(0, 1) }")
+        extractor = PathExtractor(self.rom)
+        for address, expected in [(0x45B2, "bb015f45"), (0x45CB, "001b")]:
+            self.assertEqual(extractor.decode_command(PathAddress(address)).raw_hex, expected)
+
     def test_selected_auxiliary_updates_are_distinct_from_other_auxiliary_storage(self):
         for opcode, operation in [(0x6E, "SetModeLowNibbleOne"), (0x6F, "SetModeLowNibbleFour"), (0x62, "ClearActionBit01")]:
             self.assertEqual(self.lower_record(f"00 {opcode:02x}")[0],

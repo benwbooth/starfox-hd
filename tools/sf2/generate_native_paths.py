@@ -753,6 +753,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "IfSelectedSlotClass3": "ModeClass(super::path_conditions::AuxiliaryModeClass::Three)",
             }[name]
             statement = f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name == "AdvanceSelectedAuxiliaryOrGotoWhenSettled":
+            amount, low, high = parameters(3)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::CollectSelectedConsumables {{ amount: {amount}, already_full: {taken}, next: {next_} }}"
+        elif name == "IncrementSelectedAuxiliaryStage":
+            parameters(0)
+            statement = f"Statement::UpgradeSelectedWeapon {{ next: {next_cursor()} }}"
         elif name in ("SetSelectedSlotLowNibble1", "SetSelectedSlotLowNibble4", "ClearSelectedAuxiliaryFlag01"):
             parameters(0)
             operation = {

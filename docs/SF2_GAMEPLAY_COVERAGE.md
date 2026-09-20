@@ -2112,3 +2112,31 @@ path tests in debug/release, plus generated freshness, architecture/static
 audits and the app build. Complete-root coverage remains **64 roots / 1,061
 source commands / 1,052 native statements**; the pickup graphs next require
 their selected-player reward and inventory transitions.
+
+### Selected-player consumable inventory and weapon upgrades
+
+The pickup collection branch (`$7F:B0E5`, helper `$06:9112`) and weapon
+upgrade (`$7F:BA75`) now operate on borrowed `SelectedEquipment`. Independent
+equipment-use code checks the packed low-nibble count, dispatches by the
+separate type byte and decrements after use; these fields are not inferred
+from recorded gameplay. The active-pilot publication is a separate service,
+so these writes do not change the already-published weapon-level snapshot.
+
+Collection compares the old type, always replaces it from the pickup's
+motion-phase high byte, and returns “already full” only if the old count is
+at least nine AND the old type matched. Count addition wraps at byte width
+before clamping to nine; reaching nine in this call still follows the
+collection successor. Already-full counts, including values ten through
+fifteen, retain the entire packed byte. Weapon upgrade increments only
+levels below three and preserves all above-cap values. Both commands retain
+IFNOT, wait counters, actor state, unrelated auxiliary data and RNG state.
+
+Validation: 135 lowerer tests, 299 static path tests and 330 native path tests
+in debug/release pass, along with generated freshness, architecture/static
+audits and the app build. Tests exhaust packed-count/increment combinations,
+type comparisons and weapon levels, with dispatcher checks for missing
+inputs, zero budget, both branch edges and repeated live-state updates.
+Coverage remains **64 complete roots / 1,061 source commands / 1,052 native
+statements**. The five pickup graphs now reach the separate missing reward
+addition; their complete source closures and scheduler integration are not
+claimed here.

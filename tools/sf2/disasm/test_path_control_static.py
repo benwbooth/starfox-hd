@@ -142,6 +142,31 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x08C55F, "79 2F 4D 1B 8A 2A 2F 00 6D 45 0C 28 F5 04")
         self.assert_source(0x08C588, "8A 2A 2F 00 94 45 97 F4 01 A0 45 42 97 96 00 A0 45 42")
 
+    def test_selected_equipment_pickup_branch_and_weapon_upgrade_are_source_ordered(self):
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0xBB].rust_name, "AdvanceSelectedAuxiliaryOrGotoWhenSettled")
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x11B].rust_name, "IncrementSelectedAuxiliaryStage")
+        self.assert_source(0x7FB0E5,
+            "AC 1F CF 20 BC C4 85 04 A5 5E 29 E7 85 5E 8F 3A 30 00 A9 00 85 08 "
+            "BD E3 1C DA BB 7A 5A B4 2B D9 05 6C D0 02 E6 08 99 05 6C 7A DA BB "
+            "7A DA BB 7A A5 04 85 02 22 12 91 06 DA BB 7A 90 04 5C 29 B1 7F "
+            "4C A9 CA A5 08 F0 F9 4C FF CA")
+        self.assert_source(0x069112,
+            "DA 5A 08 E2 20 C2 10 B4 2B B9 04 6C 29 0F C9 09 B0 1C 18 65 02 "
+            "C9 09 90 02 A9 09 29 0F 85 04 B9 04 6C 29 F0 05 04 99 04 6C "
+            "28 7A FA 18 6B 28 7A FA 38 6B")
+        self.assert_source(0x7FBA75,
+            "AC 1F CF DA BB 7A 5A B4 2B B9 06 6C C9 03 B0 04 1A 99 06 6C "
+            "7A DA BB 7A 4C E8 CA")
+        # These are fresh selected equipment fields, not the three active
+        # snapshot bytes copied only by the separate player publication.
+        self.assert_source(0x069CD5,
+            "B9 05 6C 8D D3 1D B9 04 6C 8D D2 1D B9 06 6C 8D D4 1D")
+        # Independent use service: nonzero count guard, type dispatch, and
+        # decrement after a successful use prove the consumable semantics.
+        self.assert_source(0x07DC9C,
+            "B4 2B B9 04 6C 89 0F D0 04 5C 6B DD 07 B9 05 6C 0A C9 0A")
+        self.assert_source(0x07DD5E, "B4 2B B9 04 6C 3A 99 04 6C 7A FA 38 6B")
+
     def test_motion_fade_sprite_setup_and_independent_installers(self):
         # The full shared jitter/fade and saved-byte callback are pinned by
         # their own tests. These three entry prefixes join that exact tail.

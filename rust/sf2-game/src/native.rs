@@ -48,6 +48,7 @@ pub mod path_commands;
 pub mod path_conditions;
 pub mod path_contact;
 pub mod path_control;
+pub mod path_equipment;
 pub mod path_fields;
 pub mod path_math;
 pub mod path_motion;

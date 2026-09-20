@@ -59,6 +59,8 @@ pub struct PathWorld<'a> {
     /// Shared selected-player auxiliary state. Commands and branches borrow
     /// the same live record; a missing record faults only when needed.
     pub selected_auxiliary: Option<&'a mut SelectedAuxiliaryState>,
+    /// Fresh path-selected equipment, not the published active-pilot snapshot.
+    pub selected_equipment: Option<&'a mut super::path_equipment::SelectedEquipment>,
     /// Fresh initializer-mode observations. Missing inputs fault only if
     /// this invocation reaches a spawn; they are not guessed from pause state.
     pub spawn_defaults: Option<super::ObjectSpawnDefaults>,
@@ -505,6 +507,14 @@ pub enum Statement {
         command: SelectedAuxiliaryCommand,
         next: PathCursor,
     },
+    CollectSelectedConsumables {
+        amount: u8,
+        already_full: PathCursor,
+        next: PathCursor,
+    },
+    UpgradeSelectedWeapon {
+        next: PathCursor,
+    },
     Message {
         number: ByteOperand,
         next: PathCursor,
@@ -657,6 +667,7 @@ pub enum ProgramError {
     MissingSpawnDefaults,
     Relationship(super::path_relationships::RelationshipError),
     MissingSelectedAuxiliary,
+    MissingSelectedEquipment,
     Runtime(PathRuntimeError),
     MissingStatement(PathCursor),
     TooManyPaths,
@@ -1395,6 +1406,23 @@ impl PathRuntime {
                         .path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::CollectSelectedConsumables { amount, already_full, next } => {
+                    let kind = (actor.extension.path_state.motion_phase >> 8) as u8;
+                    let state = world.selected_equipment.as_deref_mut()
+                        .ok_or(ProgramError::MissingSelectedEquipment)?;
+                    let full = state.collect_consumables(amount, kind);
+                    // This branch bypasses IFNOT and does not reset WAIT.
+                    objects.get_mut(owner).expect("validated equipment owner").base.path =
+                        Some(if full { already_full } else { next });
+                    Ok(ControlStep::Continue)
+                }
+                Statement::UpgradeSelectedWeapon { next } => {
+                    let state = world.selected_equipment.as_deref_mut()
+                        .ok_or(ProgramError::MissingSelectedEquipment)?;
+                    state.upgrade_weapon();
+                    objects.get_mut(owner).expect("validated equipment owner").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::SelectedAuxiliary { command, next } => {
                     let state = world
                         .selected_auxiliary
@@ -1617,6 +1645,7 @@ mod tests {
             active_node_flags: None,
             countdown: None,
             selected_auxiliary: None,
+            selected_equipment: None,
             spawn_defaults: None,
             random,
             animation_clock: 0,
@@ -8603,6 +8632,7 @@ mod tests {
                 countdown: None,
                 // The initial four-count loop does not read this record.
                 selected_auxiliary: (visit >= 3).then_some(&mut auxiliary),
+                selected_equipment: None,
                 random: &mut random,
                 animation_clock: 61,
             };
@@ -8685,6 +8715,121 @@ mod tests {
                     assert_eq!(objects.get(owner).unwrap(), &expected);
                     assert!(runtime.branch.invert_next);
                     assert_eq!(inputs.random, &initial_random);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn selected_equipment_statements_fault_only_when_needed_without_side_effects() {
+        for statement in [
+            Statement::CollectSelectedConsumables { amount: 1, already_full: cursor(0, 2), next: cursor(0, 1) },
+            Statement::UpgradeSelectedWeapon { next: cursor(0, 1) },
+        ] {
+            let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            let original_objects = objects.clone();
+            let original_random = random;
+            let mut inputs = world(&mut random);
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::MissingSelectedEquipment));
+            assert_eq!(objects, original_objects);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
+        }
+    }
+
+    #[test]
+    fn selected_consumable_branch_preserves_ifnot_wait_actor_and_published_snapshot() {
+        use super::super::path_equipment::SelectedEquipment;
+        for amount in [0, 1, 8, 9, 128, 247, 248, 255] {
+            let catalog = PathCatalog::new(vec![vec![Statement::CollectSelectedConsumables {
+                amount, already_full: cursor(0, 2), next: cursor(0, 1),
+            }]]).unwrap();
+            for kind in 0..=u8::MAX {
+                for same_type in [false, true] {
+                    for inverted in [false, true] {
+                        let (mut runtime, mut objects, owner, mut random) = setup();
+                        runtime.branch.invert_next = inverted;
+                        let actor = objects.get_mut(owner).unwrap();
+                        actor.base.wait_timer = 137;
+                        actor.extension.path_state.motion_phase = u16::from(kind) * 256 + u16::from(!kind);
+                        actor.extension.path_state.weapon_selection = !kind;
+                        let before = objects.clone();
+                        let initial_random = random;
+                        let initial = SelectedEquipment {
+                            packed_consumables: kind,
+                            consumable_type: if same_type { kind } else { kind.wrapping_add(1) },
+                            weapon_level: !kind,
+                        };
+                        let mut equipment = initial;
+                        let mut auxiliary = SelectedAuxiliaryState { mode: kind, action_flags: !kind };
+                        let mut inputs = world(&mut random);
+                        inputs.scene.active_weapon_level = Some(217);
+                        inputs.selected_equipment = Some(&mut equipment);
+                        inputs.selected_auxiliary = Some(&mut auxiliary);
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                            Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                        assert_eq!(inputs.selected_equipment.as_deref(), Some(&initial));
+                        assert_eq!(objects, before);
+                        let destination = cursor(0, if kind % 16 >= 9 && same_type { 2 } else { 1 });
+                        let sum = (u16::from(kind % 16) + u16::from(amount)) % 256;
+                        let count = if kind % 16 >= 9 { kind % 16 } else if sum >= 9 { 9 } else { sum as u8 };
+                        let expected_equipment = SelectedEquipment {
+                            packed_consumables: kind / 16 * 16 + count,
+                            consumable_type: kind,
+                            weapon_level: !kind,
+                        };
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                            Err(ProgramError::BudgetExceeded { cursor: destination, executed: 1 }));
+                        assert_eq!(inputs.selected_equipment.as_deref(), Some(&expected_equipment));
+                        assert_eq!(inputs.scene.active_weapon_level, Some(217));
+                        assert_eq!(inputs.selected_auxiliary.as_deref(), Some(&SelectedAuxiliaryState { mode: kind, action_flags: !kind }));
+                        let mut expected = before;
+                        expected.get_mut(owner).unwrap().base.path = Some(destination);
+                        assert_eq!(objects, expected);
+                        assert_eq!(runtime.branch.invert_next, inverted);
+                        assert_eq!(inputs.random, &initial_random);
+                        assert_eq!(equipment, expected_equipment);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn selected_weapon_upgrade_mutates_live_equipment_not_active_snapshot() {
+        use super::super::path_equipment::SelectedEquipment;
+        let catalog = PathCatalog::new(vec![vec![Statement::UpgradeSelectedWeapon { next: cursor(0, 0) }]]).unwrap();
+        for level in 0..=u8::MAX {
+            for inverted in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                runtime.branch.invert_next = inverted;
+                objects.get_mut(owner).unwrap().base.wait_timer = 213;
+                let original_objects = objects.clone();
+                let original_random = random;
+                let original = SelectedEquipment { packed_consumables: !level, consumable_type: level, weapon_level: level };
+                let mut equipment = original;
+                let mut inputs = world(&mut random);
+                inputs.selected_equipment = Some(&mut equipment);
+                inputs.scene.active_weapon_level = Some(!level);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                assert_eq!(inputs.selected_equipment.as_deref(), Some(&original));
+                for visits in 1..=4 {
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
+                    assert_eq!(inputs.selected_equipment.as_deref(), Some(&SelectedEquipment {
+                        weapon_level: if level >= 3 { level } else { (level + visits).min(3) },
+                        ..original
+                    }));
+                    assert_eq!(inputs.scene.active_weapon_level, Some(!level));
+                    assert_eq!(objects, original_objects);
+                    assert_eq!(inputs.random, &original_random);
+                    assert_eq!(runtime.branch.invert_next, inverted);
                 }
             }
         }
@@ -12588,6 +12733,7 @@ mod tests {
                 primary_target: None,
                 active_node_flags: None,
                 selected_auxiliary: None,
+                selected_equipment: None,
                 countdown: None,
                 spawn_defaults: None,
                 random: &mut random,
@@ -12714,6 +12860,7 @@ mod tests {
                         primary_target: None,
                         active_node_flags: None,
                         selected_auxiliary: None,
+                        selected_equipment: None,
                         countdown: None,
                         spawn_defaults: None,
                         random: &mut random,
