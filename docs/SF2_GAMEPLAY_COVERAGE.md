@@ -3377,3 +3377,41 @@ Debug and release suites each pass **935 unit tests and two integration tests**;
 exact regeneration and app build also pass (pre-existing icon warnings only).
 These are static-source and native-Rust results, not recorded gameplay,
 original-program execution, shipping integration or whole-game completion.
+
+## Five-part encounter gate and scene handoff (2026-09-20)
+
+The map-installed root `$44:4D7E` now lowers its complete **87-command**
+graph, including its five-part constructor, optional attachments, aimed
+projectile and target-selection callback. **46 additional source commands
+and statements** bring the catalog to **134 complete roots, 3726 source
+commands and 3682 typed statements**.
+
+The constructor uses a shared wrapping spawn-argument byte, reset to zero,
+to create all five parts in one visit. Shape selection is bounded to the
+five decoded headers, with the exact helper checked during extraction.
+Part numbers become one through five; the final part gets a separate
+vertical offset. Relative attachment positions do not eagerly publish world
+coordinates before the common movement boundary.
+
+The entry samples the encounter-node mode independently of map layout.
+Nonzero mode adds attachments six and seven and disables firing; zero mode
+omits those attachments and enables the distance-gated projectile. At ranges
+from 6000 inclusive to 15000 exclusive, a zero countdown fires and draws a
+new delay from 25 through 56. Other in-range visits decrement it; out-of-range
+visits leave it unchanged. The sampled mode is retained across later visits.
+
+Distance below 6000 increments the encounter phase, requests a player
+transition and publishes world X/Z and yaw before ending. The typed handoff
+preserves every unrelated player-flag bit and the companion heading byte.
+Publishing does not execute the consuming scene/player transition, and does
+not write a vertical coordinate.
+
+Eight new native tests cover missing inputs and instruction budgets, all
+byte-pair flag/heading combinations, all coordinate words, wrapping mailbox
+increments, out-of-bounds shape selection, every node-mode byte, strict range
+edges and a 150-visit firing/countdown/target-callback sequence followed by
+handoff. Debug and release each pass **943 unit tests and two integration
+tests**. **182 lowerer tests and 396 path-static tests**, architecture/static
+inventory, exact regeneration and app build pass (existing icon warnings
+only). No original CPU/GSU execution or gameplay recording was used; shipping
+scheduler integration and whole-game completion are not established.

@@ -121,11 +121,15 @@ mod chariot_tests;
 #[cfg(test)]
 #[path = "path_launch_tests.rs"]
 mod launch_tests;
+#[cfg(test)]
+#[path = "path_encounter_gate_tests.rs"]
+mod encounter_gate_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
+    pub handoff: Option<&'a mut super::path_scene_state::EncounterHandoff>,
     pub camera_focus: Option<&'a mut super::path_scene_state::EncounterCameraFocus>,
     pub camera_tracking: Option<&'a mut super::path_scene_state::CameraTrackingTarget>,
     /// High byte of the camera orientation word, not an actor counter.
@@ -209,6 +213,10 @@ pub struct PathWorld<'a> {
 /// (`$04:B1FC`). Keep full bytes, not the special-case predicates they drive.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ScenePathInputs {
+    /// Encounter node mode ($D79B), cleared on entry and set when campaign
+    /// node flags contain bit 1 ($04:B05A). Nonzero adds the gate's extra
+    /// attachments and suppresses firing; retain the full observed byte.
+    pub encounter_node_mode: Option<u8>,
     /// Active pilot selector ($1E14), refreshed by pilot exchange.
     pub active_pilot: Option<u8>,
     /// Published active shield ($1DD1), independent of selected actor health.
@@ -289,6 +297,7 @@ pub enum SceneryDistanceCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneByte {
+    EncounterNodeMode,
     ActivePilot,
     ActiveShield,
     MapRegion,
@@ -304,6 +313,7 @@ pub enum SceneByte {
 impl SceneByte {
     fn read(self, input: ScenePathInputs) -> Option<u8> {
         match self {
+            Self::EncounterNodeMode => input.encounter_node_mode,
             Self::ActivePilot => input.active_pilot,
             Self::ActiveShield => input.active_shield,
             Self::MapRegion => input.map_region,
@@ -553,6 +563,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    EncounterHandoff {
+        command: super::path_scene_state::HandoffCommand,
+        next: PathCursor,
+    },
     SelectActivePilotCraft { appearances: &'static [super::path_launch::PilotCraftAppearance; 6], next: PathCursor },
     AlignCameraHeading { next: PathCursor },
     PublishCameraTrackingTarget { next: PathCursor },
@@ -941,6 +955,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingEncounterHandoff,
     MissingCameraHeading,
     MissingCameraTrackingTarget,
     Reflection(super::weapon_reflection::ReflectionError),
@@ -1290,6 +1305,13 @@ impl PathRuntime {
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::EncounterHandoff { command, next } => {
+                    let handoff = world.handoff.as_deref_mut().ok_or(ProgramError::MissingEncounterHandoff)?;
+                    let actor = objects.get_mut(owner).expect("validated handoff publisher");
+                    handoff.apply(actor, command);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::SpawnParameter { command, next } => {
                     use super::path_spawn::SpawnParameterCommand;
                     let actor = objects.get_mut(owner).expect("validated spawn parameter actor");
@@ -1297,6 +1319,8 @@ impl PathRuntime {
                         SpawnParameterCommand::CopyTo(field) => field.write(actor,
                             self.spawns.parameter.ok_or(ProgramError::MissingSpawnParameter)?),
                         SpawnParameterCommand::Assign(value) => self.spawns.parameter = Some(value.read(actor)),
+                        SpawnParameterCommand::Increment => self.spawns.parameter = Some(
+                            self.spawns.parameter.ok_or(ProgramError::MissingSpawnParameter)?.wrapping_add(1)),
                     }
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
@@ -2405,6 +2429,7 @@ mod tests {
             health_display: None,
             camera_focus: None,
             camera_tracking: None,
+            handoff: None,
             camera_heading: None,
             reflection: None,
             primary_feedback: None,
@@ -7991,7 +8016,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
+        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -8006,6 +8031,7 @@ mod tests {
                 assert_eq!(objects, before);
                 let mut inputs = world(&mut random);
                 match source {
+                    SceneByte::EncounterNodeMode => inputs.scene.encounter_node_mode = Some(value),
                     SceneByte::ActivePilot => inputs.scene.active_pilot = Some(value),
                     SceneByte::ActiveShield => inputs.scene.active_shield = Some(value),
                     SceneByte::MapRegion => inputs.scene.map_region = Some(value),
@@ -9470,6 +9496,7 @@ mod tests {
                 health_display: None,
                 camera_focus: None,
                 camera_tracking: None,
+                handoff: None,
                 camera_heading: None,
                 reflection: None,
                 primary_feedback: None,
@@ -13555,9 +13582,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 133);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3636);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3680);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 134);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3682);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3726);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13692,6 +13719,7 @@ mod tests {
                 health_display: None,
                 camera_focus: None,
                 camera_tracking: None,
+                handoff: None,
                 camera_heading: None,
                 reflection: None,
                 primary_feedback: None,
@@ -13842,6 +13870,7 @@ mod tests {
                         health_display: None,
                         camera_focus: None,
                         camera_tracking: None,
+                        handoff: None,
                         camera_heading: None,
                         reflection: None,
                         primary_feedback: None,

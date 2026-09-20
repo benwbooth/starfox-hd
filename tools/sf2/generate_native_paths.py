@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("FIVE_PART_ENCOUNTER_GATE", PathAddress(0x4D7E)),
     ("CRAFT_LAUNCH_TRANSITION", PathAddress(0xDC42)),
     ("HEAVY_CHARIOT", PathAddress(0x0F7E)),
     ("TAL_KONG", PathAddress(0xA2E6)),
@@ -400,6 +401,18 @@ def pilot_craft_appearances(rom: bytes) -> tuple[tuple[int, int], ...]:
                   int.from_bytes(data[i+2:i+4], 'little')) for i in range(0, 24, 4))
 
 
+def encounter_gate_shapes(rom: bytes) -> tuple[int, ...]:
+    """The complete helper initializes and increments exactly five indices."""
+    helper = bytes.fromhex('fb64d7006105f59cbcd4cf0101000000000000019c7aa108915ffc06a1929169fc06a1046da14e13a1e564d79b459c0c20f9909b42')
+    if rom[0x4811B:0x4811B + len(helper)] != helper:
+        raise UnsupportedPath('unexpected five-part encounter gate helper')
+    start = source_offset(0x06FC69)
+    data = rom[start:start + 10]
+    if len(data) != 10:
+        raise UnsupportedPath('truncated encounter gate shape table')
+    return tuple(shape_index(int.from_bytes(data[i:i+2], 'little')) for i in range(0, 10, 2))
+
+
 def trigger_kind(condition: int) -> str:
     # Source dispatch table $7F:9B0F. Decode once; no numeric condition
     # selector or handler lookup is retained in the native catalog.
@@ -532,6 +545,12 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # Moving/contact-triggered child of the primary weapon service D11D.
     if index == 7 and path == PathAddress(0xF4CA):
         return index, "ObjectKind::Projectile"
+    # Gate's fast collidable projectile and collision-disabled held attachment.
+    # Neither classification is a shape-wide default.
+    if (index, path) == (396, PathAddress(0x4DF9)):
+        return index, "ObjectKind::Projectile"
+    if (index, path) == (65, PathAddress(0xCFC8)):
+        return index, "ObjectKind::Effect"
     # Collision-disabled recovery effects: settle, center, then self-frame/tumble
     # before clearing health. Classification applies only to these paths.
     if (index, path) in ((112, PathAddress(0xF3D4)), (113, PathAddress(0xF3DE))):
@@ -1604,6 +1623,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "SpawnLinkedObjectEffects":
             parameters(0)
             statement = f"Statement::ReflectContactShots {{ next: {next_cursor()} }}"
+        elif name == "SetExternal1d74Bit40":
+            parameters(0)
+            statement = f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::Request, next: {next_cursor()} }}"
+        elif name == "ExportWordAbsolute":
+            variable, low, high = parameters(3)
+            address = low | high << 8
+            if address not in (0x1D88, 0x1D8C):
+                raise UnsupportedPath(f"unreviewed handoff coordinate {address:04X}")
+            operation = 'StoreX' if address == 0x1D88 else 'StoreZ'
+            statement = f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::{operation}(WordOperand::Actor({word_field(variable)})), next: {next_cursor()} }}"
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
@@ -1669,8 +1698,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::RequestSoundBank {{ selection: ByteOperand::Actor({byte_field(variable)}), next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address == 0xD764 and name in ("ImportByteIndexed", "ExportByteIndexed"):
-                operation = f"CopyTo({byte_field(variable)})" if name.startswith("Import") else f"Assign(ByteOperand::Actor({byte_field(variable)}))"
+            if address == 0x1D8E and name == "ExportByteAbsolute":
+                statement = f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::StoreHeading(ByteOperand::Actor({byte_field(variable)})), next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0xD764 and name in ("ImportByteIndexed", "ExportByteIndexed", "StoreExternalByte", "IncrementExternalByte"):
+                if name == 'StoreExternalByte':
+                    operation = f'Assign(ByteOperand::Literal({value}))'
+                elif name == 'IncrementExternalByte':
+                    operation = 'Increment'
+                else:
+                    operation = f"CopyTo({byte_field(variable)})" if name.startswith("Import") else f"Assign(ByteOperand::Actor({byte_field(variable)}))"
                 statement = f"Statement::SpawnParameter {{ command: super::path_spawn::SpawnParameterCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
@@ -1711,8 +1749,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::SceneryDistance {{ command: super::path_program::SceneryDistanceCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xD7F4, 0xDB5B) and name.startswith("Import"):
-                source = {0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
+            if address in (0xD79B, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xD7F4, 0xDB5B) and name.startswith("Import"):
+                source = {0xD79B: "EncounterNodeMode", 0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
                           0x1E70: "WingmatePilot", 0xD7F4: "RemainingObjectives", 0xDB5B: "MapRegion"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
@@ -1785,9 +1823,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             wide = name == "IndexWordBanked"
             if wide and destination == 0x04:
                 address = low | (high << 8) | (bank << 16)
-                if selector != 0x27:
+                if selector == 0xA1 and address == 0x06FC69:
+                    values = encounter_gate_shapes(extractor.rom)
+                elif selector == 0x27:
+                    values = rapid_shot_shapes(extractor.rom, address)
+                else:
                     raise UnsupportedPath(f"unreviewed rapid-shot shape selector {selector:02X}")
-                values = rapid_shot_shapes(extractor.rom, address)
                 shapes = ', '.join(f'ShapeId::from_catalog_index({value})' for value in values)
                 statement = f"Statement::SelectShape {{ selector: {byte_field(selector)}, shapes: const {{ &[{shapes}] }}, next: {next_cursor()} }}"
                 statements.append(statement)

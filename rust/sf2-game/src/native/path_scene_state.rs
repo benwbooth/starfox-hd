@@ -3,6 +3,43 @@
 use super::path_fields::{ByteField, ByteOperand};
 use super::Object;
 
+/// Encounter exit publication ($1D74, $1D88/$1D8C, $1D8E). The player
+/// transition consumer copies this horizontal anchor into its actor, with
+/// a separately chosen height. Publishing does not perform that transition.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EncounterHandoff {
+    pub player_flags: u8,
+    pub x: i16,
+    pub z: i16,
+    /// The producer replaces only the yaw byte. The scene consumer at
+    /// $07:9E4B reads the whole word, so its companion byte is retained.
+    pub heading_word: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandoffCommand {
+    Request,
+    StoreX(super::path_fields::WordOperand),
+    StoreZ(super::path_fields::WordOperand),
+    StoreHeading(ByteOperand),
+}
+
+impl EncounterHandoff {
+    pub fn apply(&mut self, actor: &Object, command: HandoffCommand) {
+        const HANDOFF_REQUEST: u8 = 0x40;
+        const HEADING_COMPANION: u16 = 0xFF00;
+        match command {
+            HandoffCommand::Request => self.player_flags |= HANDOFF_REQUEST,
+            HandoffCommand::StoreX(source) => self.x = source.read(actor) as i16,
+            HandoffCommand::StoreZ(source) => self.z = source.read(actor) as i16,
+            HandoffCommand::StoreHeading(source) => {
+                self.heading_word =
+                    (self.heading_word & HEADING_COMPANION) | u16::from(source.read(actor));
+            }
+        }
+    }
+}
+
 /// World-space point published by encounter paths for the camera target.
 /// Source path producer $7F:C2B3; camera consumer $07:A14A.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

@@ -21,6 +21,42 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_encounter_gate_closes_five_parts_firing_and_handoff(self):
+        from generate_native_paths import encounter_gate_shapes
+        from dump_runtime_routine import source_offset
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x4D7E)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 87)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         'b57d166b9650bc0a8298d4ad3a95c5b73d8aa719aee26e5daeabc8fe8f1bbe44')
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertEqual(len(statements), 87)
+        self.assertEqual(sum('Statement::EncounterHandoff' in s for s in statements), 4)
+        self.assertEqual(sum('Statement::SpawnParameter' in s for s in statements), 3)
+        mapped = {command.address.offset: statement for command, statement in zip(commands, statements)}
+        self.assertIn('ActorCondition::ZeroByte', mapped[0x4D95])
+        self.assertIn('ActorCondition::NonzeroByte', mapped[0x4DC2])
+        self.assertEqual(encounter_gate_shapes(self.rom), (390, 384, 387, 393, 123))
+        for dependency in [0x811B, 0x8985, 0x8D0A, 0xCFC8, 0xCFDE, 0x4DF1, 0x4DF9, 0x4E18]:
+            self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        for shape, path, index, kind in [(0xC3B8, 0xCFC8, 65, 'Effect'), (0xE7EC, 0x4DF9, 396, 'Projectile')]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, f'ObjectKind::{kind}'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+        # Shape count is established by this exact helper, not a permissive
+        # unbounded source-memory view. Reject an altered count/index/stride.
+        for offset in [0x4811E, 0x48120, 0x48132, 0x4813D, source_offset(0x06FC69)]:
+            changed = bytearray(self.rom)
+            changed[offset] ^= 1
+            with self.assertRaises(UnsupportedPath):
+                encounter_gate_shapes(bytes(changed))
+        for offset in [0x44DE6, 0x44DEA, 0x44DEE]:
+            changed = bytearray(self.rom)
+            changed[offset] ^= 1
+            with self.assertRaises(UnsupportedPath):
+                lower_graph(PathExtractor(bytes(changed)), root, 0)
+
     def test_launch_transition_closes_camera_and_both_sprite_callbacks(self):
         from generate_native_paths import pilot_craft_appearances
         from dump_runtime_routine import source_offset
@@ -1335,7 +1371,7 @@ class NativePathGenerationTests(unittest.TestCase):
             changed = bytearray(self.rom)
             changed[0x40003 + installer:0x40005 + installer] = commands[1].address.offset.to_bytes(2, "little")
             with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
-                generate(bytes(changed))
+                generate(bytes(changed), (("CHILD_UNDER_TEST", PathAddress(root)),))
 
     def test_hit_toggle_sprite_entries_keep_both_hit_callbacks_and_counted_exit(self):
         extractor = PathExtractor(self.rom)

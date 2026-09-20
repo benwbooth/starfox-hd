@@ -67,6 +67,7 @@ pub struct SpawnState {
 pub enum SpawnParameterCommand {
     CopyTo(super::path_fields::ByteField),
     Assign(super::path_fields::ByteOperand),
+    Increment,
 }
 
 impl SpawnState {
