@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, spawn_shape, generate, graph, lower_graph, lowering_units, SelectedOffsetAim, shape_index, trigger_kind, variable_bit_masks, word_field,
+    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, independent_spawn_parameters, spawn_shape, generate, graph, lower_graph, lowering_units, SelectedOffsetAim, shape_index, trigger_kind, variable_bit_masks, word_field,
 )
 
 
@@ -23,6 +23,57 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_shape_dead_lowers_to_attachment_presence_not_health_or_generic_predicate(self):
         statements = self.lower_record("20 36 f5")
         self.assertEqual(statements[0], "Statement::AttachmentAbsent { taken: cursor(0, 0), next: cursor(0, 1) }")
+
+    def test_independent_sprite_roots_keep_nested_loops_callbacks_and_shared_fade(self):
+        extractor = PathExtractor(self.rom)
+        for root, count in [(0x82E3, 22), (0x8285, 30), (0x8458, 7)]:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((c.address.offset for c in commands), statements))
+            expected = ([(0x82E7, "TriggerKind::Always"), (0x82EC, "iterations: 3"),
+                         (0x82EE, "iterations: 4"), (0x82F4, "iterations: 4"),
+                         (0x82F6, "amount: 255, period: 8"), (0x8303, "Literal(236)"),
+                         (0x8305, "SignedByte(ByteOperand::Actor(ByteField::AttackPower))"),
+                         (0x8308, "ByteOperation::Increment"), (0x830A, "ByteOperation::Increment"),
+                         (0x830C, "ControlCommand::Return")]
+                if root == 0x82E3 else
+                [(0x8458, "DisableCollision"), (0x845B, "WaitOne"),
+                 (0x845C, "iterations: 7"), (0x8462, "ControlCommand::End")])
+            if root == 0x8285:
+                expected += [(0x8285, "mask: 31"), (0x842D, "part: BytePart::High"),
+                             (0x8432, "ByteField::Part"), (0x843A, "UnsignedByte"),
+                             (0x843F, "immediate: true"), (0x844B, "immediate: true"),
+                             (0x8457, "immediate: true")]
+            for address, fragment in expected:
+                self.assertIn(fragment, mapped[address])
+            self.assertEqual(spawn_shape(0xBD7C, PathAddress(root)), (8, "ObjectKind::Effect"))
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+                spawn_shape(0xBD7C, PathAddress(root + 1))
+        for source, target in [(0x48724, 0x82E6), (0x48717, 0x8288), (0x408B6, 0x8459)]:
+            changed = bytearray(self.rom)
+            changed[source:source + 2] = target.to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+
+    def test_independent_spawn_parameters_validate_handler_record_and_literal_widths(self):
+        extractor = PathExtractor(self.rom)
+        for source, target, power in [(0x8721, 0x82E3, 241), (0x8714, 0x8285, 0), (0x08B3, 0x8458, 0)]:
+            spawn = independent_spawn_parameters(extractor.decode_command(PathAddress(source)))
+            self.assertEqual((spawn.shape, spawn.path.offset, spawn.hit_points, spawn.attack_power),
+                             (0xBD7C, target, 100, power))
+        command = extractor.decode_command(PathAddress(0x8721))
+        spawn = independent_spawn_parameters(replace(command, raw_hex="5d 34 12 ff ff 80 ff"))
+        self.assertEqual((spawn.shape, spawn.path.offset, spawn.hit_points, spawn.attack_power),
+                         (0x1234, 65535, 128, 255))
+        for invalid in (replace(command, raw_hex=command.raw_hex[:-2]),
+                        replace(command, raw_hex=command.raw_hex + "00"),
+                        replace(command, raw_hex="f5" + command.raw_hex[2:]),
+                        replace(command, prefix_size=1), replace(command, handler_address=0),
+                        extractor.decode_command(PathAddress(0xF56A))):
+            with self.assertRaises(UnsupportedPath):
+                independent_spawn_parameters(invalid)
 
     def test_hit_toggle_sprite_entries_keep_both_hit_callbacks_and_counted_exit(self):
         extractor = PathExtractor(self.rom)

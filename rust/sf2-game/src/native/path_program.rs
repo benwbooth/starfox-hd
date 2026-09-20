@@ -5174,6 +5174,168 @@ mod tests {
     }
 
     #[test]
+    fn drifting_pulse_sprite_keeps_nested_loop_yields_and_signed_callback_drift() {
+        use super::super::{authored_paths, Vector3};
+        let catalog = authored_paths::catalog();
+        // The fourth upward increment immediately falls into the first
+        // downward increment. Color four is never a movement-boundary frame.
+        let colors = [1, 2, 3, 3, 2, 1, 0].repeat(3);
+        let colors: Vec<_> = colors.into_iter().chain(1..=7).collect();
+        for power in 0..=u8::MAX {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::DRIFTING_PULSE_SPRITE);
+            actor.base.attack_power = power;
+            actor.base.hit_points = 100;
+            actor.base.wait_timer = power;
+            actor.base.position = Vector3 { x: i16::MAX, y: i16::MIN, z: -1234 };
+            actor.extension.depth_offset = 0xABCD;
+            runtime.branch.invert_next = true;
+            let initial_random = random;
+            let mut expected_position = actor.base.position;
+            for (visit, &color) in colors.iter().enumerate() {
+                let ending = visit + 1 == colors.len();
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16),
+                    Ok(if ending { ControlStep::Ended } else { ControlStep::Movement }), "visit {visit}");
+                assert_eq!(objects.get(owner).unwrap().base.position, expected_position);
+                if !ending {
+                    assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                    assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 5), Ok(ControlStep::ResumeCallbacks));
+                    assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                    expected_position.x = expected_position.x.wrapping_add(i16::from(power as i8));
+                    expected_position.y = expected_position.y.wrapping_sub(20);
+                }
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.base.position, expected_position);
+                assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(color));
+                assert_eq!(actor.extension.texture_scroll_x, 16 + 2 * (visit + 1).min(27) as u8);
+                assert_eq!(actor.extension.depth_offset, 0xAB00);
+                assert_eq!((actor.base.hit_points, actor.base.attack_power, actor.base.wait_timer), (100, power, power));
+                assert!(actor.base.flags.scaled_sprite);
+                assert!(actor.base.flags.collision_disabled);
+                assert_eq!(actor.base.flags.remove_after_tick, ending);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, initial_random);
+            }
+            runtime.release_actor_programs(&mut objects, owner).unwrap();
+        }
+    }
+
+    #[test]
+    fn part_jitter_sprite_consumes_ordered_draws_and_resumes_zero_count_word_loops() {
+        use super::super::{authored_paths, Vector3};
+        let catalog = authored_paths::catalog();
+        for part in 0..=u8::MAX {
+            for high in [0, 1, 2, 255] {
+                for invert in [false, true] {
+                    let (mut runtime, mut objects, owner, _) = setup();
+                    let mut random = RandomState::new([part, high, 173, part ^ 255]);
+                    let mut expected_random = random;
+                    let power = expected_random.next_byte() & 31;
+                    let skip = (high == 1) != invert;
+                    let expected_part = if skip { part } else { part.wrapping_add(1) };
+                    let iterations = if expected_part == 0 { 65_536 } else { usize::from(expected_part) };
+                    let initial_position = Vector3 { x: i16::MAX, y: i16::MIN, z: -1234 };
+                    let mut expected_position = initial_position;
+                    let mut low = 173;
+                    if !skip {
+                        for position in [&mut expected_position.x, &mut expected_position.y, &mut expected_position.z] {
+                            low = (expected_random.next_byte() & 127).wrapping_add(192);
+                            *position = (i64::from(*position) + i64::from(low as i8) * iterations as i64) as i16;
+                        }
+                    }
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(authored_paths::PART_JITTER_FADE_SPRITE);
+                    actor.base.position = initial_position;
+                    actor.base.hit_points = 100;
+                    actor.base.wait_timer = part;
+                    actor.extension.depth_offset = 0xABCD;
+                    actor.extension.path_state.part = part;
+                    actor.extension.path_state.motion_phase = u16::from_be_bytes([high, 173]);
+                    runtime.branch.invert_next = invert;
+                    // Small slices prove that immediate loops resume without
+                    // inventing movement, reinitializing, or drawing again.
+                    let mut result = runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 127);
+                    let mut slices = 0;
+                    while let Err(ProgramError::BudgetExceeded { executed, cursor }) = result {
+                        assert_eq!(executed, 127);
+                        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor));
+                        assert!(!objects.get(owner).unwrap().base.flags.remove_after_tick);
+                        slices += 1;
+                        assert!(slices < 4000);
+                        result = runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 127);
+                    }
+                    assert_eq!(result, Ok(ControlStep::Movement));
+                    assert_eq!(slices, (if skip { 10 } else { 20 + 6 * iterations } - 1) / 127);
+                    for visit in 0..8 {
+                        if visit != 0 {
+                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4),
+                                Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
+                        }
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.base.position, expected_position, "part={part} high={high} invert={invert}");
+                        assert_eq!(actor.extension.path_state.part, expected_part);
+                        assert_eq!(actor.extension.path_state.motion_phase, u16::from_be_bytes([high, low]));
+                        assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(visit));
+                        assert_eq!(actor.extension.texture_scroll_x, 8 + power);
+                        assert_eq!(actor.extension.depth_offset, 0xAB00);
+                        assert_eq!((actor.base.hit_points, actor.base.attack_power, actor.base.wait_timer), (100, power, part));
+                        assert!(actor.base.flags.scaled_sprite);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert_eq!(actor.base.flags.remove_after_tick, visit == 7);
+                        assert!(!runtime.branch.invert_next);
+                        assert_eq!(random, expected_random);
+                    }
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn direct_fade_sprite_has_no_implicit_sprite_initialization_or_randomization() {
+        use super::super::{authored_paths, Vector3};
+        let catalog = authored_paths::catalog();
+        for retained in 0..=u8::MAX {
+            for sprite in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::FADE_SPRITE);
+                actor.base.flags.scaled_sprite = sprite;
+                actor.base.position = Vector3 { x: -32768, y: 1234, z: 32767 };
+                actor.base.wait_timer = retained;
+                actor.base.attack_power = retained;
+                actor.extension.texture_scroll_x = retained;
+                actor.extension.depth_offset = 0xABCD;
+                actor.extension.path_state.part = retained;
+                actor.extension.path_state.motion_phase = 0xFEDC;
+                runtime.branch.invert_next = true;
+                let initial_random = random;
+                for visit in 0..8 {
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4),
+                        Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(visit));
+                    assert_eq!(actor.base.position, Vector3 { x: -32768, y: 1234, z: 32767 });
+                    assert_eq!(actor.base.wait_timer, retained);
+                    assert_eq!(actor.base.attack_power, retained);
+                    assert_eq!(actor.extension.texture_scroll_x, retained);
+                    assert_eq!(actor.extension.depth_offset, 0xABCD);
+                    assert_eq!(actor.extension.path_state.part, retained);
+                    assert_eq!(actor.extension.path_state.motion_phase, 0xFEDC);
+                    assert_eq!(actor.base.flags.scaled_sprite, sprite);
+                    assert!(actor.base.flags.collision_disabled);
+                    assert_eq!(actor.base.flags.remove_after_tick, visit == 7);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, initial_random);
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn growing_sprite_holds_after_fifteen_growth_steps_and_keeps_sprite_mode_on_shape_change() {
         use super::super::{authored_paths, Vector3};
         let catalog = authored_paths::catalog();
@@ -10822,9 +10984,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 36);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 777);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 786);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 39);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 829);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 838);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

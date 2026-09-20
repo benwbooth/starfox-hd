@@ -60,6 +60,9 @@ ROOTS = (
     ("COUNTED_HIT_TOGGLE_SPRITE", PathAddress(0x8486)),
     ("GROWING_SPRITE_HOLD", PathAddress(0x0059)),
     ("SHAPE_FILTERED_SCENERY", PathAddress(0x7F78)),
+    ("DRIFTING_PULSE_SPRITE", PathAddress(0x82E3)),
+    ("PART_JITTER_FADE_SPRITE", PathAddress(0x8285)),
+    ("FADE_SPRITE", PathAddress(0x8458)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -71,6 +74,9 @@ CHILD_INSTALLERS = {
     PathAddress(0x8486): (PathAddress(0x0691), PathAddress(0x097D)),
     PathAddress(0x0059): (PathAddress(0x00BC), PathAddress(0x0210)),
     PathAddress(0x7F78): (PathAddress(0x58B9), PathAddress(0x5916)),
+    PathAddress(0x82E3): (PathAddress(0x2651), PathAddress(0x8721)),
+    PathAddress(0x8285): (PathAddress(0x4839), PathAddress(0x8714)),
+    PathAddress(0x8458): (PathAddress(0x0691), PathAddress(0x08B3)),
 }
 
 
@@ -192,6 +198,32 @@ def child_spawn_parameters(command: PathCommand) -> ChildSpawnParameters:
     )
 
 
+@dataclass(frozen=True)
+class IndependentSpawnParameters:
+    """Offline literals for the seven-byte, unattached actor spawn form."""
+
+    shape: int
+    path: PathAddress
+    hit_points: int
+    attack_power: int
+
+
+def independent_spawn_parameters(command: PathCommand) -> IndependentSpawnParameters:
+    spec = SEMANTICS.get(command.opcode)
+    if (spec is None or spec.handler_address != command.handler_address
+            or spec.rust_name != "QuickSpawn"):
+        raise UnsupportedPath(f"not a reviewed independent spawn at {command.address.label()}")
+    raw = bytes.fromhex(command.raw_hex)
+    if command.prefix_size or len(raw) != 7 or raw[0] != command.opcode:
+        raise UnsupportedPath(f"unexpected independent spawn record at {command.address.label()}")
+    return IndependentSpawnParameters(
+        shape=int.from_bytes(raw[1:3], "little"),
+        path=PathAddress(int.from_bytes(raw[3:5], "little")),
+        hit_points=raw[5],
+        attack_power=raw[6],
+    )
+
+
 def shape_index(shape: int) -> int:
     delta = shape - SHAPE_HEADER_START
     if delta < 0 or delta % SHAPE_HEADER_SIZE or delta // SHAPE_HEADER_SIZE >= SHAPE_HEADER_COUNT:
@@ -227,6 +259,8 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
         return index, "ObjectKind::Effect"
     if (index, path) == (239, PathAddress(0x7F78)):
         return index, "ObjectKind::Scenery"
+    if index == 8 and path in (PathAddress(0x82E3), PathAddress(0x8285), PathAddress(0x8458)):
+        return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
@@ -305,12 +339,7 @@ def graph(extractor: PathExtractor, root: PathAddress) -> list[PathCommand]:
             if child_path.offset:
                 pending.append(child_path)
         elif command.opcode == 0x05D:
-            # The independent-actor form has the same leading shape/path
-            # words. Its other fields are not child-attachment parameters.
-            raw = bytes.fromhex(command.raw_hex)
-            if command.prefix_size or len(raw) != 7:
-                raise UnsupportedPath(f"unexpected independent spawn record at {command.address.label()}")
-            child_path = PathAddress(int.from_bytes(raw[3:5], "little"))
+            child_path = independent_spawn_parameters(command).path
             if child_path.offset:
                 pending.append(child_path)
     return [found[address] for address in sorted(found)]
@@ -333,8 +362,7 @@ def lowering_units(extractor: PathExtractor, root: PathAddress):
         if command.opcode in (0x033, 0x0F5):
             entries.add(child_spawn_parameters(command).path)
         elif command.opcode == 0x05D:
-            raw = bytes.fromhex(command.raw_hex)
-            entries.add(PathAddress(int.from_bytes(raw[3:5], "little")))
+            entries.add(independent_spawn_parameters(command).path)
     consumed = set()
     units = []
     for command in commands:
@@ -547,11 +575,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             branch = "OccupiedCell" if name == "IfSelectedAuxiliaryMapCellOccupied" else "AtOrAboveSurface"
             statement = f"Statement::{branch} {{ taken: {taken}, next: {next_} }}"
         elif name == "QuickSpawn":
-            shape_low, shape_high, path_low, path_high, health, power = parameters(6)
-            target = PathAddress(path_low | (path_high << 8))
-            shape, kind = spawn_shape(shape_low | (shape_high << 8), target)
-            path = f"Some({cursor(target)})" if target.offset else "None"
-            spawn_ = f"IndependentSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, hit_points: {health}, attack_power: {power} }}"
+            spawn = independent_spawn_parameters(command)
+            shape, kind = spawn_shape(spawn.shape, spawn.path)
+            path = f"Some({cursor(spawn.path)})" if spawn.path.offset else "None"
+            spawn_ = f"IndependentSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power} }}"
             statement = f"Statement::SpawnIndependent {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
         elif name == "SwapVariableWords":
             first, second = parameters(2)
@@ -1129,7 +1156,9 @@ def generate(rom: bytes, roots=ROOTS) -> str:
             parent, source = installer
             spawn = next((command for command in graph(extractor, parent)
                           if command.address == source), None)
-            if spawn is None or child_spawn_parameters(spawn).path != root:
+            installed = (independent_spawn_parameters(spawn).path if spawn is not None and spawn.opcode == 0x05D
+                         else child_spawn_parameters(spawn).path if spawn is not None else None)
+            if installed != root:
                 raise UnsupportedPath(f"{name} has no verified child installer")
         entry, statements = lower_graph(extractor, root, 0, indices)
         declarations.append(f"pub const {name}: PathCursor = cursor(0, {entry});")

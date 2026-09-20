@@ -43,6 +43,19 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x08FF78, "41 B6 81 2B 04 78 CC 88 7F 8A 2B 04 98 D2 8A 7F 00 67 41 52 86 19")
         self.assert_source(0x08D916, "F5 C0 D6 78 7F 64 00 00 00 00 00 00 00 09")
 
+    def test_independent_pulse_jitter_and_fade_sprite_graphs_and_installers(self):
+        self.assert_source(0x0982E3,
+            "4D 00 10 5C FD 1C 00 1D 00 61 03 61 04 1E 01 08 44 61 04 "
+            "1E FF 08 44 44 78 61 07 1E 01 08 44 0F 75 EC 55 0C 2E 6D 99 6D 99 42")
+        self.assert_source(0x098285, "58 2E 1F 5C F7 EF 4D 00 08 52 99 2E 17 2D 84")
+        self.assert_source(0x09842D,
+            "2A A2 01 58 84 6D A9 58 A1 7F 07 A1 C0 62 A9 55 0C A1 45 "
+            "58 A1 7F 07 A1 C0 62 A9 55 0E A1 45 58 A1 7F 07 A1 C0 62 A9 "
+            "55 10 A1 45 5C 1D 00 78 61 07 1E 01 08 44 0F")
+        self.assert_source(0x098721, "5D 7C BD E3 82 64 F1")
+        self.assert_source(0x098714, "5D 7C BD 85 82 64 00")
+        self.assert_source(0x0888B3, "5D 7C BD 58 84 64 00")
+
     def test_suspension_enters_movement_and_both_strategy_passes_skip_it(self):
         self.assert_source(0x7FBC80, "B5 26 09 40 95 26 4C DE 9D")
         self.assert_source(0x7F9DDE, "A5 5E 09 18 85 5E 8F 3A 30 00 B5 0B")

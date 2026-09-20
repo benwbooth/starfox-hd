@@ -1718,3 +1718,38 @@ statements**. Validation passes 119 lowerer tests, 283 static path tests,
 296 native path tests in debug and release, generated freshness,
 architecture/static audits and the application build. Game scheduling and
 whole-game completion remain separate work.
+
+### Independent pulse, part-jitter and fade sprites
+
+Three complete roots use independently allocated actors, with reviewed
+seven-byte installers: `DRIFTING_PULSE_SPRITE` (`44:82E3`, installed at
+`44:8721`), `PART_JITTER_FADE_SPRITE` (`44:8285`, installed at `44:8714`),
+and `FADE_SPRITE` (`44:8458`, installed at `44:08B3`). The decoder now
+validates this spawn format's handler, opcode, length and lack of prefix
+before either closing dependency graphs or accepting an installer. Source
+shape 8 is classified as an effect only for these reviewed paths.
+
+The pulse performs three nested up/down color loops and a final fade.
+Its fourth upward increment immediately falls into a downward increment,
+so its movement-boundary colors are `1,2,3,3,2,1,0` per cycle. An always
+callback applies signed attack-power drift in X, minus 20 in Y, and two
+size increments after each of the 27 movement yields; the 28th visit ends.
+
+The jitter path draws a size byte, then conditionally increments its part
+byte and uses three separate random draws for signed X/Y/Z displacements.
+It retains the source's phase-high comparison and IFNOT behavior. The
+incremented part byte becomes a word loop count: wrapped zero executes
+65,536 immediate iterations on **each** axis. Tests cover all part values,
+phase-high branch boundaries, both inversion states, exact draw order,
+word wrapping and 127-command resumable slices without invented movement.
+The direct fade shares the final seven statements but does not initialize
+sprite mode, size, depth offset, phase, part or random state. Both fade
+entries present colors zero through six before ending with color seven.
+
+Full source graphs and installer records are pinned, malformed records and
+altered installer targets reject generation, and callbacks/retained bytes
+have native boundary tests. Coverage is **39 complete roots / 838 source
+commands / 829 native statements**. Validation passes 121 lowerer tests,
+284 static path tests and 299 native path tests in debug and release,
+generated freshness, architecture/static audits and the application build.
+Parent graphs and whole-game scheduling remain outside this coverage.
