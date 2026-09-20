@@ -1973,3 +1973,37 @@ debug/release pass, alongside generated freshness, architecture/static
 audits and the app build. Complete-root coverage remains **57 roots / 998
 source commands / 989 native statements** until the newly unblocked sprite
 graphs receive their independent whole-graph tests.
+
+### Complete motion-compensated fade-sprite family
+
+The new byte importer unlocks `PHASE_INCREMENTED_MOTION_FADE_SPRITE`
+(`44:83F4`), `RANDOM_SIZE_MOTION_FADE_SPRITE` (`44:83F9`) and
+`SMALL_RANDOM_MOTION_FADE_SPRITE` (`44:8402`). Their complete graphs contain
+50/51/49 commands, sharing jitter/fade and motion-compensation tails.
+Reachable spawn records at `44:25FD`, `44:0443` and `44:3025` are pinned.
+The first entry increments phase high, the second adds a masked random
+byte to attack/size, and the third replaces attack/size with a smaller
+masked draw. Only the newly reviewed path/shape pair gains classification.
+
+Selected auxiliary mode classes two and three suppress the motion callback
+without reading or consuming IFNOT. The subsequent health equality consumes
+IFNOT and determines whether audio is skipped. Otherwise the wrapped sign
+of `17 - sprite_size` chooses cue 112 or 139; this is not unsigned size
+ordering. The existing part-counted jitter tail and eight-visit fade retain
+their exact byte/word and immediate-loop semantics.
+
+Whole-graph tests exercise all initial size bytes, both IFNOT states, four
+mode classes, both jitter routes, both health branches and all entry forms.
+They verify random draw order, sound identity/routing, high-byte wrap,
+phase restoration, callback registration, seven callback-bearing movements
+followed by END, and unchanged auxiliary input. Missing-snapshot and
+budget-sliced callback tests prove that the saved byte is not pushed twice,
+X/Z imports can see different publications, byte-width doubled/negated
+motion is sign-extended only at coordinate addition, and the main fade loop
+survives callback stack use.
+
+Coverage is **60 complete roots / 1,028 source commands / 1,019 native
+statements**. All 129 lowerer tests, 292 static path tests, 316 native path
+tests in debug/release, generated freshness, architecture/static audits and
+the app build pass. The parent graphs and shipping scheduler integration
+remain separate work; no gameplay recordings were used.

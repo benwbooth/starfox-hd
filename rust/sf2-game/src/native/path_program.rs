@@ -5347,6 +5347,181 @@ mod tests {
     }
 
     #[test]
+    fn motion_fade_sprite_entries_preserve_mode_gating_wrapped_audio_and_saved_phase_callbacks() {
+        use super::super::path_motion::PublishedPlayerMotion;
+        use super::super::path_sound::{AuthoredCue, CueListener, CueMarker, MarkerInputs, PathAudio};
+        use super::super::{authored_paths, Angle, AudioState, SoundEvent, Vector3};
+        let catalog = authored_paths::catalog();
+        let roots = [authored_paths::PHASE_INCREMENTED_MOTION_FADE_SPRITE,
+            authored_paths::RANDOM_SIZE_MOTION_FADE_SPRITE, authored_paths::SMALL_RANDOM_MOTION_FADE_SPRITE];
+        for (entry, root) in roots.into_iter().enumerate() {
+            for initial in 0..=u8::MAX {
+                for mode in [0x1Fu8, 0x2F, 0x3F, 0xFF] {
+                    for inverted in [false, true] {
+                        for skip_jitter in [false, true] {
+                            for health in [1u8, 100] {
+                                let (mut runtime, mut objects, owner, _) = setup();
+                                let mut random = RandomState::new([initial, mode, 93, 253]);
+                                let mut expected_random = random;
+                                let power = match entry {
+                                    0 => initial,
+                                    1 => initial.wrapping_add(expected_random.next_byte() & 31),
+                                    _ => expected_random.next_byte() & 15,
+                                };
+                                let size = power.wrapping_add(8);
+                                // Mode-class branches bypass IFNOT; the later
+                                // health equality consumes it before audio.
+                                let cue = if (health == 1) != inverted { None }
+                                    else { Some(if (17u8.wrapping_sub(size) as i8) < 0 { 112 } else { 139 }) };
+                                let has_callback = !matches!(mode & 0xF0, 0x20 | 0x30);
+                                let initial_high = if skip_jitter { if entry == 0 { 0 } else { 1 } } else { 255u8 };
+                                let high = if entry == 0 { initial_high.wrapping_add(1) } else { initial_high };
+                                let initial_position = Vector3 { x: i16::MAX, y: i16::MIN, z: -1234 };
+                                let mut position = initial_position;
+                                let mut low = 17;
+                                if !skip_jitter {
+                                    for coordinate in [&mut position.x, &mut position.y, &mut position.z] {
+                                        low = (expected_random.next_byte() & 127).wrapping_add(192);
+                                        *coordinate = coordinate.wrapping_add(3 * i16::from(low as i8));
+                                    }
+                                }
+                                let actor = objects.get_mut(owner).unwrap();
+                                actor.base.path = Some(root);
+                                actor.base.position = initial_position;
+                                actor.base.attack_power = initial;
+                                actor.base.hit_points = health;
+                                actor.base.wait_timer = initial;
+                                actor.base.flags.casts_shadow = true;
+                                actor.extension.depth_offset = 0xABCD;
+                                actor.extension.path_state.part = 2;
+                                actor.extension.path_state.motion_phase = u16::from_be_bytes([initial_high, initial]);
+                                let shape_animation = actor.extension.path_state.animation.shape;
+                                runtime.branch.invert_next = inverted;
+                                let mut auxiliary = SelectedAuxiliaryState { mode, action_flags: initial };
+                                let mut audio = AudioState::default();
+                                for visit in 0..8u8 {
+                                    let mut inputs = world(&mut random);
+                                    if visit == 0 {
+                                        inputs.selected_auxiliary = Some(&mut auxiliary);
+                                        if cue.is_some() {
+                                            inputs.audio = Some(PathAudio {
+                                                events: &mut audio, listeners: [CueListener::PrimaryPlayer; 2],
+                                                markers: Some(MarkerInputs {
+                                                    selected_sides: [PlayerTarget::Primary; 2],
+                                                    markers: [CueMarker { identity: CueListener::Other,
+                                                        position: initial_position, bearing: Angle::ZERO }; 2],
+                                                }),
+                                            });
+                                        }
+                                    }
+                                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 64),
+                                        Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }),
+                                        "entry={entry} initial={initial} mode={mode} inverted={inverted} skip_jitter={skip_jitter} health={health} visit={visit}");
+                                    assert_eq!(audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
+                                        cue.filter(|_| visit == 0).into_iter()
+                                            .map(|id| SoundEvent::Authored(AuthoredCue::new(id, 0, PlayerTarget::Secondary))).collect::<Vec<_>>());
+                                    if visit != 7 {
+                                        assert_eq!(runtime.begin_callbacks(&objects, owner).unwrap(), has_callback);
+                                        if has_callback {
+                                            assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
+                                            let motion_x = initial.wrapping_add(visit.wrapping_mul(33));
+                                            let motion_z = initial.wrapping_sub(visit.wrapping_mul(17));
+                                            let mut inputs = world(&mut random);
+                                            inputs.published_motion = Some(PublishedPlayerMotion {
+                                                position: Vector3::default(),
+                                                delta: Vector3 { x: (0xA500 | u16::from(motion_x)) as i16,
+                                                    y: -32768, z: (0x5A00 | u16::from(motion_z)) as i16 },
+                                            });
+                                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 11), Ok(ControlStep::ResumeCallbacks));
+                                            assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                                            position.x = position.x.wrapping_add(i16::from(motion_x.wrapping_mul(2).wrapping_neg() as i8));
+                                            position.z = position.z.wrapping_add(i16::from(motion_z.wrapping_mul(2).wrapping_neg() as i8));
+                                        }
+                                    }
+                                    let actor = objects.get(owner).unwrap();
+                                    assert_eq!(actor.base.position, position);
+                                    assert_eq!(actor.extension.path_state.motion_phase, u16::from_be_bytes([high, low]));
+                                    assert_eq!(actor.extension.path_state.part, if skip_jitter { 2 } else { 3 });
+                                    assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(visit));
+                                    assert_eq!(actor.extension.path_state.animation.shape, shape_animation);
+                                    assert_eq!(actor.extension.texture_scroll_x, size);
+                                    assert_eq!(actor.extension.depth_offset, 0xAB00);
+                                    assert_eq!((actor.base.attack_power, actor.base.hit_points, actor.base.wait_timer), (power, health, initial));
+                                    assert!(actor.base.flags.scaled_sprite);
+                                    assert!(actor.base.flags.collision_disabled);
+                                    assert!(actor.base.flags.casts_shadow);
+                                    assert_eq!(actor.base.flags.remove_after_tick, visit == 7);
+                                    assert!(!runtime.branch.invert_next);
+                                    assert_eq!(random, expected_random);
+                                }
+                                assert_eq!(auxiliary, SelectedAuxiliaryState { mode, action_flags: initial });
+                                runtime.release_actor_programs(&mut objects, owner).unwrap();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn motion_fade_callback_resumes_saved_byte_stack_and_resamples_each_axis_import() {
+        use super::super::path_motion::PublishedPlayerMotion;
+        use super::super::{authored_paths, Vector3};
+        let catalog = authored_paths::catalog();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.path = Some(authored_paths::PHASE_INCREMENTED_MOTION_FADE_SPRITE);
+        actor.base.hit_points = 1; // no cue dependency
+        actor.extension.path_state.motion_phase = 0; // increment high skips jitter
+        actor.base.position = Vector3 { x: 32767, y: -456, z: -32768 };
+        let mut auxiliary = SelectedAuxiliaryState { mode: 0, action_flags: 0 };
+        let mut inputs = world(&mut random);
+        inputs.selected_auxiliary = Some(&mut auxiliary);
+        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16), Ok(ControlStep::Movement));
+        assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+        assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
+        // Save the phase byte once, then stop immediately before importing X.
+        let result = runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1);
+        assert!(matches!(result, Err(ProgramError::BudgetExceeded { executed: 1, .. })));
+        for delta in [None, Some(Vector3 { x: 100, y: 999, z: 7 })] {
+            let before = objects.clone();
+            let mut inputs = world(&mut random);
+            inputs.published_motion = delta.map(|delta| PublishedPlayerMotion { position: Vector3::default(), delta });
+            let result = runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4);
+            if delta.is_none() {
+                assert_eq!(result, Err(ProgramError::MissingPublishedMotion));
+                assert_eq!(objects, before);
+            } else {
+                assert!(matches!(result, Err(ProgramError::BudgetExceeded { executed: 4, .. })));
+            }
+        }
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.base.position, Vector3 { x: 32767i16.wrapping_add(56), y: -456, z: -32768 });
+        assert_eq!(actor.extension.path_state.motion_phase, 0x0138);
+        let before = objects.clone();
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 6),
+            Err(ProgramError::MissingPublishedMotion));
+        assert_eq!(objects, before);
+        let mut inputs = world(&mut random);
+        // Z observes the changed publication, not the earlier snapshot's 7.
+        inputs.published_motion = Some(PublishedPlayerMotion {
+            position: Vector3::default(), delta: Vector3 { x: -3000, y: -999, z: 300 },
+        });
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6), Ok(ControlStep::ResumeCallbacks));
+        assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+        let actor = objects.get(owner).unwrap();
+        assert_eq!(actor.base.position, Vector3 { x: 32767i16.wrapping_add(56), y: -456, z: (-32768i16).wrapping_sub(88) });
+        assert_eq!(actor.extension.path_state.motion_phase, 0x0111);
+        for visit in 1..=7 {
+            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4),
+                Ok(if visit == 7 { ControlStep::Ended } else { ControlStep::Movement }));
+            assert_eq!(objects.get(owner).unwrap().extension.path_state.animation.color.fixed_frame(), Some(visit));
+        }
+        runtime.release_actor_programs(&mut objects, owner).unwrap();
+    }
+
+    #[test]
     fn hit_cycled_shape_preserves_exact_loop_fallthrough_and_latched_hits_between_callbacks() {
         use super::super::{authored_paths, path_appearance::AnimationControl, Vector3};
         let catalog = authored_paths::catalog();
@@ -11870,9 +12045,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 57);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 989);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 998);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 60);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1019);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1028);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

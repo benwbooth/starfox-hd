@@ -81,6 +81,9 @@ ROOTS = (
     ("SIX_STEP_SHAPE_EFFECT", PathAddress(0xC1FF)),
     ("DEPTH_BIASED_WAIT_EFFECT", PathAddress(0xFA07)),
     ("HIT_CYCLED_SHAPE", PathAddress(0x20CD)),
+    ("PHASE_INCREMENTED_MOTION_FADE_SPRITE", PathAddress(0x83F4)),
+    ("RANDOM_SIZE_MOTION_FADE_SPRITE", PathAddress(0x83F9)),
+    ("SMALL_RANDOM_MOTION_FADE_SPRITE", PathAddress(0x8402)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -113,6 +116,9 @@ CHILD_INSTALLERS = {
     PathAddress(0xC1FF): (PathAddress(0xF5B4), PathAddress(0xC1D3)),
     PathAddress(0xFA07): (PathAddress(0xF5B4), PathAddress(0xF76C)),
     PathAddress(0x20CD): (PathAddress(0x1AFF), PathAddress(0x1B34)),
+    PathAddress(0x83F4): (PathAddress(0x2651), PathAddress(0x25FD)),
+    PathAddress(0x83F9): (PathAddress(0x00BC), PathAddress(0x0443)),
+    PathAddress(0x8402): (PathAddress(0x2F11), PathAddress(0x3025)),
 }
 
 
@@ -303,6 +309,8 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     if (index, path) in ((37, PathAddress(0x90FD)), (22, PathAddress(0x9277))):
         return index, "ObjectKind::Effect"
     if (index, path) in ((18, PathAddress(0x4DF1)), (0, PathAddress(0xCFD4)), (0, PathAddress(0x5667))):
+        return index, "ObjectKind::Effect"
+    if (index, path) == (14, PathAddress(0x83F9)):
         return index, "ObjectKind::Effect"
     # These complete child graphs disable collision before yielding. Do not
     # infer a kind for other uses of their mesh shapes or parent graphs.

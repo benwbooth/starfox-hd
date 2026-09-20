@@ -159,6 +159,45 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(shape, PathAddress(root))
 
+    def test_motion_fade_sprites_lower_complete_setup_jitter_audio_and_snapshot_callback(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, installer, shape, index in [
+            (0x83F4, 50, 0x25FD, 0xBE08, 13), (0x83F9, 51, 0x0443, 0xBE24, 14),
+            (0x8402, 49, 0x3025, 0xBE08, 13),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((c.address.offset for c in commands), statements))
+            for address, fragment in [
+                (0x8405, "AuxiliaryModeClass::Two"), (0x8408, "AuxiliaryModeClass::Three"),
+                (0x840B, "TriggerKind::Always"), (0x8417, "Literal(17)"),
+                (0x841A, "ByteField::Health"), (0x841F, "SecondByteLess"),
+                (0x8424, "id: 139"), (0x842A, "id: 112"),
+                (0x843A, "UnsignedByte"), (0x843F, "immediate: true"),
+                (0x8463, "StackValueCommand::SaveByte"), (0x847D, "StackValueCommand::RestoreByte"),
+                (0x8465, "ImportPlayerMotionByte { axis: Axis::X, part: BytePart::Low"),
+                (0x8471, "ImportPlayerMotionByte { axis: Axis::Z, part: BytePart::Low"),
+            ]:
+                self.assertIn(fragment, mapped[address])
+            if root == 0x83F4:
+                self.assertIn("part: BytePart::High", mapped[root])
+                self.assertIn("ByteOperation::Increment", mapped[root])
+            elif root == 0x83F9:
+                self.assertIn("mask: 31", mapped[root])
+                self.assertIn("ByteField::AttackPower", mapped[0x83FC])
+                self.assertIn("ByteOperation::Add", mapped[0x83FC])
+            else:
+                self.assertIn("ByteField::AttackPower, mask: 15", mapped[root])
+            self.assertEqual(spawn_shape(shape, PathAddress(root)), (index, "ObjectKind::Effect"))
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+            spawn_shape(0xBE24, PathAddress(0x83FA))
+
     def test_motion_snapshot_byte_imports_decode_axis_and_half_without_exporting_memory(self):
         for address in range(0x1E1C, 0x1E22):
             axis = ("X", "Y", "Z")[(address - 0x1E1C) // 2]

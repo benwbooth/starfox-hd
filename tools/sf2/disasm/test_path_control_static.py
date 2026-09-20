@@ -91,6 +91,17 @@ class PathControlStaticTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.rom[start:start + 256]).hexdigest(),
                          "541f238f2bc0ac7b2f91a6cf6ce778a756b3ed903ac0afbc55bd6fe037d99b03")
 
+    def test_motion_fade_sprite_setup_and_independent_installers(self):
+        # The full shared jitter/fade and saved-byte callback are pinned by
+        # their own tests. These three entry prefixes join that exact tail.
+        self.assert_source(0x0983F4,
+            "6D A2 17 05 84 58 A1 1F 52 2E A1 17 05 84 58 2E 0F BD 0E 84 BE 0E 84 "
+            "F8 63 84 5C F7 EF 4D 00 08 52 99 2E 0B 11 A1 2A 2D 01 2D 84 "
+            "EE 99 A1 2A 84 00 06 8B 17 2D 84 00 06 70")
+        self.assert_source(0x08A5FD, "5D 08 BE F4 83 64 77")
+        self.assert_source(0x088443, "5D 24 BE F9 83 64 32")
+        self.assert_source(0x08B025, "5D 08 BE 02 84 64 20")
+
     def test_hit_cycled_shape_complete_graph_and_child_installation(self):
         self.assert_source(0x08A0CD,
             "C4 2E F9 FD 04 0A 19 4C D8 20 42 4B D4 20 61 07 1C 01 08 44 78 "
