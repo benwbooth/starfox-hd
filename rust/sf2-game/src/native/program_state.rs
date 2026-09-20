@@ -22,6 +22,7 @@ enum PathEntry {
     Counter(CountedLoop),
     SavedByte(u8),
     SavedWord(u16),
+    SavedAttachment(Option<ObjectId>),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -202,6 +203,29 @@ impl PathStack {
         self.push(resources, owner, PathEntry::SavedWord(value))
     }
 
+    /// Object links use the source word-save allocation, but retain their
+    /// semantic identity rather than exposing an encoded object address.
+    pub fn save_attachment(
+        &mut self,
+        resources: &mut ProgramResources<ProgramData>,
+        owner: ObjectId,
+        value: Option<ObjectId>,
+    ) -> Result<(), PathStackError> {
+        self.push(resources, owner, PathEntry::SavedAttachment(value))
+    }
+
+    pub fn restore_attachment(
+        &mut self,
+        resources: &mut ProgramResources<ProgramData>,
+    ) -> Result<Option<ObjectId>, PathStackError> {
+        let entries = self.entries_mut(resources)?;
+        let Some(PathEntry::SavedAttachment(value)) = entries.last().cloned() else {
+            return Err(PathStackError::IncompatibleSavedValue);
+        };
+        entries.pop();
+        Ok(value)
+    }
+
     /// Byte restore also accepts the low byte of a saved word. It cannot
     /// reinterpret typed call/loop continuations as numeric source addresses.
     pub fn restore_byte(
@@ -308,6 +332,76 @@ mod tests {
             path: PathId::from_catalog_index(0),
             command_index: index,
         }
+    }
+
+    #[test]
+    fn saved_attachments_preserve_null_and_every_slot_without_numeric_reinterpretation() {
+        let mut objects = ObjectStore::new();
+        let mut links = vec![None];
+        while let Some(id) = objects.allocate(Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Effect)) {
+            links.push(Some(id));
+        }
+        let owner = links[1].unwrap();
+        let mut stack = PathStack::default();
+        let mut resources = ProgramResources::default();
+        for link in links {
+            stack.begin(&mut resources, owner, cursor(1), 1).unwrap();
+            stack.save_attachment(&mut resources, owner, link).unwrap();
+            stack.push_call(&mut resources, owner, cursor(2)).unwrap();
+            stack.save_attachment(&mut resources, owner, None).unwrap();
+            let before = (stack.clone(), resources.clone());
+            assert_eq!(stack.restore_word(&mut resources), Err(PathStackError::IncompatibleSavedValue));
+            assert_eq!(stack.restore_byte(&mut resources), Err(PathStackError::IncompatibleSavedValue));
+            assert_eq!((&stack, &resources), (&before.0, &before.1));
+            assert_eq!(stack.restore_attachment(&mut resources), Ok(None));
+            assert_eq!(stack.pop_call(&mut resources), Ok(Some(cursor(2))));
+            assert_eq!(stack.restore_attachment(&mut resources), Ok(link));
+            assert_eq!(stack.next(&mut resources), Ok(LoopRepeat::Complete));
+        }
+        for value in [0, 1, u16::MAX] {
+            stack.save_word(&mut resources, owner, value).unwrap();
+            let before = (stack.clone(), resources.clone());
+            assert_eq!(stack.restore_attachment(&mut resources), Err(PathStackError::IncompatibleSavedValue));
+            assert_eq!((&stack, &resources), (&before.0, &before.1));
+            assert_eq!(stack.restore_word(&mut resources), Ok(value));
+        }
+        assert_eq!(resources.available_capacity(), PROGRAM_CAPACITY - 38);
+        resources.release_owner(owner);
+        stack.clear_released(&resources).unwrap();
+        assert_eq!(resources.available_capacity(), PROGRAM_CAPACITY);
+    }
+
+    #[test]
+    fn attachment_saves_share_allocation_failure_growth_and_pair_discard() {
+        let owner = owner();
+        let mut stack = PathStack::default();
+        let mut resources = ProgramResources::default();
+        let occupied = resources.allocate_shared(PROGRAM_CAPACITY - 17,
+            ProgramData::PathStack(PathEntries::default())).unwrap();
+        let before = (stack.clone(), resources.clone());
+        assert_eq!(stack.save_attachment(&mut resources, owner, Some(owner)),
+            Err(PathStackError::Allocation(AllocationFailure::NoContiguousFit)));
+        assert_eq!((&stack, &resources), (&before.0, &before.1));
+        resources.release_shared(occupied).unwrap();
+        for _ in 0..7 {
+            stack.save_attachment(&mut resources, owner, Some(owner)).unwrap();
+        }
+        let occupied = resources.allocate_shared(resources.available_capacity() - 12,
+            ProgramData::PathStack(PathEntries::default())).unwrap();
+        let before = (stack.clone(), resources.clone());
+        assert_eq!(stack.save_attachment(&mut resources, owner, None),
+            Err(PathStackError::Allocation(AllocationFailure::NoContiguousFit)));
+        assert_eq!((&stack, &resources), (&before.0, &before.1));
+        resources.release_shared(occupied).unwrap();
+        let old_storage = stack.storage;
+        stack.save_attachment(&mut resources, owner, None).unwrap();
+        assert_ne!(stack.storage, old_storage);
+        assert_eq!(resources.available_capacity(), PROGRAM_CAPACITY - 70);
+        stack.discard(&mut resources).unwrap();
+        for _ in 0..6 {
+            assert_eq!(stack.restore_attachment(&mut resources), Ok(Some(owner)));
+        }
+        assert_eq!(stack.restore_attachment(&mut resources), Err(PathStackError::MissingLoop));
     }
 
     #[test]

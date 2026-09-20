@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("FOUR_TURRET_ENCOUNTER", PathAddress(0xF136)),
     ("MULTIPART_NODE_OBJECTIVE", PathAddress(0x546C)),
     ("DIRECT_NODE_OBJECTIVE", PathAddress(0x548E)),
     ("FIVE_PART_ENCOUNTER_GATE", PathAddress(0x4D7E)),
@@ -369,6 +370,26 @@ def banked_word_values(rom: bytes, address: int) -> tuple[int, ...]:
     return tuple(int.from_bytes(data[index:index + 2], "little") for index in range(0, 512, 2))
 
 
+def radial_turret_coordinates(rom: bytes, address: int) -> tuple[int, ...]:
+    """Four children receive fresh LOW selectors 0..3 through the mailbox.
+
+    These short coordinate tables end near the bank boundary; do not invent
+    a full-byte source-address window for unreachable constructor selectors.
+    """
+    if address not in (0x07FEA1, 0x07FEA9):
+        raise UnsupportedPath(f'unreviewed radial turret coordinate table {address:06X}')
+    constructor = bytes.fromhex('41548d5c6c0e2e6104f50cc41bf21400000060ff0000017fa1089c7a2e089b6da145')
+    installer = bytes.fromhex('f881f291a1fe072e8e91a9fe072e9290b1fe072e950b012e')
+    for offset, expected in [(0x4F1D5, constructor), (0x4F21B, installer)]:
+        if rom[offset:offset + len(expected)] != expected:
+            raise UnsupportedPath('unexpected four-child turret coordinate constructor')
+    start = source_offset(address)
+    data = rom[start:start + 8]
+    if len(data) != 8:
+        raise UnsupportedPath('truncated radial turret coordinate table')
+    return tuple(int.from_bytes(data[i:i + 2], 'little', signed=True) for i in range(0, 8, 2))
+
+
 def rapid_shot_shapes(rom: bytes, address: int) -> tuple[int, ...]:
     """Decode the authored four-frame groups, not a bank-wrapped memory view.
 
@@ -547,6 +568,12 @@ def shape_index(shape: int) -> int:
 
 def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     index = shape_index(shape)
+    # Four-turret constructor and its noncolliding beam lifetime. The turret
+    # itself enables contacts after the shared campaign gate opens.
+    if (shape, path) in ((0xC3F0, PathAddress(0xF1D5)), (0xBECC, PathAddress(0x5F69))):
+        return index, "ObjectKind::Effect"
+    if (shape, path) == (0xC40C, PathAddress(0xF21B)):
+        return index, "ObjectKind::Enemy"
     # Node objective controllers/reveal panels and the emitted burst disable
     # collision or visibility in their complete paths. Preserve their source
     # health/attack values; kind does not replace the contact-state predicates.
@@ -1412,9 +1439,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name in ("PushByte", "PushWord", "PullByte", "PullWord"):
             variable, = parameters(1)
             wide = name.endswith("Word")
-            field = word_field(variable) if wide else byte_field(variable)
-            operation = ("Save" if name.startswith("Push") else "Restore") + ("Word" if wide else "Byte")
-            statement = f"Statement::StackValue {{ command: super::path_commands::StackValueCommand::{operation}({field}), next: {next_cursor()} }}"
+            operation = "Save" if name.startswith("Push") else "Restore"
+            if wide and variable == 0x06:
+                action = f"{operation}Attachment"
+            else:
+                field = word_field(variable) if wide else byte_field(variable)
+                action = f"{operation}{'Word' if wide else 'Byte'}({field})"
+            statement = f"Statement::StackValue {{ command: super::path_commands::StackValueCommand::{action}, next: {next_cursor()} }}"
         elif name in ("IfHitFlag", "IfFlag23Bit08"):
             operands = parameters(3 if name == "IfHitFlag" else 2)
             taken, next_ = branch_cursors(int.from_bytes(operands[:2], "little"))
@@ -1849,6 +1880,15 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name in ("IndexByteBanked", "IndexWordBanked"):
             low, high, bank, selector, destination = parameters(5)
             wide = name == "IndexWordBanked"
+            address = low | (high << 8) | (bank << 16)
+            if wide and address in (0x07FEA1, 0x07FEA9):
+                axis, expected_destination = {0x07FEA1: ('X', 0x8E), 0x07FEA9: ('Z', 0x92)}[address]
+                if selector != 0x2E or destination != expected_destination:
+                    raise UnsupportedPath('unreviewed radial turret coordinate operands')
+                values = radial_turret_coordinates(extractor.rom, address)
+                statement = f"Statement::SelectRelativeCoordinate {{ selector: ByteField::AttackPower, axis: Axis::{axis}, values: &[{', '.join(map(str, values))}], next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if wide and destination == 0x04:
                 address = low | (high << 8) | (bank << 16)
                 if selector == 0xA1 and address == 0x06FC69:

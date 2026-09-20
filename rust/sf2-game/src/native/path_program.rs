@@ -127,6 +127,9 @@ mod encounter_gate_tests;
 #[cfg(test)]
 #[path = "path_node_objective_tests.rs"]
 mod node_objective_tests;
+#[cfg(test)]
+#[path = "path_radial_turret_tests.rs"]
+mod radial_turret_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -604,6 +607,9 @@ pub enum Statement {
     /// Decoded authored shape sequence. Invalid selectors are diagnostics,
     /// not wrapping source addresses or fabricated fallback shapes.
     SelectShape { selector: super::path_fields::ByteField, shapes: &'static [super::ShapeId], next: PathCursor },
+    /// A reviewed authored coordinate table. Out-of-contract selectors do
+    /// not read neighboring source data or wrap into another source region.
+    SelectRelativeCoordinate { selector: super::path_fields::ByteField, axis: super::path_fields::Axis, values: &'static [i16], next: PathCursor },
     MarkForDeath,
     SetActionGate { value: u8, next: PathCursor },
     /// Literal comparisons branch directly without consuming IFNOT.
@@ -1014,6 +1020,7 @@ pub enum ProgramError {
     MissingLinkedShotCount,
     MissingProjectileFlightOverride,
     ShapeSelectionOutOfBounds { index: u8, count: usize },
+    CoordinateSelectionOutOfBounds { index: u8, count: usize },
     ShotCount(super::path_shots::ShotCountError),
     MissingPublishedHomingTarget,
     Impact(super::path_impact::ImpactError),
@@ -2153,6 +2160,14 @@ impl PathRuntime {
                     let index = selector.read(actor);
                     let shape = shapes.get(usize::from(index)).ok_or(ProgramError::ShapeSelectionOutOfBounds { index, count: shapes.len() })?;
                     actor.base.shape = *shape;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SelectRelativeCoordinate { selector, axis, values, next } => {
+                    let index = selector.read(actor);
+                    let value = values.get(usize::from(index)).ok_or(ProgramError::CoordinateSelectionOutOfBounds { index, count: values.len() })?;
+                    let actor = objects.get_mut(owner).expect("validated coordinate selector owner");
+                    super::path_fields::WordField::RelativePosition(axis).write(actor, *value as u16);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -3501,6 +3516,68 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn saved_attachment_survives_retargeting_call_and_restores_slot_identity() {
+        use super::super::path_commands::StackValueCommand;
+        use super::super::program_state::PathStackError;
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::StackValue { command: StackValueCommand::SaveAttachment, next: cursor(0, 1) },
+            Statement::Control(ControlCommand::Call { target: cursor(0, 4), next: cursor(0, 2) }),
+            Statement::StackValue { command: StackValueCommand::RestoreAttachment, next: cursor(0, 3) },
+            Statement::Control(ControlCommand::Hold),
+            Statement::AttachLastSpawn { next: cursor(0, 5) },
+            Statement::Control(ControlCommand::Return),
+        ]]).unwrap();
+        // Null, self, live, retired, and reused links all retain source slot
+        // identity. Saving a link neither owns nor pins the referenced actor.
+        for link_case in 0..5 {
+            for inverted in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let original = objects.allocate(Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Effect)).unwrap();
+                let temporary = objects.allocate(Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Effect)).unwrap();
+                let link = match link_case { 0 => None, 1 => Some(owner), _ => Some(original) };
+                objects.get_mut(owner).unwrap().base.attachment = link;
+                objects.get_mut(owner).unwrap().base.wait_timer = 19;
+                objects.get_mut(owner).unwrap().extension.path_state.repeat_counter = 37;
+                runtime.spawns.last_spawn = Some(temporary);
+                runtime.branch.invert_next = inverted;
+                runtime.enter(&objects, owner).unwrap();
+                let mut inputs = world(&mut random);
+                let before = (runtime.clone(), objects.clone());
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                assert_eq!((&runtime, &objects), (&before.0, &before.1));
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 3),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 5), executed: 3 }));
+                assert_eq!(objects.get(owner).unwrap().base.attachment, Some(temporary));
+                if link_case >= 3 {
+                    objects.remove(original).unwrap();
+                    if link_case == 4 {
+                        let reused = objects.allocate(Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)).unwrap();
+                        assert_eq!(reused, original);
+                    }
+                }
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 3), executed: 2 }));
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.base.attachment, link);
+                assert_eq!(actor.base.wait_timer, 19);
+                assert_eq!(actor.extension.path_state.repeat_counter, 37);
+                assert_eq!(runtime.branch.invert_next, inverted);
+                assert_eq!(runtime.spawns.last_spawn, Some(temporary));
+                let before = (runtime.clone(), objects.clone());
+                assert_eq!(runtime.execute_stack_value(&mut objects, owner, StackValueCommand::RestoreAttachment, cursor(0, 0)),
+                    Err(PathRuntimeError::Stack(PathStackError::MissingLoop)));
+                assert_eq!((&runtime, &objects), (&before.0, &before.1));
+                assert_eq!(runtime.execute_stack_value(&mut objects, owner, StackValueCommand::SaveWord(WordField::ScriptValue), cursor(0, 3)), Ok(ControlStep::Continue));
+                let before = (runtime.clone(), objects.clone());
+                assert_eq!(runtime.execute_stack_value(&mut objects, owner, StackValueCommand::RestoreAttachment, cursor(0, 0)),
+                    Err(PathRuntimeError::Stack(PathStackError::IncompatibleSavedValue)));
+                assert_eq!((&runtime, &objects), (&before.0, &before.1));
+            }
+        }
     }
 
     #[test]
@@ -13606,9 +13683,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 136);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3942);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3986);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 137);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4076);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4120);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

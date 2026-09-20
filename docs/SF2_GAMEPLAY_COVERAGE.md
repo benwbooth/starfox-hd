@@ -3480,3 +3480,45 @@ supplying a visibility snapshot. The shared cleanup limitation remains.
 Debug/release each pass **952 unit tests and two integration tests**;
 **184 lowerer tests, 401 path-static tests**, architecture/static inventory
 and app build pass. No original execution or recorded gameplay was used.
+
+### Four-turret encounter and typed saved object links
+
+The independently installed `$44:F136` graph now lowers all **184 source
+commands**, including the four-child constructor, progress-gated turrets,
+beam lifetime, per-turret destruction, central reveal and delayed exit.
+It adds **134 unique commands/statements**, bringing the catalog to
+**137 roots, 4120 source commands and 4076 typed statements**.
+
+The constructor assigns selectors zero through three through the spawn
+mailbox. Two reviewed four-entry tables place the turrets at horizontal
+offsets (0, -800), (800, 0), (0, 800), (-800, 0), with relative Y -160.
+The generated coordinate statements diagnose other selectors instead of
+reading neighboring data or wrapping through source address space. Their
+extraction is tied to the exact constructor and selector-transfer bytes.
+
+The destruction callback saves its constructor link, temporarily searches
+for a beam to increment its phase, then restores the original link. Native
+path stacks now support `Option<ObjectId>` saves with the same allocation,
+nesting and pair-discard behavior as ordinary saved words. Null and reused
+slot identities survive; numeric/byte reinterpretation is rejected rather
+than exposing source object addresses. Tests cover every actor slot,
+incompatible values, first-allocation/eighth-entry growth failures, nested
+calls, budget boundaries and retained actor state.
+
+Seven encounter tests cover all coordinate selectors, initial health and
+heading bytes, constructor phase-high bytes and live progress bytes; four
+turret deaths with and without a beam; delayed reveal/exit; and the beam's
+five-step wait, sixteen growth passes, cancellation and actual weapon-26
+creation in both auxiliary speed modes. The gate opens only at progress
+255 and cancels itself. Both reveal children are numbered one: exit marks
+only the first chain match, without silently unlinking either child or
+pretending to execute the separate retirement scheduler. A forced death
+transition also skips the remaining callbacks in that traversal.
+
+Debug and release each pass **962 unit tests and two integration tests**.
+The **185 lowering tests**, **408 path-static tests**, exact regeneration,
+static inventory, architecture guard and app build pass (existing unused
+icon-function warnings only). No recorded gameplay or original CPU/GSU
+execution was used. These are static-lowering and native-component results;
+scene scheduling/spawn integration and whole-game completion remain open,
+as does the previously documented node-objective null-target cleanup gap.

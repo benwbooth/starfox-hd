@@ -21,6 +21,35 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_four_turret_encounter_closes_constructor_gate_and_saved_link_death(self):
+        from generate_native_paths import radial_turret_coordinates
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xF136)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 184)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '94c13c56bb793f8df6c4c850495c33ef301e9c18d16b903ec69fbc1d0ecf6009')
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertEqual(len(statements), 184)
+        self.assertEqual(sum('SelectRelativeCoordinate' in s for s in statements), 2)
+        self.assertEqual(sum('StackValueCommand::SaveAttachment' in s for s in statements), 1)
+        self.assertEqual(sum('StackValueCommand::RestoreAttachment' in s for s in statements), 1)
+        self.assertEqual(radial_turret_coordinates(self.rom, 0x07FEA1), (0, 800, 0, -800))
+        self.assertEqual(radial_turret_coordinates(self.rom, 0x07FEA9), (-800, 0, 800, 0))
+        for shape, path, index, kind in [(0xC3F0, 0xF1D5, 67, 'Effect'),
+                                       (0xC40C, 0xF21B, 68, 'Enemy'), (0xBECC, 0x5F69, 20, 'Effect')]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, f'ObjectKind::{kind}'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+        for offset in [0x4F1DD, 0x4F1EE, 0x4F1F1, 0x4F1F5, 0x4F223, 0x4F22F]:
+            changed = bytearray(self.rom)
+            changed[offset] ^= 1
+            with self.assertRaises(UnsupportedPath):
+                radial_turret_coordinates(bytes(changed), 0x07FEA1)
+        for record in ['91 a1 fe 07 2d 8e', '91 a1 fe 07 2e 92', '91 a9 fe 07 2e 8e']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_multipart_node_objective_closes_children_completion_and_handoff(self):
         from generate_native_paths import node_reveal_shapes
         from dump_runtime_routine import source_offset
@@ -1312,7 +1341,7 @@ class NativePathGenerationTests(unittest.TestCase):
             changed = bytearray(self.rom)
             changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
             with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
-                generate(bytes(changed))
+                generate(bytes(changed), (("CHILD_UNDER_TEST", PathAddress(root)),))
 
     def test_random_tumbling_mesh_keeps_draw_order_world_angles_and_complete_eighty_pass_loop(self):
         extractor = PathExtractor(self.rom)
@@ -1715,6 +1744,12 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(statements[4], "Statement::Control(ControlCommand::End)")
 
     def test_variable_stack_commands_decode_fields_without_source_operand_leakage(self):
+        for opcode, command in [("94 06", "SaveAttachment"), ("96 06", "RestoreAttachment")]:
+            self.assertEqual(self.lower_record(opcode)[0],
+                f"Statement::StackValue {{ command: super::path_commands::StackValueCommand::{command}, next: cursor(0, 1) }}")
+        for opcode in ["93 06", "95 06", "94 07", "96 07"]:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(opcode)
         for opcode, command, field in [
             ("93 a1", "SaveByte", "ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low }"),
             ("95 2d", "RestoreByte", "ByteField::Health"),

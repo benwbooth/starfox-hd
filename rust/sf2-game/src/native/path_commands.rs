@@ -97,6 +97,8 @@ pub enum StackValueCommand {
     SaveWord(WordField),
     RestoreByte(ByteField),
     RestoreWord(WordField),
+    SaveAttachment,
+    RestoreAttachment,
 }
 
 impl PathRuntime {
@@ -115,6 +117,16 @@ impl PathRuntime {
             return Err(PathRuntimeError::MissingPath(owner));
         }
         match command {
+            StackValueCommand::SaveAttachment => {
+                actor.extension.path_state.stack
+                    .save_attachment(&mut self.resources, owner, actor.base.attachment)
+                    .map_err(PathRuntimeError::Stack)?;
+            }
+            StackValueCommand::RestoreAttachment => {
+                actor.base.attachment = actor.extension.path_state.stack
+                    .restore_attachment(&mut self.resources)
+                    .map_err(PathRuntimeError::Stack)?;
+            }
             StackValueCommand::SaveByte(field) => {
                 let value = field.read(actor);
                 actor
