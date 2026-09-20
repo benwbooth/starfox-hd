@@ -494,7 +494,7 @@ impl PathRuntime {
 #[cfg(test)]
 mod tests {
     use super::super::path_control::PlayerTarget;
-    use super::super::path_fields::{ByteField, ByteOperation};
+    use super::super::path_fields::{ByteField, ByteOperation, WordField};
     use super::super::path_runtime::{CallbackStep, TriggerWorldInputs};
     use super::super::path_triggers::{Trigger, TriggerKind};
     use super::super::{Behavior, ObjectKind, PathId, ShapeId};
@@ -550,6 +550,66 @@ mod tests {
             },
             next: cursor(0, 1),
         }
+    }
+
+    #[test]
+    fn indexed_word_bit_branches_resample_live_fields_and_leave_ifnot_pending() {
+        const MASKS: [u16; 128] = {
+            let mut masks = [0; 128];
+            let mut index = 0;
+            while index < masks.len() {
+                masks[index] = (index as u16 * 257) ^ 0x5AA5;
+                index += 1;
+            }
+            masks
+        };
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::Compare {
+                condition: ActorCondition::AnyWordBitsSet(
+                    WordOperand::Actor(WordField::MotionPhase),
+                    WordOperand::IndexedBitMask {
+                        selector: ByteOperand::Actor(ByteField::Health),
+                        masks: &MASKS,
+                    },
+                ),
+                taken: cursor(0, 1),
+                next: cursor(0, 2),
+            },
+            Statement::Control(ControlCommand::End),
+            Statement::Control(ControlCommand::End),
+        ]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let original_random = random;
+        for selector in 0..=u8::MAX {
+            let mask = MASKS[usize::from(selector.wrapping_sub(1).wrapping_mul(2)) / 2];
+            for value in [0, mask, !mask, u16::MAX] {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(cursor(0, 0));
+                actor.base.hit_points = selector;
+                actor.extension.path_state.motion_phase = value;
+                runtime.branch.invert_next_condition();
+                let mut expected = actor.clone();
+                let next = cursor(0, if value & mask != 0 { 1 } else { 2 });
+                expected.base.path = Some(next);
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1
+                    ),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: next,
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert!(runtime.branch.invert_next);
+            }
+        }
+        assert_eq!(random, original_random);
     }
 
     #[test]

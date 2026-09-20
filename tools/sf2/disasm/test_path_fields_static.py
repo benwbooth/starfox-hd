@@ -70,6 +70,26 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7F9A1B, "B9 00 00 49 FF 1A 99 00 00 4C D3 CA")
         self.assert_source(0x7F9A2D, "C2 20 B9 00 00 49 FF FF 1A 99 00 00 4C D3 CA")
 
+    def test_variable_bit_helper_reads_selector_byte_and_wraps_before_word_lookup(self):
+        self.assert_source(0x7FB5EF, "20 E0 C4 20 47 CB 5A 20 FB B5 7A 60")
+        self.assert_source(0x7FB5FB, "20 BC C4 20 47 CB B9 00 00 3A 0A C2 20 29 FF 00 8E B1 16 AA BF CF B5 7F AE B1 16 60")
+
+    def test_variable_bit_handlers_mutate_words_and_test_without_ifnot(self):
+        self.assert_source(0x7FB637, "20 EF B5 19 00 00 99 00 00 4C BE CA")
+        self.assert_source(0x7FB643, "20 EF B5 49 FF FF 39 00 00 99 00 00 4C BE CA")
+        self.assert_source(0x7FB652, "20 EF B5 39 00 00 F0 03 82 AE 14 4C 94 CA")
+
+    def test_entire_reachable_bit_lookup_includes_adjacent_bytes_as_data(self):
+        self.assert_source(0x7FB5CF,
+            "0100020004000800100020004000800000010002000400080010002000400080"
+            "20e0c42047cb5a20fbb57a6020bcc42047cbb900003a0ac22029ff008eb116aa"
+            "bfcfb57faeb1166020fbb50c33cf4cd3ca20fbb51c33cf4cd3ca20fbb52c33cf"
+            "f00382cb144ca9ca20efb51900009900004cbeca20efb549ffff390000990000"
+            "4cbeca20efb5390000f00382ae144c94caac1fcfdabb7a5ab42bb9776b29fb99"
+            "776ba90099616a7adabb7a4ce8caac1fcfdabb7a5ab42bb9776b090499776b7a"
+            "dabb7a4ce8caac1fcf20bcc48508c220b50c8502b50e8508b5108597204cc785"
+            "04a9ff7f850ae220dabb7a5ab42bb9776b090499776ba50899ae6ac220a50299")
+
 
 if __name__ == "__main__":
     unittest.main()

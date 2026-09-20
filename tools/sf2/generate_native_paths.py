@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "disasm"))
 from extract_path import DEFAULT_ROM, PathAddress, PathCommand, PathExtractor
 from path_semantics import PATH_SEMANTICS
 from extract_shapes import SHAPE_HEADER_START, SHAPE_HEADER_SIZE, SHAPE_HEADER_COUNT
+from dump_runtime_routine import source_offset
 
 REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
@@ -38,6 +39,19 @@ SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
 class UnsupportedPath(ValueError):
     pass
+
+
+def variable_bit_masks(rom: bytes) -> tuple[int, ...]:
+    # $7F:B5FB decrements and doubles an eight-bit selector, then reads a
+    # word from $7F:B5CF. The first sixteen entries are powers of two;
+    # the remaining entries overlap instructions but are read as DATA.
+    # Decode all reachable words offline, without retaining code execution
+    # or source-address lookup in gameplay.
+    start = source_offset(0x7FB5CF)
+    data = rom[start:start + 256]
+    if len(data) != 256:
+        raise UnsupportedPath("truncated variable-bit mask data")
+    return tuple(int.from_bytes(data[index:index + 2], "little") for index in range(0, 256, 2))
 
 
 def trigger_kind(condition: int) -> str:
@@ -283,6 +297,19 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
             spawn_ = f"ChildSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, position: {position}, rotation: {rotation}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power}, number: {spawn.number} }}"
             statement = f"Statement::SpawnChild {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name in ("SetVariableBit", "ClearVariableBit", "IfVariableBitSet"):
+            operands = parameters(4 if name == "IfVariableBitSet" else 2)
+            selector, destination = operands[:2]
+            mask = f"WordOperand::IndexedBitMask {{ selector: ByteOperand::Actor({byte_field(selector)}), masks: &VARIABLE_BIT_MASKS }}"
+            field = word_field(destination)
+            if name == "IfVariableBitSet":
+                taken, next_ = branch_cursors(int.from_bytes(operands[2:], "little"))
+                condition = f"ActorCondition::AnyWordBitsSet(WordOperand::Actor({field}), {mask})"
+                statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
+            else:
+                operation = "SetBits" if name == "SetVariableBit" else "ClearBits"
+                mutation = f"Mutation::Word {{ field: {field}, operation: WordOperation::{operation}({mask}) }}"
+                statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
         elif name in (
             "SetVariableByteFromByte", "SetVariableByteFromWord",
             "SetVariableWordFromWord", "SetVariableWordFromByte",
@@ -468,6 +495,10 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
 """
     if any("WordOperand::" in statement for statement in unique_statements.values()):
         source += "use super::path_fields::WordOperand;\n"
+    if any("VARIABLE_BIT_MASKS" in statement for statement in unique_statements.values()):
+        source += "const VARIABLE_BIT_MASKS: [u16; 128] = ["
+        source += ", ".join(f"0x{mask:04X}" for mask in variable_bit_masks(rom))
+        source += "];\n"
     if any("Statement::Sound" in statement for statement in unique_statements.values()):
         source += "use super::path_sound::AuthoredCue;\nuse super::path_control::PlayerTarget;\n"
     if any("ControlCommand::Register" in statement for statement in unique_statements.values()):

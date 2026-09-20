@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, trigger_kind, word_field,
+    byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, trigger_kind, variable_bit_masks, word_field,
 )
 
 
@@ -173,6 +173,39 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn(f"field: ByteField::{field}", self.lower_record(f"0b ff {variable:02x}")[0])
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 94"):
             self.lower_record("50 0c 94")
+
+    def test_variable_bits_decode_selector_first_and_word_destination_second(self):
+        for opcode, operation in [(0xD8, "SetBits"), (0xD9, "ClearBits")]:
+            statements = self.lower_record(f"{opcode:02x} 2d a1")
+            self.assertIn(f"field: WordField::MotionPhase, operation: WordOperation::{operation}", statements[0])
+            self.assertIn("selector: ByteOperand::Actor(ByteField::Health), masks: &VARIABLE_BIT_MASKS", statements[0])
+            self.assertIn("next: cursor(0, 1)", statements[0])
+            self.assertEqual(statements[1], "Statement::Control(ControlCommand::End)")
+        statement = self.lower_record("da 2d a1 36 f5")[0]
+        self.assertIn("ActorCondition::AnyWordBitsSet(WordOperand::Actor(WordField::MotionPhase)", statement)
+        self.assertIn("ByteField::Health", statement)
+        self.assertIn("taken: cursor(0, 0), next: cursor(0, 1)", statement)
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
+            self.lower_record("d8 2d 04")
+
+    def test_full_bit_mask_data_is_decoded_offline_and_only_emitted_when_required(self):
+        masks = variable_bit_masks(self.rom)
+        self.assertEqual(len(masks), 128)
+        self.assertEqual(masks[:16], tuple(1 << bit for bit in range(16)))
+        self.assertEqual(masks[16], 0xE020)
+        self.assertEqual(masks[-1], 0x9902)
+        self.assertNotIn("VARIABLE_BIT_MASKS", generate(self.rom))
+        changed = bytearray(self.rom)
+        changed[0x4F536:0x4F53A] = bytes.fromhex("d8 2d a1 0f")
+        generated = generate(bytes(changed), (("BITS", PathAddress(0xF536)),))
+        table = re.search(r"const VARIABLE_BIT_MASKS: \[u16; 128\] = \[(.*?)\];", generated, re.S)
+        self.assertIsNotNone(table)
+        self.assertEqual(tuple(int(value, 16) for value in re.findall(r"0x[0-9A-F]+", table.group(1))), masks)
+        self.assertNotIn("7FB5CF", generated)
+        changed[0x537CF + 254:0x537CF + 256] = bytes.fromhex("34 12")
+        self.assertEqual(variable_bit_masks(bytes(changed))[-1], 0x1234)
+        with self.assertRaisesRegex(UnsupportedPath, "truncated"):
+            variable_bit_masks(b"")
 
     def test_spawn_lowering_uses_semantic_shape_and_child_cursor_with_separate_continuation(self):
         for record, rotation in (

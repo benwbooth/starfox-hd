@@ -628,3 +628,15 @@ patterns, preserving unrelated object state. Verification passes 33 lowerer
 tests, 153 static path checks, six arithmetic tests in debug/release, 145 native
 path tests in release, architecture/dependency checks and the app build. This
 does not enlarge the nine-root catalog or claim Game scheduling completion.
+
+Variable-bit set, clear and test now lower into typed word operations. Source
+review establishes a one-based byte selector with wrapping doubling: values
+128 apart alias, and values beyond the sixteen conventional bits read adjacent
+source bytes as masks. The offline generator decodes all 128 reachable words
+into constant data only when needed; gameplay never executes those bytes or
+resolves their source addresses. Tests cover every selector, both overlapping
+byte views, multi-bit masks, immediate branch continuation and preservation of
+the shared IFNOT latch. Verification passes 35 lowerer tests, 156 static path
+checks, 147 native path tests in debug/release, architecture/dependency checks
+and the app build. Catalog coverage remains nine roots/97 statements; full
+gameplay integration and unported world services remain open.

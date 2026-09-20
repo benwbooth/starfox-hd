@@ -190,6 +190,13 @@ pub enum WordOperand {
     SignedByte(ByteOperand),
     /// Variable-byte loop counts are zero-extended (`$7F:95E9`).
     UnsignedByte(ByteOperand),
+    /// One-based authored bit selector. Its byte-width doubling aliases
+    /// selectors separated by 128. The complete decoded lookup also retains
+    /// source results outside the conventional sixteen single-bit entries.
+    IndexedBitMask {
+        selector: ByteOperand,
+        masks: &'static [u16; 128],
+    },
 }
 
 impl WordOperand {
@@ -199,6 +206,10 @@ impl WordOperand {
             Self::Actor(field) => field.read(actor),
             Self::SignedByte(value) => value.read(actor) as i8 as i16 as u16,
             Self::UnsignedByte(value) => u16::from(value.read(actor)),
+            Self::IndexedBitMask { selector, masks } => {
+                let index = selector.read(actor).wrapping_sub(1) & 0x7F;
+                masks[usize::from(index)]
+            }
         }
     }
 }
@@ -216,6 +227,8 @@ pub enum ByteOperation {
 pub enum WordOperation {
     Assign(WordOperand),
     Add(WordOperand),
+    SetBits(WordOperand),
+    ClearBits(WordOperand),
     Increment,
     Decrement,
     Negate,
@@ -252,6 +265,8 @@ impl Mutation {
                 let value = match operation {
                     WordOperation::Assign(value) => value.read(actor),
                     WordOperation::Add(value) => old.wrapping_add(value.read(actor)),
+                    WordOperation::SetBits(mask) => old | mask.read(actor),
+                    WordOperation::ClearBits(mask) => old & !mask.read(actor),
                     WordOperation::Increment => old.wrapping_add(1),
                     WordOperation::Decrement => old.wrapping_sub(1),
                     WordOperation::Negate => old.wrapping_neg(),
@@ -269,6 +284,54 @@ mod tests {
 
     fn actor() -> Object {
         Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)
+    }
+
+    const MASKS: [u16; 128] = {
+        let mut masks = [0; 128];
+        let mut index = 0;
+        while index < masks.len() {
+            // Distinct multi-bit masks make lookup and alias errors visible.
+            masks[index] = (index as u16 * 257) ^ 0xA55A;
+            index += 1;
+        }
+        masks
+    };
+
+    #[test]
+    fn indexed_masks_keep_one_based_byte_wrap_and_sample_before_aliasing_writes() {
+        let field = WordField::MotionPhase;
+        for selector in 0..=u8::MAX {
+            // Independent transcription of source byte decrement/double,
+            // followed by a little-endian word lookup.
+            let byte_offset = selector.wrapping_sub(1).wrapping_mul(2);
+            let mask = MASKS[usize::from(byte_offset) / 2];
+            for high in [0, 127, 128, 255] {
+                for part in [BytePart::Low, BytePart::High] {
+                    let mut original = actor();
+                    let bytes = match part {
+                        BytePart::Low => [selector, high],
+                        BytePart::High => [high, selector],
+                    };
+                    let old = u16::from_le_bytes(bytes);
+                    field.write(&mut original, old);
+                    let operand = WordOperand::IndexedBitMask {
+                        selector: ByteOperand::Actor(ByteField::WordPart { field, part }),
+                        masks: &MASKS,
+                    };
+                    assert_eq!(operand.read(&original), mask);
+                    for (operation, expected) in [
+                        (WordOperation::SetBits(operand), old | mask),
+                        (WordOperation::ClearBits(operand), old & !mask),
+                    ] {
+                        let mut actual = original.clone();
+                        Mutation::Word { field, operation }.apply(&mut actual);
+                        let mut expected_actor = original.clone();
+                        field.write(&mut expected_actor, expected);
+                        assert_eq!(actual, expected_actor);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
