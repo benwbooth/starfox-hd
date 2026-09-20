@@ -58,6 +58,8 @@ ROOTS = (
     ("TARGETING_UPGRADE_GLOW", PathAddress(0x81E1)),
     ("HIT_TOGGLE_SPRITE", PathAddress(0x8488)),
     ("COUNTED_HIT_TOGGLE_SPRITE", PathAddress(0x8486)),
+    ("GROWING_SPRITE_HOLD", PathAddress(0x0059)),
+    ("SHAPE_FILTERED_SCENERY", PathAddress(0x7F78)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -67,6 +69,8 @@ CHILD_INSTALLERS = {
     PathAddress(0x81E1): (PathAddress(0x787D), PathAddress(0x7895)),
     PathAddress(0x8488): (PathAddress(0x00BC), PathAddress(0x01CA)),
     PathAddress(0x8486): (PathAddress(0x0691), PathAddress(0x097D)),
+    PathAddress(0x0059): (PathAddress(0x00BC), PathAddress(0x0210)),
+    PathAddress(0x7F78): (PathAddress(0x58B9), PathAddress(0x5916)),
 }
 
 
@@ -219,6 +223,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
         return index, "ObjectKind::Scenery"
     if (index, path) == (516, PathAddress(0x81E1)):
         return index, "ObjectKind::Effect"
+    if (index, path) == (16, PathAddress(0x0059)):
+        return index, "ObjectKind::Effect"
+    if (index, path) == (239, PathAddress(0x7F78)):
+        return index, "ObjectKind::Scenery"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"

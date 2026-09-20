@@ -37,6 +37,12 @@ class PathControlStaticTests(unittest.TestCase):
         # The apparent NOP at 84B5 is a verified RTS helper, not a stub.
         self.assert_source(0x7FAFF6, "20 FC AF 4C E8 CA 60")
 
+    def test_growing_sprite_and_shape_filtered_scenery_entries_and_spawns(self):
+        self.assert_source(0x088059, "5C 4D 00 10 61 0F 07 99 02 44 78 0C 94 BE 04 19")
+        self.assert_source(0x088210, "F5 5C BE 59 00 0A 0A 00 00 78 00 78 00 01")
+        self.assert_source(0x08FF78, "41 B6 81 2B 04 78 CC 88 7F 8A 2B 04 98 D2 8A 7F 00 67 41 52 86 19")
+        self.assert_source(0x08D916, "F5 C0 D6 78 7F 64 00 00 00 00 00 00 00 09")
+
     def test_suspension_enters_movement_and_both_strategy_passes_skip_it(self):
         self.assert_source(0x7FBC80, "B5 26 09 40 95 26 4C DE 9D")
         self.assert_source(0x7F9DDE, "A5 5E 09 18 85 5E 8F 3A 30 00 B5 0B")

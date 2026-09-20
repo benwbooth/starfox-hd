@@ -1689,3 +1689,32 @@ statements**. Validation passes 118 lowerer tests, 282 static path tests and
 294 native path tests in debug and release, generated freshness,
 architecture/static audits and the application build. This is static
 source lowering and native service verification, not whole-game completion.
+
+### Growing sprite hold and shape-filtered scenery children
+
+`GROWING_SPRITE_HOLD` (`44:0059`) has a complete eight-statement graph and a
+verified parent spawn at `44:0210`. It disables collision, initializes size
+16, adds two for each of fifteen iterations, yields once, then selects shape
+18 and holds at size 46. Selecting that shape does **not** clear sprite mode.
+Native tests cover all retained wait/depth-high byte values, every growth
+visit and subsequent holds, while preserving position, health, attack power,
+animation and IFNOT. The source spawn's shape 16 is classified as an effect
+only with this path.
+
+`SHAPE_FILTERED_SCENERY` (`44:7F78`) reuses the scene-material and surface
+helpers within its complete 31-statement graph; its parent spawn is
+`44:5916`. It adds proximity-warning membership only for shapes 145 and 201,
+preserving membership already set for another shape. It enables footprint
+search, disables damage collision, sets health 100 and attack power 4, and
+enters ordinary movement hold rather than strategy suspension. Tests cover
+all 577 shapes, both initial warning states, material-selector branches,
+saved phase restoration and repeated holds. The source spawn's shape 239
+is classified as scenery only for this path.
+
+Both parent graphs remain unpublished. Complete entry/spawn bytes are
+pinned by static tests, and altered child targets reject generation.
+Coverage is **36 complete roots / 786 source commands / 777 native
+statements**. Validation passes 119 lowerer tests, 283 static path tests,
+296 native path tests in debug and release, generated freshness,
+architecture/static audits and the application build. Game scheduling and
+whole-game completion remain separate work.

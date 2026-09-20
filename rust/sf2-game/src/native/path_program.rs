@@ -5174,6 +5174,113 @@ mod tests {
     }
 
     #[test]
+    fn growing_sprite_holds_after_fifteen_growth_steps_and_keeps_sprite_mode_on_shape_change() {
+        use super::super::{authored_paths, Vector3};
+        let catalog = authored_paths::catalog();
+        for retained in 0..=u8::MAX {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::GROWING_SPRITE_HOLD);
+            actor.base.shape = ShapeId::from_catalog_index(16);
+            actor.base.wait_timer = retained;
+            actor.base.position = Vector3 { x: -32768, y: 1234, z: 32767 };
+            actor.base.hit_points = 10;
+            actor.base.attack_power = 10;
+            actor.extension.depth_offset = u16::from_be_bytes([retained, 255]);
+            actor.extension.texture_scroll_x = retained;
+            actor.extension.texture_scroll_y = retained;
+            let original_animation = actor.extension.path_state.animation;
+            runtime.branch.invert_next = true;
+            let initial_random = random;
+            for visit in 0..20 {
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8), Ok(ControlStep::Movement));
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.extension.texture_scroll_x, 16 + 2 * (visit + 1).min(15));
+                assert_eq!(actor.extension.texture_scroll_y, retained);
+                assert_eq!(actor.extension.depth_offset, u16::from(retained) << 8);
+                assert_eq!(actor.base.shape, ShapeId::from_catalog_index(if visit < 15 { 16 } else { 18 }));
+                assert!(actor.base.flags.scaled_sprite);
+                assert!(actor.base.flags.collision_disabled);
+                assert!(actor.base.flags.visible);
+                assert!(!actor.base.flags.remove_after_tick);
+                assert_eq!(actor.extension.path_state.animation, original_animation);
+                assert_eq!(actor.base.position, Vector3 { x: -32768, y: 1234, z: 32767 });
+                assert_eq!(actor.base.wait_timer, retained);
+                assert_eq!((actor.base.hit_points, actor.base.attack_power), (10, 10));
+                assert_eq!(actor.extension.path_state.hold_latched, visit >= 15);
+                if visit >= 15 {
+                    assert_eq!(actor.base.behavior, Behavior::PathMovement);
+                    assert!(matches!(catalog.statement(actor.base.path.unwrap()), Ok(Statement::Control(ControlCommand::Hold))));
+                }
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, initial_random);
+            }
+            runtime.release_actor_programs(&mut objects, owner).unwrap();
+        }
+    }
+
+    #[test]
+    fn shape_filtered_scenery_adds_only_two_warning_shapes_and_enters_unsuspended_hold() {
+        use super::super::{authored_paths, render::MaterialSetId, Vector3};
+        let catalog = authored_paths::catalog();
+        let original_material = MaterialSetId::from_catalog_token(33_534);
+        for shape in 0..577 {
+            for previously_member in [false, true] {
+                for (configuration, location) in [(0, 2), (9, 2), (9, 5), (9, 255)] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(authored_paths::SHAPE_FILTERED_SCENERY);
+                    actor.base.shape = ShapeId::from_catalog_index(shape);
+                    actor.base.flags.proximity_warning_source = previously_member;
+                    actor.base.flags.proximity_warning_latched = true;
+                    actor.base.flags.exclude_from_shape_footprint_search = true;
+                    actor.base.flags.casts_shadow = true;
+                    actor.base.flags.maximum_draw_distance = true;
+                    actor.base.position = Vector3 { x: -1234, y: 2345, z: 3456 };
+                    actor.base.wait_timer = 193;
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    actor.extension.material_set = Some(original_material);
+                    runtime.branch.invert_next = true;
+                    let initial_random = random;
+                    let mut inputs = world(&mut random);
+                    inputs.scene.player_configuration = Some(configuration);
+                    inputs.scene.encounter_location = (configuration == 9).then_some(location);
+                    for visit in 0..3 {
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, if visit == 0 { 32 } else { 1 }), Ok(ControlStep::Movement));
+                        let actor = objects.get(owner).unwrap();
+                        let material = match (configuration, location) {
+                            (9, 2) => MaterialSetId::from_catalog_token(33_796),
+                            (9, 5) => MaterialSetId::from_catalog_token(33_944),
+                            _ => original_material,
+                        };
+                        assert_eq!(actor.extension.material_set, Some(material));
+                        assert_eq!(actor.base.shape, ShapeId::from_catalog_index(shape));
+                        assert_eq!(actor.base.flags.proximity_warning_source, previously_member || [145, 201].contains(&shape));
+                        assert!(actor.base.flags.proximity_warning_latched);
+                        assert!(!actor.base.flags.exclude_from_shape_footprint_search);
+                        assert!(!actor.base.flags.casts_shadow);
+                        assert!(!actor.base.flags.maximum_draw_distance);
+                        assert!(!actor.base.flags.strategy_suspended);
+                        assert!(!actor.base.flags.remove_after_tick);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert!(actor.base.contacts.suppress_contacts_next_epoch);
+                        assert_eq!((actor.base.hit_points, actor.base.attack_power), (100, 4));
+                        assert_eq!(actor.base.position, Vector3 { x: -1234, y: 2345, z: 3456 });
+                        assert_eq!(actor.base.wait_timer, 193);
+                        assert_eq!(actor.extension.path_state.motion_phase, 0xABCD);
+                        assert!(actor.extension.path_state.hold_latched);
+                        assert_eq!(actor.base.behavior, Behavior::PathMovement);
+                        assert!(matches!(catalog.statement(actor.base.path.unwrap()), Ok(Statement::Control(ControlCommand::Hold))));
+                        assert!(!runtime.branch.invert_next);
+                    }
+                    assert_eq!(random, initial_random);
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
     fn hit_toggle_sprite_entries_preserve_wrapping_parameters_and_exact_counted_timing() {
         use super::super::authored_paths;
         let catalog = authored_paths::catalog();
@@ -10715,9 +10822,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 34);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 762);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 771);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 36);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 777);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 786);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

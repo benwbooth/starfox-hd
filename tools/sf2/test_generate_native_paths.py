@@ -82,6 +82,36 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
             generate(bytes(changed))
 
+    def test_growing_sprite_and_shape_filtered_scenery_have_complete_installed_graphs(self):
+        extractor = PathExtractor(self.rom)
+        for root, count in [(0x0059, 8), (0x7F78, 31)]:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((c.address.offset for c in commands), statements))
+            expected = ([(0x005A, "size: 16"), (0x005D, "iterations: 15"),
+                         (0x005F, "ByteOperation::Add(ByteOperand::Literal(2))"),
+                         (0x0064, "ShapeId::from_catalog_index(18)"), (0x0068, "Hold")]
+                if root == 0x0059 else
+                [(0x7F7B, "EqualShape(ShapeId::from_catalog_index(145))"),
+                 (0x7F82, "EqualShape(ShapeId::from_catalog_index(201))"),
+                 (0x7F88, "ProximityWarningSource(true)"), (0x7F8D, "Hold"),
+                 (0x81B8, "SceneByte::PlayerConfiguration"),
+                 (0x8653, "SuppressContactsNextEpoch(true)"),
+                 (0x8D54, "ShapeFootprintSearch(true)")])
+            for address, fragment in expected:
+                self.assertIn(fragment, mapped[address])
+        for source, target in [(0x40213, 0x005A), (0x45919, 0x7F7B)]:
+            changed = bytearray(self.rom)
+            changed[source:source + 2] = target.to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+        for shape, root, index, kind in [(0xBE5C, 0x0059, 16, "Effect"), (0xD6C0, 0x7F78, 239, "Scenery")]:
+            self.assertEqual(spawn_shape(shape, PathAddress(root)), (index, f"ObjectKind::{kind}"))
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+                spawn_shape(shape, PathAddress(root + 1))
+
     def test_scene_imports_are_full_byte_reads_and_do_not_allow_unreviewed_writes(self):
         for address, source in [(0x1DE2, "PlayerConfiguration"), (0x1BB5, "EncounterLocation")]:
             low, high = address.to_bytes(2, "little")
