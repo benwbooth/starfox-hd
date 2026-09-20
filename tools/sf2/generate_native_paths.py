@@ -442,6 +442,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "IfSelectedSlotClass3": "ModeClass(super::path_conditions::AuxiliaryModeClass::Three)",
             }[name]
             statement = f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("SetSelectedSlotLowNibble1", "SetSelectedSlotLowNibble4", "ClearSelectedAuxiliaryFlag01"):
+            parameters(0)
+            operation = {
+                "SetSelectedSlotLowNibble1": "SetModeLowNibbleOne",
+                "SetSelectedSlotLowNibble4": "SetModeLowNibbleFour",
+                "ClearSelectedAuxiliaryFlag01": "ClearActionBit01",
+            }[name]
+            statement = f"Statement::SelectedAuxiliary {{ command: SelectedAuxiliaryCommand::{operation}, next: {next_cursor()} }}"
         elif name == "UpdatePlayerTargetFlag08":
             parameters(0)
             statement = f"Statement::ConsiderPrimaryTarget {{ next: {next_cursor()} }}"
@@ -859,6 +867,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_steering::FacingCommand;\n"
     if any("OrbitCenter::" in statement for statement in unique_statements.values()):
         source += "use super::path_program::OrbitCenter;\n"
+    if any("SelectedAuxiliaryCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_program::SelectedAuxiliaryCommand;\n"
     if any("RadiusCommand" in statement for statement in unique_statements.values()):
         source += "use super::path_steering::{RadiusCenter, RadiusCommand};\n"
     if any("PlayerControlCommand::" in statement for statement in unique_statements.values()):

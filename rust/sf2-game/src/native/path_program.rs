@@ -35,9 +35,9 @@ pub struct PathWorld<'a> {
     /// low byte, while path imports and node writeback retain the whole word.
     pub active_node_flags: Option<u16>,
     pub countdown: Option<&'a mut super::path_countdown::PathCountdown>,
-    /// Fresh selected auxiliary observations for this invocation; absent
-    /// observations are an error only when a statement actually needs them.
-    pub selected_auxiliary: Option<AuxiliaryContinuationInput>,
+    /// Shared selected-player auxiliary state. Commands and branches borrow
+    /// the same live record; a missing record faults only when needed.
+    pub selected_auxiliary: Option<&'a mut SelectedAuxiliaryState>,
     /// Fresh initializer-mode observations. Missing inputs fault only if
     /// this invocation reaches a spawn; they are not guessed from pause state.
     pub spawn_defaults: Option<super::ObjectSpawnDefaults>,
@@ -46,9 +46,34 @@ pub struct PathWorld<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AuxiliaryContinuationInput {
+pub struct SelectedAuxiliaryState {
     pub mode: u8,
     pub action_flags: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectedAuxiliaryCommand {
+    SetModeLowNibbleOne,
+    SetModeLowNibbleFour,
+    ClearActionBit01,
+}
+
+impl SelectedAuxiliaryCommand {
+    /// Selected-slot handlers at $7F:B081, $7F:B04D, and $7F:B77A.
+    /// The mode class (high nibble) is independent of the low-nibble state.
+    fn apply(self, state: &mut SelectedAuxiliaryState) {
+        const MODE_CLASS_MASK: u8 = 0xF0;
+        const LOW_MODE_ONE: u8 = 1;
+        const LOW_MODE_FOUR: u8 = 4;
+        const ACTION_BIT_01: u8 = 0x01;
+        match self {
+            Self::SetModeLowNibbleOne => state.mode = (state.mode & MODE_CLASS_MASK) | LOW_MODE_ONE,
+            Self::SetModeLowNibbleFour => {
+                state.mode = (state.mode & MODE_CLASS_MASK) | LOW_MODE_FOUR
+            }
+            Self::ClearActionBit01 => state.action_flags &= !ACTION_BIT_01,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +97,7 @@ pub enum OrbitCenter {
 }
 
 impl SelectedAuxiliaryCondition {
-    fn sample(self, input: AuxiliaryContinuationInput) -> Predicate {
+    fn sample(self, input: SelectedAuxiliaryState) -> Predicate {
         match self {
             Self::Continuation => Predicate::SelectedAuxiliaryContinuation {
                 mode: input.mode,
@@ -254,6 +279,10 @@ pub enum Statement {
     SelectedAuxiliaryBranch {
         condition: SelectedAuxiliaryCondition,
         taken: PathCursor,
+        next: PathCursor,
+    },
+    SelectedAuxiliary {
+        command: SelectedAuxiliaryCommand,
         next: PathCursor,
     },
     Random {
@@ -737,16 +766,30 @@ impl PathRuntime {
                 } => {
                     let input = world
                         .selected_auxiliary
+                        .as_deref()
                         .ok_or(ProgramError::MissingSelectedAuxiliary)?;
                     self.execute_branch(
                         objects,
                         owner,
                         BranchCommand::Test {
-                            predicate: condition.sample(input),
+                            predicate: condition.sample(*input),
                             taken,
                             next,
                         },
                     )
+                }
+                Statement::SelectedAuxiliary { command, next } => {
+                    let state = world
+                        .selected_auxiliary
+                        .as_deref_mut()
+                        .ok_or(ProgramError::MissingSelectedAuxiliary)?;
+                    command.apply(state);
+                    objects
+                        .get_mut(owner)
+                        .expect("validated auxiliary owner")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
                 }
                 Statement::Random { mutation, next } => {
                     self.execute_random(objects, owner, world.random, mutation, next)
@@ -3468,13 +3511,14 @@ mod tests {
                 actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
             }
             for visit in 0..5 {
+                let mut auxiliary = SelectedAuxiliaryState {
+                    mode: 0,
+                    action_flags: 0x40,
+                };
                 let mut inputs = world(&mut random);
                 inputs.primary_player = Some(primary);
                 inputs.selected = Some(owner);
-                inputs.selected_auxiliary = Some(AuxiliaryContinuationInput {
-                    mode: 0,
-                    action_flags: 0x40,
-                });
+                inputs.selected_auxiliary = Some(&mut auxiliary);
                 assert_eq!(
                     runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
                     Ok(ControlStep::Movement)
@@ -3513,11 +3557,15 @@ mod tests {
                         .flags
                         .view_side_filter = primary_filtered;
                     // A latched phase bypasses the auxiliary condition entirely.
-                    inputs.selected_auxiliary =
-                        (!primary_filtered).then_some(AuxiliaryContinuationInput {
-                            mode: 0x40,
-                            action_flags: 0,
-                        });
+                    if primary_filtered {
+                        inputs.selected_auxiliary = None;
+                    } else {
+                        *inputs.selected_auxiliary.as_deref_mut().unwrap() =
+                            SelectedAuxiliaryState {
+                                mode: 0x40,
+                                action_flags: 0,
+                            };
+                    }
                 }
                 assert_eq!(
                     runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8),
@@ -3859,11 +3907,12 @@ mod tests {
             let before_random = random;
             let visits = if gate { 2 } else { 3 };
             for visit in 0..visits {
-                let mut inputs = world(&mut random);
-                inputs.selected_auxiliary = Some(AuxiliaryContinuationInput {
+                let mut auxiliary = SelectedAuxiliaryState {
                     mode: 0x80, // mode does not participate in the action-bit gate
                     action_flags: if gate { 0x40 } else { 0 },
-                });
+                };
+                let mut inputs = world(&mut random);
+                inputs.selected_auxiliary = Some(&mut auxiliary);
                 let outcome = runtime
                     .enter_program(&catalog, &mut objects, owner, &mut inputs, 16)
                     .unwrap();
@@ -3908,7 +3957,7 @@ mod tests {
                 assert_eq!(
                     branch.test(
                         SelectedAuxiliaryCondition::ActionBit40
-                            .sample(AuxiliaryContinuationInput { mode, action_flags })
+                            .sample(SelectedAuxiliaryState { mode, action_flags })
                     ),
                     action_flags & 0x40 != 0
                 );
@@ -3916,7 +3965,7 @@ mod tests {
                 assert_eq!(
                     branch.test(
                         SelectedAuxiliaryCondition::ActionBit04Clear
-                            .sample(AuxiliaryContinuationInput { mode, action_flags })
+                            .sample(SelectedAuxiliaryState { mode, action_flags })
                     ),
                     action_flags & 0x04 == 0
                 );
@@ -3950,11 +3999,12 @@ mod tests {
             let destination = cursor(0, if action_flags & 0x04 == 0 { 2 } else { 1 });
             let mut expected = objects.clone();
             expected.get_mut(owner).unwrap().base.path = Some(destination);
-            let mut inputs = world(&mut random);
-            inputs.selected_auxiliary = Some(AuxiliaryContinuationInput {
+            let mut auxiliary = SelectedAuxiliaryState {
                 mode: !action_flags,
                 action_flags,
-            });
+            };
+            let mut inputs = world(&mut random);
+            inputs.selected_auxiliary = Some(&mut auxiliary);
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
                 Err(ProgramError::BudgetExceeded {
@@ -4063,6 +4113,10 @@ mod tests {
             .into_iter()
             .enumerate()
         {
+            let mut auxiliary = SelectedAuxiliaryState {
+                mode: if visit == 4 { 0x80 } else { 0 },
+                action_flags: 0x20,
+            };
             let mut inputs = PathWorld {
                 audio: None,
                 primary_player: None,
@@ -4078,10 +4132,7 @@ mod tests {
                 spawn_defaults: None,
                 countdown: None,
                 // The initial four-count loop does not read this record.
-                selected_auxiliary: (visit >= 3).then_some(AuxiliaryContinuationInput {
-                    mode: if visit == 4 { 0x80 } else { 0 },
-                    action_flags: 0x20,
-                }),
+                selected_auxiliary: (visit >= 3).then_some(&mut auxiliary),
                 random: &mut random,
                 animation_clock: 61,
             };
@@ -4148,9 +4199,9 @@ mod tests {
             for mode in 0..=u8::MAX {
                 for action_flags in 0..=u8::MAX {
                     *objects.get_mut(owner).unwrap() = before.clone();
+                    let mut auxiliary = SelectedAuxiliaryState { mode, action_flags };
                     let mut inputs = world(&mut random);
-                    inputs.selected_auxiliary =
-                        Some(AuxiliaryContinuationInput { mode, action_flags });
+                    inputs.selected_auxiliary = Some(&mut auxiliary);
                     let destination = cursor(0, if mode / 16 == expected_class { 2 } else { 1 });
                     assert_eq!(
                         runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
@@ -4166,6 +4217,163 @@ mod tests {
                     assert_eq!(inputs.random, &initial_random);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn selected_auxiliary_updates_preserve_every_unrelated_bit() {
+        use SelectedAuxiliaryCommand::*;
+        for mode in 0..=u8::MAX {
+            for action_flags in 0..=u8::MAX {
+                let original = SelectedAuxiliaryState { mode, action_flags };
+                for (command, expected) in [
+                    (
+                        SetModeLowNibbleOne,
+                        SelectedAuxiliaryState {
+                            mode: mode / 16 * 16 + 1,
+                            action_flags,
+                        },
+                    ),
+                    (
+                        SetModeLowNibbleFour,
+                        SelectedAuxiliaryState {
+                            mode: mode / 16 * 16 + 4,
+                            action_flags,
+                        },
+                    ),
+                    (
+                        ClearActionBit01,
+                        SelectedAuxiliaryState {
+                            mode,
+                            action_flags: action_flags / 2 * 2,
+                        },
+                    ),
+                ] {
+                    let mut state = original;
+                    command.apply(&mut state);
+                    assert_eq!(state, expected);
+                    command.apply(&mut state);
+                    assert_eq!(state, expected, "updates are idempotent");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn selected_auxiliary_commands_share_live_state_without_actor_or_control_side_effects() {
+        use super::super::path_conditions::AuxiliaryModeClass;
+        use SelectedAuxiliaryCommand::*;
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::SelectedAuxiliary {
+                command: SetModeLowNibbleFour,
+                next: cursor(0, 1),
+            },
+            Statement::SelectedAuxiliary {
+                command: ClearActionBit01,
+                next: cursor(0, 2),
+            },
+            Statement::SelectedAuxiliary {
+                command: SetModeLowNibbleOne,
+                next: cursor(0, 3),
+            },
+            Statement::SelectedAuxiliaryBranch {
+                condition: SelectedAuxiliaryCondition::ModeClass(AuxiliaryModeClass::Two),
+                taken: cursor(0, 5),
+                next: cursor(0, 4),
+            },
+        ]])
+        .unwrap();
+        for invert in [false, true] {
+            for mode in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                objects.get_mut(owner).unwrap().base.wait_timer = 53;
+                runtime.branch.invert_next = invert;
+                let initial_random = random;
+                let initial_objects = objects.clone();
+                // No selected pose is needed: the caller supplies exactly the
+                // selected auxiliary record, independently of actor transforms.
+                let mut auxiliary = SelectedAuxiliaryState {
+                    mode,
+                    action_flags: !mode,
+                };
+                let mut inputs = world(&mut random);
+                inputs.selected_auxiliary = Some(&mut auxiliary);
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 0),
+                        executed: 0
+                    })
+                );
+                assert_eq!(
+                    inputs.selected_auxiliary.as_deref(),
+                    Some(&SelectedAuxiliaryState {
+                        mode,
+                        action_flags: !mode
+                    })
+                );
+                for (index, expected_mode, expected_flags) in [
+                    (1, mode / 16 * 16 + 4, !mode),
+                    (2, mode / 16 * 16 + 4, !mode / 2 * 2),
+                    (3, mode / 16 * 16 + 1, !mode / 2 * 2),
+                ] {
+                    assert_eq!(
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: cursor(0, index),
+                            executed: 1
+                        })
+                    );
+                    assert_eq!(
+                        inputs.selected_auxiliary.as_deref(),
+                        Some(&SelectedAuxiliaryState {
+                            mode: expected_mode,
+                            action_flags: expected_flags
+                        })
+                    );
+                    let mut expected_objects = initial_objects.clone();
+                    expected_objects.get_mut(owner).unwrap().base.path = Some(cursor(0, index));
+                    assert_eq!(objects, expected_objects);
+                    assert_eq!(runtime.branch.invert_next, invert);
+                    assert_eq!(inputs.random, &initial_random);
+                }
+                let destination = cursor(0, if mode / 16 == 2 { 5 } else { 4 });
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: destination,
+                        executed: 1
+                    })
+                );
+                let mut expected_objects = initial_objects;
+                expected_objects.get_mut(owner).unwrap().base.path = Some(destination);
+                assert_eq!(objects, expected_objects);
+                assert_eq!(runtime.branch.invert_next, invert);
+                assert_eq!(inputs.random, &initial_random);
+                // Releasing the borrow publishes the changes to the caller's
+                // actual shared record, not a copy retained by the dispatcher.
+                assert_eq!(
+                    auxiliary,
+                    SelectedAuxiliaryState {
+                        mode: mode / 16 * 16 + 1,
+                        action_flags: !mode / 2 * 2
+                    }
+                );
+            }
+        }
+        for index in 0..3 {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            objects.get_mut(owner).unwrap().base.path = Some(cursor(0, index));
+            let before = objects.clone();
+            let before_random = random;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingSelectedAuxiliary)
+            );
+            assert_eq!(objects, before);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, before_random);
         }
     }
 
@@ -4187,11 +4395,12 @@ mod tests {
             Err(ProgramError::MissingSelectedAuxiliary)
         );
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
-        let mut inputs = world(&mut random);
-        inputs.selected_auxiliary = Some(AuxiliaryContinuationInput {
+        let mut auxiliary = SelectedAuxiliaryState {
             mode: 0,
             action_flags: 0,
-        });
+        };
+        let mut inputs = world(&mut random);
+        inputs.selected_auxiliary = Some(&mut auxiliary);
         assert_eq!(
             runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2),
             Ok(ControlStep::Movement)

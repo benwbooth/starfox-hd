@@ -829,6 +829,18 @@ class NativePathGenerationTests(unittest.TestCase):
                 with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
                     self.lower_record(record)
 
+    def test_selected_auxiliary_updates_are_distinct_from_other_auxiliary_storage(self):
+        for opcode, operation in [(0x6E, "SetModeLowNibbleOne"), (0x6F, "SetModeLowNibbleFour"), (0x62, "ClearActionBit01")]:
+            self.assertEqual(self.lower_record(f"00 {opcode:02x}")[0],
+                f"Statement::SelectedAuxiliary {{ command: SelectedAuxiliaryCommand::{operation}, next: cursor(0, 1) }}")
+        # The similarly named OR operation targets a different field.
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported OrSelectedAuxFlags"):
+            self.lower_record("00 16 ff")
+        changed = bytearray(self.rom)
+        changed[0x4F536:0x4F53D] = bytes.fromhex("00 6e 00 6f 00 62 0f")
+        generated = generate(bytes(changed), (("AUXILIARY", PathAddress(0xF536)),))
+        self.assertIn("use super::path_program::SelectedAuxiliaryCommand;", generated)
+
     def test_random_branch_retains_both_edges_including_coincident_successors(self):
         self.assertEqual(self.lower_record("29 36 f5")[0],
             "Statement::RandomBranch { taken: cursor(0, 0), next: cursor(0, 1) }")

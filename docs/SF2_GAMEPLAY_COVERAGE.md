@@ -1041,3 +1041,13 @@ and missing/dangling centers before mutation. Verification passes 79 lowerer
 tests, 224 static path tests, 217 native path tests in debug/release, both audits
 and the app build. No additional complete graph is unlocked: coverage remains
 15 roots/167 statements, with game integration still open.
+
+Selected-player auxiliary mode/action state is now one borrowed mutable record,
+shared by command updates and subsequent conditions. Three source handlers set
+the mode low nibble to one/four or clear action bit zero, preserving all other
+bits. The similarly named flag-OR command writes a different auxiliary field
+and remains unsupported. Exhaustive byte-pair tests, repeated live dispatch,
+missing-input atomicity and actor/IFNOT/wait/RNG preservation pass. Verification
+passes 80 lowerer tests, 226 static path tests, 219 native path tests in both
+debug/release, architecture/dependency audits and the app build. Catalog coverage
+remains 15 complete roots/167 statements; this does not establish game integration.

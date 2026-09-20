@@ -22,6 +22,14 @@ class PathPlayerControlStaticTests(unittest.TestCase):
         self.assert_source(0x7FC13B, "C2 20 20 20 C7 85 3A E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 22 46 B7 07 4C BE CA")
         self.assert_source(0x7FC189, "E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 22 33 B8 07 4C E8 CA")
 
+    def test_selected_mode_low_nibble_updates_preserve_class_and_advance_immediately(self):
+        self.assert_source(0x7FB081, "AC 1F CF DA BB 7A 5A B4 2B B9 A1 6A 29 F0 09 01 99 A1 6A 7A DA BB 7A 4C E8 CA")
+        self.assert_source(0x7FB04D, "AC 1F CF DA BB 7A 5A B4 2B B9 A1 6A 29 F0 09 04 99 A1 6A 7A DA BB 7A 4C E8 CA")
+
+    def test_selected_action_clear_is_not_the_other_auxiliary_flag_or(self):
+        self.assert_source(0x7FB77A, "AC 1F CF DA BB 7A 5A B4 2B B9 77 6B 29 FE 99 77 6B 7A DA BB 7A 4C E8 CA")
+        self.assert_source(0x7FBAA5, "AC 1F CF DA B6 2B 9B FA 20 BC C4 19 E4 6B 99 E4 6B 4C D3 CA")
+
     def test_configuration_wrapper_does_not_skip_final_owner_refresh_when_locked(self):
         self.assert_source(0x07B746, "DA 08 E2 20 C2 10 A9 03 85 3C A9 1F 85 3E 22 9F B7 07 A9 04 85 3A A9 08 85 3C A9 08 85 3E 22 9B B8 07 A9 1F 85 3A 85 3C 85 3E 22 61 B8 07 22 33 B8 07 28 FA 6B")
 
