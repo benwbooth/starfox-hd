@@ -2313,3 +2313,30 @@ native path tests in debug and release, generated freshness, both architecture
 and static-gameplay audits, and the app build. The build retains the existing
 unused app-icon helper warning. Full-workspace tests and whole-game runtime
 equivalence were not claimed or used to establish this static coverage.
+
+### Temporary actor context service
+
+`path_actor_context` ports all six temporary ownership handlers
+(`$7F:A86D..A995`) using actor IDs and decoded path cursors. It retains one
+saved caller and one saved borrowed path, not a context stack. Nested
+selection overwrites that pair; restoration leaves it intact. A missing
+mother branches before either save, while a missing numbered child replaces
+only the saved caller. The numbered forms use the full byte and the owner
+flag's selected sibling chain. Invalid direct links and malformed chains
+produce explicit native errors instead of null-actor writes.
+
+Seven native tests cover every child number, chain selection and first-match
+ordering, both branch-save rules, original paths including absence, nested
+and repeated restoration, self-alias write ordering, and invalid targets.
+Whole-object comparisons verify that selection does not migrate waits,
+actor fields or relationships. Eight static tests pin all six complete
+handlers and their immediate-continuation and lookup callees. Debug/release
+path suites pass 364 tests; the source-static suite passes 310. Lowerer
+tests, generated freshness, architecture/static-gameplay audits and the app
+build also pass (with the existing unused app-icon warning).
+
+The context record is retained by `PathRuntime` across actor invocations.
+Dispatcher and lowerer integration is still pending, so this service does
+not add any complete catalog roots: coverage remains 86 roots / 1,381 source
+commands / 1,372 statements. No recorded gameplay or original-program
+execution was used for these transcriptions.

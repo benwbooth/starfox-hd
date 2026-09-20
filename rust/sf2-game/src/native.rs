@@ -42,6 +42,7 @@ pub mod intro_target;
 pub mod intro_transform;
 pub mod intro_visibility;
 mod object;
+pub mod path_actor_context;
 pub mod path_appearance;
 pub mod path_calls;
 pub mod path_commands;

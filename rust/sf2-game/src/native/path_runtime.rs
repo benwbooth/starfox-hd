@@ -101,6 +101,8 @@ pub struct TriggerWorldInputs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRuntime {
     pub resources: ProgramResources<ProgramData>,
+    /// Shared across actor invocations, with single-slot source semantics.
+    pub actor_context: super::path_actor_context::ActorContextState,
     pub spawns: super::path_spawn::SpawnState,
     pub steering: super::path_steering::SteeringState,
     pub branch: super::path_conditions::BranchState,
@@ -115,6 +117,7 @@ impl Default for PathRuntime {
     fn default() -> Self {
         Self {
             resources: ProgramResources::default(),
+            actor_context: super::path_actor_context::ActorContextState::default(),
             spawns: super::path_spawn::SpawnState::default(),
             steering: super::path_steering::SteeringState::default(),
             branch: super::path_conditions::BranchState::default(),
