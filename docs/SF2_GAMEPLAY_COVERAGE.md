@@ -2916,3 +2916,23 @@ pools and immediate path FIRE integration. All 21 weapon tests and 453 path
 tests pass in debug/release, plus 354 source-static tests, audits and app build.
 Complete-root counts remain 115/2,075/2,066; this connects a producer, not a
 new independent graph or a claim of shipping gameplay completion.
+
+### Linked shot accounting and retained impact suppression
+
+The rapid-shot path increment/decrement commands now update the attached
+player's typed active-shot record, independently of fresh player selection.
+Increment wraps, decrement saturates at zero, and the launch-admission helper
+preserves the source signed subtraction: counts 0..7 and 136..255 pass, while
+8..135 fail. Player initialization/reset clear the complete byte; their
+enclosing service gates are not newly integrated. Missing or mismatched
+linked state fails explicitly without changing the objects or counter.
+
+Impact-suppression imports now read the previous pair observation, separately
+from impact material. Surface-latch/ground/miss processing can preserve that
+observation, so the importer must not reconstruct it from a current peer.
+Tests cover every count and material byte, both suppression states, IFNOT and
+random-state preservation, unrelated selected players and invalid links.
+All 457 path tests pass in debug/release, 168 lowerer tests and 356 source-static
+tests pass, and architecture/static audits plus the app build pass (existing
+icon warning). Coverage stays at 115 roots / 2,075 commands / 2,066 statements;
+rapid-shot graphs and shipping scheduler integration remain open.

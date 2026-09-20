@@ -823,6 +823,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             value, = parameters(1)
             operation = "OrdinaryImpactMaterial" if name.endswith("0b") else "SuppressedImpactMaterial"
             statement = f"Statement::Contact {{ command: ContactCommand::{operation}({value}), next: {next_cursor()} }}"
+        elif name in ("IncrementLinkedAuxiliaryCounter", "DecrementLinkedAuxiliaryCounter"):
+            parameters(0)
+            operation = "Increment" if name.startswith("Increment") else "Decrement"
+            statement = f"Statement::LinkedShotCount {{ command: super::path_shots::ShotCountCommand::{operation}, next: {next_cursor()} }}"
         elif name == "BranchOnContactClass":
             raw = parameters(6)
             destinations = [PathAddress(int.from_bytes(raw[i:i + 2], 'little')) for i in (0, 2, 4)]
@@ -1352,6 +1356,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if address == 0x0002 and name == "ImportByteAbsolute" and command.address in (PathAddress(0xE7DF), PathAddress(0xE826)):
                 statement = f"Statement::ImportImpactMaterial {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0xD746 and name == "ImportByteAbsolute":
+                statement = f"Statement::ImportPairSuppression {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address in (0xD7F2, 0x1C06) and name.startswith("Import"):

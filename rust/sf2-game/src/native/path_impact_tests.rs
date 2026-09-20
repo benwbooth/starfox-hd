@@ -14,6 +14,114 @@ fn at(command_index: u16) -> PathCursor {
 }
 
 #[test]
+fn pair_suppression_import_preserves_material_and_branch_latch() {
+    let catalog = PathCatalog::new(vec![vec![Statement::ImportPairSuppression {
+        destination: ByteField::Part,
+        next: at(1),
+    }]])
+    .unwrap();
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    let before = objects.clone();
+    assert_eq!(
+        runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+        Err(ProgramError::MissingImpactState)
+    );
+    assert_eq!(objects, before);
+    let random_before = random;
+    for suppressed in [false, true] {
+        for material in 0..=u8::MAX {
+            for invert in [false, true] {
+                objects = before.clone();
+                let mut state = ImpactState {
+                    material,
+                    pair_suppressed: suppressed,
+                };
+                let state_before = state;
+                let mut expected = objects.clone();
+                ByteField::Part.write(expected.get_mut(owner).unwrap(), u8::from(suppressed));
+                expected.get_mut(owner).unwrap().base.path = Some(at(1));
+                let mut inputs = world(&mut random);
+                inputs.impact = Some(&mut state);
+                runtime.branch.invert_next = invert;
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: at(1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                assert_eq!(state, state_before);
+                assert_eq!(runtime.branch.invert_next, invert);
+            }
+        }
+    }
+    assert_eq!(random, random_before);
+}
+
+#[test]
+fn linked_shot_statements_update_attached_player_without_using_selection_or_ifnot() {
+    use super::super::path_shots::{ActiveShots, LinkedShotCount, ShotCountCommand};
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    let player = objects
+        .allocate(Object::new(
+            ObjectKind::Enemy,
+            ShapeId::EMPTY,
+            Behavior::FollowPath,
+        ))
+        .unwrap();
+    objects.get_mut(owner).unwrap().base.attachment = Some(player);
+    let before = objects.clone();
+    let random_before = random;
+    for command in [ShotCountCommand::Increment, ShotCountCommand::Decrement] {
+        let catalog = PathCatalog::new(vec![vec![Statement::LinkedShotCount {
+            command,
+            next: at(1),
+        }]])
+        .unwrap();
+        objects = before.clone();
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingLinkedShotCount)
+        );
+        assert_eq!(objects, before);
+        for count in 0..=u8::MAX {
+            for invert in [false, true] {
+                objects = before.clone();
+                let mut state = ActiveShots::from_count(count);
+                let mut expected = objects.clone();
+                expected.get_mut(owner).unwrap().base.path = Some(at(1));
+                let mut inputs = world(&mut random);
+                inputs.selected = Some(owner);
+                inputs.primary_player = Some(owner);
+                inputs.linked_shot_count = Some(LinkedShotCount {
+                    owner: player,
+                    state: &mut state,
+                });
+                runtime.branch.invert_next = invert;
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: at(1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                assert_eq!(runtime.branch.invert_next, invert);
+                assert_eq!(
+                    state.count(),
+                    match command {
+                        ShotCountCommand::Increment => count.wrapping_add(1),
+                        ShotCountCommand::Decrement => count.saturating_sub(1),
+                    }
+                );
+            }
+        }
+    }
+    assert_eq!(random, random_before);
+}
+
+#[test]
 fn published_homing_target_copies_absence_and_retained_identity_without_fresh_selection() {
     use super::super::path_target::PublishedHomingTarget;
     let catalog = PathCatalog::new(vec![vec![Statement::AttachPublishedHomingTarget {

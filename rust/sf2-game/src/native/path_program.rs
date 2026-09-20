@@ -105,6 +105,7 @@ pub struct PathWorld<'a> {
     pub primary_pitch_recoil: Option<&'a mut super::path_player_control::PitchRecoil>,
     pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
     pub protection: Option<super::path_protection::PathProtection<'a>>,
+    pub linked_shot_count: Option<super::path_shots::LinkedShotCount<'a>>,
     pub audio: Option<super::path_sound::PathAudio<'a>>,
     pub radio: Option<super::path_radio::PathRadio<'a>>,
     pub deferred_message: Option<&'a mut super::path_radio::DeferredMessage>,
@@ -488,6 +489,8 @@ pub enum Statement {
     InstallImpactBurst,
     ImpactBranch { first: PathCursor, second: PathCursor, third: PathCursor, next: PathCursor },
     ImportImpactMaterial { destination: super::path_fields::ByteField, next: PathCursor },
+    ImportPairSuppression { destination: super::path_fields::ByteField, next: PathCursor },
+    LinkedShotCount { command: super::path_shots::ShotCountCommand, next: PathCursor },
     MarkForDeath,
     SetActionGate { value: u8, next: PathCursor },
     /// Literal comparisons branch directly without consuming IFNOT.
@@ -881,6 +884,8 @@ pub enum ProgramError {
     MissingOccupancy,
     MissingSurfaceMode,
     MissingImpactState,
+    MissingLinkedShotCount,
+    ShotCount(super::path_shots::ShotCountError),
     MissingPublishedHomingTarget,
     Impact(super::path_impact::ImpactError),
     SurfaceQuery(super::collision_surface::SurfaceQueryError),
@@ -1801,6 +1806,19 @@ impl PathRuntime {
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::ImportPairSuppression { destination, next } => {
+                    let value = u8::from(world.impact.as_deref().ok_or(ProgramError::MissingImpactState)?.pair_suppressed);
+                    let actor = objects.get_mut(owner).expect("validated pair suppression owner");
+                    destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::LinkedShotCount { command, next } => {
+                    let linked = world.linked_shot_count.as_mut().ok_or(ProgramError::MissingLinkedShotCount)?;
+                    super::path_shots::apply_linked(objects, owner, linked, command).map_err(ProgramError::ShotCount)?;
+                    objects.get_mut(owner).expect("validated shot counter owner").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ImportSurfaceMode { destination, next } => {
                     let mode = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?;
                     let actor = objects
@@ -2106,6 +2124,7 @@ mod tests {
             primary_pitch_recoil: None,
             linked_effect_activity: None,
             protection: None,
+            linked_shot_count: None,
             audio: None,
             radio: None,
             deferred_message: None,
@@ -9158,6 +9177,7 @@ mod tests {
                 primary_pitch_recoil: None,
                 linked_effect_activity: None,
                 protection: None,
+                linked_shot_count: None,
                 audio: None,
                 radio: None,
                 deferred_message: None,
@@ -13370,6 +13390,7 @@ mod tests {
                 primary_pitch_recoil: None,
                 linked_effect_activity: None,
                 protection: None,
+                linked_shot_count: None,
                 audio: None,
                 radio: None,
                 deferred_message: None,
@@ -13510,6 +13531,7 @@ mod tests {
                         primary_pitch_recoil: None,
                         linked_effect_activity: None,
                         protection: None,
+                        linked_shot_count: None,
                         audio: None,
                         radio: None,
                         deferred_message: None,

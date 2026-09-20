@@ -20,6 +20,14 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_linked_shot_count_and_retained_pair_suppression_are_typed(self):
+        for opcode, command in [('32', 'Increment'), ('33', 'Decrement')]:
+            self.assertIn(f'ShotCountCommand::{command}', self.lower_record(f'00 {opcode}')[0])
+        self.assertIn('ImportPairSuppression', self.lower_record('79 a1 46 d7')[0])
+        for record in ['7d a1 46 d7', 'fb 46 d7 01']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_impact_material_producers_and_all_four_branch_edges(self):
         for opcode, operation in [('69', 'OrdinaryImpactMaterial'), ('6a', 'SuppressedImpactMaterial')]:
             for value in range(256):
