@@ -287,12 +287,15 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             statement = f"Statement::RunWhenPaused {{ enabled: true, next: {next_cursor()} }}"
         elif name == "Inline65816":
             # The extractor checks the COMPLETE instruction signature and
-            # returned continuation before exposing this action. Only this
-            # reviewed block has a native semantic implementation here.
-            if command.address != PathAddress(0xF348):
+            # returned continuation before exposing each reviewed action.
+            actions = {
+                PathAddress(0xF348): "LatchPrimaryViewFilter",
+                PathAddress(0xE78A): "InheritPrimaryHorizontalMotion",
+            }
+            if command.address not in actions:
                 raise UnsupportedPath(f"unported inline action at {command.address.label()}")
             parameters(0)
-            statement = f"Statement::LatchPrimaryViewFilter {{ next: {next_cursor()} }}"
+            statement = f"Statement::{actions[command.address]} {{ next: {next_cursor()} }}"
         elif name in ("SpawnChild", "SpawnChildAlias"):
             spawn = child_spawn_parameters(command)
             shape, kind = child_spawn_shape(spawn.shape)

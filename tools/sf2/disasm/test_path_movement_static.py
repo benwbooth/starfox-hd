@@ -21,6 +21,17 @@ class PathMovementStaticTests(unittest.TestCase):
     def test_velocity_write_defers_only_in_per_step_generation_mode(self):
         self.assert_source(0x7F854A, "20 BC C4 95 18 B5 21 29 10 F0 04 5C D3 CA 7F 20 5F 85 4C D3 CA")
 
+    def test_inline_primary_motion_inherits_velocity_only_for_mode_class_one(self):
+        self.assert_source(0x09E78A, "89 22 85 A8 06 C2 20 A9 95 E7 6B 42")
+        # Primary selection (not CF1F) -> auxiliary 6AA0 high nibble. Only
+        # class 10 adds base velocity; all others add extension displacement.
+        # Both arms write X/Z velocity only and preserve arithmetic wrapping.
+        self.assert_source(0x06A885,
+            "5A 08 AC C3 12 80 04 5A 08 B4 06 DA BB 7A 5A B4 2B B9 A0 6A 7A DA BB 7A "
+            "29 F0 C9 10 F0 04 5C BB A8 06 C2 20 B9 32 00 18 75 32 95 32 "
+            "B9 36 00 18 75 36 95 36 80 12 C2 20 B9 C1 1C 18 75 32 95 32 "
+            "B9 C5 1C 18 75 36 95 36 E2 20 28 7A 6B")
+
     def test_acceleration_writes_target_and_amount_without_regenerating(self):
         self.assert_source(0x7F8C96, "20 BC C4 95 0A 20 E0 C4 95 0B 4C BE CA")
 

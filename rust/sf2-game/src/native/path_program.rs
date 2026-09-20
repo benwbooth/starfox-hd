@@ -21,6 +21,9 @@ pub struct PathWorld<'a> {
     pub selected: Option<ObjectId>,
     /// Fixed player actors, distinct from the live selected/primary pointers.
     pub fixed_players: [Option<ObjectId>; 2],
+    /// Fresh primary auxiliary mode and retained displacement, required only
+    /// by the one-time primary-motion inheritance action.
+    pub primary_motion: Option<PrimaryMotionInput>,
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
     pub selected_auxiliary: Option<AuxiliaryContinuationInput>,
@@ -35,6 +38,12 @@ pub struct PathWorld<'a> {
 pub struct AuxiliaryContinuationInput {
     pub mode: u8,
     pub action_flags: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrimaryMotionInput {
+    pub auxiliary_mode: u8,
+    pub displacement: super::Vector3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -157,6 +166,9 @@ pub enum Statement {
     LatchPrimaryViewFilter {
         next: PathCursor,
     },
+    InheritPrimaryHorizontalMotion {
+        next: PathCursor,
+    },
     Sound {
         cue: super::path_sound::AuthoredCue,
         next: PathCursor,
@@ -234,6 +246,7 @@ pub enum Statement {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
     MissingPrimaryPlayer,
+    MissingPrimaryMotion,
     MissingAudio,
     Spawn(super::path_spawn::SpawnError),
     MissingSpawnDefaults,
@@ -356,6 +369,28 @@ impl PathRuntime {
                         let phase = &mut actor.extension.path_state.motion_phase;
                         *phase = (*phase & 0xFF00) | 1;
                     }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::InheritPrimaryHorizontalMotion { next } => {
+                    let primary = world
+                        .primary_player
+                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                    let input = world
+                        .primary_motion
+                        .ok_or(ProgramError::MissingPrimaryMotion)?;
+                    let velocity = objects
+                        .get(primary)
+                        .ok_or(PathRuntimeError::MissingActor(primary))?
+                        .base
+                        .velocity;
+                    let actor = objects.get_mut(owner).expect("validated inheritance owner");
+                    super::path_motion::inherit_horizontal_motion(
+                        actor,
+                        velocity,
+                        input.displacement,
+                        input.auxiliary_mode,
+                    );
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -545,6 +580,7 @@ mod tests {
             primary_player: None,
             selected: None,
             fixed_players: [None; 2],
+            primary_motion: None,
             selected_auxiliary: None,
             spawn_defaults: None,
             random,
@@ -691,6 +727,103 @@ mod tests {
             assert_eq!(objects.get(owner).unwrap(), &expected);
             assert_eq!(runtime.steering.unchanged_axes, 11);
             assert!(runtime.branch.invert_next);
+        }
+    }
+
+    #[test]
+    fn primary_horizontal_inheritance_samples_mode_and_motion_without_movement() {
+        use super::super::Vector3;
+        for own_primary in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let other = objects
+                .allocate(Object::new(
+                    ObjectKind::Player,
+                    ShapeId::EMPTY,
+                    Behavior::PlayerFlight,
+                ))
+                .unwrap();
+            let primary = if own_primary { owner } else { other };
+            objects.get_mut(other).unwrap().base.velocity = Vector3 {
+                x: 2345,
+                y: -32,
+                z: -6789,
+            };
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.velocity = Vector3 {
+                x: i16::MAX,
+                y: 42,
+                z: i16::MIN,
+            };
+            actor.base.position = Vector3 {
+                x: 101,
+                y: 202,
+                z: 303,
+            };
+            actor.base.wait_timer = 57;
+            runtime.branch.invert_next = true;
+            let initial_random = random.clone();
+            let catalog = PathCatalog::new(vec![vec![Statement::InheritPrimaryHorizontalMotion {
+                next: cursor(0, 0),
+            }]])
+            .unwrap();
+            for mode in 0..=u8::MAX {
+                let displacement = Vector3 {
+                    x: i16::MIN + i16::from(mode),
+                    y: 999,
+                    z: i16::MAX - i16::from(mode),
+                };
+                let mut expected = objects.get(owner).unwrap().clone();
+                let other_before = objects.get(other).unwrap().clone();
+                let addition = if (16..32).contains(&mode) {
+                    objects.get(primary).unwrap().base.velocity
+                } else {
+                    displacement
+                };
+                expected.base.velocity.x = expected.base.velocity.x.wrapping_add(addition.x);
+                expected.base.velocity.z = expected.base.velocity.z.wrapping_add(addition.z);
+                let mut inputs = world(&mut random);
+                inputs.primary_player = Some(primary);
+                // Deliberately select a different actor: this action must
+                // always use primary_player, including owner/primary aliasing.
+                inputs.selected = Some(if own_primary { other } else { owner });
+                inputs.primary_motion = Some(PrimaryMotionInput {
+                    auxiliary_mode: mode,
+                    displacement,
+                });
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 0),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert_eq!(objects.get(other).unwrap(), &other_before);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, initial_random);
+            }
+        }
+    }
+
+    #[test]
+    fn inheritance_missing_world_inputs_fault_before_mutating_actor() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let catalog = PathCatalog::new(vec![vec![Statement::InheritPrimaryHorizontalMotion {
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let before = objects.get(owner).unwrap().clone();
+        for (primary, error) in [
+            (None, ProgramError::MissingPrimaryPlayer),
+            (Some(owner), ProgramError::MissingPrimaryMotion),
+        ] {
+            let mut inputs = world(&mut random);
+            inputs.primary_player = primary;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(error)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
         }
     }
 
@@ -1613,6 +1746,7 @@ mod tests {
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
+                primary_motion: None,
                 spawn_defaults: None,
                 // The initial four-count loop does not read this record.
                 selected_auxiliary: (visit >= 3).then_some(AuxiliaryContinuationInput {
@@ -1833,6 +1967,7 @@ mod tests {
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
+                primary_motion: None,
                 selected_auxiliary: None,
                 spawn_defaults: None,
                 random: &mut random,
@@ -1933,6 +2068,7 @@ mod tests {
                         primary_player: None,
                         selected: None,
                         fixed_players: [None; 2],
+                        primary_motion: None,
                         selected_auxiliary: None,
                         spawn_defaults: None,
                         random: &mut random,

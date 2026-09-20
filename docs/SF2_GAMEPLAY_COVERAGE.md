@@ -711,3 +711,13 @@ Verification passes 48 lowerer tests, 166 static path checks, 155 native path
 tests in release, and architecture/dependency checks. Indexed imports and
 world-state services remain unsupported; this field addition does not emulate
 source addresses or add a complete root.
+
+The shared inline primary-motion action is now a named Rust operation. Its
+source call/return signature and complete helper are checked statically. The
+primary auxiliary mode selects either primary velocity or retained displacement;
+only horizontal owner velocity changes, with word wrapping. Tests cover every
+mode byte, repeated live sampling, owner/primary aliasing and missing-input
+faults, preserving vertical velocity, position, waits, IFNOT and RNG. Checks
+pass 49 lowerer tests, 167 static path tests, 157 native path tests in both
+debug/release, architecture/dependency checks and the app build. The native
+catalog remains nine complete roots; no recorded gameplay was used.

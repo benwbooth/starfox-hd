@@ -152,6 +152,18 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
             lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF32C), 0)
 
+    def test_primary_horizontal_inheritance_inline_has_reviewed_target_and_return(self):
+        _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xE78A), 0)
+        self.assertEqual(statements, [
+            "Statement::InheritPrimaryHorizontalMotion { next: cursor(0, 1) }",
+            "Statement::Control(ControlCommand::Return)",
+        ])
+        for offset in (0x4E78C, 0x4E792):  # change callee or returned path
+            changed = bytearray(self.rom)
+            changed[offset] ^= 1
+            with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(0xE78A), 0)
+
     def test_trigger_condition_table_decodes_all_eighteen_and_rejects_other_selectors(self):
         expected = ["Always", *(f"Periodic(TriggerPeriod::{period})" for period in (
             "Two", "Four", "Eight", "Sixteen", "ThirtyTwo", "SixtyFour", "OneTwentyEight")),

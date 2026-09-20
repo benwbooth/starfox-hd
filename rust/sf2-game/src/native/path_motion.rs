@@ -9,6 +9,26 @@ use super::{Angle, Object, ObjectId, ObjectStore, Vector3};
 const BANK_TURN_DIVISOR: i8 = 4;
 const ORDINARY_VELOCITY_SCALE: i16 = 1;
 const ENLARGED_VELOCITY_SCALE: i16 = 4;
+const AUXILIARY_MODE_CLASS_MASK: u8 = 0xF0;
+const VELOCITY_INHERITANCE_CLASS: u8 = 0x10;
+
+/// Add primary-player horizontal motion (`$06:A885..A8D1`). The player's
+/// auxiliary mode selects its velocity or retained displacement. This is a
+/// one-time velocity addition, not ordinary per-step displacement following.
+pub fn inherit_horizontal_motion(
+    object: &mut Object,
+    player_velocity: Vector3,
+    player_displacement: Vector3,
+    auxiliary_mode: u8,
+) {
+    let inherited = if auxiliary_mode & AUXILIARY_MODE_CLASS_MASK == VELOCITY_INHERITANCE_CLASS {
+        player_velocity
+    } else {
+        player_displacement
+    };
+    object.base.velocity.x = object.base.velocity.x.wrapping_add(inherited.x);
+    object.base.velocity.z = object.base.velocity.z.wrapping_add(inherited.z);
+}
 
 /// Independent source motion gates. Relative and attached flags can coexist;
 /// neither should be inferred from the presence of a parent pointer.
