@@ -1575,6 +1575,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             kind = "Word" if wide else "Byte"
             condition = f"ActorCondition::Between{kind} {{ value: {kind}Operand::Actor({field}), lower: {kind}Operand::Literal({lower}), upper: {kind}Operand::Literal({upper}) }}"
             statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
+        elif name == "IfExternal1e0dBit01":
+            low, high = parameters(2)
+            taken, next_ = branch_cursors(low | (high << 8))
+            # Both source exits bypass the ordinary IFNOT-consuming helpers.
+            statement = f"Statement::IfProtectionOverride {{ taken: {taken}, next: {next_} }}"
         elif name in ("IfVariableBytesSame", "IfVariableWordsSame", "IfVariableBytesLess", "IfVariableWordsLess"):
             first, second, low, high = parameters(4)
             wide = "Words" in name

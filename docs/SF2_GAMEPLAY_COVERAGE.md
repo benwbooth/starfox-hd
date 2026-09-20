@@ -3800,3 +3800,22 @@ lowerer tests and 431 path-static tests**, exact regeneration, architecture
 guard, static inventory and app build pass (existing unused icon warnings
 only). Verification uses static source data and native execution, without
 recorded gameplay or execution of the original instructions.
+
+### Shared protection-override exit branch
+
+The `$7F:9034` path branch now reads the existing typed protection rule used
+by linked protection effects. It observes only the shared flag's low bit and
+requires neither a linked player nor a surface-mode query. Both direct source
+exits preserve pending IFNOT state; the new native statement deliberately does
+not use the ordinary comparison helper. Missing protection inputs fail before
+actor or branch-state changes, permitting a retry with live inputs.
+
+Native checks cover both flag values, pending IFNOT, every combination of the
+other protection rules, repeated live updates, missing-state retry and complete
+actor/random-state preservation. Static tests bind the handler-table entry,
+both direct exits and the two encounter-exit call sites. **996 native unit
+tests and two integration tests** pass in debug and release; **197 lowerer
+tests and 432 path-static tests**, exact regeneration, architecture guard,
+static inventory and app build pass. Catalog totals remain 140 roots and five
+helpers: those exit callers still require the paired player-state save/restore
+and other dependencies. No gameplay recordings were used.

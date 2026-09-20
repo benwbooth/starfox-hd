@@ -151,6 +151,9 @@ mod scene_continuation_tests;
 #[cfg(test)]
 #[path = "path_four_panel_tests.rs"]
 mod four_panel_tests;
+#[cfg(test)]
+#[path = "path_protection_override_tests.rs"]
+mod protection_override_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -593,6 +596,8 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    /// This direct source branch preserves pending IFNOT state.
+    IfProtectionOverride { taken: PathCursor, next: PathCursor },
     EncounterHandoff {
         command: super::path_scene_state::HandoffCommand,
         next: PathCursor,
@@ -1672,6 +1677,13 @@ impl PathRuntime {
                         .expect("validated effect-activity owner");
                     activity.apply(actor, command);
                     actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::IfProtectionOverride { taken, next } => {
+                    let enabled = world.protection.as_ref()
+                        .ok_or(ProgramError::MissingProtection)?.rules.minimum_override;
+                    objects.get_mut(owner).expect("validated protection-override branch").base.path =
+                        Some(if enabled { taken } else { next });
                     Ok(ControlStep::Continue)
                 }
                 Statement::UpdateProtectionEffect {
