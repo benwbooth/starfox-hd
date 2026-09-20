@@ -18,6 +18,26 @@ const QUARTER_SHIFT: u32 = 2;
 const LEFT_VERTICAL_GROUP: i16 = 5376;
 const RIGHT_VERTICAL_GROUP: i16 = -4608;
 
+/// Pilot-relative targeting upgrade flags ($1DDD). The active pilot's high
+/// bit gates target-lock tracking at $07:A50A; pilot exchange swaps the high
+/// two bits at $06:A399. Acquiring this upgrade preserves every other bit.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct TargetingUpgradeState {
+    pub pilot_flags: u8,
+}
+
+impl TargetingUpgradeState {
+    const ACTIVE_PILOT: u8 = 0x80;
+
+    pub fn active_pilot_has_upgrade(self) -> bool {
+        self.pilot_flags & Self::ACTIVE_PILOT != 0
+    }
+
+    pub fn acquire_for_active_pilot(&mut self) {
+        self.pilot_flags |= Self::ACTIVE_PILOT;
+    }
+}
+
 #[derive(Clone, Copy)]
 struct EdgeLimits {
     lower: i16,

@@ -96,6 +96,32 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
+    def test_targeting_upgrade_commands_and_independent_glow_keep_parent_unpublished(self):
+        statements = self.lower_record("00 7a 3c f5 00 79")
+        self.assertIn("TargetingUpgradeOwned { taken: cursor(0, 2), next: cursor(0, 1)", statements[0])
+        self.assertIn("AcquireTargetingUpgrade { next: cursor(0, 2)", statements[1])
+        extractor = PathExtractor(self.rom)
+        _, statements = lower_graph(extractor, PathAddress(0x81E1), 0)
+        self.assertEqual(len(statements), 5)
+        self.assertIn("DisableCollision", statements[0])
+        self.assertIn("Initialize { channel: AnimationChannel::Color, value: 2 }", statements[1])
+        self.assertIn("WaitOne", statements[2])
+        self.assertIn("Initialize { channel: AnimationChannel::Color, value: 3 }", statements[3])
+        self.assertIn("Goto", statements[4])
+        source = generate(self.rom)
+        self.assertIn("TARGETING_UPGRADE_GLOW", source)
+        self.assertNotIn("TARGETING_UPGRADE_PICKUP", source)
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported RemoveChild"):
+            lower_graph(extractor, PathAddress(0x787D), 0)
+        changed = bytearray(self.rom)
+        changed[0x47898:0x4789A] = (0x81E2).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed))
+        for shape, path, kind in [(0xDDF8, 0x7FAA, "Scenery"), (0xF50C, 0x81E1, "Effect")]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (shape_index(shape), f"ObjectKind::{kind}"))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(0xF5A1))
+
     def test_offset_argument_preparation_folds_to_one_typed_statement(self):
         for value in range(256):
             signed = value if value < 128 else value - 256

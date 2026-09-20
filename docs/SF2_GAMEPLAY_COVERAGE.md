@@ -1607,3 +1607,33 @@ statements**. Validation passes 115 lowerer tests, 279 static path tests and
 architecture/static audits and the application build. This remains static
 lowering and native service verification, not completed Game scheduler/spawn
 integration or recorded-gameplay verification.
+
+### Targeting-upgrade primitives and independent glow child
+
+The upgrade ownership branch and acquisition command now use a typed
+pilot-relative targeting record. Static checks cover both complete handlers,
+the high-bit target-lock gate and the pilot-exchange bit mapping. Acquisition
+preserves the other seven bits; the ownership branch takes a direct source
+edge and does not consume IFNOT. Native dispatch tests cover every initial
+byte with both IFNOT states, missing input, budget-zero atomicity and complete
+actor/random-state preservation.
+
+`TARGETING_UPGRADE_GLOW` independently lowers its complete five-statement
+child graph: disable collision, select color frame two, yield once, select
+frame three, and yield back to frame two. Its reachable parent spawn is
+verified, and changing that installer rejects publication. A native test
+checks 256 independent scheduling visits without executing the parent.
+Classification of the two presentation-child shapes is restricted to their
+reviewed child paths, not generalized to unrelated uses of either shape.
+
+The parent pickup remains **unpublished**. Its remaining `RemoveChild`
+command sets the child's deferred-removal flag, but unlike the reviewed
+signal/unlink handlers it does not guard a failed lookup. The null-target
+scratch-write case still needs static review; the lowerer rejects it rather
+than substituting an immediate deletion or an unproved no-op.
+
+Coverage is **32 complete roots / 733 source commands / 724 native
+statements**. Validation passes 116 lowerer tests, 280 static path tests and
+291 native path tests in debug/release, generated freshness, architecture
+and static audits, and the application build. Target-lock service and Game
+scheduler integration are not claimed by this primitive/child checkpoint.

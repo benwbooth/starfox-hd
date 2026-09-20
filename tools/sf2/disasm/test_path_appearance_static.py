@@ -77,6 +77,14 @@ class PathAppearanceStaticTests(unittest.TestCase):
         self.assert_source(0x098D62, "89 B5 24 09 04 95 24 C2 20 A9 6F 8D 6B 42")
         self.assert_source(0x7F1BFE, "E4 3A F0 6E B5 31 29 04 00 D0 67 B5 24 29 04 00 D0 60 B4 04")
 
+    def test_targeting_upgrade_gate_acquisition_and_independent_glow(self):
+        self.assert_source(0x7FC47D, "AD DD 1D 09 80 8D DD 1D 4C E8 CA")
+        self.assert_source(0x7FC488, "AD DD 1D 89 80 F0 04 5C 96 C4 7F 4C BE CA 4C F3 CA")
+        self.assert_source(0x07A50A, "AD DD 1D 89 80 D0 04 5C F9 A5 07")
+        self.assert_source(0x06A399, "AD DD 1D 48 29 80 4A 85 3A 68 29 40 0A 05 3A 8D DD 1D")
+        self.assert_source(0x08F895, "F5 0C F5 E1 81 0A 0A 00 00 00 00 00 00 02")
+        self.assert_source(0x0981E1, "5C 1D 02 78 1D 03 16 E2 81")
+
     def test_scenery_mask_transfer_is_byte_wide_even_though_import_helper_reads_a_word(self):
         self.assert_source(0x7F9F5B, "20 E7 9F AD B7 16 99 00 00 4C BE CA")
         self.assert_source(0x7F9FE7,

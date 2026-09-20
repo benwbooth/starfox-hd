@@ -55,11 +55,15 @@ ROOTS = (
     ("SCENE_MATERIAL_SCENERY", PathAddress(0x7FAA)),
     ("DISTANCE_GATED_SCENERY", PathAddress(0x7F27)),
     ("HEALTH_ROTATED_DISTANCE_SCENERY", PathAddress(0x7F24)),
+    ("TARGETING_UPGRADE_GLOW", PathAddress(0x81E1)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
 # This proves installation only; it does not claim the parent graph is lowered.
-CHILD_INSTALLERS = {PathAddress(0x7FAA): (PathAddress(0x787D), PathAddress(0x7887))}
+CHILD_INSTALLERS = {
+    PathAddress(0x7FAA): (PathAddress(0x787D), PathAddress(0x7887)),
+    PathAddress(0x81E1): (PathAddress(0x787D), PathAddress(0x7895)),
+}
 
 
 class UnsupportedPath(ValueError):
@@ -203,6 +207,12 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # Collision-disabled recovery effects: settle, center, then self-frame/tumble
     # before clearing health. Classification applies only to these paths.
     if (index, path) in ((112, PathAddress(0xF3D4)), (113, PathAddress(0xF3DE))):
+        return index, "ObjectKind::Effect"
+    # The upgrade pickup's collision-disabled presentation children. Restrict
+    # classification to their reviewed paths, not all uses of either shape.
+    if (index, path) == (305, PathAddress(0x7FAA)):
+        return index, "ObjectKind::Scenery"
+    if (index, path) == (516, PathAddress(0x81E1)):
         return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
@@ -391,7 +401,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name in ("QueueSelectedMarkerDirect", "QueueSelectedMarkerPair"):
+        if name == "IfExternal1dddBit80":
+            low, high = parameters(2)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::TargetingUpgradeOwned {{ taken: {taken}, next: {next_} }}"
+        elif name == "SetExternal1dddBit80":
+            parameters(0)
+            statement = f"Statement::AcquireTargetingUpgrade {{ next: {next_cursor()} }}"
+        elif name in ("QueueSelectedMarkerDirect", "QueueSelectedMarkerPair"):
             operands = parameters(1 if name == "QueueSelectedMarkerDirect" else 2)
             cue = operands[0]
             packed_parameter = operands[1] if len(operands) == 2 else 0

@@ -17,6 +17,7 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
     pub scenery_distance: Option<&'a mut SceneryDistanceState>,
+    pub targeting_upgrade: Option<&'a mut super::path_target::TargetingUpgradeState>,
     pub shield_recovery: Option<&'a mut super::player_hit_control::ShieldRecoveryRequest>,
     /// Whole shared action-gate byte (1D72), not a narrowed protection flag.
     pub action_gate: Option<u8>,
@@ -315,6 +316,13 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    TargetingUpgradeOwned {
+        taken: PathCursor,
+        next: PathCursor,
+    },
+    AcquireTargetingUpgrade {
+        next: PathCursor,
+    },
     SceneryDistance {
         command: SceneryDistanceCommand,
         next: PathCursor,
@@ -569,6 +577,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingTargetingUpgrade,
     MissingSceneryDistance,
     MissingSceneByte(SceneByte),
     MissingShieldRecovery,
@@ -692,6 +701,21 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::TargetingUpgradeOwned { taken, next } => {
+                    let upgrade = world.targeting_upgrade.as_deref()
+                        .ok_or(ProgramError::MissingTargetingUpgrade)?;
+                    // $7F:C488 branches directly, without consuming IFNOT.
+                    objects.get_mut(owner).expect("validated upgrade observer").base.path =
+                        Some(if upgrade.active_pilot_has_upgrade() { taken } else { next });
+                    Ok(ControlStep::Continue)
+                }
+                Statement::AcquireTargetingUpgrade { next } => {
+                    world.targeting_upgrade.as_deref_mut()
+                        .ok_or(ProgramError::MissingTargetingUpgrade)?
+                        .acquire_for_active_pilot();
+                    objects.get_mut(owner).expect("validated upgrade collector").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ClockBitsSet { mask, taken, next } => {
                     // $7F:BD06 takes direct branches: IFNOT is untouched.
                     objects
@@ -1477,6 +1501,7 @@ mod tests {
         PathWorld {
             scene: ScenePathInputs::default(),
             scenery_distance: None,
+            targeting_upgrade: None,
             shield_recovery: None,
             action_gate: None,
             environment_plane_height: None,
@@ -5138,6 +5163,70 @@ mod tests {
     }
 
     #[test]
+    fn targeting_upgrade_commands_preserve_other_pilot_bits_and_bypass_ifnot() {
+        use super::super::path_target::TargetingUpgradeState;
+        for flags in 0..=u8::MAX {
+            for inverted in [false, true] {
+                for acquiring in [false, true] {
+                    let statement = if acquiring { Statement::AcquireTargetingUpgrade { next: cursor(0, 1) } }
+                        else { Statement::TargetingUpgradeOwned { taken: cursor(0, 2), next: cursor(0, 1) } };
+                    let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    runtime.branch.invert_next = inverted;
+                    objects.get_mut(owner).unwrap().base.wait_timer = 193;
+                    let before = objects.clone();
+                    let initial_random = random;
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                        Err(ProgramError::MissingTargetingUpgrade));
+                    assert_eq!(objects, before);
+                    assert_eq!(runtime.branch.invert_next, inverted);
+                    let mut upgrade = TargetingUpgradeState { pilot_flags: flags };
+                    let mut inputs = world(&mut random);
+                    inputs.targeting_upgrade = Some(&mut upgrade);
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                        Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                    assert_eq!(objects, before);
+                    assert_eq!(inputs.targeting_upgrade.as_ref().unwrap().pilot_flags, flags);
+                    let next = cursor(0, if !acquiring && flags & 0x80 != 0 { 2 } else { 1 });
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded { cursor: next, executed: 1 }));
+                    let mut expected = before;
+                    expected.get_mut(owner).unwrap().base.path = Some(next);
+                    assert_eq!(objects, expected);
+                    assert_eq!(upgrade.pilot_flags, if acquiring { flags | 0x80 } else { flags });
+                    assert_eq!(runtime.branch.invert_next, inverted);
+                    assert_eq!(random, initial_random);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn targeting_upgrade_glow_runs_independently_with_alternating_yielded_frames() {
+        use super::super::authored_paths;
+        let catalog = authored_paths::catalog();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.path = Some(authored_paths::TARGETING_UPGRADE_GLOW);
+        actor.base.shape = ShapeId::from_catalog_index(516);
+        actor.base.hit_points = 10;
+        runtime.branch.invert_next = true;
+        let initial_random = random;
+        for visit in 0..256 {
+            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4), Ok(ControlStep::Movement));
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(if visit % 2 == 0 { 2 } else { 3 }));
+            assert_eq!(actor.base.hit_points, 10);
+            assert!(actor.base.flags.collision_disabled);
+            assert!(actor.base.flags.visible);
+            assert!(!actor.base.flags.remove_after_tick);
+            assert_eq!(actor.base.wait_timer, 0);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, initial_random);
+        }
+    }
+
+    #[test]
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
@@ -6610,6 +6699,7 @@ mod tests {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
                 scenery_distance: None,
+                targeting_upgrade: None,
                 shield_recovery: None,
                 action_gate: None,
                 environment_plane_height: None,
@@ -10461,9 +10551,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 31);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 719);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 728);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 32);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 724);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 733);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -10596,6 +10686,7 @@ mod tests {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
                 scenery_distance: None,
+                targeting_upgrade: None,
                 shield_recovery: None,
                 action_gate: None,
                 environment_plane_height: None,
@@ -10720,6 +10811,7 @@ mod tests {
                     &mut PathWorld {
                         scene: ScenePathInputs::default(),
                         scenery_distance: None,
+                        targeting_upgrade: None,
                         shield_recovery: None,
                         action_gate: None,
                         environment_plane_height: None,
