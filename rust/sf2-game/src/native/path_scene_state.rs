@@ -175,6 +175,10 @@ pub struct CameraTrackingTarget {
 /// bit assignments vary by encounter. Keep their complete wrapping values.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct EncounterCoordination {
+    /// Arena-boundary corrections ($D73F). The articulated encounter clears
+    /// this before constraining its position, increments once per correction,
+    /// and polls the resulting byte to schedule a turn away from the boundary.
+    pub boundary_corrections: u8,
     /// Primary progression ($D787); also observed by player service $06:9E03.
     pub progress: u8,
     /// Secondary progression ($D788), advanced by part-death paths and waited
@@ -202,6 +206,7 @@ pub struct EncounterCoordination {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoordinationField {
+    BoundaryCorrections,
     Progress,
     SecondaryProgress,
     CompletedParts,
@@ -273,6 +278,7 @@ impl EncounterCoordination {
         command: CoordinationCommand,
     ) {
         let value = match field {
+            CoordinationField::BoundaryCorrections => &mut self.boundary_corrections,
             CoordinationField::Progress => &mut self.progress,
             CoordinationField::SecondaryProgress => &mut self.secondary_progress,
             CoordinationField::CompletedParts => &mut self.completed_parts,

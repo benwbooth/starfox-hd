@@ -4039,3 +4039,25 @@ architecture guard, static audit and app build pass. The parent `$44:8D82`
 still requires articulated-part and emitted-object dependencies. Shipping
 world-service, scheduler and spawn integration remain separate open work;
 these checks do not establish gameplay completion.
+
+### Articulated encounter links and boundary coordination
+
+The arena correction byte is now a named encounter-coordination field. The
+source clears it before constraining position, increments it for corrections,
+and polls it to schedule turning. Existing exhaustive coordination tests cover
+its wrapping arithmetic and preservation by unrelated encounter resets.
+
+Six signature-bound inline thunks now publish the current actor into the
+retained last spawn's auxiliary link. A separate typed relationship command
+swaps attachment and auxiliary identities without treating either as scalar
+words or changing the sibling chain, relative frame or coordinate gates.
+Native checks cover self-aliases, absent/stale spawn identities, retained spawn
+selection, reversible swaps, and unchanged branch/random/actor state. Six
+articulated-encounter shape/path classifications are restricted to their
+reviewed installers; the final hittable limb remains an enemy.
+
+All 1,029 native unit tests and two integration tests pass in debug and
+release; 202 lowerer tests, exact regeneration, architecture guard, static
+audit and app build pass. Catalog totals remain 142 roots and five helpers.
+The parent encounter is still open at its linked-relative-position command;
+these primitives do not yet establish a complete boss or shipping scheduling.

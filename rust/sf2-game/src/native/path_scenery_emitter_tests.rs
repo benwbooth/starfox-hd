@@ -17,6 +17,156 @@ fn at(command_index: u16) -> PathCursor {
 }
 
 #[test]
+fn child_auxiliary_publication_uses_retained_spawn_and_preserves_all_other_state() {
+    let catalog =
+        PathCatalog::new(vec![vec![Statement::LinkLastSpawnToSelf { next: at(1) }]]).unwrap();
+    for case in 0..4 {
+        for invert in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let peer = objects
+                .allocate(Object::new(
+                    ObjectKind::Effect,
+                    ShapeId::EMPTY,
+                    Behavior::Effect,
+                ))
+                .unwrap();
+            let target = match case {
+                0 => None,
+                1 => Some(peer),
+                2 => Some(owner),
+                _ => {
+                    objects.remove(peer);
+                    Some(peer)
+                }
+            };
+            objects.get_mut(owner).unwrap().base.attachment = Some(owner);
+            objects.get_mut(owner).unwrap().base.linked_object = Some(owner);
+            runtime.spawns.last_spawn = target;
+            runtime.branch.invert_next = invert;
+            let before = objects.clone();
+            let before_random = random;
+            let result =
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1);
+            let mut expected = before;
+            match case {
+                0 => assert_eq!(
+                    result,
+                    Err(ProgramError::ActorContext(
+                        super::super::path_actor_context::ActorContextError::MissingLastSpawn
+                    ))
+                ),
+                3 => assert_eq!(
+                    result,
+                    Err(ProgramError::Runtime(PathRuntimeError::MissingActor(peer)))
+                ),
+                _ => {
+                    assert_eq!(
+                        result,
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: at(1),
+                            executed: 1
+                        })
+                    );
+                    expected
+                        .get_mut(target.unwrap())
+                        .unwrap()
+                        .base
+                        .linked_object = Some(owner);
+                    expected.get_mut(owner).unwrap().base.path = Some(at(1));
+                }
+            }
+            assert_eq!(objects, expected);
+            assert_eq!(random, before_random);
+            assert_eq!(runtime.branch.invert_next, invert);
+            assert_eq!(runtime.spawns.last_spawn, target);
+        }
+    }
+}
+
+#[test]
+fn attachment_auxiliary_swap_preserves_chain_pose_gates_and_pending_branch() {
+    use super::super::path_relationships::RelationshipCommand;
+    let catalog = PathCatalog::new(vec![vec![
+        Statement::Relationship {
+            command: RelationshipCommand::SwapAttachmentAndAuxiliary,
+            next: at(1),
+        },
+        Statement::Relationship {
+            command: RelationshipCommand::SwapAttachmentAndAuxiliary,
+            next: at(2),
+        },
+    ]])
+    .unwrap();
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    let peer = objects
+        .allocate(Object::new(
+            ObjectKind::Enemy,
+            ShapeId::EMPTY,
+            Behavior::FollowPath,
+        ))
+        .unwrap();
+    let stale = objects
+        .allocate(Object::new(
+            ObjectKind::Effect,
+            ShapeId::EMPTY,
+            Behavior::Effect,
+        ))
+        .unwrap();
+    objects.remove(stale);
+    for attachment in [None, Some(owner), Some(peer), Some(stale)] {
+        for auxiliary in [None, Some(owner), Some(peer), Some(stale)] {
+            for flags in 0..8 {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.attachment = attachment;
+                actor.base.linked_object = auxiliary;
+                actor.base.path = Some(at(0));
+                actor.extension.path_state.motion.attached_coordinates = flags & 1 != 0;
+                actor.extension.path_state.motion.relative_coordinates = flags & 2 != 0;
+                runtime.branch.invert_next = flags & 4 != 0;
+                let before = objects.clone();
+                let before_random = random;
+                let mut expected = before.clone();
+                expected.get_mut(owner).unwrap().base.attachment = auxiliary;
+                expected.get_mut(owner).unwrap().base.linked_object = attachment;
+                expected.get_mut(owner).unwrap().base.path = Some(at(1));
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1
+                    ),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: at(1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                expected = before;
+                expected.get_mut(owner).unwrap().base.path = Some(at(2));
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1
+                    ),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: at(2),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                assert_eq!(random, before_random);
+                assert_eq!(runtime.branch.invert_next, flags & 4 != 0);
+            }
+        }
+    }
+}
+
+#[test]
 fn placement_height_is_shared_and_preserves_every_signed_word_and_other_actor_fields() {
     let (mut runtime, mut objects, owner, mut random) = setup();
     let before = objects.clone();
@@ -205,7 +355,9 @@ fn selected_particle_mask_ors_every_byte_without_touching_action_flags_mode_or_i
         let (mut runtime, mut objects, owner, mut random) = setup();
         for flags in 0..=u8::MAX {
             runtime.branch.invert_next = flags & 1 != 0;
-            let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
+            let mut auxiliary = SelectedAuxiliaryState {
+                stored_rotation: Default::default(),
+                stored_world_position: Default::default(),
                 mode: !flags,
                 action_flags: flags,
             };
@@ -228,7 +380,9 @@ fn selected_particle_mask_ors_every_byte_without_touching_action_flags_mode_or_i
             );
             assert_eq!(
                 auxiliary,
-                SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
+                SelectedAuxiliaryState {
+                    stored_rotation: Default::default(),
+                    stored_world_position: Default::default(),
                     mode: !flags,
                     action_flags: flags
                 }
@@ -339,7 +493,9 @@ fn sprite_emitter_runs_its_own_fallthrough_and_finishes_after_the_authored_waits
         actor.base.path = Some(authored_paths::SELECTED_SCENERY_SPRITE_EMITTER);
         actor.base.position.y = initial_y;
         let mut events = AudioState::default();
-        let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
+        let mut auxiliary = SelectedAuxiliaryState {
+            stored_rotation: Default::default(),
+            stored_world_position: Default::default(),
             mode: 143,
             action_flags: 0,
         };

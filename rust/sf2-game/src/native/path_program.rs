@@ -660,6 +660,7 @@ pub enum Statement {
     RestoreWorldPosition { next: PathCursor },
     ImportSceneryPlacementHeight { next: PathCursor },
     AttachLastSpawn { next: PathCursor },
+    LinkLastSpawnToSelf { next: PathCursor },
     QuerySurfaceHeight { destination: super::path_fields::WordField, next: PathCursor },
     MarkRemoval { next: PathCursor },
     AttachPublishedHomingTarget { next: PathCursor },
@@ -1476,6 +1477,18 @@ impl PathRuntime {
                     let actor = objects.get_mut(owner).expect("validated placement-coordinate owner");
                     self.placement.apply(actor, command).map_err(ProgramError::MissingPlacementCoordinate)?;
                     actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::LinkLastSpawnToSelf { next } => {
+                    objects.get(owner).ok_or(PathRuntimeError::MissingActor(owner))?;
+                    let target = self.spawns.last_spawn.ok_or(ProgramError::ActorContext(
+                        super::path_actor_context::ActorContextError::MissingLastSpawn,
+                    ))?;
+                    let spawned = objects.get_mut(target).ok_or(PathRuntimeError::MissingActor(target))?;
+                    // The source writes only the retained spawn's auxiliary
+                    // link. Child-chain membership and relative parent stay put.
+                    spawned.base.linked_object = Some(owner);
+                    objects.get_mut(owner).expect("validated link publisher").base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::AttachLastSpawn { next } => {

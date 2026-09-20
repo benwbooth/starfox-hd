@@ -606,6 +606,17 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # health/attack remain source data, not consequences of this native kind.
     if (shape, path) in ((0xBD28, PathAddress(0x7B8F)), (0xBC9C, PathAddress(0x78D2))):
         return index, "ObjectKind::Effect"
+    # Articulated encounter: hidden/noncolliding link constructors, the
+    # collision-disabled completion display, and a short-lived shot emitter.
+    # Only the final hittable arm segment retains ordinary enemy contacts.
+    if (shape, path) in ((0xBC9C, PathAddress(0x910D)),
+                        (0xE15C, PathAddress(0x918D)),
+                        (0xE15C, PathAddress(0x91C8)),
+                        (0xEF5C, PathAddress(0x52EC)),
+                        (0xC8C0, PathAddress(0x923E))):
+        return index, "ObjectKind::Effect"
+    if (shape, path) == (0xE178, PathAddress(0x9206)):
+        return index, "ObjectKind::Enemy"
     # Four-panel objective: height-gated hittable panels and their emitted
     # fighters are enemies; the detached spawners disable collision. The
     # broken-panel clone immediately enters death, while the held center
@@ -1204,6 +1215,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF078): "RefreshSelectedChargeAttachment",
                 PathAddress(0xDCBD): "AlignCameraHeading",
                 PathAddress(0xE939): "UpdateLowShieldVisual",
+                PathAddress(0x2059): "LinkLastSpawnToSelf",
+                PathAddress(0x9122): "LinkLastSpawnToSelf",
+                PathAddress(0x919F): "LinkLastSpawnToSelf",
+                PathAddress(0x91DA): "LinkLastSpawnToSelf",
+                PathAddress(0xF9A1): "LinkLastSpawnToSelf",
+                PathAddress(0xFDDC): "LinkLastSpawnToSelf",
             }
             if command.address == PathAddress(0xB0CB):
                 parameters(0)
@@ -1309,7 +1326,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             statement = f"Statement::SpawnOffset {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
         elif name == "SwapVariableWords":
             first, second = parameters(2)
-            statement = f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: {next_cursor()} }}"
+            if (first, second) in ((0x1C, 0x06), (0x06, 0x1C)):
+                statement = f"Statement::Relationship {{ command: RelationshipCommand::SwapAttachmentAndAuxiliary, next: {next_cursor()} }}"
+            else:
+                statement = f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: {next_cursor()} }}"
         elif name == "ClearExternalCf33VariableBit":
             selector, = parameters(1)
             mask = f"WordOperand::IndexedBitMask {{ selector: ByteOperand::Actor({byte_field(selector)}), masks: &VARIABLE_BIT_MASKS }}"
@@ -1882,8 +1902,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::RadioEvent {{ command: super::path_radio::RadioEventCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B, 0xD78D, 0xD79A, 0xD7D5):
-                field = {0xD787: "Progress", 0xD788: "SecondaryProgress", 0xD789: "CompletedParts",
+            if address in (0xD73F, 0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B, 0xD78D, 0xD79A, 0xD7D5):
+                field = {0xD73F: "BoundaryCorrections", 0xD787: "Progress", 0xD788: "SecondaryProgress", 0xD789: "CompletedParts",
                          0xD78A: "ActiveMessages", 0xD78B: "Handshake", 0xD78D: "RetiredActors", 0xD79A: "Phase", 0xD7D5: "TransitionReady"}[address]
                 if name.startswith("Import"):
                     operation = f"CopyTo({byte_field(variable)})"

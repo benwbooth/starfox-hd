@@ -132,6 +132,59 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 spawn_shape(shape, PathAddress(path + 1))
 
+    def test_articulated_encounter_spawns_and_boundary_counter_are_source_bound(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x8D82))
+        for installer, shape, path, index, kind in [
+                (0x8DB4, 0xBC9C, 0x910D, 0, 'Effect'),
+                (0x9114, 0xE15C, 0x918D, 336, 'Effect'),
+                (0x9191, 0xE15C, 0x91C8, 336, 'Effect'),
+                (0x8F20, 0xEF5C, 0x52EC, 464, 'Effect'),
+                (0x9224, 0xC8C0, 0x923E, 111, 'Effect'),
+                (0x91CC, 0xE178, 0x9206, 337, 'Enemy')]:
+            command = extractor.decode_command(PathAddress(installer))
+            self.assertIn(command, commands)
+            spawn = child_spawn_parameters(command) if command.opcode in (0x33, 0xF5) else independent_spawn_parameters(command)
+            self.assertEqual((spawn.shape, spawn.path), (shape, PathAddress(path)))
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, f'ObjectKind::{kind}'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+        for address, raw in [(0x8F74, '79993fd7'), (0x8FDD, 'fb3fd700'),
+                             (0x900F, 'e53fd7'), (0x9097, 'e53fd7'),
+                             (0x909F, 'e53fd7'), (0x90F1, 'e53fd7'), (0x90F9, 'e53fd7')]:
+            self.assertEqual(extractor.decode_command(PathAddress(address)).raw_hex, raw)
+            self.assertIn('CoordinationField::BoundaryCorrections', self.lower_record(raw)[0])
+        for record, operation in [('7d 99 3f d7', 'Assign'), ('e7 3f d7', 'Decrement')]:
+            statement = self.lower_record(record)[0]
+            self.assertIn('CoordinationField::BoundaryCorrections', statement)
+            self.assertIn(f'CoordinationCommand::{operation}', statement)
+        for address in (0xD73E, 0xD740):
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record('79 99 ' + address.to_bytes(2, 'little').hex(' '))
+
+    def test_child_auxiliary_link_thunks_and_identity_swap_are_typed_not_scalar(self):
+        extractor = PathExtractor(self.rom)
+        for address, continuation in [(0x2059, 0x2065), (0x9122, 0x912E),
+                (0x919F, 0x91AB), (0x91DA, 0x91E6), (0xF9A1, 0xF9AD), (0xFDDC, 0xFDE8)]:
+            raw = bytes.fromhex('ac71d7961cc220a9') + continuation.to_bytes(2, 'little') + b'\x6b'
+            self.assertEqual(self.rom[0x40001 + address:0x40001 + address + len(raw)], raw)
+            extractor.decode_command(PathAddress(address))
+            # A synthetic END after the untouched thunk isolates its lowering.
+            changed = bytearray(self.rom)
+            changed[0x40000 + continuation] = 0x0F
+            entry, statements = lower_graph(PathExtractor(bytes(changed)), PathAddress(address), 0)
+            self.assertIn('Statement::LinkLastSpawnToSelf', statements[0])
+            for offset in range(len(raw)):
+                mutated = bytearray(changed)
+                mutated[0x40001 + address + offset] ^= 1
+                with self.assertRaisesRegex(ValueError, 'inline signature mismatch'):
+                    lower_graph(PathExtractor(bytes(mutated)), PathAddress(address), 0)
+        for record in ['00 78 1c 06', '00 78 06 1c']:
+            self.assertIn('RelationshipCommand::SwapAttachmentAndAuxiliary', self.lower_record(record)[0])
+        for record in ['00 78 1c 0c', '00 78 06 0c']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_scene_continuation_retains_the_current_instruction_then_ends(self):
         extractor = PathExtractor(self.rom)
         root = PathAddress(0x1682)

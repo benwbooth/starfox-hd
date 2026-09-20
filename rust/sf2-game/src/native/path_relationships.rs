@@ -33,6 +33,9 @@ pub enum RelationshipCommand {
     RefreshLinkedRotation,
     ClearRelativeReference,
     UseSelfRelativeFrame,
+    /// Temporarily use the auxiliary link as the attachment frame, then swap
+    /// back. This does not rebuild the child chain or change coordinate gates.
+    SwapAttachmentAndAuxiliary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -391,6 +394,13 @@ pub fn apply(
                     .conditions
                     .hit_event_pending = true;
             }
+            return Ok(());
+        }
+        RelationshipCommand::SwapAttachmentAndAuxiliary => {
+            let actor = objects
+                .get_mut(owner)
+                .ok_or(RelationshipError::MissingActor(owner))?;
+            std::mem::swap(&mut actor.base.attachment, &mut actor.base.linked_object);
             return Ok(());
         }
         RelationshipCommand::ClearRelativeReference | RelationshipCommand::UseSelfRelativeFrame => {

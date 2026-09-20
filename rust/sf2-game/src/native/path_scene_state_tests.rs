@@ -4,7 +4,8 @@ use super::super::{authored_paths, PathId};
 use super::tests::{setup, world};
 use super::*;
 
-const FIELDS: [CoordinationField; 8] = [
+const FIELDS: [CoordinationField; 9] = [
+    CoordinationField::BoundaryCorrections,
     CoordinationField::Progress,
     CoordinationField::SecondaryProgress,
     CoordinationField::CompletedParts,
@@ -157,6 +158,7 @@ fn at(index: u16) -> PathCursor {
 
 fn state(value: u8) -> EncounterCoordination {
     EncounterCoordination {
+        boundary_corrections: value,
         progress: value,
         secondary_progress: value,
         completed_parts: value,
@@ -170,6 +172,7 @@ fn state(value: u8) -> EncounterCoordination {
 
 fn replace_field(state: &mut EncounterCoordination, field: CoordinationField, value: u8) {
     match field {
+        CoordinationField::BoundaryCorrections => state.boundary_corrections = value,
         CoordinationField::Progress => state.progress = value,
         CoordinationField::SecondaryProgress => state.secondary_progress = value,
         CoordinationField::CompletedParts => state.completed_parts = value,
@@ -441,6 +444,7 @@ fn complete_scene_reset_copies_initial_values_then_clears_sixteen_masks_without_
             // This authored reset stops at D78C before the pickup word;
             // remembered actor retirements, phase and transition readiness survive.
             assert_eq!(coordination, EncounterCoordination {
+                boundary_corrections: value ^ 0xFF,
                 retired_actors: value ^ 0xFF,
                 phase: value ^ 0xFF,
                 transition_ready: value ^ 0xFF,
