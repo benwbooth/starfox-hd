@@ -84,6 +84,10 @@ ROOTS = (
     ("PHASE_INCREMENTED_MOTION_FADE_SPRITE", PathAddress(0x83F4)),
     ("RANDOM_SIZE_MOTION_FADE_SPRITE", PathAddress(0x83F9)),
     ("SMALL_RANDOM_MOTION_FADE_SPRITE", PathAddress(0x8402)),
+    ("RANDOM_TUMBLING_MESH_EFFECT", PathAddress(0x98E5)),
+    ("ROLLING_CONTACT_SHAPE", PathAddress(0x9A04)),
+    ("RESET_SHAPE_HOLD", PathAddress(0x77C0)),
+    ("DISTANT_SHAPE_HOLD", PathAddress(0x7FA1)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -119,6 +123,10 @@ CHILD_INSTALLERS = {
     PathAddress(0x83F4): (PathAddress(0x2651), PathAddress(0x25FD)),
     PathAddress(0x83F9): (PathAddress(0x00BC), PathAddress(0x0443)),
     PathAddress(0x8402): (PathAddress(0x2F11), PathAddress(0x3025)),
+    PathAddress(0x98E5): (PathAddress(0x9492), PathAddress(0x9880)),
+    PathAddress(0x9A04): (PathAddress(0x9492), PathAddress(0x99FC)),
+    PathAddress(0x77C0): (PathAddress(0x7442), PathAddress(0x76AD)),
+    PathAddress(0x7FA1): (PathAddress(0x7442), PathAddress(0x7791)),
 }
 
 
@@ -318,6 +326,8 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
                         (88, PathAddress(0xF1BD)), (315, PathAddress(0xF1AE)),
                         (124, PathAddress(0xF1C9)), (399, PathAddress(0xC1FF)),
                         (48, PathAddress(0xFA07))):
+        return index, "ObjectKind::Effect"
+    if (index, path) == (309, PathAddress(0x98E5)):
         return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")

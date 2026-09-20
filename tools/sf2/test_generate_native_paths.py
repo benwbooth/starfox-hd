@@ -312,6 +312,74 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
                 generate(bytes(changed))
 
+    def test_random_tumbling_mesh_keeps_draw_order_world_angles_and_complete_eighty_pass_loop(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x98E5))
+        _, statements = lower_graph(extractor, PathAddress(0x98E5), 0)
+        self.assertEqual(len(commands), 13)
+        self.assertEqual(len(statements), 13)
+        mapped = dict(zip((c.address.offset for c in commands), statements))
+        for address, fragments in [
+            (0x98E6, ["Rotation(Axis::Y)", "mask: 255"]),
+            (0x98E9, ["Rotation(Axis::X)", "mask: 255"]),
+            (0x98EC, ["BytePart::Low", "mask: 31"]),
+            (0x98EF, ["BytePart::Low", "Literal(240)"]),
+            (0x98F2, ["BytePart::High", "mask: 31"]),
+            (0x98F5, ["BytePart::High", "Literal(240)"]),
+            (0x98F8, ["SetSpeed(30)"]), (0x98FA, ["iterations: 80"]),
+            (0x98FC, ["Rotation(Axis::X)", "BytePart::Low"]),
+            (0x98FF, ["Rotation(Axis::Y)", "BytePart::High"]),
+            (0x9902, ["immediate: false"]), (0x9903, ["ControlCommand::End"]),
+        ]:
+            for fragment in fragments:
+                self.assertIn(fragment, mapped[address])
+        spawn = independent_spawn_parameters(extractor.decode_command(PathAddress(0x9880)))
+        self.assertEqual((spawn.shape, spawn.path.offset, spawn.hit_points, spawn.attack_power),
+                         (0xDE68, 0x98E5, 10, 10))
+        self.assertEqual(spawn_shape(spawn.shape, spawn.path), (309, "ObjectKind::Effect"))
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+            spawn_shape(spawn.shape, PathAddress(0x98E6))
+        changed = bytearray(self.rom)
+        changed[0x49883:0x49885] = (0x98E6).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed))
+
+    def test_rolling_contact_shape_and_distinct_held_shape_graphs_are_complete(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, installer, shape in [
+            (0x9A04, 9, 0x99FC, 0xBF58), (0x77C0, 6, 0x76AD, 0xEF5C),
+            (0x7FA1, 5, 0x7791, 0xE664),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((c.address.offset for c in commands), statements))
+            fragments = {
+                0x9A04: [(0x9A04, "Collision(true)"), (0x9A05, "SuppressContactsNextEpoch(true)"),
+                         (0x9A06, "SetSpeed(80)"), (0x9A08, "ShapeId::from_catalog_index(47)"),
+                         (0x9A0C, "TriggerKind::Always"), (0x9A0F, "Literal(12)"),
+                         (0x9A11, "ControlCommand::End"), (0x9A12, "Rotation(Axis::Z)"),
+                         (0x9A12, "Literal(16)"), (0x9A14, "ControlCommand::Return")],
+                0x77C0: [(0x77C0, "DisableCollision"), (0x77C1, "Shadow(false)"),
+                         (0x77C2, "Literal(100)"), (0x77C5, "RetainClass(ContactClassMask"),
+                         (0x77C7, "AnimationChannel::Shape, value: 0"), (0x77C8, "ControlCommand::Hold")],
+                0x7FA1: [(0x7FA1, "Literal(100)"), (0x7FA4, "DisableCollision"),
+                         (0x7FA5, "MaximumDrawDistance(true)"), (0x7FA6, "Shadow(false)"),
+                         (0x7FA7, "ControlCommand::Hold")],
+            }[root]
+            for address, fragment in fragments:
+                self.assertIn(fragment, mapped[address])
+            command = extractor.decode_command(PathAddress(installer))
+            spawn = independent_spawn_parameters(command) if root == 0x9A04 else child_spawn_parameters(command)
+            self.assertEqual((spawn.shape, spawn.path.offset), (shape, root))
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+                spawn_shape(shape, PathAddress(root))
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+
     def test_held_effect_children_preserve_full_depth_and_table_driven_color_callbacks(self):
         extractor = PathExtractor(self.rom)
         for root, count, installer, shape, index in [

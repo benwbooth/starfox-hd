@@ -137,12 +137,28 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x088443, "5D 24 BE F9 83 64 32")
         self.assert_source(0x08B025, "5D 08 BE 02 84 64 20")
 
+    def test_random_tumbling_mesh_full_graph_and_independent_spawn(self):
+        self.assert_source(0x0998E5,
+            "5C 58 14 FF 58 12 FF 58 A1 1F 07 A1 F0 58 A2 1F 07 A2 F0 "
+            "06 1E 61 50 52 12 A1 52 14 A2 44 0F")
+        self.assert_source(0x099880, "5D 68 DE E5 98 0A 0A")
+
     def test_hit_cycled_shape_complete_graph_and_child_installation(self):
         self.assert_source(0x08A0CD,
             "C4 2E F9 FD 04 0A 19 4C D8 20 42 4B D4 20 61 07 1C 01 08 44 78 "
             "61 07 1C FF 08 44 61 07 1C 01 08 44 FD 04 0A 19 4C F6 20 42 "
             "4B F2 20 61 08 1C FF 08 44 17 CF 20")
         self.assert_source(0x089B34, "F5 14 D0 CD 20 64 02 18 01 00 00 00 00 09")
+
+    def test_rolling_contact_shape_full_wait_callback_graph_and_spawn(self):
+        self.assert_source(0x099A04, "5B 2E 06 50 0C C0 C1 04 FD 06 00 03 0C 0F 73 10 42")
+        self.assert_source(0x0999FC, "5D 58 BF 04 9A 0A 08")
+
+    def test_reset_and_distance_shape_holds_keep_distinct_setup_and_installed_shapes(self):
+        self.assert_source(0x08F7C0, "5C 8D 0B 64 2D F7 EF F9 19")
+        self.assert_source(0x08FFA1, "0B 64 2D 5C CD 8D 19")
+        self.assert_source(0x08F6AD, "F5 5C EF C0 77 64 00 00 00 64 00 2C 01 07")
+        self.assert_source(0x08F791, "F5 64 E6 A1 7F 01 01 00 00 00 00 00 00 01")
 
     def test_mesh_effect_graph_bytes_and_installed_child_records(self):
         self.assert_source(0x099904, "5C 00 29 07 95 08 16 07 99")

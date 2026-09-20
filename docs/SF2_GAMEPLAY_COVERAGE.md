@@ -2055,3 +2055,36 @@ tests and the clipping-publication test in debug/release, generated freshness,
 architecture/static audits and the app build. Complete-root coverage remains
 **60 roots / 1,028 source commands / 1,019 native statements**. No gameplay
 recordings or source-machine execution were used.
+
+### Complete tumbling, rolling and held mesh paths
+
+Four independently installed child graphs are now complete:
+`RANDOM_TUMBLING_MESH_EFFECT` (`44:98E5`, 13 commands),
+`ROLLING_CONTACT_SHAPE` (`44:9A04`, nine commands), `RESET_SHAPE_HOLD`
+(`44:77C0`, six commands), and `DISTANT_SHAPE_HOLD` (`44:7FA1`, five).
+The full source graphs and their reachable spawn records are pinned.
+Only the reviewed collision-disabled tumbling path gains an effect spawn
+classification; the other shapes' categories are not guessed.
+
+The tumbling graph draws yaw, pitch and two signed byte increments in that
+order, sets speed before changing either heading, and executes 80 world-angle
+updates. Its 80th pass reaches END immediately, giving 79 movement yields.
+Native tests vary 256 random seeds, both IFNOT states and both velocity
+generation modes, checking retained velocity, exact draw order, byte wrapping
+and unchanged world position, relative pose and presentation channels.
+
+The rolling graph enables collision while separately suppressing the next
+contact epoch, selects shape 47, and registers an always callback that adds
+16 to roll. Its WAIT preserves the incoming counter, so all 256 initial
+bytes are tested, including immediate expiration and the wraparound case.
+Only movement visits run callbacks; END does not produce another roll step.
+The two persistent graphs both set health to 100 and disable collision and
+shadow, but only one clears the path-spawn exclusion group and resets shape
+animation; only the other forces maximum draw distance. Whole-record tests
+cover all initial class/animation bytes and repeated HOLD visits.
+
+Coverage is **64 complete roots / 1,061 source commands / 1,052 native
+statements**. All 133 lowerer tests, 297 static path tests and 323 native path
+tests in debug/release pass, as do generated freshness, architecture/static
+audits and the app build. These are source-level path results, not proof of
+whole-game scheduler integration or completed gameplay.

@@ -5791,6 +5791,177 @@ mod tests {
     }
 
     #[test]
+    fn random_tumbling_mesh_sets_velocity_before_eighty_world_angle_steps() {
+        use super::super::{authored_paths, path_motion, Angle, Vector3};
+        let catalog = authored_paths::catalog();
+        for seed in 0..=u8::MAX {
+            for deferred in [false, true] {
+                for inverted in [false, true] {
+                    let (mut runtime, mut objects, owner, _) = setup();
+                    let mut random = RandomState::new([seed, seed ^ 255, 93, 253]);
+                    let mut expected_random = random;
+                    let yaw = expected_random.next_byte();
+                    let pitch = expected_random.next_byte();
+                    let pitch_step = (expected_random.next_byte() & 31).wrapping_add(240);
+                    let yaw_step = (expected_random.next_byte() & 31).wrapping_add(240);
+                    let original_velocity = Vector3 { x: 123, y: -456, z: 789 };
+                    let expected_velocity = if deferred { original_velocity } else {
+                        path_motion::direction_velocity(Angle::from_units(pitch), Angle::from_units(yaw), 30, 1)
+                    };
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(authored_paths::RANDOM_TUMBLING_MESH_EFFECT);
+                    actor.base.position = Vector3 { x: i16::MIN, y: 456, z: i16::MAX };
+                    actor.base.velocity = original_velocity;
+                    actor.base.roll = Angle::from_units(seed);
+                    actor.base.wait_timer = seed;
+                    actor.base.hit_points = seed ^ 255;
+                    actor.base.attack_power = seed;
+                    actor.base.flags.casts_shadow = true;
+                    actor.extension.path_state.motion.generate_velocity_each_step = deferred;
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    actor.extension.relative_position = Vector3 { x: 11, y: 22, z: 33 };
+                    actor.extension.relative_rotation.pitch = Angle::from_units(71);
+                    actor.extension.relative_rotation.yaw = Angle::from_units(95);
+                    actor.extension.depth_offset = 0xABCD;
+                    let animation = actor.extension.path_state.animation;
+                    let local = (actor.extension.relative_position, actor.extension.relative_rotation);
+                    runtime.branch.invert_next = inverted;
+                    for visit in 1..=80u8 {
+                        let result = runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 13);
+                        assert_eq!(result, Ok(if visit == 80 { ControlStep::Ended } else { ControlStep::Movement }));
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.base.pitch.units(), pitch.wrapping_add(pitch_step.wrapping_mul(visit)));
+                        assert_eq!(actor.base.yaw.units(), yaw.wrapping_add(yaw_step.wrapping_mul(visit)));
+                        assert_eq!(actor.base.roll.units(), seed);
+                        assert_eq!(actor.base.velocity, expected_velocity);
+                        assert_eq!(actor.base.speed, 30);
+                        assert_eq!(actor.base.position, Vector3 { x: i16::MIN, y: 456, z: i16::MAX });
+                        assert_eq!(actor.extension.path_state.motion_phase, u16::from_le_bytes([pitch_step, yaw_step]));
+                        assert_eq!((actor.extension.relative_position, actor.extension.relative_rotation), local);
+                        assert_eq!(actor.extension.path_state.animation, animation);
+                        assert_eq!(actor.extension.depth_offset, 0xABCD);
+                        assert_eq!(actor.base.wait_timer, seed);
+                        assert_eq!((actor.base.hit_points, actor.base.attack_power), (seed ^ 255, seed));
+                        assert!(actor.base.flags.collision_disabled);
+                        assert!(actor.base.flags.casts_shadow);
+                        assert_eq!(actor.base.flags.remove_after_tick, visit == 80);
+                        assert_eq!(runtime.branch.invert_next, inverted);
+                        assert_eq!(random, expected_random);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rolling_contact_shape_retains_wait_byte_and_rolls_only_on_movement_callbacks() {
+        use super::super::{authored_paths, path_motion, Angle, Vector3};
+        let catalog = authored_paths::catalog();
+        for initial in 0..=u8::MAX {
+            for deferred in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::ROLLING_CONTACT_SHAPE);
+                actor.base.wait_timer = initial;
+                actor.base.pitch = Angle::from_units(initial);
+                actor.base.yaw = Angle::from_units(initial ^ 255);
+                actor.base.roll = Angle::from_units(initial);
+                actor.base.velocity = Vector3 { x: 123, y: -456, z: 789 };
+                actor.base.flags.collision_disabled = true;
+                actor.base.flags.casts_shadow = true;
+                actor.extension.path_state.motion.generate_velocity_each_step = deferred;
+                actor.extension.path_state.motion_phase = 0xABCD;
+                let expected_velocity = if deferred { actor.base.velocity } else {
+                    path_motion::direction_velocity(actor.base.pitch, actor.base.yaw, 80, 1)
+                };
+                let animation = actor.extension.path_state.animation;
+                let initial_random = random;
+                runtime.branch.invert_next = true;
+                let terminal = usize::from(12u8.wrapping_sub(initial));
+                for visit in 0..=terminal {
+                    let ended = visit == terminal;
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 7),
+                        Ok(if ended { ControlStep::Ended } else { ControlStep::Movement }));
+                    if !ended {
+                        assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                        assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2),
+                            Ok(ControlStep::ResumeCallbacks));
+                        assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                    }
+                    let actor = objects.get(owner).unwrap();
+                    let callbacks = (visit + usize::from(!ended)) as u8;
+                    assert_eq!(actor.base.roll.units(), initial.wrapping_add(callbacks.wrapping_mul(16)));
+                    assert_eq!((actor.base.pitch.units(), actor.base.yaw.units()), (initial, initial ^ 255));
+                    assert_eq!(actor.base.shape, ShapeId::from_catalog_index(47));
+                    assert_eq!(actor.base.speed, 80);
+                    assert_eq!(actor.base.velocity, expected_velocity);
+                    assert_eq!(actor.base.position, Vector3::default());
+                    assert_eq!(actor.base.wait_timer, if ended { 0 } else { initial.wrapping_add((visit + 1) as u8) });
+                    assert!(!actor.base.flags.collision_disabled);
+                    assert!(actor.base.contacts.suppress_contacts_next_epoch);
+                    assert!(actor.base.flags.casts_shadow);
+                    assert_eq!(actor.base.flags.remove_after_tick, ended);
+                    assert_eq!(actor.extension.path_state.motion_phase, 0xABCD);
+                    assert_eq!(actor.extension.path_state.animation, animation);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, initial_random);
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn held_mesh_roots_keep_distinct_class_animation_and_distance_controls() {
+        use super::super::{authored_paths, collision_pass::ExclusionGroups, path_appearance::AnimationControl};
+        let catalog = authored_paths::catalog();
+        for reset in [false, true] {
+            for initial in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(if reset { authored_paths::RESET_SHAPE_HOLD } else { authored_paths::DISTANT_SHAPE_HOLD });
+                actor.base.hit_points = initial;
+                actor.base.attack_power = initial;
+                actor.base.wait_timer = initial;
+                actor.base.flags.casts_shadow = true;
+                actor.base.flags.maximum_draw_distance = initial & 1 != 0;
+                actor.base.contacts.exclusion_groups = ExclusionGroups::from_authored_class(initial);
+                actor.extension.path_state.animation.shape = AnimationControl::from_packed(initial);
+                actor.extension.path_state.animation.color = AnimationControl::from_packed(initial ^ 255);
+                let before = actor.clone();
+                let initial_random = random;
+                runtime.branch.invert_next = true;
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6), Ok(ControlStep::Movement));
+                let actor = objects.get(owner).unwrap();
+                let mut expected = before;
+                expected.base.path = actor.base.path;
+                expected.base.behavior = Behavior::PathMovement;
+                expected.base.hit_points = 100;
+                expected.base.flags.collision_disabled = true;
+                expected.base.flags.casts_shadow = false;
+                expected.extension.path_state.hold_latched = true;
+                expected.extension.animation_frame = if !reset && initial & 0x80 != 0 { initial & 0x7F } else { 0 };
+                expected.extension.color_frame = if initial & 0x80 == 0 { (initial ^ 255) & 0x7F } else { 0 };
+                if reset {
+                    expected.base.contacts.exclusion_groups = ExclusionGroups::from_authored_class(initial & 0xEF);
+                    expected.extension.path_state.animation.shape = AnimationControl::from_packed(0x80);
+                } else {
+                    expected.base.flags.maximum_draw_distance = true;
+                }
+                assert_eq!(actor, &expected);
+                for _ in 0..4 {
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1), Ok(ControlStep::Movement));
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, initial_random);
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn mesh_effect_relative_motion_wraps_without_changing_world_pose_or_render_channels() {
         use super::super::{authored_paths, Angle, Vector3};
         let catalog = authored_paths::catalog();
@@ -12215,9 +12386,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 60);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1019);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1028);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 64);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1052);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1061);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
