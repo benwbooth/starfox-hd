@@ -40,6 +40,22 @@ class UnsupportedPath(ValueError):
     pass
 
 
+def trigger_kind(condition: int) -> str:
+    # Source dispatch table $7F:9B0F. Decode once; no numeric condition
+    # selector or handler lookup is retained in the native catalog.
+    kinds = [
+        "Always",
+        *(f"Periodic(TriggerPeriod::{period})" for period in (
+            "Two", "Four", "Eight", "Sixteen", "ThirtyTwo", "SixtyFour", "OneTwentyEight")),
+        "NewContact", "PlayerContact", "ConsumeHitEvent", "Detached",
+        "ZeroHealth", "PlayerCrossing", "PlayerPartTarget",
+        "ControlledAuxFlagHigh", "ControlledAuxFlagLow", "TimerPenultimate",
+    ]
+    if not 0 <= condition < len(kinds):
+        raise UnsupportedPath(f"unreviewed trigger condition {condition}")
+    return f"TriggerKind::{kinds[condition]}"
+
+
 @dataclass(frozen=True)
 class ChildSpawnParameters:
     """Offline literal operands of the two child-attachment spawn forms.
@@ -210,11 +226,30 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             target = "Secondary" if packed_parameter & 0x80 else "Primary"
             cue_ = f"AuthoredCue::new({cue}, {packed_parameter & 0x7F}, PlayerTarget::{target})"
             statement = f"Statement::Sound {{ cue: {cue_}, next: {next_cursor()} }}"
-        elif name == "ScheduleAlways":
-            low, high = parameters(2)
-            target, next_ = branch_cursors(low | (high << 8))
-            trigger = f"Trigger {{ path: {target}, kind: TriggerKind::Always, timer: 0 }}"
+        elif name in ("ScheduleAlways", "ScheduleTrigger", "ScheduleRelative", "ScheduleTriggered"):
+            if name == "ScheduleRelative":
+                delta, condition = parameters(2)
+                destination = (command.address.offset + command.prefix_size + delta) & 0xFFFF
+                duration = None
+            else:
+                operands = parameters({"ScheduleAlways": 2, "ScheduleTrigger": 3, "ScheduleTriggered": 4}[name])
+                destination = int.from_bytes(operands[:2], "little")
+                condition = operands[2] if len(operands) > 2 else 0
+                duration = operands[3] if len(operands) > 3 else None
+            target, next_ = branch_cursors(destination)
+            kind = trigger_kind(condition)
+            trigger = (f"Trigger {{ path: {target}, kind: {kind}, timer: 0 }}" if duration is None
+                       else f"Trigger::timed({target}, {kind}, {duration})")
             statement = f"Statement::Control(ControlCommand::Register {{ trigger: {trigger}, next: {next_} }})"
+        elif name == "CancelTrigger":
+            low, high = parameters(2)
+            path = PathAddress(low | (high << 8))
+            if path not in indices:
+                raise UnsupportedPath(f"cancel target lacks catalog identity at {command.address.label()}")
+            statement = f"Statement::Control(ControlCommand::Cancel {{ path: {cursor(path)}, next: {next_cursor()} }})"
+        elif name == "FreeObjectAuxiliaryAndResetD742":
+            parameters(0)
+            statement = f"Statement::Control(ControlCommand::Clear {{ next: {next_cursor()} }})"
         elif name == "ForceTriggerPath":
             low, high = parameters(2)
             target, next_ = branch_cursors(low | (high << 8))
@@ -407,6 +442,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_sound::AuthoredCue;\nuse super::path_control::PlayerTarget;\n"
     if any("ControlCommand::Register" in statement for statement in unique_statements.values()):
         source += "use super::path_triggers::{Trigger, TriggerKind};\n"
+    if any("TriggerPeriod::" in statement for statement in unique_statements.values()):
+        source += "use super::path_control::TriggerPeriod;\n"
     if any("Statement::SpawnChild" in statement for statement in unique_statements.values()):
         source += "use super::path_spawn::ChildSpawn;\nuse super::{Angle, ObjectKind, Rotation, ShapeId, Vector3};\n"
     source += "\n".join(declarations)

@@ -26,6 +26,20 @@ class PathTriggersStaticTests(unittest.TestCase):
         self.assert_source(0x7F97A9, "9C BD 16 A9 00 8D BF 16 20 F3 97 82 07 33")
         self.assert_source(0x7F97F3, "C2 20 20 20 C7 8D C1 16")
 
+    def test_conditional_relative_and_timed_builders_keep_predicate_separate_from_expiry(self):
+        self.assert_source(0x7F97E4, "9C BD 16 20 04 C5 8D BF 16 20 F3 97 82 B6 32")
+        self.assert_source(0x7F97CA, "9C BD 16 20 E0 C4 8D BF 16 20 BC C4 C2 20 29 FF 00 18 75 2B 20 F8 97 82 DA 32")
+        self.assert_source(0x7F97B7, "20 04 C5 8D BF 16 20 28 C5 1A 8D BD 16 20 F3 97 82 CA 32")
+        self.assert_source(0x7F9B00, "B9 63 6A C2 20 29 FF 00 0A AA E2 20 7C 0F 9B")
+
+    def test_cancel_reads_identity_not_a_call_target_and_clear_has_its_own_advance(self):
+        self.assert_source(0x7F98F6, "C2 20 20 20 C7 8D BD 16 9C BF 16 E2 20 20 09 99 4C BE CA")
+        self.assert_source(0x7F98DC, "BC E0 1C C2 20 98 22 6B 19 7F E2 20 9E E0 1C 9E E1 1C A9 01 8D 42 D7 4C E8 CA")
+
+    def test_trigger_condition_and_timer_readers_use_third_and_fourth_literal_bytes(self):
+        for address, offset in ((0x7FC504, 3), (0x7FC528, 4)):
+            self.assert_source(address, f"84 79 A0 {offset:02X} 00 A5 5E 29 EF 85 5E 8F 3A 30 00 B7 F9 8D 11 19 A5 5E 09 10 85 5E 8F 3A 30 00 AD 11 19 A4 79 60")
+
     def test_callback_primary_view_filter_latches_only_low_phase_byte(self):
         self.assert_source(0x09F349, "AC C3 12 B9 25 00 29 20 D0 04 5C 5C F3 09 A9 01 9D E2 1C C2 20 A9 62 F3 6B")
 

@@ -606,3 +606,14 @@ actions and modified source signatures remain hard lowering errors. All 144
 native path tests pass in debug/release, with 27 lowerer tests, 148 static path
 checks, architecture/dependency checks and the app build. Game scheduling,
 view-filter production/render integration and other graphs remain open.
+
+Trigger lowering now covers conditional, unsigned-relative and timed
+registration, cancellation, and clear-all. All 18 source condition selectors
+become named Rust predicates; other selectors are rejected. Timed registration
+retains the separate duration byte and uses the existing wrapping duration-plus-
+one constructor. Relative destinations wrap within path data. Cancellation
+requires an existing catalog identity rather than manufacturing an executable
+edge for an otherwise undiscovered path. This extends lowering support without
+claiming more complete roots: the catalog stays at nine roots/97 statements.
+Verification passes 31 lowerer tests, 151 static path checks, 14 focused native
+trigger/condition tests in release, and the architecture/dependency audit.

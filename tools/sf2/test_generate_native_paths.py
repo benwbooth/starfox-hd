@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, word_field,
+    byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, trigger_kind, word_field,
 )
 
 
@@ -97,6 +97,52 @@ class NativePathGenerationTests(unittest.TestCase):
         changed[0x4F350] = 0x40  # change the primary flag mask inside the action
         with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
             lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF32C), 0)
+
+    def test_trigger_condition_table_decodes_all_eighteen_and_rejects_other_selectors(self):
+        expected = ["Always", *(f"Periodic(TriggerPeriod::{period})" for period in (
+            "Two", "Four", "Eight", "Sixteen", "ThirtyTwo", "SixtyFour", "OneTwentyEight")),
+            "NewContact", "PlayerContact", "ConsumeHitEvent", "Detached", "ZeroHealth",
+            "PlayerCrossing", "PlayerPartTarget", "ControlledAuxFlagHigh", "ControlledAuxFlagLow", "TimerPenultimate"]
+        for index, kind in enumerate(expected):
+            self.assertEqual(trigger_kind(index), f"TriggerKind::{kind}")
+            statements = self.lower_record(f"4a 36 f5 {index:02x}")
+            self.assertIn(f"kind: TriggerKind::{kind}, timer: 0", statements[0])
+            self.assertIn("path: cursor(0, 0)", statements[0])
+            self.assertIn("next: cursor(0, 1)", statements[0])
+        for index in range(18, 256):
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed trigger condition"):
+                self.lower_record(f"4a 36 f5 {index:02x}")
+
+    def test_timed_trigger_keeps_condition_and_duration_separate_including_byte_wrap(self):
+        for condition in range(18):
+            for duration in [0, 1, 254, 255]:
+                statement = self.lower_record(f"00 65 36 f5 {condition:02x} {duration:02x}")[0]
+                self.assertIn(f"Trigger::timed(cursor(0, 0), {trigger_kind(condition)}, {duration})", statement)
+                self.assertIn("next: cursor(0, 1)", statement)
+
+    def test_relative_trigger_uses_unsigned_displacement_and_wraps_at_path_boundary(self):
+        for start, delta in [(0xF536, 0), (0xF536, 3), (0xF536, 128), (0xF536, 255), (0xFFFE, 3)]:
+            changed = bytearray(self.rom)
+            for index, value in enumerate(bytes([0xFD, delta, 7, 0x0F])):
+                changed[0x40000 + ((start + index) & 0xFFFF)] = value
+            target = (start + delta) & 0xFFFF
+            if delta:
+                changed[0x40000 + target] = 0x0F
+            _, statements = lower_graph(PathExtractor(bytes(changed)), PathAddress(start), 0)
+            statement = next(item for item in statements if "ControlCommand::Register" in item)
+            addresses = sorted({start, (start + 3) & 0xFFFF, target})
+            self.assertIn(f"path: cursor(0, {addresses.index(target)})", statement)
+            self.assertIn("TriggerKind::Periodic(TriggerPeriod::OneTwentyEight), timer: 0", statement)
+            if start == 0xF536:  # publishing still requires a verified installer
+                generated = generate(bytes(changed), (("RELATIVE", PathAddress(start)),))
+                self.assertIn("use super::path_control::TriggerPeriod;", generated)
+
+    def test_cancel_uses_existing_identity_without_claiming_unknown_targets_and_clear_is_separate(self):
+        self.assertIn("ControlCommand::Cancel { path: cursor(0, 0), next: cursor(0, 1) }",
+            self.lower_record("4b 36 f5")[0])
+        with self.assertRaisesRegex(UnsupportedPath, "cancel target lacks catalog identity"):
+            self.lower_record("4b 00 00")
+        self.assertEqual(self.lower_record("00 7b")[0], "Statement::Control(ControlCommand::Clear { next: cursor(0, 1) })")
 
     def test_spawn_lowering_uses_semantic_shape_and_child_cursor_with_separate_continuation(self):
         for record, rotation in (
