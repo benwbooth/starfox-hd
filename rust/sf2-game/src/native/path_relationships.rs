@@ -18,6 +18,7 @@ pub enum RelationshipError {
 pub enum RelationshipCommand {
     UnlinkSelf,
     UnlinkChild { number: u8 },
+    RefreshLinkedRotation,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +265,34 @@ pub fn apply(
             Some(owner)
         }
         RelationshipCommand::UnlinkChild { number } => find_child(objects, owner, number)?,
+        RelationshipCommand::RefreshLinkedRotation => {
+            let actor = objects
+                .get(owner)
+                .ok_or(RelationshipError::MissingActor(owner))?;
+            let Some(link) = actor.base.attachment else {
+                return Ok(());
+            };
+            let linked = objects
+                .get(link)
+                .ok_or(RelationshipError::MissingActor(link))?;
+            // $7F:BACC reads the live link, without checking either relative
+            // coordinate mode or the attached-coordinate flag. Read before
+            // writing so self-links produce three zero differences.
+            let difference = |angle: super::Angle, origin: super::Angle| {
+                super::Angle::from_units(angle.units().wrapping_sub(origin.units()))
+            };
+            let rotation = super::Rotation {
+                pitch: difference(actor.base.pitch, linked.base.pitch),
+                yaw: difference(actor.base.yaw, linked.base.yaw),
+                roll: difference(actor.base.roll, linked.base.roll),
+            };
+            objects
+                .get_mut(owner)
+                .expect("validated rotation owner")
+                .extension
+                .relative_rotation = rotation;
+            return Ok(());
+        }
     };
     if let Some(child) = child {
         detach(objects, child)?;
@@ -275,6 +304,81 @@ pub fn apply(
 mod tests {
     use super::*;
     use crate::{Behavior, Object, ObjectKind, ShapeId};
+
+    #[test]
+    fn linked_rotation_differences_wrap_all_angle_pairs_without_changing_world_pose() {
+        use super::super::{Angle, Rotation, Vector3};
+        let mut objects = ObjectStore::default();
+        let owner = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        let linked = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        objects.get_mut(owner).unwrap().base.attachment = Some(linked);
+        for angle in 0..=u8::MAX {
+            for origin in 0..=u8::MAX {
+                let target = objects.get_mut(linked).unwrap();
+                target.base.pitch = Angle::from_units(origin);
+                target.base.yaw = Angle::from_units(origin.wrapping_add(17));
+                target.base.roll = Angle::from_units(origin.wrapping_sub(91));
+                let target_before = target.clone();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.pitch = Angle::from_units(angle);
+                actor.base.yaw = Angle::from_units(angle.wrapping_sub(73));
+                actor.base.roll = Angle::from_units(angle.wrapping_add(99));
+                actor.base.child_number = 123;
+                actor.base.wait_timer = 57;
+                actor.extension.relative_position = Vector3 { x: 1, y: -2, z: 3 };
+                actor.extension.path_state.motion.attached_coordinates = angle & 1 != 0;
+                actor.extension.path_state.motion.relative_coordinates = origin & 1 != 0;
+                let mut expected = actor.clone();
+                let delta = (i16::from(angle) - i16::from(origin)) as u8;
+                expected.extension.relative_rotation = Rotation {
+                    pitch: Angle::from_units(delta),
+                    yaw: Angle::from_units(delta.wrapping_sub(90)),
+                    roll: Angle::from_units(delta.wrapping_add(190)),
+                };
+                apply(
+                    &mut objects,
+                    owner,
+                    RelationshipCommand::RefreshLinkedRotation,
+                )
+                .unwrap();
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert_eq!(objects.get(linked).unwrap(), &target_before);
+            }
+        }
+        let before = objects.get(owner).unwrap().clone();
+        objects.get_mut(owner).unwrap().base.attachment = None;
+        let mut expected = before;
+        expected.base.attachment = None;
+        apply(
+            &mut objects,
+            owner,
+            RelationshipCommand::RefreshLinkedRotation,
+        )
+        .unwrap();
+        assert_eq!(objects.get(owner).unwrap(), &expected);
+        objects.get_mut(owner).unwrap().base.attachment = Some(owner);
+        expected.base.attachment = Some(owner);
+        expected.extension.relative_rotation = Rotation::default();
+        apply(
+            &mut objects,
+            owner,
+            RelationshipCommand::RefreshLinkedRotation,
+        )
+        .unwrap();
+        assert_eq!(objects.get(owner).unwrap(), &expected);
+    }
 
     fn actor() -> Object {
         Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath)

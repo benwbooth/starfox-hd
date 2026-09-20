@@ -808,6 +808,79 @@ mod tests {
     }
 
     #[test]
+    fn linked_rotation_refresh_advances_without_selection_and_faults_on_dangling_link() {
+        use super::super::path_relationships::{RelationshipCommand, RelationshipError};
+        use super::super::{Angle, Rotation};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let linked = objects
+            .allocate(Object::new(
+                ObjectKind::Player,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        let original_random = random;
+        runtime.branch.invert_next = true;
+        let catalog = PathCatalog::new(vec![vec![Statement::Relationship {
+            command: RelationshipCommand::RefreshLinkedRotation,
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        for link in [Some(linked), None, Some(owner), Some(linked)] {
+            let target = objects.get_mut(linked).unwrap();
+            target.base.pitch = Angle::from_units(90);
+            target.base.yaw = Angle::from_units(160);
+            target.base.roll = Angle::from_units(230);
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(cursor(0, 0));
+            actor.base.attachment = link;
+            actor.base.pitch = Angle::from_units(10);
+            actor.base.yaw = Angle::from_units(20);
+            actor.base.roll = Angle::from_units(30);
+            actor.base.wait_timer = 99;
+            actor.extension.relative_rotation = Rotation {
+                pitch: Angle::from_units(1),
+                yaw: Angle::from_units(2),
+                roll: Angle::from_units(3),
+            };
+            let mut expected = actor.clone();
+            if link == Some(linked) {
+                expected.extension.relative_rotation = Rotation {
+                    pitch: Angle::from_units(176),
+                    yaw: Angle::from_units(116),
+                    roll: Angle::from_units(56),
+                };
+            } else if link == Some(owner) {
+                expected.extension.relative_rotation = Rotation::default();
+            }
+            expected.base.path = Some(cursor(0, 1));
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            assert!(runtime.branch.invert_next);
+        }
+        objects.remove(linked).unwrap();
+        // Normal removal clears inbound links. Deliberately construct an
+        // invalid retained link to exercise the diagnostic boundary.
+        objects.get_mut(owner).unwrap().base.attachment = Some(linked);
+        objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+        let before = objects.get(owner).unwrap().clone();
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::Relationship(RelationshipError::MissingActor(
+                linked
+            )))
+        );
+        assert_eq!(objects.get(owner).unwrap(), &before);
+        assert_eq!(random, original_random);
+    }
+
+    #[test]
     fn selected_transform_copies_read_live_selection_and_preserve_neighboring_fields() {
         use super::super::path_relationships::{RelationshipError, SelectedTransformCommand};
         use super::super::{Angle, Vector3};

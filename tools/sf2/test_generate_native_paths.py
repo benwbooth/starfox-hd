@@ -170,6 +170,10 @@ class NativePathGenerationTests(unittest.TestCase):
                 self.assertIn("use super::path_sound::MarkerCueMode;", generated)
                 self.assertIn(f"use super::path_sound::{extra_import};", generated)
 
+    def test_linked_rotation_refresh_has_no_operand_or_selected_actor_dependency(self):
+        self.assertEqual(self.lower_record("f2")[0],
+            "Statement::Relationship { command: RelationshipCommand::RefreshLinkedRotation, next: cursor(0, 1) }")
+
     def test_callback_graph_has_semantic_action_and_deferred_redirection(self):
         _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF32C), 0)
         self.assertEqual(len(statements), 18)

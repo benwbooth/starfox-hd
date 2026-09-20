@@ -772,3 +772,13 @@ Verification passes 54 lowerer tests, 179 static path tests, 167 native path
 tests in debug/release, architecture/dependency checks and the app build.
 Catalog coverage remains 10 complete roots/117 statements; these operations
 remove blockers from larger graphs but do not establish scheduler integration.
+
+Linked-rotation refresh now lowers as a separate relationship command. It
+reads the live attachment link regardless of coordinate-mode flags, stores
+three wrapped angle differences in relative rotation, and preserves world
+rotation and all neighboring state. An absent link advances unchanged; a
+self-link produces zero differences; invalid native links fault before writes.
+All 65,536 angle pairs and dispatcher link changes are covered. Verification
+passes 55 lowerer tests, 180 static path tests, 169 native path tests in both
+debug/release, architecture/dependency checks and the app build. The complete
+catalog remains 10 roots/117 statements, without new recorded-gameplay input.

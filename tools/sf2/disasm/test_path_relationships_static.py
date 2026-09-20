@@ -23,6 +23,9 @@ class PathRelationshipsStaticTests(unittest.TestCase):
         self.assert_source(0x7FBF4E, "AC 1F CF 22 E2 2B 7F 4C E8 CA")
         self.assert_source(0x7F2BE2, "B9 12 00 95 12 B9 14 00 95 14 B9 16 00 95 16 6B")
 
+    def test_refresh_linked_rotation_reads_live_link_and_subtracts_three_angle_bytes(self):
+        self.assert_source(0x7FBACC, "B4 06 F0 1B B5 12 38 F9 12 00 9D D5 1C B5 14 38 F9 14 00 9D D6 1C B5 16 38 F9 16 00 9D D7 1C 4C E8 CA")
+
     def test_child_lookup_walks_in_order_and_compares_full_number_byte(self):
         self.assert_source(0x7F2A7B, "8D 2A 19 DA B4 29 F0 0B B9 13 00 CD 2A 19 F0 03 BB 80 F1 FA 6B")
 

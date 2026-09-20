@@ -382,10 +382,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             taken, next_ = branch_cursors(low | (high << 8))
             condition = "Continuation" if name == "IfSelectedAuxiliaryContinuation" else "ActionBit40"
             statement = f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::{condition}, taken: {taken}, next: {next_} }}"
-        elif name in ("UnlinkSelf", "UnlinkChild"):
-            if name == "UnlinkSelf":
+        elif name in ("UnlinkSelf", "UnlinkChild", "RefreshLinkedRotationDeltas"):
+            if name in ("UnlinkSelf", "RefreshLinkedRotationDeltas"):
                 parameters(0)
-                command_ = "RelationshipCommand::UnlinkSelf"
+                command_ = "RelationshipCommand::" + ("UnlinkSelf" if name == "UnlinkSelf" else "RefreshLinkedRotation")
             else:
                 number, = parameters(1)
                 command_ = f"RelationshipCommand::UnlinkChild {{ number: {number} }}"
