@@ -818,6 +818,15 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(self.lower_record("00 60 36 f5")[0],
             "Statement::SelectedAuxiliaryBranch { condition: SelectedAuxiliaryCondition::ActionBit04Clear, taken: cursor(0, 0), next: cursor(0, 1) }")
 
+    def test_radio_request_literals_and_live_byte_fields_are_not_interchangeable(self):
+        for number in range(256):
+            self.assertEqual(self.lower_record(f"26 {number:02x}")[0],
+                f"Statement::Message {{ number: ByteOperand::Literal({number}), next: cursor(0, 1) }}")
+        self.assertEqual(self.lower_record("df a3")[0],
+            f"Statement::Message {{ number: ByteOperand::Actor({byte_field(0xA3)}), next: cursor(0, 1) }}")
+        with self.assertRaisesRegex(UnsupportedPath, "unported byte operand"):
+            self.lower_record("df ff")
+
     def test_word_swaps_decode_both_fields_without_exposing_unmapped_storage(self):
         fields = [0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1, 0xA3]
         for first in fields:

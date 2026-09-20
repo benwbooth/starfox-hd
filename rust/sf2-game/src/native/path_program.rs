@@ -16,6 +16,7 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub audio: Option<super::path_sound::PathAudio<'a>>,
+    pub radio: Option<super::path_radio::PathRadio<'a>>,
     /// Primary player identity, independent of the current selected slot.
     pub primary_player: Option<ObjectId>,
     pub selected: Option<ObjectId>,
@@ -285,6 +286,10 @@ pub enum Statement {
         command: SelectedAuxiliaryCommand,
         next: PathCursor,
     },
+    Message {
+        number: ByteOperand,
+        next: PathCursor,
+    },
     Random {
         mutation: super::path_random::RandomMutation,
         next: PathCursor,
@@ -374,6 +379,7 @@ pub enum ProgramError {
     MissingPrimaryTarget,
     MissingActiveNodeFlags,
     MissingAudio,
+    MissingRadio,
     MissingSoundMarkers,
     MissingCountdown,
     Spawn(super::path_spawn::SpawnError),
@@ -778,6 +784,17 @@ impl PathRuntime {
                         },
                     )
                 }
+                Statement::Message { number, next } => {
+                    let number = number.read(actor);
+                    let radio = world.radio.as_mut().ok_or(ProgramError::MissingRadio)?;
+                    radio.request_message(number);
+                    objects
+                        .get_mut(owner)
+                        .expect("validated radio owner")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::SelectedAuxiliary { command, next } => {
                     let state = world
                         .selected_auxiliary
@@ -962,6 +979,7 @@ mod tests {
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             audio: None,
+            radio: None,
             primary_player: None,
             selected: None,
             fixed_players: [None; 2],
@@ -4119,6 +4137,7 @@ mod tests {
             };
             let mut inputs = PathWorld {
                 audio: None,
+                radio: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -4375,6 +4394,139 @@ mod tests {
             assert!(runtime.branch.invert_next);
             assert_eq!(random, before_random);
         }
+    }
+
+    #[test]
+    fn radio_requests_sample_live_byte_operands_and_replace_shared_state_immediately() {
+        use super::super::path_fields::{ByteField, BytePart, WordField};
+        use super::super::path_radio::{MessageIndex, PathRadio, RadioLayout, RadioRequest};
+        let script_low = ByteField::WordPart {
+            field: WordField::ScriptValue,
+            part: BytePart::Low,
+        };
+        for literal in [false, true] {
+            for invert in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let initial_random = random;
+                runtime.branch.invert_next = invert;
+                objects.get_mut(owner).unwrap().base.wait_timer = 61;
+                let mut request = RadioRequest {
+                    panel_y: 0xABCD,
+                    ..RadioRequest::default()
+                };
+                let mut inputs = world(&mut random);
+                inputs.radio = Some(PathRadio {
+                    request: &mut request,
+                    layout: RadioLayout {
+                        compact_panel: false,
+                        tracked_screen_y: 100,
+                    },
+                });
+                for number in 0..=u8::MAX {
+                    for (compact_panel, tracked_screen_y) in [
+                        (false, 0),
+                        (true, 17),
+                        (false, 18),
+                        (true, 100),
+                        (false, 145),
+                        (true, 146),
+                        (false, 255),
+                    ] {
+                        objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+                        // Literal and actor values deliberately disagree.
+                        script_low.write(
+                            objects.get_mut(owner).unwrap(),
+                            if literal { !number } else { number },
+                        );
+                        let mut expected_objects = objects.clone();
+                        expected_objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+                        let catalog = PathCatalog::new(vec![vec![Statement::Message {
+                            number: if literal {
+                                ByteOperand::Literal(number)
+                            } else {
+                                ByteOperand::Actor(script_low)
+                            },
+                            next: cursor(0, 1),
+                        }]])
+                        .unwrap();
+                        inputs.radio.as_mut().unwrap().layout = RadioLayout {
+                            compact_panel,
+                            tracked_screen_y,
+                        };
+                        assert_eq!(
+                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                            Err(ProgramError::BudgetExceeded {
+                                cursor: cursor(0, 1),
+                                executed: 1
+                            })
+                        );
+                        let top = !(18..146).contains(&tracked_screen_y);
+                        assert_eq!(
+                            *inputs.radio.as_ref().unwrap().request,
+                            RadioRequest {
+                                message: MessageIndex::from_authored_number(number),
+                                pending: true,
+                                panel_y: if top {
+                                    35
+                                } else if compact_panel {
+                                    139
+                                } else {
+                                    151
+                                },
+                                top_placement: top,
+                            }
+                        );
+                        assert_eq!(objects, expected_objects);
+                        assert_eq!(runtime.branch.invert_next, invert);
+                        assert_eq!(inputs.random, &initial_random);
+                    }
+                }
+                assert_eq!(request.message.index(), 254);
+                assert!(request.pending);
+            }
+        }
+    }
+
+    #[test]
+    fn radio_missing_input_and_zero_budget_leave_request_and_actor_untouched() {
+        use super::super::path_radio::{PathRadio, RadioLayout, RadioRequest};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        runtime.branch.invert_next = true;
+        let original_random = random;
+        let original_objects = objects.clone();
+        let catalog = PathCatalog::new(vec![vec![Statement::Message {
+            number: ByteOperand::Literal(0),
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingRadio)
+        );
+        let mut request = RadioRequest {
+            panel_y: 0xBEEF,
+            ..RadioRequest::default()
+        };
+        let original_request = request;
+        let mut inputs = world(&mut random);
+        inputs.radio = Some(PathRadio {
+            request: &mut request,
+            layout: RadioLayout {
+                compact_panel: true,
+                tracked_screen_y: 100,
+            },
+        });
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            Err(ProgramError::BudgetExceeded {
+                cursor: cursor(0, 0),
+                executed: 0
+            })
+        );
+        assert_eq!(objects, original_objects);
+        assert_eq!(request, original_request);
+        assert_eq!(random, original_random);
+        assert!(runtime.branch.invert_next);
     }
 
     #[test]
@@ -4912,6 +5064,7 @@ mod tests {
         for phase in 1..=7 {
             let mut inputs = PathWorld {
                 audio: None,
+                radio: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -5020,6 +5173,7 @@ mod tests {
                     owner,
                     &mut PathWorld {
                         audio: None,
+                        radio: None,
                         primary_player: None,
                         selected: None,
                         fixed_players: [None; 2],

@@ -450,6 +450,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "ClearSelectedAuxiliaryFlag01": "ClearActionBit01",
             }[name]
             statement = f"Statement::SelectedAuxiliary {{ command: SelectedAuxiliaryCommand::{operation}, next: {next_cursor()} }}"
+        elif name in ("MessageLiteral", "MessageVariable"):
+            value, = parameters(1)
+            number = f"ByteOperand::Literal({value})" if name == "MessageLiteral" else f"ByteOperand::Actor({byte_field(value)})"
+            statement = f"Statement::Message {{ number: {number}, next: {next_cursor()} }}"
         elif name == "UpdatePlayerTargetFlag08":
             parameters(0)
             statement = f"Statement::ConsiderPrimaryTarget {{ next: {next_cursor()} }}"

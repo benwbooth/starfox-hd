@@ -1051,3 +1051,14 @@ missing-input atomicity and actor/IFNOT/wait/RNG preservation pass. Verification
 passes 80 lowerer tests, 226 static path tests, 219 native path tests in both
 debug/release, architecture/dependency audits and the app build. Catalog coverage
 remains 15 complete roots/167 statements; this does not establish game integration.
+
+Literal and variable radio-message requests now call the full source-derived
+request-entry service through one shared typed record. Requests replace pending
+message identity, wrap authored number zero to catalog index 255, reset the full
+panel coordinate, and choose placement from live compact-layout and smoothed
+screen-marker inputs. The source's signed byte comparison includes screen Y
+0..17 in upper placement; it is not an unsigned threshold test. This ports the
+request, not the separate text/portrait presentation service. Verification
+passes 81 lowerer tests, 229 static path tests, 222 native path tests in both
+debug/release, both audits and the app build. No gameplay recording or execution
+of source-machine instructions was used; root coverage remains 15/167.
