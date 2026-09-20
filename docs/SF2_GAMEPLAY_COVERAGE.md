@@ -3774,3 +3774,29 @@ lowerer tests and 427 path-static tests**, exact regeneration, architecture
 guard, static inventory and app build pass (existing unused icon warnings only).
 The 139-root/five-helper catalog is unchanged: encounters using carry controls
 still have other unported dependencies. No gameplay recordings were used.
+
+### Four-panel objective complete path graph
+
+The map-installed `$44:5B96` objective now lowers with all **396** source
+commands, including four height-gated panels, the held center, two signaled
+fighter emitters, emitted fighter loops, broken-panel effects, parent progress
+publication, lift cycling and shared objective completion. Five additional
+shape/path pairs have reviewed native classifications; unrelated uses of those
+meshes remain unsupported. Shared catalog totals are **140 actor roots, five
+helper paths, 4519 source commands and 4475 typed statements**.
+
+Four generated-catalog Rust scenarios verify all seven children's placement
+and identity, the live signed-word height gate, every health-byte value and
+new-contact threshold, signal consumption and every fighter-count byte, the
+campaign-ready wait, and five player contacts before the lift redirect. Player
+contact flags are distinct from the ordinary new-contact latch. Source tests
+bind the map entry, constructor and coordinate bytes, panel break/publication,
+emitter lifetime, five-contact handler and four-part completion route. These
+are bounded native scenarios, not a claim that every encounter outcome or the
+shipping scene scheduler has been integrated.
+
+Debug and release pass **995 unit tests and two integration tests**; **196
+lowerer tests and 431 path-static tests**, exact regeneration, architecture
+guard, static inventory and app build pass (existing unused icon warnings
+only). Verification uses static source data and native execution, without
+recorded gameplay or execution of the original instructions.

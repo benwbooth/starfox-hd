@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 139;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 140;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 5;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4273;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4519;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -57,6 +57,22 @@ class NativePathGenerationTests(unittest.TestCase):
                                       'Statement::Control(ControlCommand::Return)'])
         self.assertIn('Statement::ConsiderPrimaryTarget {', self.lower_record('c7')[0])
         self.assertIn('Statement::ConsiderPrimaryTargetAndMarkSceneProxy {', self.lower_record('c6')[0])
+
+    def test_four_panel_objective_closes_panels_emitters_fighters_and_completion(self):
+        root = PathAddress(0x5B96)
+        extractor = PathExtractor(self.rom)
+        self.assertIn(root, extractor.discover_roots())
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 396)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '4757d51e3a06ca26f100f9f0de308e1d066e7dcbd52996e7dcf7b6c9d62ba567')
+        self.assertEqual(len(lower_graph(extractor, root, 0)[1]), 396)
+        for shape, path, index, kind in [(0xF2A4, 0x5AAC, 494, 'Enemy'),
+                (0xF2DC, 0x5B00, 496, 'Enemy'), (0xF154, 0x5B61, 482, 'Effect'),
+                (0xCC5C, 0x5E1C, 144, 'Effect'), (0xF288, 0x7F78, 493, 'Scenery')]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, f'ObjectKind::{kind}'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
 
     def test_scene_continuation_retains_the_current_instruction_then_ends(self):
         extractor = PathExtractor(self.rom)
@@ -1333,9 +1349,9 @@ class NativePathGenerationTests(unittest.TestCase):
             changed = bytearray(self.rom)
             target = commands[1].address.offset
             changed[0x40003 + installer:0x40005 + installer] = target.to_bytes(2, "little")
-            # The two dust installers now belong to complete Gunner roots:
-            # their invalid shape/path pair is rejected during parent lowering.
-            error = "unreviewed native spawn kind" if root in (0x8394, 0x838F) else "no verified child installer"
+            # The Gunner dust and four-panel break-sprite installers belong
+            # to complete roots: reject their invalid pair during parent lowering.
+            error = "unreviewed native spawn kind" if root in (0x8394, 0x838F, 0x832E) else "no verified child installer"
             with self.assertRaisesRegex(UnsupportedPath, error):
                 generate(bytes(changed))
 

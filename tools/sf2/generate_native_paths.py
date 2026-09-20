@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("FOUR_PANEL_OBJECTIVE", PathAddress(0x5B96)),
     ("PLANETARY_CORE_DEFENDER", PathAddress(0x5E68)),
     ("PLANETARY_CORE_OBJECTIVE", PathAddress(0x5E1D)),
     ("FOUR_TURRET_ENCOUNTER", PathAddress(0xF136)),
@@ -595,6 +596,16 @@ def shape_index(shape: int) -> int:
 
 def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     index = shape_index(shape)
+    # Four-panel objective: height-gated hittable panels and their emitted
+    # fighters are enemies; the detached spawners disable collision. The
+    # broken-panel clone immediately enters death, while the held center
+    # uses the shared scenery path. Never classify other uses of these meshes.
+    if (shape, path) in ((0xF2A4, PathAddress(0x5AAC)), (0xF2DC, PathAddress(0x5B00))):
+        return index, "ObjectKind::Enemy"
+    if (shape, path) in ((0xF154, PathAddress(0x5B61)), (0xCC5C, PathAddress(0x5E1C))):
+        return index, "ObjectKind::Effect"
+    if (shape, path) == (0xF288, PathAddress(0x7F78)):
+        return index, "ObjectKind::Scenery"
     # Four-turret constructor and its noncolliding beam lifetime. The turret
     # itself enables contacts after the shared campaign gate opens.
     if (shape, path) in ((0xC3F0, PathAddress(0xF1D5)), (0xBECC, PathAddress(0x5F69))):
