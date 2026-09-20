@@ -437,6 +437,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "IfSelectedSlotClass3": "ModeClass(super::path_conditions::AuxiliaryModeClass::Three)",
             }[name]
             statement = f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name == "UpdatePlayerTargetFlag08":
+            parameters(0)
+            statement = f"Statement::ConsiderPrimaryTarget {{ next: {next_cursor()} }}"
         elif name == "ChildDead":
             number, low, high = parameters(3)
             taken, next_ = branch_cursors(low | (high << 8))

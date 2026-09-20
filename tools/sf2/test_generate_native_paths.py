@@ -806,6 +806,14 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(self.lower_record(f"3a {number:02x} 36 f5")[0],
                 f"Statement::ChildMissing {{ number: {number}, taken: cursor(0, 0), next: cursor(0, 1) }}")
 
+    def test_primary_target_update_uses_the_full_native_selection_service(self):
+        self.assertEqual(self.lower_record("c7")[0],
+            "Statement::ConsiderPrimaryTarget { next: cursor(0, 1) }")
+        # C6 uses a different mode and writes a separate linked-object field;
+        # it cannot alias the target-only command before that field is ported.
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported UpdatePlayerTargetAndFlagLinked"):
+            self.lower_record("c6")
+
     def lower_record(self, record):
         changed = bytearray(self.rom)
         program = bytes.fromhex(record) + bytes([0x0F])

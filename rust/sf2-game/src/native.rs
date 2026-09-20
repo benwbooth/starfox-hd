@@ -61,6 +61,7 @@ pub mod path_runtime;
 pub mod path_sound;
 pub mod path_spawn;
 pub mod path_steering;
+pub mod path_target;
 pub mod path_trigger_conditions;
 pub mod path_triggers;
 pub mod platform_carry;

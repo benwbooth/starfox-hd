@@ -30,6 +30,7 @@ pub struct PathWorld<'a> {
     pub active_charge_threshold: Option<u8>,
     pub selected_charge: Option<super::path_charge::SelectedChargeInput>,
     pub primary_control: Option<super::path_player_control::PrimaryControl<'a>>,
+    pub primary_target: Option<super::path_target::PrimaryTarget<'a>>,
     pub countdown: Option<&'a mut super::path_countdown::PathCountdown>,
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
@@ -223,6 +224,9 @@ pub enum Statement {
         command: super::path_relationships::RelationshipCommand,
         next: PathCursor,
     },
+    ConsiderPrimaryTarget {
+        next: PathCursor,
+    },
     ChildMissing {
         number: u8,
         taken: PathCursor,
@@ -310,6 +314,7 @@ pub enum ProgramError {
     MissingChargeThreshold,
     MissingSelectedCharge,
     MissingPrimaryControl,
+    MissingPrimaryTarget,
     MissingAudio,
     MissingSoundMarkers,
     MissingCountdown,
@@ -435,6 +440,30 @@ impl PathRuntime {
                         *phase = (*phase & 0xFF00) | 1;
                     }
                     actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ConsiderPrimaryTarget { next } => {
+                    let primary = world
+                        .primary_player
+                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                    objects
+                        .get(primary)
+                        .ok_or(PathRuntimeError::MissingActor(primary))?;
+                    let input = world
+                        .primary_target
+                        .as_mut()
+                        .ok_or(ProgramError::MissingPrimaryTarget)?;
+                    super::path_target::consider(
+                        input.selection,
+                        owner,
+                        actor.base.position,
+                        input.anchor,
+                    );
+                    objects
+                        .get_mut(owner)
+                        .expect("validated target candidate")
+                        .base
+                        .path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::CopySelectedTransform { command, next } => {
@@ -830,6 +859,7 @@ mod tests {
             active_charge_threshold: None,
             selected_charge: None,
             primary_control: None,
+            primary_target: None,
             countdown: None,
             selected_auxiliary: None,
             spawn_defaults: None,
@@ -849,6 +879,119 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn primary_target_dispatch_uses_live_world_selection_and_preserves_actors_ifnot_and_rng() {
+        use super::super::path_target::{PrimaryTarget, TargetAnchor, TargetSelection};
+        use super::super::Vector3;
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let primary = objects
+            .allocate(objects.get(owner).unwrap().clone())
+            .unwrap();
+        let removed = objects
+            .allocate(objects.get(owner).unwrap().clone())
+            .unwrap();
+        objects.remove(removed).unwrap();
+        let original_random = random;
+        runtime.branch.invert_next = true;
+        let mut selection = TargetSelection {
+            distance: u16::MAX,
+            display_status: 255,
+            control_flags: 0x40,
+            ..TargetSelection::default()
+        };
+        let mut anchor = TargetAnchor {
+            position: Vector3::default(),
+            pitch: 0,
+            yaw: 0,
+        };
+        let catalog = PathCatalog::new(vec![vec![Statement::ConsiderPrimaryTarget {
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        for (player, missing_input, error) in [
+            (None, false, ProgramError::MissingPrimaryPlayer),
+            (
+                Some(removed),
+                false,
+                ProgramError::Runtime(PathRuntimeError::MissingActor(removed)),
+            ),
+            (Some(primary), true, ProgramError::MissingPrimaryTarget),
+        ] {
+            let before = objects.clone();
+            let previous_selection = selection;
+            let mut inputs = world(&mut random);
+            inputs.primary_player = player;
+            if !missing_input {
+                inputs.primary_target = Some(PrimaryTarget {
+                    anchor,
+                    selection: &mut selection,
+                });
+            }
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(error)
+            );
+            assert_eq!(objects, before);
+            assert_eq!(selection, previous_selection);
+        }
+        // An ordinary acceptance, tie rejection, forced acceptance, then
+        // locked rejection. The actual primary identity may alias the caller;
+        // selected-player pose is unrelated to the fixed view anchor.
+        for visit in 0..4 {
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(cursor(0, 0));
+            actor.base.wait_timer = 77;
+            actor.base.position = Vector3 {
+                x: 0,
+                y: 0,
+                z: if visit < 2 { 100 } else { 1000 },
+            };
+            let mut expected_objects = objects.clone();
+            expected_objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+            selection.display_status = 255;
+            if visit == 2 {
+                selection.forced_owner = Some(owner);
+                anchor.position.z = 200;
+            }
+            let mut expected = selection;
+            if visit == 0 {
+                expected.display_status = 127;
+                expected.control_flags = 0x48;
+                expected.candidate = Some(owner);
+                expected.distance = 56;
+                expected.auxiliary_distance = 100;
+                expected.position.z = 100;
+                expected.screen = [112, 96];
+            } else if visit == 1 {
+                expected.display_status = 127;
+            } else if visit == 2 {
+                expected.display_status = 127;
+                expected.control_flags = 0x58;
+                expected.distance = 450;
+                expected.auxiliary_distance = 288;
+                expected.position.z = 1000;
+            }
+            let mut inputs = world(&mut random);
+            inputs.primary_player = Some(if visit & 1 == 0 { primary } else { owner });
+            inputs.selected = Some(removed); // This service does not read selection.
+            inputs.primary_target = Some(PrimaryTarget {
+                anchor,
+                selection: &mut selection,
+            });
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects, expected_objects);
+            assert_eq!(selection, expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
+        }
     }
 
     #[test]
@@ -3264,6 +3407,7 @@ mod tests {
                 active_charge_threshold: None,
                 selected_charge: None,
                 primary_control: None,
+                primary_target: None,
                 spawn_defaults: None,
                 countdown: None,
                 // The initial four-count loop does not read this record.
@@ -3900,6 +4044,7 @@ mod tests {
                 active_charge_threshold: None,
                 selected_charge: None,
                 primary_control: None,
+                primary_target: None,
                 selected_auxiliary: None,
                 countdown: None,
                 spawn_defaults: None,
@@ -4006,6 +4151,7 @@ mod tests {
                         active_charge_threshold: None,
                         selected_charge: None,
                         primary_control: None,
+                        primary_target: None,
                         selected_auxiliary: None,
                         countdown: None,
                         spawn_defaults: None,

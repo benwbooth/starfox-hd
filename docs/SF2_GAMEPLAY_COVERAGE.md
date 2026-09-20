@@ -971,3 +971,21 @@ consumption through the actual hit-event branch. Verification passes 72 lowerer
 tests, 211 static path tests, 200 native path tests in debug/release, both
 architecture/dependency audits and the app build. Complete-root coverage remains
 14/161, with Game scheduling and spawn integration still open.
+
+The primary-target update now statically ports the full selection/publication
+service and its marker projection. A typed fine-angle view anchor is distinct
+from ordinary actor angles and selected-player pose. The port retains locked
+selection, forced ownership, strict unsigned nearest-distance comparison,
+signed distance storage, display-side effects on rejected candidates, and the
+source's mixed-width auxiliary distance. Screen projection preserves both
+authored curves, yaw-dependent edge limits, the yaw-fraction coupling in
+vertical interpolation and individually rounded signed shifts.
+
+Tests cover every fine angle across clip boundaries, every control-flag byte,
+all coordinate words, negative distances, repeated live selection, self-primary
+identity and input failures before mutation. Static fixtures pin the complete
+service, geometry helper, distance helper and immutable curve data. Verification
+passes 73 lowerer tests, 217 static path tests, the seven reused angle/source
+checks, 205 native path tests in debug/release, both architecture/dependency
+audits and the app build. The separate linked-field variant remains rejected;
+complete-root coverage remains 14/161 and Game integration is still open.
