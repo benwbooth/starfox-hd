@@ -5174,6 +5174,190 @@ mod tests {
     }
 
     #[test]
+    fn health_fade_sound_sprite_entries_queue_their_distinct_cue_once_and_count_full_health() {
+        use super::super::path_sound::{AuthoredCue, CueListener, CueMarker, MarkerInputs, PathAudio};
+        use super::super::{authored_paths, Angle, AudioState, SoundEvent, Vector3};
+        let catalog = authored_paths::catalog();
+        for (root, cue) in [(authored_paths::HEALTH_FADE_SOUND_SPRITE, 137),
+            (authored_paths::ALTERNATE_HEALTH_FADE_SOUND_SPRITE, 136)] {
+            for health in 0..=u8::MAX {
+                let power = health ^ 255;
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(root);
+                actor.base.hit_points = health;
+                actor.base.attack_power = power;
+                actor.base.wait_timer = health;
+                actor.extension.depth_offset = 0xABCD;
+                actor.extension.path_state.motion_phase = 0xFEDC;
+                runtime.branch.invert_next = true;
+                let initial_random = random;
+                let mut audio = AudioState::default();
+                let iterations = if health == 0 { 65_536 } else { usize::from(health) };
+                for visit in 0..=iterations {
+                    let mut inputs = world(&mut random);
+                    if visit == 0 {
+                        inputs.audio = Some(PathAudio {
+                            events: &mut audio,
+                            listeners: [CueListener::PrimaryPlayer; 2],
+                            markers: Some(MarkerInputs {
+                                selected_sides: [PlayerTarget::Primary; 2],
+                                markers: [CueMarker { identity: CueListener::Other,
+                                    position: Vector3::default(), bearing: Angle::ZERO }; 2],
+                            }),
+                        });
+                    }
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12),
+                        Ok(if visit == iterations { ControlStep::Ended } else { ControlStep::Movement }));
+                    assert_eq!(audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
+                        // Source atan(0, 0) takes its zero-denominator
+                        // quarter-turn branch, so this cue is right-panned.
+                        if visit == 0 { vec![SoundEvent::Authored(AuthoredCue::new(cue, 32, PlayerTarget::Secondary))] }
+                        else { vec![] });
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some((visit % 8) as u8));
+                    assert_eq!(actor.extension.texture_scroll_x, 8u8.wrapping_add(power));
+                    assert_eq!(actor.extension.depth_offset, 0xAB00);
+                    assert_eq!(actor.extension.path_state.motion_phase, 0xFEDC);
+                    assert_eq!(actor.base.position, Vector3::default());
+                    assert_eq!((actor.base.hit_points, actor.base.attack_power, actor.base.wait_timer), (health, power, health));
+                    assert!(actor.base.flags.scaled_sprite);
+                    assert!(actor.base.flags.collision_disabled);
+                    assert_eq!(actor.base.flags.remove_after_tick, visit == iterations);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, initial_random);
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn shrinking_rise_sprite_keeps_retained_wait_signed_phase_and_byte_wrapping() {
+        use super::super::{authored_paths, Vector3};
+        let catalog = authored_paths::catalog();
+        for retained in 0..=u8::MAX {
+            for initial_high in [retained, 0, 127, 128, 255] {
+                let (mut runtime, mut objects, owner, _) = setup();
+                let mut random = RandomState::new([retained, initial_high, 93, 253]);
+                let mut expected_random = random;
+                let mut expected_position = Vector3 { x: i16::MAX, y: i16::MIN, z: -1234 };
+                let mut low = 0;
+                for position in [&mut expected_position.x, &mut expected_position.y, &mut expected_position.z] {
+                    low = (expected_random.next_byte() & 63).wrapping_add(224);
+                    *position = position.wrapping_add(i16::from(low as i8));
+                }
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::SHRINKING_RISE_SPRITE);
+                actor.base.position = Vector3 { x: i16::MAX, y: i16::MIN, z: -1234 };
+                actor.base.wait_timer = retained;
+                actor.base.attack_power = retained;
+                actor.extension.depth_offset = 0xABCD;
+                actor.extension.path_state.motion_phase = u16::from_be_bytes([initial_high, 173]);
+                let original_animation = actor.extension.path_state.animation;
+                runtime.branch.invert_next = true;
+                let movements = usize::from(13u8.wrapping_sub(retained));
+                let mut high = initial_high;
+                let mut size = 8u8.wrapping_add(retained);
+                for visit in 0..=movements {
+                    let ending = visit == movements;
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16),
+                        Ok(if ending { ControlStep::Ended } else { ControlStep::Movement }));
+                    assert_eq!(objects.get(owner).unwrap().base.position, expected_position);
+                    if !ending {
+                        assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                        assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4), Ok(ControlStep::ResumeCallbacks));
+                        assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                        high = high.wrapping_add(1);
+                        expected_position.y = expected_position.y.wrapping_add(i16::from(high as i8));
+                        size = size.wrapping_sub(1);
+                    }
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(actor.base.position, expected_position);
+                    assert_eq!(actor.extension.texture_scroll_x, size);
+                    assert_eq!(actor.extension.depth_offset, 0xAB00);
+                    assert_eq!(actor.extension.path_state.motion_phase, u16::from_be_bytes([high, low]));
+                    assert_eq!(actor.extension.path_state.animation, original_animation);
+                    assert_eq!(actor.base.attack_power, retained);
+                    assert_eq!(actor.base.wait_timer, if ending { 0 } else { retained.wrapping_add((visit + 1) as u8) });
+                    assert!(actor.base.flags.scaled_sprite);
+                    assert!(actor.base.flags.collision_disabled);
+                    assert_eq!(actor.base.flags.remove_after_tick, ending);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, expected_random);
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn part_sound_blink_sprite_emits_on_wrapped_phase_four_and_uses_incremented_part() {
+        use super::super::path_sound::{AuthoredCue, CueListener, CueMarker, MarkerInputs, PathAudio};
+        use super::super::{authored_paths, Angle, AudioState, SoundEvent, Vector3};
+        let catalog = authored_paths::catalog();
+        for initial_low in 0..=u8::MAX {
+            for part in [0u8, 254, 255] {
+                for health in [0u8, 1, 4, 255] {
+                    if health == 0 && ![0, 3, 4, 255].contains(&initial_low) { continue; }
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(authored_paths::PART_SOUND_BLINK_SPRITE);
+                    actor.base.hit_points = health;
+                    actor.base.attack_power = initial_low;
+                    actor.base.wait_timer = part;
+                    actor.extension.depth_offset = 0xABCD;
+                    actor.extension.path_state.motion_phase = 0xAB00 | u16::from(initial_low);
+                    actor.extension.path_state.part = part;
+                    runtime.branch.invert_next = true;
+                    let initial_random = random;
+                    let iterations = if health == 0 { 65_536 } else { usize::from(health) };
+                    let effective_part = part.wrapping_add(1);
+                    let mut audio = AudioState::default();
+                    for visit in 0..=iterations {
+                        let low = initial_low.wrapping_add(visit as u8);
+                        let expected_cue = if visit == 0 { Some(150) }
+                            else if low == 4 { Some(if effective_part == 0 { 131 } else { 150 }) }
+                            else { None };
+                        let mut inputs = world(&mut random);
+                        // No audio dependency on iterations without a cue.
+                        if expected_cue.is_some() {
+                            inputs.audio = Some(PathAudio {
+                                events: &mut audio,
+                                listeners: [CueListener::PrimaryPlayer; 2],
+                                markers: Some(MarkerInputs {
+                                    selected_sides: [PlayerTarget::Primary; 2],
+                                    markers: [CueMarker { identity: CueListener::Other,
+                                        position: Vector3::default(), bearing: Angle::ZERO }; 2],
+                                }),
+                            });
+                        }
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                            Ok(if visit == iterations { ControlStep::Ended } else { ControlStep::Movement }));
+                        assert_eq!(audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
+                            expected_cue.into_iter().map(|id| SoundEvent::Authored(AuthoredCue::new(id, 32, PlayerTarget::Secondary))).collect::<Vec<_>>());
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some((visit % 2) as u8));
+                        assert_eq!(actor.extension.path_state.motion_phase, 0xAB00 | u16::from(low));
+                        assert_eq!(actor.extension.path_state.part, effective_part);
+                        assert_eq!(actor.extension.texture_scroll_x, 8u8.wrapping_add(initial_low));
+                        assert_eq!(actor.extension.depth_offset, 0xAB00);
+                        assert_eq!((actor.base.hit_points, actor.base.attack_power, actor.base.wait_timer), (health, initial_low, part));
+                        assert_eq!(actor.base.position, Vector3::default());
+                        assert!(actor.base.flags.collision_disabled);
+                        assert!(actor.base.flags.scaled_sprite);
+                        assert_eq!(actor.base.flags.remove_after_tick, visit == iterations);
+                        assert_eq!(runtime.branch.invert_next, visit == 0);
+                        assert_eq!(random, initial_random);
+                    }
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
     fn drifting_pulse_sprite_keeps_nested_loop_yields_and_signed_callback_drift() {
         use super::super::{authored_paths, Vector3};
         let catalog = authored_paths::catalog();
@@ -10984,9 +11168,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 39);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 829);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 838);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 43);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 882);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 891);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

@@ -56,6 +56,20 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x098714, "5D 7C BD 85 82 64 00")
         self.assert_source(0x0888B3, "5D 7C BD 58 84 64 00")
 
+    def test_sound_and_shrinking_sprite_graph_bytes_and_independent_spawn_records(self):
+        self.assert_source(0x09838F,
+            "FA 88 17 96 83 FA 89 4D 00 08 5C F7 EF 52 99 2E 1D 00 78 62 2D 1E 01 08 44 0F")
+        self.assert_source(0x0983C2,
+            "4D 00 08 52 99 2E 5C F7 EF F8 EC 83 58 A1 3F 07 A1 E0 55 0C A1 "
+            "58 A1 3F 07 A1 E0 55 0E A1 58 A1 3F 07 A1 E0 55 10 A1 03 0D 0F 6D A2 55 0E A2 6F 99 42")
+        self.assert_source(0x09832E,
+            "FA 96 6D A9 17 38 83 00 09 83 4D 00 08 5C F7 EF 52 99 2E 1D 00 78 "
+            "62 2D 1E 01 02 6D A1 8A 2A A1 04 5D 83 69 A9 5B 83 00 09 83 17 5D 83 FA 96 44 0F")
+        self.assert_source(0x08B34E, "5D 04 BF 94 83 08 32")
+        self.assert_source(0x08B3EC, "5D 04 BF 8F 83 08 32")
+        self.assert_source(0x08F3F3, "5D FC C0 C2 83 64 18")
+        self.assert_source(0x09861D, "5D 8C C0 2E 83 0A 08")
+
     def test_suspension_enters_movement_and_both_strategy_passes_skip_it(self):
         self.assert_source(0x7FBC80, "B5 26 09 40 95 26 4C DE 9D")
         self.assert_source(0x7F9DDE, "A5 5E 09 18 85 5E 8F 3A 30 00 B5 0B")

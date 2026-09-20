@@ -1753,3 +1753,44 @@ commands / 829 native statements**. Validation passes 121 lowerer tests,
 284 static path tests and 299 native path tests in debug and release,
 generated freshness, architecture/static audits and the application build.
 Parent graphs and whole-game scheduling remain outside this coverage.
+
+### Sound-bearing fades, phase-timed blink and shrinking rise
+
+Four more complete, independently spawned sprite roots are published:
+`HEALTH_FADE_SOUND_SPRITE` (`44:8394`), its alternate-cue entry
+`ALTERNATE_HEALTH_FADE_SOUND_SPRITE` (`44:838F`),
+`SHRINKING_RISE_SPRITE` (`44:83C2`), and `PART_SOUND_BLINK_SPRITE`
+(`44:832E`). Their source installers are `44:334E`, `44:33EC`, `44:73F3`
+and `44:861D`, respectively. Kind classifications are restricted to the
+reviewed path/shape pairs (shapes 22, 40 and 36).
+
+The health fades queue distinct positioned cues 137/136 once, initialize
+sprite size from attack power, yield color zero, then advance an eight-color
+cycle for the word-expanded health count before ending. Zero health takes
+65,536 iterations. The blink queues cue 150 at entry, increments the part
+byte, alternates two colors, and increments the phase-low byte on each
+health-counted iteration. Each time phase wraps/reaches four, it queues
+cue 150 for nonzero part or near-range cue 131 for wrapped-zero part. It
+does not require an audio service during iterations that issue no cue.
+
+The shrinking sprite makes three ordered, signed random position offsets
+and registers an always callback. Its wait compares the retained timer to
+13 **before** incrementing; starting at 13 ends immediately, while starting
+at 14 needs 255 movement visits. Every callback increments the phase-high
+byte, adds that signed byte to Y and decrements size, with byte/word wrapping.
+Sprite setup does not initialize either animation channel. Tests cover all
+wait/size values, phase sign/wrap boundaries and exact callback counts.
+
+Native tests cover complete health-byte ranges, full zero-count completion,
+sound event identity/routing/timing, all phase-low inputs and part wrap, and
+retained state/random consumption. Co-located marker tests preserve the
+source arctangent's zero-denominator quarter turn (right panning, not center).
+Full graph bytes and spawn records are pinned; altered installer targets
+and unreviewed path/shape classifications fail generation.
+
+Coverage is **43 complete roots / 891 source commands / 882 native
+statements**. Validation passes 122 lowerer tests, 285 static path tests,
+302 native path tests in debug and release, generated freshness,
+architecture/static audits and the application build. Parent graphs, game
+scheduling and whole-game completion remain separate work; no recorded
+gameplay was used.

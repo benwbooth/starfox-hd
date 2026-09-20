@@ -75,6 +75,44 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 independent_spawn_parameters(invalid)
 
+    def test_sound_and_shrinking_sprite_children_have_reviewed_installers_and_complete_graphs(self):
+        extractor = PathExtractor(self.rom)
+        cases = [(0x8394, 11, 0x334E, 0xBF04, 22), (0x838F, 12, 0x33EC, 0xBF04, 22),
+                 (0x83C2, 20, 0x73F3, 0xC0FC, 40), (0x832E, 20, 0x861D, 0xC08C, 36)]
+        for root, count, installer, shape, index in cases:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((c.address.offset for c in commands), statements))
+            if root in (0x8394, 0x838F):
+                self.assertIn(f"id: {137 if root == 0x8394 else 136}", mapped[root])
+                self.assertIn("UnsignedByte(ByteOperand::Actor(ByteField::Health))", mapped[0x83A2])
+                self.assertIn("period: 8", mapped[0x83A4])
+                self.assertEqual(sum("MarkerSound" in s for s in statements), 1)
+            elif root == 0x83C2:
+                self.assertIn("TriggerKind::Always", mapped[0x83CB])
+                self.assertIn("Literal(13)", mapped[0x83E9])
+                self.assertIn("part: BytePart::High", mapped[0x83EC])
+                self.assertIn("SignedByte", mapped[0x83EE])
+                self.assertIn("ByteOperation::Decrement", mapped[0x83F1])
+                self.assertEqual(sum("mask: 63" in s for s in statements), 3)
+            else:
+                self.assertIn("ByteField::Part", mapped[0x8330])
+                self.assertIn("period: 2", mapped[0x8346])
+                self.assertIn("InvertNext", mapped[0x834B])
+                self.assertIn("Literal(4)", mapped[0x834C])
+                self.assertIn("MarkerRange::Near", mapped[0x8355])
+                self.assertIn("id: 150", mapped[0x835B])
+            self.assertEqual(spawn_shape(shape, PathAddress(root)), (index, "ObjectKind::Effect"))
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+                spawn_shape(shape, PathAddress(root + 1))
+            changed = bytearray(self.rom)
+            target = commands[1].address.offset
+            changed[0x40003 + installer:0x40005 + installer] = target.to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+
     def test_hit_toggle_sprite_entries_keep_both_hit_callbacks_and_counted_exit(self):
         extractor = PathExtractor(self.rom)
         for root, count in [(0x8488, 37), (0x8486, 38)]:
