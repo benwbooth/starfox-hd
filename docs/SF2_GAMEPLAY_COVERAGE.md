@@ -2535,3 +2535,22 @@ complete, and the complete-root catalog remains at 100.
 Validation passes 400 native path tests in debug/release, 152 lowering tests,
 321 source-static path tests, generated freshness, both audits and the app
 build with its existing app-icon warning.
+
+### Complete targeting-upgrade pickup
+
+The installed pickup now includes its full parent graph and both independently
+scheduled scenery/glow children. It skips initialization when the active pilot
+already owns the upgrade; otherwise it faces the fixed player while measuring
+collection against the selected actor, awards the upgrade, hides itself and
+marks both numbered children for deferred retirement. The twenty-visit and
+sixty-visit waits retain byte-equality/wrap semantics and issue the two radio
+requests in order before ending. No child unlink or scheduler cleanup is
+silently folded into those commands.
+
+Source-byte closure, all owned flag combinations, independently serviced
+children, strict range boundary, primary/secondary selection, wrapped waits,
+single award/sound, retained child state and both messages are checked.
+The catalog contains 101 roots, 1,598 unique source commands and 1,589 typed
+statements. All 402 native path tests pass in debug/release, with 152 lowering
+and 321 source-static tests, freshness, both audits and app build passing.
+The existing app-icon warning and open production scheduler boundary remain.

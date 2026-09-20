@@ -864,7 +864,7 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
-    def test_targeting_upgrade_commands_and_independent_glow_keep_parent_unpublished(self):
+    def test_targeting_upgrade_complete_parent_and_independent_children(self):
         statements = self.lower_record("00 7a 3c f5 00 79")
         self.assertIn("TargetingUpgradeOwned { taken: cursor(0, 2), next: cursor(0, 1)", statements[0])
         self.assertIn("AcquireTargetingUpgrade { next: cursor(0, 2)", statements[1])
@@ -878,9 +878,11 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("Goto", statements[4])
         source = generate(self.rom)
         self.assertIn("TARGETING_UPGRADE_GLOW", source)
-        self.assertNotIn("TARGETING_UPGRADE_PICKUP", source)
-        # Deferred child retirement now completes the parent lowering. Its
-        # publication still requires the separate authored lifecycle review.
+        self.assertIn("TARGETING_UPGRADE_PICKUP", source)
+        commands = graph(extractor, PathAddress(0x787D))
+        self.assertEqual(len(commands), 49)
+        self.assertEqual("".join(c.raw_hex for c in commands if 0x787D <= c.address.offset <= 0x78BF),
+            "007abf78f6820b642d5cf5f8ddaa7f0a0a00000000000001f50cf5e1810a0a00000000000002004b97c800ad7816a37800044500794866016602031426d6033c26d70f")
         parent_statements = lower_graph(extractor, PathAddress(0x787D), 0)[1]
         self.assertTrue(any("RetireChild { number: 1 }" in statement for statement in parent_statements))
         self.assertTrue(any("RetireChild { number: 2 }" in statement for statement in parent_statements))

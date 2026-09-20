@@ -124,6 +124,7 @@ ROOTS = (
     ("TIMED_SPIN_RISE_EFFECT", PathAddress(0xD3B2)),
     ("HIT_DETACHED_BOUNCING_PART", PathAddress(0xA481)),
     ("HIT_DRIVEN_ROTATING_PART_CONTROLLER", PathAddress(0xA4ED)),
+    ("TARGETING_UPGRADE_PICKUP", PathAddress(0x787D)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
