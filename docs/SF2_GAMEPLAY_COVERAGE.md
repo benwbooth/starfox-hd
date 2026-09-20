@@ -691,3 +691,14 @@ LOOP counters. Static authored-byte fixtures and exhaustive native copy tests
 cover those contracts. Verification passes 46 lowerer tests, 165 static path
 checks, 152 native path tests in debug/release, architecture/dependency checks
 and the app build. Complete catalog coverage remains nine roots/97 statements.
+
+The six facing forms now lower into the native dispatcher. World inputs keep
+the selected actor, primary selection pointer and two fixed player actors
+separate; linked forms read the owner's attachment live. Integration tests
+change selection and target positions between immediate resumes and compare
+whole actor state against the reviewed facing service. Missing required inputs
+fault, while an absent attachment follows the source-defined no-turn advance.
+Verification passes 47 lowerer tests and 154 native path tests in debug/release,
+plus architecture/dependency checks and the app build. Existing static facing
+fixtures remain in the 165-test static path suite. No new complete root or
+scheduler integration is claimed.

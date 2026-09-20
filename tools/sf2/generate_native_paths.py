@@ -506,6 +506,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 }[name]
             taken, next_ = branch_cursors(int.from_bytes(operands[-2:], "little"))
             statement = f"Statement::Spatial {{ condition: SpatialCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("FaceSelectedImmediate", "FaceSelectedSmooth", "FacePlayerYaw", "FacePlayer", "FaceLinkedSmooth", "FaceMother"):
+            parameters(0)
+            operation = {
+                "FaceSelectedImmediate": "SelectedImmediate",
+                "FaceSelectedSmooth": "SelectedSmooth",
+                "FacePlayerYaw": "SelectedYaw",
+                "FacePlayer": "FixedPlayerImmediate",
+                "FaceLinkedSmooth": "LinkedSmooth",
+                "FaceMother": "LinkedImmediate",
+            }[name]
+            statement = f"Statement::Facing {{ command: FacingCommand::{operation}, next: {next_cursor()} }}"
         elif name == "SetObjectBytes0a0b":
             target, amount = parameters(2)
             statement = f"Statement::Motion {{ command: MotionCommand::AccelerateTo {{ target: {target}, amount: {amount} }}, next: {next_cursor()} }}"
@@ -625,6 +636,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_appearance::AppearanceCommand;\n"
     if any("SpatialCondition::" in statement for statement in unique_statements.values()):
         source += "use super::path_conditions::SpatialCondition;\n"
+    if any("FacingCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_steering::FacingCommand;\n"
     if any("PlaneAxis::" in statement for statement in unique_statements.values()):
         source += "use super::path_control::PlaneAxis;\n"
     if any("VARIABLE_BIT_MASKS" in statement for statement in unique_statements.values()):

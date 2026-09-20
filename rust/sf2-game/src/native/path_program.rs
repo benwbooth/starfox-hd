@@ -19,6 +19,8 @@ pub struct PathWorld<'a> {
     /// Primary player identity, independent of the current selected slot.
     pub primary_player: Option<ObjectId>,
     pub selected: Option<ObjectId>,
+    /// Fixed player actors, distinct from the live selected/primary pointers.
+    pub fixed_players: [Option<ObjectId>; 2],
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
     pub selected_auxiliary: Option<AuxiliaryContinuationInput>,
@@ -194,6 +196,10 @@ pub enum Statement {
     Branch(BranchCommand),
     Motion {
         command: MotionCommand,
+        next: PathCursor,
+    },
+    Facing {
+        command: super::path_steering::FacingCommand,
         next: PathCursor,
     },
     Mutate {
@@ -434,6 +440,17 @@ impl PathRuntime {
                 Statement::Motion { command, next } => {
                     self.execute_motion(objects, owner, command, next)
                 }
+                Statement::Facing { command, next } => self.execute_facing(
+                    objects,
+                    owner,
+                    command,
+                    super::path_steering::FacingTargets {
+                        selected: world.selected,
+                        primary: world.primary_player,
+                        fixed_players: world.fixed_players,
+                    },
+                    next,
+                ),
                 Statement::Mutate { mutation, next } => {
                     self.execute_mutation(objects, owner, mutation, next)
                 }
@@ -527,6 +544,7 @@ mod tests {
             audio: None,
             primary_player: None,
             selected: None,
+            fixed_players: [None; 2],
             selected_auxiliary: None,
             spawn_defaults: None,
             random,
@@ -545,6 +563,135 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn facing_statements_sample_live_targets_without_advancing_motion_or_other_state() {
+        use super::super::path_steering::{face, FacingCommand, FacingTargets};
+        use super::super::{Angle, Vector3};
+        for command in [
+            FacingCommand::SelectedImmediate,
+            FacingCommand::SelectedSmooth,
+            FacingCommand::SelectedYaw,
+            FacingCommand::FixedPlayerImmediate,
+            FacingCommand::LinkedSmooth,
+            FacingCommand::LinkedImmediate,
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let targets = [(100, 50, 0), (-100, -75, 10), (7, 200, -200)].map(|(x, y, z)| {
+                let mut actor =
+                    Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+                actor.base.position = Vector3 { x, y, z };
+                objects.allocate(actor).unwrap()
+            });
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.attachment = Some(targets[2]);
+            actor.base.pitch = Angle::from_units(50);
+            actor.base.yaw = Angle::from_units(70);
+            actor.base.roll = Angle::from_units(90);
+            actor.base.velocity = Vector3 {
+                x: 11,
+                y: -22,
+                z: 33,
+            };
+            actor.base.wait_timer = 19;
+            actor.base.hit_flags = 0xA5;
+            runtime.branch.invert_next = true;
+            runtime.steering.unchanged_axes = 7;
+            let initial_random = random.clone();
+            let catalog = PathCatalog::new(vec![vec![Statement::Facing {
+                command,
+                next: cursor(0, 0),
+            }]])
+            .unwrap();
+            // Switch live selection AND move all candidate targets between
+            // resumes. Fixed players remain distinct from the selected ID.
+            for selected in [targets[0], targets[1], targets[2]] {
+                let observations = FacingTargets {
+                    selected: Some(selected),
+                    primary: Some(targets[0]),
+                    fixed_players: [Some(targets[1]), Some(targets[2])],
+                };
+                let mut expected_objects = objects.clone();
+                let mut expected_steering = runtime.steering;
+                face(
+                    &mut expected_objects,
+                    owner,
+                    command,
+                    observations,
+                    &mut expected_steering,
+                )
+                .unwrap();
+                let mut inputs = world(&mut random);
+                inputs.selected = observations.selected;
+                inputs.primary_player = observations.primary;
+                inputs.fixed_players = observations.fixed_players;
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 0),
+                        executed: 1
+                    })
+                );
+                for id in [owner, targets[0], targets[1], targets[2]] {
+                    assert_eq!(objects.get(id), expected_objects.get(id));
+                }
+                assert_eq!(runtime.steering, expected_steering);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, initial_random);
+                for id in targets {
+                    let position = &mut objects.get_mut(id).unwrap().base.position;
+                    position.x = position.x.wrapping_add(200);
+                    position.y = position.y.wrapping_sub(100);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn facing_missing_inputs_fault_but_absent_link_is_a_source_defined_advance() {
+        use super::super::path_steering::{FacingCommand, SteeringError};
+        for (command, error) in [
+            (
+                FacingCommand::SelectedImmediate,
+                Some(SteeringError::MissingSelected),
+            ),
+            (
+                FacingCommand::FixedPlayerImmediate,
+                Some(SteeringError::MissingFixedPlayer),
+            ),
+            (FacingCommand::LinkedImmediate, None),
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.steering.unchanged_axes = 11;
+            runtime.branch.invert_next = true;
+            let mut expected = objects.get(owner).unwrap().clone();
+            let catalog = PathCatalog::new(vec![vec![Statement::Facing {
+                command,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            let result =
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1);
+            if let Some(error) = error {
+                assert_eq!(
+                    result,
+                    Err(ProgramError::Runtime(PathRuntimeError::Steering(error)))
+                );
+            } else {
+                expected.base.path = Some(cursor(0, 1));
+                assert_eq!(
+                    result,
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 1),
+                        executed: 1
+                    })
+                );
+            }
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            assert_eq!(runtime.steering.unchanged_axes, 11);
+            assert!(runtime.branch.invert_next);
+        }
     }
 
     fn spawn_statement() -> Statement {
@@ -1465,6 +1612,7 @@ mod tests {
                 audio: None,
                 primary_player: None,
                 selected: None,
+                fixed_players: [None; 2],
                 spawn_defaults: None,
                 // The initial four-count loop does not read this record.
                 selected_auxiliary: (visit >= 3).then_some(AuxiliaryContinuationInput {
@@ -1684,6 +1832,7 @@ mod tests {
                 audio: None,
                 primary_player: None,
                 selected: None,
+                fixed_players: [None; 2],
                 selected_auxiliary: None,
                 spawn_defaults: None,
                 random: &mut random,
@@ -1783,6 +1932,7 @@ mod tests {
                         audio: None,
                         primary_player: None,
                         selected: None,
+                        fixed_players: [None; 2],
                         selected_auxiliary: None,
                         spawn_defaults: None,
                         random: &mut random,

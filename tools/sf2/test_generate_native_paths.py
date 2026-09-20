@@ -79,6 +79,20 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 27"):
             word_field(0x27)
 
+    def test_facing_lowering_distinguishes_live_selection_fixed_players_and_linked_actor(self):
+        for record, command in [
+            ("00 0f", "SelectedImmediate"), ("09", "SelectedSmooth"),
+            ("0a", "SelectedYaw"), ("00 4b", "FixedPlayerImmediate"),
+            ("0e", "LinkedSmooth"), ("00 0e", "LinkedImmediate"),
+        ]:
+            self.assertEqual(self.lower_record(record)[0],
+                f"Statement::Facing {{ command: FacingCommand::{command}, next: cursor(0, 1) }}")
+            changed = bytearray(self.rom)
+            program = bytes.fromhex(record + " 0f")
+            changed[0x4F536:0x4F536 + len(program)] = program
+            generated = generate(bytes(changed), (("FACING", PathAddress(0xF536)),))
+            self.assertIn("use super::path_steering::FacingCommand;", generated)
+
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
         # An unsupported independently spawned child rejects its parent too.
         changed = bytearray(self.rom)
