@@ -24,6 +24,10 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7F8645, "20 BC C4 18 75 14 95 14 4C D3 CA")
         self.assert_source(0x7F8650, "20 BC C4 18 75 16 95 16 4C D3 CA")
 
+    def test_phase_high_literal_alias_and_source_defined_noop_have_no_other_effects(self):
+        self.assert_source(0x7FB130, "20 BC C4 9D E3 1C 4C D3 CA")
+        self.assert_source(0x7FAFF6, "20 FC AF 4C E8 CA 60")
+
     def test_banked_byte_lookup_zero_extends_index_and_samples_before_destination_write(self):
         self.assert_source(0x7FA60E, "20 FF A6 AD B7 16 18 65 54 85 54 E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 A7 54 99 00 00 4C 83 CA")
         self.assert_source(0x7FA6FF, "20 04 C5 85 56 C2 20 20 20 C7 85 54 E2 20 20 28 C5 20 47 CB B9 00 00 8C B3 16 8D B7 16 9C B8 16 20 4C C5 20 47 CB C2 20 60")

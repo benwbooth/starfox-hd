@@ -951,3 +951,11 @@ All mode/action-byte combinations, missing observations, cursor selection and
 actor/RNG preservation are tested. Verification passes 70 lowerer tests, 207
 static path tests, 195 native path tests in debug/release, architecture and
 dependency audits, and the app build. Complete-root coverage remains 14/161.
+
+Two additional source aliases reuse existing verified statements: the direct
+phase-high-byte setter is byte-equal in lowering to an ordinary typed write,
+and the source-defined empty subroutine advances immediately without a yield.
+The latter is explicitly verified, never a fallback for unported handlers.
+All 256 setter literals are checked. The lowerer/static suites now pass
+71/208 tests plus both architecture/dependency audits; native code and the
+14-root/161-statement catalog are unchanged from the preceding verification.

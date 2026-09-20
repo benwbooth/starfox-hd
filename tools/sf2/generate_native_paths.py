@@ -454,6 +454,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             low, high = parameters(2)
             target, next_ = branch_cursors(low | (high << 8))
             statement = f"Statement::Control(ControlCommand::Call {{ target: {target}, next: {next_} }})"
+        elif name == "NoOp0B8":
+            # Source AFF6 calls the single RTS at AFFC and immediately
+            # advances. This is a verified source no-op, not a fallback for
+            # any unimplemented handler.
+            parameters(0)
+            statement = f"Statement::Control(ControlCommand::Jump {{ target: {next_cursor()} }})"
+        elif name == "SetObject1ce3":
+            value, = parameters(1)
+            field = byte_field(0xA2)
+            statement = f"Statement::Mutate {{ mutation: Mutation::Byte {{ field: {field}, operation: ByteOperation::Assign(ByteOperand::Literal({value})) }}, next: {next_cursor()} }}"
         elif name in ("Goto", "GotoImmediate"):
             low, high = parameters(2)
             target = PathAddress(low | (high << 8))
