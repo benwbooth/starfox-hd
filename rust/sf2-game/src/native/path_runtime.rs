@@ -221,6 +221,21 @@ impl PathRuntime {
         self.begin_callbacks(objects, owner)
     }
 
+    /// Death-path entry at `$7F:9E70`. No ordinary position, speed, bank
+    /// turning or player-displacement work precedes this callback batch.
+    pub fn begin_movement_tail(
+        &mut self,
+        objects: &ObjectStore,
+        owner: ObjectId,
+    ) -> Result<bool, PathRuntimeError> {
+        if self.movement.is_some() {
+            return Err(PathRuntimeError::MovementAlreadyActive);
+        }
+        let callbacks = self.begin_callbacks(objects, owner)?;
+        self.movement = Some(owner);
+        Ok(callbacks)
+    }
+
     /// Finish the active movement after all callbacks, including skips and
     /// expired registrations, have been visited. Resolve the final selected
     /// player's auxiliary state here instead of retaining the entry target.

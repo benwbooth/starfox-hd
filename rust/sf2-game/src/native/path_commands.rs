@@ -83,6 +83,9 @@ pub enum ControlCommand {
 pub enum ControlStep {
     Continue,
     Movement,
+    /// Death marking skips ordinary integration/acceleration and enters at
+    /// callbacks. Use begin_movement_tail, then finish_movement as usual.
+    MovementTail,
     ResumeCallbacks,
     /// END runs only exit-latch cleanup; retirement is the scheduler's job.
     Ended,

@@ -122,6 +122,7 @@ ROOTS = (
     ("ACTION_GATED_SOUND_HOLD", PathAddress(0xCFC8)),
     ("ACTION_GATED_ANIMATED_RETIREMENT", PathAddress(0xD399)),
     ("TIMED_SPIN_RISE_EFFECT", PathAddress(0xD3B2)),
+    ("HIT_DETACHED_BOUNCING_PART", PathAddress(0xA481)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -195,6 +196,7 @@ CHILD_INSTALLERS = {
     PathAddress(0xCFC8): (PathAddress(0x4D7E), PathAddress(0x4D99)),
     PathAddress(0xD399): (PathAddress(0xD27B), PathAddress(0xD374)),
     PathAddress(0xD3B2): (PathAddress(0xD27B), PathAddress(0xD2A4)),
+    PathAddress(0xA481): (PathAddress(0xA2E6), PathAddress(0xA4F6)),
 }
 
 
@@ -585,7 +587,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name in ("SetExternal1d72", "ClearExternal1d72"):
+        if name == "ExplodeObject":
+            parameters(0)
+            if command.successors:
+                raise UnsupportedPath(f"unexpected death-path successor at {command.address.label()}")
+            statement = "Statement::MarkForDeath"
+        elif name in ("SetExternal1d72", "ClearExternal1d72"):
             if name == "SetExternal1d72":
                 value, = parameters(1)
             else:

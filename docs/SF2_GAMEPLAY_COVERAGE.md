@@ -2459,3 +2459,37 @@ gameplay audits and the app build with its existing app-icon warning.
 The 11 extractor regressions also pass. Its semantic census now explicitly
 separates the 279 reachable handlers from three independently reviewed unused
 handlers, rather than treating extra reviewed coverage as a changed ROM graph.
+
+### Death marking, movement-tail entry and the hit-detached bouncing part
+
+The death-path handler now marks the owner and its flag-gated direct child
+chain with zero health and the source death-effect flag. It retains links,
+path cursors, resource ownership and allocation state; later death processing
+is distinct from END retirement. A nonzero shared LOOP/friend selector clears
+one of the five retained friend-health records, initialized to forty in the
+source. These are not aliased to current-player health. Selectors beyond the
+five proven records fault explicitly, as do absent health inputs and malformed
+native child chains; no generic global-memory writes are introduced.
+
+The command returns a dedicated movement-tail boundary. That tail starts at
+callbacks, skipping ordinary integration, acceleration, velocity generation,
+bank turning and player displacement, then performs child refresh, relative
+integration, selected-player carry and exit-latch cleanup. Tests verify that
+callbacks observe zero health, marked children still refresh, carry resolves
+the selected player, and callback-root death is rejected before mutation.
+
+The complete hit-detached bouncing-part graph spins while attached, consumes
+a hit, detaches, raises an encounter signal, selects one of three speeds,
+runs its sixty-pass phase, bounces with signed truncation, clears the signal
+through its timed callback and enters death rather than END. Native lifecycle
+tests cover all three distance bands, ground threshold and word-wrap heights,
+cue ordering, callback expiry and the final skipped world integration. Source
+pins cover the entire graph, its nested installer, death handler, retained
+health initialization/consumers and movement tail. Coverage is 99 complete
+roots, 1,567 unique source commands and 1,558 typed statements. This remains
+static port coverage, not production Game scheduler integration or gameplay
+completion.
+Validation: 396 native path tests pass in debug and release, 150 lowering
+tests and 320 source-static path tests pass, generated output is current,
+both architecture/static-gameplay audits pass, and the app builds with its
+existing unused app-icon warning.

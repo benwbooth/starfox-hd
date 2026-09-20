@@ -41,10 +41,15 @@ mod encounter_signal_tests;
 #[path = "path_action_gate_tests.rs"]
 mod action_gate_tests;
 
+#[cfg(test)]
+#[path = "path_death_tests.rs"]
+mod death_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
+    pub friend_health: Option<&'a mut super::path_death::FriendHealth>,
     pub encounter_signals: Option<&'a mut EncounterSignals>,
     pub scenery_distance: Option<&'a mut SceneryDistanceState>,
     pub targeting_upgrade: Option<&'a mut super::path_target::TargetingUpgradeState>,
@@ -405,6 +410,7 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    MarkForDeath,
     SetActionGate { value: u8, next: PathCursor },
     /// Literal comparisons branch directly without consuming IFNOT.
     ActionGateBranch { condition: ActionGateCondition, taken: PathCursor, next: PathCursor },
@@ -726,6 +732,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    Death(super::path_death::DeathError),
     MissingEncounterSignals,
     ActorContext(ActorContextError),
     MissingTargetingUpgrade,
@@ -868,6 +875,12 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::MarkForDeath => {
+                    self.validate_terminal_command()?;
+                    super::path_death::mark_for_death(objects, owner, world.friend_health.as_deref_mut())
+                        .map_err(ProgramError::Death)?;
+                    Ok(ControlStep::MovementTail)
+                }
                 Statement::SetActionGate { value, next } => {
                     world.action_gate.as_deref_mut().ok_or(ProgramError::MissingActionGate)?.code = value;
                     objects.get_mut(owner).expect("validated action-gate writer").base.path = Some(next);
@@ -1815,6 +1828,7 @@ mod tests {
     pub(super) fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             scene: ScenePathInputs::default(),
+            friend_health: None,
             encounter_signals: None,
             scenery_distance: None,
             targeting_upgrade: None,
@@ -8849,6 +8863,7 @@ mod tests {
             };
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                friend_health: None,
                 encounter_signals: None,
                 scenery_distance: None,
                 targeting_upgrade: None,
@@ -12916,9 +12931,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 98);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1525);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1534);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 99);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1558);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1567);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13050,6 +13065,7 @@ mod tests {
         for phase in 1..=7 {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                friend_health: None,
                 encounter_signals: None,
                 scenery_distance: None,
                 targeting_upgrade: None,
@@ -13179,6 +13195,7 @@ mod tests {
                     owner,
                     &mut PathWorld {
                         scene: ScenePathInputs::default(),
+                        friend_health: None,
                         encounter_signals: None,
                         scenery_distance: None,
                         targeting_upgrade: None,

@@ -20,6 +20,25 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_death_is_terminal_and_bouncing_part_keeps_all_commands_and_its_installer(self):
+        self.assertEqual(self.lower_record("10"), ["Statement::MarkForDeath"])
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0xA481))
+        self.assertEqual(len(commands), 33)
+        self.assertEqual(''.join(c.raw_hex for c in commands),
+            "2e0bffaf3f9aa40794081685a4e3010042fa8565e20100006596a4111e93126b12"
+            "149001bea4142003b9a406ce17c0a406dd17c0a406ec95120b3ca16fa167a1e1a4"
+            "71f07734041a1e00d8a416c5a4fa7657348f3416c5a410")
+        self.assertEqual(len(lower_graph(extractor, PathAddress(0xA481), 0)[1]), 33)
+        command = extractor.decode_command(PathAddress(0xA4F6))
+        self.assertEqual(command.raw_hex, "f5f0df81a40a04d0008c0074ff01")
+        self.assertIn(command, graph(extractor, PathAddress(0xA2E6)))
+        self.assertEqual(child_spawn_parameters(command).path, PathAddress(0xA481))
+        changed = bytearray(self.rom)
+        changed[0x4A4F9:0x4A4FB] = (0xA482).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed), (("BOUNCING_PART", PathAddress(0xA481)),))
+
     def test_actor_selection_and_restore_lower_to_immediate_typed_operations(self):
         for record, expected in [
             ("9c", "Statement::SelectActor { selection: ActorSelection::LastSpawn, next: cursor(0, 1) }"),
