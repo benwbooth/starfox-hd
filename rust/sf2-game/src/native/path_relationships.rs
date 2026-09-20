@@ -5,6 +5,10 @@
 
 use super::{ObjectId, ObjectStore, OBJECT_CAPACITY};
 
+#[cfg(test)]
+#[path = "path_relationship_search_tests.rs"]
+mod search_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelationshipError {
     MissingSelected,
@@ -17,6 +21,8 @@ pub enum RelationshipError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelationshipCommand {
+    /// None selects general-search eligibility; Some compares only shape.
+    FindNearest { shape: Option<super::ShapeId> },
     UnlinkSelf,
     UnlinkChild { number: u8 },
     /// Mark the first numbered child for later retirement; do not unlink,
@@ -317,6 +323,39 @@ pub fn apply(
     command: RelationshipCommand,
 ) -> Result<(), RelationshipError> {
     let child = match command {
+        RelationshipCommand::FindNearest { shape } => {
+            // $7F:89EF / $7F:1EF8: first strictly nearest candidate in
+            // active-list order. Y, health, collision and retirement flags
+            // are not search filters. A failed search clears only the link.
+            const SEARCH_LIMIT: i16 = 7000;
+            let position = objects.get(owner)
+                .ok_or(RelationshipError::MissingActor(owner))?.base.position;
+            let mut closest = None;
+            let mut distance_limit = SEARCH_LIMIT;
+            for &id in objects.active_ids() {
+                if id == owner {
+                    continue;
+                }
+                let candidate = objects.get(id).expect("live active-list actor");
+                let eligible = shape.map_or(candidate.base.flags.general_search_eligible,
+                    |shape| candidate.base.shape == shape);
+                if !eligible {
+                    continue;
+                }
+                let distance = sf_core::aim_angle::sf2_xz_angle_distance(
+                    position.x.wrapping_sub(candidate.base.position.x),
+                    position.z.wrapping_sub(candidate.base.position.z),
+                );
+                // Source comparisons use the sign of wrapped subtraction,
+                // not an unsigned length or a Euclidean approximation.
+                if distance.wrapping_sub(distance_limit) < 0 && distance >= 0 {
+                    distance_limit = distance;
+                    closest = Some(id);
+                }
+            }
+            objects.get_mut(owner).expect("validated search owner").base.attachment = closest;
+            return Ok(());
+        }
         RelationshipCommand::RetireChild { number } => {
             let actor = objects.get(owner).ok_or(RelationshipError::MissingActor(owner))?;
             // $7F:8B64 has neither a null-mother guard nor a null-result

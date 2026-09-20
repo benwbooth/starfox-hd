@@ -76,5 +76,18 @@ class PathTargetStaticTests(unittest.TestCase):
             "DA 5A C2 20 B9 0C 00 38 F5 0C 85 02 B9 10 00 38 F5 10 85 08 22 58 1D 7F C2 30 7A FA 6B")
 
 
+    def test_find_shape_sets_zero_lower_and_strict_7000_upper_then_replaces_only_link(self):
+        self.assert_source(0x7F89EF,
+            "c2202020c78db116e220aca8128c3614c220a90000853ea9581b853aadb11622f81e7f"
+            "c00000e220d0045c228a7f94064cbeca740674074cbeca")
+
+    def test_nearest_search_skips_owner_preserves_first_tie_and_has_distinct_filters(self):
+        self.assert_source(0x7F1EF8,
+            "8604ae3614d003823900c90000f03a850a643ce404f01db504c50ad017a404229f247f"
+            "c220adde12c53a1008c53e3004853a863cb400bbd0dab4008c3614a43ca6046b"
+            "a00000a6046b643ce404f01eb522290400f017a404229f247fc220adde12c53a1008"
+            "c53e3004853a863cb400bbd0d98c3614a43ca6046b")
+
+
 if __name__ == "__main__":
     unittest.main()

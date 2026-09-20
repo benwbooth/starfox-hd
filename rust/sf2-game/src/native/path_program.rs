@@ -5031,6 +5031,7 @@ mod tests {
         for command in [
             RelationshipCommand::ClearRelativeReference,
             RelationshipCommand::UseSelfRelativeFrame,
+            RelationshipCommand::FindNearest { shape: None },
         ] {
             let (mut runtime, mut objects, owner, mut random) = setup();
             let actor = objects.get_mut(owner).unwrap();
@@ -5051,9 +5052,11 @@ mod tests {
             let mut expected = actor.clone();
             if command == RelationshipCommand::ClearRelativeReference {
                 expected.extension.parent = None;
-            } else {
+            } else if command == RelationshipCommand::UseSelfRelativeFrame {
                 expected.extension.relative_position = Vector3::default();
                 expected.extension.relative_rotation = Rotation::default();
+            } else {
+                expected.base.attachment = None;
             }
             expected.base.path = Some(cursor(0, 1));
             runtime.branch.invert_next = true;
@@ -12943,9 +12946,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 107);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1688);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1697);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 108);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1693);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1702);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

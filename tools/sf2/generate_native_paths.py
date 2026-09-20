@@ -131,6 +131,7 @@ ROOTS = (
     ("CONTACT_RELEASED_ARC_ATTACHMENT", PathAddress(0x32B9)),
     ("FOUR_PULSE_DEATH_EMITTER", PathAddress(0x23D0)),
     ("SIGNAL_GUIDED_PROJECTILE", PathAddress(0xA86F)),
+    ("NEAREST_SHAPE_WEAPON_DISABLE_SERVICE", PathAddress(0x5A02)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -212,6 +213,7 @@ CHILD_INSTALLERS = {
     PathAddress(0x32B9): (PathAddress(0x3114), PathAddress(0x327C)),
     PathAddress(0x23D0): (PathAddress(0x22AA), PathAddress(0x23C8)),
     PathAddress(0xA86F): (PathAddress(0xA552), PathAddress(0xA6DF)),
+    PathAddress(0x5A02): (PathAddress(0x58B9), PathAddress(0x5A0D)),
 }
 
 
@@ -925,6 +927,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "UpdatePlayerTargetFlag08":
             parameters(0)
             statement = f"Statement::ConsiderPrimaryTarget {{ next: {next_cursor()} }}"
+        elif name == "FindShape":
+            low, high = parameters(2)
+            shape = low | (high << 8)
+            filter_ = "None" if shape == 0 else f"Some(ShapeId::from_catalog_index({shape_index(shape)}))"
+            statement = f"Statement::Relationship {{ command: RelationshipCommand::FindNearest {{ shape: {filter_} }}, next: {next_cursor()} }}"
         elif name == "ChildDead":
             number, low, high = parameters(3)
             taken, next_ = branch_cursors(low | (high << 8))

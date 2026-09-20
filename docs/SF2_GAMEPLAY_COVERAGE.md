@@ -2593,3 +2593,26 @@ The catalog has 107 roots, 1,697 source commands and 1,688 typed statements.
 407 native path tests pass in debug/release, with 154 lowering and 321
 source-static tests, freshness, both audits and app build passing (existing
 icon warning). This remains catalog coverage, not production gameplay completion.
+
+### Nearest-shape lookup and weapon-disable service
+
+Nearest-shape lookup now traverses native active-list order, excludes its
+owner and retains the first strictly closest match. A zero source operand
+uses general-search eligibility; a catalog shape compares only shape, even
+for a zero-health or pending-retirement actor. Its statically pinned wrapped
+X/Z approximation, nonnegative lower bound and strict 7,000 upper bound are
+preserved. Only the attachment link changes; a miss clears it without child
+unlinking, relative-frame changes or selection side effects.
+
+The complete installed five-command service uses this lookup, temporarily
+selects a matching actor, disables its weapon selection, restores the caller
+and ends. Tests cover found/missing targets, IFNOT retention, exact actor
+preservation, all 577 decoded shape operands, invalid operands, active-order
+ties, signed/wrapped range edges and every owner in a full pool. Source
+handler, search helper, graph and installer bytes are pinned statically.
+
+The catalog now contains 108 roots, 1,702 source commands and 1,693 typed
+statements. All 412 native path tests pass in debug/release, with 156 lowering
+and 323 source-static tests, freshness, both audits and app build passing
+(existing icon warning). Production scheduler/spawn integration remains open; these
+checks do not establish full gameplay completion.

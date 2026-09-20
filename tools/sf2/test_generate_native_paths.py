@@ -20,6 +20,41 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_find_shape_decodes_zero_as_general_and_all_catalog_shapes_as_specific(self):
+        from extract_shapes import SHAPE_HEADER_START, SHAPE_HEADER_SIZE, SHAPE_HEADER_COUNT
+        for token, filter_ in [(0, "None")] + [
+            (SHAPE_HEADER_START + index * SHAPE_HEADER_SIZE,
+             f"Some(ShapeId::from_catalog_index({index}))")
+            for index in range(SHAPE_HEADER_COUNT)
+        ]:
+            record = "0d " + token.to_bytes(2, "little").hex(" ")
+            self.assertEqual(self.lower_record(record)[0],
+                f"Statement::Relationship {{ command: RelationshipCommand::FindNearest {{ shape: {filter_} }}, next: cursor(0, 1) }}")
+        for token in [1, SHAPE_HEADER_START - 1, SHAPE_HEADER_START + 1,
+                      SHAPE_HEADER_START + SHAPE_HEADER_SIZE * SHAPE_HEADER_COUNT]:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record("0d " + token.to_bytes(2, "little").hex(" "))
+
+    def test_nearest_shape_service_full_graph_and_reachable_installer(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x5A02))
+        self.assertEqual(len(commands), 5)
+        self.assertEqual(''.join(c.raw_hex for c in commands), "0df0bc990c5a0bff2f9b0f")
+        statements = lower_graph(extractor, PathAddress(0x5A02), 0)[1]
+        self.assertEqual(len(statements), 5)
+        self.assertIn("FindNearest { shape: Some(ShapeId::from_catalog_index(3)) }", statements[0])
+        self.assertIn("LinkedOrBranch { missing: cursor(0, 4) }", statements[1])
+        self.assertIn("field: ByteField::WeaponSelection", statements[2])
+        self.assertIn("RestoreActor", statements[3])
+        command = extractor.decode_command(PathAddress(0x5A0D))
+        self.assertEqual(command.raw_hex, "5d9cbc025a0a0a")
+        self.assertIn(command, graph(extractor, PathAddress(0x58B9)))
+        self.assertEqual(independent_spawn_parameters(command).path, PathAddress(0x5A02))
+        changed = bytearray(self.rom)
+        changed[0x45A10:0x45A12] = (0x5A03).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed), (("SEARCH_SERVICE", PathAddress(0x5A02)),))
+
     def test_numbered_child_retirement_uses_literal_full_byte_and_immediate_continuation(self):
         for number in range(256):
             self.assertEqual(self.lower_record(f"66 {number:02x}")[0],

@@ -34,6 +34,57 @@ fn assign(field: ByteField, value: ByteOperand, next: u16) -> Statement {
 }
 
 #[test]
+fn nearest_shape_service_changes_only_nearest_weapon_selection_then_restores_and_ends() {
+    use super::super::authored_paths;
+    let catalog = authored_paths::catalog();
+    let Statement::Relationship { next, .. } = catalog.statement(authored_paths::NEAREST_SHAPE_WEAPON_DISABLE_SERVICE).unwrap() else { panic!("search entry") };
+    let Statement::SelectActor { selection: ActorSelection::LinkedOrBranch { missing: terminal }, .. } = catalog.statement(next).unwrap() else { panic!("search branch") };
+    assert_eq!(catalog.statement(terminal).unwrap(), Statement::Control(ControlCommand::End));
+    for present in [false, true] {
+        for inverted in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let shape = ShapeId::from_catalog_index(3);
+            let far = actor(&mut objects, Some(at(99)));
+            let near = actor(&mut objects, Some(at(77)));
+            for (id, distance) in [(far, 500), (near, 100)] {
+                let candidate = objects.get_mut(id).unwrap();
+                candidate.base.shape = if present { shape } else { ShapeId::EMPTY };
+                candidate.base.position.x = distance;
+                candidate.base.flags.general_search_eligible = false;
+                candidate.extension.path_state.weapon_selection = 7;
+                candidate.extension.path_state.conditions.selected_player = PlayerTarget::Primary;
+            }
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::NEAREST_SHAPE_WEAPON_DISABLE_SERVICE);
+            actor.base.shape = shape;
+            actor.base.attachment = Some(far);
+            actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+            actor.extension.path_state.weapon_selection = 3;
+            let mut expected_owner = actor.clone();
+            let mut expected_near = objects.get(near).unwrap().clone();
+            let expected_far = objects.get(far).unwrap().clone();
+            runtime.branch.invert_next = inverted;
+            let original_random = random;
+            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 5),
+                Ok(ProgramExit { actor: owner, step: ControlStep::Ended }));
+            expected_owner.base.path = Some(terminal);
+            expected_owner.base.flags.remove_after_tick = true;
+            expected_owner.base.attachment = present.then_some(near);
+            if present {
+                expected_near.extension.path_state.weapon_selection = 255;
+            }
+            assert_eq!(objects.get(owner), Some(&expected_owner));
+            assert_eq!(objects.get(near), Some(&expected_near));
+            assert_eq!(objects.get(far), Some(&expected_far));
+            assert_eq!(runtime.selected_player(), PlayerTarget::Secondary);
+            assert_eq!(runtime.branch.invert_next, inverted);
+            assert_eq!(runtime.program_actor(), Some(owner));
+            assert_eq!(random, original_random);
+        }
+    }
+}
+
+#[test]
 fn switched_yield_reports_borrowed_actor_without_refreshing_selection_or_initializing_it() {
     for original_path in [None, Some(at(99))] {
         for selection in [
