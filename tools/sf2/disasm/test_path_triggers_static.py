@@ -22,6 +22,21 @@ class PathTriggersStaticTests(unittest.TestCase):
         self.assert_source(0x7F97B7, "20 04 C5 8D BF 16 20 28 C5 1A 8D BD 16")
         self.assert_source(0x7F980A, "C2 20 A9 05 00 22 4E 19 7F")
 
+    def test_always_registration_zeroes_timer_and_condition_and_reads_literal_path(self):
+        self.assert_source(0x7F97A9, "9C BD 16 A9 00 8D BF 16 20 F3 97 82 07 33")
+        self.assert_source(0x7F97F3, "C2 20 20 20 C7 8D C1 16")
+
+    def test_callback_primary_view_filter_latches_only_low_phase_byte(self):
+        self.assert_source(0x09F349, "AC C3 12 B9 25 00 29 20 D0 04 5C 5C F3 09 A9 01 9D E2 1C C2 20 A9 62 F3 6B")
+
+    def test_view_filter_is_not_a_death_flag_and_is_copied_to_related_actor(self):
+        self.assert_source(0x7F1262, "B9 25 00 29 20 F0 0A B9 23 00 29 40 F0 03 82 ED 01")
+        self.assert_source(0x7F130F, "B9 25 00 29 20 F0 0A B9 23 00 29 40 D0 03 82 40 01")
+        self.assert_source(0x06BAC3, "B9 25 00 29 20 F0 04 5C D6 BA 06 B5 25 29 DF 95 25 80 06 B5 25 09 20 95 25")
+
+    def test_run_when_paused_flag_advances_without_moving_or_touching_other_flags(self):
+        self.assert_source(0x7FB30E, "B5 26 09 08 95 26 4C E8 CA")
+
     def test_growth_cost_is_byte_count_times_four_plus_one(self):
         self.assert_source(0x7F983A, "BC E0 1C B9 61 6A 1A 0A 0A 1A 8D B1 16 9C B2 16")
         self.assert_source(0x7F985A, "C2 20 AD B1 16 22 4E 19 7F")

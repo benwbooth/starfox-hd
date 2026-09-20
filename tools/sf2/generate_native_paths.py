@@ -31,6 +31,7 @@ ROOTS = (
     ("CHILD_DETACHING_SPRITE", PathAddress(0xF540)),
     ("REPEATED_CHILD_SPRITE", PathAddress(0xF561)),
     ("SOUND_COLOR_SPRITE", PathAddress(0xF582)),
+    ("CALLBACK_GATED_SPRITE", PathAddress(0xF32C)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -209,6 +210,26 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             target = "Secondary" if packed_parameter & 0x80 else "Primary"
             cue_ = f"AuthoredCue::new({cue}, {packed_parameter & 0x7F}, PlayerTarget::{target})"
             statement = f"Statement::Sound {{ cue: {cue_}, next: {next_cursor()} }}"
+        elif name == "ScheduleAlways":
+            low, high = parameters(2)
+            target, next_ = branch_cursors(low | (high << 8))
+            trigger = f"Trigger {{ path: {target}, kind: TriggerKind::Always, timer: 0 }}"
+            statement = f"Statement::Control(ControlCommand::Register {{ trigger: {trigger}, next: {next_} }})"
+        elif name == "ForceTriggerPath":
+            low, high = parameters(2)
+            target, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::Control(ControlCommand::ForceAfterCallbacks {{ target: {target}, next: {next_} }})"
+        elif name == "SetFlag26Bit08":
+            parameters(0)
+            statement = f"Statement::RunWhenPaused {{ enabled: true, next: {next_cursor()} }}"
+        elif name == "Inline65816":
+            # The extractor checks the COMPLETE instruction signature and
+            # returned continuation before exposing this action. Only this
+            # reviewed block has a native semantic implementation here.
+            if command.address != PathAddress(0xF348):
+                raise UnsupportedPath(f"unported inline action at {command.address.label()}")
+            parameters(0)
+            statement = f"Statement::LatchPrimaryViewFilter {{ next: {next_cursor()} }}"
         elif name in ("SpawnChild", "SpawnChildAlias"):
             spawn = child_spawn_parameters(command)
             shape, kind = child_spawn_shape(spawn.shape)
@@ -384,6 +405,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_fields::WordOperand;\n"
     if any("Statement::Sound" in statement for statement in unique_statements.values()):
         source += "use super::path_sound::AuthoredCue;\nuse super::path_control::PlayerTarget;\n"
+    if any("ControlCommand::Register" in statement for statement in unique_statements.values()):
+        source += "use super::path_triggers::{Trigger, TriggerKind};\n"
     if any("Statement::SpawnChild" in statement for statement in unique_statements.values()):
         source += "use super::path_spawn::ChildSpawn;\nuse super::{Angle, ObjectKind, Rotation, ShapeId, Vector3};\n"
     source += "\n".join(declarations)

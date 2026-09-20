@@ -77,6 +77,27 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn("next: cursor(0, 1)", statements[0])
             self.assertEqual(statements[1], "Statement::Control(ControlCommand::End)")
 
+    def test_callback_graph_has_semantic_action_and_deferred_redirection(self):
+        _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF32C), 0)
+        self.assertEqual(len(statements), 18)
+        self.assertIn("Trigger { path: cursor(0, 12), kind: TriggerKind::Always, timer: 0 }", statements[0])
+        self.assertIn("next: cursor(0, 1)", statements[0])
+        self.assertEqual(statements[1], "Statement::RunWhenPaused { enabled: true, next: cursor(0, 2) }")
+        self.assertEqual(statements[12], "Statement::LatchPrimaryViewFilter { next: cursor(0, 13) }")
+        self.assertIn("ForceAfterCallbacks { target: cursor(0, 17), next: cursor(0, 16) }", statements[15])
+        generated = generate(self.rom, (("CALLBACK", PathAddress(0xF32C)),))
+        self.assertIn("use super::path_triggers::{Trigger, TriggerKind};", generated)
+        self.assertNotIn("0xF348", generated)
+        self.assertNotIn("Inline65816", generated)
+
+    def test_unported_or_changed_inline_actions_are_rejected(self):
+        with self.assertRaisesRegex(UnsupportedPath, "unported inline action"):
+            lower_graph(PathExtractor(self.rom), PathAddress(0xF078), 0)
+        changed = bytearray(self.rom)
+        changed[0x4F350] = 0x40  # change the primary flag mask inside the action
+        with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
+            lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF32C), 0)
+
     def test_spawn_lowering_uses_semantic_shape_and_child_cursor_with_separate_continuation(self):
         for record, rotation in (
             ("f5 98 bd 00 f6 81 fe 00 80 ff 7f ff ff ff", (0, 0, 0)),

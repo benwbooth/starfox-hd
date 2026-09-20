@@ -588,3 +588,21 @@ remain outside Game scheduling. Verification passes 142 native path tests in
 release, 19 path-program tests in debug, 25 lowerer tests, 144 static path checks,
 14 app audio tests, architecture/dependency checks and the app build. Other
 sound classes, remaining source graphs and full gameplay integration stay open.
+
+The callback-gated sprite now lowers as a complete 18-statement graph, bringing
+the catalog to nine roots and 97 unique statements. Always-trigger registration
+and forced post-callback redirection use the existing typed trigger services.
+Its reviewed inline block becomes a named Rust action after full static byte
+validation: read the primary player's view-side filter and latch the effect's
+low phase byte to one, leaving the high byte and false case untouched. Draw
+preparation proves that this is a view filter, not a death/damage flag. Primary
+identity is distinct from current target selection, and absent/stale primary
+inputs fail explicitly. The source run-while-paused flag is also retained.
+
+Runtime tests cover all phase bytes with four high-byte patterns, contradictory
+primary/selected observations, unchanged inversion/RNG, repeated callback
+returns, and both exits through deferred redirection. Unsupported inline
+actions and modified source signatures remain hard lowering errors. All 144
+native path tests pass in debug/release, with 27 lowerer tests, 148 static path
+checks, architecture/dependency checks and the app build. Game scheduling,
+view-filter production/render integration and other graphs remain open.

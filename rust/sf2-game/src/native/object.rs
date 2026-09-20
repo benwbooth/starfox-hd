@@ -913,6 +913,10 @@ pub struct ObjectFlags {
     /// Source 26 bit 10 chooses the fixed maximum draw distance instead of
     /// the shape-derived distance (`$7F:1278`, `$7F:1325`).
     pub maximum_draw_distance: bool,
+    /// Source 25 bit 20 enables view-side filtering. Draw preparation rejects
+    /// the actor when its source 23 bit 40 side disagrees with the active view
+    /// (`$7F:1262`, `$7F:130F`); this is not a death or damage flag.
+    pub view_side_filter: bool,
     pub scaled_sprite: bool,
     pub exploding: bool,
     pub on_fire: bool,

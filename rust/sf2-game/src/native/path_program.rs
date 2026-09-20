@@ -16,6 +16,8 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub audio: Option<super::path_sound::PathAudio<'a>>,
+    /// Primary player identity, independent of the current selected slot.
+    pub primary_player: Option<ObjectId>,
     pub selected: Option<ObjectId>,
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
@@ -135,6 +137,15 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    RunWhenPaused {
+        enabled: bool,
+        next: PathCursor,
+    },
+    /// Named source inline action: latch phase low byte to one if the primary
+    /// player's view-side filter is enabled; otherwise leave it unchanged.
+    LatchPrimaryViewFilter {
+        next: PathCursor,
+    },
     Sound {
         cue: super::path_sound::AuthoredCue,
         next: PathCursor,
@@ -207,6 +218,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingPrimaryPlayer,
     MissingAudio,
     Spawn(super::path_spawn::SpawnError),
     MissingSpawnDefaults,
@@ -302,6 +314,30 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::RunWhenPaused { enabled, next } => {
+                    let actor = objects.get_mut(owner).expect("validated pause-mode owner");
+                    actor.base.contacts.run_when_paused = enabled;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::LatchPrimaryViewFilter { next } => {
+                    let primary = world
+                        .primary_player
+                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                    let filtered = objects
+                        .get(primary)
+                        .ok_or(PathRuntimeError::MissingActor(primary))?
+                        .base
+                        .flags
+                        .view_side_filter;
+                    let actor = objects.get_mut(owner).expect("validated phase-latch owner");
+                    if filtered {
+                        let phase = &mut actor.extension.path_state.motion_phase;
+                        *phase = (*phase & 0xFF00) | 1;
+                    }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::Sound { cue, next } => {
                     world
                         .audio
@@ -474,6 +510,7 @@ mod tests {
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             audio: None,
+            primary_player: None,
             selected: None,
             selected_auxiliary: None,
             spawn_defaults: None,
@@ -588,6 +625,184 @@ mod tests {
                 SoundEvent::Authored(cue.for_listener(CueListener::Other))
             ]
         );
+    }
+
+    #[test]
+    fn primary_view_latch_preserves_high_phase_and_does_not_use_selected_player() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let primary = objects
+            .allocate(Object::new(
+                ObjectKind::Enemy,
+                ShapeId::EMPTY,
+                Behavior::PlayerFlight,
+            ))
+            .unwrap();
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::LatchPrimaryViewFilter { next: cursor(0, 1) },
+            Statement::Control(ControlCommand::End),
+        ]])
+        .unwrap();
+        let before_random = random;
+        let mut inputs = world(&mut random);
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingPrimaryPlayer)
+        );
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
+        inputs.primary_player = Some(primary);
+        inputs.selected = Some(owner);
+        runtime.branch.invert_next = true;
+        for filtered in [false, true] {
+            objects
+                .get_mut(primary)
+                .unwrap()
+                .base
+                .flags
+                .view_side_filter = filtered;
+            for high in [0, 0x7F00, 0x8000, 0xFF00] {
+                for low in 0..=u8::MAX {
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(cursor(0, 0));
+                    actor.base.flags.view_side_filter = !filtered;
+                    actor.extension.path_state.motion_phase = high | u16::from(low);
+                    actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+                    let mut expected = actor.clone();
+                    expected.base.path = Some(cursor(0, 1));
+                    if filtered {
+                        expected.extension.path_state.motion_phase = high | 1;
+                    }
+                    assert_eq!(
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: cursor(0, 1),
+                            executed: 1
+                        })
+                    );
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert_eq!(runtime.selected_player(), PlayerTarget::Secondary);
+                    assert!(runtime.branch.invert_next);
+                }
+            }
+        }
+        assert_eq!(inputs.random, &before_random);
+        objects.remove(primary).unwrap();
+        objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::Runtime(PathRuntimeError::MissingActor(
+                primary
+            )))
+        );
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
+    }
+
+    #[test]
+    fn authored_callback_sprite_loops_then_primary_filter_or_aux_action_redirects_to_end() {
+        use super::super::authored_paths;
+        for primary_filtered in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let primary = objects
+                .allocate(Object::new(
+                    ObjectKind::Enemy,
+                    ShapeId::EMPTY,
+                    Behavior::PlayerFlight,
+                ))
+                .unwrap();
+            let catalog = authored_paths::catalog();
+            let initial_random = random;
+            {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::CALLBACK_GATED_SPRITE);
+                actor.extension.path_state.motion_phase = 0xAB00;
+                actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+            }
+            for visit in 0..5 {
+                let mut inputs = world(&mut random);
+                inputs.primary_player = Some(primary);
+                inputs.selected = Some(owner);
+                inputs.selected_auxiliary = Some(AuxiliaryContinuationInput {
+                    mode: 0,
+                    action_flags: 0x40,
+                });
+                assert_eq!(
+                    runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                    Ok(ControlStep::Movement)
+                );
+                let saved_main = objects.get(owner).unwrap().base.path;
+                let actor = objects.get(owner).unwrap();
+                assert!(actor.base.contacts.run_when_paused);
+                assert!(actor.base.flags.collision_disabled);
+                assert_eq!(actor.extension.path_state.motion_phase, 0xAB00);
+                assert_eq!(
+                    actor.extension.texture_scroll_x,
+                    if visit < 3 { (visit + 1) * 4 } else { 0 }
+                );
+                assert_eq!(
+                    actor
+                        .extension
+                        .path_state
+                        .triggers
+                        .entries(&runtime.resources, owner)
+                        .unwrap()
+                        .len(),
+                    1
+                );
+                assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                assert!(matches!(
+                    runtime
+                        .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                        .unwrap(),
+                    CallbackStep::Run(_)
+                ));
+                if visit == 4 {
+                    objects
+                        .get_mut(primary)
+                        .unwrap()
+                        .base
+                        .flags
+                        .view_side_filter = primary_filtered;
+                    // A latched phase bypasses the auxiliary condition entirely.
+                    inputs.selected_auxiliary =
+                        (!primary_filtered).then_some(AuxiliaryContinuationInput {
+                            mode: 0x40,
+                            action_flags: 0,
+                        });
+                }
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                    Ok(ControlStep::ResumeCallbacks)
+                );
+                assert_eq!(
+                    runtime
+                        .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                        .unwrap(),
+                    CallbackStep::Complete
+                );
+                assert_eq!(inputs.random, &initial_random);
+                if visit < 4 {
+                    assert_eq!(objects.get(owner).unwrap().base.path, saved_main);
+                    assert!(!objects.get(owner).unwrap().base.flags.remove_after_tick);
+                } else {
+                    let actor = objects.get(owner).unwrap();
+                    assert_ne!(actor.base.path, saved_main);
+                    assert_eq!(
+                        actor.extension.path_state.motion_phase,
+                        if primary_filtered { 0xAB01 } else { 0xAB00 }
+                    );
+                    assert_eq!(
+                        catalog.statement(actor.base.path.unwrap()).unwrap(),
+                        Statement::Control(ControlCommand::End)
+                    );
+                    assert!(!actor.base.flags.remove_after_tick);
+                    assert_eq!(
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 2),
+                        Ok(ControlStep::Ended)
+                    );
+                    assert!(objects.get(owner).unwrap().base.flags.remove_after_tick);
+                }
+            }
+            runtime.release_actor_programs(&mut objects, owner).unwrap();
+        }
     }
 
     #[test]
@@ -1047,6 +1262,7 @@ mod tests {
         {
             let mut inputs = PathWorld {
                 audio: None,
+                primary_player: None,
                 selected: None,
                 spawn_defaults: None,
                 // The initial four-count loop does not read this record.
@@ -1132,8 +1348,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 8);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 79);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 9);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 97);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -1265,6 +1481,7 @@ mod tests {
         for phase in 1..=7 {
             let mut inputs = PathWorld {
                 audio: None,
+                primary_player: None,
                 selected: None,
                 selected_auxiliary: None,
                 spawn_defaults: None,
@@ -1363,6 +1580,7 @@ mod tests {
                     owner,
                     &mut PathWorld {
                         audio: None,
+                        primary_player: None,
                         selected: None,
                         selected_auxiliary: None,
                         spawn_defaults: None,
