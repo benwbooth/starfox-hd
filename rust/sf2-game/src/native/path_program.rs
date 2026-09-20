@@ -214,6 +214,10 @@ pub enum Statement {
         command: super::path_steering::FacingCommand,
         next: PathCursor,
     },
+    Contact {
+        command: super::path_contact::ContactCommand,
+        next: PathCursor,
+    },
     Mutate {
         mutation: Mutation,
         next: PathCursor,
@@ -474,6 +478,12 @@ impl PathRuntime {
                 Statement::Branch(command) => self.execute_branch(objects, owner, command),
                 Statement::Motion { command, next } => {
                     self.execute_motion(objects, owner, command, next)
+                }
+                Statement::Contact { command, next } => {
+                    let actor = objects.get_mut(owner).expect("validated contact owner");
+                    command.apply(actor);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
                 }
                 Statement::Facing { command, next } => self.execute_facing(
                     objects,
@@ -1825,14 +1835,150 @@ mod tests {
     }
 
     #[test]
+    fn authored_primary_motion_path_exits_on_loop_limit_ground_or_new_contact() {
+        use super::super::collision_pass::ExclusionGroups;
+        use super::super::path_runtime::{CallbackStep, TriggerWorldInputs};
+        use super::super::{authored_paths, path_motion, Vector3};
+        // No movement is requested here: each yield remains an explicit
+        // scheduler boundary. Independently exercise all three source exits.
+        for (ground_visit, contact_visit, last_visit) in [
+            (None, None, 9),
+            (Some(0), None, 0),
+            (Some(3), None, 3),
+            (None, Some(2), 2),
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let mut primary =
+                Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+            primary.base.velocity = Vector3 {
+                x: 123,
+                y: 456,
+                z: -789,
+            };
+            let primary = objects.allocate(primary).unwrap();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::PRIMARY_MOTION_GROUND_LIMITED);
+            actor.base.position.y = -100;
+            actor.base.flags.casts_shadow = true;
+            actor.base.contacts.exclusion_groups = ExclusionGroups::PATH_SPAWN;
+            actor.base.contacts.first_strategy_visit = true;
+            actor.base.contacts.suppress_attack_damage = true;
+            actor.base.wait_timer = 37;
+            let initial_random = random;
+            let direction =
+                path_motion::direction_velocity(actor.base.pitch, actor.base.yaw, 60, 1);
+            let expected_velocity = Vector3 {
+                x: direction.x.wrapping_add(123),
+                y: direction.y,
+                z: direction.z.wrapping_add(-789),
+            };
+            let primary_before = objects.get(primary).unwrap().clone();
+            let catalog = authored_paths::catalog();
+            for visit in 0..=last_visit {
+                if ground_visit == Some(visit) {
+                    objects.get_mut(owner).unwrap().base.position.y = 0;
+                }
+                let mut inputs = world(&mut random);
+                // The inline action runs once. Later iterations require no
+                // primary observations, and must not add its motion again.
+                if visit == 0 {
+                    inputs.primary_player = Some(primary);
+                    inputs.primary_motion = Some(PrimaryMotionInput {
+                        auxiliary_mode: 0x1F,
+                        displacement: Vector3 {
+                            x: -1,
+                            y: -2,
+                            z: -3,
+                        },
+                    });
+                }
+                let mut outcome = runtime
+                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 32)
+                    .unwrap();
+                if contact_visit == Some(visit) {
+                    assert_eq!(outcome, ControlStep::Movement);
+                    objects
+                        .get_mut(owner)
+                        .unwrap()
+                        .base
+                        .contacts
+                        .new_contact_latched = true;
+                    assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                    assert!(matches!(
+                        runtime
+                            .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                            .unwrap(),
+                        CallbackStep::Run(_)
+                    ));
+                    assert_eq!(
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4),
+                        Ok(ControlStep::ResumeCallbacks)
+                    );
+                    assert_eq!(
+                        runtime
+                            .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                            .unwrap(),
+                        CallbackStep::Complete
+                    );
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(
+                        catalog.statement(actor.base.path.unwrap()).unwrap(),
+                        Statement::Control(ControlCommand::End)
+                    );
+                    assert!(!actor.base.flags.remove_after_tick);
+                    outcome = runtime
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
+                        .unwrap();
+                }
+                assert_eq!(
+                    outcome,
+                    if visit == last_visit {
+                        ControlStep::Ended
+                    } else {
+                        ControlStep::Movement
+                    }
+                );
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.base.velocity, expected_velocity);
+                assert_eq!(
+                    actor.base.position,
+                    Vector3 {
+                        x: 0,
+                        y: if ground_visit == Some(visit) { 0 } else { -100 },
+                        z: 0
+                    }
+                );
+                assert_eq!(actor.base.hit_points, 120);
+                assert_eq!(actor.base.attack_power, 2);
+                assert_eq!(actor.base.target_speed, 10);
+                assert_eq!(actor.base.speed, 60);
+                assert!(!actor.base.flags.casts_shadow);
+                assert!(actor.base.contacts.credits_hit_side);
+                assert!(actor.base.contacts.mutually_non_damaging);
+                assert!(actor.base.contacts.first_strategy_visit);
+                assert!(actor.base.contacts.suppress_attack_damage);
+                assert!(actor.base.contacts.suppress_hit_marker);
+                assert_eq!(
+                    actor.base.contacts.exclusion_groups,
+                    ExclusionGroups::from_authored_class(0x88)
+                );
+                assert_eq!(actor.base.flags.remove_after_tick, visit == last_visit);
+                assert_eq!(objects.get(primary).unwrap(), &primary_before);
+                assert_eq!(random, initial_random);
+            }
+            runtime.release_actor_programs(&mut objects, owner).unwrap();
+        }
+    }
+
+    #[test]
     fn authored_alternate_exhaust_runs_complete_graph_with_two_movement_yields() {
         use super::super::{authored_paths, path_appearance, path_motion};
         let (mut runtime, mut objects, owner, mut random) = setup();
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 97);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 10);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 117);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

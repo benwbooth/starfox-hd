@@ -15,9 +15,17 @@ pub struct ExclusionGroups(u8);
 impl ExclusionGroups {
     /// Exclusion membership assigned by authored path spawners (31 bit 10).
     pub const PATH_SPAWN: Self = Self(0x10);
+    /// This exclusion membership also enables side attribution.
+    pub const HIT_SIDE_CLASS: Self = Self(0x08);
+    /// This exclusion membership also suppresses damage between its members.
+    pub const MUTUALLY_NON_DAMAGING_CLASS: Self = Self(0x80);
 
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
+    }
+
+    pub const fn intersection(self, other: Self) -> Self {
+        Self(self.0 & other.0)
     }
 
     pub const fn from_authored_class(class: u8) -> Self {

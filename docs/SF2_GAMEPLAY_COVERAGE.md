@@ -721,3 +721,20 @@ faults, preserving vertical velocity, position, waits, IFNOT and RNG. Checks
 pass 49 lowerer tests, 167 static path tests, 157 native path tests in both
 debug/release, architecture/dependency checks and the app build. The native
 catalog remains nine complete roots; no recorded gameplay was used.
+
+The contact-class and hit-marker controls complete the 20-statement
+`PRIMARY_MOTION_GROUND_LIMITED` path, including its shared inline helper and
+new-contact callback. Class updates maintain both exclusion-group membership
+and its side-attribution/non-damage aliases. Mutations to unreviewed class bit
+02 still fail generation. Next-epoch contact suppression remains distinct from
+current-epoch suppression and marker visibility. Exhaustive native masks and
+whole-path tests cover all three exits: loop exhaustion, ground threshold, and
+callback redirection. The native catalog now contains **10 complete roots and
+117 unique statements**; the Game scheduler/spawn integration is still open.
+
+Verification passes 51 lowerer tests, 169 static path tests, 160 native path
+tests in debug/release, architecture/dependency checks and the app build. The
+broader native library suite passes 516/517 tests. Its guidance-message cue
+test fails with two extra HostileLaser cues; an isolated clean checkout of
+pre-change commit `5a3eec4` reproduces the identical failure. That pre-existing
+timeline test was not changed or weakened as part of this static path port.

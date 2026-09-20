@@ -22,6 +22,15 @@ class PathCommandsStaticTests(unittest.TestCase):
         self.assert_source(0x7F84FB, "20 BC C4 D5 17 D0 04 5C CF CA 7F F6 17 4C DE 9D")
         self.assert_source(0x7FCACF, "A9 00 95 17")
 
+    def test_contact_class_masks_modify_one_class_byte_with_immediate_continuation(self):
+        self.assert_source(0x7FC3AF, "20 BC C4 8D B1 16 B5 31 2D B1 16 95 31 4C D3 CA")
+        self.assert_source(0x7FC3BF, "20 BC C4 8D B1 16 B5 31 0D B1 16 95 31 4C D3 CA")
+
+    def test_contact_suppression_and_marker_are_distinct_flags(self):
+        self.assert_source(0x7F9022, "B5 22 09 08 95 22 4C E8 CA")
+        self.assert_source(0x7F902B, "B5 22 29 F7 95 22 4C E8 CA")
+        self.assert_source(0x7F8538, "B5 24 09 08 95 24 4C E8 CA")
+
     def test_wait_one_advances_without_reset_and_goto_sets_target_before_movement(self):
         self.assert_source(0x7F850B, "C2 20 F6 2B E2 20 4C DE 9D")
         self.assert_source(0x7F8C8A, "C2 20 20 20 C7 95 2B E2 20 4C DE 9D")

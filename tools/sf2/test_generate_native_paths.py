@@ -30,6 +30,27 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("immediate: false", statements[3])
         self.assertEqual(statements[4], "Statement::Control(ControlCommand::End)")
 
+    def test_primary_motion_ground_limited_root_includes_inline_callee_and_contact_callback(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0xF029))
+        _, statements = lower_graph(extractor, PathAddress(0xF029), 0)
+        self.assertEqual(len(commands), 20)
+        self.assertEqual(len(statements), 20)
+        mapped = dict(zip((command.address.offset for command in commands), statements))
+        self.assertIn("InheritPrimaryHorizontalMotion", mapped[0xE78A])
+        self.assertIn("ContactCommand::IncludeClass", mapped[0xF033])
+        self.assertIn("from_authored_class(8)", mapped[0xF033])
+        self.assertIn("from_authored_class(128)", mapped[0xF036])
+        self.assertIn("from_authored_class(232)", mapped[0xF039])
+        self.assertIn("TriggerKind::NewContact", mapped[0xF040])
+        self.assertIn("SuppressHitMarker(true)", mapped[0xF044])
+        self.assertIn("UnsignedByte(ByteOperand::Actor(ByteField::TargetSpeed))", mapped[0xF046])
+        self.assertIn("SpatialCondition::GroundThreshold(0)", mapped[0xF048])
+        self.assertIn("ForceAfterCallbacks", mapped[0xF018])
+        generated = generate(self.rom, (("PROJECTILE", PathAddress(0xF029)),))
+        self.assertIn("use super::path_contact::ContactClassMask;", generated)
+        self.assertIn("use super::collision_pass::ExclusionGroups;", generated)
+
     def test_lowering_reads_authored_parameters_instead_of_hardcoding_fixture(self):
         changed = bytearray(self.rom)
         changed[0x40000 + 0xF537] = 17
@@ -269,8 +290,29 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(statements[1], "Statement::Control(ControlCommand::End)")
         # A separate source flag cannot be substituted based on its bit number.
         for opcode in ["2e", "2f"]:
-            with self.assertRaisesRegex(UnsupportedPath, "unsupported .*Flag22Bit08"):
-                self.lower_record(opcode)
+            statement = self.lower_record(opcode)[0]
+            self.assertIn("ContactCommand::SuppressContactsNextEpoch", statement)
+            self.assertNotIn("QuadrupleVelocity", statement)
+
+    def test_contact_class_masks_decode_every_reviewed_bit_and_reject_unknown_mutations(self):
+        for mask in range(256):
+            for record, operation, retain in [(f"f7 {mask:02x}", "RetainClass", True),
+                                               (f"00 76 {mask:02x}", "IncludeClass", False)]:
+                if bool(mask & 2) != retain:
+                    with self.assertRaisesRegex(UnsupportedPath, "unreviewed contact class bit 02"):
+                        self.lower_record(record)
+                    continue
+                statement = self.lower_record(record)[0]
+                self.assertIn(f"ContactCommand::{operation}(ContactClassMask", statement)
+                self.assertIn(f"groups: ExclusionGroups::from_authored_class({mask & 0xf8})", statement)
+                self.assertIn(f"first_strategy_visit: {str(bool(mask & 4)).lower()}", statement)
+                self.assertIn(f"suppress_attack_damage: {str(bool(mask & 1)).lower()}", statement)
+                self.assertIn("next: cursor(0, 1)", statement)
+        for record, operation in [("2e", "SuppressContactsNextEpoch(true)"),
+                                  ("2f", "SuppressContactsNextEpoch(false)"),
+                                  ("00 2c", "SuppressHitMarker(true)")]:
+            self.assertEqual(self.lower_record(record)[0],
+                f"Statement::Contact {{ command: ContactCommand::{operation}, next: cursor(0, 1) }}")
 
     def test_halves_preserve_width_and_signed_vs_unsigned_operation(self):
         for record, kind, field, operation in [

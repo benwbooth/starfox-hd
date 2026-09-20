@@ -33,6 +33,7 @@ ROOTS = (
     ("REPEATED_CHILD_SPRITE", PathAddress(0xF561)),
     ("SOUND_COLOR_SPRITE", PathAddress(0xF582)),
     ("CALLBACK_GATED_SPRITE", PathAddress(0xF32C)),
+    ("PRIMARY_MOTION_GROUND_LIMITED", PathAddress(0xF029)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -510,6 +511,21 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 }[name]
             taken, next_ = branch_cursors(int.from_bytes(operands[-2:], "little"))
             statement = f"Statement::Spatial {{ condition: SpatialCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("MaskFlag31", "OrFlag31"):
+            mask, = parameters(1)
+            retain = name == "MaskFlag31"
+            # Bit 02 has no reviewed domain meaning. Permit preserving it,
+            # never silently discard an authored mutation to that source bit.
+            if bool(mask & 2) != retain:
+                raise UnsupportedPath(f"unreviewed contact class bit 02 at {command.address.label()}")
+            operation = "RetainClass" if retain else "IncludeClass"
+            selection = f"ContactClassMask {{ groups: ExclusionGroups::from_authored_class({mask & 0xF8}), first_strategy_visit: {str(bool(mask & 4)).lower()}, suppress_attack_damage: {str(bool(mask & 1)).lower()} }}"
+            statement = f"Statement::Contact {{ command: ContactCommand::{operation}({selection}), next: {next_cursor()} }}"
+        elif name in ("SetFlag22Bit08", "ClearFlag22Bit08", "SetFlag24Bit08"):
+            parameters(0)
+            operation = "SuppressHitMarker" if name == "SetFlag24Bit08" else "SuppressContactsNextEpoch"
+            enabled = "false" if name == "ClearFlag22Bit08" else "true"
+            statement = f"Statement::Contact {{ command: ContactCommand::{operation}({enabled}), next: {next_cursor()} }}"
         elif name in ("FaceSelectedImmediate", "FaceSelectedSmooth", "FacePlayerYaw", "FacePlayer", "FaceLinkedSmooth", "FaceMother"):
             parameters(0)
             operation = {
@@ -642,6 +658,10 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_conditions::SpatialCondition;\n"
     if any("FacingCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_steering::FacingCommand;\n"
+    if any("ContactCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_contact::ContactCommand;\n"
+    if any("ContactClassMask" in statement for statement in unique_statements.values()):
+        source += "use super::path_contact::ContactClassMask;\nuse super::collision_pass::ExclusionGroups;\n"
     if any("PlaneAxis::" in statement for statement in unique_statements.values()):
         source += "use super::path_control::PlaneAxis;\n"
     if any("VARIABLE_BIT_MASKS" in statement for statement in unique_statements.values()):
