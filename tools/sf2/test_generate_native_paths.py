@@ -130,8 +130,33 @@ class NativePathGenerationTests(unittest.TestCase):
         # An unsupported independently spawned child rejects its parent too.
         changed = bytearray(self.rom)
         changed[0x4F582:0x4F585] = bytes.fromhex("e5 ff 1f")
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported IncrementExternalByte"):
+        with self.assertRaisesRegex(UnsupportedPath, "unported shared byte 1FFF"):
             lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF561), 2)
+
+    def test_shared_countdown_service_is_complete_and_global_aliases_remain_scoped(self):
+        extractor = PathExtractor(self.rom)
+        _, statements = lower_graph(extractor, PathAddress(0x04FF), 0)
+        self.assertEqual(len(statements), 8)
+        self.assertIn("ControlCommand::Jump", statements[0])
+        self.assertIn("AppearanceCommand::Visibility(false)", statements[2])
+        self.assertIn("RunWhenPaused { enabled: true", statements[3])
+        self.assertIn("CountdownCommand::CopyTo(ByteField::Part)", statements[4])
+        self.assertIn("CountdownCommand::Decrement", statements[6])
+        self.assertIn("ControlCommand::Goto", statements[7])
+        for record, operation in (
+            ("79 a9 86 d7", "CopyTo(ByteField::Part)"),
+            ("7a a9 2a", "CopyTo(ByteField::Part)"),
+            ("7d a9 86 d7", "Assign(ByteOperand::Actor(ByteField::Part))"),
+            ("7f a9 2a", "Assign(ByteOperand::Actor(ByteField::Part))"),
+            ("fb 86 d7 ff", "Assign(ByteOperand::Literal(255))"),
+            ("e5 86 d7", "Increment"), ("e7 86 d7", "Decrement"),
+        ):
+            statement = self.lower_record(record)[0]
+            self.assertIn(f"CountdownCommand::{operation}", statement)
+            self.assertIn("next: cursor(0, 1)", statement)
+        for record in ("79 a9 87 d7", "7a a9 2b", "7d a9 85 d7", "7f a9 29", "fb 87 d7 ff", "e5 85 d7", "e7 87 d7"):
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
+                self.lower_record(record)
 
     def test_positional_loop_control_preserves_every_authored_byte(self):
         for value in range(256):

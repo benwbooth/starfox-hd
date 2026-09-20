@@ -52,6 +52,7 @@ pub mod path_fields;
 pub mod path_math;
 pub mod path_motion;
 pub mod path_player_control;
+pub mod path_countdown;
 pub mod path_program;
 pub mod path_random;
 pub mod path_relationships;

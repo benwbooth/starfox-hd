@@ -862,3 +862,19 @@ crossing the reviewed ROM window remain hard errors. Verification passes 63
 lowerer tests, 192 static path tests, 179 native path tests in debug/release,
 architecture/dependency checks and the app build; complete-root coverage is
 unchanged.
+
+The complete eight-command `SHARED_COUNTDOWN_SERVICE` root is now lowered.
+A single world-owned countdown is borrowed by its path operations; absolute
+and indexed imports/exports refer to that same typed record. Only the reviewed
+countdown operand is accepted, not a generic shared-memory interface. The
+service makes itself invisible, masks its contact class, runs while paused,
+copies the current countdown to its actor-local part byte and decrements only
+when nonzero. Ordinary increment/decrement operations still wrap at byte
+width; the service's branch, not the data type, provides its zero guard.
+
+All initial byte values, live resets after zero, whole-actor preservation,
+missing shared inputs, IFNOT/RNG preservation and unreviewed-neighbor rejection
+are checked. Verification passes 64 lowerer tests, 196 static path tests, 182
+native path tests in debug/release, architecture/dependency checks and the app
+build. The native catalog now contains **12 complete roots and 134 unique
+statements**. Whole-game scheduler integration remains open.

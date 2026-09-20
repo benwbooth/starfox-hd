@@ -25,6 +25,7 @@ pub struct PathWorld<'a> {
     /// by the one-time primary-motion inheritance action.
     pub primary_motion: Option<PrimaryMotionInput>,
     pub primary_control: Option<super::path_player_control::PrimaryControl<'a>>,
+    pub countdown: Option<&'a mut super::path_countdown::PathCountdown>,
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
     pub selected_auxiliary: Option<AuxiliaryContinuationInput>,
@@ -182,6 +183,10 @@ pub enum Statement {
         sound: Option<super::SpatialLoop>,
         next: PathCursor,
     },
+    Countdown {
+        command: super::path_countdown::CountdownCommand,
+        next: PathCursor,
+    },
     MarkerSound {
         id: u8,
         mode: super::path_sound::MarkerCueMode,
@@ -277,6 +282,7 @@ pub enum ProgramError {
     MissingPrimaryControl,
     MissingAudio,
     MissingSoundMarkers,
+    MissingCountdown,
     Spawn(super::path_spawn::SpawnError),
     MissingSpawnDefaults,
     Relationship(super::path_relationships::RelationshipError),
@@ -494,6 +500,16 @@ impl PathRuntime {
                 Statement::SpatialLoop { sound, next } => {
                     let actor = objects.get_mut(owner).expect("validated sound owner");
                     actor.extension.spatial_loop = sound;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::Countdown { command, next } => {
+                    let countdown = world
+                        .countdown
+                        .as_mut()
+                        .ok_or(ProgramError::MissingCountdown)?;
+                    let actor = objects.get_mut(owner).expect("validated countdown owner");
+                    countdown.apply(actor, command);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -715,6 +731,7 @@ mod tests {
             fixed_players: [None; 2],
             primary_motion: None,
             primary_control: None,
+            countdown: None,
             selected_auxiliary: None,
             spawn_defaults: None,
             random,
@@ -780,6 +797,112 @@ mod tests {
                 assert_eq!(objects.get(owner).unwrap(), &expected);
                 assert_eq!(random, initial_random);
                 assert!(runtime.branch.invert_next);
+            }
+        }
+    }
+
+    #[test]
+    fn countdown_statements_require_shared_state_before_mutating_and_preserve_ifnot() {
+        use super::super::path_countdown::{CountdownCommand, PathCountdown};
+        use super::super::path_fields::ByteField;
+        for command in [
+            CountdownCommand::CopyTo(ByteField::Part),
+            CountdownCommand::Assign(ByteOperand::Actor(ByteField::Part)),
+            CountdownCommand::Increment,
+            CountdownCommand::Decrement,
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            objects.get_mut(owner).unwrap().extension.path_state.part = 211;
+            let before = objects.get(owner).unwrap().clone();
+            let original_random = random.clone();
+            let catalog = PathCatalog::new(vec![vec![Statement::Countdown {
+                command,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingCountdown)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
+            let mut countdown = PathCountdown { remaining: 143 };
+            let mut expected = before;
+            let expected_value = match command {
+                CountdownCommand::CopyTo(_) => {
+                    expected.extension.path_state.part = 143;
+                    143
+                }
+                CountdownCommand::Assign(_) => 211,
+                CountdownCommand::Increment => 144,
+                CountdownCommand::Decrement => 142,
+            };
+            expected.base.path = Some(cursor(0, 1));
+            let mut inputs = world(&mut random);
+            inputs.countdown = Some(&mut countdown);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            assert_eq!(countdown.remaining, expected_value);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
+        }
+    }
+
+    #[test]
+    fn complete_shared_countdown_root_samples_live_state_and_stops_at_zero() {
+        use super::super::path_countdown::PathCountdown;
+        use super::super::{authored_paths, collision_pass::ExclusionGroups};
+        let catalog = authored_paths::catalog();
+        for initial in 0..=u8::MAX {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let original_random = random.clone();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::SHARED_COUNTDOWN_SERVICE);
+            actor.base.wait_timer = 63;
+            actor.base.contacts.exclusion_groups = ExclusionGroups::from_authored_class(0xF8);
+            actor.base.contacts.credits_hit_side = true;
+            actor.base.contacts.mutually_non_damaging = true;
+            actor.base.contacts.first_strategy_visit = true;
+            actor.base.contacts.suppress_attack_damage = true;
+            actor.base.velocity = super::super::Vector3 {
+                x: 12,
+                y: -31,
+                z: 7,
+            };
+            let mut expected = actor.clone();
+            expected.base.contacts.exclusion_groups = ExclusionGroups::from_authored_class(0xE8);
+            expected.base.contacts.run_when_paused = true;
+            expected.base.flags.visible = false;
+            expected.base.flags.collision_disabled = true;
+            expected.base.path = Some(cursor(0, 4));
+            let mut countdown = PathCountdown { remaining: initial };
+            for visit in 0..(u16::from(initial) + 3) {
+                let before = countdown.remaining;
+                expected.extension.path_state.part = before;
+                let mut inputs = world(&mut random);
+                inputs.countdown = Some(&mut countdown);
+                assert_eq!(
+                    runtime
+                        .resume_program(&catalog, &mut objects, owner, &mut inputs, 8)
+                        .unwrap(),
+                    ControlStep::Movement
+                );
+                assert_eq!(countdown.remaining, before.saturating_sub(1));
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert_eq!(random, original_random);
+                // Reassign the shared record after it has already reached
+                // zero: the next loop must not reuse its old actor snapshot.
+                if visit == u16::from(initial) + 1 {
+                    countdown.remaining = 177;
+                }
             }
         }
     }
@@ -2312,6 +2435,7 @@ mod tests {
                 primary_motion: None,
                 primary_control: None,
                 spawn_defaults: None,
+                countdown: None,
                 // The initial four-count loop does not read this record.
                 selected_auxiliary: (visit >= 3).then_some(AuxiliaryContinuationInput {
                     mode: if visit == 4 { 0x80 } else { 0 },
@@ -2758,8 +2882,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 11);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 126);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 12);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 134);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -2897,6 +3021,7 @@ mod tests {
                 primary_motion: None,
                 primary_control: None,
                 selected_auxiliary: None,
+                countdown: None,
                 spawn_defaults: None,
                 random: &mut random,
                 animation_clock: 93,
@@ -2999,6 +3124,7 @@ mod tests {
                         primary_motion: None,
                         primary_control: None,
                         selected_auxiliary: None,
+                        countdown: None,
                         spawn_defaults: None,
                         random: &mut random,
                         animation_clock: 29,

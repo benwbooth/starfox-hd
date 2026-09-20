@@ -35,6 +35,7 @@ ROOTS = (
     ("CALLBACK_GATED_SPRITE", PathAddress(0xF32C)),
     ("PRIMARY_MOTION_GROUND_LIMITED", PathAddress(0xF029)),
     ("PRIMARY_TARGET_FOLLOWER", PathAddress(0xF38A)),
+    ("SHARED_COUNTDOWN_SERVICE", PathAddress(0x04FF)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -612,6 +613,32 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "FaceMother": "LinkedImmediate",
             }[name]
             statement = f"Statement::Facing {{ command: FacingCommand::{operation}, next: {next_cursor()} }}"
+        elif name in ("ImportByteAbsolute", "ImportByteIndexed", "ExportByteAbsolute",
+                       "ExportByteIndexed", "StoreExternalByte", "IncrementExternalByte",
+                       "DecrementExternalByte"):
+            if name in ("ImportByteAbsolute", "ExportByteAbsolute"):
+                variable, low, high = parameters(3)
+                address = low | (high << 8)
+            elif name in ("ImportByteIndexed", "ExportByteIndexed"):
+                variable, index = parameters(2)
+                address = 0xD75C + index
+            elif name == "StoreExternalByte":
+                low, high, value = parameters(3)
+                address = low | (high << 8)
+            else:
+                low, high = parameters(2)
+                address = low | (high << 8)
+            if address != 0xD786:
+                raise UnsupportedPath(f"unported shared byte {address:04X} at {command.address.label()}")
+            if name.startswith("Import"):
+                operation = f"CopyTo({byte_field(variable)})"
+            elif name.startswith("Export"):
+                operation = f"Assign(ByteOperand::Actor({byte_field(variable)}))"
+            elif name == "StoreExternalByte":
+                operation = f"Assign(ByteOperand::Literal({value}))"
+            else:
+                operation = "Increment" if name == "IncrementExternalByte" else "Decrement"
+            statement = f"Statement::Countdown {{ command: CountdownCommand::{operation}, next: {next_cursor()} }}"
         elif name in ("IndexByteBanked", "IndexWordBanked"):
             low, high, bank, selector, destination = parameters(5)
             wide = name == "IndexWordBanked"
@@ -751,6 +778,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_steering::FacingCommand;\n"
     if any("PlayerControlCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_player_control::PlayerControlCommand;\n"
+    if any("CountdownCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_countdown::CountdownCommand;\n"
     if any("SelectedTransformCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_relationships::SelectedTransformCommand;\n"
     if any("ContactCommand::" in statement for statement in unique_statements.values()):
