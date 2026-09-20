@@ -42,6 +42,7 @@ ROOTS = (
     ("ENCOUNTER_RADIO_SERVICE", PathAddress(0x7BC5)),
     ("FIRST_CONTROL_GUIDANCE", PathAddress(0x04B5)),
     ("SURFACE_OR_GROUND_LIMITED", PathAddress(0xEEED)),
+    ("PRIMARY_MOTION_SURFACE_LIMITED", PathAddress(0xEE10)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 

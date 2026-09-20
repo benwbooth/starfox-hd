@@ -753,6 +753,25 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("ForceAfterCallbacks", mapped[0xEF26])
         self.assertIn("ForceAfterCallbacks", mapped[0xF018])
 
+    def test_primary_motion_surface_root_includes_shared_subroutine_sound_and_full_loop(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0xEE10))
+        _, statements = lower_graph(extractor, PathAddress(0xEE10), 0)
+        self.assertEqual(len(statements), 31)
+        mapped = dict(zip((command.address.offset for command in commands), statements))
+        self.assertIn("InheritPrimaryHorizontalMotion", mapped[0xE78A])
+        self.assertIn("ByteField::Health", mapped[0xEE10])
+        self.assertIn("Literal(10)", mapped[0xEE10])
+        self.assertIn("ByteField::AttackPower", mapped[0xEE13])
+        self.assertIn("Literal(4)", mapped[0xEE13])
+        self.assertIn("Literal(40)", mapped[0xEE16])
+        self.assertIn("SetSpeed(80)", mapped[0xEE19])
+        self.assertIn("ShapeId::from_catalog_index(31)", mapped[0xEE1E])
+        self.assertIn("color: 0, size: 5", mapped[0xEE22])
+        self.assertIn("SpatialLoop::from_authored_control(12)", mapped[0xEE25])
+        self.assertIn("id: 115, mode: MarkerCueMode::DistanceBands(PathSoundClass::Positioned)", mapped[0xEE28])
+        self.assertIn("AtOrAboveSurface", mapped[0xEF21])
+
     def test_independent_spawn_keeps_literal_bytes_independent_entry_and_no_child_fields(self):
         for health, power in [(0, 255), (129, 254), (255, 0)]:
             changed = bytearray(self.rom)

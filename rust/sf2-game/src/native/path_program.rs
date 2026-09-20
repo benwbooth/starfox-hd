@@ -4917,6 +4917,153 @@ mod tests {
     }
 
     #[test]
+    fn authored_primary_motion_surface_root_initializes_once_and_runs_forty_visits() {
+        use super::super::collision_surface::SurfaceMode;
+        use super::super::path_sound::{
+            AuthoredCue, CueListener, CueMarker, MarkerInputs, PathAudio,
+        };
+        use super::super::{
+            authored_paths, path_motion, Angle, AudioState, SoundEvent, SpatialLoop, Vector3,
+        };
+        for auxiliary_mode in [0, 31] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let mut primary =
+                Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+            primary.base.velocity = Vector3 {
+                x: 100,
+                y: 200,
+                z: -300,
+            };
+            let player = objects.allocate(primary).unwrap();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::PRIMARY_MOTION_SURFACE_LIMITED);
+            actor.base.position.y = -500;
+            actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+            actor.extension.path_state.motion_phase = 0xABCD;
+            let initial_random = random;
+            let direction = path_motion::direction_velocity(Angle::ZERO, Angle::ZERO, 80, 1);
+            let inherited = if auxiliary_mode == 31 {
+                objects.get(player).unwrap().base.velocity
+            } else {
+                Vector3 { x: -7, y: 8, z: 9 }
+            };
+            let velocity = Vector3 {
+                x: direction.x.wrapping_add(inherited.x),
+                y: direction.y,
+                z: direction.z.wrapping_add(inherited.z),
+            };
+            let catalog = authored_paths::catalog();
+            let mut audio = AudioState::default();
+            let marker = CueMarker {
+                identity: CueListener::Other,
+                position: Vector3 {
+                    x: 0,
+                    y: 1000,
+                    z: -100,
+                },
+                bearing: Angle::ZERO,
+            };
+            for visit in 0..40 {
+                let mut inputs = world(&mut random);
+                inputs.surface_mode = Some(SurfaceMode { flags: 0 });
+                if visit == 0 {
+                    inputs.primary_player = Some(player);
+                    inputs.primary_motion = Some(PrimaryMotionInput {
+                        auxiliary_mode,
+                        displacement: Vector3 { x: -7, y: 8, z: 9 },
+                    });
+                    inputs.audio = Some(PathAudio {
+                        events: &mut audio,
+                        listeners: [CueListener::PrimaryPlayer; 2],
+                        markers: Some(MarkerInputs {
+                            selected_sides: [PlayerTarget::Primary; 2],
+                            markers: [marker; 2],
+                        }),
+                    });
+                }
+                assert_eq!(
+                    runtime
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 32)
+                        .unwrap(),
+                    if visit == 39 {
+                        ControlStep::Ended
+                    } else {
+                        ControlStep::Movement
+                    }
+                );
+                if visit < 39 {
+                    assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                    let mut executed = 0;
+                    loop {
+                        match runtime
+                            .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                            .unwrap()
+                        {
+                            CallbackStep::Complete => break,
+                            CallbackStep::Run(_) => {
+                                executed += 1;
+                                assert_eq!(
+                                    runtime.resume_program(
+                                        &catalog,
+                                        &mut objects,
+                                        owner,
+                                        &mut inputs,
+                                        4
+                                    ),
+                                    Ok(ControlStep::ResumeCallbacks)
+                                );
+                            }
+                            CallbackStep::Skipped | CallbackStep::Expired => {}
+                        }
+                    }
+                    assert_eq!(executed, 1);
+                }
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.base.hit_points, 10);
+                assert_eq!(actor.base.attack_power, 4);
+                assert_eq!(actor.base.target_speed, 40);
+                assert_eq!(actor.base.speed, 80);
+                assert_eq!(actor.base.velocity, velocity);
+                assert_eq!(
+                    actor.base.position,
+                    Vector3 {
+                        x: 0,
+                        y: -500,
+                        z: 0
+                    }
+                );
+                assert_eq!(actor.base.shape, ShapeId::from_catalog_index(31));
+                assert!(actor.base.flags.scaled_sprite);
+                assert!(!actor.base.flags.casts_shadow);
+                assert_eq!(actor.extension.depth_offset, 0);
+                assert_eq!(actor.extension.texture_scroll_x, 5);
+                assert_eq!(
+                    actor.extension.spatial_loop,
+                    SpatialLoop::from_authored_control(12)
+                );
+                assert_eq!(actor.extension.path_state.motion_phase, 0xAB00);
+                // Changes after setup cannot be inherited a second time.
+                objects.get_mut(player).unwrap().base.velocity = Vector3 {
+                    x: -2000,
+                    y: 3000,
+                    z: 4000,
+                };
+            }
+            assert_eq!(
+                audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
+                [SoundEvent::Authored(AuthoredCue::new(
+                    115,
+                    0,
+                    PlayerTarget::Secondary
+                ))]
+            );
+            assert_eq!(random, initial_random);
+            assert!(objects.get(owner).unwrap().base.flags.remove_after_tick);
+            runtime.release_actor_programs(&mut objects, owner).unwrap();
+        }
+    }
+
+    #[test]
     fn authored_surface_root_keeps_ten_visit_loop_and_live_surface_ground_contact_callbacks() {
         use super::super::{
             authored_paths,
@@ -6127,8 +6274,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 18);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 246);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 19);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 256);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

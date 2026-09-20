@@ -238,6 +238,9 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x0687CC, "AD 4D 1B 29 F8 09 00 8D 4D 1B")
         self.assert_source(0x09EEED, "00 2c 0b 0a 0a 06 32 8a 2b 04 50 e4 fe ee f8 2a ef 8d 00 76 08 4a 18 f0 08 79 a1 4d 1b 2a a1 00 15 ef f8 1c ef 17 18 ef f8 21 ef 62 0a 44 0f 1a 00 00 26 ef 00 53 26 ef 42 4c 1b ef 42 00 4b 42")
 
+    def test_primary_motion_surface_path_initializes_combat_sound_and_shared_callbacks(self):
+        self.assert_source(0x09EE10, "0b 0a 2d 0b 04 2e 0b 28 0a 06 50 41 8a e7 0c 00 c0 04 4d 00 05 00 05 0c fa 73 17 fe ee")
+
     def test_collision_rotation_scales_input_words_and_preserves_product_carries(self):
         self.assert_source(0x01FD6D, "3D A0 34 50 11 50 3D A0 17 50 13 50")
         self.assert_source(0x01FE78, "F0 66 8E 1E 52 EF 15 4D F0 26 8E 1E 52 EF 19 4D")

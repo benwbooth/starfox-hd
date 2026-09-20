@@ -1146,3 +1146,16 @@ tests and nine surface tests in debug/release, both audits, catalog freshness
 and the app build. Coverage is **18 complete roots / 246 unique statements**;
 Game scheduler/spawn integration and complete collision response remain open.
 No recorded gameplay or source-machine execution was used.
+
+The primary-motion surface-limited path (`$44:EE10`) is also fully lowered.
+It sets health 10, attack 4, speed 80 and a forty-visit loop, calls the existing
+primary horizontal-motion inheritance subroutine exactly once, and configures
+shape 31, sprite color/size 0/5, spatial-loop control 12 and positioned cue 115.
+Its remaining callbacks share the surface/ground/contact graph above. Tests
+exercise both velocity- and displacement-based inheritance, unchanged world
+position at scheduler boundaries, secondary marker routing, a single sound
+request, and no repeated initialization when the primary later changes.
+All 90 lowerer tests, 239 static path tests and 240 native path tests in
+debug/release pass, with both audits, catalog freshness and the app build.
+Coverage is **19 complete roots / 256 unique statements**. This remains a
+source-derived static port milestone, not a claim of runtime Game integration.
