@@ -216,6 +216,19 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn(f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation} }}", statement)
             self.assertIn("next: cursor(0, 1)", statement)
 
+    def test_visibility_shadow_and_draw_distance_use_named_controls(self):
+        for record, command in [
+            ("48", "Visibility(false)"), ("49", "Visibility(true)"),
+            ("5b", "Collision(true)"), ("8c", "Shadow(true)"), ("8d", "Shadow(false)"),
+            ("cd", "MaximumDrawDistance(true)"), ("cc", "MaximumDrawDistance(false)"),
+        ]:
+            self.assertEqual(self.lower_record(record)[0],
+                f"Statement::Appearance {{ command: AppearanceCommand::{command}, next: cursor(0, 1) }}")
+            changed = bytearray(self.rom)
+            changed[0x4F536:0x4F538] = bytes.fromhex(record + " 0f")
+            generated = generate(bytes(changed), (("APPEARANCE", PathAddress(0xF536)),))
+            self.assertIn("use super::path_appearance::AppearanceCommand;", generated)
+
     def test_break_pair_discard_and_consuming_hit_branches_keep_their_edges(self):
         self.assertEqual(self.lower_record("46 36 f5")[0],
             "Statement::Control(ControlCommand::Break { target: cursor(0, 0) })")

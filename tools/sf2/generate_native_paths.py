@@ -459,6 +459,18 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "DisableCollision":
             parameters(0)
             statement = f"Statement::DisableCollision {{ next: {next_cursor()} }}"
+        elif name in ("InvisibleOn", "InvisibleOff", "ClearFlag21Bit01", "SetFlag20Bit08", "ClearFlag20Bit08", "SetFlag26Bit10", "ClearFlag26Bit10"):
+            parameters(0)
+            operation, enabled = {
+                "InvisibleOn": ("Visibility", False),
+                "InvisibleOff": ("Visibility", True),
+                "ClearFlag21Bit01": ("Collision", True),
+                "SetFlag20Bit08": ("Shadow", True),
+                "ClearFlag20Bit08": ("Shadow", False),
+                "SetFlag26Bit10": ("MaximumDrawDistance", True),
+                "ClearFlag26Bit10": ("MaximumDrawDistance", False),
+            }[name]
+            statement = f"Statement::Appearance {{ command: AppearanceCommand::{operation}({str(enabled).lower()}), next: {next_cursor()} }}"
         elif name == "WaitOne":
             parameters(0)
             statement = f"Statement::Control(ControlCommand::WaitOne {{ next: {next_cursor()} }})"
@@ -536,6 +548,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
 """
     if any("WordOperand::" in statement for statement in unique_statements.values()):
         source += "use super::path_fields::WordOperand;\n"
+    if any("AppearanceCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_appearance::AppearanceCommand;\n"
     if any("VARIABLE_BIT_MASKS" in statement for statement in unique_statements.values()):
         source += "const VARIABLE_BIT_MASKS: [u16; 128] = ["
         source += ", ".join(f"0x{mask:04X}" for mask in variable_bit_masks(rom))

@@ -651,3 +651,14 @@ and 256 byte values pass source-rule arithmetic checks. The complete checks
 pass 38 lowerer tests, 159 static path checks, 148 native path tests in both
 debug/release, the architecture/dependency audit and the app build. This adds
 handler coverage but no new complete root or Game integration claim.
+
+Authored invisibility/visibility now lowers to a named native appearance
+command that updates both visibility and collision participation, as the source
+does. Collision re-enabling, shadow toggles and maximum-draw-distance toggles
+remain independent commands. Static fixtures cover complete handlers and the
+draw-list invisibility gate; native tests preserve draw-admission observations,
+contact latches, IFNOT, elapsed waits, RNG and all unrelated object state across
+the immediate command sequence. Verification passes 39 lowerer tests, 161
+static path checks, 150 native path tests in debug/release, the architecture/
+dependency audit and the app build. The catalog is still nine roots/97 unique
+statements, not a claim of complete scene or rendering integration.

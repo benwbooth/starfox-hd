@@ -8,6 +8,31 @@ use super::Object;
 const MANUAL_FRAME: u8 = 0x80;
 const FRAME_VALUE: u8 = 0x7f;
 
+/// Authored visibility and draw controls. Visibility commands deliberately
+/// couple visibility with collision participation; the separate collision
+/// command does not change visibility or consume pending contacts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppearanceCommand {
+    Visibility(bool),
+    Collision(bool),
+    Shadow(bool),
+    MaximumDrawDistance(bool),
+}
+
+impl AppearanceCommand {
+    pub fn apply(self, actor: &mut Object) {
+        match self {
+            Self::Visibility(visible) => {
+                actor.base.flags.visible = visible;
+                actor.base.flags.collision_disabled = !visible;
+            }
+            Self::Collision(enabled) => actor.base.flags.collision_disabled = !enabled,
+            Self::Shadow(enabled) => actor.base.flags.casts_shadow = enabled,
+            Self::MaximumDrawDistance(enabled) => actor.base.flags.maximum_draw_distance = enabled,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimationChannel {
     Shape,
@@ -154,6 +179,52 @@ mod tests {
         }
     }
     use super::*;
+
+    #[test]
+    fn visibility_couples_collision_but_other_controls_and_draw_observations_are_independent() {
+        for flags in 0..64 {
+            let mut original =
+                Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
+            original.base.flags.visible = flags & 1 != 0;
+            original.base.flags.collision_disabled = flags & 2 != 0;
+            original.base.flags.casts_shadow = flags & 4 != 0;
+            original.base.flags.maximum_draw_distance = flags & 8 != 0;
+            original.base.flags.draw_list_admitted = flags & 16 != 0;
+            original.base.flags.collided = flags & 32 != 0;
+            original.base.hit_flags = 255;
+            original.extension.path_state.conditions.hit_event_pending = true;
+            for enabled in [false, true] {
+                for command in [
+                    AppearanceCommand::Visibility(enabled),
+                    AppearanceCommand::Collision(enabled),
+                    AppearanceCommand::Shadow(enabled),
+                    AppearanceCommand::MaximumDrawDistance(enabled),
+                ] {
+                    let mut expected = original.clone();
+                    match command {
+                        AppearanceCommand::Visibility(value) => {
+                            expected.base.flags.visible = value;
+                            expected.base.flags.collision_disabled = !value;
+                        }
+                        AppearanceCommand::Collision(value) => {
+                            expected.base.flags.collision_disabled = !value
+                        }
+                        AppearanceCommand::Shadow(value) => {
+                            expected.base.flags.casts_shadow = value
+                        }
+                        AppearanceCommand::MaximumDrawDistance(value) => {
+                            expected.base.flags.maximum_draw_distance = value
+                        }
+                    }
+                    let mut actual = original.clone();
+                    command.apply(&mut actual);
+                    assert_eq!(actual, expected);
+                    command.apply(&mut actual);
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
+    }
 
     #[test]
     fn packed_controls_preserve_automatic_payload_but_render_from_clock() {

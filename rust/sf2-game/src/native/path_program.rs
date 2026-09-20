@@ -137,6 +137,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    Appearance {
+        command: super::path_appearance::AppearanceCommand,
+        next: PathCursor,
+    },
     RunWhenPaused {
         enabled: bool,
         next: PathCursor,
@@ -314,6 +318,12 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::Appearance { command, next } => {
+                    let actor = objects.get_mut(owner).expect("validated appearance owner");
+                    command.apply(actor);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::RunWhenPaused { enabled, next } => {
                     let actor = objects.get_mut(owner).expect("validated pause-mode owner");
                     actor.base.contacts.run_when_paused = enabled;
@@ -549,6 +559,72 @@ mod tests {
                 number: 3,
             },
             next: cursor(0, 1),
+        }
+    }
+
+    #[test]
+    fn appearance_controls_advance_immediately_without_consuming_contact_or_inversion() {
+        use super::super::path_appearance::AppearanceCommand;
+        let commands = [
+            AppearanceCommand::Visibility(false),
+            AppearanceCommand::Collision(true),
+            AppearanceCommand::Shadow(true),
+            AppearanceCommand::MaximumDrawDistance(true),
+            AppearanceCommand::Visibility(true),
+            AppearanceCommand::Shadow(false),
+            AppearanceCommand::MaximumDrawDistance(false),
+        ];
+        let mut statements = commands
+            .iter()
+            .enumerate()
+            .map(|(index, command)| Statement::Appearance {
+                command: *command,
+                next: cursor(0, index as u16 + 1),
+            })
+            .collect::<Vec<_>>();
+        statements.push(Statement::Control(ControlCommand::End));
+        let catalog = PathCatalog::new(vec![statements]).unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        runtime.branch.invert_next_condition();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.flags.draw_list_admitted = true;
+        actor.base.flags.collided = true;
+        actor.base.hit_flags = 0xA5;
+        actor.base.wait_timer = 19;
+        actor.extension.path_state.conditions.hit_event_pending = true;
+        let original_random = random;
+        for (index, expected_flags) in [
+            (false, true, false, false),
+            (false, false, false, false),
+            (false, false, true, false),
+            (false, false, true, true),
+            (true, false, true, true),
+            (true, false, false, true),
+            (true, false, false, false),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut expected = objects.get(owner).unwrap().clone();
+            let flags = &mut expected.base.flags;
+            (
+                flags.visible,
+                flags.collision_disabled,
+                flags.casts_shadow,
+                flags.maximum_draw_distance,
+            ) = expected_flags;
+            let next = cursor(0, index as u16 + 1);
+            expected.base.path = Some(next);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: next,
+                    executed: 1
+                })
+            );
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
         }
     }
 

@@ -18,6 +18,18 @@ class PathAppearanceStaticTests(unittest.TestCase):
         offset = source_offset(address)
         self.assertEqual(self.rom[offset:offset + len(expected)], expected)
 
+    def test_visibility_couples_collision_without_touching_draw_admission_or_contact_latches(self):
+        self.assert_source(0x7F978B, "B5 23 09 02 95 23 B5 21 09 01 95 21 4C E8 CA")
+        self.assert_source(0x7F979A, "B5 23 29 FD 95 23 B5 21 29 FE 95 21 4C E8 CA")
+        self.assert_source(0x7F9A96, "B5 21 29 FE 95 21 4C E8 CA")
+        self.assert_source(0x7F120C, "B9 08 00 29 E1 09 08 99 08 00 B9 23 00 29 02 F0 04 5C 60 14 7F")
+
+    def test_shadow_and_maximum_draw_distance_commands_only_toggle_their_named_flag(self):
+        self.assert_source(0x7FA38F, "B5 20 09 08 95 20 4C E8 CA")
+        self.assert_source(0x7FA398, "B5 20 29 F7 95 20 4C E8 CA")
+        self.assert_source(0x7FB4DF, "B5 26 29 EF 95 26 4C E8 CA")
+        self.assert_source(0x7FB4E8, "B5 26 09 10 95 26 4C E8 CA")
+
     def test_initialization_forces_manual_selection(self):
         self.assert_source(0x7F8CFD, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CB 1C 4C D3 CA")
         self.assert_source(0x7F8D3A, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CA 1C 4C D3 CA")
