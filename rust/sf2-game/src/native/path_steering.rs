@@ -7,6 +7,60 @@ const SELECTED_CHASE_DIVISOR: i8 = 4;
 const LINKED_CHASE_DIVISOR: i8 = 8;
 const OFFSET_CHASE_DIVISOR: i8 = 8;
 const AIM_OFFSET_WORLD_SCALE: i16 = 16;
+const LINKED_SEGMENT_WORLD_SCALE: i16 = 8;
+
+/// `$7F:BD13..BDC8`: face the attachment using the old positions, then
+/// replace position with its signed-byte forward offset in the attachment's
+/// pitch/yaw frame. The two byte rotations quantize separately, even at zero.
+pub fn position_relative_to_linked(
+    objects: &mut ObjectStore,
+    owner: ObjectId,
+    distance: i8,
+    state: &mut SteeringState,
+) -> Result<(), SteeringError> {
+    let actor = objects
+        .get(owner)
+        .ok_or(SteeringError::MissingActor(owner))?;
+    let linked = actor
+        .base
+        .attachment
+        .ok_or(SteeringError::MissingLinked(owner))?;
+    let target = objects
+        .get(linked)
+        .ok_or(SteeringError::MissingActor(linked))?;
+    let center = target.base.position;
+    let dx = center.x.wrapping_sub(actor.base.position.x);
+    let dy = center.y.wrapping_sub(actor.base.position.y);
+    let dz = center.z.wrapping_sub(actor.base.position.z);
+    let pitch = Angle::from_units(sf2_pitch_to_target(dy, sf2_xz_angle_distance(dx, dz)));
+    let yaw = Angle::from_units(sf2_yaw_to_target(dx, dz));
+    // Facing is published BEFORE the offset reads the attachment's angles.
+    // A self-link therefore uses the newly computed angles, not old copies.
+    let (frame_pitch, frame_yaw) = if linked == owner {
+        (pitch, yaw)
+    } else {
+        (target.base.pitch, target.base.yaw)
+    };
+    let (vertical, forward) = sf_core::snes_trig::rotate_8yz(frame_pitch.units(), 0, distance);
+    let (lateral, forward) = sf_core::snes_trig::rotate_8xz(frame_yaw.units(), 0, forward as i8);
+    let position = Vector3 {
+        x: center
+            .x
+            .wrapping_add(lateral.wrapping_mul(LINKED_SEGMENT_WORLD_SCALE)),
+        y: center
+            .y
+            .wrapping_add(vertical.wrapping_mul(LINKED_SEGMENT_WORLD_SCALE)),
+        z: center
+            .z
+            .wrapping_add(forward.wrapping_mul(LINKED_SEGMENT_WORLD_SCALE)),
+    };
+    let actor = objects.get_mut(owner).expect("validated linked segment");
+    actor.base.pitch = pitch;
+    actor.base.yaw = yaw;
+    actor.base.position = position;
+    state.unchanged_axes = 0;
+    Ok(())
+}
 
 /// Attached-effect inline helpers `$06:FAAE..FB81`. These change authored
 /// relative coordinates only; the attachment service publishes world pose.

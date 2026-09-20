@@ -22,6 +22,11 @@ class PathSteeringStaticTests(unittest.TestCase):
         self.assert_source(0x7F872C, "AC 1F CF 9C 9D 14 22 A5 21 7F")
         self.assert_source(0x7F8755, "AC 1F CF CC C3 12 D0 05 A0 3F 03 80 03 A0 7E 03 9C 9D 14")
 
+    def test_linked_segment_faces_then_rotates_signed_offset_at_byte_precision(self):
+        self.assert_source(0x7FBD13, "20 bc c4 20 47 cb b9 00 00 80 03 20 bc c4 85 97 b4 06 9c 9d 14 22 a5 21 7f e2 20 eb d5 12 f0 00 95 12 22 88 21 7f e2 20 eb 49 ff 1a d5 14 f0 00 95 14")
+        self.assert_source(0x7FBD45, "a9 00 85 02 85 04 89 80 f0 06 a9 ff 85 05 80 02 64 05 a9 00 85 08 85 0a 89 80 f0 06 a9 ff 85 0b 80 02 64 0b a5 97 85 97 85 e4 89 80 f0 06 a9 ff 85 e5 80 02 64 e5")
+        self.assert_source(0x7FBD7B, "b9 12 00 22 4e 3a 7f a5 04 85 02 a5 0a 85 08 a5 e4 85 97 b9 14 00 22 a9 38 7f c2 20 a5 04 0a 0a 0a 85 04 a5 0a 0a 0a 0a 85 0a a5 e4 0a 0a 0a 85 e4 a5 04 18 79 0c 00 95 0c a5 e4 18 79 10 00 95 10 a5 0a 18 79 0e 00 95 0e e2 20 4c d3 ca")
+
     def test_offset_aim_preparation_and_complete_consumer_preserve_signed_byte_geometry(self):
         self.assert_source(0x7FC346, "C2 20 20 20 C7 A8 E2 20 20 04 C5 99 00 00 4C A9 CA")
         self.assert_source(0x7FC1B8, "DA AE 1F CF AC D6 14 AD B1 16 85 02 85 04 89 80 F0 06 A9 FF 85 05 80 02 64 05 AD B3 16 85 08 85 0A 89 80 F0 06 A9 FF 85 0B 80 02 64 0B AD B5 16 85 97 85 E4 89 80 F0 06 A9 FF 85 E5 80 02 64 E5")

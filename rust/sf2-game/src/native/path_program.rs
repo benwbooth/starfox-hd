@@ -163,6 +163,9 @@ mod view_transition_tests;
 #[cfg(test)]
 #[path = "path_placement_tests.rs"]
 mod placement_tests;
+#[cfg(test)]
+#[path = "path_articulated_tests.rs"]
+mod articulated_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -1002,6 +1005,10 @@ pub enum Statement {
     },
     FaceSelectedOffset {
         offset: super::path_steering::AimOffset,
+        next: PathCursor,
+    },
+    PositionRelativeToLinked {
+        distance: ByteOperand,
         next: PathCursor,
     },
     YawOrbit {
@@ -2270,6 +2277,13 @@ impl PathRuntime {
                 }
                 Statement::FaceSelectedOffset { offset, next } => {
                     self.execute_facing_offset(objects, owner, world.selected, offset, next)
+                }
+                Statement::PositionRelativeToLinked { distance, next } => {
+                    let distance = distance.read(actor) as i8;
+                    super::path_steering::position_relative_to_linked(objects, owner, distance, &mut self.steering)
+                        .map_err(PathRuntimeError::Steering)?;
+                    objects.get_mut(owner).expect("validated linked segment").base.path = Some(next);
+                    Ok(ControlStep::Continue)
                 }
                 Statement::OccupiedCell { taken, next } => {
                     let exempt = world
@@ -13896,10 +13910,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 142);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 143);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 5);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4788);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4832);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 5350);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 5394);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

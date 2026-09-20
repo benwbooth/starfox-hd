@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 142;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 143;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 5;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4832;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5394;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -161,6 +161,22 @@ class NativePathGenerationTests(unittest.TestCase):
         for address in (0xD73E, 0xD740):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record('79 99 ' + address.to_bytes(2, 'little').hex(' '))
+
+    def test_queen_dioray_complete_graph_and_linked_position_operand_forms(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x8D82)
+        self.assertIn(root, extractor.discover_roots())
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 975)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '5a315fba4a753aa1fa2ceb01fee0d024bb3687fdd66f9c104c380fc00940b724')
+        self.assertEqual(len(lower_graph(extractor, root, 0)[1]), 975)
+        self.assertEqual(extractor.decode_command(PathAddress(0x8DAF)).raw_hex, 'fc77d7b389')
+        for value in range(256):
+            self.assertIn(f'distance: ByteOperand::Literal({value})', self.lower_record(f'00 2e {value:02x}')[0])
+        self.assertIn('distance: ByteOperand::Actor(ByteField::Rotation(Axis::X))', self.lower_record('00 2f 12')[0])
+        with self.assertRaises(UnsupportedPath):
+            self.lower_record('00 2f 06')
 
     def test_child_auxiliary_link_thunks_and_identity_swap_are_typed_not_scalar(self):
         extractor = PathExtractor(self.rom)
@@ -1496,7 +1512,7 @@ class NativePathGenerationTests(unittest.TestCase):
             changed = bytearray(self.rom)
             changed[0x40003 + installer:0x40005 + installer] = commands[1].address.offset.to_bytes(2, "little")
             with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
-                generate(bytes(changed))
+                generate(bytes(changed), (("SPRITE_CHILD", PathAddress(root)),))
         for shape, root in [(0xC0A8, 0x90FE), (0xBF04, 0x9278)]:
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(shape, PathAddress(root))

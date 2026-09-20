@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("QUEEN_DIORAY", PathAddress(0x8D82)),
     ("SCRIPTED_ENCOUNTER_EXIT_VIEW", PathAddress(0x78D2)),
     ("SCRIPTED_ENCOUNTER_EXIT_ANCHOR", PathAddress(0x7B8F)),
     ("FOUR_PANEL_OBJECTIVE", PathAddress(0x5B96)),
@@ -1324,6 +1325,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
             spawn_ = f"super::path_spawn::OffsetSpawn {{ actor: {actor}, rotation: {rotation}, offset: super::weapon_launch::MuzzleOffset {{ x: {x}, y: {y}, z: {z} }} }}"
             statement = f"Statement::SpawnOffset {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name in ("PositionRelativeToLinkedLiteral", "PositionRelativeToLinkedVariable"):
+            value, = parameters(1)
+            distance = f"ByteOperand::Literal({value})" if name.endswith("Literal") else f"ByteOperand::Actor({byte_field(value)})"
+            statement = f"Statement::PositionRelativeToLinked {{ distance: {distance}, next: {next_cursor()} }}"
         elif name == "SwapVariableWords":
             first, second = parameters(2)
             if (first, second) in ((0x1C, 0x06), (0x06, 0x1C)):

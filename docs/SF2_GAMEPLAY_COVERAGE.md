@@ -4061,3 +4061,32 @@ release; 202 lowerer tests, exact regeneration, architecture guard, static
 audit and app build pass. Catalog totals remain 142 roots and five helpers.
 The parent encounter is still open at its linked-relative-position command;
 these primitives do not yet establish a complete boss or shipping scheduling.
+
+### Queen Dioray complete authored graph
+
+Queen Dioray (`$44:8D82`) now lowers its complete 975-command graph, including
+the three articulated limbs, attacks, callbacks and common completion paths.
+Its independently discovered installer and authored health-display label
+establish the identity; a full graph fingerprint protects source closure.
+This adds 562 unique commands to the shared catalog, now **143 actor roots,
+five helpers, 5,394 source commands and 5,350 typed statements**.
+
+The remaining linked-position operation now reads a signed literal or actor
+byte, faces its attachment using the original positions, then replaces its
+position with an eight-scaled, separately quantized pitch/yaw offset. A
+self-link observes its newly written angles, while an angle operand is read
+before those writes. Relative pose, roll, velocity, companion bytes and
+attachment flags remain unchanged; missing links fault before mutation.
+
+Native checks sweep all 256 offset bytes and angle values against independent
+signed-magnitude products, exercise word wrapping and self-alias ordering,
+and construct all three four-link chains through their first movement yields.
+The shared boss child chain remains intact, each new link retains its actual
+predecessor, and all pieces initially remain hidden/noncolliding. Separate
+checks prove the completed-node skip and health-display initialization.
+
+All 1,034 native unit tests and two integration tests pass in debug and
+release; 203 lowerer tests, 444 path-static tests, exact regeneration,
+architecture guard, static audit and app build pass. This is static source
+closure and native scenario coverage, not proof of full boss runtime parity
+or completion of the still-open shipping world/scheduler integration.
