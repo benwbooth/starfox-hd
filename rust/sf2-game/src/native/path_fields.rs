@@ -960,6 +960,46 @@ mod tests {
     }
 
     #[test]
+    fn axis_adds_wrap_rotation_bytes_and_sign_extend_world_displacements() {
+        let original = actor();
+        for axis in [Axis::X, Axis::Y, Axis::Z] {
+            for value in 0..=u8::MAX {
+                for rotation in 0..=u8::MAX {
+                    let mut actor = original.clone();
+                    let field = ByteField::Rotation(axis);
+                    field.write(&mut actor, rotation);
+                    let mut expected = actor.clone();
+                    field.write(&mut expected, rotation.wrapping_add(value));
+                    Mutation::Byte {
+                        field,
+                        operation: ByteOperation::Add(ByteOperand::Literal(value)),
+                    }
+                    .apply(&mut actor);
+                    assert_eq!(actor, expected);
+                }
+                for position in [i16::MIN, -129, -1, 0, 127, i16::MAX] {
+                    let mut actor = original.clone();
+                    let field = WordField::Position(axis);
+                    field.write(&mut actor, position as u16);
+                    let mut expected = actor.clone();
+                    field.write(
+                        &mut expected,
+                        position.wrapping_add(i16::from(value as i8)) as u16,
+                    );
+                    Mutation::Word {
+                        field,
+                        operation: WordOperation::Add(WordOperand::SignedByte(
+                            ByteOperand::Literal(value),
+                        )),
+                    }
+                    .apply(&mut actor);
+                    assert_eq!(actor, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn byte_word_views_alias_typed_coordinates_without_affecting_other_components() {
         let mut actor = actor();
         for field in [

@@ -1159,3 +1159,12 @@ All 90 lowerer tests, 239 static path tests and 240 native path tests in
 debug/release pass, with both audits, catalog freshness and the app build.
 Coverage is **19 complete roots / 256 unique statements**. This remains a
 source-derived static port milestone, not a claim of runtime Game integration.
+
+The dedicated world-X/Y/Z and pitch/yaw/roll add commands, plus signed-byte
+addition to an actor word, now lower to the existing typed mutations. Rotation
+wraps as a byte; world displacement sign-extends the literal before wrapping
+word addition. Complete handler signatures and every literal-byte lowering are
+checked, with exhaustive rotation-byte pairs and coordinate edge cases in Rust.
+Verification passes 91 lowerer tests, 240 static path tests and 241 native path
+tests in debug/release, both audits, catalog freshness and the app build.
+These commands alone do not complete another root; coverage remains 19/256.

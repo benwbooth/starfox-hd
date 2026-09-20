@@ -421,6 +421,19 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                          f"ByteOperand::Actor({byte_field(source)})")
             mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation}({value}) }}"
             statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
+        elif name in ("AddRotationX", "AddRotationY", "AddRotationZ", "AddWorldX", "AddWorldY", "AddWorldZ", "AddSignedByteToWord"):
+            if name == "AddSignedByteToWord":
+                variable, value = parameters(2)
+                field = word_field(variable)
+            else:
+                value, = parameters(1)
+                axis = name[-1]
+                field = f"ByteField::Rotation(Axis::{axis})" if name.startswith("AddRotation") else f"WordField::Position(Axis::{axis})"
+            if name.startswith("AddRotation"):
+                mutation = f"Mutation::Byte {{ field: {field}, operation: ByteOperation::Add(ByteOperand::Literal({value})) }}"
+            else:
+                mutation = f"Mutation::Word {{ field: {field}, operation: WordOperation::Add(WordOperand::SignedByte(ByteOperand::Literal({value}))) }}"
+            statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
         elif name in ("SetByte", "SetWord", "AddByte", "AddWord", "SetZeroByte", "SetZeroWord"):
             wide = name.endswith("Word")
             kind = "Word" if wide else "Byte"

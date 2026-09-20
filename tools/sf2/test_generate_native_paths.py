@@ -1058,6 +1058,19 @@ class NativePathGenerationTests(unittest.TestCase):
                 self.assertIn("WordField::MotionPhase", statements[0])
                 self.assertIn(fragment, statements[0])
 
+    def test_dedicated_axis_adds_keep_byte_rotation_and_signed_word_displacement(self):
+        for value in range(256):
+            for index, axis in enumerate(("X", "Y", "Z")):
+                with self.subTest(value=value, axis=axis):
+                    self.assertEqual(self.lower_record(f"{0x71 + index:02x} {value:02x}")[0],
+                        f"Statement::Mutate {{ mutation: Mutation::Byte {{ field: ByteField::Rotation(Axis::{axis}), operation: ByteOperation::Add(ByteOperand::Literal({value})) }}, next: cursor(0, 1) }}")
+                    self.assertEqual(self.lower_record(f"{0x74 + index:02x} {value:02x}")[0],
+                        f"Statement::Mutate {{ mutation: Mutation::Word {{ field: WordField::Position(Axis::{axis}), operation: WordOperation::Add(WordOperand::SignedByte(ByteOperand::Literal({value}))) }}, next: cursor(0, 1) }}")
+            self.assertEqual(self.lower_record(f"77 a3 {value:02x}")[0],
+                f"Statement::Mutate {{ mutation: Mutation::Word {{ field: WordField::ScriptValue, operation: WordOperation::Add(WordOperand::SignedByte(ByteOperand::Literal({value}))) }}, next: cursor(0, 1) }}")
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
+            self.lower_record("77 04 01")
+
     def test_unary_arithmetic_width_is_preserved(self):
         for opcode, width, operation in (
             (0x6D, "Byte", "Increment"), (0x6E, "Word", "Increment"),

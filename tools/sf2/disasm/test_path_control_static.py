@@ -219,6 +219,13 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7FBF9C, "C2 20 B5 0E 38 E5 08 30 03 4C F3 CA")
         self.assert_source(0x7F8CA3, "C2 20 20 20 C7 18 75 0E")
 
+    def test_axis_adds_wrap_rotation_bytes_and_sign_extend_position_operands(self):
+        for address, field in [(0x7F863A, 0x12), (0x7F8645, 0x14), (0x7F8650, 0x16)]:
+            self.assert_source(address, f"20 BC C4 18 75 {field:02X} 95 {field:02X} 4C D3 CA")
+        for address, field in [(0x7F865B, 0x0C), (0x7F8675, 0x0E), (0x7F868F, 0x10)]:
+            self.assert_source(address, f"20 BC C4 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 18 75 {field:02X} 95 {field:02X} 4C D3 CA")
+        self.assert_source(0x7F86A9, "20 BC C4 20 47 CB 20 E0 C4 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 18 79 00 00 99 00 00 E2 20 4C BE CA")
+
     def test_surface_path_preserves_group_and_keeps_support_and_flags_on_both_edges(self):
         self.assert_source(0x7FBF86, "A5 5E 29 E7 85 5E 8F 3A 30 00 BD EA 1C 48 22 3A AF 0D 68 9D EA 1C C2 20 B5 0E 38 E5 08 30 03 4C F3 CA 4C BE CA")
         self.assert_source(0x0DB20B, "AD 5F 19 9F E8 1C 7E F0 56")
