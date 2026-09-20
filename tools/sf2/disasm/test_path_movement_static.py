@@ -113,6 +113,18 @@ class PathMovementStaticTests(unittest.TestCase):
     def test_carry_reselects_player_and_clears_only_low_continuity_byte(self):
         self.assert_source(0x7F9ED3, "AC 1F CF B9 24 00 29 02 D0 04 5C EB 9E 7F C2 20 8A D9 E8 1C E2 20 F0 07 A9 00 9D C1 1C 80 0B BD C1 1C F0 03 20 1C BB 20 F7 BA")
 
+    def test_carry_controls_share_displacement_x_and_only_enable_clears_the_whole_word(self):
+        from extract_path import PathExtractor
+        from path_semantics import PATH_SEMANTIC_BY_OPCODE
+        extractor = PathExtractor(self.rom)
+        for opcode, address in [(0x117, 0x7FBAB9), (0x118, 0x7FBAEE)]:
+            self.assertEqual(extractor.handler_entry(opcode).handler_address, address)
+            self.assertEqual(PATH_SEMANTIC_BY_OPCODE[opcode].handler_address, address)
+        self.assert_source(0x7FBAB9, 'b52109209521c220a900009dc11ce2204ce8ca')
+        self.assert_source(0x7FBAEE, 'b52129df95214ce8ca')
+        for offset in [0x44F29, 0x44F92, 0x453AE]:
+            self.assertEqual(self.rom[offset:offset + 2], bytes.fromhex('0017'))
+
     def test_carry_snapshot_word_and_byte_writes_are_distinct(self):
         self.assert_source(0x7FBB01, "B5 0C 95 39 B5 0E 95 3B B5 10 95 3D A9 01 00 9D C1 1C E2 20 BD 14 00 9D C3 1C 60")
 

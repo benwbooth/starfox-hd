@@ -25,6 +25,7 @@ pub struct ActorPathState {
     /// Player movement publishes these words outside the alternate mode;
     /// authored patrols also use them to retain a signed half-step. Preserve
     /// those writes independently of velocity and saved-position history.
+    /// Platform carrying reuses X as continuity and Y's low byte as saved yaw.
     pub motion_delta: super::Vector3,
     /// Retained authored path parameter (source actor byte 27). Its meaning
     /// belongs to the path: 5E1D saves health here, while 7F2A saves the low
@@ -685,7 +686,7 @@ mod tests {
         parent.base.contacts.new_contact_latched = true;
         parent.extension.path_state.motion.carry_selected_player = true;
         parent.extension.path_state.motion.refresh_child_chain = true;
-        parent.extension.path_state.platform_carry.continuity = 1;
+        parent.extension.path_state.motion_delta.x = 1;
         objects.get_mut(child).unwrap().base.attachment = Some(owner);
         let mut runtime = PathRuntime::default();
         runtime

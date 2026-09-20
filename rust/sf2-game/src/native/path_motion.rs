@@ -616,7 +616,7 @@ mod tests {
         parent.extension.path_state.motion.refresh_child_chain = true;
         parent.extension.path_state.motion.relative_coordinates = true;
         parent.extension.path_state.motion.carry_selected_player = true;
-        parent.extension.path_state.platform_carry.continuity = 1;
+        parent.extension.path_state.motion_delta.x = 1;
         parent.extension.path_state.clear_on_path_exit_latch = true;
         parent.base.contacts.new_contact_latched = true;
         parent.base.contacts.hit_by_primary = true;

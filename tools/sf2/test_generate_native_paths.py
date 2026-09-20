@@ -2633,6 +2633,8 @@ class NativePathGenerationTests(unittest.TestCase):
         for record, operation in [
             ("01", "FollowPlayerDisplacement(true)"),
             ("02", "FollowPlayerDisplacement(false)"),
+            ("00 17", "CarrySelectedPlayer(true)"),
+            ("00 18", "CarrySelectedPlayer(false)"),
             ("04", "GenerateVelocityEachStep(true)"),
             ("05", "GenerateVelocityEachStep(false)"),
             ("12", "BankTurn(true)"), ("13", "BankTurn(false)"),

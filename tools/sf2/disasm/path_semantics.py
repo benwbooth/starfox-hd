@@ -276,6 +276,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x113, "IfSelectedAuxiliaryContinuation", 0x7FB9BC, None, "sf2_handler"),
     PathSemanticSpec(0x116, "OrSelectedAuxFlags", 0x7FBAA5, None, "sf2_handler"),
     PathSemanticSpec(0x117, "SetFlag21Bit20AndClearObject1cc1", 0x7FBAB9, None, "sf2_handler"),
+    PathSemanticSpec(0x118, "CarrySelectedPlayerOff", 0x7FBAEE, None, "sf2_handler"),
     PathSemanticSpec(
         0x11B,
         "IncrementSelectedAuxiliaryStage",

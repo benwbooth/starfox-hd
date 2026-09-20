@@ -178,6 +178,8 @@ pub enum MotionCommand {
     GenerateVelocityEachStep(bool),
     BankTurn(bool),
     QuadrupleVelocity(bool),
+    /// Enabling starts a fresh carry contact; disabling retains its history.
+    CarrySelectedPlayer(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -525,6 +527,12 @@ impl PathRuntime {
             }
             MotionCommand::QuadrupleVelocity(enabled) => {
                 actor.extension.path_state.motion.quadruple_velocity = enabled
+            }
+            MotionCommand::CarrySelectedPlayer(enabled) => {
+                actor.extension.path_state.motion.carry_selected_player = enabled;
+                if enabled {
+                    actor.extension.path_state.motion_delta.x = 0;
+                }
             }
         }
         actor.base.path = Some(next);
@@ -1534,5 +1542,37 @@ mod tests {
                 4
             )
         );
+    }
+
+    #[test]
+    fn carrying_controls_reset_only_shared_continuity_and_preserve_all_other_actor_state() {
+        for enabled in [false, true] {
+            for value in 0..=u16::MAX {
+                let (mut runtime, mut objects, owner) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.extension.path_state.motion_delta = crate::Vector3 {
+                    x: value as i16, y: -173, z: 997,
+                };
+                actor.extension.path_state.motion = crate::path_motion::MotionSettings {
+                    carry_selected_player: !enabled,
+                    follow_player_displacement: true,
+                    bank_turn: true,
+                    generate_velocity_each_step: true,
+                    ..crate::path_motion::MotionSettings::default()
+                };
+                actor.extension.path_state.platform_carry.saved_position = crate::Vector3 {
+                    x: -719, y: 353, z: 1071,
+                };
+                actor.base.velocity = crate::Vector3 { x: -1, y: 2, z: -3 };
+                let mut expected = actor.clone();
+                expected.extension.path_state.motion.carry_selected_player = enabled;
+                if enabled { expected.extension.path_state.motion_delta.x = 0; }
+                expected.base.path = Some(cursor(1));
+                assert_eq!(runtime.execute_motion(&mut objects, owner,
+                    MotionCommand::CarrySelectedPlayer(enabled), cursor(1)),
+                    Ok(ControlStep::Continue));
+                assert_eq!(objects.get(owner), Some(&expected));
+            }
+        }
     }
 }

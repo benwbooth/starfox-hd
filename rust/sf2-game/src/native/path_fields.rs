@@ -476,8 +476,8 @@ mod tests {
                 let mut actual = actor();
                 actual.base.position = Vector3 { x: 173, y: -497, z: 997 };
                 actual.extension.path_state.platform_carry.saved_position = Vector3 { x: -281, y: 831, z: -1471 };
-                actual.extension.path_state.platform_carry.continuity = 337;
-                actual.extension.path_state.platform_carry.saved_yaw = 517;
+                actual.extension.path_state.motion_delta.x = 337;
+                actual.extension.path_state.motion_delta.y = 517;
                 let mut expected = actual.clone();
                 axis.set(&mut expected.extension.path_state.platform_carry.saved_position, value as i16);
                 field.write(&mut actual, value);
@@ -502,7 +502,7 @@ mod tests {
                 let mut actual = actor();
                 actual.base.position = Vector3 { x: 10, y: -20, z: 30 };
                 actual.extension.path_state.motion.carry_selected_player = true;
-                actual.extension.path_state.platform_carry.continuity = 1;
+                actual.extension.path_state.motion_delta.x = 1;
                 field.write(&mut actual, value as u16);
                 let mut player = CarriedPlayer { enabled: true, carrier: Some(owner), ..CarriedPlayer::default() };
                 platform_carry::after_callbacks(&mut actual, owner, Some(&mut player));

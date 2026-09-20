@@ -3754,3 +3754,23 @@ encounters using those labels. Catalog totals remain unchanged at 139 roots
 and five helper paths. **195 lowerer tests**, exact regeneration and the
 architecture guard pass; the preceding native debug/release and app build
 results remain applicable because generated Rust is unchanged.
+
+### Platform-carry commands and displacement aliases
+
+The carry-enable and carry-disable handlers now lower to typed motion commands.
+Enable clears the entire continuity word even if already enabled; disable
+preserves it. Source review also exposed duplicate native copies of continuity
+and saved yaw: these are the same words as displacement X and Y, not independent
+carrier fields. The movement consumer now reads and writes the shared words,
+preserving the high bytes on byte writes and the unrelated Z displacement.
+Saved position remains shared with the existing authored position operands.
+
+Two exhaustive Rust regressions cover every word value, complete actor-state
+preservation, path-written continuity/yaw, first-contact suppression, later yaw
+correction and native readback. Static checks bind both handler-table entries,
+exact handler bytes, authored enable sites and the existing movement consumer.
+Debug and release pass **991 unit tests and two integration tests**; **195
+lowerer tests and 427 path-static tests**, exact regeneration, architecture
+guard, static inventory and app build pass (existing unused icon warnings only).
+The 139-root/five-helper catalog is unchanged: encounters using carry controls
+still have other unported dependencies. No gameplay recordings were used.

@@ -417,7 +417,7 @@ fn tail_refreshes_marked_children_and_carries_the_selected_player_without_world_
         actor.extension.path_state.motion.carry_selected_player = true;
         actor.extension.path_state.motion.relative_coordinates = true;
         actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
-        actor.extension.path_state.platform_carry.continuity = 1;
+        actor.extension.path_state.motion_delta.x = 1;
         actor.extension.path_state.platform_carry.saved_position = Vector3 {
             x: 90,
             y: 180,

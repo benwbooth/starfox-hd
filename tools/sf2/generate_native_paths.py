@@ -2009,6 +2009,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             "FollowPlayerDisplacementOn", "FollowPlayerDisplacementOff",
             "GenerateVelocityEachStepOn", "GenerateVelocityEachStepOff",
             "HelicopterOn", "HelicopterOff", "SetFlag26Bit80",
+            "SetFlag21Bit20AndClearObject1cc1", "CarrySelectedPlayerOff",
         ):
             parameters(0)
             operation, enabled = {
@@ -2019,6 +2020,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "HelicopterOn": ("BankTurn", True),
                 "HelicopterOff": ("BankTurn", False),
                 "SetFlag26Bit80": ("QuadrupleVelocity", True),
+                "SetFlag21Bit20AndClearObject1cc1": ("CarrySelectedPlayer", True),
+                "CarrySelectedPlayerOff": ("CarrySelectedPlayer", False),
             }[name]
             statement = f"Statement::Motion {{ command: MotionCommand::{operation}({str(enabled).lower()}), next: {next_cursor()} }}"
         elif name == "Trail":

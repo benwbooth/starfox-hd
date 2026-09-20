@@ -8,13 +8,11 @@ const HORIZONTAL_SCALE: i16 = 16;
 const FINE_ANGLE_BITS: u32 = 8;
 const LOW_BYTE: u16 = 0x00FF;
 
-/// Retained carrier state. These source words also serve other motion
-/// contexts: clearing continuity or saving yaw changes only the low byte.
-/// Keep the whole words so decoded field access can preserve those aliases.
+/// Retained carrier position, shared with authored saved-position operands.
+/// Continuity and saved yaw reuse `ActorPathState::motion_delta.x/y`; they
+/// must not have independent shadows here.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlatformCarryState {
-    pub continuity: u16,
-    pub saved_yaw: u16,
     pub saved_position: Vector3,
 }
 
@@ -35,38 +33,46 @@ pub fn after_callbacks(actor: &mut Object, owner: ObjectId, selected: Option<&mu
     if !actor.extension.path_state.motion.carry_selected_player {
         return;
     }
-    let state = &mut actor.extension.path_state.platform_carry;
+    let state = &mut actor.extension.path_state;
     let Some(player) = selected.filter(|player| player.enabled && player.carrier == Some(owner))
     else {
-        state.continuity &= !LOW_BYTE;
+        state.motion_delta.x = (state.motion_delta.x as u16 & !LOW_BYTE) as i16;
         return;
     };
-    if state.continuity & LOW_BYTE != 0 {
-        correct(player, *state, actor.base.position, actor.base.yaw);
+    if state.motion_delta.x as u16 & LOW_BYTE != 0 {
+        correct(
+            player,
+            state.platform_carry.saved_position,
+            state.motion_delta.y as u8,
+            actor.base.position,
+            actor.base.yaw,
+        );
     }
-    state.saved_position = actor.base.position;
-    state.continuity = 1; // Unlike the ineligible branch, this writes the whole word.
-    state.saved_yaw = (state.saved_yaw & !LOW_BYTE) | u16::from(actor.base.yaw.units());
+    state.platform_carry.saved_position = actor.base.position;
+    state.motion_delta.x = 1; // Unlike the ineligible branch, this writes the whole word.
+    state.motion_delta.y =
+        ((state.motion_delta.y as u16 & !LOW_BYTE) | u16::from(actor.base.yaw.units())) as i16;
 }
 
 fn correct(
     player: &mut CarriedPlayer,
-    previous: PlatformCarryState,
+    previous_position: Vector3,
+    previous_yaw: u8,
     position: Vector3,
     yaw: Angle,
 ) {
     let mut x = player
         .origin
         .x
-        .wrapping_sub(previous.saved_position.x)
+        .wrapping_sub(previous_position.x)
         .wrapping_mul(HORIZONTAL_SCALE);
-    let y = player.origin.y.wrapping_sub(previous.saved_position.y);
+    let y = player.origin.y.wrapping_sub(previous_position.y);
     let mut z = player
         .origin
         .z
-        .wrapping_sub(previous.saved_position.z)
+        .wrapping_sub(previous_position.z)
         .wrapping_mul(HORIZONTAL_SCALE);
-    let yaw_delta = yaw.units().wrapping_sub(previous.saved_yaw as u8);
+    let yaw_delta = yaw.units().wrapping_sub(previous_yaw);
     if yaw_delta != 0 {
         player.fine_yaw = player
             .fine_yaw
@@ -148,37 +154,37 @@ mod tests {
     #[test]
     fn disabled_actor_preserves_history_but_ineligible_player_clears_only_low_byte() {
         let (mut actor, owner, mut player) = fixture();
-        actor.extension.path_state.platform_carry.continuity = 0xAABB;
+        actor.extension.path_state.motion_delta.x = 0xAABB_u16 as i16;
         actor.extension.path_state.motion.carry_selected_player = false;
         after_callbacks(&mut actor, owner, None);
-        assert_eq!(actor.extension.path_state.platform_carry.continuity, 0xAABB);
+        assert_eq!(actor.extension.path_state.motion_delta.x as u16, 0xAABB);
         actor.extension.path_state.motion.carry_selected_player = true;
         player.enabled = false;
         after_callbacks(&mut actor, owner, Some(&mut player));
-        assert_eq!(actor.extension.path_state.platform_carry.continuity, 0xAA00);
+        assert_eq!(actor.extension.path_state.motion_delta.x as u16, 0xAA00);
         player.enabled = true;
         player.carrier = None;
-        actor.extension.path_state.platform_carry.continuity |= 1;
+        actor.extension.path_state.motion_delta.x |= 1;
         after_callbacks(&mut actor, owner, Some(&mut player));
-        assert_eq!(actor.extension.path_state.platform_carry.continuity, 0xAA00);
+        assert_eq!(actor.extension.path_state.motion_delta.x as u16, 0xAA00);
     }
 
     #[test]
     fn snapshot_clears_continuity_high_byte_but_preserves_saved_yaw_high_byte() {
         let (mut actor, owner, mut player) = fixture();
-        actor.extension.path_state.platform_carry.continuity = 0xAA00;
-        actor.extension.path_state.platform_carry.saved_yaw = 0xBBDD;
+        actor.extension.path_state.motion_delta.x = 0xAA00_u16 as i16;
+        actor.extension.path_state.motion_delta.y = 0xBBDD_u16 as i16;
         actor.base.yaw = Angle::from_units(7);
         after_callbacks(&mut actor, owner, Some(&mut player));
-        let state = actor.extension.path_state.platform_carry;
-        assert_eq!(state.continuity, 1);
-        assert_eq!(state.saved_yaw, 0xBB07);
+        let state = actor.extension.path_state.motion_delta;
+        assert_eq!(state.x, 1);
+        assert_eq!(state.y as u16, 0xBB07);
     }
 
     #[test]
     fn wrapped_scaling_applies_even_without_rotation() {
         let (mut actor, owner, mut player) = fixture();
-        actor.extension.path_state.platform_carry.continuity = 1;
+        actor.extension.path_state.motion_delta.x = 1;
         player.origin = Vector3 {
             x: 3000,
             y: i16::MIN,
@@ -196,9 +202,61 @@ mod tests {
     }
 
     #[test]
+    fn path_written_displacement_words_are_the_live_carry_continuity_and_yaw() {
+        use super::super::path_fields::{Axis, ByteField, BytePart, WordField};
+        for value in 0..=u16::MAX {
+            let (mut actor, owner, mut player) = fixture();
+            WordField::MotionDelta(Axis::X).write(&mut actor, value);
+            WordField::MotionDelta(Axis::Y).write(&mut actor, !value);
+            actor.extension.path_state.motion_delta.z = -719;
+            let before = actor.clone();
+            // An ineligible selection clears only the shared X low byte.
+            after_callbacks(&mut actor, owner, None);
+            let mut expected = before.clone();
+            expected.extension.path_state.motion_delta.x = (value & 0xFF00) as i16;
+            assert_eq!(actor, expected);
+            // Zero continuity suppresses correction even with stale history.
+            actor.base.yaw = Angle::from_units(value as u8);
+            actor.base.position = Vector3 {
+                x: 113,
+                y: -227,
+                z: 379,
+            };
+            player.origin = Vector3 {
+                x: -503,
+                y: 617,
+                z: -733,
+            };
+            let unchanged = player;
+            after_callbacks(&mut actor, owner, Some(&mut player));
+            assert_eq!(player, unchanged);
+            assert_eq!(WordField::MotionDelta(Axis::X).read(&actor), 1);
+            assert_eq!(
+                WordField::MotionDelta(Axis::Y).read(&actor),
+                (!value & 0xFF00) | u16::from(value as u8)
+            );
+            assert_eq!(
+                WordField::MotionDelta(Axis::Z).read(&actor),
+                (-719_i16) as u16
+            );
+            // A later path-byte write must affect the very next correction.
+            ByteField::WordPart {
+                field: WordField::MotionDelta(Axis::Y),
+                part: BytePart::Low,
+            }
+            .write(&mut actor, (value as u8).wrapping_sub(64));
+            player.origin = actor.base.position;
+            let yaw_before = player.fine_yaw;
+            after_callbacks(&mut actor, owner, Some(&mut player));
+            assert_eq!(player.fine_yaw, yaw_before.wrapping_add(64 << 8));
+            assert_eq!(player.origin, actor.base.position);
+        }
+    }
+
+    #[test]
     fn quarter_turn_updates_fine_yaw_and_retains_unrotated_vertical_delta() {
         let (mut actor, owner, mut player) = fixture();
-        actor.extension.path_state.platform_carry.continuity = 1;
+        actor.extension.path_state.motion_delta.x = 1;
         actor.base.yaw = Angle::from_units(64);
         player.fine_yaw = 60_000;
         player.origin = Vector3 {
