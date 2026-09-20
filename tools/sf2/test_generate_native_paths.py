@@ -864,6 +864,27 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
+    def test_complete_debris_graphs_pin_installers_death_tails_and_arc_data(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, installer, spawn_hex, graph_hex in [
+            (0x6F36, 19, 0x6F25, "5d00ce366f6400", "5c58a1ff8ea158a2ff8ea258a9ff8ea958940f07941058950f0795d0610a550ca1550ea25510a95214945212954410"),
+            (0x432C, 21, 0x42B8, "33bcfa2c43000a00640488ff0000d8ff01", "6da18cc92e5cc43f3c431c011016334361028f8e8f924550328e5036926ba16114000307b300a10e145212954410"),
+            (0x432E, 20, 0x42E1, "33a0fa2e4300f600640478000000d8ff03", "8cc92e5cc43f3c431c011016334361028f8e8f924550328e5036926ba16114000307b300a10e145212954410"),
+            (0x32B9, 22, 0x327C, "f52cd1b93264041e003c00000001", "5cc4fd3000fd040a194cc632424beb324bc2328f8e8f8e50328e58a23f07a2e00b02a1610f00031bb300a10e145214a244101c010842"),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            statements = lower_graph(extractor, PathAddress(root), 0)[1]
+            self.assertEqual((len(commands), len(statements)), (count, count))
+            self.assertEqual("".join(c.raw_hex for c in commands), graph_hex)
+            self.assertEqual(extractor.decode_command(PathAddress(installer)).raw_hex, spawn_hex)
+            self.assertEqual(statements.count("Statement::MarkForDeath"), 1)
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+        self.assertEqual(self.rom[0x3307:0x331B].hex(), "9cafc0cfdce7f0f7fcff01040910192431405164")
+        self.assertEqual(self.rom[0x331B:0x332F].hex(), "ced8e0e8eef4f8fcfe00000204080c1218202832")
+
     def test_targeting_upgrade_complete_parent_and_independent_children(self):
         statements = self.lower_record("00 7a 3c f5 00 79")
         self.assertIn("TargetingUpgradeOwned { taken: cursor(0, 2), next: cursor(0, 1)", statements[0])

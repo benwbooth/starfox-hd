@@ -125,6 +125,10 @@ ROOTS = (
     ("HIT_DETACHED_BOUNCING_PART", PathAddress(0xA481)),
     ("HIT_DRIVEN_ROTATING_PART_CONTROLLER", PathAddress(0xA4ED)),
     ("TARGETING_UPGRADE_PICKUP", PathAddress(0x787D)),
+    ("RANDOMIZED_TUMBLING_DEBRIS", PathAddress(0x6F36)),
+    ("PHASE_INCREMENTED_HIT_RELEASED_ARC_ATTACHMENT", PathAddress(0x432C)),
+    ("HIT_RELEASED_ARC_ATTACHMENT", PathAddress(0x432E)),
+    ("CONTACT_RELEASED_ARC_ATTACHMENT", PathAddress(0x32B9)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -200,6 +204,10 @@ CHILD_INSTALLERS = {
     PathAddress(0xD3B2): (PathAddress(0xD27B), PathAddress(0xD2A4)),
     PathAddress(0xA481): (PathAddress(0xA2E6), PathAddress(0xA4F6)),
     PathAddress(0xA4ED): (PathAddress(0xA2E6), PathAddress(0xA2FC)),
+    PathAddress(0x6F36): (PathAddress(0x6C01), PathAddress(0x6F25)),
+    PathAddress(0x432C): (PathAddress(0x419B), PathAddress(0x42B8)),
+    PathAddress(0x432E): (PathAddress(0x419B), PathAddress(0x42E1)),
+    PathAddress(0x32B9): (PathAddress(0x3114), PathAddress(0x327C)),
 }
 
 

@@ -2554,3 +2554,22 @@ The catalog contains 101 roots, 1,598 unique source commands and 1,589 typed
 statements. All 402 native path tests pass in debug/release, with 152 lowering
 and 321 source-static tests, freshness, both audits and app build passing.
 The existing app-icon warning and open production scheduler boundary remain.
+
+### Randomized debris and hit-released arc attachments
+
+Four further installed roots now lower completely: ten-step randomized
+tumbling debris, the shared twenty-sample hit-released arc with/without its
+initial phase increment, and the fifteen-sample callback-released arc.
+The latter cancels both callbacks after the forced continuation, while
+retaining the original HOLD flag. All finish by marking death rather than
+performing retirement. Tests explicitly schedule the last movement tail:
+ordinary integration is skipped but relative integration still occurs.
+
+Installer/graph bytes and both source curve tables are pinned. Native tests
+exercise five-draw order, signed halves/quarters, word/angle wrapping, both
+coordinate modes, exact loop counts, callback cancellation and death flags.
+The catalog contains 105 roots, 1,660 source commands and 1,651 statements;
+405 native path tests pass in debug/release, as do 153 lowering and 321
+source-static tests, freshness, both audits and app build (existing icon
+warning). Parent spawn classification and production scheduling are not
+implied by these independently verified child roots.
