@@ -134,6 +134,7 @@ ROOTS = (
     ("NEAREST_SHAPE_WEAPON_DISABLE_SERVICE", PathAddress(0x5A02)),
     ("SURFACE_LIMITED_BALLISTIC_EFFECT", PathAddress(0x12E5)),
     ("HEIGHT_STAGED_HOMING_PROJECTILE", PathAddress(0x6991)),
+    ("SCENE_COORDINATION_RESET", PathAddress(0x7BA0)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -815,6 +816,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "SwapVariableWords":
             first, second = parameters(2)
             statement = f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: {next_cursor()} }}"
+        elif name == "ClearExternalCf33VariableBit":
+            selector, = parameters(1)
+            mask = f"WordOperand::IndexedBitMask {{ selector: ByteOperand::Actor({byte_field(selector)}), masks: &VARIABLE_BIT_MASKS }}"
+            statement = f"Statement::ClearPathLatches {{ mask: {mask}, next: {next_cursor()} }}"
         elif name in ("SetVariableBit", "ClearVariableBit", "IfVariableBitSet"):
             operands = parameters(4 if name == "IfVariableBitSet" else 2)
             selector, destination = operands[:2]
@@ -1242,6 +1247,24 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if address == 0x1DD6 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1BBB and name == "ExportByteAbsolute":
+                statement = f"Statement::RequestSoundBank {{ selection: ByteOperand::Actor({byte_field(variable)}), next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B):
+                field = {0xD787: "Progress", 0xD788: "SecondaryProgress", 0xD789: "CompletedParts",
+                         0xD78A: "ActiveMessages", 0xD78B: "Handshake"}[address]
+                if name.startswith("Import"):
+                    operation = f"CopyTo({byte_field(variable)})"
+                elif name.startswith("Export"):
+                    operation = f"Assign(ByteOperand::Actor({byte_field(variable)}))"
+                elif name == "StoreExternalByte":
+                    operation = f"Assign(ByteOperand::Literal({value}))"
+                else:
+                    operation = "Increment" if name == "IncrementExternalByte" else "Decrement"
+                statement = f"Statement::Coordination {{ field: super::path_scene_state::CoordinationField::{field}, command: super::path_scene_state::CoordinationCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address == 0xD78C and name in ("ImportByteIndexed", "ExportByteIndexed"):

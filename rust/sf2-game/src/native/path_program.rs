@@ -69,10 +69,17 @@ mod death_tests;
 #[path = "path_child_retirement_tests.rs"]
 mod child_retirement_tests;
 
+#[cfg(test)]
+#[path = "path_scene_state_tests.rs"]
+mod scene_state_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
+    pub coordination: Option<&'a mut super::path_scene_state::EncounterCoordination>,
+    pub path_latches: Option<&'a mut super::path_scene_state::PathLatches>,
+    pub sound_bank_request: Option<&'a mut super::path_scene_state::SoundBankRequest>,
     pub friend_health: Option<&'a mut super::path_death::FriendHealth>,
     pub encounter_signals: Option<&'a mut EncounterSignals>,
     pub scenery_distance: Option<&'a mut SceneryDistanceState>,
@@ -486,6 +493,19 @@ pub enum Statement {
         command: SceneryDistanceCommand,
         next: PathCursor,
     },
+    Coordination {
+        field: super::path_scene_state::CoordinationField,
+        command: super::path_scene_state::CoordinationCommand,
+        next: PathCursor,
+    },
+    ClearPathLatches {
+        mask: WordOperand,
+        next: PathCursor,
+    },
+    RequestSoundBank {
+        selection: ByteOperand,
+        next: PathCursor,
+    },
     ClockBitsSet {
         mask: u8,
         taken: PathCursor,
@@ -779,6 +799,9 @@ pub enum ProgramError {
     ActorContext(ActorContextError),
     MissingTargetingUpgrade,
     MissingSceneryDistance,
+    MissingCoordination,
+    MissingPathLatches,
+    MissingSoundBankRequest,
     MissingSceneByte(SceneByte),
     MissingSceneHeightOffset,
     MissingShieldRecovery,
@@ -931,6 +954,27 @@ impl PathRuntime {
                 Statement::SetActionGate { value, next } => {
                     world.action_gate.as_deref_mut().ok_or(ProgramError::MissingActionGate)?.code = value;
                     objects.get_mut(owner).expect("validated action-gate writer").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::Coordination { field, command, next } => {
+                    let coordination = world.coordination.as_deref_mut()
+                        .ok_or(ProgramError::MissingCoordination)?;
+                    let actor = objects.get_mut(owner).expect("validated coordination actor");
+                    coordination.apply(actor, field, command);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ClearPathLatches { mask, next } => {
+                    let mask = mask.read(actor);
+                    world.path_latches.as_deref_mut().ok_or(ProgramError::MissingPathLatches)?.raised &= !mask;
+                    objects.get_mut(owner).expect("validated path latch writer").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::RequestSoundBank { selection, next } => {
+                    let selection = selection.read(actor);
+                    world.sound_bank_request.as_deref_mut()
+                        .ok_or(ProgramError::MissingSoundBankRequest)?.selection = selection;
+                    objects.get_mut(owner).expect("validated sound bank requester").base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::ActionGateBranch { condition, taken, next } => {
@@ -1922,6 +1966,9 @@ mod tests {
         PathWorld {
             scene: ScenePathInputs::default(),
             friend_health: None,
+            coordination: None,
+            path_latches: None,
+            sound_bank_request: None,
             encounter_signals: None,
             scenery_distance: None,
             targeting_upgrade: None,
@@ -8963,6 +9010,9 @@ mod tests {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
                 friend_health: None,
+                coordination: None,
+                path_latches: None,
+                sound_bank_request: None,
                 encounter_signals: None,
                 scenery_distance: None,
                 targeting_upgrade: None,
@@ -13032,9 +13082,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 110);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1787);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1796);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 111);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1802);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1811);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13167,6 +13217,9 @@ mod tests {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
                 friend_health: None,
+                coordination: None,
+                path_latches: None,
+                sound_bank_request: None,
                 encounter_signals: None,
                 scenery_distance: None,
                 targeting_upgrade: None,
@@ -13299,6 +13352,9 @@ mod tests {
                     &mut PathWorld {
                         scene: ScenePathInputs::default(),
                         friend_health: None,
+                        coordination: None,
+                        path_latches: None,
+                        sound_bank_request: None,
                         encounter_signals: None,
                         scenery_distance: None,
                         targeting_upgrade: None,

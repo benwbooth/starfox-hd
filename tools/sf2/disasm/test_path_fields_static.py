@@ -155,6 +155,34 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7FB5EF, "20 E0 C4 20 47 CB 5A 20 FB B5 7A 60")
         self.assert_source(0x7FB5FB, "20 BC C4 20 47 CB B9 00 00 3A 0A C2 20 29 FF 00 8E B1 16 AA BF CF B5 7F AE B1 16 60")
 
+    def test_global_path_latch_clear_is_word_wide_and_uses_the_same_variable_mask_helper(self):
+        self.assert_source(0x7FB620, "20fbb51c33cf4cd3ca")
+        self.assert_source(0x7FB617, "20fbb50c33cf4cd3ca")
+        self.assert_source(0x7FB629, "20fbb52c33cff00382cb144ca9ca")
+        self.assert_source(0x7FCAD3, "e220c220b52b18690200952be2204c757e")
+
+    def test_supplementary_sound_bank_request_is_consumed_by_upload_not_path_publication(self):
+        self.assert_source(0x03E2D7,
+            "c220adbb1b29ff000aaabf24e703aabf38e70329ff00f01da85ac220bf39e703a8"
+            "e220bf3be70322c7e3037ae8e8e888d0e79cbb1b")
+        self.assert_source(0x03E3C7, "8bda0848a90048aba90f8d4021682209e403")
+
+    def test_encounter_shared_bytes_retain_counter_mask_and_handshake_roles(self):
+        # Completion counters are incremented and compared against full-byte
+        # sentinels, not treated as boolean signals.
+        for offset, expected in [
+            (0x41168, '7aa12c2aa1ff7311166811'),
+            (0x41430, 'e588d7'), (0x41458, 'e587d7'),
+            (0x438FE, '7aa12dd827a17fa12d'),
+            (0x488B8, '7aa12ed8a2a17fa12e447aa12ed9a2a17fa12e0f'),
+            (0x47B6C, '7aa12fd8a2a17fa12f95a295a142'),
+            (0x48B36, '7aa12f0b01a2d9a2a17fa12f'),
+            (0x44C92, 'e58bd7'), (0x44CE1, 'e78bd7'),
+        ]:
+            data = bytes.fromhex(expected)
+            self.assertEqual(self.rom[offset:offset + len(data)], data)
+        self.assert_source(0x069E03, 'ad87d7c9fff00f8019ad87d7c9fef006c9ffd00e800c')
+
     def test_signed_halves_increment_negatives_before_sign_preserving_shift(self):
         self.assert_source(0x7FA5BF, "20 BC C4 20 47 CB B9 00 00 10 01 1A C9 80 6A 99 00 00 4C D3 CA")
         self.assert_source(0x7FA5D4, "20 BC C4 20 47 CB C2 20 B9 00 00 10 01 1A C9 00 80 6A 99 00 00 4C D3 CA")

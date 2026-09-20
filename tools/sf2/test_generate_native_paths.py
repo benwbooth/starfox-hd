@@ -20,6 +20,46 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_scene_reset_complete_graph_preserves_parameter_driven_initialization(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x7BA0))
+        self.assertEqual(len(commands), 15)
+        self.assertEqual(''.join(c.raw_hex for c in commands),
+            '487da1bb1b7fa12a7fa12b7fa12c7fa12d7fa12e7fa12f7fa13080a33261106da1d6a1450f')
+        statements = lower_graph(extractor, PathAddress(0x7BA0), 0)[1]
+        self.assertEqual(len(statements), 15)
+        self.assertIn('RequestSoundBank', statements[1])
+        self.assertIn('CountdownCommand::Assign', statements[2])
+        for index, field in enumerate(['Progress', 'SecondaryProgress', 'CompletedParts', 'ActiveMessages', 'Handshake'], 3):
+            self.assertIn(f'CoordinationField::{field}', statements[index])
+            self.assertIn('CoordinationCommand::Assign(ByteOperand::Actor', statements[index])
+        self.assertIn('SceneryDistance', statements[8])
+        self.assertIn('PickupHistory', statements[9])
+        self.assertIn('iterations: 16', statements[10])
+        self.assertIn('ClearPathLatches', statements[12])
+        self.assertIn('IndexedBitMask', statements[12])
+        self.assertIn('End', statements[-1])
+
+    def test_coordination_commands_decode_named_fields_and_reject_unreviewed_neighbors(self):
+        for index, field in enumerate(['Progress', 'SecondaryProgress', 'CompletedParts', 'ActiveMessages', 'Handshake'], 0x2B):
+            address = (0xD75C + index).to_bytes(2, 'little').hex(' ')
+            for record, operation in [
+                (f'7a a1 {index:02x}', 'CopyTo'), (f'7f a1 {index:02x}', 'Assign(ByteOperand::Actor'),
+                (f'79 a1 {address}', 'CopyTo'), (f'7d a1 {address}', 'Assign(ByteOperand::Actor'),
+                (f'fb {address} ff', 'Assign(ByteOperand::Literal(255))'),
+                (f'e5 {address}', 'Increment'), (f'e7 {address}', 'Decrement'),
+            ]:
+                statement = self.lower_record(record)[0]
+                self.assertIn(f'CoordinationField::{field}', statement)
+                self.assertIn(f'CoordinationCommand::{operation}', statement)
+        for address in [0xD785, 0xD78D]:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record('7d a1 ' + address.to_bytes(2, 'little').hex(' '))
+        self.assertIn('RequestSoundBank', self.lower_record('7d 99 bb 1b')[0])
+        self.assertIn('ClearPathLatches', self.lower_record('d6 a1')[0])
+        with self.assertRaises(UnsupportedPath):
+            self.lower_record('7d a1 bc 1b')
+
     def test_find_shape_decodes_zero_as_general_and_all_catalog_shapes_as_specific(self):
         from extract_shapes import SHAPE_HEADER_START, SHAPE_HEADER_SIZE, SHAPE_HEADER_COUNT
         for token, filter_ in [(0, "None")] + [
@@ -1532,7 +1572,7 @@ class NativePathGenerationTests(unittest.TestCase):
             statement = self.lower_record(record)[0]
             self.assertIn(f"CountdownCommand::{operation}", statement)
             self.assertIn("next: cursor(0, 1)", statement)
-        for record in ("79 a9 87 d7", "7a a9 2b", "7d a9 85 d7", "7f a9 29", "fb 87 d7 ff", "e5 85 d7", "e7 87 d7"):
+        for record in ("79 a9 85 d7", "7a a9 29", "7d a9 85 d7", "7f a9 29", "fb 85 d7 ff", "e5 85 d7", "e7 85 d7"):
             with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
                 self.lower_record(record)
 

@@ -2748,3 +2748,33 @@ entries and the addition handler. All 422 native path tests pass in both
 debug/release, with 159 lowering and 339 source-static tests, freshness,
 architecture/static audits and app build passing (existing icon warning).
 No additional complete root or production scene integration is claimed.
+
+### Shared scene coordination and complete reset path
+
+The complete `$44:7BA0` reset graph now lowers to typed Rust: hide the actor,
+publish the initial motion-phase byte as the supplementary sound-bank request,
+countdown, five encounter coordination bytes and scenery mask, copy the script
+word into pickup history, then increment the phase byte and clear a selected
+global path latch sixteen times through immediate NEXT before END. Initial
+values are copied, not implicitly zeroed. Empty loop storage remains owned
+until actor cleanup.
+
+The five shared bytes have separate progress, secondary-progress,
+completed-part, active-message and handshake fields. Full-byte imports,
+exports, stores and wrapping increments/decrements retain their script-defined
+counter/mask roles. The global path-latch word remains distinct from encounter
+signals; mask selection preserves all 256 source selectors, including byte
+wrap and the source table entries outside the usual sixteen single-bit masks.
+The sound-bank request remains a retained publication, not an immediate cue or
+an emulated sound upload. Its consumer and scene ownership are not yet wired
+into the production scheduler.
+
+Tests cover every byte and coordination operation, every latch selector,
+missing-input failures, full actor/shared-record preservation, IFNOT/RNG
+preservation and all 256 initial values through the entire reset graph. Source
+pins cover the latch handlers, sound-bank consumer and representative
+counter/mask/handshake users. All 426 native path tests pass in debug/release,
+with 161 lowerer tests, 342 source-static path tests, catalog freshness, both
+audits and the app build passing (existing icon warning). The catalog now has
+111 complete roots, 1,811 source commands and 1,802 typed statements; this is
+not a claim of complete gameplay or production integration.
