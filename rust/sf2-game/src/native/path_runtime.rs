@@ -107,6 +107,10 @@ pub struct PathRuntime {
     /// Shared across actor invocations, with single-slot source semantics.
     pub actor_context: super::path_actor_context::ActorContextState,
     pub spawns: super::path_spawn::SpawnState,
+    /// Height mailbox shared by the authored scenery-placement helpers.
+    /// Other source uses of the same temporary storage have separate domain
+    /// contracts; they are not implicitly exposed as numeric actor handles.
+    pub scenery_placement_height: Option<i16>,
     pub steering: super::path_steering::SteeringState,
     pub branch: super::path_conditions::BranchState,
     calls: PathCalls,
@@ -123,6 +127,7 @@ impl Default for PathRuntime {
             resources: ProgramResources::default(),
             actor_context: super::path_actor_context::ActorContextState::default(),
             spawns: super::path_spawn::SpawnState::default(),
+            scenery_placement_height: None,
             steering: super::path_steering::SteeringState::default(),
             branch: super::path_conditions::BranchState::default(),
             calls: PathCalls::default(),

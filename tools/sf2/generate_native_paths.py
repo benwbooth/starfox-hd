@@ -24,6 +24,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("SELECTED_SCENERY_SPRITE_EMITTER", PathAddress(0xB050)),
+    ("SELECTED_SCENERY_ARC_EMITTER", PathAddress(0xB05E)),
     ("ALTERNATE_EXHAUST", PathAddress(0xF536)),
     ("COLOR_CYCLE_SPRITE", PathAddress(0xF593)),
     ("RANDOMIZED_COLOR_PARTICLE", PathAddress(0xF294)),
@@ -232,6 +234,21 @@ CHILD_INSTALLERS = {
 
 class UnsupportedPath(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class SurfaceHeightQuery:
+    """Direct query and immediately imported result, with no scratch state."""
+
+    commands: tuple[PathCommand, ...]
+
+    @property
+    def address(self):
+        return self.commands[0].address
+
+    @property
+    def next(self):
+        return self.commands[-1].successors[0]
 
 
 @dataclass(frozen=True)
@@ -453,6 +470,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
         return index, "ObjectKind::Effect"
     if (index, path) == (309, PathAddress(0x98E5)):
         return index, "ObjectKind::Effect"
+    # Both complete scenery effects disable ordinary collision before their
+    # first yield. Sprite proximity has a selected-player particle request.
+    if (shape, path) in ((0xC0C4, PathAddress(0xA524)), (0xEC84, PathAddress(0xB07C))):
+        return index, "ObjectKind::Effect"
     # Hittable damaging encounter part: remains attached until its hit event,
     # then detaches, bounces and requests death. This is not a visual-only
     # sprite; scope the classification to this shape AND complete path.
@@ -551,7 +572,7 @@ def graph(extractor: PathExtractor, root: PathAddress) -> list[PathCommand]:
 
 
 def lowering_units(extractor: PathExtractor, root: PathAddress):
-    """Fold a closed immediate offset-preparation block into its consumer.
+    """Fold reviewed closed preparation/result blocks into semantic actions.
 
     Every original command remains in the source graph. Native cursors exist
     only at semantic boundaries: entry/callback/spawn edges into the middle
@@ -572,6 +593,21 @@ def lowering_units(extractor: PathExtractor, root: PathAddress):
     units = []
     for command in commands:
         if command.address in consumed:
+            continue
+        if command.address == PathAddress(0xB116):
+            consumer = by_address.get(PathAddress(0xB121))
+            if (command.opcode != 0x089 or command.raw_hex != "89"
+                    or command.handler_address != SEMANTICS[0x089].handler_address
+                    or command.successors != (PathAddress(0xB121),)
+                    or consumer is None or consumer.raw_hex != "7ca30800"
+                    or consumer.opcode != 0x07C
+                    or consumer.handler_address != SEMANTICS[0x07C].handler_address
+                    or consumer.successors != (PathAddress(0xB125),)):
+                raise UnsupportedPath("unexpected scenery surface-height consumer")
+            if consumer.address in entries or predecessors.get(consumer.address) != {command.address}:
+                raise UnsupportedPath("external entry into scenery surface-height import")
+            consumed.add(consumer.address)
+            units.append(SurfaceHeightQuery((command, consumer)))
             continue
         if not (command.opcode == 0x0FB and command.raw_hex.startswith("fbb116")):
             units.append(command)
@@ -617,6 +653,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
 
     statements = []
     for command in commands:
+        if isinstance(command, SurfaceHeightQuery):
+            statements.append(f"Statement::QuerySurfaceHeight {{ destination: WordField::ScriptValue, next: {cursor(command.next)} }}")
+            continue
         if isinstance(command, SelectedOffsetAim):
             x, y, z = command.offset
             statements.append(f"Statement::FaceSelectedOffset {{ offset: super::path_steering::AimOffset {{ x: {x}, y: {y}, z: {z} }}, next: {cursor(command.next)} }}")
@@ -779,10 +818,15 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             # The extractor checks the COMPLETE instruction signature and
             # returned continuation before exposing each reviewed action.
             actions = {
+                PathAddress(0xB129): "MarkRemoval",
                 PathAddress(0xF348): "LatchPrimaryViewFilter",
                 PathAddress(0xE78A): "InheritPrimaryHorizontalMotion",
                 PathAddress(0xF078): "RefreshSelectedChargeAttachment",
             }
+            if command.address == PathAddress(0xB0CB):
+                parameters(0)
+                statements.append(f"Statement::CopySelectedTransform {{ command: SelectedTransformCommand::WorldPosition, next: {next_cursor()} }}")
+                continue
             controls = {
                 PathAddress(0xF500): "LockToProjectile",
                 PathAddress(0xF391): "LockForLinkedMode",
@@ -977,6 +1021,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "IncrementSelectedAuxiliaryStage":
             parameters(0)
             statement = f"Statement::UpgradeSelectedWeapon {{ next: {next_cursor()} }}"
+        elif name == "OrSelectedAuxFlags":
+            mask, = parameters(1)
+            statement = f"Statement::IncludeSelectedParticleFlags {{ mask: {mask}, next: {next_cursor()} }}"
         elif name in ("SetSelectedSlotLowNibble1", "SetSelectedSlotLowNibble4", "ClearSelectedAuxiliaryFlag01"):
             parameters(0)
             operation = {
@@ -1231,7 +1278,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             variable, index = parameters(2)
             # $7F:9FE7 widens the second literal without scaling it. Only
             # reviewed live domain fields are mapped, never shared RAM.
-            if index == 0x36:
+            if name == "ImportWordIndexed" and (variable, index) == (0x06, 0x15):
+                statement = f"Statement::AttachLastSpawn {{ next: {next_cursor()} }}"
+            elif command.address == PathAddress(0xB136) and name == "ImportWordIndexed" and (variable, index) == (0x0E, 0x0B):
+                statement = f"Statement::ImportSceneryPlacementHeight {{ next: {next_cursor()} }}"
+            elif index == 0x36:
                 operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
                 statement = f"Statement::Guidance {{ command: GuidanceCommand::{operation}, next: {next_cursor()} }}"
             elif index == 0x32:
@@ -1247,6 +1298,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ImportPlayerPosition {{ axis: Axis::{axis}, destination: {word_field(variable)}, next: {next_cursor()} }}"
             else:
                 raise UnsupportedPath(f"unported shared word {0xD75C + index:04X} at {command.address.label()}")
+        elif name == "StoreExternalWord":
+            low, high, value_low, value_high = parameters(4)
+            if command.address not in (PathAddress(0xB053), PathAddress(0xB061)) or (low | high << 8) != 0xD767:
+                raise UnsupportedPath(f"unreviewed external word store at {command.address.label()}")
+            height = int.from_bytes(bytes((value_low, value_high)), "little", signed=True)
+            statement = f"Statement::SetSceneryPlacementHeight {{ height: {height}, next: {next_cursor()} }}"
         elif name == "InitializePlayerAuxWord":
             amount = int.from_bytes(parameters(2), "little", signed=True)
             statement = f"Statement::InitializePrimaryPitchRecoil {{ amount: {amount}, next: {next_cursor()} }}"

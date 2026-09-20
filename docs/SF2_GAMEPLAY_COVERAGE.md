@@ -2994,3 +2994,41 @@ All 25 weapon tests and 466 path tests pass in debug/release; 360 source-static
 tests, architecture/static audits and app build pass (existing icon warning).
 Catalog counts remain 117 / 2,325 / 2,316. Player-control publishers, scheduler
 integration and remaining unported source graphs are not implied complete.
+
+## Selected scenery emitters and direct surface results (2026-09-20)
+
+The complete B050 and B05E graphs now lower, including their shared B0C7
+placement helper, A524 sprite callback, B07C arc child and 9277 fade child.
+Placement borrows the retained last-spawn actor, randomizes yaw, copies the
+live selected actor's XYZ and adds six signed-byte X/Z displacements with
+word wrapping. It restores the borrowed path and original actor after writing
+the shared placement height. A full pool retains the previous last-spawn;
+the helper therefore still mutates that actor. No retained actor faults
+explicitly instead of emulating a null-object write.
+
+The direct surface query and its immediately imported result are folded into
+one typed action. The extractor rejects changed consumers and entry edges
+into the folded interior. The result is a height, not a pointer: no surface
+returns 16384 in full mode, zero in reduced mode. All three actor contact
+outputs are published, unlike the existing branch which restores the group
+byte. Marking removal is immediate and does not perform END cleanup. Shared
+placement-height imports/stores are confined to this reviewed family; other
+uses of the source temporary storage remain unsupported.
+
+B05E creates on every ninth invocation and attaches its last spawn. B050
+waits sixteen invocations, creates a sprite, then follows the sprite code
+itself, conditionally creates a second sprite, waits seven and ends. Its
+proximity callback ORs the full particle-emission byte (6BE4), independently
+of the player-action byte (6B77). The downstream particle-emission service is
+not claimed ported by this producer.
+
+Seven new native tests cover all height words, all particle flag/mask pairs,
+every surface-mode byte, selected jitter, complete parent lifetimes and
+callbacks, full-pool retained targets, null/stale/self attachments and IFNOT
+preservation. Validation: 473 native path tests pass in both debug/release,
+170 lowerer tests and 364 source-static path tests pass, architecture/static
+audits and the app build pass (existing icon warning). Coverage is **119
+complete roots, 2381 unique source commands, 2371 typed statements**. The
+previously documented full-suite reengagement audio-event failure remains
+outside this focused pass; scheduler integration and remaining graphs stay
+open. No recorded gameplay or original program execution was used.

@@ -21,6 +21,39 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_scenery_emitters_close_both_graphs_and_fold_only_the_private_surface_result(self):
+        extractor = PathExtractor(self.rom)
+        for address, count, checksum in [
+            (0xB050, 49, '97b563ad4edfb07463fcee1a986f58253c9219b0644fee4a0abed70264cdd01b'),
+            (0xB05E, 65, '34dfda2d624bc36c1b2a9b64199dfb1fceff2cf69f051b9591c12519cd45c232'),
+        ]:
+            root = PathAddress(address)
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), checksum)
+            statements = lower_graph(extractor, root, 0)[1]
+            self.assertEqual(len(statements), count - 1)
+            self.assertEqual(sum('QuerySurfaceHeight' in s for s in statements), 1)
+            self.assertEqual(sum('ImportSceneryPlacementHeight' in s for s in statements), 1)
+            self.assertEqual(sum('SetSceneryPlacementHeight' in s for s in statements), 1)
+            self.assertEqual(sum('MarkRemoval' in s for s in statements), 1)
+        for offset, changed_bytes, expected in [
+            (0x4B122, b'\xa1', 'unexpected scenery surface-height consumer'),
+            (0x4B114, b'\x21\xb1', 'external entry into scenery surface-height import'),
+        ]:
+            changed = bytearray(self.rom)
+            changed[offset:offset + len(changed_bytes)] = changed_bytes
+            with self.assertRaisesRegex(UnsupportedPath, expected):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(0xB05E), 0)
+        self.assertIn('AttachLastSpawn', self.lower_record('7b0615')[0])
+        for mask in range(256):
+            self.assertIn(f'IncludeSelectedParticleFlags {{ mask: {mask}', self.lower_record(f'0016{mask:02x}')[0])
+        # D767 has unrelated typed-pointer/shape consumers too; this is NOT
+        # authorization for a shared numeric scratch-memory implementation.
+        for record in ['fc67d70000', '7b0e0b', '7ca30800', '7b0415', '800615']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_linked_shot_count_and_retained_pair_suppression_are_typed(self):
         for opcode, command in [('32', 'Increment'), ('33', 'Decrement')]:
             self.assertIn(f'ShotCountCommand::{command}', self.lower_record(f'00 {opcode}')[0])
@@ -2567,8 +2600,8 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(self.lower_record(f"00 {opcode:02x}")[0],
                 f"Statement::SelectedAuxiliary {{ command: SelectedAuxiliaryCommand::{operation}, next: cursor(0, 1) }}")
         # The similarly named OR operation targets a different field.
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported OrSelectedAuxFlags"):
-            self.lower_record("00 16 ff")
+        self.assertEqual(self.lower_record("00 16 ff")[0],
+            "Statement::IncludeSelectedParticleFlags { mask: 255, next: cursor(0, 1) }")
         changed = bytearray(self.rom)
         changed[0x4F536:0x4F53D] = bytes.fromhex("00 6e 00 6f 00 62 0f")
         generated = generate(bytes(changed), (("AUXILIARY", PathAddress(0xF536)),))

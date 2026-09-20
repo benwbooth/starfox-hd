@@ -89,6 +89,10 @@ mod impact_tests;
 #[path = "path_rapid_projectile_tests.rs"]
 mod rapid_projectile_tests;
 
+#[cfg(test)]
+#[path = "path_scenery_emitter_tests.rs"]
+mod scenery_emitter_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -150,6 +154,7 @@ pub struct PathWorld<'a> {
     /// Shared selected-player auxiliary state. Commands and branches borrow
     /// the same live record; a missing record faults only when needed.
     pub selected_auxiliary: Option<&'a mut SelectedAuxiliaryState>,
+    pub selected_particle_effects: Option<&'a mut SelectedParticleEffects>,
     /// Fresh path-selected equipment, not the published active-pilot snapshot.
     pub selected_equipment: Option<&'a mut super::path_equipment::SelectedEquipment>,
     pub selected_score: Option<&'a mut super::path_score::PlayerScore>,
@@ -268,6 +273,14 @@ impl SceneByte {
 pub struct SelectedAuxiliaryState {
     pub mode: u8,
     pub action_flags: u8,
+}
+
+/// Selected-player particle emission byte ($6BE4), consumed by $07:D25A.
+/// High bits request left/right/central emissions; the low nibble retains
+/// the service's countdown. This is NOT the action byte at $6B77.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SelectedParticleEffects {
+    pub flags: u8,
 }
 
 /// Shared authored guidance history ($D792). Paths copy and replace the
@@ -491,6 +504,12 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    IncludeSelectedParticleFlags { mask: u8, next: PathCursor },
+    SetSceneryPlacementHeight { height: i16, next: PathCursor },
+    ImportSceneryPlacementHeight { next: PathCursor },
+    AttachLastSpawn { next: PathCursor },
+    QuerySurfaceHeight { destination: super::path_fields::WordField, next: PathCursor },
+    MarkRemoval { next: PathCursor },
     AttachPublishedHomingTarget { next: PathCursor },
     InstallImpactBurst,
     ImpactBranch { first: PathCursor, second: PathCursor, third: PathCursor, next: PathCursor },
@@ -893,6 +912,8 @@ pub enum ProgramError {
     MissingOccupancyExemption,
     MissingOccupancy,
     MissingSurfaceMode,
+    MissingSceneryPlacementHeight,
+    MissingSelectedParticleEffects,
     MissingImpactState,
     MissingLinkedShotCount,
     MissingProjectileFlightOverride,
@@ -1094,6 +1115,52 @@ impl PathRuntime {
                             self.spawns.parameter.ok_or(ProgramError::MissingSpawnParameter)?),
                         SpawnParameterCommand::Assign(value) => self.spawns.parameter = Some(value.read(actor)),
                     }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SetSceneryPlacementHeight { height, next } => {
+                    self.scenery_placement_height = Some(height);
+                    objects.get_mut(owner).expect("validated placement writer").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::IncludeSelectedParticleFlags { mask, next } => {
+                    world.selected_particle_effects.as_deref_mut().ok_or(ProgramError::MissingSelectedParticleEffects)?.flags |= mask;
+                    objects.get_mut(owner).expect("validated particle request").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportSceneryPlacementHeight { next } => {
+                    let height = self.scenery_placement_height.ok_or(ProgramError::MissingSceneryPlacementHeight)?;
+                    let actor = objects.get_mut(owner).expect("validated placement reader");
+                    actor.base.position.y = height;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::AttachLastSpawn { next } => {
+                    if let Some(target) = self.spawns.last_spawn {
+                        objects.get(target).ok_or(PathRuntimeError::MissingActor(target))?;
+                    }
+                    let actor = objects.get_mut(owner).expect("validated last-spawn observer");
+                    actor.base.attachment = self.spawns.last_spawn;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::QuerySurfaceHeight { destination, next } => {
+                    let search = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?.search();
+                    let result = super::collision_surface::query_object_surface(objects, owner, world.animation_clock, search)
+                        .map_err(ProgramError::SurfaceQuery)?;
+                    let actor = objects.get_mut(owner).expect("validated surface-height observer");
+                    // Unlike the surface branch, this direct query publishes
+                    // ALL actor contact outputs, including the group byte.
+                    actor.extension.surface_contact = result.contact;
+                    destination.write(actor, result.height as u16);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::MarkRemoval { next } => {
+                    let actor = objects.get_mut(owner).expect("validated deferred removal");
+                    // This inline action is not END: it neither yields nor
+                    // clears motion latches, callbacks, or the path stack.
+                    actor.base.flags.remove_after_tick = true;
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -2182,6 +2249,7 @@ mod tests {
             active_node_flags: None,
             countdown: None,
             selected_auxiliary: None,
+            selected_particle_effects: None,
             selected_equipment: None,
             selected_score: None,
             weapons: None,
@@ -9241,6 +9309,7 @@ mod tests {
                 countdown: None,
                 // The initial four-count loop does not read this record.
                 selected_auxiliary: (visit >= 3).then_some(&mut auxiliary),
+                selected_particle_effects: None,
                 selected_equipment: None,
                 selected_score: None,
                 random: &mut random,
@@ -13275,9 +13344,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 117);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2316);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2325);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 119);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2371);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2381);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13453,6 +13522,7 @@ mod tests {
                 primary_target: None,
                 active_node_flags: None,
                 selected_auxiliary: None,
+                selected_particle_effects: None,
                 selected_equipment: None,
                 selected_score: None,
                 countdown: None,
@@ -13596,6 +13666,7 @@ mod tests {
                         primary_target: None,
                         active_node_flags: None,
                         selected_auxiliary: None,
+                        selected_particle_effects: None,
                         selected_equipment: None,
                         selected_score: None,
                         countdown: None,
