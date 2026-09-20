@@ -96,6 +96,46 @@ class NativePathGenerationTests(unittest.TestCase):
         for source in [0x099EF1, 0x099EF2]:
             self.assertEqual(len(banked_byte_values(self.rom, source)), 256)
 
+    def test_remaining_self_contained_children_preserve_graphs_and_exact_installers(self):
+        extractor = PathExtractor(self.rom)
+        cases = [
+            (0x0A0D, 0x0691, 0x0958, "5dd4bc0d0a6400", 2, "480f"),
+            (0x432A, 0x419B, 0x424C, "5dd4bc2a436400", 2, "480f"),
+            (0x6BCB, 0x6A15, 0x6B7D, "f584c9cb6b64009001000060f009", 2, "5c19"),
+            (0x7B8F, 0x0AE7, 0x8570, "5d28bd8f7b6400", 2, "030a0f"),
+            (0x99E6, 0x9492, 0x990E, "33dcc1e6990000c00a0a00000000000052", 2, "5c19"),
+            (0x9CDA, 0x9492, 0x9B90, "f584deda9c0a0a0000000000005e", 2, "5c19"),
+            (0xACFE, 0xAA8A, 0xAB0B, "f5ace2feac0a0a00001400b0ff0a", 2, "2e19"),
+            (0x8BF7, 0x7442, 0x77FA, "33f8ebf78b00e000640000000000000008", 4, "5c0b04ae8d19"),
+            (0xF9F2, 0xF5B4, 0xF765, "5d9cbcf2f91e06", 10, "f7ef0076202e005c0b05ae780c84c904067f03140f"),
+            (0x5A8D, 0x58B9, 0x592E, "33dcc18d5a800000640000000cfe00000a", 12, "00295c50a3906c3b3f9b5a16955a00049b82640090ef903baa5a169e5a3e0f"),
+            (0x830D, 0x546C, 0x5604, "5da8c00d830a05", 16, "4d00025cc94ea12df81f8361191e0102440f75e2550ca25299a156a156a26d9942"),
+            (0x5EC4, 0x5E1D, 0x5E3C, "f514f3c45e640400000000000002", 30, "415286fd040a194ccf5e42030fc90004950004ba61140795047790104441628d0004cb0004cd0f8d2e0b642d0b042e41548d5cccf7ef4289428942"),
+            (0xB07C, 0xB05E, 0xB066, "5d84ec7cb00a0a", 33, "5c4d00181d0061081e0108440f7ba3922da318fce8038ab029a0b05cc9060a0b0aa1030a6fa167a19fb00021d03091b00f5c0c18fc0e0628045d04bf77920a0a0bd012fa897871088a2a1230b4b05d04bf77920a0afa880f"),
+        ]
+        for root, parent, installer, spawn_bytes, count, source in cases:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(''.join(c.raw_hex for c in commands), source)
+            self.assertEqual(len(commands), count)
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(statements), count)
+            command = extractor.decode_command(PathAddress(installer))
+            self.assertIn(command, graph(extractor, PathAddress(parent)))
+            self.assertEqual(command.raw_hex, spawn_bytes)
+            spawn = independent_spawn_parameters(command) if command.opcode == 0x5D else child_spawn_parameters(command)
+            self.assertEqual(spawn.path.offset, root)
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed), (("CHILD", PathAddress(root)),))
+        _, statements = lower_graph(extractor, PathAddress(0x5A8D), 0)
+        self.assertIn("WordField::RelativePosition(Axis::Y)", statements[2])
+        self.assertIn("operation: WordOperation::Chase(WordOperand::Literal(100))", statements[7])
+        self.assertIn("ActorCondition::SecondWordLess", statements[8])
+        _, statements = lower_graph(extractor, PathAddress(0x5EC4), 0)
+        self.assertIn("ContactCommand::ShapeFootprintSearch(true)", statements[26])
+        self.assertIn("ContactCommand::ShapeFootprintSearch(false)", statements[28])
+
     def test_shape_dead_lowers_to_attachment_presence_not_health_or_generic_predicate(self):
         statements = self.lower_record("20 36 f5")
         self.assertEqual(statements[0], "Statement::AttachmentAbsent { taken: cursor(0, 0), next: cursor(0, 1) }")

@@ -2268,3 +2268,48 @@ tests and 350 native path tests in debug/release, generated freshness,
 architecture/static audits and the app build. This remains static native
 catalog coverage; parent spawning, Game integration and whole-game runtime
 equivalence are not established by these checks.
+
+### Complete terminal, attachment and arc-effect paths
+
+Thirteen further independently installed child graphs are lowered in full:
+the two invisible retirement entries (`$0A0D`, `$432A`), three noncolliding
+attachment holds (`$6BCB`, `$99E6`, `$9CDA`), the contact-suppressed attachment
+(`$ACFE`), clipped shadowless attachment (`$8BF7`), ten-tick effect (`$7B8F`),
+deferred fast contact mesh (`$F9F2`), hit-released relative rise (`$5A8D`),
+alternating drift sprite (`$830D`), hit-released rotating attachment (`$5EC4`)
+and height-selected arc effect (`$B07C`). Tests pin each complete source graph
+and its exact reachable source installer; a changed installer is rejected.
+The thirteen graphs add 101 unique commands. Their existing footprint-search
+helpers and shared fade child retain one catalog identity.
+
+Seven native lifecycle tests cover terminal-versus-held behavior, preservation
+of unrelated actor state, every initial wait byte (including wrapped equality),
+deferred shape/speed initialization, and immediate versus per-step velocity
+generation. The hit-released rise saves its initial **relative position Y**,
+chases literal 100 by the source signed-word eighth-step rule, and signals its
+link only after the wrapped zero-minus-height comparison becomes negative.
+It does not modify velocity. The alternating sprite retains the full phase
+bytes, including negation of 128, signed horizontal movement, vertical word
+wrap, size byte wrap, and 24 callbacks before its final color step and END.
+
+The rotating attachment retains its footprint-search participation while
+held and during its 15-visit forced delay and 20 rotation/rise steps. Only
+the final helper disables that participation; all four authored cues retain
+their order. The height-selected path reads the published position, not the
+selected actor's live Y. Tests exercise the source open-lower/closed-upper
+word comparison and single random draw outside the band, the timed route's
+ten counters and yaw gate, and the complete twelve-yield arc. Its first
+independent fade copies the pose before the pitch reset, the second copies
+the final pitch. Both children remain unexecuted until independently
+scheduled, preserve allocation/group fields, and run their complete fade
+after the parent ends. This checks catalog dispatch and allocation, not
+ordinary movement integration or an active Game scheduler.
+
+Coverage is **86 complete roots / 1,381 source commands / 1,372 native
+statements**. The pinned catalog-size test is updated with these counts;
+the authored command implementations required no behavioral changes.
+Validation passes 142 lowerer tests, 302 source-static path tests, and 357
+native path tests in debug and release, generated freshness, both architecture
+and static-gameplay audits, and the app build. The build retains the existing
+unused app-icon helper warning. Full-workspace tests and whole-game runtime
+equivalence were not claimed or used to establish this static coverage.

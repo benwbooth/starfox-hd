@@ -97,6 +97,19 @@ ROOTS = (
     ("DISTANCE_AIMED_PROJECTILE", PathAddress(0x4DF9)),
     ("RANDOMIZED_YAW_GUIDED_PROJECTILE", PathAddress(0x6BCD)),
     ("DELAYED_CONTACT_PROJECTILE", PathAddress(0x9E9A)),
+    ("INVISIBLE_CHILD_RETIREMENT", PathAddress(0x0A0D)),
+    ("ALTERNATE_INVISIBLE_CHILD_RETIREMENT", PathAddress(0x432A)),
+    ("NONCOLLIDING_PROJECTILE_ATTACHMENT", PathAddress(0x6BCB)),
+    ("TEN_TICK_EFFECT", PathAddress(0x7B8F)),
+    ("NONCOLLIDING_ROLL_ATTACHMENT", PathAddress(0x99E6)),
+    ("NONCOLLIDING_MESH_ATTACHMENT", PathAddress(0x9CDA)),
+    ("CONTACT_SUPPRESSED_ATTACHMENT", PathAddress(0xACFE)),
+    ("CLIPPED_SHADOWLESS_ATTACHMENT", PathAddress(0x8BF7)),
+    ("DEFERRED_FAST_CONTACT_MESH", PathAddress(0xF9F2)),
+    ("HIT_RELEASED_RELATIVE_RISE", PathAddress(0x5A8D)),
+    ("ALTERNATING_DRIFT_SPRITE", PathAddress(0x830D)),
+    ("HIT_RELEASED_ROTATING_ATTACHMENT", PathAddress(0x5EC4)),
+    ("HEIGHT_SELECTED_ARC_EFFECT", PathAddress(0xB07C)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -145,6 +158,19 @@ CHILD_INSTALLERS = {
     PathAddress(0x4DF9): (PathAddress(0x4D7E), PathAddress(0x4DCF)),
     PathAddress(0x6BCD): (PathAddress(0x6A15), PathAddress(0x6BB9)),
     PathAddress(0x9E9A): (PathAddress(0x9492), PathAddress(0x9E46)),
+    PathAddress(0x0A0D): (PathAddress(0x0691), PathAddress(0x0958)),
+    PathAddress(0x432A): (PathAddress(0x419B), PathAddress(0x424C)),
+    PathAddress(0x6BCB): (PathAddress(0x6A15), PathAddress(0x6B7D)),
+    PathAddress(0x7B8F): (PathAddress(0x0AE7), PathAddress(0x8570)),
+    PathAddress(0x99E6): (PathAddress(0x9492), PathAddress(0x990E)),
+    PathAddress(0x9CDA): (PathAddress(0x9492), PathAddress(0x9B90)),
+    PathAddress(0xACFE): (PathAddress(0xAA8A), PathAddress(0xAB0B)),
+    PathAddress(0x8BF7): (PathAddress(0x7442), PathAddress(0x77FA)),
+    PathAddress(0xF9F2): (PathAddress(0xF5B4), PathAddress(0xF765)),
+    PathAddress(0x5A8D): (PathAddress(0x58B9), PathAddress(0x592E)),
+    PathAddress(0x830D): (PathAddress(0x546C), PathAddress(0x5604)),
+    PathAddress(0x5EC4): (PathAddress(0x5E1D), PathAddress(0x5E3C)),
+    PathAddress(0xB07C): (PathAddress(0xB05E), PathAddress(0xB066)),
 }
 
 
