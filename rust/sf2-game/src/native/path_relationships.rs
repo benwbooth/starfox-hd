@@ -19,16 +19,20 @@ pub enum RelationshipCommand {
     UnlinkSelf,
     UnlinkChild { number: u8 },
     RefreshLinkedRotation,
+    ClearRelativeReference,
+    UseSelfRelativeFrame,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectedTransformCommand {
     WorldPosition,
     WorldRotation,
+    RelativeFrame,
 }
 
-/// Source $7F:B8CD and $7F:BF4E/$7F:2BE2 copy only the selected world
-/// transform channel. Relative transforms and velocity remain untouched.
+/// World-copy forms (`$7F:B8CD`, `$7F:BF4E`) change only their named world
+/// channel. Relative-frame capture (`$7F:AA5E`) instead retains world pose
+/// and velocity while replacing the relative reference and transform.
 pub fn copy_selected_transform(
     objects: &mut ObjectStore,
     owner: ObjectId,
@@ -44,6 +48,35 @@ pub fn copy_selected_transform(
         .ok_or(RelationshipError::MissingActor(selected))?;
     let position = target.base.position;
     let rotation = (target.base.pitch, target.base.yaw, target.base.roll);
+    // $7F:AA5E uses the view-order matrix of NEGATED selected angles,
+    // not the attachment matrix, its transpose, or successive point turns.
+    let relative = if command == SelectedTransformCommand::RelativeFrame {
+        let actor = objects.get(owner).expect("validated frame owner");
+        let matrix = sf_core::snes_trig::zxy_matrix_q15(
+            rotation.0.units().wrapping_neg(),
+            rotation.1.units().wrapping_neg(),
+            rotation.2.units().wrapping_neg(),
+        );
+        let (x, y, z) = sf_core::snes_trig::matrix_rotate_q15(
+            matrix,
+            actor.base.position.x.wrapping_sub(position.x),
+            actor.base.position.y.wrapping_sub(position.y),
+            actor.base.position.z.wrapping_sub(position.z),
+        );
+        let difference = |angle: super::Angle, origin: super::Angle| {
+            super::Angle::from_units(angle.units().wrapping_sub(origin.units()))
+        };
+        Some((
+            super::Vector3 { x, y, z },
+            super::Rotation {
+                pitch: difference(actor.base.pitch, rotation.0),
+                yaw: difference(actor.base.yaw, rotation.1),
+                roll: difference(actor.base.roll, rotation.2),
+            },
+        ))
+    } else {
+        None
+    };
     let actor = objects
         .get_mut(owner)
         .expect("validated transform-copy owner");
@@ -51,6 +84,13 @@ pub fn copy_selected_transform(
         SelectedTransformCommand::WorldPosition => actor.base.position = position,
         SelectedTransformCommand::WorldRotation => {
             (actor.base.pitch, actor.base.yaw, actor.base.roll) = rotation;
+        }
+        SelectedTransformCommand::RelativeFrame => {
+            let (position, rotation) = relative.expect("captured selected frame");
+            actor.extension.parent = Some(selected);
+            actor.extension.relative_position = position;
+            actor.extension.relative_rotation = rotation;
+            actor.extension.path_state.motion.relative_coordinates = true;
         }
     }
     Ok(())
@@ -255,6 +295,21 @@ pub fn apply(
     command: RelationshipCommand,
 ) -> Result<(), RelationshipError> {
     let child = match command {
+        RelationshipCommand::ClearRelativeReference | RelationshipCommand::UseSelfRelativeFrame => {
+            let actor = objects
+                .get_mut(owner)
+                .ok_or(RelationshipError::MissingActor(owner))?;
+            if command == RelationshipCommand::ClearRelativeReference {
+                actor.extension.parent = None;
+            } else {
+                actor.extension.parent = Some(owner);
+                actor.extension.relative_position = super::Vector3::default();
+                actor.extension.relative_rotation = super::Rotation::default();
+            }
+            // Neither command changes relative/attached-coordinate gates,
+            // child-list attachment, world pose, or selected-player identity.
+            return Ok(());
+        }
         RelationshipCommand::UnlinkSelf => {
             let actor = objects
                 .get(owner)
@@ -304,6 +359,155 @@ pub fn apply(
 mod tests {
     use super::*;
     use crate::{Behavior, Object, ObjectKind, ShapeId};
+
+    #[test]
+    fn relative_reference_controls_preserve_independent_relationships_and_motion_gates() {
+        use super::super::{Angle, Rotation, Vector3};
+        let mut objects = ObjectStore::new();
+        let actor = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
+        let other = objects.allocate(actor.clone()).unwrap();
+        let owner = objects.allocate(actor).unwrap();
+        for mode in 0..4 {
+            for parent in [None, Some(other), Some(owner)] {
+                for command in [
+                    RelationshipCommand::ClearRelativeReference,
+                    RelationshipCommand::UseSelfRelativeFrame,
+                ] {
+                    let mut before = objects.get(owner).unwrap().clone();
+                    before.base.attachment = Some(other);
+                    before.extension.parent = parent;
+                    before.extension.path_state.motion.relative_coordinates = mode & 1 != 0;
+                    before.extension.path_state.motion.attached_coordinates = mode & 2 != 0;
+                    before.extension.relative_position = Vector3 {
+                        x: i16::MIN,
+                        y: i16::MAX,
+                        z: -59,
+                    };
+                    before.extension.relative_rotation = Rotation {
+                        pitch: Angle::from_units(91),
+                        yaw: Angle::from_units(227),
+                        roll: Angle::from_units(35),
+                    };
+                    *objects.get_mut(owner).unwrap() = before.clone();
+                    let mut expected = before;
+                    if command == RelationshipCommand::ClearRelativeReference {
+                        expected.extension.parent = None;
+                    } else {
+                        expected.extension.parent = Some(owner);
+                        expected.extension.relative_position = Vector3::default();
+                        expected.extension.relative_rotation = Rotation::default();
+                    }
+                    apply(&mut objects, owner, command).unwrap();
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn selected_frame_capture_preserves_source_matrix_order_and_per_product_truncation() {
+        use super::super::{Angle, Rotation, Vector3};
+        use sf_core::snes_trig::{cos_q15, sin_q15};
+        let mut objects = ObjectStore::new();
+        let mut actor = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
+        actor.base.pitch = Angle::from_units(93);
+        actor.base.yaw = Angle::from_units(71);
+        actor.base.roll = Angle::from_units(219);
+        actor.base.velocity = Vector3 {
+            x: 67,
+            y: -305,
+            z: i16::MAX,
+        };
+        let owner = objects.allocate(actor.clone()).unwrap();
+        let target = objects.allocate(actor.clone()).unwrap();
+        let mul = |a: i16, b: i16| ((i64::from(a) * i64::from(b)) >> 15) as i16;
+        for bits in 0..=u16::MAX {
+            let angles = [
+                bits as u8,
+                (bits >> 8) as u8,
+                (bits as u8) ^ (bits >> 8) as u8,
+            ];
+            let selected = objects.get_mut(target).unwrap();
+            selected.base.pitch = Angle::from_units(angles[0]);
+            selected.base.yaw = Angle::from_units(angles[1]);
+            selected.base.roll = Angle::from_units(angles[2]);
+            selected.base.position = Vector3 {
+                x: i16::MAX,
+                y: i16::MIN,
+                z: -97,
+            };
+            let selected_before = selected.clone();
+            actor.base.position = Vector3 {
+                x: bits as i16,
+                y: (bits as i16).wrapping_neg(),
+                z: (bits as i16).wrapping_add(173),
+            };
+            actor.base.attachment = Some(target);
+            actor.extension.path_state.motion.relative_coordinates = bits & 1 != 0;
+            actor.extension.path_state.motion.attached_coordinates = bits & 2 != 0;
+            *objects.get_mut(owner).unwrap() = actor.clone();
+            let [pitch, yaw, roll] = angles.map(u8::wrapping_neg);
+            let (sp, cp, sy, cy, sr, cr) = (
+                sin_q15(pitch),
+                cos_q15(pitch),
+                sin_q15(yaw),
+                cos_q15(yaw),
+                sin_q15(roll),
+                cos_q15(roll),
+            );
+            // Source geometry 919B -> 9266 emits input-axis rows. Each
+            // product truncates separately; sums wrap before the next use.
+            let a = mul(cr, sy);
+            let b = mul(cr, cy);
+            let c = mul(sr, sy);
+            let d = mul(sr, cy);
+            let coefficients = [
+                [
+                    mul(c, sp).wrapping_add(b),
+                    mul(a, sp).wrapping_sub(d),
+                    mul(cp, sy),
+                ],
+                [mul(cp, sr), mul(cp, cr), sp.wrapping_neg()],
+                [
+                    mul(d, sp).wrapping_sub(a),
+                    mul(b, sp).wrapping_add(c),
+                    mul(cp, cy),
+                ],
+            ];
+            let delta = [
+                actor.base.position.x.wrapping_sub(i16::MAX),
+                actor.base.position.y.wrapping_sub(i16::MIN),
+                actor.base.position.z.wrapping_add(97),
+            ];
+            let output: [i16; 3] = std::array::from_fn(|axis| {
+                (0..3)
+                    .map(|input| i64::from(mul(delta[input], coefficients[input][axis])))
+                    .sum::<i64>() as i16
+            });
+            let mut expected = actor.clone();
+            expected.extension.parent = Some(target);
+            expected.extension.relative_position = Vector3 {
+                x: output[0],
+                y: output[1],
+                z: output[2],
+            };
+            expected.extension.relative_rotation = Rotation {
+                pitch: Angle::from_units(93_u8.wrapping_sub(angles[0])),
+                yaw: Angle::from_units(71_u8.wrapping_sub(angles[1])),
+                roll: Angle::from_units(219_u8.wrapping_sub(angles[2])),
+            };
+            expected.extension.path_state.motion.relative_coordinates = true;
+            copy_selected_transform(
+                &mut objects,
+                owner,
+                Some(target),
+                SelectedTransformCommand::RelativeFrame,
+            )
+            .unwrap();
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            assert_eq!(objects.get(target).unwrap(), &selected_before);
+        }
+    }
 
     #[test]
     fn linked_rotation_differences_wrap_all_angle_pairs_without_changing_world_pose() {

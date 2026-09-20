@@ -501,7 +501,7 @@ class NativePathGenerationTests(unittest.TestCase):
                 f"Statement::Contact {{ command: ContactCommand::{operation}, next: cursor(0, 1) }}")
 
     def test_selected_transform_copies_remain_separate_immediate_statements(self):
-        for record, operation in [("ed", "WorldPosition"), ("00 44", "WorldRotation")]:
+        for record, operation in [("ed", "WorldPosition"), ("00 44", "WorldRotation"), ("a2", "RelativeFrame")]:
             self.assertEqual(self.lower_record(record)[0],
                 f"Statement::CopySelectedTransform {{ command: SelectedTransformCommand::{operation}, next: cursor(0, 1) }}")
             changed = bytearray(self.rom)
@@ -509,6 +509,11 @@ class NativePathGenerationTests(unittest.TestCase):
             changed[0x4F536:0x4F536 + len(program)] = program
             self.assertIn("use super::path_relationships::SelectedTransformCommand;",
                           generate(bytes(changed), (("COPY", PathAddress(0xF536)),)))
+
+    def test_relative_reference_controls_remain_distinct_from_unlinking(self):
+        for record, operation in [("b4", "ClearRelativeReference"), ("b5", "UseSelfRelativeFrame")]:
+            self.assertEqual(self.lower_record(record)[0],
+                f"Statement::Relationship {{ command: RelationshipCommand::{operation}, next: cursor(0, 1) }}")
 
     def test_arithmetic_chase_preserves_literal_and_variable_operand_order_and_waiting(self):
         for record, fragment in [

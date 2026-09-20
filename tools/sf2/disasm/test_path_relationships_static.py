@@ -26,6 +26,43 @@ class PathRelationshipsStaticTests(unittest.TestCase):
     def test_refresh_linked_rotation_reads_live_link_and_subtracts_three_angle_bytes(self):
         self.assert_source(0x7FBACC, "B4 06 F0 1B B5 12 38 F9 12 00 9D D5 1C B5 14 38 F9 14 00 9D D6 1C B5 16 38 F9 16 00 9D D7 1C 4C E8 CA")
 
+    def test_clear_and_self_reference_do_not_change_either_motion_gate(self):
+        self.assert_source(0x7FAFA0,
+            "C2 20 A9 00 00 9D D8 1C 4C E8 CA C2 20 8A 9D D8 1C A9 00 00 "
+            "9D CF 1C 9D D1 1C 9D D3 1C E2 20 9D D5 1C 9D D6 1C 9D D7 1C 4C E8 CA")
+
+    def test_selected_frame_capture_wraps_subtractions_and_enables_relative_coordinates(self):
+        self.assert_source(0x7FAA5E,
+            "A5 5E 29 E7 85 5E 8F 3A 30 00 AC 1F CF C2 20 B5 0C 38 F9 0C 00 9D CF 1C 85 02 "
+            "B5 0E 38 F9 0E 00 9D D1 1C 85 08 B5 10 38 F9 10 00 9D D3 1C 85 97 98 9D D8 1C "
+            "E2 20 B5 12 38 F9 12 00 9D D5 1C B9 12 00 49 FF 1A 8D 8F 15 9C 8E 15 "
+            "B5 14 38 F9 14 00 9D D6 1C B9 14 00 49 FF 1A 8D 91 15 9C 90 15 "
+            "B5 16 38 F9 16 00 9D D7 1C B9 16 00 49 FF 1A 8D 93 15 9C 92 15 "
+            "DA 5A 22 BF 8B 03 C2 20 AD 3E 15 8D 7C 15 AD 40 15 8D 7E 15 AD 42 15 8D 80 15 "
+            "AD 44 15 8D 82 15 AD 46 15 8D 84 15 AD 48 15 8D 86 15 AD 4A 15 8D 88 15 "
+            "AD 4C 15 8D 8A 15 AD 4E 15 8D 8C 15 22 85 8B 03 C2 10 7A FA C2 20 "
+            "A5 B7 9D CF 1C A5 B9 9D D1 1C A5 BB 9D D3 1C E2 20 B5 25 09 04 95 25 4C E8 CA")
+
+    def test_selected_frame_uses_view_matrix_and_column_dot_products_not_attachment_order(self):
+        self.assert_source(0x038BBF,
+            "C2 20 AD 8E 15 8F 20 00 70 AD 90 15 8F 22 00 70 AD 92 15 8F 24 00 70 "
+            "E2 20 C2 10 A9 01 A2 91 91 22 7B 78 7F")
+        self.assert_source(0x038B85,
+            "DA 5A 08 C2 30 A5 02 8F 68 00 70 A5 08 8F 2C 00 70 A5 97 8F 2E 00 70 "
+            "E2 20 A9 01 A2 3A 91 22 7B 78 7F C2 20 AF 26 00 70 85 B7 AF 28 00 70 85 B9 "
+            "AF 2A 00 70 85 BB 28 7A FA 6B")
+        # Full matrix product/store suffix and complete point transform.
+        self.assert_source(0x019266,
+            "25 16 B4 9F 11 04 B3 9F 12 04 27 16 B4 9F 1D 04 B3 9F 1E 04 2C 16 BD 9F 04 52 "
+            "39 D9 D9 B1 9F 04 6E 39 D9 D9 28 16 B4 9F 04 39 D9 D9 B7 9F 04 39 D9 D9 "
+            "B5 9F 04 39 D9 D9 BC 4F D0 39 D9 D9 2C 16 BE 9F 04 61 39 D9 D9 B2 9F 04 5D "
+            "39 D9 D9 28 16 B3 9F 04 39 9B 01")
+        self.assert_source(0x01913A,
+            "02 3D A1 34 3D A2 16 3D A3 17 3D A6 72 B1 9F 15 04 3D A6 75 B2 9F 04 25 50 "
+            "3D A6 78 B3 9F 04 55 3E A0 13 3D A6 73 B1 9F 15 04 3D A6 76 B2 9F 04 25 50 "
+            "3D A6 79 B3 9F 04 55 3E A0 14 3D A6 74 B1 9F 15 04 3D A6 77 B2 9F 04 25 50 "
+            "3D A6 7A B3 9F 04 55 3E A0 15 00 01")
+
     def test_child_lookup_walks_in_order_and_compares_full_number_byte(self):
         self.assert_source(0x7F2A7B, "8D 2A 19 DA B4 29 F0 0B B9 13 00 CD 2A 19 F0 03 BB 80 F1 FA 6B")
 

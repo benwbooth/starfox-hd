@@ -921,3 +921,14 @@ changes, post-HOLD callbacks and IFNOT/RNG preservation. Verification passes
 the architecture/dependency audits and the app build. The catalog now contains
 **14 complete roots and 161 unique statements**. This remains static native
 translation with scheduler integration open, not a claim of whole-game parity.
+
+Three relative-frame controls are now statically translated. Capturing the
+selected frame uses the source's negated-angle view matrix and separately
+truncated products, retains world pose/velocity and enables relative movement.
+Clearing the reference and selecting a zeroed self-relative frame do not change
+either movement gate, the selected-player identity or child-list attachment.
+Tests cover every pitch/yaw pair, wrapped coordinates and angle differences,
+self-selection, missing/dangling selection and whole-object preservation.
+Verification passes 68 lowerer tests, 205 static path tests, 192 native path
+tests in debug/release, architecture/dependency audits and the app build.
+Complete-root coverage remains 14 roots/161 statements.

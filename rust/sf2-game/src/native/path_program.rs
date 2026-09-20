@@ -1557,12 +1557,66 @@ mod tests {
     }
 
     #[test]
+    fn relative_reference_controls_advance_without_reselecting_or_changing_motion_flags() {
+        use super::super::path_relationships::RelationshipCommand;
+        use super::super::{Angle, Rotation, Vector3};
+        for command in [
+            RelationshipCommand::ClearRelativeReference,
+            RelationshipCommand::UseSelfRelativeFrame,
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.extension.parent = Some(owner);
+            actor.base.attachment = Some(owner);
+            actor.extension.path_state.motion.relative_coordinates = true;
+            actor.extension.path_state.motion.attached_coordinates = true;
+            actor.extension.relative_position = Vector3 {
+                x: 107,
+                y: -939,
+                z: i16::MIN,
+            };
+            actor.extension.relative_rotation = Rotation {
+                pitch: Angle::from_units(50),
+                yaw: Angle::from_units(75),
+                roll: Angle::from_units(100),
+            };
+            let mut expected = actor.clone();
+            if command == RelationshipCommand::ClearRelativeReference {
+                expected.extension.parent = None;
+            } else {
+                expected.extension.relative_position = Vector3::default();
+                expected.extension.relative_rotation = Rotation::default();
+            }
+            expected.base.path = Some(cursor(0, 1));
+            runtime.branch.invert_next = true;
+            let initial_random = random;
+            let catalog = PathCatalog::new(vec![vec![Statement::Relationship {
+                command,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, initial_random);
+            assert_eq!(runtime.selected_player(), PlayerTarget::Primary);
+        }
+    }
+
+    #[test]
     fn selected_transform_copies_read_live_selection_and_preserve_neighboring_fields() {
         use super::super::path_relationships::{RelationshipError, SelectedTransformCommand};
         use super::super::{Angle, Vector3};
         for command in [
             SelectedTransformCommand::WorldPosition,
             SelectedTransformCommand::WorldRotation,
+            SelectedTransformCommand::RelativeFrame,
         ] {
             let (mut runtime, mut objects, owner, mut random) = setup();
             let other = objects
@@ -1603,6 +1657,17 @@ mod tests {
                 ))
             );
             assert_eq!(objects.get(owner).unwrap(), &before);
+            let removed = objects.allocate(before.clone()).unwrap();
+            objects.remove(removed).unwrap();
+            let mut inputs = world(&mut random);
+            inputs.selected = Some(removed);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::Relationship(RelationshipError::MissingActor(
+                    removed
+                )))
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
             for angle in 0..=u8::MAX {
                 let target = objects.get_mut(other).unwrap();
                 target.base.position = Vector3 {
@@ -1629,6 +1694,56 @@ mod tests {
                             expected.base.pitch = target.base.pitch;
                             expected.base.yaw = target.base.yaw;
                             expected.base.roll = target.base.roll;
+                        }
+                        SelectedTransformCommand::RelativeFrame => {
+                            let (x, y, z) = sf_core::snes_trig::matrix_rotate_q15(
+                                sf_core::snes_trig::zxy_matrix_q15(
+                                    target.base.pitch.units().wrapping_neg(),
+                                    target.base.yaw.units().wrapping_neg(),
+                                    target.base.roll.units().wrapping_neg(),
+                                ),
+                                expected
+                                    .base
+                                    .position
+                                    .x
+                                    .wrapping_sub(target.base.position.x),
+                                expected
+                                    .base
+                                    .position
+                                    .y
+                                    .wrapping_sub(target.base.position.y),
+                                expected
+                                    .base
+                                    .position
+                                    .z
+                                    .wrapping_sub(target.base.position.z),
+                            );
+                            expected.extension.parent = Some(selected);
+                            expected.extension.relative_position = Vector3 { x, y, z };
+                            expected.extension.relative_rotation = super::super::Rotation {
+                                pitch: Angle::from_units(
+                                    expected
+                                        .base
+                                        .pitch
+                                        .units()
+                                        .wrapping_sub(target.base.pitch.units()),
+                                ),
+                                yaw: Angle::from_units(
+                                    expected
+                                        .base
+                                        .yaw
+                                        .units()
+                                        .wrapping_sub(target.base.yaw.units()),
+                                ),
+                                roll: Angle::from_units(
+                                    expected
+                                        .base
+                                        .roll
+                                        .units()
+                                        .wrapping_sub(target.base.roll.units()),
+                                ),
+                            };
+                            expected.extension.path_state.motion.relative_coordinates = true;
                         }
                     }
                     expected.base.path = Some(cursor(0, 1));

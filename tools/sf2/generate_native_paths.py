@@ -431,10 +431,15 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             taken, next_ = branch_cursors(low | (high << 8))
             condition = "Continuation" if name == "IfSelectedAuxiliaryContinuation" else "ActionBit40"
             statement = f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::{condition}, taken: {taken}, next: {next_} }}"
-        elif name in ("UnlinkSelf", "UnlinkChild", "RefreshLinkedRotationDeltas"):
-            if name in ("UnlinkSelf", "RefreshLinkedRotationDeltas"):
+        elif name in ("UnlinkSelf", "UnlinkChild", "RefreshLinkedRotationDeltas", "ClearObjectRelativeReference", "SelectSelfAndClearRelativeTransform"):
+            if name != "UnlinkChild":
                 parameters(0)
-                command_ = "RelationshipCommand::" + ("UnlinkSelf" if name == "UnlinkSelf" else "RefreshLinkedRotation")
+                command_ = "RelationshipCommand::" + {
+                    "UnlinkSelf": "UnlinkSelf",
+                    "RefreshLinkedRotationDeltas": "RefreshLinkedRotation",
+                    "ClearObjectRelativeReference": "ClearRelativeReference",
+                    "SelectSelfAndClearRelativeTransform": "UseSelfRelativeFrame",
+                }[name]
             else:
                 number, = parameters(1)
                 command_ = f"RelationshipCommand::UnlinkChild {{ number: {number} }}"
@@ -570,9 +575,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 }[name]
             taken, next_ = branch_cursors(int.from_bytes(operands[-2:], "little"))
             statement = f"Statement::Spatial {{ condition: SpatialCondition::{condition}, taken: {taken}, next: {next_} }}"
-        elif name in ("CopySelectedWorldPosition", "CopySelectedRotation"):
+        elif name in ("CopySelectedWorldPosition", "CopySelectedRotation", "RefreshSelectedRelativeTransform"):
             parameters(0)
-            operation = "WorldPosition" if name == "CopySelectedWorldPosition" else "WorldRotation"
+            operation = {"CopySelectedWorldPosition": "WorldPosition", "CopySelectedRotation": "WorldRotation", "RefreshSelectedRelativeTransform": "RelativeFrame"}[name]
             statement = f"Statement::CopySelectedTransform {{ command: SelectedTransformCommand::{operation}, next: {next_cursor()} }}"
         elif name in ("AchaseByte", "AchaseWord", "WaitAchaseByte", "ChaseVariableByte", "ChaseVariableWord"):
             wide = name.endswith("Word")
