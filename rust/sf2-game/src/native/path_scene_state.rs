@@ -20,6 +20,9 @@ pub struct EncounterCoordination {
     /// Shared handshake ($D78B). Some paths use bits; others increment and
     /// decrement the whole byte. It is intentionally not a boolean set.
     pub handshake: u8,
+    /// Persistent authored actor-retirement bits ($D78D). Actor paths retain
+    /// their initial identity byte and set its bit through the shared helper.
+    pub retired_actors: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +32,7 @@ pub enum CoordinationField {
     CompletedParts,
     ActiveMessages,
     Handshake,
+    RetiredActors,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +56,7 @@ impl EncounterCoordination {
             CoordinationField::CompletedParts => &mut self.completed_parts,
             CoordinationField::ActiveMessages => &mut self.active_messages,
             CoordinationField::Handshake => &mut self.handshake,
+            CoordinationField::RetiredActors => &mut self.retired_actors,
         };
         match command {
             CoordinationCommand::CopyTo(destination) => destination.write(actor, *value),

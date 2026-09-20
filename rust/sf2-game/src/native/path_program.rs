@@ -93,6 +93,10 @@ mod rapid_projectile_tests;
 #[path = "path_scenery_emitter_tests.rs"]
 mod scenery_emitter_tests;
 
+#[cfg(test)]
+#[path = "path_paired_patrol_tests.rs"]
+mod paired_patrol_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -13344,9 +13348,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 119);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2371);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2381);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 121);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2572);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2582);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

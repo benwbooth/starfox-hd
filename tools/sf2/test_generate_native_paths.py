@@ -21,6 +21,29 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_paired_patrol_graphs_include_detaching_parts_charge_launchers_and_every_drop(self):
+        extractor = PathExtractor(self.rom)
+        for address, count, checksum in [
+            (0x3114, 372, 'e4869838b91d847ecd1f9a172c954a8ba687fddffdd4993cb486a3bea0298ba0'),
+            (0x31B8, 367, '4867a5946972123f9c13b8dd2ef9f17a7f89e6d98a5bce0c32d3215b7c1ceffc'),
+        ]:
+            root = PathAddress(address)
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), checksum)
+            statements = lower_graph(extractor, root, 0)[1]
+            self.assertEqual(len(statements), count)
+            self.assertEqual(sum('CoordinationField::RetiredActors' in s for s in statements), 3)
+            for dependency in [0x32AD, 0x32B9, 0x8C36, 0x44B2, 0x44B4, 0x44B6, 0x44BA, 0x44BC]:
+                self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        for shape, index, path in [(0xBC9C,0,0x32AD), (0xD12C,188,0x32B9),
+                (0xD110,187,0x32B9), (0xBECC,20,0x8C36)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, 'ObjectKind::Effect'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(0x3114))
+        for path in [0x44B2, 0x44B4, 0x44B6, 0x44BA, 0x44BC]:
+            self.assertEqual(spawn_shape(0xF50C, PathAddress(path)), (516, 'ObjectKind::Effect'))
+
     def test_scenery_emitters_close_both_graphs_and_fold_only_the_private_surface_result(self):
         extractor = PathExtractor(self.rom)
         for address, count, checksum in [
@@ -225,7 +248,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn('End', statements[-1])
 
     def test_coordination_commands_decode_named_fields_and_reject_unreviewed_neighbors(self):
-        for index, field in enumerate(['Progress', 'SecondaryProgress', 'CompletedParts', 'ActiveMessages', 'Handshake'], 0x2B):
+        for index, field in [*enumerate(['Progress', 'SecondaryProgress', 'CompletedParts', 'ActiveMessages', 'Handshake'], 0x2B), (0x31, 'RetiredActors')]:
             address = (0xD75C + index).to_bytes(2, 'little').hex(' ')
             for record, operation in [
                 (f'7a a1 {index:02x}', 'CopyTo'), (f'7f a1 {index:02x}', 'Assign(ByteOperand::Actor'),
@@ -236,7 +259,7 @@ class NativePathGenerationTests(unittest.TestCase):
                 statement = self.lower_record(record)[0]
                 self.assertIn(f'CoordinationField::{field}', statement)
                 self.assertIn(f'CoordinationCommand::{operation}', statement)
-        for address in [0xD785, 0xD78D]:
+        for address in [0xD785, 0xD78C]:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record('7d a1 ' + address.to_bytes(2, 'little').hex(' '))
         self.assertIn('RequestSoundBank', self.lower_record('7d 99 bb 1b')[0])
@@ -1224,6 +1247,8 @@ class NativePathGenerationTests(unittest.TestCase):
             changed = bytearray(self.rom)
             changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
             with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed), (("DEBRIS", PathAddress(root)),))
+            with self.assertRaises(UnsupportedPath):
                 generate(bytes(changed))
         self.assertEqual(self.rom[0x3307:0x331B].hex(), "9cafc0cfdce7f0f7fcff01040910192431405164")
         self.assertEqual(self.rom[0x331B:0x332F].hex(), "ced8e0e8eef4f8fcfe00000204080c1218202832")

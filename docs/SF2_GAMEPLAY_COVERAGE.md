@@ -3032,3 +3032,37 @@ complete roots, 2381 unique source commands, 2371 typed statements**. The
 previously documented full-suite reengagement audio-event failure remains
 outside this focused pass; scheduler integration and remaining graphs stay
 open. No recorded gameplay or original program execution was used.
+
+## Paired-part patrol graphs and remembered retirements (2026-09-20)
+
+Complete roots 3114 and 31B8 now lower through both detachable parts, the
+invisible periodic/endpoint weapon mount, two charging sprites, the shared
+death path, and every possible pickup drop. Source metadata was reviewed for
+each exact shape/path combination; a valid shape alone does not authorize a
+new spawn classification. The graphs retain 372 and 367 commands respectively
+and share existing primitives instead of introducing native scripted stubs.
+
+Scene coordination now includes the full actor-retirement mask (D78D).
+Both entries copy their original health byte into the authored identity before
+replacing health with 100. The bit gate reads the imported low byte plus the
+retained high byte and bypasses IFNOT. The subsequent activation gate samples
+the shared full byte for exactly one and does consume IFNOT. The common
+scene-reset path intentionally leaves remembered retirements unchanged.
+
+Seven native graph tests cover all normal identity/mask/inversion pairs,
+all activation bytes, both paired-part installations, wrapped health thresholds
+at 80/81 and 208/209, the complete 18-invocation death sequence, both signaled
+part arcs for all 256 seeds, the 32-invocation two-charge mount, both complete
+ten-step charge-to-native-weapon paths, all five pickup outcomes in every
+difficulty with exact draw consumption, and 520 pitch-patrol invocations
+through both wrapped firing headings. Movement/callback invocations remain
+explicit in these tests; this does not claim shipping scheduler integration.
+
+Coverage is **121 complete roots, 2582 source commands, 2572 typed statements**.
+The source catalog still has unlowered roots and dependencies. Validation uses
+static source contracts and native Rust tests only, not recorded gameplay.
+All 480 native path tests pass in debug and release; 171 lowerer tests, 367
+source-static tests, architecture/static audits and app build pass (existing
+icon warning). The full SF2 library run reports 874 passed and the same one
+reengagement-guidance failure: two HostileLaser events precede the expected
+RadioMessageClose. That existing Game-level failure remains open.

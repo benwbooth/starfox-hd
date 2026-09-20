@@ -24,6 +24,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("PAIRED_PART_YAW_PATROL", PathAddress(0x3114)),
+    ("PAIRED_PART_PITCH_PATROL", PathAddress(0x31B8)),
     ("SELECTED_SCENERY_SPRITE_EMITTER", PathAddress(0xB050)),
     ("SELECTED_SCENERY_ARC_EMITTER", PathAddress(0xB05E)),
     ("ALTERNATE_EXHAUST", PathAddress(0xF536)),
@@ -473,6 +475,18 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # Both complete scenery effects disable ordinary collision before their
     # first yield. Sprite proximity has a selected-player particle request.
     if (shape, path) in ((0xC0C4, PathAddress(0xA524)), (0xEC84, PathAddress(0xB07C))):
+        return index, "ObjectKind::Effect"
+    # Noncolliding detached parts and charging sprites retain their authored
+    # contact fields; native kind is not a replacement collision predicate.
+    if ((shape in (0xD12C, 0xD110) and path == PathAddress(0x32B9))
+            or (shape, path) == (0xBECC, PathAddress(0x8C36))):
+        return index, "ObjectKind::Effect"
+    # Invisible weapon-emitting attachment. Visibility(false) suppresses
+    # collision, while authored attack/health and attachment links remain.
+    if (shape, path) == (0xBC9C, PathAddress(0x32AD)):
+        return index, "ObjectKind::Effect"
+    if shape == 0xF50C and path in (PathAddress(0x44B2), PathAddress(0x44B4),
+            PathAddress(0x44B6), PathAddress(0x44BA), PathAddress(0x44BC)):
         return index, "ObjectKind::Effect"
     # Hittable damaging encounter part: remains attached until its hit event,
     # then detaches, bounces and requests death. This is not a visual-only
@@ -1382,9 +1396,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::RadioEvent {{ command: super::path_radio::RadioEventCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B):
+            if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B, 0xD78D):
                 field = {0xD787: "Progress", 0xD788: "SecondaryProgress", 0xD789: "CompletedParts",
-                         0xD78A: "ActiveMessages", 0xD78B: "Handshake"}[address]
+                         0xD78A: "ActiveMessages", 0xD78B: "Handshake", 0xD78D: "RetiredActors"}[address]
                 if name.startswith("Import"):
                     operation = f"CopyTo({byte_field(variable)})"
                 elif name.startswith("Export"):
