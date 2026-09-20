@@ -39,6 +39,33 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
             generate(bytes(changed), (("BOUNCING_PART", PathAddress(0xA481)),))
 
+    def test_rotating_part_controller_shares_the_entire_child_graph_and_scopes_shape_kind(self):
+        extractor = PathExtractor(self.rom)
+        child = {c.address: c for c in graph(extractor, PathAddress(0xA481))}
+        commands = graph(extractor, PathAddress(0xA4ED))
+        complete = {c.address: c for c in commands}
+        self.assertTrue(child.keys() <= complete.keys())
+        for address, command in child.items():
+            self.assertEqual(command, complete[address])
+        self.assertEqual(''.join(c.raw_hex for c in commands if c.address not in child),
+            "5c0bffaf2a130304a5f5f0df81a40a04d0008c0074ff013f0aa51604a5"
+            "6119079404443d0183009417f1a4")
+        self.assertEqual(len(commands), 45)
+        statements = lower_graph(extractor, PathAddress(0xA4ED), 0)[1]
+        self.assertEqual(len(statements), 45)
+        self.assertEqual(spawn_shape(0xDFF0, PathAddress(0xA481)), (323, "ObjectKind::Enemy"))
+        for path in [None, PathAddress(0xA482), PathAddress(0xA4ED)]:
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+                spawn_shape(0xDFF0, path)
+        command = extractor.decode_command(PathAddress(0xA2FC))
+        self.assertEqual(command.raw_hex, "f528e0eda40a0ad00074ffecff03")
+        self.assertIn(command, graph(extractor, PathAddress(0xA2E6)))
+        self.assertEqual(child_spawn_parameters(command).path, PathAddress(0xA4ED))
+        changed = bytearray(self.rom)
+        changed[0x4A2FF:0x4A301] = (0xA4EE).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed), (("ROTATING_CONTROLLER", PathAddress(0xA4ED)),))
+
     def test_actor_selection_and_restore_lower_to_immediate_typed_operations(self):
         for record, expected in [
             ("9c", "Statement::SelectActor { selection: ActorSelection::LastSpawn, next: cursor(0, 1) }"),

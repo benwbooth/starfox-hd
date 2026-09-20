@@ -123,6 +123,7 @@ ROOTS = (
     ("ACTION_GATED_ANIMATED_RETIREMENT", PathAddress(0xD399)),
     ("TIMED_SPIN_RISE_EFFECT", PathAddress(0xD3B2)),
     ("HIT_DETACHED_BOUNCING_PART", PathAddress(0xA481)),
+    ("HIT_DRIVEN_ROTATING_PART_CONTROLLER", PathAddress(0xA4ED)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -197,6 +198,7 @@ CHILD_INSTALLERS = {
     PathAddress(0xD399): (PathAddress(0xD27B), PathAddress(0xD374)),
     PathAddress(0xD3B2): (PathAddress(0xD27B), PathAddress(0xD2A4)),
     PathAddress(0xA481): (PathAddress(0xA2E6), PathAddress(0xA4F6)),
+    PathAddress(0xA4ED): (PathAddress(0xA2E6), PathAddress(0xA2FC)),
 }
 
 
@@ -399,6 +401,11 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
         return index, "ObjectKind::Effect"
     if (index, path) == (309, PathAddress(0x98E5)):
         return index, "ObjectKind::Effect"
+    # Hittable damaging encounter part: remains attached until its hit event,
+    # then detaches, bounces and requests death. This is not a visual-only
+    # sprite; scope the classification to this shape AND complete path.
+    if (index, path) == (323, PathAddress(0xA481)):
+        return index, "ObjectKind::Enemy"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"

@@ -2493,3 +2493,25 @@ Validation: 396 native path tests pass in debug and release, 150 lowering
 tests and 320 source-static path tests pass, generated output is current,
 both architecture/static-gameplay audits pass, and the app builds with its
 existing unused app-icon warning.
+
+### Rotating-part controller and its complete shared child graph
+
+The collision-disabled controller attached by the encounter now lowers with
+its entire bouncing-part dependency. Its child-number gate consumes IFNOT,
+then either skips part three or spawns a hittable, damaging enemy component
+under the controller's mother while retaining the controller as its relative
+reference. Shape classification is restricted to the reviewed shape/path pair.
+The hit-driven loop rotates twenty-five times, signals child one, chases its
+relative pitch back to zero, and returns to the spawn gate. When the final
+increment already reaches zero it spawns again in the same invocation, before
+the previous child has had a chance to detach.
+
+Tests cover every child-number byte with both inversion states, source
+initializer/group inheritance, repeated waiting, two full controller cycles,
+wrapped zero and half-turn chase cases, and real independently serviced child
+death lifecycles. Exact installer and parent/child graph closure are pinned.
+The catalog contains 100 roots, 1,579 unique source commands and 1,570 typed
+statements. The production scheduler boundary is still open.
+Validation passes 398 native path tests in debug/release, 151 lowering tests,
+320 source-static path checks, catalog freshness, both audits and the app
+build (existing app-icon warning only).

@@ -630,3 +630,330 @@ fn authored_hit_detached_part_spins_selects_speed_bounces_clears_signal_then_die
         }
     }
 }
+
+#[test]
+fn rotating_controller_spawn_gate_covers_every_part_number_and_pending_inversion() {
+    use super::super::{authored_paths, ObjectSpawnDefaults};
+    let catalog = authored_paths::catalog();
+    for number in 0..=u8::MAX {
+        for inverted in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let mother = objects.allocate(actor()).unwrap();
+            super::super::path_relationships::attach_fresh_child(
+                &mut objects,
+                mother,
+                owner,
+                number,
+            )
+            .unwrap();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::HIT_DRIVEN_ROTATING_PART_CONTROLLER);
+            actor.extension.path_state.needs_path_initialization = true;
+            runtime.branch.invert_next = inverted;
+            let mut inputs = world(&mut random);
+            inputs.spawn_defaults = Some(ObjectSpawnDefaults {
+                run_when_paused: true,
+                group: 43,
+            });
+            assert_eq!(
+                runtime
+                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 6)
+                    .unwrap()
+                    .step,
+                ControlStep::Movement
+            );
+            assert!(!runtime.branch.invert_next);
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(actor.extension.spawn_group, 255);
+            assert!(actor.base.flags.collision_disabled);
+            assert_eq!(actor.base.child_number, number);
+            assert_eq!(actor.base.attachment, Some(mother));
+            let should_spawn = (number != 3) != inverted;
+            assert_eq!(objects.len(), if should_spawn { 3 } else { 2 });
+            if should_spawn {
+                let id = runtime.spawns.last_spawn.unwrap();
+                let child = objects.get(id).unwrap();
+                assert_eq!(child.base.kind, ObjectKind::Enemy);
+                assert_eq!(child.base.shape, ShapeId::from_catalog_index(323));
+                assert_eq!(
+                    child.base.path,
+                    Some(authored_paths::HIT_DETACHED_BOUNCING_PART)
+                );
+                assert_eq!(
+                    (
+                        child.base.hit_points,
+                        child.base.attack_power,
+                        child.base.child_number
+                    ),
+                    (10, 4, 1)
+                );
+                assert_eq!(child.base.attachment, Some(mother));
+                assert_eq!(child.extension.parent, Some(owner));
+                assert!(child.extension.path_state.needs_path_initialization);
+                assert_eq!(
+                    child.extension.relative_position,
+                    Vector3 {
+                        x: 208,
+                        y: 140,
+                        z: -140
+                    }
+                );
+                assert_eq!(child.base.position, Vector3::default());
+                assert_eq!(child.extension.spawn_group, 255);
+                assert!(child.base.contacts.run_when_paused);
+                assert_eq!(objects.get(owner).unwrap().base.next_sibling, Some(id));
+            } else {
+                assert!(runtime.spawns.last_spawn.is_none());
+            }
+            let before = objects.clone();
+            for _ in 0..3 {
+                assert_eq!(
+                    runtime
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
+                        .unwrap()
+                        .step,
+                    ControlStep::Movement
+                );
+                assert_eq!(objects, before);
+            }
+        }
+    }
+}
+
+#[test]
+fn rotating_controller_signals_after_twenty_five_increments_then_chases_and_repeats() {
+    use super::super::{authored_paths, path_motion, AudioState, ObjectSpawnDefaults};
+    use super::effect_tests::{audio, cues};
+    let catalog = authored_paths::catalog();
+    for initial_pitch in [0u8, 28, 156, 250] {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let mother = objects.allocate(actor()).unwrap();
+        super::super::path_relationships::attach_fresh_child(&mut objects, mother, owner, 4)
+            .unwrap();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.path = Some(authored_paths::HIT_DRIVEN_ROTATING_PART_CONTROLLER);
+        actor.extension.relative_rotation.pitch = Angle::from_units(initial_pitch);
+        let mut events = AudioState::default();
+        let mut signals = EncounterSignals::default();
+        let mut inputs = world(&mut random);
+        inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+        inputs.audio = Some(audio(&mut events));
+        inputs.encounter_signals = Some(&mut signals);
+        inputs.selected = Some(mother);
+        assert_eq!(
+            runtime
+                .enter_program(&catalog, &mut objects, owner, &mut inputs, 6)
+                .unwrap()
+                .step,
+            ControlStep::Movement
+        );
+        let mut child = runtime.spawns.last_spawn.unwrap();
+        for cycle in 0..2 {
+            let start_pitch = objects
+                .get(owner)
+                .unwrap()
+                .extension
+                .relative_rotation
+                .pitch
+                .units();
+            objects
+                .get_mut(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .conditions
+                .hit_event_pending = true;
+            for increment in 1..=25u8 {
+                let mut expected_pitch = start_pitch.wrapping_add(increment * 4);
+                if increment == 25 && expected_pitch != 0 {
+                    let delta = 0u8.wrapping_sub(expected_pitch) as i8 as i16;
+                    let step = if delta < 0 {
+                        delta.min(-8) / 8
+                    } else {
+                        delta.max(8) / 8
+                    };
+                    expected_pitch = expected_pitch.wrapping_add(step as u8);
+                }
+                assert_eq!(
+                    runtime
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 10)
+                        .unwrap()
+                        .step,
+                    ControlStep::Movement
+                );
+                assert_eq!(
+                    objects
+                        .get(owner)
+                        .unwrap()
+                        .extension
+                        .relative_rotation
+                        .pitch
+                        .units(),
+                    expected_pitch
+                );
+                assert_eq!(
+                    objects
+                        .get(child)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .conditions
+                        .hit_event_pending,
+                    increment == 25
+                );
+                assert_eq!(objects.get(child).unwrap().base.attachment, Some(mother));
+                assert!(
+                    !objects
+                        .get(owner)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .conditions
+                        .hit_event_pending
+                );
+                assert!(!runtime
+                    .begin_movement(
+                        &mut objects,
+                        owner,
+                        path_motion::PlayerDisplacement::default()
+                    )
+                    .unwrap());
+                runtime
+                    .finish_movement(&mut objects, &mut [None, None])
+                    .unwrap();
+            }
+            // Independently scheduled child consumes the event, detaches,
+            // completes its real graph and reaches death while the controller
+            // retains its own cursor/stack and waits for its next visit.
+            let saved_controller = objects.get(owner).unwrap().base.path;
+            for visit in 0..60 {
+                let exit = runtime
+                    .enter_program(&catalog, &mut objects, child, &mut inputs, 32)
+                    .unwrap();
+                assert_eq!(exit.actor, child);
+                assert_eq!(
+                    exit.step,
+                    if visit == 59 {
+                        ControlStep::MovementTail
+                    } else {
+                        ControlStep::Movement
+                    }
+                );
+                let active = if visit == 59 {
+                    runtime.begin_movement_tail(&objects, child).unwrap()
+                } else {
+                    runtime
+                        .begin_movement(
+                            &mut objects,
+                            child,
+                            path_motion::PlayerDisplacement::default(),
+                        )
+                        .unwrap()
+                };
+                if active {
+                    loop {
+                        match runtime
+                            .step_callbacks(&mut objects, child, TriggerWorldInputs::default())
+                            .unwrap()
+                        {
+                            CallbackStep::Run(_) => assert_eq!(
+                                runtime
+                                    .resume_program(&catalog, &mut objects, child, &mut inputs, 2)
+                                    .unwrap()
+                                    .step,
+                                ControlStep::ResumeCallbacks
+                            ),
+                            CallbackStep::Skipped | CallbackStep::Expired => {}
+                            CallbackStep::Complete => break,
+                        }
+                    }
+                }
+                runtime
+                    .finish_movement(&mut objects, &mut [None, None])
+                    .unwrap();
+                cues(&mut inputs);
+                assert_eq!(objects.get(owner).unwrap().base.path, saved_controller);
+            }
+            assert!(objects.get(child).unwrap().base.attachment.is_none());
+            assert_eq!(objects.get(child).unwrap().base.hit_points, 0);
+            // A wrapped zero on the 25th increment skips the chase yield and
+            // immediately spawns the next child BEFORE the old one detaches.
+            let immediate = start_pitch.wrapping_add(100) == 0;
+            assert_eq!(runtime.spawns.last_spawn != Some(child), immediate);
+            if !immediate {
+                for visit in 0..64 {
+                    let current = objects
+                        .get(owner)
+                        .unwrap()
+                        .extension
+                        .relative_rotation
+                        .pitch
+                        .units();
+                    let delta = 0u8.wrapping_sub(current) as i8 as i16;
+                    let expected = current.wrapping_add(if delta == 0 {
+                        0
+                    } else if delta < 0 {
+                        (delta.min(-8) / 8) as u8
+                    } else {
+                        (delta.max(8) / 8) as u8
+                    });
+                    assert_eq!(
+                        runtime
+                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 8)
+                            .unwrap()
+                            .step,
+                        ControlStep::Movement
+                    );
+                    assert_eq!(
+                        objects
+                            .get(owner)
+                            .unwrap()
+                            .extension
+                            .relative_rotation
+                            .pitch
+                            .units(),
+                        expected
+                    );
+                    if current == 0 {
+                        assert_ne!(runtime.spawns.last_spawn, Some(child));
+                        break;
+                    }
+                    assert_eq!(runtime.spawns.last_spawn, Some(child));
+                    assert!(visit < 63, "chase failed to converge");
+                }
+            }
+            let next_child = runtime.spawns.last_spawn.unwrap();
+            assert_ne!(next_child, child);
+            assert_eq!(
+                objects.get(next_child).unwrap().base.attachment,
+                Some(mother)
+            );
+            assert_eq!(
+                objects.get(next_child).unwrap().extension.parent,
+                Some(owner)
+            );
+            assert!(
+                !objects
+                    .get(next_child)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .conditions
+                    .hit_event_pending
+            );
+            assert_eq!(
+                objects
+                    .get(owner)
+                    .unwrap()
+                    .extension
+                    .relative_rotation
+                    .pitch
+                    .units(),
+                0
+            );
+            assert_eq!(objects.len(), 4 + cycle);
+            runtime.release_actor_programs(&mut objects, child).unwrap();
+            child = next_child;
+        }
+    }
+}
