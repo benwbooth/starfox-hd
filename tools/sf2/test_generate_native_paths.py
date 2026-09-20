@@ -796,6 +796,16 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 child_spawn_parameters(invalid)
 
+    def test_child_signals_and_missing_branch_preserve_full_number_and_edges(self):
+        for opcode in (0x3C, 0x3E):
+            self.assertEqual(self.lower_record(f"{opcode:02x}")[0],
+                "Statement::Relationship { command: RelationshipCommand::SignalLinked, next: cursor(0, 1) }")
+        for number in range(256):
+            self.assertEqual(self.lower_record(f"3d {number:02x}")[0],
+                f"Statement::Relationship {{ command: RelationshipCommand::SignalChild {{ number: {number} }}, next: cursor(0, 1) }}")
+            self.assertEqual(self.lower_record(f"3a {number:02x} 36 f5")[0],
+                f"Statement::ChildMissing {{ number: {number}, taken: cursor(0, 0), next: cursor(0, 1) }}")
+
     def lower_record(self, record):
         changed = bytearray(self.rom)
         program = bytes.fromhex(record) + bytes([0x0F])

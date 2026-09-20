@@ -18,6 +18,8 @@ pub enum RelationshipError {
 pub enum RelationshipCommand {
     UnlinkSelf,
     UnlinkChild { number: u8 },
+    SignalLinked,
+    SignalChild { number: u8 },
     RefreshLinkedRotation,
     ClearRelativeReference,
     UseSelfRelativeFrame,
@@ -234,6 +236,22 @@ pub fn find_child(
     Ok(None)
 }
 
+/// A missing parent is NOT a dead child (`$7F:938B`). Only an available
+/// parent whose numbered-child search fails takes the authored branch.
+pub fn child_missing(
+    objects: &ObjectStore,
+    owner: ObjectId,
+    number: u8,
+) -> Result<bool, RelationshipError> {
+    let actor = objects
+        .get(owner)
+        .ok_or(RelationshipError::MissingActor(owner))?;
+    if !actor.extension.path_state.motion.refresh_child_chain && actor.base.attachment.is_none() {
+        return Ok(false);
+    }
+    Ok(find_child(objects, owner, number)?.is_none())
+}
+
 fn detach(objects: &mut ObjectStore, child: ObjectId) -> Result<(), RelationshipError> {
     let actor = objects
         .get_mut(child)
@@ -295,6 +313,30 @@ pub fn apply(
     command: RelationshipCommand,
 ) -> Result<(), RelationshipError> {
     let child = match command {
+        RelationshipCommand::SignalLinked | RelationshipCommand::SignalChild { .. } => {
+            let target = if let RelationshipCommand::SignalChild { number } = command {
+                find_child(objects, owner, number)?
+            } else {
+                objects
+                    .get(owner)
+                    .ok_or(RelationshipError::MissingActor(owner))?
+                    .base
+                    .attachment
+            };
+            // Both linked forms ($7F:94DB/94F1) and numbered signaling
+            // ($7F:9400) OR the same one-shot event latch. This is neither
+            // damage nor retirement, and needs no attached-coordinate gate.
+            if let Some(target) = target {
+                objects
+                    .get_mut(target)
+                    .ok_or(RelationshipError::MissingActor(target))?
+                    .extension
+                    .path_state
+                    .conditions
+                    .hit_event_pending = true;
+            }
+            return Ok(());
+        }
         RelationshipCommand::ClearRelativeReference | RelationshipCommand::UseSelfRelativeFrame => {
             let actor = objects
                 .get_mut(owner)
@@ -611,6 +653,178 @@ mod tests {
             actor.base.position.x = 123;
         }
         (objects, parent, children)
+    }
+
+    #[test]
+    fn signals_change_only_the_first_matching_targets_event_latch() {
+        let (mut objects, parent, children) = family();
+        for number in 0..=u8::MAX {
+            // Duplicate identifiers retain first-match semantics, including
+            // zero and high-bit identifiers. Relative references are decoys.
+            objects.get_mut(children[0]).unwrap().base.child_number = number.wrapping_add(1);
+            objects.get_mut(children[1]).unwrap().base.child_number = number;
+            objects.get_mut(children[2]).unwrap().base.child_number = number;
+            for owner in [parent, children[0]] {
+                for attached in [false, true] {
+                    objects.get_mut(owner).unwrap().extension.parent = Some(children[2]);
+                    objects
+                        .get_mut(owner)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .motion
+                        .attached_coordinates = attached;
+                    for pending in [false, true] {
+                        objects
+                            .get_mut(children[1])
+                            .unwrap()
+                            .extension
+                            .path_state
+                            .conditions
+                            .hit_event_pending = pending;
+                        let mut expected = objects.clone();
+                        expected
+                            .get_mut(children[1])
+                            .unwrap()
+                            .extension
+                            .path_state
+                            .conditions
+                            .hit_event_pending = true;
+                        apply(
+                            &mut objects,
+                            owner,
+                            RelationshipCommand::SignalChild { number },
+                        )
+                        .unwrap();
+                        assert_eq!(objects, expected);
+                    }
+                }
+            }
+        }
+        for link in [None, Some(parent), Some(children[0])] {
+            for attached in [false, true] {
+                let owner = children[0];
+                objects.get_mut(owner).unwrap().base.attachment = link;
+                objects
+                    .get_mut(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .motion
+                    .attached_coordinates = attached;
+                let mut expected = objects.clone();
+                if let Some(target) = link {
+                    expected
+                        .get_mut(target)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .conditions
+                        .hit_event_pending = true;
+                }
+                apply(&mut objects, owner, RelationshipCommand::SignalLinked).unwrap();
+                assert_eq!(objects, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn child_missing_distinguishes_absent_parent_from_empty_search_and_retains_state() {
+        let (mut objects, parent, children) = family();
+        for refresh in [false, true] {
+            for mother in [None, Some(parent)] {
+                let owner = children[0];
+                objects
+                    .get_mut(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .motion
+                    .refresh_child_chain = refresh;
+                objects.get_mut(owner).unwrap().base.attachment = mother;
+                objects.get_mut(owner).unwrap().base.first_child = Some(children[2]);
+                for number in 0..=u8::MAX {
+                    let before = objects.clone();
+                    let missing = if refresh {
+                        number != 3
+                    } else if mother.is_some() {
+                        ![1, 2, 3].contains(&number)
+                    } else {
+                        false
+                    };
+                    assert_eq!(child_missing(&objects, owner, number), Ok(missing));
+                    assert_eq!(objects, before);
+                    let mut expected = before;
+                    let target = if refresh {
+                        (number == 3).then_some(children[2])
+                    } else if mother.is_some() {
+                        children
+                            .iter()
+                            .copied()
+                            .find(|id| objects.get(*id).unwrap().base.child_number == number)
+                    } else {
+                        None
+                    };
+                    if let Some(target) = target {
+                        expected
+                            .get_mut(target)
+                            .unwrap()
+                            .extension
+                            .path_state
+                            .conditions
+                            .hit_event_pending = true;
+                    }
+                    apply(
+                        &mut objects,
+                        owner,
+                        RelationshipCommand::SignalChild { number },
+                    )
+                    .unwrap();
+                    assert_eq!(objects, expected);
+                }
+            }
+        }
+        objects.get_mut(parent).unwrap().base.first_child = None;
+        assert_eq!(child_missing(&objects, parent, 0), Ok(true));
+    }
+
+    #[test]
+    fn signaling_and_missing_child_diagnose_broken_links_without_mutating() {
+        let (mut objects, parent, children) = family();
+        objects.get_mut(children[2]).unwrap().base.next_sibling = Some(children[0]);
+        let before = objects.clone();
+        assert_eq!(
+            child_missing(&objects, parent, 255),
+            Err(RelationshipError::ChildCycle(children[0]))
+        );
+        assert_eq!(
+            apply(
+                &mut objects,
+                parent,
+                RelationshipCommand::SignalChild { number: 255 }
+            ),
+            Err(RelationshipError::ChildCycle(children[0]))
+        );
+        assert_eq!(objects, before);
+        let missing = objects.allocate(actor()).unwrap();
+        objects.remove(missing).unwrap();
+        objects.get_mut(children[0]).unwrap().base.attachment = Some(missing);
+        let before = objects.clone();
+        for command in [
+            RelationshipCommand::SignalLinked,
+            RelationshipCommand::SignalChild { number: 1 },
+        ] {
+            assert_eq!(
+                apply(&mut objects, children[0], command),
+                Err(RelationshipError::MissingActor(missing))
+            );
+            assert_eq!(objects, before);
+        }
+        assert_eq!(
+            child_missing(&objects, children[0], 1),
+            Err(RelationshipError::MissingActor(missing))
+        );
+        assert_eq!(objects, before);
     }
 
     #[test]

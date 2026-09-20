@@ -66,6 +66,23 @@ class PathRelationshipsStaticTests(unittest.TestCase):
     def test_child_lookup_walks_in_order_and_compares_full_number_byte(self):
         self.assert_source(0x7F2A7B, "8D 2A 19 DA B4 29 F0 0B B9 13 00 CD 2A 19 F0 03 BB 80 F1 FA 6B")
 
+    def test_linked_signals_are_identical_event_latches_without_motion_gate(self):
+        expected = "B4 06 C0 00 00 D0 04 5C E8 CA 7F B9 23 00 09 08 99 23 00 4C E8 CA"
+        self.assert_source(0x7F94DB, expected)
+        self.assert_source(0x7F94F1, expected)
+
+    def test_child_signal_uses_owner_flag_or_mother_and_only_sets_hit_event(self):
+        self.assert_source(0x7F9400,
+            "20 BC C4 8D B1 16 DA B5 23 29 10 F0 04 5C 19 94 7F B4 06 BB C0 00 00 F0 07 "
+            "AD B1 16 22 7B 2A 7F FA C0 00 00 D0 04 5C D3 CA 7F B9 23 00 09 08 99 23 00 4C D3 CA")
+
+    def test_child_missing_requires_parent_and_does_not_consume_ifnot(self):
+        self.assert_source(0x7F938B,
+            "20 BC C4 8D B1 16 DA B5 23 29 10 F0 04 5C A5 93 7F B4 06 BB D0 04 5C B8 93 7F "
+            "5A AD B1 16 22 7B 2A 7F C0 00 00 D0 05 7A 5C BC 93 7F 7A FA 4C A9 CA FA 4C FF CA")
+        self.assert_source(0x7FCAA9, "E2 20 C2 20 B5 2B 18 69 04 00 95 2B E2 20 4C 75 7E")
+        self.assert_source(0x7FCAFF, "C2 20 20 4C C7 95 2B E2 20 4C 75 7E")
+
     def test_attach_sets_number_and_mother_appends_at_tail_then_sets_flags(self):
         self.assert_source(0x7F2A3D, "85 5F A5 5F 99 13 00 96 06 C2 20 A9 00 00 99 29 00 E2 20 C2 20 84 3A 8A A8 B9 29 00 D0 FA A5 3A 99 29 00 A4 3A E2 20 B5 23 09 10 95 23 B9 23 00 09 04 99 23 00 B9 25 00 09 01 99 25 00 6B")
 

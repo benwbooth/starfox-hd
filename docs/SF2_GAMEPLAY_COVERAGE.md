@@ -959,3 +959,15 @@ The latter is explicitly verified, never a fallback for unported handlers.
 All 256 setter literals are checked. The lowerer/static suites now pass
 71/208 tests plus both architecture/dependency audits; native code and the
 14-root/161-statement catalog are unchanged from the preceding verification.
+
+Linked/mother signaling and numbered-child signaling now set only the shared
+pending hit-event latch. Numbered lookup retains the source owner-flag versus
+mother choice and first matching full-byte identifier; relative references and
+attached-coordinate mode are independent. The child-missing branch requires a
+parent: absent parent falls through, while an empty valid search branches.
+Neither operation consumes IFNOT. Tests cover all child numbers, duplicates,
+self-links, absent/dangling links, cycles, whole-store preservation and one-shot
+consumption through the actual hit-event branch. Verification passes 72 lowerer
+tests, 211 static path tests, 200 native path tests in debug/release, both
+architecture/dependency audits and the app build. Complete-root coverage remains
+14/161, with Game scheduling and spawn integration still open.

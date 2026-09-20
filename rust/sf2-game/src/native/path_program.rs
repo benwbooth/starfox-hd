@@ -223,6 +223,11 @@ pub enum Statement {
         command: super::path_relationships::RelationshipCommand,
         next: PathCursor,
     },
+    ChildMissing {
+        number: u8,
+        taken: PathCursor,
+        next: PathCursor,
+    },
     CopySelectedTransform {
         command: super::path_relationships::SelectedTransformCommand,
         next: PathCursor,
@@ -639,6 +644,21 @@ impl PathRuntime {
                         .expect("validated relationship owner")
                         .base
                         .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ChildMissing {
+                    number,
+                    taken,
+                    next,
+                } => {
+                    let missing = super::path_relationships::child_missing(objects, owner, number)
+                        .map_err(ProgramError::Relationship)?;
+                    // This source branch bypasses the IFNOT machinery.
+                    objects
+                        .get_mut(owner)
+                        .expect("validated child-search owner")
+                        .base
+                        .path = Some(if missing { taken } else { next });
                     Ok(ControlStep::Continue)
                 }
                 Statement::SelectedAuxiliaryBranch {
@@ -1556,6 +1576,171 @@ mod tests {
             assert_eq!(runtime.steering.unchanged_axes, 11);
             assert!(runtime.branch.invert_next);
         }
+    }
+
+    #[test]
+    fn relationship_signals_feed_the_consuming_hit_branch_once_and_preserve_ifnot() {
+        use super::super::path_relationships::RelationshipCommand;
+        for command in [
+            RelationshipCommand::SignalLinked,
+            RelationshipCommand::SignalChild { number: 255 },
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let target = objects
+                .allocate(objects.get(owner).unwrap().clone())
+                .unwrap();
+            objects.get_mut(owner).unwrap().base.attachment = Some(target);
+            objects.get_mut(target).unwrap().base.first_child = Some(target);
+            objects.get_mut(target).unwrap().base.child_number = 255;
+            objects.get_mut(owner).unwrap().extension.parent = Some(owner);
+            objects.get_mut(owner).unwrap().base.wait_timer = 99;
+            let original_random = random;
+            runtime.branch.invert_next = true;
+            let catalog = PathCatalog::new(vec![vec![
+                Statement::Relationship {
+                    command,
+                    next: cursor(0, 1),
+                },
+                Statement::Branch(BranchCommand::HitEvent {
+                    taken: cursor(0, 2),
+                    next: cursor(0, 3),
+                }),
+            ]])
+            .unwrap();
+            let mut expected = objects.clone();
+            expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+            expected
+                .get_mut(target)
+                .unwrap()
+                .extension
+                .path_state
+                .conditions
+                .hit_event_pending = true;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects, expected);
+            for destination in [cursor(0, 2), cursor(0, 3)] {
+                objects.get_mut(target).unwrap().base.path = Some(cursor(0, 1));
+                let mut expected = objects.clone();
+                expected
+                    .get_mut(target)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .conditions
+                    .hit_event_pending = false;
+                expected.get_mut(target).unwrap().base.path = Some(destination);
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        target,
+                        &mut world(&mut random),
+                        1
+                    ),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: destination,
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, original_random);
+            }
+        }
+    }
+
+    #[test]
+    fn child_missing_dispatch_preserves_ifnot_and_faults_before_cursor_mutation() {
+        use super::super::path_relationships::RelationshipError;
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let parent = objects
+            .allocate(objects.get(owner).unwrap().clone())
+            .unwrap();
+        let child = objects
+            .allocate(objects.get(owner).unwrap().clone())
+            .unwrap();
+        objects.get_mut(child).unwrap().base.child_number = 128;
+        objects.get_mut(parent).unwrap().base.first_child = Some(child);
+        runtime.branch.invert_next = true;
+        let original_random = random;
+        for refresh in [false, true] {
+            for mother in [None, Some(parent)] {
+                for number in [0, 127, 128, 255] {
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(cursor(0, 0));
+                    actor.base.attachment = mother;
+                    actor.base.wait_timer = 99;
+                    actor.extension.path_state.motion.refresh_child_chain = refresh;
+                    actor.extension.path_state.conditions.hit_event_pending = true;
+                    // Self-owned search is empty even though mother's is not.
+                    let missing = refresh || (mother.is_some() && number != 128);
+                    let destination = cursor(0, if missing { 2 } else { 1 });
+                    let catalog = PathCatalog::new(vec![vec![Statement::ChildMissing {
+                        number,
+                        taken: cursor(0, 2),
+                        next: cursor(0, 1),
+                    }]])
+                    .unwrap();
+                    let mut expected = objects.clone();
+                    expected.get_mut(owner).unwrap().base.path = Some(destination);
+                    assert_eq!(
+                        runtime.resume_program(
+                            &catalog,
+                            &mut objects,
+                            owner,
+                            &mut world(&mut random),
+                            1
+                        ),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: destination,
+                            executed: 1
+                        })
+                    );
+                    assert_eq!(objects, expected);
+                    assert!(runtime.branch.invert_next);
+                }
+            }
+        }
+        objects.remove(parent).unwrap();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.path = Some(cursor(0, 0));
+        actor.base.attachment = Some(parent);
+        actor.extension.path_state.motion.refresh_child_chain = false;
+        let before = objects.clone();
+        for statement in [
+            Statement::ChildMissing {
+                number: 128,
+                taken: cursor(0, 2),
+                next: cursor(0, 1),
+            },
+            Statement::Relationship {
+                command: super::super::path_relationships::RelationshipCommand::SignalLinked,
+                next: cursor(0, 1),
+            },
+            Statement::Relationship {
+                command: super::super::path_relationships::RelationshipCommand::SignalChild {
+                    number: 128,
+                },
+                next: cursor(0, 1),
+            },
+        ] {
+            let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::Relationship(RelationshipError::MissingActor(
+                    parent
+                )))
+            );
+            assert_eq!(objects, before);
+            assert!(runtime.branch.invert_next);
+        }
+        assert_eq!(random, original_random);
     }
 
     #[test]

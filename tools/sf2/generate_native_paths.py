@@ -437,18 +437,25 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "IfSelectedSlotClass3": "ModeClass(super::path_conditions::AuxiliaryModeClass::Three)",
             }[name]
             statement = f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::{condition}, taken: {taken}, next: {next_} }}"
-        elif name in ("UnlinkSelf", "UnlinkChild", "RefreshLinkedRotationDeltas", "ClearObjectRelativeReference", "SelectSelfAndClearRelativeTransform"):
-            if name != "UnlinkChild":
+        elif name == "ChildDead":
+            number, low, high = parameters(3)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::ChildMissing {{ number: {number}, taken: {taken}, next: {next_} }}"
+        elif name in ("UnlinkSelf", "UnlinkChild", "FlagLinkedObject", "FlagMother", "FlagChild", "RefreshLinkedRotationDeltas", "ClearObjectRelativeReference", "SelectSelfAndClearRelativeTransform"):
+            if name not in ("UnlinkChild", "FlagChild"):
                 parameters(0)
                 command_ = "RelationshipCommand::" + {
                     "UnlinkSelf": "UnlinkSelf",
+                    "FlagLinkedObject": "SignalLinked",
+                    "FlagMother": "SignalLinked",
                     "RefreshLinkedRotationDeltas": "RefreshLinkedRotation",
                     "ClearObjectRelativeReference": "ClearRelativeReference",
                     "SelectSelfAndClearRelativeTransform": "UseSelfRelativeFrame",
                 }[name]
             else:
                 number, = parameters(1)
-                command_ = f"RelationshipCommand::UnlinkChild {{ number: {number} }}"
+                operation = "SignalChild" if name == "FlagChild" else "UnlinkChild"
+                command_ = f"RelationshipCommand::{operation} {{ number: {number} }}"
             statement = f"Statement::Relationship {{ command: {command_}, next: {next_cursor()} }}"
         elif name == "Gosub":
             low, high = parameters(2)
