@@ -21,6 +21,34 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_tal_kong_closes_controller_hands_and_death_presentation(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xA2E6)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 431)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '1211c412109c035628e3fb00a2bd5c244122a4d7a8eca56e4d3f805ebda437cc')
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertEqual(len(statements), 431)
+        self.assertEqual(sum('PublishEncounterCameraFocus' in s for s in statements), 2)
+        self.assertEqual(sum('label: "TAL KONG"' in s for s in statements), 1)
+        self.assertEqual(sum('Statement::HealthDisplay {' in s for s in statements), 3)
+        for dependency in [0xA333, 0xA33E, 0xA34B, 0xA363, 0xA481, 0xA496,
+                           0xA4ED, 0xAF1A, 0xAF2E, 0xAF35, 0xAF6F, 0xAFD8,
+                           0x86DE, 0x8C8B, 0x44B2]:
+            self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        for shape, path, index in [(0xE028, 0xA4ED, 325), (0xE044, 0xAF2E, 326)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, 'ObjectKind::Effect'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+        self.assertEqual(spawn_shape(0xDFF0, PathAddress(0xA481)), (323, 'ObjectKind::Enemy'))
+        for offset, value, error in [(0x4A324, 0xC1, 'unreviewed health display label'),
+                                     (0x189C0, 0x58, 'unexpected tal kong display label')]:
+            changed = bytearray(self.rom)
+            changed[offset] = value
+            with self.assertRaisesRegex(UnsupportedPath, error):
+                lower_graph(PathExtractor(bytes(changed)), root, 0)
+
     def test_kick_gunners_close_both_arena_graphs_with_decoded_health_and_route_state(self):
         extractor = PathExtractor(self.rom)
         for address, count, folded, checksum in [

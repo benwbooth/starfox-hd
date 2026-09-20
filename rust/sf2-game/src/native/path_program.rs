@@ -110,10 +110,15 @@ mod popup_turret_tests;
 #[path = "path_gunner_tests.rs"]
 mod gunner_tests;
 
+#[cfg(test)]
+#[path = "path_tal_kong_tests.rs"]
+mod tal_kong_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
+    pub camera_focus: Option<&'a mut super::path_scene_state::EncounterCameraFocus>,
     pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
     pub primary_feedback: Option<super::player_hit_control::PrimaryFeedback<'a>>,
     pub coordination: Option<&'a mut super::path_scene_state::EncounterCoordination>,
@@ -532,6 +537,7 @@ pub enum Statement {
     HealthDisplay { field: super::path_scene_state::HealthDisplayField, command: super::path_scene_state::CoordinationCommand, next: PathCursor },
     SetHealthDisplayLabel { label: &'static str, next: PathCursor },
     RequestPrimaryEncounterFeedback { next: PathCursor },
+    PublishEncounterCameraFocus { next: PathCursor },
     /// One complete source destination-selection block with eight choices.
     ChoosePatrolDestination {
         offsets: &'static [(i16, i16); 8],
@@ -909,6 +915,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingEncounterCameraFocus,
     MissingHealthDisplay,
     MissingPrimaryFeedback,
     Death(super::path_death::DeathError),
@@ -1075,6 +1082,11 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::PublishEncounterCameraFocus { next } => {
+                    world.camera_focus.as_deref_mut().ok_or(ProgramError::MissingEncounterCameraFocus)?.position = actor.base.position;
+                    objects.get_mut(owner).expect("validated camera focus publisher").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ChooseGunnerRoute { routes, next } => {
                     let origin = usize::from(world.random.next_byte() & 3);
                     let branch = usize::from(world.random.next_byte() & 1);
@@ -2320,6 +2332,7 @@ mod tests {
         PathWorld {
             scene: ScenePathInputs::default(),
             health_display: None,
+            camera_focus: None,
             primary_feedback: None,
             friend_health: None,
             coordination: None,
@@ -9379,6 +9392,7 @@ mod tests {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
                 health_display: None,
+                camera_focus: None,
                 primary_feedback: None,
                 friend_health: None,
                 coordination: None,
@@ -13462,9 +13476,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 130);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3281);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3325);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 131);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3442);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3486);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13597,6 +13611,7 @@ mod tests {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
                 health_display: None,
+                camera_focus: None,
                 primary_feedback: None,
                 friend_health: None,
                 coordination: None,
@@ -13743,6 +13758,7 @@ mod tests {
                     &mut PathWorld {
                         scene: ScenePathInputs::default(),
                         health_display: None,
+                        camera_focus: None,
                         primary_feedback: None,
                         friend_health: None,
                         coordination: None,

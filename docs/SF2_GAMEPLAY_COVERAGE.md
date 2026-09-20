@@ -3250,3 +3250,41 @@ exact regeneration and app build pass (pre-existing unused icon warnings only).
 This remains source-level catalog coverage, not whole-game completion or
 shipping scheduler/spawn integration. No recorded gameplay or execution of
 original CPU/GSU programs was used.
+
+## Tal Kong and encounter camera-focus publication (2026-09-20)
+
+Complete root `$44:A2E6` now lowers its controller, contact and death callbacks,
+limb controllers, hittable hand, and detached death presentation. Its 431-command
+graph adds **161 unique source commands and 161 typed statements**, bringing the
+catalog to **131 complete roots, 3486 source commands and 3442 statements**.
+
+The source camera-focus producer `$7F:C2B3` copies all three world-position words;
+the separate camera consumer `$07:A14A` reads that point. The native path now
+publishes an `EncounterCameraFocus` record, without address-based shared memory
+or a guessed camera callback. Missing output fails before actor/random changes.
+This ports the producer; it does not establish shipping camera integration.
+The reviewed display-label table now also decodes the exact `TAL KONG` text.
+
+Initialization retains pose, health, target speed, sound and impact material,
+and installs both numbered limbs. Only limb four creates the hittable hand.
+The limb's consumed signal starts 25 four-unit pitch increments; its final loop
+pass signals the hand and begins arithmetic chase in the same visit. The next
+right-hand creation waits until a subsequent visit observes the old angle zero.
+Contact publication preserves every health byte and the saved phase word. Its
+40-visit signal timer starts decrementing on the next callback pass, not during
+the pass that appended it.
+
+Death scoring belongs to the boss, while the independent effect publishes focus
+on visits one and 21, runs periodic four-visit bursts and two explicit bursts,
+configures primary-player control and requests death on visit 26. Its subsequent
+zero-health callback performs the drop/progression work. Tests retain full-word
+feedback gates, score saturation, wrapping progress, paused effects, source
+allocation pose, and no random draws with no remaining objective.
+
+Five new native tests include every signed camera-coordinate word, both IFNOT
+states, budget boundaries, every health byte and complete limb/death sequences.
+Debug and release suites each pass **916 unit tests and two integration tests**;
+**179 lowerer tests and 385 path-static tests**, architecture/static inventory,
+exact regeneration and app build pass (pre-existing unused icon warnings only).
+These are static-source and native-Rust checks, not recorded gameplay, original
+program execution, whole-game completion or shipping scheduler/spawn proof.

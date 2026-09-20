@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("TAL_KONG", PathAddress(0xA2E6)),
     ("INNER_ARENA_KICK_GUNNER", PathAddress(0x32EF)),
     ("OUTER_ARENA_KICK_GUNNER", PathAddress(0x348B)),
     ("GATED_POPUP_TURRET", PathAddress(0x2F11)),
@@ -548,6 +549,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # sprite; scope the classification to this shape AND complete path.
     if (index, path) == (323, PathAddress(0xA481)):
         return index, "ObjectKind::Enemy"
+    # Tal Kong's limb controllers and detached death presentation disable
+    # collision themselves. The hittable hand they install stays an Enemy.
+    if (shape, path) in ((0xE028, PathAddress(0xA4ED)), (0xE044, PathAddress(0xAF2E))):
+        return index, "ObjectKind::Effect"
     # Encounter fighters remain collidable until their explicit abort/death
     # paths; health/attack still come from the authored spawn record.
     if (shape, path) in ((0xCF6C, PathAddress(0x4CF7)), (0xCB98, PathAddress(0x4CCD))):
@@ -1491,12 +1496,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             low, high, value_low, value_high = parameters(4)
             if (low | high << 8) == 0xD777:
                 label_pointer = value_low | value_high << 8
-                if label_pointer != 0x8999:
+                labels = {0x8999: b'KICK GUNNER\0', 0x89C0: b'TAL KONG\0'}
+                if label_pointer not in labels:
                     raise UnsupportedPath(f'unreviewed health display label at {command.address.label()}')
                 start = source_offset(0x030000 | label_pointer)
-                label = extractor.rom[start:start + 12]
-                if label != b'KICK GUNNER\0':
-                    raise UnsupportedPath('unexpected kick gunner display label')
+                expected = labels[label_pointer]
+                label = extractor.rom[start:start + len(expected)]
+                if label != expected:
+                    raise UnsupportedPath(f'unexpected {expected[:-1].decode("ascii").lower()} display label')
                 statement = f'Statement::SetHealthDisplayLabel {{ label: "{label[:-1].decode("ascii")}", next: {next_cursor()} }}'
                 statements.append(statement)
                 continue
@@ -1510,6 +1517,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "UpdatePilotAuxState":
             parameters(0)
             statement = f"Statement::RequestPrimaryEncounterFeedback {{ next: {next_cursor()} }}"
+        elif name == "CopyWorldPositionTo1e01":
+            parameters(0)
+            statement = f"Statement::PublishEncounterCameraFocus {{ next: {next_cursor()} }}"
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)

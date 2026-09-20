@@ -3,6 +3,13 @@
 use super::path_fields::{ByteField, ByteOperand};
 use super::Object;
 
+/// World-space point published by encounter paths for the camera target.
+/// Source path producer $7F:C2B3; camera consumer $07:A14A.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EncounterCameraFocus {
+    pub position: super::Vector3,
+}
+
 /// These bytes are script-owned, not actor counters. Their precise stage and
 /// bit assignments vary by encounter. Keep their complete wrapping values.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
