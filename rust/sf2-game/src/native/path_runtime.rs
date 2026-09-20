@@ -26,6 +26,10 @@ pub struct ActorPathState {
     /// height byte and uses it as a bit selector. It is not a timer, weapon,
     /// health alias, or the separately counted LOOP byte.
     pub script_parameter: u8,
+    /// Path-owned working word (source extension 1CE4): numeric distance/
+    /// chase values and imported bit sets share this storage. Low/high byte
+    /// operations alias this word; it is independent of motion_phase.
+    pub script_value: u16,
     /// PATHHOLD sets source actor flag 09 bit 08 and retains its cursor.
     pub hold_latched: bool,
     pub motion: super::path_motion::MotionSettings,

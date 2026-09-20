@@ -93,6 +93,18 @@ class NativePathGenerationTests(unittest.TestCase):
             generated = generate(bytes(changed), (("FACING", PathAddress(0xF536)),))
             self.assertIn("use super::path_steering::FacingCommand;", generated)
 
+    def test_script_working_word_and_its_byte_views_share_one_typed_field(self):
+        self.assertEqual(word_field(0xA3), "WordField::ScriptValue")
+        for variable, part in [(0xA3, "Low"), (0xA4, "High")]:
+            self.assertEqual(byte_field(variable),
+                f"ByteField::WordPart {{ field: WordField::ScriptValue, part: BytePart::{part} }}")
+        self.assertIn("field: WordField::ScriptValue, operation: WordOperation::Assign(WordOperand::Literal(65296))",
+                      self.lower_record("0c 10 ff a3")[0])
+        self.assertIn("WordOperand::Actor(WordField::ScriptValue)", self.lower_record("68 a3 36 f5")[0])
+        self.assertIn("WordOperand::Actor(WordField::ScriptValue)", self.lower_record("da 27 a3 36 f5")[0])
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand A4"):
+            word_field(0xA4)
+
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
         # An unsupported independently spawned child rejects its parent too.
         changed = bytearray(self.rom)

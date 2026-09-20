@@ -144,6 +144,7 @@ def word_field(variable: int) -> str:
         0x90: "WordField::RelativePosition(Axis::Y)",
         0x92: "WordField::RelativePosition(Axis::Z)",
         0xA1: "WordField::MotionPhase",
+        0xA3: "WordField::ScriptValue",
     }
     if variable not in fields:
         raise UnsupportedPath(f"unported word operand {variable:02X}")
@@ -174,7 +175,7 @@ def byte_field(variable: int) -> str:
         return fields[variable]
     # Each pair aliases one actual typed word; it must not create a separate
     # particle counter or independent byte shadow of the motion phase.
-    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1):
+    for base in (0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1, 0xA3):
         if variable in (base, base + 1):
             part = "Low" if variable == base else "High"
             return f"ByteField::WordPart {{ field: {word_field(base)}, part: BytePart::{part} }}"

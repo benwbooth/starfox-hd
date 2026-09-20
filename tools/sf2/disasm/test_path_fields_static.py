@@ -34,6 +34,13 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assertEqual(self.rom[0x47F4C:0x47F4F], bytes.fromhex("D9 27 A1"))
         self.assertEqual(self.rom[0x47F64:0x47F67], bytes.fromhex("D8 27 A1"))
 
+    def test_script_working_word_holds_numeric_constants_or_a_tested_bit_set(self):
+        self.assertEqual(self.rom[0x4D1CF:0x4D1D3], bytes.fromhex("0C C8 00 A3"))
+        self.assertEqual(self.rom[0x4D20B:0x4D20F], bytes.fromhex("0C 64 00 A3"))
+        self.assertEqual(self.rom[0x4601E:0x46022], bytes.fromhex("0C 10 FF A3"))
+        # The imported bit set is tested and explicitly cleared on one arm.
+        self.assertEqual(self.rom[0x487D3:0x487E0], bytes.fromhex("7B A3 43 6D 27 DA 27 A3 E0 87 6C A3 42"))
+
     def test_world_position_add_sign_extends_literal_byte_before_word_add(self):
         self.assert_source(0x7F865B, "20 BC C4 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 18 75 0C 95 0C 4C D3 CA")
         self.assert_source(0x7F8687, "18 75 0E 95 0E 4C D3 CA")

@@ -33,6 +33,7 @@ impl Axis {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WordField {
     MotionPhase,
+    ScriptValue,
     Position(Axis),
     Velocity(Axis),
     RelativePosition(Axis),
@@ -42,6 +43,7 @@ impl WordField {
     pub fn read(self, actor: &Object) -> u16 {
         (match self {
             Self::MotionPhase => actor.extension.path_state.motion_phase as i16,
+            Self::ScriptValue => actor.extension.path_state.script_value as i16,
             Self::Position(axis) => axis.get(actor.base.position),
             Self::Velocity(axis) => axis.get(actor.base.velocity),
             Self::RelativePosition(axis) => axis.get(actor.extension.relative_position),
@@ -51,6 +53,7 @@ impl WordField {
     pub fn write(self, actor: &mut Object, value: u16) {
         match self {
             Self::MotionPhase => actor.extension.path_state.motion_phase = value,
+            Self::ScriptValue => actor.extension.path_state.script_value = value,
             Self::Position(axis) => axis.set(&mut actor.base.position, value as i16),
             Self::Velocity(axis) => axis.set(&mut actor.base.velocity, value as i16),
             Self::RelativePosition(axis) => {
@@ -415,6 +418,43 @@ mod tests {
     }
 
     #[test]
+    fn working_word_full_width_and_byte_views_preserve_other_path_state() {
+        let mut original = actor();
+        original.extension.path_state.motion_phase = 0x1357;
+        original.extension.path_state.script_parameter = 0xA5;
+        original.extension.path_state.repeat_counter = 19;
+        original.base.position.y = -123;
+        for value in 0..=u16::MAX {
+            let mut actual = original.clone();
+            let mut expected = original.clone();
+            expected.extension.path_state.script_value = value;
+            WordField::ScriptValue.write(&mut actual, value);
+            assert_eq!(actual, expected);
+            assert_eq!(WordField::ScriptValue.read(&actual), value);
+            for part in [BytePart::Low, BytePart::High] {
+                let field = ByteField::WordPart {
+                    field: WordField::ScriptValue,
+                    part,
+                };
+                let byte = match part {
+                    BytePart::Low => value as u8,
+                    BytePart::High => (value >> 8) as u8,
+                };
+                assert_eq!(field.read(&actual), byte);
+                let mut changed = actual.clone();
+                field.write(&mut changed, byte ^ 0xFF);
+                let mut expected_changed = expected.clone();
+                expected_changed.extension.path_state.script_value = value
+                    ^ match part {
+                        BytePart::Low => 0x00FF,
+                        BytePart::High => 0xFF00,
+                    };
+                assert_eq!(changed, expected_changed);
+            }
+        }
+    }
+
+    #[test]
     fn script_parameter_copies_values_without_aliasing_health_height_or_loop_count() {
         for value in 0..=u8::MAX {
             let mut actual = actor();
@@ -454,6 +494,7 @@ mod tests {
     fn byte_word_views_alias_typed_coordinates_without_affecting_other_components() {
         let mut actor = actor();
         for field in [
+            WordField::ScriptValue,
             WordField::Position(Axis::X),
             WordField::Velocity(Axis::Y),
             WordField::RelativePosition(Axis::Z),

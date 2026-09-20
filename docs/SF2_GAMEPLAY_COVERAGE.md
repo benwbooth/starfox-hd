@@ -702,3 +702,12 @@ Verification passes 47 lowerer tests and 154 native path tests in debug/release,
 plus architecture/dependency checks and the app build. Existing static facing
 fixtures remain in the 165-test static path suite. No new complete root or
 scheduler integration is claimed.
+
+The path-owned working word is now represented by one typed value with aliased
+low/high-byte access. Source fixtures cover signed numeric constants, bit-set
+testing and explicit clearing; native tests exhaust all 65,536 values and both
+byte views while preserving the separate phase, parameter and loop count.
+Verification passes 48 lowerer tests, 166 static path checks, 155 native path
+tests in release, and architecture/dependency checks. Indexed imports and
+world-state services remain unsupported; this field addition does not emulate
+source addresses or add a complete root.
