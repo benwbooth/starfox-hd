@@ -142,6 +142,26 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x08C55F, "79 2F 4D 1B 8A 2A 2F 00 6D 45 0C 28 F5 04")
         self.assert_source(0x08C588, "8A 2A 2F 00 94 45 97 F4 01 A0 45 42 97 96 00 A0 45 42")
 
+    def test_shield_pickup_adds_at_byte_width_to_the_existing_request(self):
+        self.assert_source(0x7FB88D,
+            "20 04 C5 20 47 CB B9 00 00 8D B7 16 C2 20 20 20 C7 A8 E2 20 "
+            "B9 00 00 18 6D B7 16 99 00 00 4C A9 CA")
+        self.assert_source(0x08C5D1, "41 DF 45 0B 08 A1 EB 1B 1E A1 9D 01 00 0F")
+
+    def test_selected_score_award_saturates_only_the_low_word_of_retained_score(self):
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x9D].rust_name, "SaturatingAddSelectedAuxWord")
+        self.assert_source(0x7FA9F3,
+            "5A AC 1F CF 48 C2 20 B9 2B 00 A8 E2 20 68 C2 20 20 20 C7 18 "
+            "79 33 6C 90 03 A9 FF FF 99 33 6C 7A E2 20 4C BE CA")
+        # Initial copy uses overlapping words, preserving three score bytes.
+        self.assert_source(0x0682A4, "C2 20 AD 16 D8 99 33 6C AD 17 D8 99 34 6C E2 20")
+        self.assert_source(0x03C6F7, "C2 20 B9 33 6C 8D 16 D8 E2 20 B9 35 6C 8D 18 D8")
+        # Results aggregate the published low and high components with carry.
+        self.assert_source(0x0DF792, "AD 16 D8 18 6D B1 1B 8D AD 1B AD 18 D8 6D B3 1B 8D AF 1B")
+        # The display consumes the low word as five decimal digits.
+        self.assert_source(0x049546, "AD 16 D8 85 04 A9 70 32 85 A5 A9 05 00 85 08 E2 20 20 79 9D")
+        self.assert_source(0x049D85, "C2 20 A5 04 DA 5A A2 0A 00 22 BD 6D 7F")
+
     def test_selected_equipment_pickup_branch_and_weapon_upgrade_are_source_ordered(self):
         self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0xBB].rust_name, "AdvanceSelectedAuxiliaryOrGotoWhenSettled")
         self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0x11B].rust_name, "IncrementSelectedAuxiliaryStage")

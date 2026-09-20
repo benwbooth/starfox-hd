@@ -61,6 +61,7 @@ pub struct PathWorld<'a> {
     pub selected_auxiliary: Option<&'a mut SelectedAuxiliaryState>,
     /// Fresh path-selected equipment, not the published active-pilot snapshot.
     pub selected_equipment: Option<&'a mut super::path_equipment::SelectedEquipment>,
+    pub selected_score: Option<&'a mut super::path_score::PlayerScore>,
     /// Fresh initializer-mode observations. Missing inputs fault only if
     /// this invocation reaches a spawn; they are not guessed from pause state.
     pub spawn_defaults: Option<super::ObjectSpawnDefaults>,
@@ -373,6 +374,10 @@ pub enum Statement {
         amount: ByteOperand,
         next: PathCursor,
     },
+    AccumulateShieldRecovery {
+        amount: ByteOperand,
+        next: PathCursor,
+    },
     ImportActionGate {
         destination: super::path_fields::ByteField,
         next: PathCursor,
@@ -513,6 +518,10 @@ pub enum Statement {
         next: PathCursor,
     },
     UpgradeSelectedWeapon {
+        next: PathCursor,
+    },
+    AwardSelectedScore {
+        points: u16,
         next: PathCursor,
     },
     Message {
@@ -668,6 +677,7 @@ pub enum ProgramError {
     Relationship(super::path_relationships::RelationshipError),
     MissingSelectedAuxiliary,
     MissingSelectedEquipment,
+    MissingSelectedScore,
     Runtime(PathRuntimeError),
     MissingStatement(PathCursor),
     TooManyPaths,
@@ -796,6 +806,14 @@ impl PathRuntime {
                     } else {
                         next
                     });
+                    Ok(ControlStep::Continue)
+                }
+                Statement::AccumulateShieldRecovery { amount, next } => {
+                    let amount = amount.read(actor);
+                    let request = world.shield_recovery.as_deref_mut()
+                        .ok_or(ProgramError::MissingShieldRecovery)?;
+                    request.amount = request.amount.wrapping_add(amount);
+                    objects.get_mut(owner).expect("validated recovery owner").base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::RequestShieldRecovery { amount, next } => {
@@ -1416,6 +1434,13 @@ impl PathRuntime {
                         Some(if full { already_full } else { next });
                     Ok(ControlStep::Continue)
                 }
+                Statement::AwardSelectedScore { points, next } => {
+                    let score = world.selected_score.as_deref_mut()
+                        .ok_or(ProgramError::MissingSelectedScore)?;
+                    score.award_path_points(points);
+                    objects.get_mut(owner).expect("validated score owner").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::UpgradeSelectedWeapon { next } => {
                     let state = world.selected_equipment.as_deref_mut()
                         .ok_or(ProgramError::MissingSelectedEquipment)?;
@@ -1646,6 +1671,7 @@ mod tests {
             countdown: None,
             selected_auxiliary: None,
             selected_equipment: None,
+            selected_score: None,
             spawn_defaults: None,
             random,
             animation_clock: 0,
@@ -8633,6 +8659,7 @@ mod tests {
                 // The initial four-count loop does not read this record.
                 selected_auxiliary: (visit >= 3).then_some(&mut auxiliary),
                 selected_equipment: None,
+                selected_score: None,
                 random: &mut random,
                 animation_clock: 61,
             };
@@ -8718,6 +8745,101 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn shield_pickup_accumulation_wraps_live_request_and_defers_consumption() {
+        use super::super::player_hit_control::{PlayerHitControl, ShieldRecoveryRequest};
+        let catalog = PathCatalog::new(vec![vec![Statement::AccumulateShieldRecovery {
+            amount: ByteOperand::Actor(ByteField::AttackPower), next: cursor(0, 1),
+        }]]).unwrap();
+        for pending in 0..=u8::MAX {
+            for amount in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let inverted = pending % 2 != 0;
+                runtime.branch.invert_next = inverted;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.attack_power = amount;
+                actor.base.wait_timer = pending;
+                let before = objects.clone();
+                let before_random = random;
+                let mut request = ShieldRecoveryRequest { amount: pending };
+                let mut inputs = world(&mut random);
+                inputs.shield_recovery = Some(&mut request);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                assert_eq!(inputs.shield_recovery.as_deref().unwrap().amount, pending);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
+                let total = ((u16::from(pending) + u16::from(amount)) % 256) as u8;
+                assert_eq!(request.amount, total);
+                let mut expected = before;
+                expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+                assert_eq!(objects, expected);
+                assert_eq!(random, before_random);
+                assert_eq!(runtime.branch.invert_next, inverted);
+                // The separate player service consumes this exact shared
+                // request. A wrapped-to-zero total requests no recovery.
+                let mut player = PlayerHitControl::default();
+                player.reserve_shield = 17;
+                assert_eq!(request.consume(&mut player, 100), total != 0);
+                assert_eq!(request.amount, 0);
+                assert_eq!(player.reserve_shield, if total == 0 { 17 } else { ((u16::from(total) + 17) % 256).min(100) as u8 });
+            }
+        }
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let before = objects.clone();
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingShieldRecovery));
+        assert_eq!(objects, before);
+    }
+
+    #[test]
+    fn selected_score_awards_preserve_high_byte_actor_and_control_state() {
+        use super::super::path_score::PlayerScore;
+        for points in [0, 1, 100, 255, 256, 32768, 65535] {
+            let catalog = PathCatalog::new(vec![vec![Statement::AwardSelectedScore { points, next: cursor(0, 0) }]]).unwrap();
+            for value in 0..=u16::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let invert = value % 2 != 0;
+                runtime.branch.invert_next = invert;
+                objects.get_mut(owner).unwrap().base.wait_timer = value as u8;
+                let original_objects = objects.clone();
+                let original_random = random;
+                let high = (value >> 8) as u8;
+                let mut score = PlayerScore::from_parts(value, high);
+                let original_score = score;
+                let mut inputs = world(&mut random);
+                inputs.selected_score = Some(&mut score);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                assert_eq!(inputs.selected_score.as_deref(), Some(&original_score));
+                for visits in 1..=2 {
+                    assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 1 }));
+                    let sum = u32::from(value) + u32::from(points) * visits;
+                    let expected_low = if sum > 65535 { 65535 } else { sum };
+                    assert_eq!(inputs.selected_score.as_deref().unwrap().points(), u32::from(high) * 65536 + expected_low);
+                    assert_eq!(objects, original_objects);
+                    assert_eq!(inputs.random, &original_random);
+                    assert_eq!(runtime.branch.invert_next, invert);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn selected_score_missing_input_does_not_consume_any_state() {
+        let catalog = PathCatalog::new(vec![vec![Statement::AwardSelectedScore { points: 100, next: cursor(0, 1) }]]).unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        runtime.branch.invert_next = true;
+        let original_objects = objects.clone();
+        let original_random = random;
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingSelectedScore));
+        assert_eq!(objects, original_objects);
+        assert_eq!(random, original_random);
+        assert!(runtime.branch.invert_next);
     }
 
     #[test]
@@ -12734,6 +12856,7 @@ mod tests {
                 active_node_flags: None,
                 selected_auxiliary: None,
                 selected_equipment: None,
+                selected_score: None,
                 countdown: None,
                 spawn_defaults: None,
                 random: &mut random,
@@ -12861,6 +12984,7 @@ mod tests {
                         active_node_flags: None,
                         selected_auxiliary: None,
                         selected_equipment: None,
+                        selected_score: None,
                         countdown: None,
                         spawn_defaults: None,
                         random: &mut random,

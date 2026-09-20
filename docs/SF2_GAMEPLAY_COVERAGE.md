@@ -2140,3 +2140,29 @@ Coverage remains **64 complete roots / 1,061 source commands / 1,052 native
 statements**. The five pickup graphs now reach the separate missing reward
 addition; their complete source closures and scheduler integration are not
 claimed here.
+
+### Selected-player score rewards and accumulated shield pickups
+
+The score reward (`$7F:A9F3`) now accepts the authored unsigned word and
+updates a borrowed `PlayerScore`. Static initialization and publication
+preserve three bytes, but this particular reward saturates only the low
+word and never carries into or overwrites the high byte. The results
+aggregator and decimal display provide independent score consumers. The
+native mission summary is not substituted for this selected-player record.
+
+The shield pickup's shared-byte addition (`$7F:B88D`, authored `$45D7`) now
+adds its live actor operand to the existing `ShieldRecoveryRequest`. This
+is wrapping byte addition, not assignment, saturation or immediate recovery.
+The existing separate player service consumes the accumulated request;
+wrapping to zero causes no recovery effect. Other unreviewed external-byte
+destinations remain rejected rather than opening a generic address API.
+
+Validation passes 137 lowerer tests, 301 source-static path tests and 335
+native path tests in debug/release, generated freshness, architecture/static
+audits and the app build. Tests cover every low score, every reward word via
+boundary cases, every retained high byte, repeat awards, and every pair of
+pending/incoming shield-recovery bytes, including later consumption. Missing
+records, zero budget, unrelated actor state, wait, IFNOT and RNG remain
+covered. Complete-root counts remain **64 / 1,061 / 1,052**; the pickup
+closures now expose additional shared/actor fields rather than these reward
+helpers. This is static source porting, not gameplay-equivalence validation.

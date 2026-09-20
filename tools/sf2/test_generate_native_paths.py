@@ -1876,6 +1876,22 @@ class NativePathGenerationTests(unittest.TestCase):
                 with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
                     self.lower_record(record)
 
+    def test_shield_pickup_adds_to_the_existing_recovery_request_with_a_byte_operand(self):
+        self.assertEqual(self.lower_record("eb 1b 1e a1")[0],
+            "Statement::AccumulateShieldRecovery { amount: ByteOperand::Actor(ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low }), next: cursor(0, 1) }")
+        for address in [0x1E1A, 0x1E1C, 0xD78C, 0xFFFF]:
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared byte addition"):
+                self.lower_record(f"eb {address & 255:02x} {address >> 8:02x} a1")
+        with self.assertRaisesRegex(UnsupportedPath, "unported byte operand"):
+            self.lower_record("eb 1b 1e ff")
+        self.assertEqual(PathExtractor(self.rom).decode_command(PathAddress(0x45D7)).raw_hex, "eb1b1ea1")
+
+    def test_selected_score_award_is_a_literal_unsigned_word(self):
+        for value in [0, 1, 100, 255, 256, 32767, 32768, 65534, 65535]:
+            self.assertEqual(self.lower_record(f"9d {value & 255:02x} {value >> 8:02x}")[0],
+                f"Statement::AwardSelectedScore {{ points: {value}, next: cursor(0, 1) }}")
+        self.assertEqual(PathExtractor(self.rom).decode_command(PathAddress(0x45BE)).raw_hex, "9d6400")
+
     def test_selected_equipment_collection_and_upgrade_preserve_branch_edges_and_widths(self):
         for amount in range(256):
             for target, expected in [("36 f5", 0), ("3a f5", 1)]:

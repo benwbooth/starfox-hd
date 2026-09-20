@@ -757,6 +757,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             amount, low, high = parameters(3)
             taken, next_ = branch_cursors(low | (high << 8))
             statement = f"Statement::CollectSelectedConsumables {{ amount: {amount}, already_full: {taken}, next: {next_} }}"
+        elif name == "SaturatingAddSelectedAuxWord":
+            low, high = parameters(2)
+            statement = f"Statement::AwardSelectedScore {{ points: {low | (high << 8)}, next: {next_cursor()} }}"
         elif name == "IncrementSelectedAuxiliaryStage":
             parameters(0)
             statement = f"Statement::UpgradeSelectedWeapon {{ next: {next_cursor()} }}"
@@ -1041,6 +1044,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if address not in axes:
                 raise UnsupportedPath(f"unported shared word {address:04X} at {command.address.label()}")
             statement = f"Statement::ImportPlayerMotion {{ axis: Axis::{axes[address]}, destination: {word_field(variable)}, next: {next_cursor()} }}"
+        elif name == "AddVariableByteToExternalByte":
+            low, high, variable = parameters(3)
+            address = low | (high << 8)
+            if address != 0x1E1B:
+                raise UnsupportedPath(f"unported shared byte addition {address:04X} at {command.address.label()}")
+            statement = f"Statement::AccumulateShieldRecovery {{ amount: ByteOperand::Actor({byte_field(variable)}), next: {next_cursor()} }}"
         elif name in ("ImportByteAbsolute", "ImportByteIndexed", "ExportByteAbsolute",
                        "ExportByteIndexed", "StoreExternalByte", "IncrementExternalByte",
                        "DecrementExternalByte"):
