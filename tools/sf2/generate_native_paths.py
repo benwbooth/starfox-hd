@@ -1575,6 +1575,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             kind = "Word" if wide else "Byte"
             condition = f"ActorCondition::Between{kind} {{ value: {kind}Operand::Actor({field}), lower: {kind}Operand::Literal({lower}), upper: {kind}Operand::Literal({upper}) }}"
             statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("ChasePlayerTowardObject", "SnapPlayerToObject"):
+            parameters(0)
+            statement = f"Statement::MoveFixedView {{ snap: {str(name == 'SnapPlayerToObject').lower()}, next: {next_cursor()} }}"
         elif name in ("EnablePlayerAuxMode", "DisablePlayerAuxMode"):
             parameters(0)
             statement = f"Statement::ViewTransition {{ enabled: {str(name == 'EnablePlayerAuxMode').lower()}, next: {next_cursor()} }}"

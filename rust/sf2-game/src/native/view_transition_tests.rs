@@ -124,6 +124,7 @@ fn snapshot_restores_base_fields_but_preserves_live_extensions_and_allocations()
         z: -3,
     };
     original.base.pitch = Angle::from_units(29);
+    original.base.view_rear_distance = -12345;
     original.base.yaw = Angle::from_units(193);
     original.base.roll = Angle::from_units(137);
     original.base.child_number = 17;

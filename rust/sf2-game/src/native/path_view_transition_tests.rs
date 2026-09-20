@@ -11,6 +11,132 @@ use super::super::{
 use super::tests::{setup, world};
 use super::*;
 
+#[test]
+fn fixed_view_motion_preserves_aliases_targets_identity_and_double_depth_chase() {
+    use super::super::Angle;
+    // Independent scalar model: wrapping subtraction, signed truncation, min step.
+    let chase = |current: u16, target: u16| {
+        let difference = i32::from(target.wrapping_sub(current) as i16);
+        let step = difference.signum() * (difference.abs() / 8).max(1);
+        current.wrapping_add(step as u16)
+    };
+    for snap in [false, true] {
+        for same_actor in [false, true] {
+            for seed in [0, 1, 7, 8, 9, 127, 128, 255, 256, 32767, 32768, 65535u16] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let view = if same_actor {
+                    owner
+                } else {
+                    actor(&mut objects)
+                };
+                let other = actor(&mut objects);
+                let value = objects.get_mut(owner).unwrap();
+                value.base.position = Vector3 {
+                    x: -32768,
+                    y: 32767,
+                    z: 1000,
+                };
+                value.base.pitch = Angle::from_units(seed as u8);
+                value.base.yaw = Angle::from_units((seed as u8).wrapping_add(91));
+                value.base.roll = Angle::from_units((seed as u8).wrapping_add(203));
+                value.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+                let value = objects.get_mut(view).unwrap();
+                if !same_actor {
+                    value.base.position = Vector3 {
+                        x: 32767,
+                        y: -32768,
+                        z: -1000,
+                    };
+                    value.base.pitch = Angle::from_units(17);
+                    value.base.yaw = Angle::from_units(33);
+                    value.base.roll = Angle::from_units(129);
+                }
+                value.base.child_number = (seed >> 8) as u8;
+                value.extension.path_state.repeat_counter = seed as u8;
+                value.base.wait_timer = (seed as u8).wrapping_add(7);
+                value.base.view_rear_distance = seed as i16;
+                value.base.first_child = Some(other);
+                value.base.next_sibling = Some(owner);
+                let source = objects.get(owner).unwrap().clone();
+                let before = objects.get(view).unwrap().clone();
+                let mut expected = objects.clone();
+                let target = expected.get_mut(view).unwrap();
+                let approach = |a: u16, b: u16| if snap { b } else { chase(a, b) };
+                target.base.position.x =
+                    approach(before.base.position.x as u16, source.base.position.x as u16) as i16;
+                target.base.position.y =
+                    approach(before.base.position.y as u16, source.base.position.y as u16) as i16;
+                target.base.position.z = approach(
+                    approach(before.base.position.z as u16, source.base.position.z as u16),
+                    source.base.position.z as u16,
+                ) as i16;
+                target.base.view_rear_distance = approach(seed, 0) as i16;
+                let angles = [source.base.pitch, source.base.yaw, source.base.roll]
+                    .map(|angle| (u16::from(angle.units()) * 256).wrapping_neg());
+                let pitch = approach(
+                    u16::from(before.base.pitch.units())
+                        + u16::from(before.base.child_number) * 256,
+                    angles[0],
+                );
+                let yaw = approach(
+                    u16::from(before.base.yaw.units())
+                        + u16::from(before.extension.path_state.repeat_counter) * 256,
+                    angles[1],
+                );
+                let roll = approach(
+                    u16::from(before.base.roll.units()) + u16::from(before.base.wait_timer) * 256,
+                    angles[2],
+                );
+                target.base.pitch = Angle::from_units(pitch as u8);
+                target.base.child_number = (pitch >> 8) as u8;
+                target.base.yaw = Angle::from_units(yaw as u8);
+                target.extension.path_state.repeat_counter = (yaw >> 8) as u8;
+                target.base.roll = Angle::from_units(roll as u8);
+                target.base.wait_timer = (roll >> 8) as u8;
+                expected.get_mut(owner).unwrap().base.path = Some(at(1));
+                let catalog =
+                    PathCatalog::new(vec![vec![Statement::MoveFixedView { snap, next: at(1) }]])
+                        .unwrap();
+                let random_before = random;
+                runtime.branch.invert_next = true;
+                let resources_before = runtime.resources.clone();
+                let mut inputs = world(&mut random);
+                inputs.fixed_players = [Some(view), Some(other)];
+                inputs.primary_player = Some(other);
+                inputs.selected = Some(other);
+                expect_advance(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    at(1),
+                    1,
+                );
+                assert_eq!(
+                    objects, expected,
+                    "snap={snap}, alias={same_actor}, seed={seed}"
+                );
+                assert!(runtime.branch.invert_next);
+                assert_eq!(runtime.resources, resources_before);
+                assert_eq!(random, random_before);
+            }
+        }
+    }
+}
+
+#[test]
+fn missing_fixed_view_does_not_partially_move_owner_or_advance_path() {
+    for snap in [false, true] {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let before = objects.clone();
+        let catalog =
+            PathCatalog::new(vec![vec![Statement::MoveFixedView { snap, next: at(1) }]]).unwrap();
+        let mut inputs = world(&mut random);
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingFixedView)
+        );
+        assert_eq!(objects, before);
+    }
+}
+
 fn at(command_index: u16) -> PathCursor {
     PathCursor {
         path: PathId::from_catalog_index(0),

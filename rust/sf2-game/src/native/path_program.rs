@@ -613,6 +613,7 @@ impl ActorCondition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
     ViewTransition { enabled: bool, next: PathCursor },
+    MoveFixedView { snap: bool, next: PathCursor },
     /// This direct source branch preserves pending IFNOT state.
     IfProtectionOverride { taken: PathCursor, next: PathCursor },
     EncounterHandoff {
@@ -1704,6 +1705,8 @@ impl PathRuntime {
                 }
                 Statement::ViewTransition { enabled, next } =>
                     Ok(self.execute_view_transition(catalog, objects, owner, world, enabled, next)?),
+                Statement::MoveFixedView { snap, next } =>
+                    Ok(self.execute_fixed_view_motion(objects, owner, world, snap, next)?),
                 Statement::IfProtectionOverride { taken, next } => {
                     let enabled = world.protection.as_ref()
                         .ok_or(ProgramError::MissingProtection)?.rules.minimum_override;

@@ -21,6 +21,23 @@ class ViewTransitionStaticTests(unittest.TestCase):
             'b5312908c908f0045cdba603b52609089526b52109019521a900952d'
             'bbd0d3fa7a286b')
 
+    def test_chase_targets_fixed_view_with_double_depth_then_distance_and_word_angles(self):
+        self.assertEqual(PathExtractor(self.rom).handler_entry(0x110).handler_address, 0x7FB376)
+        self.assert_source(0x7FB376,
+            'a03f03c220b90c00853ab50c22a3257f990c00e220c220b90e00853ab50e22a3257f990e00e220c2'
+            '20b91000853ab51022a3257f991000e220c220b91000853ab51022a3257f991000e220c220b92900'
+            '853aa9000022a3257f992900e220c220b51229ff00eb49ffff1a8db116b51429ff00eb49ffff1a8d'
+            'b316b51629ff00eb49ffff1a8db516e220c220b91200853aadb11622a3257f991200e220c220b914'
+            '00853aadb31622a3257f991400e220c220b91600853aadb51622a3257f991600e2204ce8ca')
+
+    def test_snap_computes_all_negated_coarse_angle_targets_before_any_word_angle_store(self):
+        self.assertEqual(PathExtractor(self.rom).handler_entry(0x111).handler_address, 0x7FB43B)
+        self.assert_source(0x7FB43B,
+            'a03f03c220b50c990c00e220c220b50e990e00e220c220b510991000e220c220b510991000e220c2'
+            '20a90000992900e220c220b51229ff00eb49ffff1a8db116b51429ff00eb49ffff1a8db316b51629'
+            'ff00eb49ffff1a8db516e220c220adb116991200e220c220adb316991400e220c220adb516991600'
+            'e2204ce8ca')
+
     def test_save_runs_cleanup_before_copying_exactly_sixty_three_base_bytes(self):
         extractor = PathExtractor(self.rom)
         self.assertEqual(extractor.handler_entry(0xC2).handler_address, 0x7FB295)

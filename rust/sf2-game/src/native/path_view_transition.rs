@@ -8,7 +8,86 @@ use super::*;
 const BEGIN_CUE: u8 = 248;
 const END_CUE: u8 = 247;
 
+/// The view's three word angles share their high bytes with ordinary actor
+/// fields. Keep these named aliases live, not a second orientation snapshot.
+fn view_angles(view: &Object) -> [u16; 3] {
+    [
+        u16::from_le_bytes([view.base.pitch.units(), view.base.child_number]),
+        u16::from_le_bytes([
+            view.base.yaw.units(),
+            view.extension.path_state.repeat_counter,
+        ]),
+        u16::from_le_bytes([view.base.roll.units(), view.base.wait_timer]),
+    ]
+}
+
+fn set_view_angles(view: &mut Object, angles: [u16; 3]) {
+    use super::super::Angle;
+    let [pitch, child_number] = angles[0].to_le_bytes();
+    let [yaw, repeat_counter] = angles[1].to_le_bytes();
+    let [roll, wait_timer] = angles[2].to_le_bytes();
+    view.base.pitch = Angle::from_units(pitch);
+    view.base.child_number = child_number;
+    view.base.yaw = Angle::from_units(yaw);
+    view.extension.path_state.repeat_counter = repeat_counter;
+    view.base.roll = Angle::from_units(roll);
+    view.base.wait_timer = wait_timer;
+}
+
 impl PathRuntime {
+    /// Source $7F:B376/$7F:B43B: fixed primary view, not selected/live player.
+    pub(super) fn execute_fixed_view_motion(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        world: &PathWorld<'_>,
+        snap: bool,
+        next: PathCursor,
+    ) -> Result<ControlStep, ProgramError> {
+        use super::super::path_fields::chase_word;
+        let source = objects
+            .get(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        let target_position = source.base.position;
+        // All targets are calculated before angle stores, including owner=view.
+        let target_angles = [source.base.pitch, source.base.yaw, source.base.roll]
+            .map(|angle| u16::from_le_bytes([0, angle.units()]).wrapping_neg());
+        let view_id = world.fixed_players[0].ok_or(ProgramError::MissingFixedView)?;
+        let view = objects
+            .get_mut(view_id)
+            .ok_or(PathRuntimeError::MissingActor(view_id))?;
+        let approach = |current: i16, target: i16| {
+            if snap {
+                target
+            } else {
+                chase_word(current as u16, target as u16) as i16
+            }
+        };
+        view.base.position.x = approach(view.base.position.x, target_position.x);
+        view.base.position.y = approach(view.base.position.y, target_position.y);
+        view.base.position.z = approach(view.base.position.z, target_position.z);
+        // The original deliberately performs the Z chase twice per invocation.
+        view.base.position.z = approach(view.base.position.z, target_position.z);
+        view.base.view_rear_distance = approach(view.base.view_rear_distance, 0);
+        let current_angles = view_angles(view);
+        set_view_angles(
+            view,
+            std::array::from_fn(|axis| {
+                if snap {
+                    target_angles[axis]
+                } else {
+                    chase_word(current_angles[axis], target_angles[axis])
+                }
+            }),
+        );
+        objects
+            .get_mut(owner)
+            .expect("validated view-motion owner")
+            .base
+            .path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     pub(super) fn execute_view_transition(
         &mut self,
         catalog: &PathCatalog,

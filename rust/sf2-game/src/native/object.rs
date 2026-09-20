@@ -993,6 +993,9 @@ pub struct ObjectBase {
     pub explosion_timer: u8,
     pub general_timer: u8,
     pub position: Vector3,
+    /// Fixed-view rear distance (source view base 29). Ordinary actor links
+    /// have separate typed identities; this scalar is never a pointer value.
+    pub view_rear_distance: i16,
     pub pitch: Angle,
     pub yaw: Angle,
     pub roll: Angle,
@@ -1106,6 +1109,7 @@ impl Object {
                 explosion_timer: 0,
                 general_timer: 0,
                 position: Vector3::default(),
+                view_rear_distance: 0,
                 pitch: Angle::ZERO,
                 yaw: Angle::ZERO,
                 roll: Angle::ZERO,

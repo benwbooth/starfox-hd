@@ -3961,3 +3961,25 @@ exact regeneration, architecture guard, static inventory and app build pass.
 The catalog remains 140 roots plus five helpers. The shared exit's next
 unsupported command is fixed-view chase ($7F:B376), whose word-sized camera
 angles and view-distance interpretation still need explicit typed handling.
+
+### Fixed-view chase and snap
+
+The extended chase/snap commands now lower to a native fixed-primary-view
+action. The chase uses wrapped signed word subtraction, one-eighth progress
+rounded toward zero and a minimum step of one, including the source's two
+successive depth updates. Rear distance approaches zero. Each target angle
+is the negated actor byte scaled to a full-turn word, calculated before any
+angle store. Fine-angle high bytes remain live aliases of child number,
+repeat counter and wait timer; no duplicate orientation state was added.
+The view-specific rear-distance scalar belongs to the base snapshot, while
+ordinary typed child/sibling identities are preserved, never reinterpreted
+as numeric distances.
+
+Tests cover both commands, self-aliasing, wrapped extremes, fixed versus
+selected/live player identities, missing-view atomicity, all modified and
+unmodified actor fields, and unchanged branch/random/resource state. Complete
+handler-byte fixtures bind the ordering to the source. All 1,018 native unit
+tests and two integration tests pass in debug and release; 198 lowerer tests,
+439 path-static tests, architecture guard, exact regeneration, static audit
+and app build pass. Catalog totals remain 140 roots and five helpers; this
+does not yet close the shared exit or shipping scheduler integration.
