@@ -515,6 +515,11 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(self.lower_record(record)[0],
                 f"Statement::Relationship {{ command: RelationshipCommand::{operation}, next: cursor(0, 1) }}")
 
+    def test_selected_mode_class_branches_use_reviewed_high_nibble_classes(self):
+        for opcode, class_ in [("bc", "One"), ("bd", "Two"), ("be", "Three")]:
+            self.assertEqual(self.lower_record(f"{opcode} 36 f5")[0],
+                f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::ModeClass(super::path_conditions::AuxiliaryModeClass::{class_}), taken: cursor(0, 0), next: cursor(0, 1) }}")
+
     def test_indexed_add_and_advance_preserves_width_and_all_literal_periods(self):
         values = banked_byte_values(self.rom, 0x00B31B)
         for opcode, destination, kind, field in [

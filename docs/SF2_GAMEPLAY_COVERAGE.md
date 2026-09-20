@@ -943,3 +943,11 @@ Exhaustive period/index tests, whole-object alias checks and immediate-dispatch
 checks pass alongside 69 lowerer tests, 206 static path tests, 194 native path
 tests in debug/release, architecture/dependency audits and the app build.
 This adds command coverage; complete-root coverage is unchanged.
+
+The three selected auxiliary mode-class branches now use the live mode's high
+nibble. They ignore its low nibble and the separate action flags, and preserve
+a pending IFNOT instead of treating it as an ordinary equality predicate.
+All mode/action-byte combinations, missing observations, cursor selection and
+actor/RNG preservation are tested. Verification passes 70 lowerer tests, 207
+static path tests, 195 native path tests in debug/release, architecture and
+dependency audits, and the app build. Complete-root coverage remains 14/161.

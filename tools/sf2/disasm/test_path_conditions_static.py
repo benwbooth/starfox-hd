@@ -22,6 +22,12 @@ class PathConditionsStaticTests(unittest.TestCase):
         self.assert_source(0x7FA320, "A9 01 8D 72 B2 4C E8 CA")
         self.assert_source(0x7F8F4D, "AD 72 B2 F0 0D 9C 72 B2 28 D0 04 5C 94 CA 7F 4C 0B CB")
 
+    def test_selected_mode_classes_compare_high_nibble_without_reading_or_clearing_ifnot(self):
+        for address, expected, target in [(0x7FB17F, 0x20, "9C"), (0x7FB19F, 0x10, "BC"), (0x7FB1BF, 0x30, "DC")]:
+            self.assert_source(address,
+                f"AC 1F CF DA BB 7A 5A B4 2B B9 A0 6A 7A DA BB 7A 29 F0 C9 {expected:02X} "
+                f"D0 04 5C {target} B1 7F 4C BE CA 4C F3 CA")
+
     def test_word_equality_reads_full_literal_and_consumes_ifnot_before_six_byte_continuation(self):
         self.assert_source(0x7F8F69, "20 BC C4 20 47 CB C2 20 20 4C C7 D9 00 00 E2 20 08 AD 72 B2 F0 0D 9C 72 B2 28 D0 04 5C 83 CA 7F 4C 17 CB 28 F0 04 5C 83 CA 7F 4C 17 CB")
 

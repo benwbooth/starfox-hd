@@ -116,12 +116,35 @@ pub struct BranchState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuxiliaryModeClass {
+    One,
+    Two,
+    Three,
+}
+
+impl AuxiliaryModeClass {
+    fn matches(self, mode: u8) -> bool {
+        const CLASS_MASK: u8 = 0xF0;
+        let expected = match self {
+            Self::One => 0x10,
+            Self::Two => 0x20,
+            Self::Three => 0x30,
+        };
+        mode & CLASS_MASK == expected
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Predicate {
     /// Both bytes belong to the selected actor's auxiliary record. The
     /// current path actor contributes neither byte (`$7F:B9BC..B9F3`).
     SelectedAuxiliaryContinuation {
         mode: u8,
         action_flags: u8,
+    },
+    SelectedAuxiliaryModeClass {
+        mode: u8,
+        class: AuxiliaryModeClass,
     },
     NegativeSelectedPlane {
         position: Vector3,
@@ -264,6 +287,7 @@ impl BranchState {
             }
             GroundThreshold { height, offset } => height.wrapping_add(offset) >= 0,
             // These predicates deliberately leave a pending IFNOT untouched.
+            SelectedAuxiliaryModeClass { mode, class } => return class.matches(mode),
             SelectedAuxiliaryContinuation { mode, action_flags } => {
                 return selected_auxiliary_continuation(mode, action_flags);
             }

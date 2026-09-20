@@ -57,6 +57,7 @@ pub struct PrimaryMotionInput {
 pub enum SelectedAuxiliaryCondition {
     Continuation,
     ActionBit40,
+    ModeClass(super::path_conditions::AuxiliaryModeClass),
 }
 
 impl SelectedAuxiliaryCondition {
@@ -69,6 +70,10 @@ impl SelectedAuxiliaryCondition {
             Self::ActionBit40 => Predicate::AnyByteBitsSet {
                 value: input.action_flags,
                 mask: 0x40,
+            },
+            Self::ModeClass(class) => Predicate::SelectedAuxiliaryModeClass {
+                mode: input.mode,
+                class,
             },
         }
     }
@@ -3119,6 +3124,53 @@ mod tests {
             );
         }
         runtime.release_actor_programs(&mut objects, owner).unwrap();
+    }
+
+    #[test]
+    fn auxiliary_class_branches_sample_high_mode_nibble_and_preserve_ifnot() {
+        use super::super::path_conditions::AuxiliaryModeClass;
+        for (class, expected_class) in [
+            (AuxiliaryModeClass::One, 1),
+            (AuxiliaryModeClass::Two, 2),
+            (AuxiliaryModeClass::Three, 3),
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            let initial_random = random;
+            let before = objects.get(owner).unwrap().clone();
+            let catalog = PathCatalog::new(vec![vec![Statement::SelectedAuxiliaryBranch {
+                condition: SelectedAuxiliaryCondition::ModeClass(class),
+                taken: cursor(0, 2),
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingSelectedAuxiliary)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+            for mode in 0..=u8::MAX {
+                for action_flags in 0..=u8::MAX {
+                    *objects.get_mut(owner).unwrap() = before.clone();
+                    let mut inputs = world(&mut random);
+                    inputs.selected_auxiliary =
+                        Some(AuxiliaryContinuationInput { mode, action_flags });
+                    let destination = cursor(0, if mode / 16 == expected_class { 2 } else { 1 });
+                    assert_eq!(
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: destination,
+                            executed: 1
+                        })
+                    );
+                    let mut expected = before.clone();
+                    expected.base.path = Some(destination);
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(inputs.random, &initial_random);
+                }
+            }
+        }
     }
 
     #[test]
