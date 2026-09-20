@@ -1,9 +1,17 @@
-//! Random path mutations borrow the world's shared generator. Word draws
+//! Random path operations borrow the world's shared generator. Word draws
 //! consume the first byte as HIGH and the next as LOW, even for a zero mask.
 //! Centering subtracts a logical half-mask; destination arithmetic wraps.
 
 use super::path_fields::{ByteField, WordField};
 use super::{Object, RandomState};
+
+const BRANCH_EXCLUSIVE_CUTOFF: u8 = 127;
+
+/// Source RANDOM GOTO takes 127 of the 256 byte outcomes, not an even half.
+/// It always consumes one shared draw, even when both successors coincide.
+pub fn take_branch(random: &mut RandomState) -> bool {
+    random.next_byte() < BRANCH_EXCLUSIVE_CUTOFF
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RandomMutation {
@@ -44,6 +52,46 @@ mod tests {
 
     fn actor() -> Object {
         Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath)
+    }
+
+    #[test]
+    fn random_branch_preserves_the_strict_cutoff_and_consumes_exactly_one_draw() {
+        let mut seen = [false; 256];
+        for first in [0, 1] {
+            for last in 0..=u8::MAX {
+                let mut random = RandomState::new([first, 0, 0, last]);
+                let mut expected = random;
+                let sample = expected.next_byte();
+                seen[usize::from(sample)] = true;
+                assert_eq!(take_branch(&mut random), sample <= 126);
+                assert_eq!(random, expected);
+            }
+        }
+        assert!(seen.into_iter().all(|value| value));
+    }
+
+    #[test]
+    fn shared_random_draw_matches_widened_subtraction_across_borrow_boundaries() {
+        for first in 0..=u8::MAX {
+            for second in 0..=u8::MAX {
+                for third in [0, 1, 127, 128, 254, 255] {
+                    for fourth in [0, 1, 127, 128, 254, 255] {
+                        let mut expected = [first, second, third, fourth];
+                        let mut value = i16::from(first);
+                        let mut borrow = 1;
+                        for index in [1, 2, 3, 0] {
+                            let difference = value - i16::from(expected[index]) - borrow;
+                            borrow = i16::from(difference < 0);
+                            value = difference.rem_euclid(256);
+                            expected[index] = value as u8;
+                        }
+                        let mut random = RandomState::new([first, second, third, fourth]);
+                        assert_eq!(random.next_byte(), expected[0]);
+                        assert_eq!(random.bytes(), expected);
+                    }
+                }
+            }
+        }
     }
 
     #[test]

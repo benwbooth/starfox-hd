@@ -254,6 +254,10 @@ pub enum Statement {
         mutation: super::path_random::RandomMutation,
         next: PathCursor,
     },
+    RandomBranch {
+        taken: PathCursor,
+        next: PathCursor,
+    },
     DisableCollision {
         next: PathCursor,
     },
@@ -732,6 +736,15 @@ impl PathRuntime {
                 Statement::Random { mutation, next } => {
                     self.execute_random(objects, owner, world.random, mutation, next)
                 }
+                Statement::RandomBranch { taken, next } => {
+                    let take = super::path_random::take_branch(world.random);
+                    objects
+                        .get_mut(owner)
+                        .expect("validated random branch owner")
+                        .base
+                        .path = Some(if take { taken } else { next });
+                    Ok(ControlStep::Continue)
+                }
                 Statement::DisableCollision { next } => {
                     self.execute_disable_collision(objects, owner, next)
                 }
@@ -1207,6 +1220,66 @@ mod tests {
             assert_eq!(selection, expected);
             assert!(runtime.branch.invert_next);
             assert_eq!(random, original_random);
+        }
+    }
+
+    #[test]
+    fn random_branch_dispatch_is_immediate_and_keeps_inversion_and_wait_state() {
+        for same_destination in [false, true] {
+            let catalog = PathCatalog::new(vec![vec![Statement::RandomBranch {
+                taken: cursor(0, 2),
+                next: cursor(0, if same_destination { 2 } else { 1 }),
+            }]])
+            .unwrap();
+            let (mut runtime, mut objects, owner, _) = setup();
+            objects.get_mut(owner).unwrap().base.wait_timer = 43;
+            let mut random = RandomState::default();
+            let original = random;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 0),
+                    executed: 0
+                })
+            );
+            assert_eq!(random, original);
+            for inverted in [false, true] {
+                for first in [0, 1] {
+                    for last in 0..=u8::MAX {
+                        runtime.branch.invert_next = inverted;
+                        objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+                        let mut random = RandomState::new([first, 0, 0, last]);
+                        let mut expected_random = random;
+                        let draw = expected_random.next_byte();
+                        let destination = cursor(
+                            0,
+                            if draw <= 126 || same_destination {
+                                2
+                            } else {
+                                1
+                            },
+                        );
+                        let mut expected = objects.clone();
+                        expected.get_mut(owner).unwrap().base.path = Some(destination);
+                        assert_eq!(
+                            runtime.resume_program(
+                                &catalog,
+                                &mut objects,
+                                owner,
+                                &mut world(&mut random),
+                                1
+                            ),
+                            Err(ProgramError::BudgetExceeded {
+                                cursor: destination,
+                                executed: 1
+                            })
+                        );
+                        assert_eq!(objects, expected);
+                        assert_eq!(runtime.branch.invert_next, inverted);
+                        assert_eq!(random, expected_random);
+                    }
+                }
+            }
         }
     }
 

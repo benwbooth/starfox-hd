@@ -1021,3 +1021,12 @@ Tests cover all mapped field pairs, same-field swaps, every word value, live
 dispatcher inputs and preservation of IFNOT, wait state, actors and RNG.
 Verification passes 77 lowerer tests, 221 static path tests, 211 native path
 tests in debug/release, both audits and the app build. Root coverage stays 15/167.
+
+Random conditional goto now consumes exactly one shared byte and branches on
+values below 127, without yielding or consuming IFNOT. Coincident successors
+still consume the draw. The entire random helper is source-pinned, with an
+independent widened-arithmetic check of its borrow chain across 2,359,296 seed
+combinations. Branch tests cover every possible byte outcome, both inversion
+states and whole-actor preservation. Verification passes 78 lowerer tests,
+223 static path tests, 214 native path tests in debug/release, both audits and
+the app build. Root coverage remains 15/167; no gameplay recording was used.

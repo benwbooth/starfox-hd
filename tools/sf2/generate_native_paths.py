@@ -508,6 +508,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "IfNot":
             parameters(0)
             statement = f"Statement::Branch(BranchCommand::InvertNext {{ next: {next_cursor()} }})"
+        elif name == "RandomGoto":
+            low, high = parameters(2)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::RandomBranch {{ taken: {taken}, next: {next_} }}"
         elif name in ("SetRandomByte", "SetRandomWord", "AddCenteredRandomByte", "AddCenteredRandomWord"):
             wide = name.endswith("Word")
             operands = parameters(3 if wide else 2)

@@ -21,6 +21,15 @@ class PathRandomStaticTests(unittest.TestCase):
     def test_byte_assignment_draws_once_even_if_literal_mask_is_zero(self):
         self.assert_source(0x7F9A3C, "20 E0 C4 8D B5 16 20 BC C4 20 47 CB 22 D0 7B 7F 2D B5 16 99 00 00 4C BE CA")
 
+    def test_random_branch_draws_once_and_branches_below_127_without_ifnot_or_yield(self):
+        self.assert_source(0x7F8EE5, "22d07b7fc97fb0045c2e8e7f4cbeca")
+        self.assert_source(0x7F8E2E, "4cf3ca")
+        self.assert_source(0x7FCAF3, "c2202020c7952be2204c757e")
+        self.assert_source(0x7FCABE, "e220c220b52b18690300952be2204c757e")
+
+    def test_shared_random_generator_preserves_the_four_byte_borrow_chain(self):
+        self.assert_source(0x7F7BD0, "20d47b6ba5e018e5e185e1e5e285e2e5e385e3e5e085e060")
+
     def test_word_assignment_draws_high_then_low_before_applying_mask(self):
         self.assert_source(0x7F9A55, "C2 20 20 4C C7 8D B5 16 E2 20 20 BC C4 20 47 CB 22 D0 7B 7F EB 22 D0 7B 7F C2 20 2D B5 16 99 00 00 4C A9 CA")
 

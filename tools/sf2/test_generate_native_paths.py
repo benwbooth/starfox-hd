@@ -829,6 +829,12 @@ class NativePathGenerationTests(unittest.TestCase):
                 with self.assertRaisesRegex(UnsupportedPath, "unported word operand"):
                     self.lower_record(record)
 
+    def test_random_branch_retains_both_edges_including_coincident_successors(self):
+        self.assertEqual(self.lower_record("29 36 f5")[0],
+            "Statement::RandomBranch { taken: cursor(0, 0), next: cursor(0, 1) }")
+        self.assertEqual(self.lower_record("29 39 f5")[0],
+            "Statement::RandomBranch { taken: cursor(0, 1), next: cursor(0, 1) }")
+
     def test_active_node_flags_import_requires_the_reviewed_live_word(self):
         self.assertEqual(self.lower_record("7b a3 9a")[0],
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
