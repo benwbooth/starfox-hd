@@ -2836,3 +2836,30 @@ with 165 lowerer and 347 source-static tests, freshness, audits and app build
 passing (existing icon warning). Coverage is now 114 complete roots, 1,979
 source commands and 1,970 typed statements. Strategic event production and
 shipping scheduler integration remain open, not implied by these tests.
+
+### Projectile contact classification and impact materials
+
+Ported `$0D:DE78..DFD8` and the four-edge `$7F:BDF8` branch as typed native
+services. Pending/previous pair contacts take precedence over ground and
+surface checks. The surface query preserves the prior group byte, publishes
+the supporting actor and flags, attributes hits using the projectile's saved
+path-selected side, and preserves the source fallthrough to the head pair
+when the supporting actor does not enable the contact latch. No contact flags
+or pair records are consumed. Missing inputs and stale links are explicit errors.
+
+Ordinary and suppressed impact cues are separate optional actor records,
+with authored setters that replace the corresponding record. The classifier
+retains the pair-only suppression observation independently of its last cue.
+Player peers preserve the source's residual-identity quirk as a typed repeating
+slot branch choice; no native source-pointer arithmetic is introduced. Static
+tests pin the pool initializer and prove the choice for every one of 60 slots.
+The two source impact-sound helpers now lower with scoped typed cue imports;
+unrelated imports of the original scratch location still fail lowering.
+
+Validation: all 445 native path tests pass in debug and release, including
+all word heights, all cue bytes, both live player pointers, all pool slots,
+surface attribution/latching, missing inputs and whole-object preservation.
+166 lowerer tests and 350 path source-static tests pass, as do catalog freshness,
+architecture/static audits and the app build (existing icon warning). The
+catalog remains 114 complete roots: this service work does not yet complete
+the aimed projectile's strategy handoff or imply shipping scheduler integration.

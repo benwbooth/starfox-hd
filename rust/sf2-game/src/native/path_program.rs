@@ -81,6 +81,10 @@ mod radio_service_tests;
 #[path = "path_guidance_controller_tests.rs"]
 mod guidance_controller_tests;
 
+#[cfg(test)]
+#[path = "path_impact_tests.rs"]
+mod impact_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -113,6 +117,8 @@ pub struct PathWorld<'a> {
     pub selected_occupancy_exempt: Option<bool>,
     pub occupancy: Option<&'a super::world_occupancy::WorldOccupancy>,
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
+    pub impact: Option<&'a mut super::path_impact::ImpactState>,
+    pub contacts: Option<&'a super::collision_contacts::ContactStore>,
     /// Primary player identity, independent of the current selected slot.
     pub primary_player: Option<ObjectId>,
     /// Live secondary player pointer, not a fixed scene actor slot.
@@ -477,6 +483,8 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    ImpactBranch { first: PathCursor, second: PathCursor, third: PathCursor, next: PathCursor },
+    ImportImpactMaterial { destination: super::path_fields::ByteField, next: PathCursor },
     MarkForDeath,
     SetActionGate { value: u8, next: PathCursor },
     /// Literal comparisons branch directly without consuming IFNOT.
@@ -869,6 +877,8 @@ pub enum ProgramError {
     MissingOccupancyExemption,
     MissingOccupancy,
     MissingSurfaceMode,
+    MissingImpactState,
+    Impact(super::path_impact::ImpactError),
     SurfaceQuery(super::collision_surface::SurfaceQueryError),
     MissingSoundMarkers,
     MissingCountdown,
@@ -1748,6 +1758,29 @@ impl PathRuntime {
                         });
                     Ok(ControlStep::Continue)
                 }
+                Statement::ImpactBranch { first, second, third, next } => {
+                    let state = world.impact.as_deref_mut().ok_or(ProgramError::MissingImpactState)?;
+                    let result = super::path_impact::classify(
+                        objects, world.contacts, owner,
+                        [world.primary_player, world.secondary_player],
+                        world.surface_mode, world.animation_clock, state,
+                    ).map_err(ProgramError::Impact)?;
+                    use super::path_impact::ImpactBranch;
+                    objects.get_mut(owner).expect("validated impact owner").base.path = Some(match result {
+                        None => next,
+                        Some(ImpactBranch::First) => first,
+                        Some(ImpactBranch::Second) => second,
+                        Some(ImpactBranch::Third) => third,
+                    });
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportImpactMaterial { destination, next } => {
+                    let material = world.impact.as_deref().ok_or(ProgramError::MissingImpactState)?.material;
+                    let actor = objects.get_mut(owner).expect("validated impact material owner");
+                    destination.write(actor, material);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ImportSurfaceMode { destination, next } => {
                     let mode = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?;
                     let actor = objects
@@ -2063,6 +2096,8 @@ mod tests {
             control_style: None,
             selected_occupancy_exempt: None,
             occupancy: None,
+            impact: None,
+            contacts: None,
             surface_mode: None,
             secondary_player: None,
             primary_player: None,
@@ -9112,6 +9147,8 @@ mod tests {
                 control_style: None,
                 selected_occupancy_exempt: None,
                 occupancy: None,
+                impact: None,
+                contacts: None,
                 surface_mode: None,
                 secondary_player: None,
                 weapons: None,
@@ -13321,6 +13358,8 @@ mod tests {
                 control_style: None,
                 selected_occupancy_exempt: None,
                 occupancy: None,
+                impact: None,
+                contacts: None,
                 surface_mode: None,
                 secondary_player: None,
                 weapons: None,
@@ -13458,6 +13497,8 @@ mod tests {
                         control_style: None,
                         selected_occupancy_exempt: None,
                         occupancy: None,
+                        impact: None,
+                        contacts: None,
                         surface_mode: None,
                         secondary_player: None,
                         weapons: None,

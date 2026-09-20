@@ -20,6 +20,19 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_impact_material_producers_and_all_four_branch_edges(self):
+        for opcode, operation in [('69', 'OrdinaryImpactMaterial'), ('6a', 'SuppressedImpactMaterial')]:
+            for value in range(256):
+                self.assertIn(f'ContactCommand::{operation}({value})', self.lower_record(f'00 {opcode} {value:02x}')[0])
+        statements = self.lower_record('00 31 3e f5 3f f5 40 f5 0f 0f')
+        self.assertEqual(statements[0],
+            'Statement::ImpactBranch { first: cursor(0, 1), second: cursor(0, 2), third: cursor(0, 3), next: cursor(0, 1) }')
+        for root in (0xE7DD, 0xE824):
+            statements = lower_graph(PathExtractor(self.rom), PathAddress(root), 0)[1]
+            self.assertTrue(any('ImportImpactMaterial' in statement for statement in statements))
+        with self.assertRaisesRegex(UnsupportedPath, 'unported shared byte'):
+            self.lower_record('79 a1 02 00')
+
     def test_guidance_controller_entire_graph_includes_callbacks_and_delayed_reply(self):
         extractor = PathExtractor(self.rom)
         root = PathAddress(0x0591)

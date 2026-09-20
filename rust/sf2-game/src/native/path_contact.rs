@@ -14,6 +14,8 @@ pub struct ContactClassMask {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContactCommand {
+    OrdinaryImpactMaterial(u8),
+    SuppressedImpactMaterial(u8),
     RetainClass(ContactClassMask),
     IncludeClass(ContactClassMask),
     SuppressContactsNextEpoch(bool),
@@ -26,6 +28,8 @@ impl ContactCommand {
     pub fn apply(self, actor: &mut Object) {
         let contacts = &mut actor.base.contacts;
         match self {
+            Self::OrdinaryImpactMaterial(value) => actor.extension.impact_materials.ordinary = Some(value),
+            Self::SuppressedImpactMaterial(value) => actor.extension.impact_materials.suppressed = Some(value),
             Self::ShapeFootprintSearch(enabled) => {
                 actor.base.flags.exclude_from_shape_footprint_search = !enabled;
             }

@@ -811,6 +811,18 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
             spawn_ = f"ChildSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, position: {position}, rotation: {rotation}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power}, number: {spawn.number} }}"
             statement = f"Statement::SpawnChild {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name in ("AllocateAuxiliaryType0b", "AllocateAuxiliaryType0d"):
+            value, = parameters(1)
+            operation = "OrdinaryImpactMaterial" if name.endswith("0b") else "SuppressedImpactMaterial"
+            statement = f"Statement::Contact {{ command: ContactCommand::{operation}({value}), next: {next_cursor()} }}"
+        elif name == "BranchOnContactClass":
+            raw = parameters(6)
+            destinations = [PathAddress(int.from_bytes(raw[i:i + 2], 'little')) for i in (0, 2, 4)]
+            next_ = PathAddress((command.address.offset + len(bytes.fromhex(command.raw_hex))) & 0xFFFF)
+            if set(command.successors) != {*destinations, next_}:
+                raise UnsupportedPath(f"unexpected impact branch edges at {command.address.label()}")
+            targets = [cursor(destination) for destination in destinations]
+            statement = f"Statement::ImpactBranch {{ first: {targets[0]}, second: {targets[1]}, third: {targets[2]}, next: {cursor(next_)} }}"
         elif name in ("IfSelectedAuxiliaryMapCellOccupied", "IfCurrentAtOrAboveCollisionTarget"):
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))
@@ -1324,6 +1336,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if address == 0x1B4D and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportSurfaceMode {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x0002 and name == "ImportByteAbsolute" and command.address in (PathAddress(0xE7DF), PathAddress(0xE826)):
+                statement = f"Statement::ImportImpactMaterial {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address in (0xD7F2, 0x1C06) and name.startswith("Import"):
