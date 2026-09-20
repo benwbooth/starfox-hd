@@ -178,6 +178,10 @@ pub enum Statement {
         cue: super::path_sound::AuthoredCue,
         next: PathCursor,
     },
+    SpatialLoop {
+        sound: Option<super::SpatialLoop>,
+        next: PathCursor,
+    },
     MarkerSound {
         id: u8,
         mode: super::path_sound::MarkerCueMode,
@@ -487,6 +491,12 @@ impl PathRuntime {
                         .path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::SpatialLoop { sound, next } => {
+                    let actor = objects.get_mut(owner).expect("validated sound owner");
+                    actor.extension.spatial_loop = sound;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::MarkerSound { id, mode, next } => {
                     let source = objects
                         .get(owner)
@@ -723,6 +733,55 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn positional_loop_writes_are_retained_not_queued_and_zero_disables_them() {
+        use super::super::SpatialLoop;
+        for initial in [
+            None,
+            Some(SpatialLoop::CapitalEngine),
+            SpatialLoop::from_authored_control(255),
+        ] {
+            for value in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                runtime.branch.invert_next = true;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.wait_timer = 59;
+                actor.extension.spatial_loop = initial;
+                actor.extension.animation_frame = 123;
+                actor.extension.texture_scroll_x = 87;
+                let initial_random = random.clone();
+                let sound = SpatialLoop::from_authored_control(value);
+                assert_eq!(sound.map_or(0, SpatialLoop::authored_control), value);
+                assert_eq!(sound.is_none(), value == 0);
+                let mut expected = actor.clone();
+                expected.extension.spatial_loop = sound;
+                expected.base.path = Some(cursor(0, 1));
+                let catalog = PathCatalog::new(vec![vec![Statement::SpatialLoop {
+                    sound,
+                    next: cursor(0, 1),
+                }]])
+                .unwrap();
+                // No cue queue or listener is required for a retained write.
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1
+                    ),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert_eq!(random, initial_random);
+                assert!(runtime.branch.invert_next);
+            }
+        }
     }
 
     #[test]

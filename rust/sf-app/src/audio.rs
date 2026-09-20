@@ -174,12 +174,19 @@ fn sf2_stereo_position(position: sf2_game::StereoPosition) -> Sf2StereoPosition 
     }
 }
 
-fn sf2_spatial_cue(sound: sf2_game::SpatialSound) -> Sf2SpatialCue {
-    match sound.sound {
-        sf2_game::SpatialLoop::CapitalEngine => Sf2SpatialCue::CapitalEngine {
+fn sf2_spatial_cue(sound: sf2_game::SpatialSound) -> Result<Sf2SpatialCue, NativeAudioError> {
+    // Canonicalize aliases constructed by API callers as well as source paths.
+    match sf2_game::SpatialLoop::from_authored_control(sound.sound.authored_control()) {
+        Some(sf2_game::SpatialLoop::CapitalEngine) => Ok(Sf2SpatialCue::CapitalEngine {
             distance: sf2_spatial_distance(sound.distance),
             position: sf2_stereo_position(sound.position),
-        },
+        }),
+        _ => Err(NativeAudioError::UnsupportedEffect(format!(
+            "SF2 positional loop {}, distance {:?}, position {:?}",
+            sound.sound.authored_control(),
+            sound.distance,
+            sound.position
+        ))),
     }
 }
 
@@ -408,7 +415,18 @@ impl AudioSys {
                 .sf2_spatial
                 .zip(spatial_state)
                 .is_some_and(|(previous, next)| previous.2.source != next.2.source);
-            let result = player.set_spatial(bank, pilot, spatial.map(sf2_spatial_cue), restart);
+            let result = match spatial.map(sf2_spatial_cue).transpose() {
+                Ok(cue) => player.set_spatial(bank, pilot, cue, restart),
+                Err(error) => {
+                    // Do not leave the previous loop playing as a substitute.
+                    let stopped = player.set_spatial(bank, pilot, None, false);
+                    if stopped.is_ok() {
+                        self.sf2_spatial = None;
+                    }
+                    self.backend.report(stopped);
+                    Err(error)
+                }
+            };
             if result.is_ok() {
                 self.sf2_spatial = spatial_state;
             }
@@ -857,6 +875,41 @@ mod tests {
         ];
         for (source, output) in positions {
             assert_eq!(sf2_stereo_position(source), output);
+        }
+    }
+
+    #[test]
+    fn authored_spatial_controls_use_existing_pcm_only_for_the_reviewed_cue() {
+        use sf2_game::{Behavior, Object, ObjectKind, ObjectStore, ShapeId, SpatialLoop};
+        let mut objects = ObjectStore::new();
+        let source = objects
+            .allocate(Object::new(
+                ObjectKind::Enemy,
+                ShapeId::EMPTY,
+                Behavior::FollowPath,
+            ))
+            .unwrap();
+        for value in 1..=u8::MAX {
+            let sound = SpatialLoop::from_authored_control(value).unwrap();
+            let result = sf2_spatial_cue(sf2_game::SpatialSound {
+                source,
+                sound,
+                distance: sf2_game::SpatialDistance::Far,
+                position: sf2_game::StereoPosition::Right,
+            });
+            if sound == SpatialLoop::CapitalEngine {
+                assert_eq!(
+                    result.unwrap(),
+                    Sf2SpatialCue::CapitalEngine {
+                        distance: Sf2SpatialDistance::Far,
+                        position: Sf2StereoPosition::Right,
+                    }
+                );
+            } else {
+                let error = result.unwrap_err();
+                assert!(matches!(error, NativeAudioError::UnsupportedEffect(_)));
+                assert!(error.to_string().contains(&format!("positional loop {value},")));
+            }
         }
     }
 }

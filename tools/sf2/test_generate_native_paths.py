@@ -129,9 +129,14 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
         # An unsupported independently spawned child rejects its parent too.
         changed = bytearray(self.rom)
-        changed[0x4F582:0x4F585] = bytes.fromhex("00 05 12")
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported WriteObject1ccc"):
+        changed[0x4F582:0x4F585] = bytes.fromhex("e5 ff 1f")
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported IncrementExternalByte"):
             lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF561), 2)
+
+    def test_positional_loop_control_preserves_every_authored_byte(self):
+        for value in range(256):
+            self.assertEqual(self.lower_record(f"00 05 {value:02x}")[0],
+                f"Statement::SpatialLoop {{ sound: super::SpatialLoop::from_authored_control({value}), next: cursor(0, 1) }}")
 
     def test_spawned_sound_graph_is_complete_and_shared_with_standalone_entry(self):
         _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)

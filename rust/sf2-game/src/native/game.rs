@@ -27776,6 +27776,30 @@ mod tests {
     }
 
     #[test]
+    fn authored_positional_loop_controls_reach_the_existing_nearest_source_selection() {
+        let mut game = Game::new();
+        game.state.mode = GameMode::Mission;
+        game.state.audio.set_spatial_listener_yaw(Angle::ZERO);
+        let mut actor = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
+        actor.base.position = game.state.camera.position;
+        actor.base.position.z = actor.base.position.z.wrapping_add(100);
+        let near = game.state.objects.allocate(actor.clone()).unwrap();
+        actor.base.position.z = actor.base.position.z.wrapping_add(100);
+        actor.extension.spatial_loop = Some(SpatialLoop::CapitalEngine);
+        let far = game.state.objects.allocate(actor).unwrap();
+        for value in 0..=u8::MAX {
+            let sound = SpatialLoop::from_authored_control(value);
+            game.state.objects.get_mut(near).unwrap().extension.spatial_loop = sound;
+            let selected = game.spatial_sound().unwrap();
+            assert_eq!(selected.source, if value == 0 { far } else { near });
+            assert_eq!(selected.sound, sound.unwrap_or(SpatialLoop::CapitalEngine));
+        }
+        game.state.objects.get_mut(far).unwrap().extension.spatial_loop = None;
+        game.state.objects.get_mut(near).unwrap().extension.spatial_loop = None;
+        assert_eq!(game.spatial_sound(), None);
+    }
+
+    #[test]
     fn capital_engine_spatial_state_matches_the_retail_selector() {
         const ORACLE_LISTENER_POSITION: Vector3 = Vector3 {
             x: -13_839,

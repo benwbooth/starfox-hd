@@ -84,6 +84,31 @@ impl ObjectLifetimeId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpatialLoop {
     CapitalEngine,
+    /// Authored positional-channel control, retained without inventing a
+    /// sound-bank meaning. Zero is represented by no loop on the actor.
+    Authored(std::num::NonZeroU8),
+}
+
+impl SpatialLoop {
+    const CAPITAL_ENGINE_CONTROL: u8 = 11;
+
+    pub const fn from_authored_control(value: u8) -> Option<Self> {
+        if value == Self::CAPITAL_ENGINE_CONTROL {
+            Some(Self::CapitalEngine)
+        } else {
+            match std::num::NonZeroU8::new(value) {
+                Some(value) => Some(Self::Authored(value)),
+                None => None,
+            }
+        }
+    }
+
+    pub const fn authored_control(self) -> u8 {
+        match self {
+            Self::CapitalEngine => Self::CAPITAL_ENGINE_CONTROL,
+            Self::Authored(value) => value.get(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

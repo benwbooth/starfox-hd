@@ -22,6 +22,18 @@ class PathSoundStaticTests(unittest.TestCase):
         self.assert_source(0x7FA412, "20 BC C4 8D 31 1C 9C 32 1C AC 1F CF 20 39 A4 4C D3 CA")
         self.assert_source(0x7FA424, "20 BC C4 8D 31 1C 20 E0 C4 8D 32 1C AC 1F CF 20 39 A4 4C BE CA")
 
+    def test_retained_control_is_positional_sound_not_a_trail_or_immediate_cue(self):
+        self.assert_source(0x7FA5B6, "20 BC C4 9D CC 1C 4C D3 CA")
+        # The draw pass admits a nonzero control to the nearest-sound
+        # selector; zero has no candidate, not an enqueued stop effect.
+        self.assert_source(0x7F365A, "DA 5A 08 E2 20 C2 10 AD D3 1C 89 01 D0 0B BD CC 1C F0 06 A0 3F 03 20 B8 36 28 7A FA")
+        self.assert_source(0x7F36B8, "DA 08 8D C0 1B 20 36 37 C2 20 AD B5 16 CD F4 1C B0 62 8D F4 1C E2 20 AD C0 1B 8D ED 1C 8E EE 1C")
+        self.assert_source(0x7F36F2, "E2 20 BF 2F 37 7F 0D C0 1B 8D C0 1B")
+        self.assert_source(0x7F3722, "BF 33 37 7F 0D C0 1B 8D EC 1C 28 FA 60 00 10 20 30 40 80 C0")
+        for address, expected in ((0x407E1, "000501"), (0x4085F, "000500"),
+                                  (0x47004, "00050b"), (0x4EE25, "00050c")):
+            self.assertEqual(self.rom[address:address + 3], bytes.fromhex(expected))
+
     def test_routing_ors_secondary_except_for_primary_actor_and_fixed_fallback(self):
         self.assert_source(0x7FA439, "C2 20 AD 31 1C DA AE 16 1D CC C3 12 F0 08 C0 3F 03 F0 03 09 00 80 9D F6 1C E2 20 AD 16 1D 1A 1A 29 1F 8D 16 1D FA 60")
 

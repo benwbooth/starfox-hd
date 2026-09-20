@@ -826,3 +826,18 @@ tests cover all byte values, arithmetic mode transitions, self-aliasing and
 separate render publication. Verification passes 59 lowerer tests, 189 static
 path tests, 176 native path tests in debug/release, architecture/dependency
 checks and the app build. Complete-root coverage is unchanged.
+
+The retained positional-loop control now lowers into the actor's existing
+spatial-sound state. Its source consumer proves this is a nearest-source audio
+control, despite the older staging host's misleading `set_trail` name. All
+256 authored bytes are preserved; zero disables the candidate without queuing
+a one-shot cue. The existing capital-engine mapping remains canonical. Other
+controls reach the native selector but explicitly report unsupported PCM in
+the app, stopping any previous loop instead of playing a substitute. No new
+PCM assets or recordings were produced.
+
+Verification passes 60 lowerer tests, 190 static path tests, 177 native path
+tests in debug/release, a separate all-control selector test in both builds,
+15 audio-adapter tests per app target, architecture/dependency checks and the
+app build. Complete-root coverage remains 11 roots/126 statements; positional
+PCM-bank completion and scheduler integration remain separate open work.

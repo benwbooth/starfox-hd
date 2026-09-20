@@ -586,6 +586,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "FaceMother": "LinkedImmediate",
             }[name]
             statement = f"Statement::Facing {{ command: FacingCommand::{operation}, next: {next_cursor()} }}"
+        elif name == "WriteObject1ccc":
+            value, = parameters(1)
+            statement = f"Statement::SpatialLoop {{ sound: super::SpatialLoop::from_authored_control({value}), next: {next_cursor()} }}"
         elif name == "SetObjectBytes0a0b":
             target, amount = parameters(2)
             statement = f"Statement::Motion {{ command: MotionCommand::AccelerateTo {{ target: {target}, amount: {amount} }}, next: {next_cursor()} }}"
