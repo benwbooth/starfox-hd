@@ -17,6 +17,7 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 pub struct PathWorld<'a> {
     pub audio: Option<super::path_sound::PathAudio<'a>>,
     pub radio: Option<super::path_radio::PathRadio<'a>>,
+    pub campaign: Option<CampaignPathInputs>,
     /// Primary player identity, independent of the current selected slot.
     pub primary_player: Option<ObjectId>,
     pub selected: Option<ObjectId>,
@@ -81,6 +82,34 @@ impl SelectedAuxiliaryCommand {
 pub struct PrimaryMotionInput {
     pub auxiliary_mode: u8,
     pub displacement: super::Vector3,
+}
+
+/// Fresh campaign observations for authored paths. Encounter variant is
+/// selected by `$04:C331`; the later map entry can replace it with four
+/// (`$05:FC5D`) before the delayed announcement samples it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CampaignPathInputs {
+    pub difficulty: super::Difficulty,
+    pub encounter_variant: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CampaignByte {
+    Difficulty,
+    EncounterVariant,
+}
+
+impl CampaignByte {
+    fn read(self, input: CampaignPathInputs) -> u8 {
+        match self {
+            Self::EncounterVariant => input.encounter_variant,
+            Self::Difficulty => match input.difficulty {
+                super::Difficulty::Normal => 0,
+                super::Difficulty::Hard => 1,
+                super::Difficulty::Expert => 2,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,6 +319,11 @@ pub enum Statement {
         number: ByteOperand,
         next: PathCursor,
     },
+    ImportCampaignByte {
+        source: CampaignByte,
+        destination: super::path_fields::ByteField,
+        next: PathCursor,
+    },
     Random {
         mutation: super::path_random::RandomMutation,
         next: PathCursor,
@@ -380,6 +414,7 @@ pub enum ProgramError {
     MissingActiveNodeFlags,
     MissingAudio,
     MissingRadio,
+    MissingCampaign,
     MissingSoundMarkers,
     MissingCountdown,
     Spawn(super::path_spawn::SpawnError),
@@ -784,6 +819,19 @@ impl PathRuntime {
                         },
                     )
                 }
+                Statement::ImportCampaignByte {
+                    source,
+                    destination,
+                    next,
+                } => {
+                    let input = world.campaign.ok_or(ProgramError::MissingCampaign)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated campaign import owner");
+                    destination.write(actor, source.read(input));
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::Message { number, next } => {
                     let number = number.read(actor);
                     let radio = world.radio.as_mut().ok_or(ProgramError::MissingRadio)?;
@@ -980,6 +1028,7 @@ mod tests {
         PathWorld {
             audio: None,
             radio: None,
+            campaign: None,
             primary_player: None,
             selected: None,
             fixed_players: [None; 2],
@@ -4138,6 +4187,7 @@ mod tests {
             let mut inputs = PathWorld {
                 audio: None,
                 radio: None,
+                campaign: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -4527,6 +4577,201 @@ mod tests {
         assert_eq!(request, original_request);
         assert_eq!(random, original_random);
         assert!(runtime.branch.invert_next);
+    }
+
+    #[test]
+    fn campaign_imports_keep_byte_width_and_resample_live_inputs_without_control_effects() {
+        use super::super::path_fields::{ByteField, BytePart, WordField};
+        use super::super::Difficulty;
+        let destination = ByteField::WordPart {
+            field: WordField::ScriptValue,
+            part: BytePart::Low,
+        };
+        for source in [CampaignByte::Difficulty, CampaignByte::EncounterVariant] {
+            let catalog = PathCatalog::new(vec![vec![Statement::ImportCampaignByte {
+                source,
+                destination,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            objects.get_mut(owner).unwrap().base.wait_timer = 57;
+            objects
+                .get_mut(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .script_value = 0xABCD;
+            let before = objects.clone();
+            let before_random = random;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingCampaign)
+            );
+            assert_eq!(objects, before);
+            for (difficulty, code) in [
+                (Difficulty::Normal, 0),
+                (Difficulty::Hard, 1),
+                (Difficulty::Expert, 2),
+            ] {
+                for encounter_variant in 0..=u8::MAX {
+                    objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+                    let mut inputs = world(&mut random);
+                    inputs.campaign = Some(CampaignPathInputs {
+                        difficulty,
+                        encounter_variant,
+                    });
+                    assert_eq!(
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: cursor(0, 1),
+                            executed: 1
+                        })
+                    );
+                    let value = if source == CampaignByte::Difficulty {
+                        code
+                    } else {
+                        encounter_variant
+                    };
+                    let mut expected = before.clone();
+                    expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+                    expected
+                        .get_mut(owner)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .script_value = 0xAB00 | u16::from(value);
+                    assert_eq!(objects, expected);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, before_random);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn complete_encounter_radio_path_selects_messages_and_preserves_timed_sequence() {
+        use super::super::path_radio::{PathRadio, RadioLayout, RadioRequest};
+        use super::super::{authored_paths, Difficulty};
+        let catalog = authored_paths::catalog();
+        for difficulty in [Difficulty::Normal, Difficulty::Hard, Difficulty::Expert] {
+            for encounter_variant in 0..=u8::MAX {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let before_random = random;
+                objects.get_mut(owner).unwrap().base.path =
+                    Some(authored_paths::ENCOUNTER_RADIO_SERVICE);
+                objects
+                    .get_mut(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .motion_phase = 0xAB00;
+                let mut request = RadioRequest::default();
+                let mut messages = Vec::new();
+                let final_visit = if encounter_variant == 4 { 102 } else { 10 };
+                for visit in 0..=final_visit {
+                    request.pending = false;
+                    let mut inputs = world(&mut random);
+                    if visit >= 10 {
+                        inputs.campaign = Some(CampaignPathInputs {
+                            difficulty,
+                            encounter_variant,
+                        });
+                        inputs.radio = Some(PathRadio {
+                            request: &mut request,
+                            layout: RadioLayout {
+                                compact_panel: true,
+                                tracked_screen_y: 100,
+                            },
+                        });
+                    }
+                    assert_eq!(
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32),
+                        Ok(if visit == final_visit {
+                            ControlStep::Ended
+                        } else {
+                            ControlStep::Movement
+                        }),
+                        "difficulty {difficulty:?}, variant {encounter_variant}, visit {visit}"
+                    );
+                    assert_eq!(random, before_random);
+                    if request.pending {
+                        messages.push((visit, request.message.index() + 1));
+                        assert_eq!(request.panel_y, 139);
+                        assert!(!request.top_placement);
+                    }
+                    let actor = objects.get(owner).unwrap();
+                    assert!(!actor.base.flags.visible);
+                    assert!(actor.base.flags.collision_disabled);
+                    assert_eq!(actor.base.flags.remove_after_tick, visit == final_visit);
+                    assert_eq!(actor.extension.path_state.motion_phase & 0xFF00, 0xAB00);
+                }
+                assert_eq!(
+                    messages,
+                    if encounter_variant == 4 {
+                        vec![(10, 23), (41, 24), (72, 25)]
+                    } else {
+                        vec![(
+                            10,
+                            match difficulty {
+                                Difficulty::Normal => 112,
+                                Difficulty::Hard => 119,
+                                Difficulty::Expert => 85,
+                            },
+                        )]
+                    }
+                );
+                assert_eq!(objects.get(owner).unwrap().base.wait_timer, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn encounter_radio_resamples_variant_at_the_later_difficulty_specific_branch() {
+        use super::super::path_radio::{PathRadio, RadioLayout, RadioRequest};
+        use super::super::{authored_paths, Difficulty};
+        for (difficulty, message) in [(Difficulty::Hard, 117), (Difficulty::Expert, 120)] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            objects.get_mut(owner).unwrap().base.path =
+                Some(authored_paths::ENCOUNTER_RADIO_SERVICE);
+            objects.get_mut(owner).unwrap().base.wait_timer = 10;
+            let catalog = authored_paths::catalog();
+            let mut inputs = world(&mut random);
+            inputs.campaign = Some(CampaignPathInputs {
+                difficulty,
+                encounter_variant: 0,
+            });
+            let Err(ProgramError::BudgetExceeded {
+                cursor: late_import,
+                executed: 7,
+            }) = runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 7)
+            else {
+                panic!("first seven statements stop before the second variant import");
+            };
+            assert!(matches!(
+                catalog.statement(late_import).unwrap(),
+                Statement::ImportCampaignByte {
+                    source: CampaignByte::EncounterVariant,
+                    ..
+                }
+            ));
+            inputs.campaign.as_mut().unwrap().encounter_variant = 4;
+            let mut request = RadioRequest::default();
+            inputs.radio = Some(PathRadio {
+                request: &mut request,
+                layout: RadioLayout {
+                    compact_panel: false,
+                    tracked_screen_y: 100,
+                },
+            });
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 8),
+                Ok(ControlStep::Ended)
+            );
+            assert_eq!(request.message.index() + 1, message);
+            assert!(request.pending);
+        }
     }
 
     #[test]
@@ -4931,8 +5176,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 15);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 167);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 16);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 195);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -5065,6 +5310,7 @@ mod tests {
             let mut inputs = PathWorld {
                 audio: None,
                 radio: None,
+                campaign: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -5174,6 +5420,7 @@ mod tests {
                     &mut PathWorld {
                         audio: None,
                         radio: None,
+                        campaign: None,
                         primary_player: None,
                         selected: None,
                         fixed_players: [None; 2],

@@ -39,6 +39,7 @@ ROOTS = (
     ("COUNTER_MOTION_EFFECT", PathAddress(0xBE65)),
     ("PLAYER_CHARGE_ORB", PathAddress(0xF04F)),
     ("NODE_GATED_TARGET_SERVICE", PathAddress(0x545F)),
+    ("ENCOUNTER_RADIO_SERVICE", PathAddress(0x7BC5)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -711,6 +712,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address in (0xD7F2, 0x1C06) and name.startswith("Import"):
+                source = "Difficulty" if address == 0xD7F2 else "EncounterVariant"
+                statement = f"Statement::ImportCampaignByte {{ source: CampaignByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address != 0xD786:
                 raise UnsupportedPath(f"unported shared byte {address:04X} at {command.address.label()}")
             if name.startswith("Import"):
@@ -873,6 +879,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_program::OrbitCenter;\n"
     if any("SelectedAuxiliaryCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_program::SelectedAuxiliaryCommand;\n"
+    if any("CampaignByte::" in statement for statement in unique_statements.values()):
+        source += "use super::path_program::CampaignByte;\n"
     if any("RadiusCommand" in statement for statement in unique_statements.values()):
         source += "use super::path_steering::{RadiusCenter, RadiusCommand};\n"
     if any("PlayerControlCommand::" in statement for statement in unique_statements.values()):

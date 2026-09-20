@@ -29,6 +29,12 @@ class PathRadioStaticTests(unittest.TestCase):
         self.assert_source(0x07A439, "A0 3F 03 8C B0 1D AC D6 14 22 D2 2B 7F DA 5A B4 2B BB 7A C2 20 BD 9C 6B 99 0C 00 BD 9E 6B 99 0E 00 BD A0 6B 99 10 00 E2 20 FA DA BB AC B0 1D 20 E8 AF FA")
         self.assert_source(0x07A4D3, "A5 7B 18 69 18 85 08 A5 08 CD 31 1E F0 21 38 ED 31 1E C9 00 30 08 C9 02 10 0A A9 02 80 06 C9 FE 30 02 A9 FE C9 80 6A 10 02 69 00 18 6D 31 1E 8D 31 1E")
 
+    def test_campaign_variant_setup_and_later_map_override_are_live_inputs(self):
+        self.assert_source(0x04C331, "AE F2 D7 F0 07 AD 00 1C 29 03 00 AA E2 20 BF 6A C3 04 8D 06 1C AD F2 D7 C9 02 D0 08 E8 BF 6A C3 04 8D 07 1C C2 20 AD 8E 1B 8D 8C 1B A9 04 00 8D 74 1B A9 22 00 8D FD D9 60 00 01 03 02 00")
+        self.assert_source(0x03BE27, "A9 00 8F F2 D7 7E A9 00 8F A3 1B 00")
+        self.assert_source(0x03C3BD, "C2 20 AD 20 1C 29 FF 00 8F F2 D7 7E 0A 8F A3 1B 00")
+        self.assert_source(0x05FC52, "8C C5 7B 9A 50 00 5C 20 49 1B 00 5C 04 06 1C 00")
+
 
 if __name__ == "__main__":
     unittest.main()

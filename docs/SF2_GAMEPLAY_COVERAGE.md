@@ -1062,3 +1062,15 @@ request, not the separate text/portrait presentation service. Verification
 passes 81 lowerer tests, 229 static path tests, 222 native path tests in both
 debug/release, both audits and the app build. No gameplay recording or execution
 of source-machine instructions was used; root coverage remains 15/167.
+
+The encounter-announcement path at `$44:7BC5` is fully lowered, adding live
+read-only campaign difficulty and encounter-variant inputs. Campaign setup and
+the map's later variant-four override are pinned from source. The path preserves
+the initial ten-invocation delay, all difficulty-specific radio branches, and
+the variant-four messages at visits 10/41/72 before ending at visit 102. Tests
+cover all 256 variants, all three difficulties, late variant resampling, full
+byte-width imports, missing inputs and unchanged RNG. Verification passes
+83 lowerer tests, 230 static path tests, 225 native path tests in debug/release,
+both audits and the app build. Catalog coverage is now **16 complete roots and
+195 unique statements**. Game scheduler/spawn and radio presentation integration
+remain open; these are source-derived path tests, not recorded gameplay.

@@ -827,6 +827,34 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "unported byte operand"):
             self.lower_record("df ff")
 
+    def test_campaign_imports_are_read_only_byte_views_of_named_state(self):
+        for record, source in [("79 a1 f2 d7", "Difficulty"), ("7a a1 96", "Difficulty"), ("79 a1 06 1c", "EncounterVariant")]:
+            self.assertEqual(self.lower_record(record)[0],
+                f"Statement::ImportCampaignByte {{ source: CampaignByte::{source}, destination: {byte_field(0xA1)}, next: cursor(0, 1) }}")
+        for record in ["7d a1 f2 d7", "7f a1 96", "7d a1 06 1c", "fb 06 1c 04", "e5 f2 d7", "7b a3 96", "7c a3 06 1c"]:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
+    def test_encounter_radio_graph_retains_both_difficulty_branches_and_timed_message_loop(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x7BC5))
+        _, statements = lower_graph(extractor, PathAddress(0x7BC5), 0)
+        self.assertEqual(len(statements), 28)
+        mapped = dict(zip((c.address.offset for c in commands), statements))
+        self.assertIn("duration: ByteOperand::Literal(10)", mapped[0x7BC6])
+        for offset in [0x7BC8, 0x7BDE, 0x7BED]:
+            self.assertIn("CampaignByte::EncounterVariant", mapped[offset])
+        self.assertIn("CampaignByte::Difficulty", mapped[0x7BD1])
+        for offset, number in [(0x7BE7, 119), (0x7BEA, 117), (0x7BF6, 85), (0x7BF9, 120), (0x7BFC, 112)]:
+            self.assertIn(f"number: ByteOperand::Literal({number})", mapped[offset])
+        self.assertIn("ByteOperand::Literal(23)", mapped[0x7BFF])
+        self.assertIn("iterations: 3", mapped[0x7C02])
+        self.assertIn("Statement::Message { number: ByteOperand::Actor", mapped[0x7C04])
+        self.assertIn("ByteOperation::Increment", mapped[0x7C06])
+        self.assertIn("duration: ByteOperand::Literal(30)", mapped[0x7C08])
+        self.assertIn("immediate: false", mapped[0x7C0A])
+        self.assertIn("use super::path_program::CampaignByte;", generate(self.rom, (("RADIO", PathAddress(0x7BC5)),)))
+
     def test_word_swaps_decode_both_fields_without_exposing_unmapped_storage(self):
         fields = [0x0C, 0x0E, 0x10, 0x32, 0x34, 0x36, 0x8E, 0x90, 0x92, 0xA1, 0xA3]
         for first in fields:
