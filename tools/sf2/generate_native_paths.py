@@ -47,6 +47,7 @@ ROOTS = (
     ("DOUBLED_MOTION_HOMING_PROJECTILE", PathAddress(0xEE2D)),
     ("PRIMARY_MOTION_HOMING_PROJECTILE", PathAddress(0xEE3B)),
     ("DIFFICULTY_HOMING_PROJECTILE", PathAddress(0xEE4C)),
+    ("VARIANT_GUIDED_PROJECTILE", PathAddress(0xEF2D)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -166,9 +167,9 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # sweep. Other shapes need native metadata review; never guess enemy vs
     # scenery vs projectile from a numerically valid shape header alone.
     # Shape 19 also serves unrelated damaging/attached objects. Only this
-    # complete, collision-disabled three-frame sprite path is an effect;
+    # complete, collision-disabled sprite paths are effects;
     # the mesh alone is insufficient evidence for other uses of that shape.
-    if index == 19 and path == PathAddress(0xF5A1):
+    if index == 19 and path in (PathAddress(0xF5A1), PathAddress(0xF306)):
         return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
@@ -363,6 +364,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF391): "LockForLinkedMode",
                 PathAddress(0xF39E): "FollowPrimaryPosition",
             }
+            if command.address == PathAddress(0xF313):
+                parameters(0)
+                statement = f"Statement::Appearance {{ command: AppearanceCommand::SuppressDeathEffects(true), next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if command.address not in actions and command.address not in controls:
                 raise UnsupportedPath(f"unported inline action at {command.address.label()}")
             parameters(0)
@@ -680,6 +686,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::WaitChase {{ field: {field}, target: {target}, next: {next_cursor()} }}"
             else:
                 statement = f"Statement::Mutate {{ mutation: Mutation::{kind} {{ field: {field}, operation: {kind}Operation::Chase({target}) }}, next: {next_cursor()} }}"
+        elif name == "SetFlag20Bit02":
+            parameters(0)
+            statement = f"Statement::Contact {{ command: ContactCommand::MarkHit, next: {next_cursor()} }}"
         elif name in ("MaskFlag31", "OrFlag31"):
             mask, = parameters(1)
             retain = name == "MaskFlag31"

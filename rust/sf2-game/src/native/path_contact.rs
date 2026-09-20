@@ -17,12 +17,14 @@ pub enum ContactCommand {
     IncludeClass(ContactClassMask),
     SuppressContactsNextEpoch(bool),
     SuppressHitMarker(bool),
+    MarkHit,
 }
 
 impl ContactCommand {
     pub fn apply(self, actor: &mut Object) {
         let contacts = &mut actor.base.contacts;
         match self {
+            Self::MarkHit => contacts.hit_marked = true,
             Self::SuppressContactsNextEpoch(enabled) => {
                 contacts.suppress_contacts_next_epoch = enabled;
             }
@@ -108,6 +110,9 @@ mod tests {
                 assert_eq!(actual, expected);
                 expected.base.contacts.suppress_hit_marker = enabled;
                 ContactCommand::SuppressHitMarker(enabled).apply(&mut actual);
+                assert_eq!(actual, expected);
+                expected.base.contacts.hit_marked = true;
+                ContactCommand::MarkHit.apply(&mut actual);
                 assert_eq!(actual, expected);
             }
         }

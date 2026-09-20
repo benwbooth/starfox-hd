@@ -485,6 +485,17 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x09EE9D, "14 E8 03 AD EE AE 7F AE 7F AE 7F 00 0F 16 9D EE 00 0F 06 3F 17 BC EE")
         self.assert_source(0x09EEBB, "0F 4A D5 EE 01 4A C8 EE 0D 61 28 44 0F 4C CC EE 42 4B D5 EE 4B C8 EE 03 0F 0F A4 20 DA EE 42 09 42 00 5F E9 EE 6E A3 8A 2B A3 3C 00 EC EE 4C BB EE 42")
 
+    def test_variant_guided_projectile_complete_branches_and_attached_effect(self):
+        self.assert_source(0x09EF2D, "0B 01 2D 0B 06 2E 14 10 27 39 EF 0F 00 05 02 F7 F7 00 04 74 4A 14 F0 08 00 5C 06 02 04 79 A1 4D 1B 2A 27 01 66 EF 2A 27 02 5F EF 0C C0 C8 04 17 6A EF 0C 88 C8 04 17 6A EF 0C A4 C8 04")
+        self.assert_source(0x09EF6A, "8A 2A 27 01 77 EF 61 0A 75 0A 73 05 44 8A 2A 27 02 84 EF 00 5C 06 2D 17 87 EF 18 14 02 2A 27 01 B3 EF 2A 27 02 A2 EF")
+        self.assert_source(0x09EF91, "F5 B0 BE 06 F3 01 01 00 00 00 00 88 FF 01 17 C1 EF F5 B0 BE 06 F3 50 01 00 00 00 00 20 FE 01 17 C1 EF F5 B0 BE 06 F3 01 01 00 00 00 00 C4 FF 01 F8 D3 EF 61 78 44 4B D3 EF 14 E8 03 D0 EF 0F 6B 2D 19")
+        self.assert_source(0x09EFD3, "5B 00 21 CE 32 DE EF 5F 04 F0 5C 2A 27 02 FB EF 14 F4 01 08 F0 00 0F 00 53 03 F0 2A A1 00 F8 EF 1A 00 00 03 F0 73 05 42 14 64 00 08 F0 17 E8 EF C1 4C C7 EF 42 4C 0C F0 42 4B D3 EF 03 1E 17 CA EF 4C C7 EF 42")
+        self.assert_source(0x09F306, "4D 00 10 52 99 2D 0B 64 2D 4A 28 F3 0C 89 B5 25 09 02 95 25 C2 20 A9 20 F3 6B 5C 1E 01 02 16 21 F3 0F 4C 27 F3 42")
+        self.assert_source(0x7FB245, "B5 20 09 02 95 20 4C E8 CA")
+        # Suppression skips the ordinary death visuals, not common cleanup.
+        self.assert_source(0x03A08B, "B5 25 29 02 F0 04 5C 6A A2 03")
+        self.assert_source(0x03A26A, "22 A4 2A 7F 22 D6 33 7F B5 25 09 08 95 25 6B")
+
     def test_hostile_launch_primary_yaw_gate_and_wrapping_counters(self):
         self.assert_source(0x0DDE38, "DA AE C3 12 B5 14 FA 18 69 80 38 F9 14 00 18 69 40 C9 80 90 1A")
         self.assert_source(0x0DDE4D, "22 D0 7B 7F 29 03 85 3A A5 3A F0 0B B9 21 00 09 01 99 21 00 EE 69 1D EE 6B 1D")

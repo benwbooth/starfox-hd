@@ -62,6 +62,32 @@ class NativePathGenerationTests(unittest.TestCase):
                 self.assertIn("InheritPrimaryHorizontalMotion", mapped[0xE78A])
                 self.assertNotIn(0xEE6E, mapped)
 
+    def test_variant_projectile_covers_full_parent_and_death_suppressed_child_graph(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0xEF2D))
+        _, statements = lower_graph(extractor, PathAddress(0xEF2D), 0)
+        self.assertEqual(len(statements), 81)
+        mapped = dict(zip((command.address.offset for command in commands), statements))
+        for address, shape in [(0xEF58, 111), (0xEF5F, 109), (0xEF66, 110)]:
+            self.assertIn(f"ShapeId::from_catalog_index({shape})", mapped[address])
+        for address, depth, health in [(0xEF91, -120, 1), (0xEFA2, -480, 80), (0xEFB3, -60, 1)]:
+            self.assertIn("ObjectKind::Effect", mapped[address])
+            self.assertIn(f"z: {depth}", mapped[address])
+            self.assertIn(f"hit_points: {health}", mapped[address])
+        self.assertIn("ContactCommand::MarkHit", mapped[0xF003])
+        self.assertIn("SuppressDeathEffects(true)", mapped[0xF313])
+        self.assertIn("TriggerKind::ZeroHealth", mapped[0xF30F])
+        self.assertIn("ControlCommand::Hold", mapped[0xEFD2])
+        self.assertIn("iterations: 120", mapped[0xEFC4])
+        self.assertIn("Literal(30)", mapped[0xF00F])
+        self.assertIn("SelectedRelativeYawBetween { lower: 206, upper: 50 }", mapped[0xEFD4])
+        self.assertIn("PlaneAxis::Forward", mapped[0xEFDA])
+        for offset in (0xF314, 0xF318, 0xF31D):
+            changed = bytearray(self.rom)
+            changed[0x40000 + offset] ^= 1
+            with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(0xEF2D), 0)
+
     def test_primary_motion_ground_limited_root_includes_inline_callee_and_contact_callback(self):
         extractor = PathExtractor(self.rom)
         commands = graph(extractor, PathAddress(0xF029))
@@ -823,7 +849,8 @@ class NativePathGenerationTests(unittest.TestCase):
 
     def test_sprite_shape_metadata_requires_the_reviewed_transient_path(self):
         self.assertEqual(spawn_shape(0xBEB0, PathAddress(0xF5A1)), (19, "ObjectKind::Effect"))
-        for path in [None, PathAddress(0), PathAddress(0x8488), PathAddress(0xF306), PathAddress(0xF32F)]:
+        self.assertEqual(spawn_shape(0xBEB0, PathAddress(0xF306)), (19, "ObjectKind::Effect"))
+        for path in [None, PathAddress(0), PathAddress(0x8488), PathAddress(0xF32F)]:
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(0xBEB0, path)
         extractor = PathExtractor(self.rom)

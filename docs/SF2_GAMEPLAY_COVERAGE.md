@@ -1214,3 +1214,29 @@ Verification passes 93 lowerer tests, 242 static path tests and 245 native path
 tests in debug/release, both audits, catalog freshness and the app build.
 Coverage is **23 complete roots / 363 unique statements**. This is static
 source-derived catalog coverage, not full Game integration or runtime parity.
+
+The variant-guided projectile (`$44:EF2D`) and its attached sprite (`$44:F306`)
+are now completely lowered. The parent rejects targets at 10,000 units,
+selects shapes 110/109/111 by its authored parameter, gives variant 1 ten
+rise/roll steps, and chooses either speed 45 or acceleration toward 20. Its
+child offsets are -60/-480/-120; the child's initial health determines sprite
+size before it resets health to 100 and runs its color loop. Spawn classification
+admits shape 19 only for this and the previously reviewed independent effect.
+
+The always callback reenables collision before its selected-yaw and projected
+forward-plane tests. It can disable collision again, end through the shared
+tail, mark a surface/ground hit, or wait thirty visits after entering the
+variant-specific near range. The tail ends when distant or clears health and
+holds when within 1,000 units. Tests cover all variants plus the default-byte
+case, mode bytes 0/1/8, all lifetime exits, the ten-step rise, all 256 selected
+yaws, independent child scheduling, and the child's own zero-health ending.
+The direct cue is routed through the listener, without requiring marker data.
+
+The source hit-marker command updates the existing contact marker independently
+of hit suppression. The child inline action retains a typed death-effect
+suppression flag, with its source consumer pinned; the general death-effect
+pipeline remains unported, so this does not claim its production consumption.
+Verification passes 94 lowerer tests, 243 static path tests and 248 native path
+tests in debug/release, both audits, catalog freshness and the app build.
+Coverage is **24 complete roots / 444 unique statements**. No recorded gameplay
+or source-machine execution was used; scheduler/Game integration remains open.

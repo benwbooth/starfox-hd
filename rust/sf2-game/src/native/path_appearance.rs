@@ -22,6 +22,7 @@ pub enum AppearanceCommand {
     Shadow(bool),
     MaximumDrawDistance(bool),
     FarSortBias(bool),
+    SuppressDeathEffects(bool),
 }
 
 impl AppearanceCommand {
@@ -36,6 +37,9 @@ impl AppearanceCommand {
             Self::Shadow(enabled) => actor.base.flags.casts_shadow = enabled,
             Self::MaximumDrawDistance(enabled) => actor.base.flags.maximum_draw_distance = enabled,
             Self::FarSortBias(enabled) => actor.base.flags.far_sort_bias = enabled,
+            Self::SuppressDeathEffects(enabled) => {
+                actor.base.flags.suppress_death_effects = enabled
+            }
         }
     }
 }
@@ -209,7 +213,7 @@ mod tests {
 
     #[test]
     fn visibility_couples_collision_but_other_controls_and_draw_observations_are_independent() {
-        for flags in 0..128 {
+        for flags in 0..256 {
             let mut original =
                 Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
             original.base.flags.visible = flags & 1 != 0;
@@ -219,6 +223,7 @@ mod tests {
             original.base.flags.draw_list_admitted = flags & 16 != 0;
             original.base.flags.collided = flags & 32 != 0;
             original.base.flags.far_sort_bias = flags & 64 != 0;
+            original.base.flags.suppress_death_effects = flags & 128 != 0;
             original.base.hit_flags = 255;
             original.extension.path_state.conditions.hit_event_pending = true;
             for enabled in [false, true] {
@@ -228,6 +233,7 @@ mod tests {
                     AppearanceCommand::Shadow(enabled),
                     AppearanceCommand::MaximumDrawDistance(enabled),
                     AppearanceCommand::FarSortBias(enabled),
+                    AppearanceCommand::SuppressDeathEffects(enabled),
                 ] {
                     let mut expected = original.clone();
                     match command {
@@ -247,6 +253,9 @@ mod tests {
                         }
                         AppearanceCommand::FarSortBias(value) => {
                             expected.base.flags.far_sort_bias = value
+                        }
+                        AppearanceCommand::SuppressDeathEffects(value) => {
+                            expected.base.flags.suppress_death_effects = value
                         }
                     }
                     let mut actual = original.clone();

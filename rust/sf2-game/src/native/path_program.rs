@@ -4917,6 +4917,445 @@ mod tests {
     }
 
     #[test]
+    fn authored_variant_projectile_rejects_far_targets_before_audio_or_spawn() {
+        use super::super::authored_paths;
+        let catalog = authored_paths::catalog();
+        for distance in [9999, 10000, 10001] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let mut player =
+                Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+            player.base.position.z = distance;
+            let selected = objects.allocate(player).unwrap();
+            objects.get_mut(owner).unwrap().base.path =
+                Some(authored_paths::VARIANT_GUIDED_PROJECTILE);
+            let mut inputs = world(&mut random);
+            inputs.selected = Some(selected);
+            assert_eq!(
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 20),
+                if distance < 10000 {
+                    Err(ProgramError::MissingAudio)
+                } else {
+                    Ok(ControlStep::Ended)
+                }
+            );
+            assert_eq!(objects.len(), 2);
+            assert_eq!(runtime.spawns.last_spawn, None);
+            assert_eq!(
+                (
+                    objects.get(owner).unwrap().base.hit_points,
+                    objects.get(owner).unwrap().base.attack_power
+                ),
+                (1, 6)
+            );
+            assert_eq!(objects.get(owner).unwrap().base.shape, ShapeId::EMPTY);
+        }
+    }
+
+    #[test]
+    fn authored_variant_projectile_yaw_gate_controls_collision_and_forward_exit() {
+        use super::super::collision_surface::SurfaceMode;
+        use super::super::path_sound::{CueListener, PathAudio};
+        use super::super::{
+            authored_paths, path_conditions, path_control, Angle, AudioState, ObjectSpawnDefaults,
+            Rotation, Vector3,
+        };
+        let catalog = authored_paths::catalog();
+        let mut covered = [false; 3];
+        for yaw in 0..=u8::MAX {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let mut player =
+                Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+            player.base.position = Vector3 {
+                x: 0,
+                y: -1000,
+                z: 2000,
+            };
+            player.base.yaw = Angle::from_units(yaw);
+            let target = player.base.position;
+            let selected = objects.allocate(player).unwrap();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::VARIANT_GUIDED_PROJECTILE);
+            actor.base.position.y = -1000;
+            actor.base.flags.collision_disabled = true;
+            let position = actor.base.position;
+            let in_arc = path_conditions::target_relative_yaw_between(
+                position,
+                target,
+                Angle::from_units(yaw),
+                206,
+                50,
+            );
+            let forward_exit = !in_arc
+                && path_control::forward_plane_projection(
+                    target,
+                    Rotation {
+                        yaw: Angle::from_units(yaw),
+                        ..Rotation::default()
+                    },
+                    position,
+                ) < 0;
+            covered[if in_arc {
+                0
+            } else if forward_exit {
+                1
+            } else {
+                2
+            }] = true;
+            let mut audio = AudioState::default();
+            let mut inputs = world(&mut random);
+            inputs.selected = Some(selected);
+            inputs.surface_mode = Some(SurfaceMode { flags: 8 });
+            inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+            inputs.audio = Some(PathAudio {
+                events: &mut audio,
+                listeners: [CueListener::PrimaryPlayer; 2],
+                markers: None,
+            });
+            assert_eq!(
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 48),
+                Ok(ControlStep::Movement)
+            );
+            if forward_exit {
+                inputs.surface_mode = None;
+            }
+            assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+            loop {
+                match runtime
+                    .step_callbacks(&mut objects, owner, TriggerWorldInputs::default())
+                    .unwrap()
+                {
+                    CallbackStep::Complete => break,
+                    CallbackStep::Run(_) => assert_eq!(
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 24),
+                        Ok(ControlStep::ResumeCallbacks)
+                    ),
+                    CallbackStep::Skipped | CallbackStep::Expired => {}
+                }
+            }
+            assert_eq!(
+                objects.get(owner).unwrap().base.flags.collision_disabled,
+                !in_arc && !forward_exit
+            );
+            assert!(!objects.get(owner).unwrap().base.contacts.hit_marked);
+            assert_eq!(
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                if forward_exit {
+                    Ok(ControlStep::Ended)
+                } else {
+                    Ok(ControlStep::Movement)
+                }
+            );
+            runtime.release_actor_programs(&mut objects, owner).unwrap();
+        }
+        assert_eq!(covered, [true; 3]);
+    }
+
+    #[test]
+    fn authored_variant_projectile_runs_rise_trail_callbacks_and_terminal_branches() {
+        use super::super::collision_surface::SurfaceMode;
+        use super::super::path_sound::{AuthoredCue, CueListener, PathAudio};
+        use super::super::{
+            authored_paths, Angle, AudioState, ObjectSpawnDefaults, SoundEvent, SpatialLoop,
+            Vector3,
+        };
+        let catalog = authored_paths::catalog();
+        for variant in [0, 1, 2, 255] {
+            for mode in [0, 1, 8] {
+                // Expiry, near-target wait/hold, new contact, surface, ground.
+                for exit in 0..5 {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let initial_random = random;
+                    let mut player =
+                        Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+                    player.base.position = Vector3 {
+                        x: 0,
+                        y: -1000,
+                        z: 2000,
+                    };
+                    // Keep the collision-enabled side of the authored yaw arc.
+                    let bearing = (sf_core::aim_angle::sf2_atan16(0, -2000) >> 8) as u8;
+                    player.base.yaw = Angle::from_units(bearing.wrapping_neg());
+                    let selected = objects.allocate(player).unwrap();
+                    let mut surface = Object::new(
+                        ObjectKind::Scenery,
+                        ShapeId::from_catalog_index(156),
+                        Behavior::FollowPath,
+                    );
+                    surface.base.position.x = 1000;
+                    surface.base.contacts.first_strategy_visit = false;
+                    let support = objects.allocate(surface).unwrap();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(authored_paths::VARIANT_GUIDED_PROJECTILE);
+                    actor.base.position.y = -1000;
+                    actor.extension.path_state.script_parameter = variant;
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+                    let setup_visit = usize::from(variant == 1) * 9;
+                    let trigger_visit = setup_visit + 6;
+                    let last_visit = if exit == 0 || (exit == 4 && mode == 0) {
+                        setup_visit + 119
+                    } else if exit == 1 {
+                        trigger_visit + 31
+                    } else {
+                        trigger_visit + 1
+                    };
+                    let mut audio = AudioState::default();
+                    let mut child = None;
+                    let mut child_steps = 0;
+                    for visit in 0..=last_visit {
+                        if visit == trigger_visit {
+                            if exit == 1 {
+                                objects.get_mut(selected).unwrap().base.position.z =
+                                    if variant == 2 { 50 } else { 250 };
+                            }
+                            if exit == 2 {
+                                objects
+                                    .get_mut(owner)
+                                    .unwrap()
+                                    .base
+                                    .contacts
+                                    .new_contact_latched = true;
+                            }
+                            if exit == 3 {
+                                objects.get_mut(support).unwrap().base.position.x = 0;
+                                objects.get_mut(owner).unwrap().base.position.y = -403;
+                            }
+                            if exit == 4 {
+                                objects.get_mut(owner).unwrap().base.position.y = 0;
+                            }
+                        }
+                        let mut inputs = world(&mut random);
+                        inputs.selected = Some(selected);
+                        // Near-target callback returns before surface lookup;
+                        // after cancellation the wait needs no surface service.
+                        if !(exit == 1 && visit >= trigger_visit) {
+                            inputs.surface_mode = Some(SurfaceMode { flags: mode });
+                        }
+                        if visit == 0 {
+                            inputs.audio = Some(PathAudio {
+                                events: &mut audio,
+                                listeners: [CueListener::PrimaryPlayer; 2],
+                                markers: None,
+                            });
+                        }
+                        if visit == setup_visit {
+                            inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+                        }
+                        let outcome = runtime
+                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 64)
+                            .unwrap();
+                        assert_eq!(
+                            outcome,
+                            if visit == last_visit && exit != 1 {
+                                ControlStep::Ended
+                            } else {
+                                ControlStep::Movement
+                            },
+                            "variant={variant} mode={mode} exit={exit} visit={visit}"
+                        );
+                        if visit == setup_visit {
+                            child = runtime.spawns.last_spawn;
+                            let effect = objects.get(child.unwrap()).unwrap();
+                            assert_eq!(effect.base.kind, ObjectKind::Effect);
+                            assert_eq!(effect.base.attachment, Some(owner));
+                            assert_eq!(effect.extension.parent, Some(owner));
+                            assert!(effect.base.flags.remove_with_parent);
+                            assert!(!effect.base.flags.reclaim_on_pool_pressure);
+                            assert_eq!(
+                                effect.extension.relative_position,
+                                Vector3 {
+                                    x: 0,
+                                    y: 0,
+                                    z: match variant {
+                                        1 => -60,
+                                        2 => -480,
+                                        _ => -120,
+                                    }
+                                }
+                            );
+                            assert_eq!(effect.base.position, Vector3::default()); // Child publication is a separate service.
+                            assert_eq!(
+                                (effect.base.hit_points, effect.base.attack_power),
+                                (if variant == 2 { 80 } else { 1 }, 1)
+                            );
+                        }
+                        if outcome == ControlStep::Movement {
+                            assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                            loop {
+                                match runtime
+                                    .step_callbacks(
+                                        &mut objects,
+                                        owner,
+                                        TriggerWorldInputs::default(),
+                                    )
+                                    .unwrap()
+                                {
+                                    CallbackStep::Complete => break,
+                                    CallbackStep::Run(_) => assert_eq!(
+                                        runtime.resume_program(
+                                            &catalog,
+                                            &mut objects,
+                                            owner,
+                                            &mut inputs,
+                                            24
+                                        ),
+                                        Ok(ControlStep::ResumeCallbacks)
+                                    ),
+                                    CallbackStep::Skipped | CallbackStep::Expired => {}
+                                }
+                            }
+                        }
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(
+                            (actor.base.hit_points, actor.base.attack_power),
+                            (
+                                if exit == 1 && visit == last_visit {
+                                    0
+                                } else {
+                                    1
+                                },
+                                6
+                            )
+                        );
+                        assert_eq!(
+                            actor.base.shape,
+                            ShapeId::from_catalog_index(match variant {
+                                1 => 110,
+                                2 => 109,
+                                _ => 111,
+                            })
+                        );
+                        assert_eq!(
+                            actor.extension.spatial_loop,
+                            SpatialLoop::from_authored_control(2)
+                        );
+                        assert_eq!(
+                            actor.extension.path_state.motion_phase,
+                            0xAB00 | u16::from(mode)
+                        );
+                        assert_eq!(
+                            actor.base.speed,
+                            if visit < setup_visit || variant != 2 {
+                                2
+                            } else {
+                                45
+                            }
+                        );
+                        assert_eq!(
+                            (actor.base.target_speed, actor.base.acceleration),
+                            if visit >= setup_visit && variant != 2 {
+                                (20, 2)
+                            } else {
+                                (0, 0)
+                            }
+                        );
+                        assert_eq!(
+                            actor.base.contacts.hit_marked,
+                            visit >= trigger_visit && (exit == 3 || (exit == 4 && mode != 0))
+                        );
+                        if visit < setup_visit {
+                            assert_eq!(actor.base.position.y, -1000 + (visit as i16 + 1) * 10);
+                        }
+                        if exit == 1 && visit == last_visit {
+                            assert!(actor.extension.path_state.hold_latched);
+                            assert_eq!(actor.base.behavior, Behavior::PathMovement);
+                            assert!(!actor.base.flags.remove_after_tick);
+                        }
+                        // The independently scheduled attached effect loops until
+                        // its OWN health predicate redirects it to END.
+                        if let Some(effect_id) = child {
+                            if child_steps < 5 {
+                                if child_steps == 3 {
+                                    objects.get_mut(effect_id).unwrap().base.hit_points = 0;
+                                }
+                                assert_eq!(
+                                    runtime
+                                        .enter_program(
+                                            &catalog,
+                                            &mut objects,
+                                            effect_id,
+                                            &mut world(&mut random),
+                                            16
+                                        )
+                                        .unwrap(),
+                                    if child_steps == 4 {
+                                        ControlStep::Ended
+                                    } else {
+                                        ControlStep::Movement
+                                    }
+                                );
+                                if child_steps < 4 {
+                                    assert!(runtime.begin_callbacks(&objects, effect_id).unwrap());
+                                    loop {
+                                        match runtime
+                                            .step_callbacks(
+                                                &mut objects,
+                                                effect_id,
+                                                TriggerWorldInputs::default(),
+                                            )
+                                            .unwrap()
+                                        {
+                                            CallbackStep::Complete => break,
+                                            CallbackStep::Run(_) => assert_eq!(
+                                                runtime.resume_program(
+                                                    &catalog,
+                                                    &mut objects,
+                                                    effect_id,
+                                                    &mut world(&mut random),
+                                                    3
+                                                ),
+                                                Ok(ControlStep::ResumeCallbacks)
+                                            ),
+                                            CallbackStep::Skipped | CallbackStep::Expired => {}
+                                        }
+                                    }
+                                }
+                                let effect = objects.get(effect_id).unwrap();
+                                assert!(effect.base.flags.collision_disabled);
+                                assert!(effect.base.flags.suppress_death_effects);
+                                assert_eq!(
+                                    effect.extension.texture_scroll_x,
+                                    if variant == 2 { 96 } else { 17 }
+                                );
+                                assert_eq!(
+                                    effect.base.hit_points,
+                                    if child_steps < 3 { 100 } else { 0 }
+                                );
+                                assert_eq!(
+                                    effect.extension.path_state.animation.color.fixed_frame(),
+                                    Some(if child_steps < 4 {
+                                        (1 - child_steps % 2) as u8
+                                    } else {
+                                        0
+                                    })
+                                );
+                                child_steps += 1;
+                            }
+                        }
+                    }
+                    assert_eq!(
+                        audio
+                            .take_events()
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>(),
+                        [SoundEvent::Authored(AuthoredCue::new(
+                            116,
+                            0,
+                            PlayerTarget::Primary
+                        ))]
+                    );
+                    assert_eq!(random, initial_random);
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                    runtime
+                        .release_actor_programs(&mut objects, child.unwrap())
+                        .unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
     fn authored_homing_entries_preserve_motion_prefix_and_difficulty_distance_gate() {
         use super::super::{authored_paths, path_motion, Angle, Difficulty, Vector3};
         let catalog = authored_paths::catalog();
@@ -7121,8 +7560,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 23);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 363);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 24);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 444);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

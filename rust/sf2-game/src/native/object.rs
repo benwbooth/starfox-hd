@@ -952,6 +952,9 @@ pub struct ObjectFlags {
     /// Set for the one native simulation tick in which contact occurred.
     pub collided: bool,
     pub collision_disabled: bool,
+    /// Source 25 bit 02 bypasses ordinary death effects at `$03:A08B`,
+    /// while retaining the common detach/contact cleanup at `$03:A26A`.
+    pub suppress_death_effects: bool,
     /// Source transient-effect flag: retire this object when the final free
     /// slot is consumed, provided the pressure traversal reaches it.
     pub reclaim_on_pool_pressure: bool,
