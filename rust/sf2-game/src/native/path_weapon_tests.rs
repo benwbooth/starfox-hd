@@ -108,9 +108,11 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
             let mut expected = objects.clone();
             let mut expected_random = random;
             let mut expected_state = state;
+            let mut expected_resources = runtime.resources.clone();
             expected_state.parameters = LaunchParameters::default();
             let created = weapon_dispatch::launch(
                 &mut expected,
+                &mut expected_resources,
                 owner,
                 LaunchRequest {
                     weapon: PathWeapon::from_selection(selection).unwrap(),
@@ -155,6 +157,7 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
                 ControlStep::Movement
             );
             assert_eq!(objects, expected);
+            assert_eq!(runtime.resources, expected_resources);
             assert_eq!(state, expected_state);
             assert_eq!(random, expected_random);
             assert_eq!(runtime.spawns.last_spawn, Some(created));

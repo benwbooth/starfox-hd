@@ -1220,7 +1220,7 @@ impl PathRuntime {
                     Ok(ControlStep::Continue)
                 }
                 Statement::ReflectContactShots { next } => {
-                    super::weapon_reflection::reflect_contacts(objects, owner, &mut super::weapon_reflection::ReflectionWorld {
+                    super::weapon_reflection::reflect_contacts(objects, &mut self.resources, owner, &mut super::weapon_reflection::ReflectionWorld {
                         contacts: world.contacts, rules: world.reflection, weapons: world.weapons.as_deref_mut(),
                         defaults: world.spawn_defaults, primary: world.primary_player, secondary: world.secondary_player,
                         random: world.random,
@@ -2121,7 +2121,7 @@ impl PathRuntime {
                     // $7F:88C4 resets every retained muzzle/aim input. Source
                     // graphics-bank switching here has no native equivalent.
                     state.parameters = super::weapon_launch::LaunchParameters::default();
-                    let created = weapon_dispatch::launch(objects, owner, LaunchRequest {
+                    let created = weapon_dispatch::launch(objects, &mut self.resources, owner, LaunchRequest {
                         weapon, parameters: state.parameters, defaults,
                     }, &mut LaunchWorld {
                         caller_inputs: world.caller_weapon_inputs,

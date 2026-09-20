@@ -3907,3 +3907,27 @@ failure under shared capacity pressure and retry after capacity is restored.
 and app build pass. The catalog is unchanged. Retained weapon shape is the
 remaining separate optional auxiliary field; outer view-transition dispatch
 is still pending.
+
+### Retained weapon-shape auxiliary ownership
+
+Charged and rapid launchers now publish the original shape as auxiliary type
+10 in the shared program pool. Reflection reads that live typed record after
+creating its outgoing shot and falls back to the incoming actor's current
+shape only when the record is absent. The separate optional shape field has
+been removed. Launch/reflect services and path callers now share the same
+program-resource owner rather than silently allocating outside it.
+
+Native allocation-pressure cases preserve the source ordering: a charged
+shot has already been created and posed when shape capture fails, but its
+later health/attack overrides have not run. Rapid variants have already
+formatted the shot and, where applicable, published/reused the live aim
+proxy before the same failure. Failures retain those side effects and do not
+consume randomness or claim a successful launch. Existing all-shape/variant,
+reflection-order and authored-weapon tests now compare actual auxiliary
+ownership as well as actor fields.
+
+1,009 native unit tests and two integration tests pass in debug and release;
+436 path-static tests, exact regeneration, architecture guard, static inventory
+and app build pass. The reviewed scene, view-save, reflection-shape and impact
+records now share auxiliary-table accounting. C2/C3 dispatch remains the next
+dependency; catalog totals are still 140 roots and five helpers.

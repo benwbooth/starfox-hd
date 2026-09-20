@@ -17,9 +17,10 @@ pub enum AuxiliaryKind {
     SavedView,
     OrdinaryImpactMaterial,
     SuppressedImpactMaterial,
+    ReflectionShape,
 }
 
-/// Reviewed source types 3, 8, 11 and 13. Extend with typed payloads as the other
+/// Reviewed source types 3, 8, 10, 11 and 13. Extend with typed payloads as the other
 /// auxiliary producers migrate; unknown source kinds are not generic bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuxiliaryRecord {
@@ -27,6 +28,7 @@ pub enum AuxiliaryRecord {
     SavedView(ProgramResourceId),
     OrdinaryImpactMaterial(u8),
     SuppressedImpactMaterial(u8),
+    ReflectionShape(super::ShapeId),
 }
 
 impl AuxiliaryRecord {
@@ -36,6 +38,7 @@ impl AuxiliaryRecord {
             Self::SavedView(_) => AuxiliaryKind::SavedView,
             Self::OrdinaryImpactMaterial(_) => AuxiliaryKind::OrdinaryImpactMaterial,
             Self::SuppressedImpactMaterial(_) => AuxiliaryKind::SuppressedImpactMaterial,
+            Self::ReflectionShape(_) => AuxiliaryKind::ReflectionShape,
         }
     }
 }
@@ -59,6 +62,19 @@ pub struct ActorAuxiliary {
 }
 
 impl ActorAuxiliary {
+    pub fn reflection_shape(
+        &self,
+        resources: &ProgramResources<ProgramData>,
+        owner: ObjectId,
+    ) -> Result<Option<super::ShapeId>, AuxiliaryError> {
+        Ok(
+            match self.find(resources, owner, AuxiliaryKind::ReflectionShape)? {
+                Some(AuxiliaryRecord::ReflectionShape(shape)) => Some(shape),
+                _ => None,
+            },
+        )
+    }
+
     pub fn impact_materials(
         &self,
         resources: &ProgramResources<ProgramData>,

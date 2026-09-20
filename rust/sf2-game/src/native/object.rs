@@ -1022,9 +1022,6 @@ pub struct ObjectBase {
 /// Typed counterpart of the original parallel object-extension record.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ObjectExtension {
-    /// Optional original weapon shape (auxiliary type 10), captured at
-    /// creation and reused by reflection ($07:F26D) after shape animation.
-    pub reflection_shape: Option<ShapeId>,
     pub path_state: super::path_runtime::ActorPathState,
     pub surface_contact: super::collision_surface::ActorSurfaceContact,
     /// Scene-owned snapshot; retirement detaches it before contact callbacks.

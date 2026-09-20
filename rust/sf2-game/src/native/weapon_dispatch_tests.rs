@@ -68,6 +68,7 @@ fn charged_mesh_uses_published_pitch_caller_roll_and_retained_reflection_shape_w
         for roll in [0, 127, 128, 255] {
             for secondary in [false, true] {
                 let mut objects = ObjectStore::new();
+                let mut resources = ProgramResources::default();
                 let mut source = actor();
                 source.base.pitch = Angle::from_units(pitch.wrapping_add(93));
                 source.base.yaw = Angle::from_units(177);
@@ -95,6 +96,7 @@ fn charged_mesh_uses_published_pitch_caller_roll_and_retained_reflection_shape_w
                 request.parameters.muzzle =
                     super::super::weapon_launch::MuzzleOffset { x: 8, y: -4, z: 12 };
                 let mut expected = objects.clone();
+                let mut expected_resources = resources.clone();
                 let created = weapon_creation::player_linked(
                     &mut expected,
                     caller,
@@ -111,12 +113,21 @@ fn charged_mesh_uses_published_pitch_caller_roll_and_retained_reflection_shape_w
                 result.base.roll = Angle::from_units(roll);
                 result.base.hit_points = 120;
                 result.base.attack_power = 10;
-                result.extension.reflection_shape = Some(ShapeId::PLAYER_CHARGED_LASER_LAUNCH);
+                result
+                    .extension
+                    .auxiliary
+                    .set(
+                        &mut expected_resources,
+                        created,
+                        AuxiliaryRecord::ReflectionShape(ShapeId::PLAYER_CHARGED_LASER_LAUNCH),
+                    )
+                    .unwrap();
                 let mut random = RandomState::new([1, pitch, roll, 17]);
                 let before_random = random;
                 assert_eq!(
                     launch(
                         &mut objects,
+                        &mut resources,
                         caller,
                         request,
                         &mut LaunchWorld {
@@ -134,6 +145,7 @@ fn charged_mesh_uses_published_pitch_caller_roll_and_retained_reflection_shape_w
                     Some(created)
                 );
                 assert_eq!(objects, expected);
+                assert_eq!(resources, expected_resources);
                 assert_eq!(random, before_random);
                 let result = objects.get_mut(created).unwrap();
                 // The formatter's aliased pitch byte predates the later
@@ -152,7 +164,11 @@ fn charged_mesh_uses_published_pitch_caller_roll_and_retained_reflection_shape_w
                 );
                 result.base.shape = ShapeId::PLAYER_CHARGED_LASER_ACTIVE;
                 assert_eq!(
-                    result.extension.reflection_shape,
+                    result
+                        .extension
+                        .auxiliary
+                        .reflection_shape(&resources, created)
+                        .unwrap(),
                     Some(ShapeId::PLAYER_CHARGED_LASER_LAUNCH)
                 );
             }
@@ -163,6 +179,7 @@ fn charged_mesh_uses_published_pitch_caller_roll_and_retained_reflection_shape_w
 #[test]
 fn charged_mesh_requires_a_pitch_snapshot_unless_allocation_already_fails() {
     let mut objects = ObjectStore::new();
+    let mut resources = ProgramResources::default();
     let caller = objects.allocate(actor()).unwrap();
     let mut random = RandomState::default();
     let before_random = random;
@@ -171,6 +188,7 @@ fn charged_mesh_requires_a_pitch_snapshot_unless_allocation_already_fails() {
     assert_eq!(
         launch(
             &mut objects,
+            &mut resources,
             caller,
             request,
             &mut LaunchWorld {
@@ -194,6 +212,7 @@ fn charged_mesh_requires_a_pitch_snapshot_unless_allocation_already_fails() {
     assert_eq!(
         launch(
             &mut objects,
+            &mut resources,
             caller,
             request,
             &mut LaunchWorld {
@@ -214,11 +233,73 @@ fn charged_mesh_requires_a_pitch_snapshot_unless_allocation_already_fails() {
 }
 
 #[test]
+fn charged_shape_allocation_failure_retains_created_actor_before_combat_overrides() {
+    use super::super::program_resources::{AllocationFailure, PROGRAM_CAPACITY};
+    let mut objects = ObjectStore::new();
+    let caller = objects.allocate(actor()).unwrap();
+    objects.get_mut(caller).unwrap().base.roll = Angle::from_units(177);
+    let mut resources = ProgramResources::default();
+    resources
+        .allocate_shared(
+            PROGRAM_CAPACITY - 8 - 2,
+            ProgramData::PathStack(Default::default()),
+        )
+        .unwrap();
+    let before_resources = resources.clone();
+    let mut expected = objects.clone();
+    let request = request(PathWeapon::PlayerChargedMesh);
+    let created =
+        weapon_creation::player_linked(&mut expected, caller, request.parameters, request.defaults)
+            .unwrap()
+            .unwrap();
+    let expected_shot = expected.get_mut(created).unwrap();
+    expected_shot.base.path = Some(authored_paths::AIMED_IMPACT_PROJECTILE);
+    expected_shot.base.shape = ShapeId::PLAYER_CHARGED_LASER_LAUNCH;
+    expected_shot.base.roll = Angle::from_units(177);
+    expected_shot.base.pitch = Angle::from_units(103);
+    let mut random = RandomState::default();
+    let before_random = random;
+    assert_eq!(
+        launch(
+            &mut objects,
+            &mut resources,
+            caller,
+            request,
+            &mut LaunchWorld {
+                caller_inputs: None,
+                fallback: None,
+                published_pitch: Some(Angle::from_units(103)),
+                primary: None,
+                secondary: None,
+                primary_auxiliary_mode: None,
+                hostile_counts: None,
+                random: &mut random,
+            }
+        ),
+        Err(LaunchError::Auxiliary(AuxiliaryError::Allocation(
+            AllocationFailure::NoContiguousFit
+        )))
+    );
+    assert_eq!(objects, expected);
+    assert_eq!(resources, before_resources);
+    assert_eq!(random, before_random);
+    let shot = objects.get(created).unwrap();
+    assert_eq!((shot.base.hit_points, shot.base.attack_power), (1, 1));
+    assert_eq!(
+        shot.extension
+            .auxiliary
+            .reflection_shape(&resources, created),
+        Ok(None)
+    );
+}
+
+#[test]
 fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
     for mode in 0..=u8::MAX {
         for (_, profile) in PROFILES {
             for role in 0..3 {
                 let mut objects = ObjectStore::new();
+                let mut resources = ProgramResources::default();
                 let primary = objects.allocate(actor()).unwrap();
                 let secondary = objects.allocate(actor()).unwrap();
                 let enemy = objects.allocate(actor()).unwrap();
@@ -242,6 +323,7 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                 };
                 let mut expected_counts = counts;
                 let mut expected = objects.clone();
+                let mut expected_resources = resources.clone();
                 let creation = if profile == PathWeapon::PlayerChargedMesh {
                     weapon_creation::player_linked
                 } else {
@@ -291,7 +373,15 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                     actor.base.shape = ShapeId::PLAYER_CHARGED_LASER_LAUNCH;
                     actor.base.pitch = Angle::from_units(197);
                     actor.base.roll = source.base.roll;
-                    actor.extension.reflection_shape = Some(ShapeId::PLAYER_CHARGED_LASER_LAUNCH);
+                    actor
+                        .extension
+                        .auxiliary
+                        .set(
+                            &mut expected_resources,
+                            expected_id,
+                            AuxiliaryRecord::ReflectionShape(ShapeId::PLAYER_CHARGED_LASER_LAUNCH),
+                        )
+                        .unwrap();
                     actor.base.hit_points = 120;
                     actor.base.attack_power = 10;
                 }
@@ -329,6 +419,7 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                 }
                 let created = launch(
                     &mut objects,
+                    &mut resources,
                     caller,
                     launch_request,
                     &mut LaunchWorld {
@@ -375,6 +466,7 @@ fn hostile_gate_uses_formatted_heading_and_primary_yaw_with_exact_shared_draw_co
         for primary_yaw in [0, 63, 64, 127, 128, 191, 192, 255] {
             for seed in [0, 1, 2, 3] {
                 let mut objects = ObjectStore::new();
+                let mut resources = ProgramResources::default();
                 let mut primary_object = actor();
                 primary_object.base.yaw = Angle::from_units(primary_yaw);
                 let primary = objects.allocate(primary_object).unwrap();
@@ -408,6 +500,7 @@ fn hostile_gate_uses_formatted_heading_and_primary_yaw_with_exact_shared_draw_co
                 };
                 let created = launch(
                     &mut objects,
+                    &mut resources,
                     caller,
                     launch_request,
                     &mut LaunchWorld {
@@ -443,6 +536,7 @@ fn hostile_gate_uses_formatted_heading_and_primary_yaw_with_exact_shared_draw_co
 fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_inputs() {
     for (_, profile) in PROFILES {
         let mut objects = ObjectStore::new();
+        let mut resources = ProgramResources::default();
         let caller = objects.allocate(actor()).unwrap();
         let primary = objects.allocate(actor()).unwrap();
         let mut random = RandomState::new([3, 4, 5, 6]);
@@ -451,6 +545,7 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
             let before = objects.clone();
             let outcome = launch(
                 &mut objects,
+                &mut resources,
                 caller,
                 request(profile),
                 &mut LaunchWorld {
@@ -475,6 +570,7 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
         assert_eq!(
             launch(
                 &mut objects,
+                &mut resources,
                 caller,
                 request(profile),
                 &mut LaunchWorld {
@@ -496,6 +592,7 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
         if profile == PathWeapon::VariantGuided || profile == PathWeapon::PlayerOrHostileHeavy {
             let created = launch(
                 &mut objects,
+                &mut resources,
                 caller,
                 request(profile),
                 &mut LaunchWorld {
@@ -521,6 +618,7 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
 fn each_required_world_input_is_validated_before_allocation_or_random_consumption() {
     for missing in 0..4 {
         let mut objects = ObjectStore::new();
+        let mut resources = ProgramResources::default();
         let caller = objects.allocate(actor()).unwrap();
         let primary = objects.allocate(actor()).unwrap();
         let mut counts = HostileLaunchCounts::default();
@@ -537,6 +635,7 @@ fn each_required_world_input_is_validated_before_allocation_or_random_consumptio
         let expected_objects = objects.clone();
         let outcome = launch(
             &mut objects,
+            &mut resources,
             caller,
             request(profile),
             &mut LaunchWorld {

@@ -69,6 +69,7 @@ pub enum RapidLaunchError {
 
 pub(super) fn launch(
     objects: &mut ObjectStore,
+    resources: &mut super::program_resources::ProgramResources<super::program_state::ProgramData>,
     caller: ObjectId,
     weapon: RapidWeapon,
     parameters: LaunchParameters,
@@ -188,7 +189,9 @@ pub(super) fn launch(
         ));
     }
     let actor = objects.get_mut(created).expect("fresh rapid weapon");
-    actor.extension.reflection_shape = Some(actor.base.shape);
+    actor.extension.auxiliary.set(resources, created,
+        super::actor_auxiliary::AuxiliaryRecord::ReflectionShape(actor.base.shape))
+        .map_err(LaunchError::Auxiliary)?;
     Ok(Some(created))
 }
 

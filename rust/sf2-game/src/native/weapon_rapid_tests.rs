@@ -1,3 +1,5 @@
+use super::super::actor_auxiliary::AuxiliaryRecord;
+use super::super::program_resources::ProgramResources;
 use super::super::weapon_dispatch::{self, LaunchRequest, PathWeapon};
 use super::super::weapon_launch::MuzzleOffset;
 use super::super::{Behavior, Object, ObjectKind, RandomState};
@@ -73,6 +75,7 @@ fn all_rapid_spin_bytes_copy_only_for_upgraded_meshes_and_reaim_yaw_after_format
         for step in 0..=u8::MAX {
             for secondary in [false, true] {
                 let mut objects = ObjectStore::new();
+                let mut resources = ProgramResources::default();
                 let mut source = actor();
                 source.base.position = Vector3 {
                     x: 32710,
@@ -117,6 +120,7 @@ fn all_rapid_spin_bytes_copy_only_for_upgraded_meshes_and_reaim_yaw_after_format
                     });
                 }
                 let mut expected = objects.clone();
+                let mut expected_resources = resources.clone();
                 let created = weapon_creation::player_linked(
                     &mut expected,
                     caller,
@@ -146,12 +150,27 @@ fn all_rapid_spin_bytes_copy_only_for_upgraded_meshes_and_reaim_yaw_after_format
                     aim.z.wrapping_sub(target.base.position.z),
                 );
                 target.base.yaw = Angle::from_units(((fine >> 8) as u8).wrapping_neg());
-                target.extension.reflection_shape = Some(target.base.shape);
+                target
+                    .extension
+                    .auxiliary
+                    .set(
+                        &mut expected_resources,
+                        created,
+                        AuxiliaryRecord::ReflectionShape(target.base.shape),
+                    )
+                    .unwrap();
                 assert_eq!(
-                    weapon_dispatch::launch(&mut objects, caller, request, &mut world),
+                    weapon_dispatch::launch(
+                        &mut objects,
+                        &mut resources,
+                        caller,
+                        request,
+                        &mut world
+                    ),
                     Ok(Some(created))
                 );
                 assert_eq!(objects, expected);
+                assert_eq!(resources, expected_resources);
                 assert_eq!(world.caller_inputs, caller_inputs_before);
                 assert_eq!(*world.random, random_before);
                 let target = objects.get(created).unwrap();
@@ -172,10 +191,77 @@ fn all_rapid_spin_bytes_copy_only_for_upgraded_meshes_and_reaim_yaw_after_format
 }
 
 #[test]
+fn rapid_shape_allocation_failure_occurs_after_formatting_and_live_aim_publication() {
+    use super::super::actor_auxiliary::AuxiliaryError;
+    use super::super::program_resources::{AllocationFailure, PROGRAM_CAPACITY};
+    use super::super::program_state::ProgramData;
+    for weapon in VARIANTS {
+        let mut objects = ObjectStore::new();
+        let caller = objects.allocate(actor()).unwrap();
+        let proxy = objects.allocate(actor()).unwrap();
+        let mut resources = ProgramResources::default();
+        resources
+            .allocate_shared(
+                PROGRAM_CAPACITY - 8 - 2,
+                ProgramData::PathStack(Default::default()),
+            )
+            .unwrap();
+        let before_resources = resources.clone();
+        let mut random = RandomState::default();
+        let before_random = random;
+        let mut world = world(&mut random, caller, proxy);
+        let caller_inputs = world.caller_inputs;
+        assert_eq!(
+            weapon_dispatch::launch(
+                &mut objects,
+                &mut resources,
+                caller,
+                request(weapon),
+                &mut world
+            ),
+            Err(LaunchError::Auxiliary(AuxiliaryError::Allocation(
+                AllocationFailure::NoContiguousFit
+            )))
+        );
+        assert_eq!(objects.len(), 3);
+        assert_eq!(world.caller_inputs, caller_inputs);
+        assert_eq!(*world.random, before_random);
+        assert_eq!(resources, before_resources);
+        let created = objects.get(caller).unwrap().base.linked_object.unwrap();
+        let shot = objects.get(created).unwrap();
+        assert_eq!(shot.base.path, Some(weapon.paths()[0]));
+        assert_eq!(shot.base.attachment, Some(caller));
+        assert_eq!(shot.base.hit_points, 1);
+        assert_eq!(
+            shot.base.attack_power,
+            if weapon == RapidWeapon::Alternate {
+                2
+            } else {
+                1
+            }
+        );
+        assert_eq!(
+            shot.extension
+                .auxiliary
+                .reflection_shape(&resources, created),
+            Ok(None)
+        );
+        if weapon != RapidWeapon::Alternate {
+            assert_eq!(
+                objects.get(proxy).unwrap().base.position,
+                caller_inputs.unwrap().retained_aim.unwrap()
+            );
+            assert_eq!(shot.extension.path_state.animation.shape.packed(), 131);
+        }
+    }
+}
+
+#[test]
 fn alternate_rapid_masks_every_equipment_byte_and_copies_every_published_pitch() {
     for level in 0..=u8::MAX {
         for pitch in 0..=u8::MAX {
             let mut objects = ObjectStore::new();
+            let mut resources = ProgramResources::default();
             let mut source = actor();
             source.base.pitch = Angle::from_units(pitch.wrapping_add(23));
             source.base.yaw = Angle::from_units(193);
@@ -197,6 +283,7 @@ fn alternate_rapid_masks_every_equipment_byte_and_copies_every_published_pitch()
             let input_before = world.caller_inputs;
             let request = request(RapidWeapon::Alternate);
             let mut expected = objects.clone();
+            let mut expected_resources = resources.clone();
             let created = if level & 3 == 0 {
                 None
             } else {
@@ -222,14 +309,23 @@ fn alternate_rapid_masks_every_equipment_byte_and_copies_every_published_pitch()
                     target.extension.depth_offset &= 0xFF00;
                     target.extension.texture_scroll_x = 0;
                 }
-                target.extension.reflection_shape = Some(target.base.shape);
+                target
+                    .extension
+                    .auxiliary
+                    .set(
+                        &mut expected_resources,
+                        created,
+                        AuxiliaryRecord::ReflectionShape(target.base.shape),
+                    )
+                    .unwrap();
                 Some(created)
             };
             assert_eq!(
-                weapon_dispatch::launch(&mut objects, caller, request, &mut world),
+                weapon_dispatch::launch(&mut objects, &mut resources, caller, request, &mut world),
                 Ok(created)
             );
             assert_eq!(objects, expected);
+            assert_eq!(resources, expected_resources);
             assert_eq!(world.caller_inputs, input_before);
             assert_eq!(*world.random, random_before);
         }
@@ -242,6 +338,7 @@ fn every_count_uses_signed_admission_before_allocation_and_never_changes_the_cou
         for count in 0..=u8::MAX {
             for full in [false, true] {
                 let mut objects = ObjectStore::new();
+                let mut resources = ProgramResources::default();
                 let caller = objects.allocate(actor()).unwrap();
                 let proxy = objects.allocate(actor()).unwrap();
                 if full {
@@ -262,9 +359,14 @@ fn every_count_uses_signed_admission_before_allocation_and_never_changes_the_cou
                     world.caller_inputs.as_mut().unwrap().retained_aim = None;
                     world.caller_inputs.as_mut().unwrap().roll_step = None;
                 }
-                let result =
-                    weapon_dispatch::launch(&mut objects, caller, request(weapon), &mut world)
-                        .unwrap();
+                let result = weapon_dispatch::launch(
+                    &mut objects,
+                    &mut resources,
+                    caller,
+                    request(weapon),
+                    &mut world,
+                )
+                .unwrap();
                 assert_eq!(result.is_some(), admitted && !full);
                 if result.is_none() {
                     assert_eq!(objects, before);
@@ -283,6 +385,7 @@ fn every_count_uses_signed_admission_before_allocation_and_never_changes_the_cou
 fn required_rapid_inputs_fail_before_allocation_and_are_not_replaced_with_selected_state() {
     for case in 0..10 {
         let mut objects = ObjectStore::new();
+        let mut resources = ProgramResources::default();
         let caller = objects.allocate(actor()).unwrap();
         let proxy = objects.allocate(actor()).unwrap();
         let mut random = RandomState::default();
@@ -342,7 +445,13 @@ fn required_rapid_inputs_fail_before_allocation_and_are_not_replaced_with_select
         let before = objects.clone();
         let random_before = *world.random;
         assert_eq!(
-            weapon_dispatch::launch(&mut objects, caller, request(weapon), &mut world),
+            weapon_dispatch::launch(
+                &mut objects,
+                &mut resources,
+                caller,
+                request(weapon),
+                &mut world
+            ),
             Err(expected)
         );
         assert_eq!(objects, before);

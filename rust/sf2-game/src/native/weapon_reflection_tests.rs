@@ -1,3 +1,5 @@
+use super::super::actor_auxiliary::AuxiliaryRecord;
+use super::super::program_resources::ProgramResources;
 use super::super::render::MaterialSetId;
 use super::super::weapon_launch::{HostileLaunchCounts, LaunchParameters};
 use super::super::{authored_paths, Angle, Behavior, Object, ObjectKind, ShapeId, Vector3};
@@ -14,6 +16,7 @@ fn actor() -> Object {
 #[test]
 fn absent_reflection_gate_and_empty_contact_list_do_not_read_unreached_inputs() {
     let mut objects = ObjectStore::new();
+    let mut resources = ProgramResources::default();
     let owner = objects.allocate(actor()).unwrap();
     let mut random = RandomState::default();
     let original = objects.clone();
@@ -28,17 +31,23 @@ fn absent_reflection_gate_and_empty_contact_list_do_not_read_unreached_inputs() 
         secondary: None,
         random: &mut random,
     };
-    assert_eq!(reflect_contacts(&mut objects, owner, &mut world), Ok(()));
+    assert_eq!(
+        reflect_contacts(&mut objects, &mut resources, owner, &mut world),
+        Ok(())
+    );
     assert_eq!(objects, original);
     objects.get_mut(owner).unwrap().base.contacts.skip_contacts = true;
     let original = objects.clone();
     assert_eq!(
-        reflect_contacts(&mut objects, owner, &mut world),
+        reflect_contacts(&mut objects, &mut resources, owner, &mut world),
         Err(ReflectionError::MissingContacts)
     );
     assert_eq!(objects, original);
     world.contacts = Some(&contacts);
-    assert_eq!(reflect_contacts(&mut objects, owner, &mut world), Ok(()));
+    assert_eq!(
+        reflect_contacts(&mut objects, &mut resources, owner, &mut world),
+        Ok(())
+    );
     assert_eq!(objects, original);
     assert_eq!(random, before_random);
 }
@@ -47,6 +56,7 @@ fn absent_reflection_gate_and_empty_contact_list_do_not_read_unreached_inputs() 
 fn missing_live_inputs_fail_before_disabling_shot_or_consuming_randomness() {
     for case in 0..8 {
         let mut objects = ObjectStore::new();
+        let mut resources = ProgramResources::default();
         let primary = objects.allocate(actor()).unwrap();
         let secondary = objects.allocate(actor()).unwrap();
         let armor = objects.allocate(actor()).unwrap();
@@ -102,7 +112,7 @@ fn missing_live_inputs_fail_before_disabling_shot_or_consuming_randomness() {
             _ => ReflectionError::MissingFallback,
         };
         assert_eq!(
-            reflect_contacts(&mut objects, owner, &mut world),
+            reflect_contacts(&mut objects, &mut resources, owner, &mut world),
             Err(error)
         );
         assert_eq!(objects, original);
@@ -118,6 +128,7 @@ fn reflection_order_scatter_sprite_and_retained_shape_follow_live_contact_list()
             for process_all in [false, true] {
                 for seed in 0..=31 {
                     let mut objects = ObjectStore::new();
+                    let mut resources = ProgramResources::default();
                     let primary = objects.allocate(actor()).unwrap();
                     let secondary = objects.allocate(actor()).unwrap();
                     let armor = objects.allocate(actor()).unwrap();
@@ -158,11 +169,22 @@ fn reflection_order_scatter_sprite_and_retained_shape_follow_live_contact_list()
                         incoming.extension.texture_scroll_x = 199;
                         incoming.extension.material_set =
                             Some(MaterialSetId::from_catalog_token(3));
-                        if index != 3 {
-                            incoming.extension.reflection_shape =
-                                Some(ShapeId::from_catalog_index(20 + u16::from(index)));
-                        }
                         let id = objects.allocate(incoming).unwrap();
+                        if index != 3 {
+                            objects
+                                .get_mut(id)
+                                .unwrap()
+                                .extension
+                                .auxiliary
+                                .set(
+                                    &mut resources,
+                                    id,
+                                    AuxiliaryRecord::ReflectionShape(ShapeId::from_catalog_index(
+                                        20 + u16::from(index),
+                                    )),
+                                )
+                                .unwrap();
+                        }
                         incoming_ids.push(id);
                         contacts.record_pair(owner, id, [None, None]).unwrap();
                     }
@@ -227,6 +249,7 @@ fn reflection_order_scatter_sprite_and_retained_shape_follow_live_contact_list()
                     };
                     reflect_contacts(
                         &mut objects,
+                        &mut resources,
                         owner,
                         &mut ReflectionWorld {
                             contacts: Some(&contacts),
@@ -275,7 +298,9 @@ fn reflection_order_scatter_sprite_and_retained_shape_follow_live_contact_list()
                             shot.base.shape,
                             original
                                 .extension
-                                .reflection_shape
+                                .auxiliary
+                                .reflection_shape(&resources, incoming_ids[index])
+                                .unwrap()
                                 .unwrap_or(original.base.shape)
                         );
                         assert_eq!(shot.extension.material_set, original.extension.material_set);
@@ -319,6 +344,7 @@ fn reflection_order_scatter_sprite_and_retained_shape_follow_live_contact_list()
 #[test]
 fn full_pool_still_disables_incoming_and_formats_fallback_without_hostile_draw() {
     let mut objects = ObjectStore::new();
+    let mut resources = ProgramResources::default();
     let owner = objects.allocate(actor()).unwrap();
     let fallback = objects.allocate(actor()).unwrap();
     let incoming = objects.allocate(actor()).unwrap();
@@ -358,6 +384,7 @@ fn full_pool_still_disables_incoming_and_formats_fallback_without_hostile_draw()
     expected_fallback.extension.texture_scroll_x = 137;
     reflect_contacts(
         &mut objects,
+        &mut resources,
         owner,
         &mut ReflectionWorld {
             contacts: Some(&contacts),

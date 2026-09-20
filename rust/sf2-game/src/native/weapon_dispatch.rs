@@ -21,6 +21,10 @@ const HEAVY_ATTACK: u8 = 2;
 const CHARGED_ATTACK: u8 = 10;
 const HOSTILE_EXCLUSION: ExclusionGroups = ExclusionGroups::from_authored_class(0x50);
 
+use super::actor_auxiliary::{AuxiliaryError, AuxiliaryRecord};
+use super::program_resources::ProgramResources;
+use super::program_state::ProgramData;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathWeapon {
     Rapid(super::weapon_rapid::RapidWeapon),
@@ -109,6 +113,7 @@ pub struct WeaponState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchError {
+    Auxiliary(AuxiliaryError),
     Rapid(super::weapon_rapid::RapidLaunchError),
     MissingPublishedPitch,
     Creation(CreationError),
@@ -131,6 +136,7 @@ pub struct LaunchRequest {
 /// consumes no random bytes; the installed paths own live shot accounting.
 pub fn launch(
     objects: &mut ObjectStore,
+    resources: &mut ProgramResources<ProgramData>,
     caller: ObjectId,
     request: LaunchRequest,
     world: &mut LaunchWorld<'_>,
@@ -141,6 +147,7 @@ pub fn launch(
     if let PathWeapon::Rapid(weapon) = request.weapon {
         return super::weapon_rapid::launch(
             objects,
+            resources,
             caller,
             weapon,
             request.parameters,
@@ -219,7 +226,8 @@ pub fn launch(
         actor.base.shape = ShapeId::PLAYER_CHARGED_LASER_LAUNCH;
         actor.base.roll = caller_roll;
         actor.base.pitch = pitch;
-        actor.extension.reflection_shape = Some(actor.base.shape);
+        actor.extension.auxiliary.set(resources, created, AuxiliaryRecord::ReflectionShape(actor.base.shape))
+            .map_err(LaunchError::Auxiliary)?;
         actor.base.hit_points = HEAVY_HEALTH;
         actor.base.attack_power = CHARGED_ATTACK;
     }

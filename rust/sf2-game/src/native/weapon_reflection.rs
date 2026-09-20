@@ -32,6 +32,7 @@ pub struct ReflectionWorld<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReflectionError {
+    Auxiliary(super::actor_auxiliary::AuxiliaryError),
     MissingActor(ObjectId),
     MissingContacts,
     MissingRules,
@@ -48,6 +49,7 @@ pub enum ReflectionError {
 
 pub fn reflect_contacts(
     objects: &mut ObjectStore,
+    resources: &mut super::program_resources::ProgramResources<super::program_state::ProgramData>,
     owner: ObjectId,
     world: &mut ReflectionWorld<'_>,
 ) -> Result<(), ReflectionError> {
@@ -129,6 +131,7 @@ pub fn reflect_contacts(
                 super::weapon_launch::reflection_parameters(rotation, yaw, scatter);
             let reflected = weapon_dispatch::launch(
                 objects,
+                resources,
                 owner,
                 LaunchRequest {
                     weapon: PathWeapon::PlayerOrHostileHeavy,
@@ -160,7 +163,7 @@ pub fn reflect_contacts(
                 .ok_or(ReflectionError::MissingActor(reflected))?;
             shot.base.shape = incoming
                 .extension
-                .reflection_shape
+                .auxiliary.reflection_shape(resources, contact.other).map_err(ReflectionError::Auxiliary)?
                 .unwrap_or(incoming.base.shape);
             shot.extension.material_set = incoming.extension.material_set;
             shot.base.position = incoming.base.position;
