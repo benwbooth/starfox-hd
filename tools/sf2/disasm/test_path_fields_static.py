@@ -36,6 +36,19 @@ class PathFieldsStaticTests(unittest.TestCase):
     def test_word_to_byte_copy_retains_low_byte_and_other_byte_is_untouched(self):
         self.assert_source(0x7F8968, "C2 20 BD 00 00 E2 20 99 00 00 FA 4C BE CA")
 
+    def test_variable_helper_uses_first_operand_as_destination_and_second_as_source(self):
+        self.assert_source(0x7F8995, "08 E2 20 20 E0 C4 20 47 CB 5A 20 BC C4 20 47 CB FA 28 60")
+        self.assert_source(0x7FCB47, "08 C2 20 8E B1 16 29 FF 00 89 80 00 F0 04 18 69 41 1C 18 6D B1 16 A8 28 60")
+
+    def test_variable_copies_and_adds_keep_widths_and_immediate_continuation(self):
+        self.assert_source(0x7F88FF, "DA 20 95 89 BD 00 00 18 79 00 00 99 00 00 FA 4C BE CA")
+        self.assert_source(0x7F8911, "DA 20 95 89 C2 20 BD 00 00 18 79 00 00 99 00 00 FA 4C BE CA")
+        self.assert_source(0x7F8925, "DA 20 95 89 BD 00 00 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 18 79 00 00 99 00 00 FA 4C BE CA")
+        self.assert_source(0x7F8946, "DA 20 95 89 BD 00 00 99 00 00 FA 4C BE CA")
+        self.assert_source(0x7F8954, "DA 20 95 89 C2 20 BD 00 00 99 00 00 FA 4C BE CA")
+        self.assert_source(0x7F8964, "DA 20 95 89 C2 20 BD 00 00 E2 20 99 00 00 FA 4C BE CA")
+        self.assert_source(0x7F8976, "DA 20 95 89 E2 20 BD 00 00 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 99 00 00 FA 4C BE CA")
+
     def test_literal_writes_have_no_motion_or_collision_side_effect(self):
         self.assert_source(0x7F89A8, "20 E0 C4 20 47 CB E2 20 20 BC C4 99 00 00 4C BE CA")
         self.assert_source(0x7F89B9, "20 04 C5 20 47 CB C2 20 20 20 C7 99 00 00 E2 20 4C A9 CA")

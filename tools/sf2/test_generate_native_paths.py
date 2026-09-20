@@ -144,6 +144,36 @@ class NativePathGenerationTests(unittest.TestCase):
             self.lower_record("4b 00 00")
         self.assertEqual(self.lower_record("00 7b")[0], "Statement::Control(ControlCommand::Clear { next: cursor(0, 1) })")
 
+    def test_variable_copy_and_add_decode_destination_first_and_width_conversion(self):
+        cases = [
+            ("4e 0a 0b", "ByteField::TargetSpeed", "ByteOperation::Assign(ByteOperand::Actor(ByteField::Acceleration))"),
+            ("4f 0a a1", "ByteField::TargetSpeed", "ByteOperation::Assign(ByteOperand::LowWord(WordField::MotionPhase))"),
+            ("50 0c a1", "WordField::Position(Axis::X)", "WordOperation::Assign(WordOperand::Actor(WordField::MotionPhase))"),
+            ("51 0c 0a", "WordField::Position(Axis::X)", "WordOperation::Assign(WordOperand::SignedByte(ByteOperand::Actor(ByteField::TargetSpeed)))"),
+            ("52 0a 0b", "ByteField::TargetSpeed", "ByteOperation::Add(ByteOperand::Actor(ByteField::Acceleration))"),
+            ("53 0a 0b", "ByteField::TargetSpeed", "ByteOperation::Add(ByteOperand::Actor(ByteField::Acceleration))"),
+            ("54 0c a1", "WordField::Position(Axis::X)", "WordOperation::Add(WordOperand::Actor(WordField::MotionPhase))"),
+            ("55 0c 0a", "WordField::Position(Axis::X)", "WordOperation::Add(WordOperand::SignedByte(ByteOperand::Actor(ByteField::TargetSpeed)))"),
+        ]
+        for record, destination, value in cases:
+            with self.subTest(record=record):
+                statements = self.lower_record(record)
+                self.assertIn(f"field: {destination}, operation: {value}", statements[0])
+                self.assertIn("next: cursor(0, 1)", statements[0])
+                self.assertEqual(statements[1], "Statement::Control(ControlCommand::End)")
+        self.assertEqual(self.lower_record("52 0a 0b"), self.lower_record("53 0a 0b"))
+
+    def test_reviewed_scalar_and_relative_fields_decode_without_raw_operand_access(self):
+        for variable, field in [
+            (0x18, "Speed"), (0x28, "RepeatCounter"), (0x2D, "Health"), (0x2E, "AttackPower"),
+            (0x94, "RelativeRotation(Axis::X)"), (0x95, "RelativeRotation(Axis::Y)"),
+            (0x96, "RelativeRotation(Axis::Z)"), (0xA9, "Part"),
+        ]:
+            self.assertEqual(byte_field(variable), f"ByteField::{field}")
+            self.assertIn(f"field: ByteField::{field}", self.lower_record(f"0b ff {variable:02x}")[0])
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 94"):
+            self.lower_record("50 0c 94")
+
     def test_spawn_lowering_uses_semantic_shape_and_child_cursor_with_separate_continuation(self):
         for record, rotation in (
             ("f5 98 bd 00 f6 81 fe 00 80 ff 7f ff ff ff", (0, 0, 0)),

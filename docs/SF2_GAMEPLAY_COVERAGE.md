@@ -617,3 +617,14 @@ edge for an otherwise undiscovered path. This extends lowering support without
 claiming more complete roots: the catalog stays at nine roots/97 statements.
 Verification passes 31 lowerer tests, 151 static path checks, 14 focused native
 trigger/condition tests in release, and the architecture/dependency audit.
+
+Variable-to-variable copies and adds now lower for all eight byte/word opcode
+forms, including the byte-add alias. Full static helper/handler checks establish
+destination-first/source-second operand ordering, signed byte-to-word extension,
+and low-byte-only word-to-byte writes. Reviewed speed, repeat, health, attack,
+relative-rotation and actor-part operands map to their existing typed fields.
+Overlapping reads/writes are checked across every low byte and four high-byte
+patterns, preserving unrelated object state. Verification passes 33 lowerer
+tests, 153 static path checks, six arithmetic tests in debug/release, 145 native
+path tests in release, architecture/dependency checks and the app build. This
+does not enlarge the nine-root catalog or claim Game scheduling completion.

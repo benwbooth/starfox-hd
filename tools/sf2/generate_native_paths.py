@@ -141,7 +141,15 @@ def byte_field(variable: int) -> str:
         0x14: "ByteField::Rotation(Axis::Y)",
         0x16: "ByteField::Rotation(Axis::Z)",
         0x17: "ByteField::WaitTimer",
+        0x18: "ByteField::Speed",
+        0x28: "ByteField::RepeatCounter",
+        0x2D: "ByteField::Health",
+        0x2E: "ByteField::AttackPower",
+        0x94: "ByteField::RelativeRotation(Axis::X)",
+        0x95: "ByteField::RelativeRotation(Axis::Y)",
+        0x96: "ByteField::RelativeRotation(Axis::Z)",
         0x99: "ByteField::TextureScrollX",
+        0xA9: "ByteField::Part",
     }
     if variable in fields:
         return fields[variable]
@@ -275,6 +283,28 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
             spawn_ = f"ChildSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, position: {position}, rotation: {rotation}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power}, number: {spawn.number} }}"
             statement = f"Statement::SpawnChild {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name in (
+            "SetVariableByteFromByte", "SetVariableByteFromWord",
+            "SetVariableWordFromWord", "SetVariableWordFromByte",
+            "AddVariableByteFromByte", "AddVariableByteFromByteAlias",
+            "AddVariableWordFromWord", "AddVariableWordFromByte",
+        ):
+            # Shared source helper $7F:8995 resolves the SECOND operand into
+            # the source and the FIRST into the destination for every width.
+            destination, source = parameters(2)
+            wide_destination = "VariableWord" in name
+            wide_source = name.endswith("FromWord")
+            kind = "Word" if wide_destination else "Byte"
+            operation = "Assign" if name.startswith("Set") else "Add"
+            field = word_field(destination) if wide_destination else byte_field(destination)
+            if wide_destination:
+                value = (f"WordOperand::Actor({word_field(source)})" if wide_source else
+                         f"WordOperand::SignedByte(ByteOperand::Actor({byte_field(source)}))")
+            else:
+                value = (f"ByteOperand::LowWord({word_field(source)})" if wide_source else
+                         f"ByteOperand::Actor({byte_field(source)})")
+            mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation}({value}) }}"
+            statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
         elif name in ("SetByte", "SetWord", "AddByte", "AddWord", "SetZeroByte", "SetZeroWord"):
             wide = name.endswith("Word")
             kind = "Word" if wide else "Byte"

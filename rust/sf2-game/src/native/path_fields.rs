@@ -366,6 +366,72 @@ mod tests {
     }
 
     #[test]
+    fn variable_copies_and_adds_sample_overlapping_fields_before_writing_destination() {
+        let word = WordField::MotionPhase;
+        let low_field = ByteField::WordPart {
+            field: word,
+            part: BytePart::Low,
+        };
+        let high_field = ByteField::WordPart {
+            field: word,
+            part: BytePart::High,
+        };
+        for high in [0u8, 127, 128, 255] {
+            for low in 0..=u8::MAX {
+                let initial = u16::from_le_bytes([low, high]);
+                let cases = [
+                    (
+                        Mutation::Word {
+                            field: word,
+                            operation: WordOperation::Assign(WordOperand::SignedByte(
+                                ByteOperand::Actor(low_field),
+                            )),
+                        },
+                        low as i8 as i16 as u16,
+                    ),
+                    (
+                        Mutation::Word {
+                            field: word,
+                            operation: WordOperation::Add(WordOperand::SignedByte(
+                                ByteOperand::Actor(high_field),
+                            )),
+                        },
+                        initial.wrapping_add(high as i8 as i16 as u16),
+                    ),
+                    (
+                        Mutation::Byte {
+                            field: high_field,
+                            operation: ByteOperation::Assign(ByteOperand::LowWord(word)),
+                        },
+                        u16::from_le_bytes([low, low]),
+                    ),
+                    (
+                        Mutation::Byte {
+                            field: high_field,
+                            operation: ByteOperation::Add(ByteOperand::Actor(low_field)),
+                        },
+                        u16::from_le_bytes([low, high.wrapping_add(low)]),
+                    ),
+                ];
+                for (mutation, expected_phase) in cases {
+                    let mut actor = actor();
+                    actor.extension.path_state.motion_phase = initial;
+                    actor.base.velocity = Vector3 {
+                        x: 123,
+                        y: -456,
+                        z: 789,
+                    };
+                    actor.base.wait_timer = 97;
+                    let mut expected = actor.clone();
+                    expected.extension.path_state.motion_phase = expected_phase;
+                    mutation.apply(&mut actor);
+                    assert_eq!(actor, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn loop_counts_zero_extend_each_byte_without_changing_signed_arithmetic() {
         let mut actor = actor();
         for value in 0..=u8::MAX {
