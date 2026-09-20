@@ -91,6 +91,13 @@ class PathControlStaticTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(self.rom[start:start + 256]).hexdigest(),
                          "541f238f2bc0ac7b2f91a6cf6ce778a756b3ed903ac0afbc55bd6fe037d99b03")
 
+    def test_hit_cycled_shape_complete_graph_and_child_installation(self):
+        self.assert_source(0x08A0CD,
+            "C4 2E F9 FD 04 0A 19 4C D8 20 42 4B D4 20 61 07 1C 01 08 44 78 "
+            "61 07 1C FF 08 44 61 07 1C 01 08 44 FD 04 0A 19 4C F6 20 42 "
+            "4B F2 20 61 08 1C FF 08 44 17 CF 20")
+        self.assert_source(0x089B34, "F5 14 D0 CD 20 64 02 18 01 00 00 00 00 09")
+
     def test_mesh_effect_graph_bytes_and_installed_child_records(self):
         self.assert_source(0x099904, "5C 00 29 07 95 08 16 07 99")
         self.assert_source(0x099A3B, "00 29 5C 77 90 EC 77 8E EC 07 96 04 16 3E 9A")

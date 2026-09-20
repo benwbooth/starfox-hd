@@ -80,6 +80,7 @@ ROOTS = (
     ("RESET_ANIMATION_YAW_EFFECT", PathAddress(0xF1C9)),
     ("SIX_STEP_SHAPE_EFFECT", PathAddress(0xC1FF)),
     ("DEPTH_BIASED_WAIT_EFFECT", PathAddress(0xFA07)),
+    ("HIT_CYCLED_SHAPE", PathAddress(0x20CD)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -111,6 +112,7 @@ CHILD_INSTALLERS = {
     PathAddress(0xF1C9): (PathAddress(0xF136), PathAddress(0xF176)),
     PathAddress(0xC1FF): (PathAddress(0xF5B4), PathAddress(0xC1D3)),
     PathAddress(0xFA07): (PathAddress(0xF5B4), PathAddress(0xF76C)),
+    PathAddress(0x20CD): (PathAddress(0x1AFF), PathAddress(0x1B34)),
 }
 
 

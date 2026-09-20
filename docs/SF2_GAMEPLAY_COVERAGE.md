@@ -1921,3 +1921,31 @@ passes 126 lowerer tests, 289 static path tests and 312 native path tests in
 debug and release, plus generated freshness, architecture/static audits and
 the application build. These are source-derived path proofs, not a claim
 that parent scheduling or whole-game behavior is complete.
+
+### Hit-cycled shape with persistent HOLD and deferred transitions
+
+`HIT_CYCLED_SHAPE` (`44:20CD`) is a complete 27-command graph with its
+attached installer at `44:1B34` pinned from source. It runs while paused,
+suppresses next-epoch contacts, and alternates two hit-consuming callbacks
+with three seven-step animation loops and one eight-step return loop.
+The opening movement visits expose shape frames
+`1,2,3,4,5,6,7,6,5,4,3,2,1,1,2,3,4,5,6,7`; the return exposes
+`6,5,4,3,2,1,0,0`. Final NEXT iterations continue immediately: intermediate
+zero/seven frames at loop joins are overwritten before the next movement
+visit. The explicit WAITONE preserves the first peak for one visit.
+
+Forced callback redirection clears wait/repeat counters but retains the
+source HOLD flag. Tests distinguish that persistent flag from the actual
+held cursor. Cancellation removes the old callback during animation; a hit
+latched then survives until the newly registered callback consumes it.
+Three full cycles are checked for every initial wait, health and packed
+animation byte, with and without intervening hits, while preserving
+visibility, collision, sprite/shadow state, world pose, color animation,
+depth and phase. No random values are consumed and IFNOT is preserved.
+
+Coverage is **57 complete roots / 998 source commands / 989 native
+statements**. All 127 lowerer tests, 290 static path tests and 313 native
+path tests (debug and release) pass, as do generated freshness,
+architecture/static audits and the app build. This path does not disable
+collision, so its shape's spawn category is deliberately still rejected
+until separately reviewed; no parent or allocation integration is claimed.

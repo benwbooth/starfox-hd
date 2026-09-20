@@ -159,6 +159,39 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(shape, PathAddress(root))
 
+    def test_hit_cycled_shape_keeps_both_callbacks_and_all_loop_transition_commands(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x20CD))
+        _, statements = lower_graph(extractor, PathAddress(0x20CD), 0)
+        self.assertEqual(len(commands), 27)
+        self.assertEqual(len(statements), 27)
+        mapped = dict(zip((c.address.offset for c in commands), statements))
+        for address, fragment in [
+            (0x20CD, "RunWhenPaused { enabled: true"), (0x20CE, "SuppressContactsNextEpoch(true)"),
+            (0x20CF, "Initialize { channel: AnimationChannel::Shape, value: 0 }"),
+            (0x20D0, "ConsumeHitEvent"), (0x20EE, "ConsumeHitEvent"),
+            (0x20D4, "ForceAfterCallbacks"), (0x20F2, "ForceAfterCallbacks"),
+            (0x20D8, "Cancel"), (0x20F6, "Cancel"),
+            (0x20DB, "iterations: 7"), (0x20E2, "iterations: 7"), (0x20E8, "iterations: 7"),
+            (0x20E1, "WaitOne"), (0x20F9, "iterations: 8"),
+            (0x20FF, "Jump { target: cursor(0, 2) }"),
+        ]:
+            self.assertIn(fragment, mapped[address])
+        self.assertEqual(sum("ControlCommand::Hold" in s for s in statements), 2)
+        self.assertEqual(sum("amount: 255, period: 8" in s for s in statements), 2)
+        self.assertEqual(sum("amount: 1, period: 8" in s for s in statements), 2)
+        spawn = child_spawn_parameters(extractor.decode_command(PathAddress(0x1B34)))
+        self.assertEqual((spawn.shape, spawn.path.offset, spawn.hit_points, spawn.attack_power,
+                          spawn.position, spawn.number), (0xD014, 0x20CD, 100, 2, (280, 0, 0), 9))
+        # Publishing the path does not guess this collision-enabled shape's
+        # allocation category. Its parent/spawn integration is still unported.
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+            spawn_shape(0xD014, PathAddress(0x20CD))
+        changed = bytearray(self.rom)
+        changed[0x41B37:0x41B39] = (0x20CF).to_bytes(2, "little")
+        with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            generate(bytes(changed))
+
     def test_mesh_effect_children_keep_local_motion_timed_callback_and_loop_initialization(self):
         extractor = PathExtractor(self.rom)
         for root, count, installer, shape, index in [

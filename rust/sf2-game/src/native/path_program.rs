@@ -5259,6 +5259,106 @@ mod tests {
     }
 
     #[test]
+    fn hit_cycled_shape_preserves_exact_loop_fallthrough_and_latched_hits_between_callbacks() {
+        use super::super::{authored_paths, path_appearance::AnimationControl, Vector3};
+        let catalog = authored_paths::catalog();
+        // NEXT falls through on the final iteration. At the join between
+        // decreasing and increasing loops, zero is overwritten by one in
+        // the same visit. The last decreasing iteration of the return
+        // phase similarly reaches seven, then reinitializes to zero.
+        let opening: &[u8] = &[1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1, 1, 2, 3, 4, 5, 6, 7];
+        let closing: &[u8] = &[6, 5, 4, 3, 2, 1, 0, 0];
+        for retained in 0..=u8::MAX {
+            for queue_during_animation in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::HIT_CYCLED_SHAPE);
+                actor.base.position = Vector3 { x: 1234, y: i16::MIN, z: i16::MAX };
+                actor.base.wait_timer = retained;
+                actor.base.hit_points = retained;
+                actor.base.attack_power = retained ^ 255;
+                actor.base.flags.visible = retained & 1 != 0;
+                actor.base.flags.collision_disabled = retained & 2 != 0;
+                actor.base.flags.scaled_sprite = retained & 4 != 0;
+                actor.base.flags.casts_shadow = retained & 8 != 0;
+                actor.extension.path_state.animation.shape = AnimationControl::from_packed(retained);
+                actor.extension.path_state.animation.color = AnimationControl::from_packed(retained);
+                actor.extension.path_state.motion_phase = 0xABCD;
+                actor.extension.depth_offset = 0xFEDC;
+                actor.extension.texture_scroll_x = 231;
+                actor.extension.path_state.repeat_counter = retained;
+                let initial_random = random;
+                runtime.branch.invert_next = true;
+                for _ in 0..3 {
+                    assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 5),
+                        Ok(ControlStep::Movement));
+                    let actor = objects.get(owner).unwrap();
+                    assert_eq!(actor.extension.path_state.animation.shape.fixed_frame(), Some(0));
+                    assert!(actor.extension.path_state.hold_latched);
+                    assert_eq!((actor.base.wait_timer, actor.extension.path_state.repeat_counter), (retained, retained));
+                }
+                for _cycle in 0..3 {
+                    for frames in [opening, closing] {
+                        let held = objects.get(owner).unwrap().base.path;
+                        if !objects.get(owner).unwrap().extension.path_state.conditions.hit_event_pending {
+                            assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                            assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Skipped));
+                            assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                            assert_eq!(objects.get(owner).unwrap().base.path, held);
+                            objects.get_mut(owner).unwrap().extension.path_state.conditions.hit_event_pending = true;
+                        }
+                        assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                        assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
+                        assert!(!objects.get(owner).unwrap().extension.path_state.conditions.hit_event_pending);
+                        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 2),
+                            Ok(ControlStep::ResumeCallbacks));
+                        assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                        assert_ne!(objects.get(owner).unwrap().base.path, held);
+                        assert_eq!((objects.get(owner).unwrap().base.wait_timer,
+                            objects.get(owner).unwrap().extension.path_state.repeat_counter), (0, 0));
+                        for (visit, &frame) in frames.iter().enumerate() {
+                            if visit == 2 && queue_during_animation {
+                                objects.get_mut(owner).unwrap().extension.path_state.conditions.hit_event_pending = true;
+                            }
+                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 8),
+                                Ok(ControlStep::Movement));
+                            let actor = objects.get(owner).unwrap();
+                            let held = visit + 1 == frames.len();
+                            assert_eq!(actor.extension.path_state.animation.shape.fixed_frame(), Some(frame));
+                            // The source hold flag stays latched across a
+                            // forced redirect; only the cursor leaves HOLD.
+                            assert!(actor.extension.path_state.hold_latched);
+                            assert_eq!(matches!(catalog.statement(actor.base.path.unwrap()),
+                                Ok(Statement::Control(ControlCommand::Hold))), held);
+                            let triggers = actor.extension.path_state.triggers.entries(&runtime.resources, owner).unwrap();
+                            assert_eq!(triggers.len(), usize::from(held));
+                            if held { assert_eq!(triggers[0].kind, super::super::path_triggers::TriggerKind::ConsumeHitEvent); }
+                            assert_eq!(actor.extension.path_state.conditions.hit_event_pending, queue_during_animation && visit >= 2);
+                            assert!(actor.base.contacts.run_when_paused);
+                            assert!(actor.base.contacts.suppress_contacts_next_epoch);
+                            assert_eq!(actor.base.flags.visible, retained & 1 != 0);
+                            assert_eq!(actor.base.flags.collision_disabled, retained & 2 != 0);
+                            assert_eq!(actor.base.flags.scaled_sprite, retained & 4 != 0);
+                            assert_eq!(actor.base.flags.casts_shadow, retained & 8 != 0);
+                            assert!(!actor.base.flags.remove_after_tick);
+                            assert_eq!(actor.base.position, Vector3 { x: 1234, y: i16::MIN, z: i16::MAX });
+                            assert_eq!((actor.base.wait_timer, actor.base.hit_points, actor.base.attack_power), (0, retained, retained ^ 255));
+                            assert_eq!(actor.extension.path_state.motion_phase, 0xABCD);
+                            assert_eq!(actor.extension.path_state.animation.color.packed(), retained);
+                            assert_eq!(actor.extension.depth_offset, 0xFEDC);
+                            assert_eq!(actor.extension.texture_scroll_x, 231);
+                            assert!(runtime.branch.invert_next);
+                            assert_eq!(random, initial_random);
+                            if !held { assert!(!runtime.begin_callbacks(&objects, owner).unwrap()); }
+                        }
+                    }
+                }
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn mesh_effect_relative_motion_wraps_without_changing_world_pose_or_render_channels() {
         use super::super::{authored_paths, Angle, Vector3};
         let catalog = authored_paths::catalog();
@@ -11682,9 +11782,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 56);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 962);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 971);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 57);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 989);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 998);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
