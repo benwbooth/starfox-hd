@@ -71,6 +71,7 @@ pub mod player_contact;
 pub mod player_hit_control;
 pub mod program_resources;
 pub mod program_state;
+pub mod radar;
 mod render;
 mod results;
 pub mod retirement;

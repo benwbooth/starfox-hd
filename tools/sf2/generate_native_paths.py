@@ -976,6 +976,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "SetFlag26Bit80": ("QuadrupleVelocity", True),
             }[name]
             statement = f"Statement::Motion {{ command: MotionCommand::{operation}({str(enabled).lower()}), next: {next_cursor()} }}"
+        elif name == "Trail":
+            value, = parameters(1)
+            statement = f"Statement::Appearance {{ command: AppearanceCommand::RadarMarker(super::radar::RadarMarker::from_packed({value})), next: {next_cursor()} }}"
         elif name == "DisableCollision":
             parameters(0)
             statement = f"Statement::DisableCollision {{ next: {next_cursor()} }}"

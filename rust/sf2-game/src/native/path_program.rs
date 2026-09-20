@@ -4915,6 +4915,59 @@ mod tests {
     }
 
     #[test]
+    fn radar_marker_assignment_preserves_other_actor_state_and_reaches_native_projection() {
+        use super::super::path_appearance::AppearanceCommand;
+        use super::super::radar::{RadarMarker, RadarView};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let original_random = random;
+        runtime.branch.invert_next = true;
+        objects.get_mut(owner).unwrap().base.wait_timer = 199;
+        let view = RadarView {
+            center: Default::default(),
+            screen_origin: [100, 80],
+            scale_shift: 0,
+            clip_span: 8192,
+            clip_bias: 4096,
+        };
+        for value in 0..=u8::MAX {
+            let marker = RadarMarker::from_packed(value);
+            let catalog = PathCatalog::new(vec![vec![Statement::Appearance {
+                command: AppearanceCommand::RadarMarker(marker),
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+            let before = objects.clone();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 0),
+                    executed: 0
+                })
+            );
+            assert_eq!(objects, before);
+            let mut expected = before;
+            let actor = expected.get_mut(owner).unwrap();
+            actor.extension.radar_marker = marker;
+            actor.base.path = Some(cursor(0, 1));
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects, expected);
+            assert_eq!(
+                view.project_actor(objects.get(owner).unwrap()).is_some(),
+                value != 0
+            );
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
+        }
+    }
+
+    #[test]
     fn indexed_word_bit_branches_resample_live_fields_and_leave_ifnot_pending() {
         const MASKS: [u16; 128] = {
             let mut masks = [0; 128];

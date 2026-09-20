@@ -1032,6 +1032,7 @@ pub struct ObjectExtension {
     pub activity: ObjectActivity,
     pub auxiliary_links: Vec<ObjectId>,
     pub render_parameter: u8,
+    pub radar_marker: super::radar::RadarMarker,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

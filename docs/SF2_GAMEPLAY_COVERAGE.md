@@ -1458,3 +1458,28 @@ roots / 670 source commands / 661 native statements**. The full library passes
 General Game scheduling, automatic source spawning and the live player-service
 recovery/feedback call remain integration work. No gameplay recordings or
 original-code execution were used.
+
+### Radar marker metadata and projection
+
+The inherited `TRAIL` opcode actually stores SF2's radar-marker byte (1CEE).
+It now lowers to a typed `RadarMarker` appearance command without changing
+texture coordinates, sprite depth/colour, movement or particle state. Static
+tests tie the writer to the radar draw loop and the marker-134 zoom search;
+the compatibility host's unrelated 1CCC interpretation is not reused.
+
+Native radar leaves port `$7F:51EE..5265` appearance and `$7F:52A3..5329`
+projection: disabled markers, direct and altitude-coloured glyphs, the special
+focus-count markers, signed wrapped altitude thresholds, arithmetic-floor
+halving, wrapping doubling, clipping against unscaled offsets, independent
+screen-coordinate bytes and the authored tile/attribute add. Minimum signed
+scale, large shift counts and wrapped clipping comparisons remain defined.
+The decoded appearance, view and plot records are public typed APIs; this
+does not claim HUD publication, focus scheduling or automatic marker setup.
+
+Verification passes 107 lowerer tests, 269 static path tests, 278 native path
+tests and four radar tests in debug/release, plus freshness, architecture,
+static audit and application build. Radar tests cover every marker/altitude
+combination, all words at representative/extreme shifts, clipping boundaries,
+screen wrapping, statement atomicity and unrelated-state preservation.
+Complete-root coverage remains **28 roots / 670 source commands / 661 native
+statements**; the newly supported radar opcode is a primitive checkpoint.

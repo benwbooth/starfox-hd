@@ -23,6 +23,7 @@ pub enum AppearanceCommand {
     MaximumDrawDistance(bool),
     FarSortBias(bool),
     SuppressDeathEffects(bool),
+    RadarMarker(super::radar::RadarMarker),
 }
 
 impl AppearanceCommand {
@@ -40,6 +41,7 @@ impl AppearanceCommand {
             Self::SuppressDeathEffects(enabled) => {
                 actor.base.flags.suppress_death_effects = enabled
             }
+            Self::RadarMarker(marker) => actor.extension.radar_marker = marker,
         }
     }
 }
@@ -237,6 +239,9 @@ mod tests {
                 ] {
                     let mut expected = original.clone();
                     match command {
+                        AppearanceCommand::RadarMarker(marker) => {
+                            expected.extension.radar_marker = marker
+                        }
                         AppearanceCommand::Shape(shape) => expected.base.shape = shape,
                         AppearanceCommand::Visibility(value) => {
                             expected.base.flags.visible = value;

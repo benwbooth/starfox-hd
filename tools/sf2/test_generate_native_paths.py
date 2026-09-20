@@ -207,6 +207,11 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
+    def test_sf2_trail_opcode_is_radar_metadata_not_a_particle_emitter(self):
+        for value in range(256):
+            self.assertEqual(self.lower_record(f"f6 {value:02x}")[0],
+                f"Statement::Appearance {{ command: AppearanceCommand::RadarMarker(super::radar::RadarMarker::from_packed({value})), next: cursor(0, 1) }}")
+
     def test_three_homing_projectile_roots_retain_full_shared_callbacks_and_effect(self):
         for address, count in [(0xEE2D, 82), (0xEE3B, 78), (0xEE4C, 82)]:
             extractor = PathExtractor(self.rom)
