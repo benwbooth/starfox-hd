@@ -25,6 +25,17 @@ class PathConditionsStaticTests(unittest.TestCase):
     def test_word_equality_reads_full_literal_and_consumes_ifnot_before_six_byte_continuation(self):
         self.assert_source(0x7F8F69, "20 BC C4 20 47 CB C2 20 20 4C C7 D9 00 00 E2 20 08 AD 72 B2 F0 0D 9C 72 B2 28 D0 04 5C 83 CA 7F 4C 17 CB 28 F0 04 5C 83 CA 7F 4C 17 CB")
 
+    def test_variable_comparison_order_is_second_minus_first_and_widths_are_explicit(self):
+        self.assert_source(0x7FB8E4, "20 BC C4 20 47 CB B9 00 00 8D B7 16 20 E0 C4 20 47 CB B9 00 00 CD B7 16 10 03 82 0A 12 4C 94 CA")
+        self.assert_source(0x7FB904, "20 BC C4 20 47 CB C2 20 B9 00 00 8D B7 16 E2 20 20 E0 C4 20 47 CB C2 20 B9 00 00 CD B7 16 10 03 82 E4 11 4C 94 CA")
+        self.assert_source(0x7FB92A, "20 BC C4 20 47 CB B9 00 00 8D B7 16 20 E0 C4 20 47 CB AD 72 B2 F0 11 9C 72 B2 B9 00 00 CD B7 16 D0 03 82 45 11 4C 0B CB B9 00 00 CD B7 16 D0 03 82 AE 11 4C 94 CA")
+        self.assert_source(0x7FB960, "20 BC C4 20 47 CB C2 20 B9 00 00 8D B7 16 E2 20 20 E0 C4 20 47 CB AD 72 B2 F0 13 9C 72 B2 C2 20 B9 00 00 CD B7 16 D0 03 82 09 11 4C 0B CB C2 20 B9 00 00 CD B7 16 D0 03 82 70 11 4C 94 CA")
+
+    def test_spatial_limits_are_word_literals_but_yaw_endpoints_are_bytes(self):
+        self.assert_source(0x7F8C75, "C2 20 20 20 C7 8D B1 16 E2 20")
+        self.assert_source(0x7FA7CE, "C2 20 20 20 C7 8D B1 16 E2 20")
+        self.assert_source(0x7FAB7E, "20 BC C4 8D B3 16 20 E0 C4 38 ED B3 16 8D B5 16")
+
     def test_auxiliary_continuation_reads_selected_slot_twice_and_does_not_consume_ifnot(self):
         self.assert_source(0x7FB9BC, "AC 1F CF DA BB 7A 5A B4 2B B9 63 6B 7A DA BB 7A 89 40 F0 04 5C DC B9 7F 29 80 F0 04 5C EE B9 7F DA BB 5A B4 2B B9 77 6B 7A FA 89 20 F0 04 5C F1 B9 7F 4C BE CA 4C F3 CA")
 

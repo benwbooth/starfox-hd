@@ -261,6 +261,50 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(self.lower_record(f"2b a1 {low:02x} {high:02x} 36 f5")[0],
                 f"Statement::Compare {{ condition: ActorCondition::EqualWord(WordOperand::Actor(WordField::MotionPhase), WordOperand::Literal({value})), taken: cursor(0, 0), next: cursor(0, 1) }}")
 
+    def test_between_literals_keep_encoded_order_width_and_wrapped_bounds(self):
+        for opcode, variable, kind, field, boundaries in [
+            (0x2C, 0x18, "Byte", "ByteField::Speed", [(0, 255), (255, 0), (128, 128)]),
+            (0x2D, 0xA1, "Word", "WordField::MotionPhase", [(0, 65535), (65535, 0), (32768, 32768)]),
+        ]:
+            for lower, upper in boundaries:
+                width = 2 if kind == "Word" else 1
+                record = bytes([opcode, variable]) + lower.to_bytes(width, "little") + upper.to_bytes(width, "little") + bytes.fromhex("36 f5")
+                self.assertEqual(self.lower_record(record.hex())[0],
+                    f"Statement::Compare {{ condition: ActorCondition::Between{kind} {{ value: {kind}Operand::Actor({field}), lower: {kind}Operand::Literal({lower}), upper: {kind}Operand::Literal({upper}) }}, taken: cursor(0, 0), next: cursor(0, 1) }}")
+
+    def test_variable_comparisons_keep_first_second_order_and_width(self):
+        for record, condition in [
+            ("ee 18 2d", "SecondByteLess(ByteOperand::Actor(ByteField::Speed), ByteOperand::Actor(ByteField::Health))"),
+            ("ef a1 0c", "SecondWordLess(WordOperand::Actor(WordField::MotionPhase), WordOperand::Actor(WordField::Position(Axis::X)))"),
+            ("f0 18 2d", "EqualByte(ByteOperand::Actor(ByteField::Speed), ByteOperand::Actor(ByteField::Health))"),
+            ("f1 a1 0c", "EqualWord(WordOperand::Actor(WordField::MotionPhase), WordOperand::Actor(WordField::Position(Axis::X)))"),
+        ]:
+            self.assertEqual(self.lower_record(record + " 36 f5")[0],
+                f"Statement::Compare {{ condition: ActorCondition::{condition}, taken: cursor(0, 0), next: cursor(0, 1) }}")
+
+    def test_spatial_conditions_decode_literals_and_plane_axes_without_sampling_world(self):
+        for record, condition in [
+            ("14 ff ff", "SelectedDistanceLess(65535)"),
+            ("15 00 80", "LinkedDistanceLess(32768)"),
+            ("1a 00 80", "GroundThreshold(-32768)"),
+            ("1a ff ff", "GroundThreshold(-1)"),
+            ("97 00 80", "WithinSelectedRange(32768)"),
+            ("a4 ff", "SelectedWithinYawArc(255)"),
+            ("00 21 ff 01", "SelectedRelativeYawBetween { lower: 255, upper: 1 }"),
+            ("00 01", "SelectedAbove"),
+            ("24", "SelectedAtOrBelow"),
+            ("23", "NegativeSelectedPlane(PlaneAxis::Right)"),
+            ("5f", "NegativeSelectedPlane(PlaneAxis::Forward)"),
+        ]:
+            self.assertEqual(self.lower_record(record + " 36 f5")[0],
+                f"Statement::Spatial {{ condition: SpatialCondition::{condition}, taken: cursor(0, 0), next: cursor(0, 1) }}")
+            changed = bytearray(self.rom)
+            program = bytes.fromhex(record + " 36 f5 0f")
+            changed[0x4F536:0x4F536 + len(program)] = program
+            generated = generate(bytes(changed), (("SPATIAL", PathAddress(0xF536)),))
+            self.assertIn("use super::path_conditions::SpatialCondition;", generated)
+            self.assertEqual("use super::path_control::PlaneAxis;" in generated, "PlaneAxis" in condition)
+
     def test_break_pair_discard_and_consuming_hit_branches_keep_their_edges(self):
         self.assertEqual(self.lower_record("46 36 f5")[0],
             "Statement::Control(ControlCommand::Break { target: cursor(0, 0) })")

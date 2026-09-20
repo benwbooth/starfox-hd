@@ -673,3 +673,12 @@ ordinary full-width literal word equality also lowers. Verification passes 41
 lowerer tests, 162 static path checks, 151 native path tests in debug/release,
 architecture/dependency checks and the app build. These are handler additions;
 the complete native catalog remains nine roots/97 statements.
+
+Lowering now covers literal byte/word ranges, all four variable equality/less
+forms, and ten spatial predicates for selected/linked distance, ground, range,
+yaw, height and selected planes. These reuse the reviewed native predicates:
+wrapped subtraction signs and per-predicate IFNOT behavior are not replaced
+with generic host-language comparisons. Shape/raw-pointer arithmetic remains
+rejected. Verification passes 44 lowerer tests, 164 static path checks, 151
+native path tests in release, and architecture/dependency checks. No additional
+complete root is claimed; unported world services still reject whole graphs.

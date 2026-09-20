@@ -453,6 +453,58 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             else:
                 condition = f"ActorCondition::EqualWord(WordOperand::Actor({word_field(variable)}), WordOperand::Literal({expected}))"
             statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("IfBetweenByte", "IfBetweenWord"):
+            wide = name == "IfBetweenWord"
+            width = 2 if wide else 1
+            operands = parameters(3 + 2 * width)
+            field = word_field(operands[0]) if wide else byte_field(operands[0])
+            lower = int.from_bytes(operands[1:1 + width], "little")
+            upper = int.from_bytes(operands[1 + width:1 + 2 * width], "little")
+            taken, next_ = branch_cursors(int.from_bytes(operands[-2:], "little"))
+            kind = "Word" if wide else "Byte"
+            condition = f"ActorCondition::Between{kind} {{ value: {kind}Operand::Actor({field}), lower: {kind}Operand::Literal({lower}), upper: {kind}Operand::Literal({upper}) }}"
+            statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("IfVariableBytesSame", "IfVariableWordsSame", "IfVariableBytesLess", "IfVariableWordsLess"):
+            first, second, low, high = parameters(4)
+            wide = "Words" in name
+            kind = "Word" if wide else "Byte"
+            field = word_field if wide else byte_field
+            predicate = f"Equal{kind}" if name.endswith("Same") else f"Second{kind}Less"
+            taken, next_ = branch_cursors(low | (high << 8))
+            condition = f"ActorCondition::{predicate}({kind}Operand::Actor({field(first)}), {kind}Operand::Actor({field(second)}))"
+            statement = f"Statement::Compare {{ condition: {condition}, taken: {taken}, next: {next_} }}"
+        elif name in (
+            "IfSelectedDistanceLess", "IfMotherDistanceLess", "IfHitGround",
+            "IfSelectedWithinRange", "IfSelectedWithinYawArc", "IfSelectedRelativeYawBetween",
+            "IfSelectedAboveObject", "IfSelectedAtOrBelowObject",
+            "IfProjectedSelectedPointNegative", "IfProjectedSelectedForwardPointNegative",
+        ):
+            word_conditions = {
+                "IfSelectedDistanceLess": "SelectedDistanceLess",
+                "IfMotherDistanceLess": "LinkedDistanceLess",
+                "IfHitGround": "GroundThreshold",
+                "IfSelectedWithinRange": "WithinSelectedRange",
+            }
+            if name in word_conditions:
+                operands = parameters(4)
+                value = int.from_bytes(operands[:2], "little", signed=name == "IfHitGround")
+                condition = f"{word_conditions[name]}({value})"
+            elif name == "IfSelectedWithinYawArc":
+                operands = parameters(3)
+                condition = f"SelectedWithinYawArc({operands[0]})"
+            elif name == "IfSelectedRelativeYawBetween":
+                operands = parameters(4)
+                condition = f"SelectedRelativeYawBetween {{ lower: {operands[0]}, upper: {operands[1]} }}"
+            else:
+                operands = parameters(2)
+                condition = {
+                    "IfSelectedAboveObject": "SelectedAbove",
+                    "IfSelectedAtOrBelowObject": "SelectedAtOrBelow",
+                    "IfProjectedSelectedPointNegative": "NegativeSelectedPlane(PlaneAxis::Right)",
+                    "IfProjectedSelectedForwardPointNegative": "NegativeSelectedPlane(PlaneAxis::Forward)",
+                }[name]
+            taken, next_ = branch_cursors(int.from_bytes(operands[-2:], "little"))
+            statement = f"Statement::Spatial {{ condition: SpatialCondition::{condition}, taken: {taken}, next: {next_} }}"
         elif name == "SetObjectBytes0a0b":
             target, amount = parameters(2)
             statement = f"Statement::Motion {{ command: MotionCommand::AccelerateTo {{ target: {target}, amount: {amount} }}, next: {next_cursor()} }}"
@@ -569,6 +621,10 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_fields::WordOperand;\n"
     if any("AppearanceCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_appearance::AppearanceCommand;\n"
+    if any("SpatialCondition::" in statement for statement in unique_statements.values()):
+        source += "use super::path_conditions::SpatialCondition;\n"
+    if any("PlaneAxis::" in statement for statement in unique_statements.values()):
+        source += "use super::path_control::PlaneAxis;\n"
     if any("VARIABLE_BIT_MASKS" in statement for statement in unique_statements.values()):
         source += "const VARIABLE_BIT_MASKS: [u16; 128] = ["
         source += ", ".join(f"0x{mask:04X}" for mask in variable_bit_masks(rom))
