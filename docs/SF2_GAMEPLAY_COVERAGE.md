@@ -3609,3 +3609,44 @@ inventory, architecture guard and app build pass (existing unused
 icon-function warnings only). No original execution or recorded gameplay
 was used. Full scene scheduling, map/spawn integration and whole-game
 completion remain open, along with the explicit cleanup limitations.
+
+### Shared mission-objective completion helpers
+
+The complete `$44:87D3` query and `$44:87E5` record subroutines are now
+lowered: **21 additional source commands/typed statements**. Generation
+verifies their direct calls reachable from the `$44:2102` actor root.
+These are callable helpers, not additional independently installed actors:
+the catalog contains **139 actor roots, two callable subroutines, 4262
+source commands and 4218 typed statements**. This does not close the
+remaining dependencies of the calling actor's graph.
+
+`ObjectiveCompletion` owns the live 16-bit completion word separately from
+`ActiveNodeFlags`. Space-node load and writeback copy this entire word.
+Its query increments the actor parameter with byte wrapping, tests the
+selected extracted mask, and returns scratch value zero or 100. The
+variable-bit predicate bypasses and preserves a pending IFNOT. Selectors
+outside the first sixteen bits retain the source's byte-wrapped lookup into
+the extracted adjacent data; they are not reduced to a modulo-sixteen shift.
+
+The record helper saves scratch word and motion-phase low byte, imports
+completion and packed node count, publishes the updated completion word,
+then decrements the packed count by one for selectors 1 through 8 and by
+sixteen otherwise. That range comparison consumes IFNOT; an inverted call
+reverses the selected decrement. Both arithmetic paths wrap the entire
+count byte, including carry/borrow across its nibble boundary. It restores
+both scratch values and leaves the separate remaining-objective word alone.
+Already-recorded bits do not prevent another count decrement.
+
+Five native tests cover all 65536 completion words, every selector and
+count byte, both IFNOT states, missing-state and budget boundaries, actual
+call/return and scratch restoration, and another actor observing completion
+publication before the separate count write. Source-static tests verify
+the campaign ownership, exact helper bytes, selector arithmetic and
+bit-branch behavior. Native tests execute the generated helper graphs;
+they do not execute original instructions or consume recorded gameplay.
+
+Debug/release each pass **980 unit tests and two integration tests**;
+**191 lowerer tests and 420 path-static tests**, exact regeneration,
+static inventory, architecture guard and app build pass (existing unused
+icon-function warnings only). Campaign lifecycle integration, unfinished
+caller graphs, map/spawn scheduling and whole-game completion remain open.

@@ -10,6 +10,15 @@ pub struct ActiveNodeFlags {
     pub bits: u16,
 }
 
+/// Live per-objective completion bits, distinct from the active-node flags.
+/// Space-node entry and writeback copy the entire campaign word; authored
+/// query/record helpers read and replace it through their actor's scratch word.
+/// Sources: $04:B2A8, $04:B2E9, $44:87D3 and $44:87E5.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectiveCompletion {
+    pub bits: u16,
+}
+
 /// Live objective accounting shared by encounter paths and campaign writeback.
 /// Planet entry initializes both low bytes to the same count. Space entry
 /// retains the packed campaign byte in `node_record`, and publishes the sum

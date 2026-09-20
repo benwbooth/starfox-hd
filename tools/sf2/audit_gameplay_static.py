@@ -24,7 +24,8 @@ from extract_map import DEFAULT_ROM, InlineCall, MapExtractor
 from extract_path import PathExtractor
 from path_semantics import PATH_SEMANTICS
 from generate_native_paths import OUTPUT as NATIVE_PATH_OUTPUT, ROOTS as NATIVE_PATH_ROOTS
-from generate_native_paths import generate as generate_native_paths, graph as native_path_graph
+from generate_native_paths import generate_reviewed_catalog as generate_native_paths, graph as native_path_graph
+from generate_native_paths import SUBROUTINES as NATIVE_PATH_SUBROUTINES
 from generate_native_paths import lowering_units as native_path_units
 
 
@@ -44,14 +45,15 @@ def audit(rom_path: Path) -> dict:
 
     generated = (ROOT / "rust/sf2-data/src/path.rs").read_text()
     native_path_extractor = PathExtractor(rom)
+    native_entries = tuple(NATIVE_PATH_ROOTS) + tuple((name, root) for name, root, _, _ in NATIVE_PATH_SUBROUTINES)
     native_path_commands = len({
         command.address
-        for _, root in NATIVE_PATH_ROOTS
+        for _, root in native_entries
         for command in native_path_graph(native_path_extractor, root)
     })
     native_path_statements = len({
         command.address
-        for _, root in NATIVE_PATH_ROOTS
+        for _, root in native_entries
         for command in native_path_units(native_path_extractor, root)
     })
     if NATIVE_PATH_OUTPUT.read_text() != generate_native_paths(rom):
@@ -136,9 +138,11 @@ def audit(rom_path: Path) -> dict:
         "shipping_dependency_boundary": {name: name in present for name in excluded},
         "native_path_catalog": {
             "complete_lowered_roots": len(NATIVE_PATH_ROOTS),
+            "complete_lowered_subroutines": len(NATIVE_PATH_SUBROUTINES),
             "source_commands": native_path_commands,
             "lowered_statements": native_path_statements,
             "named_roots": [name for name, _ in NATIVE_PATH_ROOTS],
+            "named_subroutines": [name for name, _, _, _ in NATIVE_PATH_SUBROUTINES],
             "caveat": "typed catalog lowering only; Game scheduler and spawn integration remain open",
         },
         "game_source_navigation_hints": {
@@ -166,7 +170,7 @@ def main() -> int:
             name for name, present in result["shipping_dependency_boundary"].items() if not present
         ))
         native = result["native_path_catalog"]
-        print(f"Native catalog: roots={native['complete_lowered_roots']} statements={native['lowered_statements']} source_commands={native['source_commands']}")
+        print(f"Native catalog: roots={native['complete_lowered_roots']} subroutines={native['complete_lowered_subroutines']} statements={native['lowered_statements']} source_commands={native['source_commands']}")
         print(native["caveat"])
         print("Static checks: " + ("PASS" if result["static_checks_passed"] else "FAIL"))
         for error in result["errors"]:

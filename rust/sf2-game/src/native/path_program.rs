@@ -136,6 +136,9 @@ mod core_objective_tests;
 #[cfg(test)]
 #[path = "path_core_defender_tests.rs"]
 mod core_defender_tests;
+#[cfg(test)]
+#[path = "path_objective_completion_tests.rs"]
+mod objective_completion_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -151,6 +154,7 @@ pub struct PathWorld<'a> {
     pub primary_feedback: Option<super::player_hit_control::PrimaryFeedback<'a>>,
     pub coordination: Option<&'a mut super::path_scene_state::EncounterCoordination>,
     pub objective_counts: Option<&'a mut super::path_scene_state::EncounterObjectiveCounts>,
+    pub objective_completion: Option<&'a mut super::path_scene_state::ObjectiveCompletion>,
     pub path_latches: Option<&'a mut super::path_scene_state::PathLatches>,
     pub sound_bank_request: Option<&'a mut super::path_scene_state::SoundBankRequest>,
     pub friend_health: Option<&'a mut super::path_death::FriendHealth>,
@@ -785,6 +789,14 @@ pub enum Statement {
         source: super::path_fields::WordOperand,
         next: PathCursor,
     },
+    ImportObjectiveCompletion {
+        destination: super::path_fields::WordField,
+        next: PathCursor,
+    },
+    ExportObjectiveCompletion {
+        source: super::path_fields::WordOperand,
+        next: PathCursor,
+    },
     RefreshSelectedChargeAttachment {
         next: PathCursor,
     },
@@ -994,6 +1006,7 @@ pub enum ProgramError {
     MissingSceneryDistance,
     MissingCoordination,
     MissingObjectiveCounts,
+    MissingObjectiveCompletion,
     MissingPathLatches,
     MissingSoundBankRequest,
     MissingDeferredMessage,
@@ -1846,6 +1859,24 @@ impl PathRuntime {
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::ImportObjectiveCompletion { destination, next } => {
+                    let value = world.objective_completion.as_deref()
+                        .ok_or(ProgramError::MissingObjectiveCompletion)?.bits;
+                    let actor = objects.get_mut(owner)
+                        .expect("validated objective-completion import owner");
+                    destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ExportObjectiveCompletion { source, next } => {
+                    let completion = world.objective_completion.as_deref_mut()
+                        .ok_or(ProgramError::MissingObjectiveCompletion)?;
+                    let actor = objects.get_mut(owner)
+                        .expect("validated objective-completion export owner");
+                    completion.bits = source.read(actor);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::RefreshSelectedChargeAttachment { next } => {
                     use super::path_relationships::RelationshipError;
                     let selected = world.selected.ok_or(ProgramError::Relationship(
@@ -2493,6 +2524,7 @@ mod tests {
             friend_health: None,
             coordination: None,
             objective_counts: None,
+            objective_completion: None,
             path_latches: None,
             sound_bank_request: None,
             encounter_signals: None,
@@ -9625,6 +9657,7 @@ mod tests {
                 friend_health: None,
                 coordination: None,
                 objective_counts: None,
+                objective_completion: None,
                 path_latches: None,
                 sound_bank_request: None,
                 encounter_signals: None,
@@ -13706,8 +13739,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
         assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 139);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4197);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4241);
+        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 2);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4218);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4262);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13849,6 +13883,7 @@ mod tests {
                 friend_health: None,
                 coordination: None,
                 objective_counts: None,
+                objective_completion: None,
                 path_latches: None,
                 sound_bank_request: None,
                 encounter_signals: None,
@@ -14001,6 +14036,7 @@ mod tests {
                         friend_health: None,
                         coordination: None,
                         objective_counts: None,
+                        objective_completion: None,
                         path_latches: None,
                         sound_bank_request: None,
                         encounter_signals: None,

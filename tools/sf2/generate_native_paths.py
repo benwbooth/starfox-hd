@@ -166,6 +166,12 @@ ROOTS = (
     ("ALTERNATE_RAPID_IMPACT_PROJECTILE", PathAddress(0xEB1A)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
+# Complete callable graphs, not independently scheduled actor roots. Each
+# entry is bound to a direct call reachable from a discovered actor root.
+SUBROUTINES = (
+    ("QUERY_OBJECTIVE_COMPLETION", PathAddress(0x87D3), PathAddress(0x2102), PathAddress(0x2105)),
+    ("RECORD_OBJECTIVE_COMPLETION", PathAddress(0x87E5), PathAddress(0x2102), PathAddress(0x80B4)),
+)
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
 # This proves installation only; it does not claim the parent graph is lowered.
 CHILD_INSTALLERS = {
@@ -1665,6 +1671,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
             elif index == 0x9A and name.startswith("Export"):
                 statement = f"Statement::ExportActiveNodeFlags {{ source: WordOperand::Actor({word_field(variable)}), next: {next_cursor()} }}"
+            elif index == 0x43 and name.startswith("Import"):
+                statement = f"Statement::ImportObjectiveCompletion {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
+            elif index == 0x43 and name.startswith("Export"):
+                statement = f"Statement::ExportObjectiveCompletion {{ source: WordOperand::Actor({word_field(variable)}), next: {next_cursor()} }}"
             elif index in (0x90, 0x92, 0x94) and name.startswith("Import"):
                 axis = {0x90: "X", 0x92: "Y", 0x94: "Z"}[index]
                 statement = f"Statement::ImportPlayerPosition {{ axis: Axis::{axis}, destination: {word_field(variable)}, next: {next_cursor()} }}"
@@ -2088,19 +2098,25 @@ def verified_map_spawn_installer(rom: bytes, root: PathAddress) -> bool:
     return True
 
 
-def generate(rom: bytes, roots=ROOTS) -> str:
+def generate(rom: bytes, roots=ROOTS, *, subroutines=()) -> str:
     extractor = PathExtractor(rom)
     discovered = set(extractor.discover_roots())
     declarations = []
+    for name, root, parent, callsite in subroutines:
+        call = next((c for c in graph(extractor, parent) if c.address == callsite), None)
+        if (parent not in discovered or call is None or call.opcode != 0x41
+                or bytes.fromhex(call.raw_hex) != b'\x41' + root.offset.to_bytes(2, 'little')):
+            raise UnsupportedPath(f"{name} has no verified source caller")
+    entries = tuple(roots) + tuple((name, root) for name, root, _, _ in subroutines)
     # One shared address-to-semantic-index layout across all lowered roots.
     # Duplicating a callee in each root graph would give the same source path
     # multiple identities, breaking callback cancellation/cursor comparisons.
-    addresses = sorted({command.address for _, root in roots for command in lowering_units(extractor, root)})
-    source_addresses = {command.address for _, root in roots for command in graph(extractor, root)}
+    addresses = sorted({command.address for _, root in entries for command in lowering_units(extractor, root)})
+    source_addresses = {command.address for _, root in entries for command in graph(extractor, root)}
     indices = {address: index for index, address in enumerate(addresses)}
     unique_statements = {}
-    for name, root in roots:
-        if root not in discovered and not verified_map_spawn_installer(rom, root):
+    for entry_index, (name, root) in enumerate(entries):
+        if entry_index < len(roots) and root not in discovered and not verified_map_spawn_installer(rom, root):
             installer = CHILD_INSTALLERS.get(root)
             if installer is None or installer[0] not in discovered:
                 raise UnsupportedPath(f"{name} has no verified source installer")
@@ -2194,6 +2210,7 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_spawn::IndependentSpawn;\n"
     source += "\n".join(declarations)
     source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(roots)};"
+    source += f"\npub const LOWERED_SUBROUTINE_COUNT: usize = {len(subroutines)};"
     source += f"\npub const LOWERED_COMMAND_COUNT: usize = {len(unique_statements)};"
     source += f"\npub const LOWERED_SOURCE_COMMAND_COUNT: usize = {len(source_addresses)};"
     source += "\npub fn catalog() -> PathCatalog {\nPathCatalog::new(vec!["
@@ -2205,19 +2222,23 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
     ).stdout
 
 
+def generate_reviewed_catalog(rom: bytes) -> str:
+    return generate(rom, subroutines=SUBROUTINES)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rom", type=Path, default=DEFAULT_ROM)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    source = generate(args.rom.read_bytes())
+    source = generate_reviewed_catalog(args.rom.read_bytes())
     if args.check:
         if not OUTPUT.exists() or OUTPUT.read_text() != source:
             print(f"out of date: {OUTPUT}", file=sys.stderr)
             return 1
     else:
         OUTPUT.write_text(source)
-    print(f"Native path catalog: {len(ROOTS)} complete source root(s)")
+    print(f"Native path catalog: {len(ROOTS)} complete source root(s), {len(SUBROUTINES)} callable subroutine(s)")
     return 0
 
 

@@ -19,7 +19,38 @@ class NativePathGenerationTests(unittest.TestCase):
         cls.rom = Path(DEFAULT_ROM).read_bytes()
 
     def test_checked_in_catalog_is_exact_generated_output(self):
-        self.assertEqual(OUTPUT.read_text(), generate(self.rom))
+        from generate_native_paths import generate_reviewed_catalog
+        self.assertEqual(OUTPUT.read_text(), generate_reviewed_catalog(self.rom))
+
+    def test_completion_helpers_are_complete_callable_graphs_not_actor_roots(self):
+        from generate_native_paths import SUBROUTINES, generate_reviewed_catalog
+        extractor = PathExtractor(self.rom)
+        expected = [(0x87D3, 7, '370ddda9625cae099be8b72846f1010e92173a4c683a7f7c38bebe29f019f7d4'),
+                    (0x87E5, 14, '6eaa28af93dccdbcff0749d8240e0e13f4c1e31b125c1139e02c795f6001dcd6')]
+        for address, count, digest in expected:
+            root = PathAddress(address)
+            self.assertNotIn(root, extractor.discover_roots())
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
+            self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
+        source = generate_reviewed_catalog(self.rom)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 139;', source)
+        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 2;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4262;', source)
+        for _, _, _, callsite in SUBROUTINES:
+            for delta in [0, 1, 2]:
+                changed = bytearray(self.rom)
+                changed[0x40000 + callsite.offset + delta] ^= 1
+                with self.assertRaises(UnsupportedPath):
+                    generate_reviewed_catalog(bytes(changed))
+
+    def test_completion_word_import_export_reject_unreviewed_neighbors_and_byte_views(self):
+        self.assertIn('Statement::ImportObjectiveCompletion { destination: WordField::ScriptValue', self.lower_record('7b a3 43')[0])
+        self.assertIn('Statement::ExportObjectiveCompletion { source: WordOperand::Actor(WordField::ScriptValue)', self.lower_record('80 a3 43')[0])
+        for record in ['7b a3 42', '7b a3 44', '80 a3 42', '80 a3 44', '7a a1 43', '7f a1 43']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
 
     def test_map_spawned_core_defender_closes_head_gate_beam_and_progress_publication(self):
         from generate_native_paths import verified_map_spawn_installer
@@ -3146,7 +3177,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
         self.assertIn("destination: WordField::MotionPhase", self.lower_record("7b a1 9a")[0])
         for index in range(256):
-            if index not in (0x32, 0x34, 0x36, 0x90, 0x92, 0x94, 0x9A):
+            if index not in (0x32, 0x34, 0x36, 0x43, 0x90, 0x92, 0x94, 0x9A):
                 with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                     self.lower_record(f"7b a3 {index:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
@@ -3164,7 +3195,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::Guidance { command: GuidanceCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
         self.assertIn("Statement::ImportControlStyle", self.lower_record("79 a1 d0 1d")[0])
         for index in range(256):
-            if index not in (0x32, 0x34, 0x36, 0x9A):
+            if index not in (0x32, 0x34, 0x36, 0x43, 0x9A):
                 with self.assertRaises(UnsupportedPath):
                     self.lower_record(f"80 a3 {index:02x}")
         for record in ["7b a2 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:
