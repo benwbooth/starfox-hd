@@ -8,7 +8,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, child_spawn_shape, generate, graph, lower_graph, shape_index, trigger_kind, variable_bit_masks, word_field,
+    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, spawn_shape, generate, graph, lower_graph, shape_index, trigger_kind, variable_bit_masks, word_field,
 )
 
 
@@ -723,13 +723,30 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn("LOWERED_COMMAND_COUNT: usize = 3", generated)
             self.assertNotIn("0xBD98", generated)
 
+    def test_independent_spawn_keeps_literal_bytes_independent_entry_and_no_child_fields(self):
+        for health, power in [(0, 255), (129, 254), (255, 0)]:
+            changed = bytearray(self.rom)
+            changed[0x4F536:0x4F53E] = bytes([0x5D, 0x98, 0xBD, 0x00, 0xF6, health, power, 0x0F])
+            changed[0x4F600] = 0x0F
+            _, statements = lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF536), 0)
+            self.assertEqual(len(statements), 3)
+            self.assertEqual(statements[0], f"Statement::SpawnIndependent {{ kind: ObjectKind::Effect, parameters: IndependentSpawn {{ shape: ShapeId::from_catalog_index(9), path: Some(cursor(0, 2)), hit_points: {health}, attack_power: {power} }}, next: cursor(0, 1) }}")
+            generated = generate(bytes(changed), (("INDEPENDENT", PathAddress(0xF536)),))
+            self.assertIn("use super::path_spawn::IndependentSpawn;", generated)
+            self.assertIn("use super::{ObjectKind, ShapeId};", generated)
+            self.assertNotIn("ChildSpawn", generated)
+        self.assertIn("path: None", self.lower_record("5d 98 bd 00 00 a1 a3")[0])
+        for record in ["5d 00 00 00 00 01 01", "5d 99 bd 00 00 01 01", "5d 9c bc 00 00 01 01"]:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_spawn_null_path_is_absent_and_unknown_shapes_or_native_kinds_are_rejected(self):
         self.assertIn("path: None", self.lower_record("f5 98 bd 00 00 01 01 00 00 00 00 00 00 00")[0])
         for shape in [0, 0xBD99, 0xFBB8, 0xFFFF]:
             with self.assertRaisesRegex(UnsupportedPath, "not a catalog header"):
-                child_spawn_shape(shape)
-        with self.assertRaisesRegex(UnsupportedPath, "unreviewed native child kind"):
-            child_spawn_shape(0xBC9C)
+                spawn_shape(shape)
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+            spawn_shape(0xBC9C)
 
     def test_compact_child_parameters_use_literal_offsets_and_zero_rotation(self):
         extractor = PathExtractor(self.rom)

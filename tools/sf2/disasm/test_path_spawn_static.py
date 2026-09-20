@@ -65,6 +65,12 @@ class PathSpawnStaticTests(unittest.TestCase):
     def test_success_sets_relative_pose_and_publishes_last_child_and_caller_without_world_position(self):
         self.assert_source(0x7F90E5, "C2 20 A9 1E 7E 95 19 E2 20 A9 7F 95 1B B5 31 09 10 95 31 C2 20 AD B1 16 9D CF 1C E2 20 C2 20 AD B3 16 9D D1 1C E2 20 C2 20 AD B5 16 9D D3 1C E2 20 AD BD 16 9D D5 1C AD BF 16 9D D6 1C AD C1 16 9D D7 1C DA BB 7A 8C 71 D7 FA C2 20 8A 99 D8 1C E2 20 C2 20 68 8D A8 12 E2 20")
 
+    def test_independent_spawn_checks_failure_before_last_spawn_and_copies_only_world_pose(self):
+        self.assert_source(0x7F91A3, "C2 20 20 20 C7 8D B1 16 20 78 C7 8D B7 16 E2 20 C2 20 AD A8 12 48 E2 20 8E A8 12 C2 20 AD B1 16 85 5F E2 20 22 17 2A 7F B0 04 5C 24 92 7F 8C 71 D7 C2 20 68 8D A8 12 E2 20 C2 20 A9 1E 7E 99 19 00 E2 20 A9 7F 99 1B 00 C2 20 AD B7 16 99 2B 00 E2 20 22 AA 2B 7F 22 D2 2B 7F 20 4C C5 99 2D 00 20 70 C5 99 2E 00 B5 24 29 80 D0 04 5C 1B 92 7F B9 24 00 09 80 99 24 00 BD F0 1C 99 F0 1C 4C 72 CA C2 20 68 8D A8 12 E2 20 4C 72 CA")
+        self.assert_source(0x7F2BAA, "C2 20 B5 0C 99 0C 00 B5 0E 99 0E 00 B5 10 99 10 00 E2 20 6B")
+        self.assert_source(0x7F2BD2, "B5 12 99 12 00 B5 14 99 14 00 B5 16 99 16 00 6B")
+        self.assert_source(0x7FCA72, "E2 20 C2 20 B5 2B 18 69 07 00 95 2B")
+
     def test_failed_allocator_returns_null_destination_without_initializing_an_actor(self):
         self.assert_source(0x7F2A17, "86 3A AE A8 12 22 25 29 7F B0 07 A0 00 00 A6 3A 18 6B 9B A6 3A E2 20 22 BC 29 7F C2 20 A5 5F 99 04 00 E2 20 38 6B")
 

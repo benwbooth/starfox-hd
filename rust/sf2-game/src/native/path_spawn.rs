@@ -1,6 +1,7 @@
-//! Authored attached-child creation (`$7F:9042..918D`). Operands have already
-//! been decoded into catalog identities and literal values. The two source
-//! record forms share this service; the compact form supplies zero rotation.
+//! Authored child and independent creation (`$7F:9042..922E`). Operands are
+//! decoded into catalog identities and literal values. The two attached-child
+//! forms share a service; the compact form supplies zero relative rotation.
+//! Independent spawning instead samples the caller's live world pose.
 
 use super::collision_pass::ExclusionGroups;
 use super::path_relationships::{self, RelationshipError};
@@ -18,6 +19,14 @@ pub struct ChildSpawn {
     pub hit_points: u8,
     pub attack_power: u8,
     pub number: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IndependentSpawn {
+    pub shape: ShapeId,
+    pub path: Option<PathCursor>,
+    pub hit_points: u8,
+    pub attack_power: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +51,41 @@ pub struct SpawnState {
 }
 
 impl SpawnState {
+    /// `$7F:91A3`: an independent actor copies the caller's world pose and
+    /// player/group selection, but no attachment, relative pose, or velocity.
+    /// Allocation failure is an ordinary skipped spawn and leaves last_spawn
+    /// unchanged ($7F:9224), unlike the attached-child failure path.
+    pub fn independent(
+        &mut self,
+        objects: &mut ObjectStore,
+        caller: ObjectId,
+        kind: ObjectKind,
+        parameters: IndependentSpawn,
+        defaults: ObjectSpawnDefaults,
+    ) -> Result<Option<ObjectId>, SpawnError> {
+        let source = objects.get(caller).ok_or(SpawnError::Relationships(
+            RelationshipError::MissingActor(caller),
+        ))?;
+        let mut fresh =
+            Object::new_authored(kind, parameters.shape, Behavior::FollowPath, defaults);
+        fresh.extension.path_state.needs_path_initialization = true;
+        fresh.base.position = source.base.position;
+        fresh.base.pitch = source.base.pitch;
+        fresh.base.yaw = source.base.yaw;
+        fresh.base.roll = source.base.roll;
+        fresh.extension.path_state.conditions.selected_player =
+            source.extension.path_state.conditions.selected_player;
+        fresh.extension.spawn_group = source.extension.spawn_group;
+        fresh.base.path = parameters.path;
+        fresh.base.hit_points = parameters.hit_points;
+        fresh.base.attack_power = parameters.attack_power;
+        let Some(created) = objects.allocate_scoped_after(caller, fresh) else {
+            return Ok(None);
+        };
+        self.last_spawn = Some(created);
+        Ok(Some(created))
+    }
+
     /// Metadata `kind` belongs to the native caller, not a guessed source
     /// flag or shape classification. Authored behavior and contacts are set
     /// by this service independently of that presentation/gameplay category.
@@ -118,6 +162,177 @@ mod tests {
             attack_power: 128,
             number,
         }
+    }
+
+    #[test]
+    fn independent_spawn_uses_live_world_pose_but_not_attachment_or_other_caller_fields() {
+        for selected in [PlayerTarget::Primary, PlayerTarget::Secondary] {
+            for run_when_paused in [false, true] {
+                let mut objects = ObjectStore::new();
+                let parent = objects.allocate(actor()).unwrap();
+                let caller = objects.allocate_after(Some(parent), actor()).unwrap();
+                path_relationships::attach_fresh_child(&mut objects, parent, caller, 9).unwrap();
+                let source = objects.get_mut(caller).unwrap();
+                source.base.position = Vector3 {
+                    x: i16::MIN,
+                    y: i16::MAX,
+                    z: -1,
+                };
+                source.base.pitch = Angle::from_units(128);
+                source.base.yaw = Angle::from_units(255);
+                source.base.roll = Angle::from_units(64);
+                source.base.velocity = Vector3 { x: 1, y: 2, z: 3 };
+                source.base.wait_timer = 77;
+                source.base.contacts.run_when_paused = !run_when_paused;
+                source.extension.path_state.conditions.selected_player = selected;
+                source.extension.spawn_group = 42;
+                source.extension.relative_position = Vector3 { x: 9, y: 8, z: 7 };
+                let before = source.clone();
+                let requested = parameters(255);
+                let parameters = IndependentSpawn {
+                    shape: requested.shape,
+                    path: requested.path,
+                    hit_points: 255,
+                    attack_power: 128,
+                };
+                let defaults = ObjectSpawnDefaults {
+                    run_when_paused,
+                    group: 77,
+                };
+                let mut spawns = SpawnState::default();
+                let first = spawns
+                    .independent(
+                        &mut objects,
+                        caller,
+                        ObjectKind::Effect,
+                        parameters,
+                        defaults,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let mut expected = Object::new_authored(
+                    ObjectKind::Effect,
+                    parameters.shape,
+                    Behavior::FollowPath,
+                    defaults,
+                );
+                expected.base.previous = Some(caller);
+                expected.base.path = parameters.path;
+                expected.base.position = before.base.position;
+                expected.base.pitch = before.base.pitch;
+                expected.base.yaw = before.base.yaw;
+                expected.base.roll = before.base.roll;
+                expected.base.hit_points = 255;
+                expected.base.attack_power = 128;
+                expected.extension.spawn_group = 42;
+                expected.extension.path_state.conditions.selected_player = selected;
+                expected.extension.path_state.needs_path_initialization = true;
+                assert_eq!(objects.get(first), Some(&expected));
+                assert_eq!(objects.active_ids(), &[parent, caller, first]);
+                assert_eq!(spawns.last_spawn, Some(first));
+                let mut expected_caller = before;
+                expected_caller.base.next = Some(first);
+                assert_eq!(objects.get(caller), Some(&expected_caller));
+                objects.get_mut(caller).unwrap().base.position.x = 123;
+                let second = spawns
+                    .independent(
+                        &mut objects,
+                        caller,
+                        ObjectKind::Effect,
+                        IndependentSpawn {
+                            path: None,
+                            ..parameters
+                        },
+                        defaults,
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(objects.active_ids(), &[parent, caller, second, first]);
+                assert_eq!(objects.get(second).unwrap().base.position.x, 123);
+                assert_eq!(objects.get(second).unwrap().base.path, None);
+                assert_eq!(objects.get(parent).unwrap().base.first_child, Some(caller));
+                assert_eq!(objects.get(caller).unwrap().base.next_sibling, None);
+                assert_eq!(objects.get(caller).unwrap().base.first_child, None);
+                assert_eq!(spawns.last_spawn, Some(second));
+            }
+        }
+    }
+
+    #[test]
+    fn independent_pool_failure_preserves_last_spawn_and_every_actor() {
+        let mut objects = ObjectStore::new();
+        let caller = objects.allocate(actor()).unwrap();
+        for _ in 1..OBJECT_CAPACITY {
+            objects.allocate(actor()).unwrap();
+        }
+        let before = objects.clone();
+        let mut spawns = SpawnState {
+            last_spawn: Some(caller),
+        };
+        assert_eq!(
+            spawns.independent(
+                &mut objects,
+                caller,
+                ObjectKind::Effect,
+                IndependentSpawn {
+                    shape: ShapeId::EMPTY,
+                    path: None,
+                    hit_points: 1,
+                    attack_power: 2
+                },
+                ObjectSpawnDefaults::default()
+            ),
+            Ok(None)
+        );
+        assert_eq!(spawns.last_spawn, Some(caller));
+        assert_eq!(objects, before);
+    }
+
+    #[test]
+    fn independent_spawn_does_not_need_an_attachment_parent_but_requires_a_live_caller() {
+        let mut objects = ObjectStore::new();
+        let caller = objects.allocate(actor()).unwrap();
+        objects
+            .get_mut(caller)
+            .unwrap()
+            .extension
+            .path_state
+            .motion
+            .attached_coordinates = true;
+        let parameters = IndependentSpawn {
+            shape: ShapeId::EMPTY,
+            path: None,
+            hit_points: 1,
+            attack_power: 2,
+        };
+        let mut spawns = SpawnState::default();
+        let created = spawns
+            .independent(
+                &mut objects,
+                caller,
+                ObjectKind::Effect,
+                parameters,
+                ObjectSpawnDefaults::default(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(objects.get(created).unwrap().base.attachment, None);
+        objects.remove(caller).unwrap();
+        let before = objects.clone();
+        assert_eq!(
+            spawns.independent(
+                &mut objects,
+                caller,
+                ObjectKind::Effect,
+                parameters,
+                ObjectSpawnDefaults::default()
+            ),
+            Err(SpawnError::Relationships(RelationshipError::MissingActor(
+                caller
+            )))
+        );
+        assert_eq!(objects, before);
+        assert_eq!(spawns.last_spawn, Some(created));
     }
 
     #[test]

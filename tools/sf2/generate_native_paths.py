@@ -154,13 +154,13 @@ def shape_index(shape: int) -> int:
     return delta // SHAPE_HEADER_SIZE
 
 
-def child_spawn_shape(shape: int) -> tuple[int, str]:
+def spawn_shape(shape: int) -> tuple[int, str]:
     index = shape_index(shape)
     # Reviewed transient sprite family, also named by the source pool-pressure
     # sweep. Other shapes need native metadata review; never guess enemy vs
     # scenery vs projectile from a numerically valid shape header alone.
     if index not in (9, 10, 11, 12, 13):
-        raise UnsupportedPath(f"unreviewed native child kind for shape {shape:04X}")
+        raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
 
 
@@ -361,7 +361,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::{actions[command.address]} {{ next: {next_cursor()} }}"
         elif name in ("SpawnChild", "SpawnChildAlias"):
             spawn = child_spawn_parameters(command)
-            shape, kind = child_spawn_shape(spawn.shape)
+            shape, kind = spawn_shape(spawn.shape)
             path = f"Some({cursor(spawn.path)})" if spawn.path.offset else "None"
             x, y, z = spawn.position
             pitch, yaw, roll = spawn.rotation
@@ -369,6 +369,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
             spawn_ = f"ChildSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, position: {position}, rotation: {rotation}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power}, number: {spawn.number} }}"
             statement = f"Statement::SpawnChild {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name == "QuickSpawn":
+            shape_low, shape_high, path_low, path_high, health, power = parameters(6)
+            shape, kind = spawn_shape(shape_low | (shape_high << 8))
+            target = PathAddress(path_low | (path_high << 8))
+            path = f"Some({cursor(target)})" if target.offset else "None"
+            spawn_ = f"IndependentSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, hit_points: {health}, attack_power: {power} }}"
+            statement = f"Statement::SpawnIndependent {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
         elif name == "SwapVariableWords":
             first, second = parameters(2)
             statement = f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: {next_cursor()} }}"
@@ -921,8 +928,12 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_control::TriggerPeriod;\n"
     if any("Statement::SpawnChild" in statement for statement in unique_statements.values()):
         source += "use super::path_spawn::ChildSpawn;\nuse super::{Angle, ObjectKind, Rotation, ShapeId, Vector3};\n"
+    elif any("Statement::SpawnIndependent" in statement for statement in unique_statements.values()):
+        source += "use super::{ObjectKind, ShapeId};\n"
     elif any("ShapeId::" in statement for statement in unique_statements.values()):
         source += "use super::ShapeId;\n"
+    if any("Statement::SpawnIndependent" in statement for statement in unique_statements.values()):
+        source += "use super::path_spawn::IndependentSpawn;\n"
     source += "\n".join(declarations)
     source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(roots)};"
     source += f"\npub const LOWERED_COMMAND_COUNT: usize = {len(unique_statements)};"

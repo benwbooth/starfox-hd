@@ -1094,3 +1094,19 @@ tests, and 228 native path tests in debug/release pass, as do both audits,
 generated-catalog freshness and the app build. Coverage is **17 complete roots,
 222 unique statements**; this does not establish Game integration or full
 gameplay parity. No recorded gameplay or source-machine execution was used.
+
+Independent authored spawning (`$7F:91A3`, path opcode `$5D`) now lowers to
+its own typed spawn service. It copies the caller's live world position,
+rotation, selected player and allocation group, applies literal health/attack
+bytes, and inserts after the caller without attachment, relative pose, or
+velocity inheritance. The new actor starts only when separately scheduled.
+Unlike attached-child spawning, a full pool skips the allocation, preserves
+the previous last-spawn selection, and immediately continues the caller.
+Missing native inputs or catalog entries remain explicit errors. Offline shape
+classification still admits only the reviewed transient-effect family.
+
+Verification passes 86 lowerer tests, 234 static path tests and 233 native path
+tests in debug/release, both audits and the app build. The complete spawn
+handler and pose-copy callees are pinned from static source. The root rescan
+finds no newly complete graphs, so coverage remains **17 roots / 222 unique
+statements**, with scheduler/spawn integration still open.

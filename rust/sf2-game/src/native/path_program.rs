@@ -305,6 +305,11 @@ pub enum Statement {
         parameters: super::path_spawn::ChildSpawn,
         next: PathCursor,
     },
+    SpawnIndependent {
+        kind: super::ObjectKind,
+        parameters: super::path_spawn::IndependentSpawn,
+        next: PathCursor,
+    },
     Relationship {
         command: super::path_relationships::RelationshipCommand,
         next: PathCursor,
@@ -796,6 +801,27 @@ impl PathRuntime {
                     objects
                         .get_mut(owner)
                         .expect("validated spawn caller")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SpawnIndependent {
+                    kind,
+                    parameters,
+                    next,
+                } => {
+                    let defaults = world
+                        .spawn_defaults
+                        .ok_or(ProgramError::MissingSpawnDefaults)?;
+                    if let Some(path) = parameters.path {
+                        catalog.statement(path)?;
+                    }
+                    self.spawns
+                        .independent(objects, owner, kind, parameters, defaults)
+                        .map_err(ProgramError::Spawn)?;
+                    objects
+                        .get_mut(owner)
+                        .expect("validated independent spawn caller")
                         .base
                         .path = Some(next);
                     Ok(ControlStep::Continue)
@@ -3859,6 +3885,116 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn independent_spawning_continues_on_success_and_full_pool_without_running_the_new_path() {
+        use super::super::{ObjectSpawnDefaults, OBJECT_CAPACITY};
+        for full in [false, true] {
+            let catalog = PathCatalog::new(vec![
+                vec![
+                    Statement::SpawnIndependent {
+                        kind: ObjectKind::Effect,
+                        parameters: super::super::path_spawn::IndependentSpawn {
+                            shape: ShapeId::from_catalog_index(9),
+                            path: Some(cursor(1, 0)),
+                            hit_points: 255,
+                            attack_power: 128,
+                        },
+                        next: cursor(0, 1),
+                    },
+                    Statement::Control(ControlCommand::WaitOne { next: cursor(0, 2) }),
+                    Statement::Control(ControlCommand::End),
+                ],
+                vec![Statement::Control(ControlCommand::End)],
+            ])
+            .unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let before_random = random;
+            runtime.branch.invert_next = true;
+            runtime.spawns.last_spawn = Some(owner);
+            if full {
+                for _ in 1..OBJECT_CAPACITY {
+                    objects
+                        .allocate(Object::new(
+                            ObjectKind::Enemy,
+                            ShapeId::EMPTY,
+                            Behavior::FollowPath,
+                        ))
+                        .unwrap();
+                }
+            }
+            let before = objects.clone();
+            let mut inputs = world(&mut random);
+            inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 0),
+                    executed: 0
+                })
+            );
+            assert_eq!(objects, before);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2),
+                Ok(ControlStep::Movement)
+            );
+            assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 2)));
+            assert!(runtime.branch.invert_next);
+            if full {
+                let mut expected = before;
+                expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 2));
+                assert_eq!(objects, expected);
+                assert_eq!(runtime.spawns.last_spawn, Some(owner));
+            } else {
+                let created = runtime.spawns.last_spawn.unwrap();
+                assert_ne!(created, owner);
+                assert_eq!(objects.active_ids(), &[owner, created]);
+                let actor = objects.get(created).unwrap();
+                assert_eq!(actor.base.path, Some(cursor(1, 0)));
+                assert_eq!(actor.base.hit_points, 255);
+                assert!(actor.extension.path_state.needs_path_initialization);
+                assert!(!actor.base.flags.remove_after_tick);
+                inputs.spawn_defaults = None;
+                let mut spawned_runtime = PathRuntime::default();
+                assert_eq!(
+                    spawned_runtime.enter_program(&catalog, &mut objects, created, &mut inputs, 1),
+                    Ok(ControlStep::Ended)
+                );
+                assert!(objects.get(created).unwrap().base.flags.remove_after_tick);
+            }
+            assert_eq!(random, before_random);
+        }
+    }
+
+    #[test]
+    fn independent_spawn_missing_inputs_or_catalog_fault_before_allocation() {
+        let catalog = PathCatalog::new(vec![vec![Statement::SpawnIndependent {
+            kind: ObjectKind::Effect,
+            parameters: super::super::path_spawn::IndependentSpawn {
+                shape: ShapeId::EMPTY,
+                path: Some(cursor(1, 0)),
+                hit_points: 1,
+                attack_power: 2,
+            },
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let before = objects.clone();
+        runtime.spawns.last_spawn = Some(owner);
+        let mut inputs = world(&mut random);
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingSpawnDefaults)
+        );
+        inputs.spawn_defaults = Some(super::super::ObjectSpawnDefaults::default());
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingStatement(cursor(1, 0)))
+        );
+        assert_eq!(objects, before);
+        assert_eq!(runtime.spawns.last_spawn, Some(owner));
     }
 
     #[test]
