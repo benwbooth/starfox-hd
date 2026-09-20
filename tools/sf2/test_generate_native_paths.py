@@ -500,6 +500,15 @@ class NativePathGenerationTests(unittest.TestCase):
             generated = generate(bytes(changed), (("APPEARANCE", PathAddress(0xF536)),))
             self.assertIn("use super::path_appearance::AppearanceCommand;", generated)
 
+    def test_far_sort_bias_commands_use_the_same_appearance_boundary(self):
+        for record, enabled in [("00 29", "true"), ("00 2a", "false")]:
+            self.assertEqual(self.lower_record(record)[0],
+                f"Statement::Appearance {{ command: AppearanceCommand::FarSortBias({enabled}), next: cursor(0, 1) }}")
+            changed = bytearray(self.rom)
+            changed[0x4F536:0x4F539] = bytes.fromhex(record + " 0f")
+            generated = generate(bytes(changed), (("FAR_SORT", PathAddress(0xF536)),))
+            self.assertIn("use super::path_appearance::AppearanceCommand;", generated)
+
     def test_literal_shape_assignment_and_equality_decode_every_catalog_header(self):
         for index in range(577):
             shape = 0xBC9C + index * 28

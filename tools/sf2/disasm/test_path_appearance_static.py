@@ -34,6 +34,13 @@ class PathAppearanceStaticTests(unittest.TestCase):
         self.assert_source(0x7F8CFD, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CB 1C 4C D3 CA")
         self.assert_source(0x7F8D3A, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CA 1C 4C D3 CA")
 
+    def test_far_sort_flag_publishes_fixed_bias_separately_from_world_position(self):
+        self.assert_source(0x7FBCF4, "B5 09 09 01 95 09 4C E8 CA")
+        self.assert_source(0x7FBCFD, "B5 09 29 FE 95 09 4C E8 CA")
+        self.assert_source(0x7F122C,
+            "B9 09 00 89 01 C2 20 F0 05 A9 98 3A 80 03 A9 00 00 9D 02 00 "
+            "B9 0C 00 9D 20 00 B9 0E 00 9D 22 00 B9 10 00 9D 24 00 B9 04 00 9D 08 00")
+
     def test_zero_frame_short_form_is_manual_shape_initialization_not_automatic_animation(self):
         self.assert_source(0x7FC3CF, "A9 00 09 80 9D CB 1C 4C E8 CA")
 

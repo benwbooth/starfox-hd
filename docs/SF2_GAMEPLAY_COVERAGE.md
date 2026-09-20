@@ -878,3 +878,14 @@ are checked. Verification passes 64 lowerer tests, 196 static path tests, 182
 native path tests in debug/release, architecture/dependency checks and the app
 build. The native catalog now contains **12 complete roots and 134 unique
 statements**. Whole-game scheduler integration remains open.
+
+The two far-sort controls now toggle a named actor flag and publish the
+source's fixed 15,000-unit bias through the existing native render boundary.
+World pose, draw-distance selection, contact state, IFNOT and RNG are
+unchanged. Static fixtures pin both commands and the draw-record consumer;
+native checks cover every word-width bias, whole-actor preservation and
+repeated on/off publication. This establishes the flag-to-render-output
+contract, not full renderer parity or another complete authored root.
+Verification passes 65 lowerer tests, 197 static path tests, 183 native path
+tests plus the render-boundary test in debug/release, architecture/dependency
+checks and the app build. Complete-root coverage remains 12 roots/134 statements.

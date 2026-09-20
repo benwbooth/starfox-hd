@@ -938,6 +938,9 @@ pub struct ObjectFlags {
     /// Source 26 bit 10 chooses the fixed maximum draw distance instead of
     /// the shape-derived distance (`$7F:1278`, `$7F:1325`).
     pub maximum_draw_distance: bool,
+    /// Source 09 bit 01 adds the fixed far-sort bias to the draw record
+    /// (`$7F:122C`); it does not change world position or draw distance.
+    pub far_sort_bias: bool,
     /// Source 25 bit 20 enables view-side filtering. Draw preparation rejects
     /// the actor when its source 23 bit 40 side disagrees with the active view
     /// (`$7F:1262`, `$7F:130F`); this is not a death or damage flag.

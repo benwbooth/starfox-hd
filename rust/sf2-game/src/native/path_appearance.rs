@@ -7,6 +7,7 @@ use super::Object;
 
 const MANUAL_FRAME: u8 = 0x80;
 const FRAME_VALUE: u8 = 0x7f;
+const FAR_SORT_BIAS: i16 = 15_000;
 
 /// Authored visibility and draw controls. Visibility commands deliberately
 /// couple visibility with collision participation; the separate collision
@@ -20,6 +21,7 @@ pub enum AppearanceCommand {
     Collision(bool),
     Shadow(bool),
     MaximumDrawDistance(bool),
+    FarSortBias(bool),
 }
 
 impl AppearanceCommand {
@@ -33,8 +35,19 @@ impl AppearanceCommand {
             Self::Collision(enabled) => actor.base.flags.collision_disabled = !enabled,
             Self::Shadow(enabled) => actor.base.flags.casts_shadow = enabled,
             Self::MaximumDrawDistance(enabled) => actor.base.flags.maximum_draw_distance = enabled,
+            Self::FarSortBias(enabled) => actor.base.flags.far_sort_bias = enabled,
         }
     }
+}
+
+/// `$7F:122C` publishes a separate object bias. The render boundary combines
+/// it with its shape bias using word-width addition, never with world depth.
+pub fn render_sort_bias(actor: &Object, shape_bias: i16) -> i16 {
+    shape_bias.wrapping_add(if actor.base.flags.far_sort_bias {
+        FAR_SORT_BIAS
+    } else {
+        0
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,7 +199,7 @@ mod tests {
 
     #[test]
     fn visibility_couples_collision_but_other_controls_and_draw_observations_are_independent() {
-        for flags in 0..64 {
+        for flags in 0..128 {
             let mut original =
                 Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
             original.base.flags.visible = flags & 1 != 0;
@@ -195,6 +208,7 @@ mod tests {
             original.base.flags.maximum_draw_distance = flags & 8 != 0;
             original.base.flags.draw_list_admitted = flags & 16 != 0;
             original.base.flags.collided = flags & 32 != 0;
+            original.base.flags.far_sort_bias = flags & 64 != 0;
             original.base.hit_flags = 255;
             original.extension.path_state.conditions.hit_event_pending = true;
             for enabled in [false, true] {
@@ -203,6 +217,7 @@ mod tests {
                     AppearanceCommand::Collision(enabled),
                     AppearanceCommand::Shadow(enabled),
                     AppearanceCommand::MaximumDrawDistance(enabled),
+                    AppearanceCommand::FarSortBias(enabled),
                 ] {
                     let mut expected = original.clone();
                     match command {
@@ -220,6 +235,9 @@ mod tests {
                         AppearanceCommand::MaximumDrawDistance(value) => {
                             expected.base.flags.maximum_draw_distance = value
                         }
+                        AppearanceCommand::FarSortBias(value) => {
+                            expected.base.flags.far_sort_bias = value
+                        }
                     }
                     let mut actual = original.clone();
                     command.apply(&mut actual);
@@ -228,6 +246,25 @@ mod tests {
                     assert_eq!(actual, expected);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn far_sort_bias_wraps_without_modifying_actor_or_shape_bias() {
+        let mut actor = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::FollowPath);
+        actor.base.position = Vector3 {
+            x: 17,
+            y: -19,
+            z: i16::MAX,
+        };
+        for enabled in [false, true] {
+            AppearanceCommand::FarSortBias(enabled).apply(&mut actor);
+            let original = actor.clone();
+            for bits in 0..=u16::MAX {
+                let expected = (i32::from(bits as i16) + if enabled { 15_000 } else { 0 }) as i16;
+                assert_eq!(render_sort_bias(&actor, bits as i16), expected);
+            }
+            assert_eq!(actor, original);
         }
     }
 

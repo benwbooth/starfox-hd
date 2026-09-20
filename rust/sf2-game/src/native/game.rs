@@ -20176,7 +20176,7 @@ impl Game {
                     yaw: object.base.yaw,
                     roll: object.base.roll,
                 },
-                sort_depth: catalog.sort_z,
+                sort_depth: super::path_appearance::render_sort_bias(object, catalog.sort_z),
                 animation: AnimationState {
                     shape_frame: object.extension.animation_frame,
                     color_frame: object.extension.color_frame,
@@ -23987,6 +23987,43 @@ mod tests {
         assert!(entry.flags.scaled_sprite);
         assert_eq!(entry.depth_offset, 5);
         assert_eq!(entry.texture_scroll_x, 200);
+    }
+
+    #[test]
+    fn native_far_sort_command_reaches_render_boundary_without_changing_world_pose() {
+        use super::super::path_appearance::AppearanceCommand;
+        let mut game = Game::new();
+        let mut actor = Object::new(
+            ObjectKind::Effect,
+            ShapeId::TITLE_FORMATION_EFFECT,
+            Behavior::FollowPath,
+        );
+        actor.base.position = Vector3 {
+            x: i16::MIN,
+            y: 123,
+            z: i16::MAX,
+        };
+        actor.base.pitch = Angle::from_units(31);
+        actor.base.yaw = Angle::from_units(79);
+        actor.base.roll = Angle::from_units(143);
+        let original = actor.clone();
+        let owner = game.state.objects.allocate(actor).unwrap();
+        game.build_render_objects().unwrap();
+        let baseline = *rendered_object(&game, owner);
+        for enabled in [true, true, false, false, true] {
+            AppearanceCommand::FarSortBias(enabled)
+                .apply(game.state.objects.get_mut(owner).unwrap());
+            let state_before_render = game.state.objects.get(owner).unwrap().clone();
+            game.build_render_objects().unwrap();
+            let mut expected = baseline;
+            expected.sort_depth =
+                baseline
+                    .sort_depth
+                    .wrapping_add(if enabled { 15_000 } else { 0 });
+            assert_eq!(*rendered_object(&game, owner), expected);
+            assert_eq!(game.state.objects.get(owner).unwrap(), &state_before_render);
+            assert_eq!(state_before_render.base.position, original.base.position);
+        }
     }
 
     fn active_walker_game() -> (Game, ObjectId, i16) {

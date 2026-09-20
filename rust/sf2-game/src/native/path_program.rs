@@ -1441,6 +1441,8 @@ mod tests {
             AppearanceCommand::Visibility(true),
             AppearanceCommand::Shadow(false),
             AppearanceCommand::MaximumDrawDistance(false),
+            AppearanceCommand::FarSortBias(true),
+            AppearanceCommand::FarSortBias(false),
         ];
         let mut statements = commands
             .iter()
@@ -1469,6 +1471,8 @@ mod tests {
             (true, false, true, true),
             (true, false, false, true),
             (true, false, false, false),
+            (true, false, false, false),
+            (true, false, false, false),
         ]
         .into_iter()
         .enumerate()
@@ -1481,6 +1485,7 @@ mod tests {
                 flags.casts_shadow,
                 flags.maximum_draw_distance,
             ) = expected_flags;
+            flags.far_sort_bias = index == 7;
             let next = cursor(0, index as u16 + 1);
             expected.base.path = Some(next);
             assert_eq!(
