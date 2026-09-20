@@ -3415,3 +3415,52 @@ tests**. **182 lowerer tests and 396 path-static tests**, architecture/static
 inventory, exact regeneration and app build pass (existing icon warnings
 only). No original CPU/GSU execution or gameplay recording was used; shipping
 scheduler integration and whole-game completion are not established.
+
+## Multipart node objective: static lowering and explicit cleanup gap (2026-09-20)
+
+The two map installations of `$44:546C` now have a completely lowered
+**364-command** graph, adding **260 source commands and typed statements**.
+The catalog contains **135 completely lowered roots, 3986 source commands
+and 3942 typed statements**. This measures source-graph lowering, not
+successful execution of every path or shipping gameplay completion.
+
+The objective retains its original health as the part count and original
+attack as heading before common initialization replaces both fields. Its
+one/two/three-part constructors, visibility callbacks, armor reflection,
+live completion polling, handshake, reveal panels, blinking parts and exit
+service all lower without original-machine execution. Campaign-node flags
+are now a borrowed typed shared record: imports and exports see the same
+full word. The fifth one-based bit selector raises `0x10` while preserving
+all unrelated bits; source campaign loading still supplies only the low byte.
+
+The reveal creates four panels in one visit with X offsets -180, -60, 60
+and 180. Shape selection is bounded to the four decoded headers and checked
+against the exact constructor bytes. Construction uses the phase high byte;
+the low byte independently cycles seven colors. The exit publishes the
+horizontal handoff once and holds, while its independently spawned service
+disables the nearest matching ship's weapon selector and ends.
+
+There is a confirmed **native cleanup gap**, not a successful-completion
+claim: the actual map installations choose counts two and one, but cleanup
+unconditionally requests child four first. That slot is absent. Source
+`$7F:2A7B` returns zero and `$7F:8B7B` ORs through the resulting non-object
+address. The existing native `MissingChild` diagnostic is retained; no
+dummy child, source-address arena, or silent success was introduced. Tests
+reach this boundary in both installed layouts. A three-part scenario has
+all four requested children and reaches the deferred retirement/reveal
+spawn, without pretending to perform the separate scheduler cleanup.
+
+Eight new native tests cover every exported word and retained IFNOT state,
+all initial count bytes across difficulties and completion flags, all
+count-dependent layouts, live callback completion and handshake timing,
+all reveal selectors, panel color progression, part blinking, and all
+encounter-location bytes for handoff and nearest-ship weapon suppression.
+Static tests bind both map installers, the full-word writer, exact shape
+table and null-target cleanup to source bytes. No gameplay recording or
+original CPU/GSU execution was used.
+
+Debug and release each pass **951 unit tests and two integration tests**.
+The **183 lowerer tests**, **400 path-static tests**, architecture guard,
+static inventory, exact regeneration and app build pass (existing unused
+icon-function warnings only). The cleanup gap above, scene scheduling and
+whole-game completeness remain open despite those passing checks.

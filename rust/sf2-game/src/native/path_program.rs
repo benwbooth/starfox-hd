@@ -124,6 +124,9 @@ mod launch_tests;
 #[cfg(test)]
 #[path = "path_encounter_gate_tests.rs"]
 mod encounter_gate_tests;
+#[cfg(test)]
+#[path = "path_node_objective_tests.rs"]
+mod node_objective_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -189,7 +192,7 @@ pub struct PathWorld<'a> {
     pub published_homing_target: Option<super::path_target::PublishedHomingTarget>,
     /// Live active campaign-node flags. Source node loading updates only the
     /// low byte, while path imports and node writeback retain the whole word.
-    pub active_node_flags: Option<u16>,
+    pub active_node_flags: Option<&'a mut super::path_scene_state::ActiveNodeFlags>,
     pub countdown: Option<&'a mut super::path_countdown::PathCountdown>,
     /// Shared selected-player auxiliary state. Commands and branches borrow
     /// the same live record; a missing record faults only when needed.
@@ -758,6 +761,10 @@ pub enum Statement {
     },
     ImportActiveNodeFlags {
         destination: super::path_fields::WordField,
+        next: PathCursor,
+    },
+    ExportActiveNodeFlags {
+        source: super::path_fields::WordOperand,
         next: PathCursor,
     },
     RefreshSelectedChargeAttachment {
@@ -1789,11 +1796,25 @@ impl PathRuntime {
                 Statement::ImportActiveNodeFlags { destination, next } => {
                     let value = world
                         .active_node_flags
-                        .ok_or(ProgramError::MissingActiveNodeFlags)?;
+                        .as_deref()
+                        .ok_or(ProgramError::MissingActiveNodeFlags)?
+                        .bits;
                     let actor = objects
                         .get_mut(owner)
                         .expect("validated node-flags import owner");
                     destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ExportActiveNodeFlags { source, next } => {
+                    let flags = world
+                        .active_node_flags
+                        .as_deref_mut()
+                        .ok_or(ProgramError::MissingActiveNodeFlags)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated node-flags export owner");
+                    flags.bits = source.read(actor);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -3802,7 +3823,8 @@ mod tests {
             expected.extension.path_state.script_value = flags;
             expected.base.path = Some(cursor(0, 1));
             let mut inputs = world(&mut random);
-            inputs.active_node_flags = Some(flags);
+            let mut node_flags = super::super::path_scene_state::ActiveNodeFlags { bits: flags };
+            inputs.active_node_flags = Some(&mut node_flags);
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
@@ -3892,7 +3914,8 @@ mod tests {
                     expected_selection.screen = [112, 96];
                 }
                 let mut inputs = world(&mut random);
-                inputs.active_node_flags = Some(flags);
+                let mut node_flags = super::super::path_scene_state::ActiveNodeFlags { bits: flags };
+                inputs.active_node_flags = Some(&mut node_flags);
                 // The taken exit must not ask for either target input.
                 if !ended {
                     inputs.primary_player = Some(owner);
@@ -3942,7 +3965,8 @@ mod tests {
             selection.distance = u16::MAX;
             let previous_selection = selection;
             let mut inputs = world(&mut random);
-            inputs.active_node_flags = Some(flags);
+            let mut node_flags = super::super::path_scene_state::ActiveNodeFlags { bits: flags };
+            inputs.active_node_flags = Some(&mut node_flags);
             inputs.primary_player = Some(owner);
             inputs.primary_target = Some(PrimaryTarget {
                 anchor: TargetAnchor {
@@ -13582,9 +13606,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 134);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3682);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3726);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 135);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3942);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3986);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

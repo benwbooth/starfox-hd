@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("MULTIPART_NODE_OBJECTIVE", PathAddress(0x546C)),
     ("FIVE_PART_ENCOUNTER_GATE", PathAddress(0x4D7E)),
     ("CRAFT_LAUNCH_TRANSITION", PathAddress(0xDC42)),
     ("HEAVY_CHARIOT", PathAddress(0x0F7E)),
@@ -413,6 +414,18 @@ def encounter_gate_shapes(rom: bytes) -> tuple[int, ...]:
     return tuple(shape_index(int.from_bytes(data[i:i+2], 'little')) for i in range(0, 10, 2))
 
 
+def node_reveal_shapes(rom: bytes) -> tuple[int, ...]:
+    """Four reveal panels selected by the bounded attachment constructor."""
+    helper = bytes.fromhex('fb64d7006104f59cbc67560a0a000000000000029c7aa2089145fc06a28e914dfc06a20407a2024e13a2e564d7c4489b45')
+    if rom[0x45628:0x45628 + len(helper)] != helper:
+        raise UnsupportedPath('unexpected four-part node reveal helper')
+    start = source_offset(0x06FC4D)
+    data = rom[start:start + 8]
+    if len(data) != 8:
+        raise UnsupportedPath('truncated node reveal shape table')
+    return tuple(shape_index(int.from_bytes(data[i:i+2], 'little')) for i in range(0, 8, 2))
+
+
 def trigger_kind(condition: int) -> str:
     # Source dispatch table $7F:9B0F. Decode once; no numeric condition
     # selector or handler lookup is retained in the native catalog.
@@ -533,6 +546,18 @@ def shape_index(shape: int) -> int:
 
 def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     index = shape_index(shape)
+    # Node objective controllers/reveal panels and the emitted burst disable
+    # collision or visibility in their complete paths. Preserve their source
+    # health/attack values; kind does not replace the contact-state predicates.
+    if (shape, path) in ((0xD714, PathAddress(0x55D9)),
+                        (0xD784, PathAddress(0x5682)),
+                        (0xD7A0, PathAddress(0x56F4)),
+                        (0xC0A8, PathAddress(0x830D)),
+                        (0xBC9C, PathAddress(0x5624)),
+                        (0xBC9C, PathAddress(0x55D1)),
+                        (0xBC9C, PathAddress(0x5A0D)),
+                        (0xBC9C, PathAddress(0x5A02))):
+        return index, "ObjectKind::Effect"
     # Reviewed transient sprite family, also named by the source pool-pressure
     # sweep. Other shapes need native metadata review; never guess enemy vs
     # scenery vs projectile from a numerically valid shape header alone.
@@ -1577,6 +1602,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::DeferredMessage {{ command: super::path_radio::DeferredMessageCommand::{operation}, next: {next_cursor()} }}"
             elif index == 0x9A and name.startswith("Import"):
                 statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
+            elif index == 0x9A and name.startswith("Export"):
+                statement = f"Statement::ExportActiveNodeFlags {{ source: WordOperand::Actor({word_field(variable)}), next: {next_cursor()} }}"
             elif index in (0x90, 0x92, 0x94) and name.startswith("Import"):
                 axis = {0x90: "X", 0x92: "Y", 0x94: "Z"}[index]
                 statement = f"Statement::ImportPlayerPosition {{ axis: Axis::{axis}, destination: {word_field(variable)}, next: {next_cursor()} }}"
@@ -1825,6 +1852,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 address = low | (high << 8) | (bank << 16)
                 if selector == 0xA1 and address == 0x06FC69:
                     values = encounter_gate_shapes(extractor.rom)
+                elif selector == 0xA2 and address == 0x06FC4D:
+                    values = node_reveal_shapes(extractor.rom)
                 elif selector == 0x27:
                     values = rapid_shot_shapes(extractor.rom, address)
                 else:

@@ -3,6 +3,13 @@
 use super::path_fields::{ByteField, ByteOperand};
 use super::Object;
 
+/// Live campaign-node flags ($D7F6). Node loading replaces the low byte,
+/// while authored paths and campaign writeback read and replace the full word.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveNodeFlags {
+    pub bits: u16,
+}
+
 /// Encounter exit publication ($1D74, $1D88/$1D8C, $1D8E). The player
 /// transition consumer copies this horizontal anchor into its actor, with
 /// a separately chosen height. Publishing does not perform that transition.

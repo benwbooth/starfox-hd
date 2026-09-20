@@ -21,6 +21,40 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_multipart_node_objective_closes_children_completion_and_handoff(self):
+        from generate_native_paths import node_reveal_shapes
+        from dump_runtime_routine import source_offset
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x546C)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 364)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '9a00cbe314f85336729f05f9bdb125f174244c6c56c72a535b3b9c9acaf7d032')
+        statements = lower_graph(extractor, root, 0)[1]
+        self.assertEqual(len(statements), 364)
+        self.assertEqual(sum('Statement::ExportActiveNodeFlags' in s for s in statements), 1)
+        self.assertEqual(sum('Statement::EncounterHandoff' in s for s in statements), 4)
+        self.assertEqual(node_reveal_shapes(self.rom), (276, 278, 262, 274))
+        for dependency in [0x54DF, 0x54F6, 0x55D1, 0x55D9, 0x5604, 0x5624,
+                           0x5667, 0x5682, 0x56F4, 0x5A02, 0x5A0D, 0x8A1B, 0x8B61]:
+            self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        for shape, path, index in [(0xD714, 0x55D9, 242), (0xD784, 0x5682, 246),
+                                    (0xD7A0, 0x56F4, 247), (0xC0A8, 0x830D, 37),
+                                    (0xBC9C, 0x5624, 0), (0xBC9C, 0x55D1, 0),
+                                    (0xBC9C, 0x5A0D, 0), (0xBC9C, 0x5A02, 0)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, 'ObjectKind::Effect'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+        for offset in [0x4562D, 0x4563E, 0x45646, 0x4564E, 0x45658, source_offset(0x06FC4D)]:
+            changed = bytearray(self.rom)
+            changed[offset] ^= 1
+            with self.assertRaises(UnsupportedPath):
+                node_reveal_shapes(bytes(changed))
+        changed = bytearray(self.rom)
+        changed[0x45507] ^= 1
+        with self.assertRaises(UnsupportedPath):
+            lower_graph(PathExtractor(bytes(changed)), root, 0)
+
     def test_encounter_gate_closes_five_parts_firing_and_handoff(self):
         from generate_native_paths import encounter_gate_shapes
         from dump_runtime_routine import source_offset
@@ -1013,11 +1047,11 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(spawn_shape(0xBD7C, PathAddress(root)), (8, "ObjectKind::Effect"))
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(0xBD7C, PathAddress(root + 1))
-        for source, target in [(0x48724, 0x82E6), (0x48717, 0x8288), (0x408B6, 0x8459)]:
+        for source, target, root in [(0x48724, 0x82E6, 0x82E3), (0x48717, 0x8288, 0x8285), (0x408B6, 0x8459, 0x8458)]:
             changed = bytearray(self.rom)
             changed[source:source + 2] = target.to_bytes(2, "little")
             with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
-                generate(bytes(changed))
+                generate(bytes(changed), (("CHILD_UNDER_TEST", PathAddress(root)),))
 
     def test_independent_spawn_parameters_validate_handler_record_and_literal_widths(self):
         extractor = PathExtractor(self.rom)
@@ -2988,8 +3022,8 @@ class NativePathGenerationTests(unittest.TestCase):
                     self.lower_record(f"7b a3 {index:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
             self.lower_record("7b 04 9a")
-        # Writing back or accessing another width is not authorized by this
-        # read-only mapping; neither is a guessed absolute-address alias.
+        self.assertIn("Statement::ExportActiveNodeFlags", self.lower_record("80 a3 9a")[0])
+        # Other widths and guessed absolute-address aliases remain unreviewed.
         for record in ("78 a3 9a", "7a a3 9a", "7e a3 f6 d7", "7c a3 f6 d7"):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
@@ -3001,7 +3035,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::Guidance { command: GuidanceCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
         self.assertIn("Statement::ImportControlStyle", self.lower_record("79 a1 d0 1d")[0])
         for index in range(256):
-            if index not in (0x32, 0x34, 0x36):
+            if index not in (0x32, 0x34, 0x36, 0x9A):
                 with self.assertRaises(UnsupportedPath):
                     self.lower_record(f"80 a3 {index:02x}")
         for record in ["7b a2 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:
