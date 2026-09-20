@@ -24,6 +24,7 @@ const PAUSE_DISABLED_ACKNOWLEDGEMENT: u8 = 1;
 
 #[derive(Debug)]
 pub enum NativeAudioError {
+    UnsupportedEffect(String),
     MissingAsset(Vec<PathBuf>),
     Io(std::io::Error),
     InvalidWave(PathBuf, &'static str),
@@ -32,6 +33,9 @@ pub enum NativeAudioError {
 impl fmt::Display for NativeAudioError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            NativeAudioError::UnsupportedEffect(cue) => {
+                write!(formatter, "native audio effect has no PCM mapping: {cue}")
+            }
             NativeAudioError::MissingAsset(paths) => {
                 write!(formatter, "native audio asset not found")?;
                 for path in paths {

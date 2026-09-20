@@ -133,14 +133,20 @@ fn sf2_sound_pilot(pilot: sf2_game::Pilot) -> Sf2SoundPilot {
     }
 }
 
-fn sf2_sound_effect(event: sf2_game::SoundEvent) -> Sf2SoundEffect {
-    match event {
+fn sf2_sound_effect(event: sf2_game::SoundEvent) -> Result<Sf2SoundEffect, NativeAudioError> {
+    Ok(match event {
+        sf2_game::SoundEvent::Authored(cue) => {
+            return Err(NativeAudioError::UnsupportedEffect(format!(
+                "SF2 authored cue {}, parameter {}, target {:?}",
+                cue.id, cue.parameter(), cue.target
+            )));
+        }
         sf2_game::SoundEvent::RapidLaser => Sf2SoundEffect::RapidLaser,
         sf2_game::SoundEvent::ChargedLaser => Sf2SoundEffect::ChargedLaser,
         sf2_game::SoundEvent::HostileLaser => Sf2SoundEffect::HostileLaser,
         sf2_game::SoundEvent::RadioMessageOpen => Sf2SoundEffect::RadioMessageOpen,
         sf2_game::SoundEvent::RadioMessageClose => Sf2SoundEffect::RadioMessageClose,
-    }
+    })
 }
 
 fn sf2_charge_cue(sound: sf2_game::ChargeSound) -> Sf2ChargeCue {
@@ -411,7 +417,7 @@ impl AudioSys {
 
         for event in game.take_sound_events().into_iter().flatten() {
             self.backend
-                .report(player.play_effect(bank, pilot, sf2_sound_effect(event)));
+                .report(sf2_sound_effect(event).and_then(|cue| player.play_effect(bank, pilot, cue)));
         }
     }
 
@@ -801,7 +807,7 @@ mod tests {
             ),
         ];
         for (event, effect) in expected {
-            assert_eq!(sf2_sound_effect(event), effect);
+            assert_eq!(sf2_sound_effect(event).unwrap(), effect);
         }
     }
 
@@ -815,6 +821,18 @@ mod tests {
             Sf2ChargeCue::Building
         );
         assert_eq!(sf2_charge_cue(ChargeSound::Ready), Sf2ChargeCue::Ready);
+    }
+
+    #[test]
+    fn authored_sf2_cues_without_pcm_mapping_report_explicit_error() {
+        use sf2_game::path_control::PlayerTarget;
+        use sf2_game::path_sound::AuthoredCue;
+        let event = sf2_game::SoundEvent::Authored(AuthoredCue::new(18, 127, PlayerTarget::Secondary));
+        let error = sf2_sound_effect(event).unwrap_err();
+        assert!(matches!(error, NativeAudioError::UnsupportedEffect(_)));
+        let message = error.to_string();
+        assert!(message.contains("no PCM mapping"));
+        assert!(message.contains("cue 18, parameter 127, target Secondary"));
     }
 
     #[test]

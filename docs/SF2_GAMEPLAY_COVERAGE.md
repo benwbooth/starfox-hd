@@ -569,3 +569,22 @@ so the published catalog remains six complete graphs, not seven. Verification
 passes 138 native path tests in debug and release, 23 lowerer tests, 140 static
 path checks, architecture/dependency checks and the app build. World/Game
 scheduling and the remaining audio service are still separate open work.
+
+Direct and paired authored sound cues now lower into typed cue/parameter/target
+records. The shared audio ring preserves ordering with existing gameplay
+sounds, source wraparound, and the routing OR rule: primary-player and fixed
+fallback listeners do not clear an already-authored secondary bit. Path entry
+and resume retain their different selection semantics. Missing audio inputs
+fault before cursor advancement. The app explicitly reports unsupported PCM
+mapping for authored cues; this is queue-service coverage, not audible cue-18
+coverage, and no original sound program was executed for this milestone.
+
+This enables the complete repeated-child sprite graph and the independently
+installed sound/color sprite entry: eight roots, 79 globally deduplicated
+statements. A typed-runtime test runs the parent for eleven invocations, checks
+three separately scheduled children, and verifies each child's shared-RNG
+jitter, one-shot secondary cue, color loop and termination. The two new roots
+remain outside Game scheduling. Verification passes 142 native path tests in
+release, 19 path-program tests in debug, 25 lowerer tests, 144 static path checks,
+14 app audio tests, architecture/dependency checks and the app build. Other
+sound classes, remaining source graphs and full gameplay integration stay open.

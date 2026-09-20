@@ -16,6 +16,7 @@ pub const SOUND_EVENT_CAPACITY: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoundEvent {
+    Authored(super::path_sound::AuthoredCue),
     RapidLaser,
     ChargedLaser,
     HostileLaser,

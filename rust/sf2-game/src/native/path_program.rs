@@ -15,6 +15,7 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
+    pub audio: Option<super::path_sound::PathAudio<'a>>,
     pub selected: Option<ObjectId>,
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
@@ -134,6 +135,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    Sound {
+        cue: super::path_sound::AuthoredCue,
+        next: PathCursor,
+    },
     SpawnChild {
         kind: super::ObjectKind,
         parameters: super::path_spawn::ChildSpawn,
@@ -202,6 +207,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingAudio,
     Spawn(super::path_spawn::SpawnError),
     MissingSpawnDefaults,
     Relationship(super::path_relationships::RelationshipError),
@@ -296,6 +302,19 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::Sound { cue, next } => {
+                    world
+                        .audio
+                        .as_mut()
+                        .ok_or(ProgramError::MissingAudio)?
+                        .queue(cue, self.selected_player());
+                    objects
+                        .get_mut(owner)
+                        .expect("validated sound owner")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::SpawnChild {
                     kind,
                     parameters,
@@ -454,6 +473,7 @@ mod tests {
 
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
+            audio: None,
             selected: None,
             selected_auxiliary: None,
             spawn_defaults: None,
@@ -492,6 +512,212 @@ mod tests {
                 number: 3,
             },
             next: cursor(0, 1),
+        }
+    }
+
+    #[test]
+    fn sound_requires_live_shared_audio_and_routes_using_retained_selection() {
+        use super::super::path_sound::{AuthoredCue, CueListener, PathAudio};
+        use super::super::{AudioState, SoundEvent};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let cue = AuthoredCue::new(18, 127, PlayerTarget::Primary);
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::Sound {
+                cue,
+                next: cursor(0, 1),
+            },
+            Statement::Control(ControlCommand::WaitOne { next: cursor(0, 0) }),
+        ]])
+        .unwrap();
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4),
+            Err(ProgramError::MissingAudio)
+        );
+        assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 0)));
+        let before_random = random;
+        let mut audio = AudioState::default();
+        audio.queue(SoundEvent::HostileLaser);
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .conditions
+            .selected_player = PlayerTarget::Secondary;
+        let mut inputs = world(&mut random);
+        inputs.audio = Some(PathAudio {
+            events: &mut audio,
+            listeners: [CueListener::Other, CueListener::PrimaryFallback],
+        });
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 4),
+            Ok(ControlStep::Movement)
+        );
+        // Immediate/callback resume uses the retained selected slot, not the
+        // owner's subsequently changed condition or spatial selected actor.
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .conditions
+            .selected_player = PlayerTarget::Primary;
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4),
+            Ok(ControlStep::Movement)
+        );
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 4),
+            Ok(ControlStep::Movement)
+        );
+        assert_eq!(inputs.random, &before_random);
+        assert_eq!(
+            inputs
+                .audio
+                .as_mut()
+                .unwrap()
+                .events
+                .take_events()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            vec![
+                SoundEvent::HostileLaser,
+                SoundEvent::Authored(cue),
+                SoundEvent::Authored(cue),
+                SoundEvent::Authored(cue.for_listener(CueListener::Other))
+            ]
+        );
+    }
+
+    #[test]
+    fn authored_repeated_children_run_independent_jitter_sound_and_color_paths() {
+        use super::super::path_sound::{AuthoredCue, CueListener, PathAudio};
+        use super::super::{
+            authored_paths, path_appearance, AudioState, ObjectSpawnDefaults, SoundEvent,
+        };
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        {
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::REPEATED_CHILD_SPRITE);
+            actor.base.target_speed = 11;
+            actor.extension.path_state.motion_phase = 0xAB00;
+            actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+        }
+        let before_random = random;
+        let catalog = authored_paths::catalog();
+        let mut audio = AudioState::default();
+        let mut children = Vec::new();
+        for invocation in 0..11 {
+            let mut inputs = world(&mut random);
+            inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+            // No audio is needed until the independently scheduled child runs.
+            let outcome = runtime
+                .enter_program(&catalog, &mut objects, owner, &mut inputs, 16)
+                .unwrap();
+            assert_eq!(
+                outcome,
+                if invocation < 10 {
+                    ControlStep::Movement
+                } else {
+                    ControlStep::Ended
+                }
+            );
+            assert_eq!(random, before_random);
+            if invocation % 5 == 0 {
+                let child = runtime.spawns.last_spawn.unwrap();
+                assert!(!children.contains(&child));
+                children.push(child);
+                assert!(
+                    objects
+                        .get(child)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .needs_path_initialization
+                );
+            }
+            assert_eq!(objects.len(), 1 + children.len());
+            assert_eq!(
+                objects
+                    .get(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .motion_phase,
+                0xAB00 | (4 - invocation % 5)
+            );
+            // DO snapshots its count; this must not shorten its remaining loop.
+            objects.get_mut(owner).unwrap().base.target_speed = 1;
+        }
+        assert_eq!(children.len(), 3);
+        assert_eq!(
+            objects.get(owner).unwrap().base.first_child,
+            Some(children[0])
+        );
+        assert_eq!(
+            objects.get(children[0]).unwrap().base.next_sibling,
+            Some(children[1])
+        );
+        assert_eq!(
+            objects.get(children[1]).unwrap().base.next_sibling,
+            Some(children[2])
+        );
+        let mut expected_random = random;
+        for child in children {
+            let mut jitter = || {
+                let high = expected_random.next_byte();
+                let low = expected_random.next_byte();
+                (u16::from_be_bytes([high, low]) & 31) as i16 - 15
+            };
+            let position = super::super::Vector3 {
+                x: jitter(),
+                y: jitter(),
+                z: jitter(),
+            };
+            for color in 0..4 {
+                let mut inputs = world(&mut random);
+                inputs.audio = Some(PathAudio {
+                    events: &mut audio,
+                    listeners: [CueListener::PrimaryPlayer, CueListener::Other],
+                });
+                let outcome = runtime
+                    .enter_program(&catalog, &mut objects, child, &mut inputs, 16)
+                    .unwrap();
+                assert_eq!(
+                    outcome,
+                    if color < 3 {
+                        ControlStep::Movement
+                    } else {
+                        ControlStep::Ended
+                    }
+                );
+                let actor = objects.get_mut(child).unwrap();
+                path_appearance::publish_animation(actor, 29);
+                assert_eq!(actor.extension.color_frame, color);
+                assert_eq!(actor.extension.texture_scroll_x, 254);
+                assert_eq!(actor.extension.relative_position, position);
+                assert!(!actor.extension.path_state.needs_path_initialization);
+                assert_eq!(random, expected_random);
+                assert_eq!(actor.base.flags.remove_after_tick, color == 3);
+                let events = audio
+                    .take_events()
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    events,
+                    if color == 0 {
+                        vec![SoundEvent::Authored(AuthoredCue::new(
+                            18,
+                            0,
+                            PlayerTarget::Secondary,
+                        ))]
+                    } else {
+                        vec![]
+                    }
+                );
+            }
         }
     }
 
@@ -820,6 +1046,7 @@ mod tests {
             .enumerate()
         {
             let mut inputs = PathWorld {
+                audio: None,
                 selected: None,
                 spawn_defaults: None,
                 // The initial four-count loop does not read this record.
@@ -905,8 +1132,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 6);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 60);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 8);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 79);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -1037,6 +1264,7 @@ mod tests {
         let catalog = authored_paths::catalog();
         for phase in 1..=7 {
             let mut inputs = PathWorld {
+                audio: None,
                 selected: None,
                 selected_auxiliary: None,
                 spawn_defaults: None,
@@ -1134,6 +1362,7 @@ mod tests {
                     &mut objects,
                     owner,
                     &mut PathWorld {
+                        audio: None,
                         selected: None,
                         selected_auxiliary: None,
                         spawn_defaults: None,

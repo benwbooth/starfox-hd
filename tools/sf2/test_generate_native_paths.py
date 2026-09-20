@@ -52,10 +52,30 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(statements[7], "Statement::Control(ControlCommand::End)")
 
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
-        # The parent spawn is now supported, but its independently spawned
-        # child's sound service is not. Reject the entire parent graph too.
-        with self.assertRaisesRegex(UnsupportedPath, "unsupported QueueSelectedMarkerDirect"):
-            lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
+        # An unsupported independently spawned child rejects its parent too.
+        changed = bytearray(self.rom)
+        changed[0x4F582:0x4F585] = bytes.fromhex("00 06 12")
+        with self.assertRaisesRegex(UnsupportedPath, "unsupported QueueSelectedMarkerClass1"):
+            lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF561), 2)
+
+    def test_spawned_sound_graph_is_complete_and_shared_with_standalone_entry(self):
+        _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF561), 2)
+        self.assertEqual(len(statements), 23)
+        self.assertEqual(sum("Statement::Sound" in item for item in statements), 1)
+        self.assertTrue(any("AuthoredCue::new(18, 0, PlayerTarget::Primary)" in item for item in statements))
+
+    def test_sound_literals_decode_routing_offline_and_advance_past_escape(self):
+        for record, cue in [
+            ("00 04 ff", "255, 0, PlayerTarget::Primary"),
+            ("00 0a 12 00", "18, 0, PlayerTarget::Primary"),
+            ("00 0a 00 7f", "0, 127, PlayerTarget::Primary"),
+            ("00 0a 81 80", "129, 0, PlayerTarget::Secondary"),
+            ("00 0a ff ff", "255, 127, PlayerTarget::Secondary"),
+        ]:
+            statements = self.lower_record(record)
+            self.assertIn(f"AuthoredCue::new({cue})", statements[0])
+            self.assertIn("next: cursor(0, 1)", statements[0])
+            self.assertEqual(statements[1], "Statement::Control(ControlCommand::End)")
 
     def test_spawn_lowering_uses_semantic_shape_and_child_cursor_with_separate_continuation(self):
         for record, rotation in (

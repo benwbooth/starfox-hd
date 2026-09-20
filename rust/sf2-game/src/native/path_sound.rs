@@ -1,10 +1,78 @@
-//! Path one-shot cue placement (`$7F:A460..A5B5`).
+//! Path one-shot cue routing and placement (`$7F:A412..A5B5`).
 //!
 //! These distance bands differ from positional engine loops. The caller
 //! resolves the selected listener/marker and supplies its live heading;
-//! cue identity, listener routing and native PCM assets remain audio-owned.
+//! direct cues retain authored IDs/parameters in the shared semantic queue.
+//! PCM interpretation and asset availability remain separate audio concerns.
 
 use super::{path_math, Angle, StereoPosition, Vector3};
+
+use super::path_control::PlayerTarget;
+
+/// Identity classification of the currently selected sound listener. The
+/// fallback listener is outside the ordinary actor pool in the source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CueListener {
+    PrimaryPlayer,
+    PrimaryFallback,
+    Other,
+}
+
+/// Decoded authored cue data. The seven parameter bits are kept intact:
+/// interpreting them for PCM playback is a separate audio-bank concern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthoredCue {
+    pub id: u8,
+    parameter: u8,
+    pub target: PlayerTarget,
+}
+
+impl AuthoredCue {
+    pub const fn new(id: u8, parameter: u8, target: PlayerTarget) -> Self {
+        assert!(
+            parameter & 0x80 == 0,
+            "routing is separate from cue parameters"
+        );
+        Self {
+            id,
+            parameter,
+            target,
+        }
+    }
+
+    pub const fn parameter(self) -> u8 {
+        self.parameter
+    }
+
+    /// Source $7F:A439 ORs secondary routing; primary identities do not
+    /// clear a secondary route already supplied by the authored cue.
+    pub const fn for_listener(mut self, listener: CueListener) -> Self {
+        if matches!(listener, CueListener::Other) {
+            self.target = PlayerTarget::Secondary;
+        }
+        self
+    }
+}
+
+/// Borrow the same queue used by gameplay sounds, never a path-local queue.
+/// Identity observations are supplied for both selected-player slots so
+/// callback entry can change selection without retaining a stale listener.
+pub struct PathAudio<'a> {
+    pub events: &'a mut super::AudioState,
+    pub listeners: [CueListener; 2],
+}
+
+impl PathAudio<'_> {
+    pub fn queue(&mut self, cue: AuthoredCue, selected: PlayerTarget) {
+        let index = match selected {
+            PlayerTarget::Primary => 0,
+            PlayerTarget::Secondary => 1,
+        };
+        self.events.queue(super::SoundEvent::Authored(
+            cue.for_listener(self.listeners[index]),
+        ));
+    }
+}
 
 const CLOSE_DISTANCE_EXCLUSIVE: u16 = 800;
 const MIDDLE_DISTANCE_EXCLUSIVE: u16 = 1_300;
@@ -108,6 +176,62 @@ pub fn placement_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authored_routing_preserves_every_cue_and_parameter_including_preselected_secondary() {
+        for id in 0..=u8::MAX {
+            for parameter in 0..0x80 {
+                for target in [PlayerTarget::Primary, PlayerTarget::Secondary] {
+                    let cue = AuthoredCue::new(id, parameter, target);
+                    for listener in [
+                        CueListener::PrimaryPlayer,
+                        CueListener::PrimaryFallback,
+                        CueListener::Other,
+                    ] {
+                        let routed = cue.for_listener(listener);
+                        assert_eq!(routed.id, id);
+                        assert_eq!(routed.parameter(), parameter);
+                        assert_eq!(
+                            routed.target,
+                            if listener == CueListener::Other {
+                                PlayerTarget::Secondary
+                            } else {
+                                target
+                            }
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn authored_and_named_events_share_order_and_source_overflow() {
+        use super::super::{AudioState, SoundEvent};
+        let mut audio = AudioState::default();
+        let cue = AuthoredCue::new(18, 0, PlayerTarget::Primary);
+        for count in [15, 16, 17, 31, 32, 33] {
+            let mut expected = Vec::new();
+            for index in 0..count {
+                let event = if index % 2 == 0 {
+                    SoundEvent::RapidLaser
+                } else {
+                    SoundEvent::Authored(cue)
+                };
+                audio.queue(event);
+                expected.push(event);
+            }
+            assert_eq!(
+                audio
+                    .take_events()
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>(),
+                expected[count - count % 16..]
+            );
+            assert!(audio.take_events().iter().all(Option::is_none));
+        }
+    }
 
     #[test]
     fn exact_distance_edges_and_non_positional_paths_do_not_query_bearing() {
