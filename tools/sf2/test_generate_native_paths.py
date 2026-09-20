@@ -314,6 +314,16 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(self.lower_record(record)[0],
                 f"Statement::Contact {{ command: ContactCommand::{operation}, next: cursor(0, 1) }}")
 
+    def test_selected_transform_copies_remain_separate_immediate_statements(self):
+        for record, operation in [("ed", "WorldPosition"), ("00 44", "WorldRotation")]:
+            self.assertEqual(self.lower_record(record)[0],
+                f"Statement::CopySelectedTransform {{ command: SelectedTransformCommand::{operation}, next: cursor(0, 1) }}")
+            changed = bytearray(self.rom)
+            program = bytes.fromhex(record + " 0f")
+            changed[0x4F536:0x4F536 + len(program)] = program
+            self.assertIn("use super::path_relationships::SelectedTransformCommand;",
+                          generate(bytes(changed), (("COPY", PathAddress(0xF536)),)))
+
     def test_arithmetic_chase_preserves_literal_and_variable_operand_order_and_waiting(self):
         for record, fragment in [
             ("81 ff 27", "field: ByteField::ScriptParameter, operation: ByteOperation::Chase(ByteOperand::Literal(255))"),

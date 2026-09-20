@@ -7,6 +7,7 @@ use super::{ObjectId, ObjectStore, OBJECT_CAPACITY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RelationshipError {
+    MissingSelected,
     MissingActor(ObjectId),
     MissingParent(ObjectId),
     ChildCycle(ObjectId),
@@ -17,6 +18,41 @@ pub enum RelationshipError {
 pub enum RelationshipCommand {
     UnlinkSelf,
     UnlinkChild { number: u8 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectedTransformCommand {
+    WorldPosition,
+    WorldRotation,
+}
+
+/// Source $7F:B8CD and $7F:BF4E/$7F:2BE2 copy only the selected world
+/// transform channel. Relative transforms and velocity remain untouched.
+pub fn copy_selected_transform(
+    objects: &mut ObjectStore,
+    owner: ObjectId,
+    selected: Option<ObjectId>,
+    command: SelectedTransformCommand,
+) -> Result<(), RelationshipError> {
+    objects
+        .get(owner)
+        .ok_or(RelationshipError::MissingActor(owner))?;
+    let selected = selected.ok_or(RelationshipError::MissingSelected)?;
+    let target = objects
+        .get(selected)
+        .ok_or(RelationshipError::MissingActor(selected))?;
+    let position = target.base.position;
+    let rotation = (target.base.pitch, target.base.yaw, target.base.roll);
+    let actor = objects
+        .get_mut(owner)
+        .expect("validated transform-copy owner");
+    match command {
+        SelectedTransformCommand::WorldPosition => actor.base.position = position,
+        SelectedTransformCommand::WorldRotation => {
+            (actor.base.pitch, actor.base.yaw, actor.base.roll) = rotation;
+        }
+    }
+    Ok(())
 }
 
 /// Child-producing paths use the caller's mother when attached, otherwise

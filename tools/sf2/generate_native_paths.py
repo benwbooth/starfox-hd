@@ -511,6 +511,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 }[name]
             taken, next_ = branch_cursors(int.from_bytes(operands[-2:], "little"))
             statement = f"Statement::Spatial {{ condition: SpatialCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("CopySelectedWorldPosition", "CopySelectedRotation"):
+            parameters(0)
+            operation = "WorldPosition" if name == "CopySelectedWorldPosition" else "WorldRotation"
+            statement = f"Statement::CopySelectedTransform {{ command: SelectedTransformCommand::{operation}, next: {next_cursor()} }}"
         elif name in ("AchaseByte", "AchaseWord", "WaitAchaseByte", "ChaseVariableByte", "ChaseVariableWord"):
             wide = name.endswith("Word")
             kind = "Word" if wide else "Byte"
@@ -674,6 +678,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_conditions::SpatialCondition;\n"
     if any("FacingCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_steering::FacingCommand;\n"
+    if any("SelectedTransformCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_relationships::SelectedTransformCommand;\n"
     if any("ContactCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_contact::ContactCommand;\n"
     if any("ContactClassMask" in statement for statement in unique_statements.values()):

@@ -182,6 +182,10 @@ pub enum Statement {
         command: super::path_relationships::RelationshipCommand,
         next: PathCursor,
     },
+    CopySelectedTransform {
+        command: super::path_relationships::SelectedTransformCommand,
+        next: PathCursor,
+    },
     SelectedAuxiliaryBranch {
         condition: SelectedAuxiliaryCondition,
         taken: PathCursor,
@@ -379,6 +383,21 @@ impl PathRuntime {
                         *phase = (*phase & 0xFF00) | 1;
                     }
                     actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::CopySelectedTransform { command, next } => {
+                    super::path_relationships::copy_selected_transform(
+                        objects,
+                        owner,
+                        world.selected,
+                        command,
+                    )
+                    .map_err(ProgramError::Relationship)?;
+                    objects
+                        .get_mut(owner)
+                        .expect("validated transform-copy owner")
+                        .base
+                        .path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::InheritPrimaryHorizontalMotion { next } => {
@@ -760,6 +779,101 @@ mod tests {
             assert_eq!(objects.get(owner).unwrap(), &expected);
             assert_eq!(runtime.steering.unchanged_axes, 11);
             assert!(runtime.branch.invert_next);
+        }
+    }
+
+    #[test]
+    fn selected_transform_copies_read_live_selection_and_preserve_neighboring_fields() {
+        use super::super::path_relationships::{RelationshipError, SelectedTransformCommand};
+        use super::super::{Angle, Vector3};
+        for command in [
+            SelectedTransformCommand::WorldPosition,
+            SelectedTransformCommand::WorldRotation,
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let other = objects
+                .allocate(Object::new(
+                    ObjectKind::Player,
+                    ShapeId::EMPTY,
+                    Behavior::PlayerFlight,
+                ))
+                .unwrap();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.child_number = 73;
+            actor.base.wait_timer = 57;
+            actor.base.position = Vector3 {
+                x: 100,
+                y: -200,
+                z: 300,
+            };
+            actor.base.velocity = Vector3 { x: 1, y: -2, z: 3 };
+            actor.extension.relative_position = Vector3 {
+                x: 40,
+                y: -50,
+                z: 60,
+            };
+            actor.extension.path_state.motion.relative_coordinates = true;
+            actor.extension.parent = Some(other);
+            runtime.branch.invert_next = true;
+            let original_random = random;
+            let catalog = PathCatalog::new(vec![vec![Statement::CopySelectedTransform {
+                command,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            let before = objects.get(owner).unwrap().clone();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::Relationship(
+                    RelationshipError::MissingSelected
+                ))
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+            for angle in 0..=u8::MAX {
+                let target = objects.get_mut(other).unwrap();
+                target.base.position = Vector3 {
+                    x: (u16::from(angle) * 257) as i16,
+                    y: i16::MIN,
+                    z: i16::MAX,
+                };
+                target.base.pitch = Angle::from_units(angle);
+                target.base.yaw = Angle::from_units(angle.wrapping_add(100));
+                target.base.roll = Angle::from_units(angle.wrapping_sub(50));
+                // Child number and elapsed wait sit between source angle
+                // bytes, so a bulk rotation-word copy would be incorrect.
+                target.base.child_number = angle;
+                target.base.wait_timer = angle;
+                for selected in [other, owner] {
+                    objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+                    let mut expected = objects.get(owner).unwrap().clone();
+                    let target = objects.get(selected).unwrap();
+                    match command {
+                        SelectedTransformCommand::WorldPosition => {
+                            expected.base.position = target.base.position
+                        }
+                        SelectedTransformCommand::WorldRotation => {
+                            expected.base.pitch = target.base.pitch;
+                            expected.base.yaw = target.base.yaw;
+                            expected.base.roll = target.base.roll;
+                        }
+                    }
+                    expected.base.path = Some(cursor(0, 1));
+                    let other_before = objects.get(other).unwrap().clone();
+                    let mut inputs = world(&mut random);
+                    inputs.selected = Some(selected);
+                    assert_eq!(
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: cursor(0, 1),
+                            executed: 1
+                        })
+                    );
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert_eq!(objects.get(other).unwrap(), &other_before);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, original_random);
+                }
+            }
         }
     }
 

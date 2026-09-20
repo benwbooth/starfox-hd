@@ -18,6 +18,11 @@ class PathRelationshipsStaticTests(unittest.TestCase):
         offset = source_offset(address)
         self.assertEqual(self.rom[offset:offset + len(expected)], expected)
 
+    def test_selected_world_position_and_rotation_copy_only_their_named_components(self):
+        self.assert_source(0x7FB8CD, "AC 1F CF C2 20 B9 0C 00 95 0C B9 0E 00 95 0E B9 10 00 95 10 4C E8 CA")
+        self.assert_source(0x7FBF4E, "AC 1F CF 22 E2 2B 7F 4C E8 CA")
+        self.assert_source(0x7F2BE2, "B9 12 00 95 12 B9 14 00 95 14 B9 16 00 95 16 6B")
+
     def test_child_lookup_walks_in_order_and_compares_full_number_byte(self):
         self.assert_source(0x7F2A7B, "8D 2A 19 DA B4 29 F0 0B B9 13 00 CD 2A 19 F0 03 BB 80 F1 FA 6B")
 

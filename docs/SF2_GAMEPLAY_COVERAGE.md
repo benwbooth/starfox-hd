@@ -748,3 +748,12 @@ word difference at five wrap-boundary origins, self-aliasing and dispatcher
 yield behavior are checked. Verification passes 52 lowerer tests, 172 static
 path tests, 162 native path tests in debug/release, architecture/dependency
 checks and the app build. Catalog coverage remains 10 roots/117 statements.
+
+Selected world-position and world-rotation copies now lower to distinct named
+commands. They sample the live selected object, including self-selection, and
+copy only three coordinates or three angle bytes. Tests preserve neighboring
+child-number/wait bytes, relative transforms, velocity, IFNOT and RNG; missing
+selection faults before mutation. Complete source helper signatures are pinned.
+Verification passes 53 lowerer tests, 173 static path tests, 163 native path
+tests in debug/release, architecture/dependency checks and the app build.
+This does not yet add another complete root or live scheduler integration.
