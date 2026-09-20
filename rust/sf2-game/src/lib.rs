@@ -13,7 +13,7 @@ pub use native::{
     path_conditions, path_control, path_fields, path_math, path_motion, path_runtime, path_sound,
     path_steering, path_trigger_conditions, path_triggers, platform_carry, player_contact,
     player_hit_control, program_resources, program_state, proximity_warning, radar, retirement, scene_proxy,
-    strategy_schedule, weapon_creation, weapon_launch, world_occupancy,
+    strategy_schedule, weapon_creation, weapon_dispatch, weapon_launch, world_occupancy,
 };
 
 pub use native::{

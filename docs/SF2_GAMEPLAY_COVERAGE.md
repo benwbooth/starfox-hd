@@ -2704,3 +2704,30 @@ sides and selected slots, initializer aliases, failure atomicity and last-slot
 pressure. Four new static checks pin both complete creation routines and the
 formatter tail. This is a shared service milestone, not completed dispatch,
 new catalog roots or production weapon integration.
+
+### Authored path-weapon dispatch and failed-allocation fallback
+
+Nine source launch variants now install their complete native paths: the
+player/hostile heavy split, variant-guided, difficulty-homing, primary-motion
+and doubled-motion homing, both occupancy launch speeds, offset-guided and
+primary-motion surface-limited weapons. They retain the source damage values,
+effect policy, primary-mode speed choice and immediate velocity generation.
+Hostile classification reads the primary player's yaw, not the firing/selected
+actor's, and consumes exactly one shared random byte only in its selected
+half-plane. Both byte counters wrap independently.
+
+The authored FIRE opcode clears retained muzzle/aim inputs, launches without
+executing the projectile, adds path-spawn exclusion and publishes last-spawn.
+When the pool is full it instead publishes the real reserved scene actor and
+adds only that exclusion membership. No player inputs or random draws are
+needed on this failure route. Missing world state, absent projectile catalog
+entries and unported selectors are explicit faults, never skipped fire.
+
+Tests cover all primary mode bytes, all heading/random outcomes, both heavy
+player identities and enemy firing, input faults, full-pool fallback aliasing,
+whole-record preservation, IFNOT and shared launch state. Validation passes
+19 weapon and 421 native path tests in debug/release, 158 lowering and 337
+source-static tests, catalog freshness, both audits and app build (existing
+icon warning). Catalog coverage remains 110 roots and 1,796 source commands:
+the remaining player mesh/auxiliary variants, scene fallback allocation and
+production scheduling are still separate open work.

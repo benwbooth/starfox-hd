@@ -1316,6 +1316,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "SetVelocity":
             speed, = parameters(1)
             statement = f"Statement::Motion {{ command: MotionCommand::SetSpeed({speed}), next: {next_cursor()} }}"
+        elif name == "FireWeapon":
+            parameters(0)
+            statement = f"Statement::FireWeapon {{ next: {next_cursor()} }}"
         elif name == "SetWeapon":
             weapon, = parameters(1)
             statement = f"Statement::Mutate {{ mutation: Mutation::Byte {{ field: ByteField::WeaponSelection, operation: ByteOperation::Assign(ByteOperand::Literal({weapon})) }}, next: {next_cursor()} }}"

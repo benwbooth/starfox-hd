@@ -30,6 +30,10 @@ mod debris_tests;
 mod ballistic_tests;
 
 #[cfg(test)]
+#[path = "path_weapon_tests.rs"]
+mod weapon_tests;
+
+#[cfg(test)]
 #[path = "path_projectile_tests.rs"]
 mod projectile_tests;
 
@@ -90,6 +94,8 @@ pub struct PathWorld<'a> {
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
     /// Primary player identity, independent of the current selected slot.
     pub primary_player: Option<ObjectId>,
+    /// Live secondary player pointer, not a fixed scene actor slot.
+    pub secondary_player: Option<ObjectId>,
     pub selected: Option<ObjectId>,
     /// Fixed player actors, distinct from the live selected/primary pointers.
     pub fixed_players: [Option<ObjectId>; 2],
@@ -116,6 +122,7 @@ pub struct PathWorld<'a> {
     /// Fresh initializer-mode observations. Missing inputs fault only if
     /// this invocation reaches a spawn; they are not guessed from pause state.
     pub spawn_defaults: Option<super::ObjectSpawnDefaults>,
+    pub weapons: Option<&'a mut super::weapon_dispatch::WeaponState>,
     pub random: &'a mut RandomState,
     /// Shared strategy/animation clock (C4), also read by authored clock gates.
     pub animation_clock: u8,
@@ -594,6 +601,9 @@ pub enum Statement {
         parameters: super::path_spawn::IndependentSpawn,
         next: PathCursor,
     },
+    FireWeapon {
+        next: PathCursor,
+    },
     Relationship {
         command: super::path_relationships::RelationshipCommand,
         next: PathCursor,
@@ -784,6 +794,10 @@ pub enum ProgramError {
     MissingCountdown,
     Spawn(super::path_spawn::SpawnError),
     MissingSpawnDefaults,
+    MissingWeaponState,
+    MissingWeaponFallback,
+    UnsupportedWeaponSelection(u8),
+    WeaponLaunch(super::weapon_dispatch::LaunchError),
     Relationship(super::path_relationships::RelationshipError),
     MissingSelectedAuxiliary,
     MissingSelectedEquipment,
@@ -1461,6 +1475,45 @@ impl PathRuntime {
                         .path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::FireWeapon { next } => {
+                    use super::weapon_dispatch::{self, LaunchRequest, LaunchWorld, PathWeapon};
+                    let selection = objects.get(owner).expect("validated firing actor")
+                        .extension.path_state.weapon_selection;
+                    let weapon = PathWeapon::from_selection(selection)
+                        .ok_or(ProgramError::UnsupportedWeaponSelection(selection))?;
+                    for &path in weapon.paths() {
+                        catalog.statement(path)?;
+                    }
+                    let defaults = world.spawn_defaults.ok_or(ProgramError::MissingSpawnDefaults)?;
+                    let state = world.weapons.as_deref_mut().ok_or(ProgramError::MissingWeaponState)?;
+                    // The source allocator can fail normally. Its wrapper
+                    // substitutes the reserved scene actor, then still applies
+                    // the authored exclusion class and publishes last-spawn.
+                    let fallback = if objects.len() == super::OBJECT_CAPACITY {
+                        let id = state.fallback.ok_or(ProgramError::MissingWeaponFallback)?;
+                        objects.get(id).ok_or(PathRuntimeError::MissingActor(id))?;
+                        Some(id)
+                    } else { None };
+                    // $7F:88C4 resets every retained muzzle/aim input. Source
+                    // graphics-bank switching here has no native equivalent.
+                    state.parameters = super::weapon_launch::LaunchParameters::default();
+                    let created = weapon_dispatch::launch(objects, owner, LaunchRequest {
+                        weapon, parameters: state.parameters, defaults,
+                    }, &mut LaunchWorld {
+                        primary: world.primary_player,
+                        secondary: world.secondary_player,
+                        primary_auxiliary_mode: world.primary_motion.map(|motion| motion.auxiliary_mode),
+                        hostile_counts: Some(&mut state.hostile_counts),
+                        random: world.random,
+                    }).map_err(ProgramError::WeaponLaunch)?;
+                    let result = created.or(fallback).ok_or(ProgramError::MissingWeaponFallback)?;
+                    let actor = objects.get_mut(result).expect("created or validated fallback actor");
+                    actor.base.contacts.exclusion_groups = actor.base.contacts.exclusion_groups
+                        .union(super::collision_pass::ExclusionGroups::PATH_SPAWN);
+                    self.spawns.last_spawn = Some(result);
+                    objects.get_mut(owner).expect("validated firing actor").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::Relationship { command, next } => {
                     super::path_relationships::apply(objects, owner, command)
                         .map_err(ProgramError::Relationship)?;
@@ -1864,6 +1917,7 @@ mod tests {
             selected_occupancy_exempt: None,
             occupancy: None,
             surface_mode: None,
+            secondary_player: None,
             primary_player: None,
             selected: None,
             fixed_players: [None; 2],
@@ -1878,6 +1932,7 @@ mod tests {
             selected_auxiliary: None,
             selected_equipment: None,
             selected_score: None,
+            weapons: None,
             spawn_defaults: None,
             random,
             animation_clock: 0,
@@ -8902,6 +8957,8 @@ mod tests {
                 selected_occupancy_exempt: None,
                 occupancy: None,
                 surface_mode: None,
+                secondary_player: None,
+                weapons: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -13104,6 +13161,8 @@ mod tests {
                 selected_occupancy_exempt: None,
                 occupancy: None,
                 surface_mode: None,
+                secondary_player: None,
+                weapons: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -13234,6 +13293,8 @@ mod tests {
                         selected_occupancy_exempt: None,
                         occupancy: None,
                         surface_mode: None,
+                        secondary_player: None,
+                        weapons: None,
                         primary_player: None,
                         selected: None,
                         fixed_players: [None; 2],
