@@ -21,6 +21,78 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_kick_gunners_close_both_arena_graphs_with_decoded_health_and_route_state(self):
+        extractor = PathExtractor(self.rom)
+        for address, count, folded, checksum in [
+            (0x32EF, 457, 11, '231da621345fbea3fef7cf92c0d6da4502173870c12466b4928abd34eff47148'),
+            (0x348B, 419, 10, '8c6797a18db5629795c20dd25177abd98eebc0f744dd7161cbb8ed4a6fcd5b5b'),
+        ]:
+            root = PathAddress(address)
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), checksum)
+            statements = lower_graph(extractor, root, 0)[1]
+            self.assertEqual(len(statements), count - folded)
+            for name, expected in [('ChooseGunnerRoute', 1), ('SetHealthDisplayLabel', 1),
+                                   ('Statement::HealthDisplay {', 3), ('RequestPrimaryEncounterFeedback', 1)]:
+                self.assertEqual(sum(name in s for s in statements), expected)
+            self.assertTrue(any('label: "KICK GUNNER"' in s for s in statements))
+            for dependency in [0x806F, 0x8082, 0x34D8, 0x8C36, 0x8C48, 0x8707, 0x86B4, 0x44B2]:
+                self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        for offset, replacement, root, error in [
+            (0x43453, b'\xff', 0x32EF, 'unexpected random gunner route block'),
+            (0x4345B, b'\x43', 0x32EF, 'unexpected random gunner route block'),
+            (0x43468, b'\x03', 0x32EF, 'unexpected random gunner route block'),
+            (0x43587, b'\xff', 0x348B, 'unexpected random gunner route block'),
+            (0x435B7, b'\x8e', 0x348B, 'unexpected random gunner route block'),
+            (0x43303, b'\x54\x34', 0x32EF, 'external entry into random gunner route block'),
+            (0x4349F, b'\x88\x35', 0x348B, 'external entry into random gunner route block'),
+            (0x432FF, b'\xd8', 0x32EF, 'unreviewed external word store'),
+            (0x4349C, b'\x9a', 0x348B, 'unreviewed health display label'),
+            (0x18999, b'X', 0x348B, 'unexpected kick gunner display label'),
+        ]:
+            changed = bytearray(self.rom)
+            changed[offset:offset + len(replacement)] = replacement
+            with self.assertRaisesRegex(UnsupportedPath, error):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(root), 0)
+
+    def test_gunner_route_tables_keep_every_reachable_value_and_reject_unbounded_connections(self):
+        from generate_native_paths import RandomGunnerRoute, source_offset
+        for root, x_table, z_table in [(0x32EF, 0x06FE43, 0x06FE4B), (0x348B, 0x06FE37, 0x06FE35)]:
+            def route_units(rom):
+                return next(u for u in lowering_units(PathExtractor(rom), PathAddress(root)) if isinstance(u, RandomGunnerRoute)).routes
+            baseline = route_units(self.rom)
+            self.assertEqual([r[4] for r in baseline], [1, 3, 0, 2, 1, 3, 0, 2])
+            self.assertEqual([r[5] for r in baseline], [0, 64, 128, 64, 192, 128, 192, 0])
+            for axis, table in enumerate([x_table, z_table]):
+                with self.assertRaises(UnsupportedPath):
+                    banked_word_values(self.rom, table)
+                for vertex in range(4):
+                    changed = bytearray(self.rom)
+                    start = source_offset(table) + 2 * vertex
+                    changed[start:start+2] = b'\x00\x80'
+                    routes = route_units(bytes(changed))
+                    for choice, route in enumerate(routes):
+                        if choice // 2 == vertex:
+                            self.assertEqual(route[axis], -32768)
+                        if route[4] == vertex:
+                            self.assertEqual(route[axis + 2], -32768)
+            for choice in range(8):
+                changed = bytearray(self.rom)
+                changed[source_offset(0x06FD3D) + choice] = 255
+                self.assertEqual(route_units(bytes(changed))[choice][5], 255)
+                changed = bytearray(self.rom)
+                changed[source_offset(0x06FD35) + choice] = 4
+                with self.assertRaisesRegex(UnsupportedPath, 'exceeds proven four-waypoint domain'):
+                    route_units(bytes(changed))
+            if root == 0x32EF:
+                for vertex in range(4):
+                    changed = bytearray(self.rom)
+                    changed[source_offset(0x06FE3F) + vertex] = 255
+                    routes = route_units(bytes(changed))
+                    self.assertEqual(routes[vertex*2][6], 255)
+                    self.assertEqual(routes[vertex*2+1][6], 255)
+
     def test_popup_turrets_close_discharge_graph_and_fold_only_masked_eight_choice_block(self):
         extractor = PathExtractor(self.rom)
         for address, count, checksum in [
@@ -861,7 +933,10 @@ class NativePathGenerationTests(unittest.TestCase):
             changed = bytearray(self.rom)
             target = commands[1].address.offset
             changed[0x40003 + installer:0x40005 + installer] = target.to_bytes(2, "little")
-            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+            # The two dust installers now belong to complete Gunner roots:
+            # their invalid shape/path pair is rejected during parent lowering.
+            error = "unreviewed native spawn kind" if root in (0x8394, 0x838F) else "no verified child installer"
+            with self.assertRaisesRegex(UnsupportedPath, error):
                 generate(bytes(changed))
 
     def test_fixed_count_sprite_children_preserve_initialization_and_live_phase_reads(self):

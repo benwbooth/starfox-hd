@@ -24,6 +24,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("INNER_ARENA_KICK_GUNNER", PathAddress(0x32EF)),
+    ("OUTER_ARENA_KICK_GUNNER", PathAddress(0x348B)),
     ("GATED_POPUP_TURRET", PathAddress(0x2F11)),
     ("POPUP_TURRET", PathAddress(0x2F1A)),
     ("WIDE_RECTANGULAR_PATROL", PathAddress(0x1118)),
@@ -243,6 +245,20 @@ CHILD_INSTALLERS = {
 
 class UnsupportedPath(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class RandomGunnerRoute:
+    commands: tuple[PathCommand, ...]
+    routes: tuple[tuple[int, int, int, int, int, int, int | None], ...]
+
+    @property
+    def address(self):
+        return self.commands[0].address
+
+    @property
+    def next(self):
+        return self.commands[-1].successors[0]
 
 
 @dataclass(frozen=True)
@@ -663,6 +679,49 @@ def lowering_units(extractor: PathExtractor, root: PathAddress):
     for command in commands:
         if command.address in consumed:
             continue
+        if command.address in (PathAddress(0x3451), PathAddress(0x3585)):
+            inner = command.address == PathAddress(0x3451)
+            signatures = (
+                ('58a103', '9143fe06a10c', '914bfe06a110', '903ffe06a194',
+                 '58a201', '52a1a1', '52a1a2', '903dfd06a114', '4e9514',
+                 '9035fd06a1a2', '9143fe06a28e', '914bfe06a292') if inner else
+                ('58a103', '9137fe06a10c', '9135fe06a110', '58a201',
+                 '52a1a1', '52a1a2', '903dfd06a114', '4e9514',
+                 '9035fd06a1a2', '9137fe06a28e', '9135fe06a292'))
+            block = []
+            address = command.address
+            for signature in signatures:
+                raw = bytes.fromhex(signature)
+                part = by_address.get(address)
+                after = PathAddress(address.offset + len(raw))
+                if (part is None or part.opcode != raw[0] or part.prefix_size != 0
+                        or part.handler_address != SEMANTICS[raw[0]].handler_address
+                        or part.raw_hex != signature or part.successors != (after,)):
+                    raise UnsupportedPath('unexpected random gunner route block')
+                if block and (address in entries or predecessors.get(address) != {block[-1].address}):
+                    raise UnsupportedPath('external entry into random gunner route block')
+                block.append(part)
+                address = after
+            def data(address, length):
+                start = source_offset(address)
+                result = extractor.rom[start:start + length]
+                if len(result) != length:
+                    raise UnsupportedPath('truncated gunner route table')
+                return result
+            tables = [data(a, 8) for a in ((0x06FE43, 0x06FE4B) if inner else (0x06FE37, 0x06FE35))]
+            coordinates = [tuple(int.from_bytes(table[i:i+2], 'little', signed=True) for i in range(0, 8, 2)) for table in tables]
+            connections = data(0x06FD35, 8)
+            headings = data(0x06FD3D, 8)
+            entries_heading = data(0x06FE3F, 4) if inner else (None,) * 4
+            if any(destination >= 4 for destination in connections):
+                raise UnsupportedPath('gunner connection exceeds proven four-waypoint domain')
+            routes = tuple((coordinates[0][index // 2], coordinates[1][index // 2],
+                            coordinates[0][destination], coordinates[1][destination],
+                            destination, headings[index], entries_heading[index // 2])
+                           for index, destination in enumerate(connections))
+            consumed.update(part.address for part in block[1:])
+            units.append(RandomGunnerRoute(tuple(block), routes))
+            continue
         if command.address == PathAddress(0x2F8E):
             block = []
             address = command.address
@@ -769,6 +828,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
 
     statements = []
     for command in commands:
+        if isinstance(command, RandomGunnerRoute):
+            routes = ', '.join(
+                f'super::path_scene_state::GunnerRoute {{ origin: ({x}, {z}), destination: ({dx}, {dz}), destination_index: {destination}, heading: {heading}, entry_heading: {"None" if entry is None else f"Some({entry})"} }}'
+                for x, z, dx, dz, destination, heading, entry in command.routes)
+            statements.append(f'Statement::ChooseGunnerRoute {{ routes: &[{routes}], next: {cursor(command.next)} }}')
+            continue
         if isinstance(command, RandomPatrolDestination):
             offsets = ', '.join(f'({x}, {z})' for x, z in command.offsets)
             statements.append(f'Statement::ChoosePatrolDestination {{ offsets: &[{offsets}], next: {cursor(command.next)} }}')
@@ -1424,6 +1489,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unported shared word {0xD75C + index:04X} at {command.address.label()}")
         elif name == "StoreExternalWord":
             low, high, value_low, value_high = parameters(4)
+            if (low | high << 8) == 0xD777:
+                label_pointer = value_low | value_high << 8
+                if label_pointer != 0x8999:
+                    raise UnsupportedPath(f'unreviewed health display label at {command.address.label()}')
+                start = source_offset(0x030000 | label_pointer)
+                label = extractor.rom[start:start + 12]
+                if label != b'KICK GUNNER\0':
+                    raise UnsupportedPath('unexpected kick gunner display label')
+                statement = f'Statement::SetHealthDisplayLabel {{ label: "{label[:-1].decode("ascii")}", next: {next_cursor()} }}'
+                statements.append(statement)
+                continue
             if command.address not in (PathAddress(0xB053), PathAddress(0xB061)) or (low | high << 8) != 0xD767:
                 raise UnsupportedPath(f"unreviewed external word store at {command.address.label()}")
             height = int.from_bytes(bytes((value_low, value_high)), "little", signed=True)
@@ -1431,6 +1507,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "InitializePlayerAuxWord":
             amount = int.from_bytes(parameters(2), "little", signed=True)
             statement = f"Statement::InitializePrimaryPitchRecoil {{ amount: {amount}, next: {next_cursor()} }}"
+        elif name == "UpdatePilotAuxState":
+            parameters(0)
+            statement = f"Statement::RequestPrimaryEncounterFeedback {{ next: {next_cursor()} }}"
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
@@ -1518,6 +1597,19 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 else:
                     operation = "Increment" if name == "IncrementExternalByte" else "Decrement"
                 statement = f"Statement::Coordination {{ field: super::path_scene_state::CoordinationField::{field}, command: super::path_scene_state::CoordinationCommand::{operation}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address in (0xD773, 0xD775):
+                field = 'Current' if address == 0xD773 else 'Maximum'
+                if name.startswith('Import'):
+                    operation = f'CopyTo({byte_field(variable)})'
+                elif name.startswith('Export'):
+                    operation = f'Assign(ByteOperand::Actor({byte_field(variable)}))'
+                elif name == 'StoreExternalByte':
+                    operation = f'Assign(ByteOperand::Literal({value}))'
+                else:
+                    operation = 'Increment' if name == 'IncrementExternalByte' else 'Decrement'
+                statement = f'Statement::HealthDisplay {{ field: super::path_scene_state::HealthDisplayField::{field}, command: super::path_scene_state::CoordinationCommand::{operation}, next: {next_cursor()} }}'
                 statements.append(statement)
                 continue
             if address == 0xD78C and name in ("ImportByteIndexed", "ExportByteIndexed"):

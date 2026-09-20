@@ -3209,3 +3209,44 @@ static inventory checks, exact regeneration, and app build pass (existing
 unused icon-function warnings only). This is catalog coverage, not whole-game
 completion or shipping scheduler/spawn integration. No original-code execution
 or recorded gameplay was used.
+
+## Kick Gunner arena paths and shared health display (2026-09-20)
+
+Complete roots `$44:32EF/348B` now include both arena route selectors, all
+jump/firing cycles, health/contact callbacks and shared death sequence. The
+addition contains **284 source commands and 263 typed statements**, bringing
+the catalog to **130 complete roots, 3325 source commands and 3281 statements**.
+
+Two closed route-preparation blocks are lowered only after checking every
+opcode, operand, handler, successor and possible interior entry. Their first
+random draw selects one of four origins; the second selects one of its two
+connections. Only reachable words are decoded. Native routes preserve both
+world coordinates, destination coordinates, yaw, relative yaw, both phase
+bytes and the inner arena's entry heading. Other actor fields remain intact.
+Source mutations of masks, operands, interior entries, or out-of-domain
+connections are rejected; changed reachable coordinate/heading data propagates.
+
+The shared health record retains complete current/maximum bytes until the
+separate UI publication stage. `$D777` selects the bank-three text `KICK GUNNER`;
+it is not a callback address. Initialization and contact updates keep signed
+halving, wrapping subtraction, the one-point special case and actor-health
+restoration. The primary-player feedback leaf `$07:B64B` now reuses the existing
+hit-feedback owner: target mode must equal the full word eight and player state
+must be nonzero, then duration becomes four and flags retain their old bits
+while including mask `24`. Path-selected player context does not redirect it.
+
+Nine new native tests cover all health values, all target-mode words, every
+feedback flag/state byte, all eight routes and missing-dependency atomicity.
+The outer arena's complete 312-visit cycle checks every position, speed, radar
+marker and spawn, including five jumping shots and the next route draw. Both
+inner attack branches check their 132/236-visit cycles, initial arc, native
+weapon or five child launches, dust placement and exact random consumption.
+Death tests retain fifteen flicker draws, two fade effects, feedback gates,
+primary control, score saturation, progression wrapping and deferred death.
+
+Debug and release suites each pass **911 unit tests and two integration tests**;
+**178 lowerer tests and 382 path-static tests**, architecture/static inventory,
+exact regeneration and app build pass (pre-existing unused icon warnings only).
+This remains source-level catalog coverage, not whole-game completion or
+shipping scheduler/spawn integration. No recorded gameplay or execution of
+original CPU/GSU programs was used.

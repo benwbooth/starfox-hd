@@ -47,6 +47,51 @@ pub enum CoordinationCommand {
     Decrement,
 }
 
+/// Script-owned boss bar values, before the separate UI publication clamp.
+/// Source D777 is a bank-three text reference, NOT a scheduled callback.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EncounterHealthDisplay {
+    pub current: u8,
+    pub maximum: u8,
+    pub label: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthDisplayField {
+    Current,
+    Maximum,
+}
+
+impl EncounterHealthDisplay {
+    pub fn apply(
+        &mut self,
+        actor: &mut Object,
+        field: HealthDisplayField,
+        command: CoordinationCommand,
+    ) {
+        let value = match field {
+            HealthDisplayField::Current => &mut self.current,
+            HealthDisplayField::Maximum => &mut self.maximum,
+        };
+        match command {
+            CoordinationCommand::CopyTo(destination) => destination.write(actor, *value),
+            CoordinationCommand::Assign(source) => *value = source.read(actor),
+            CoordinationCommand::Increment => *value = value.wrapping_add(1),
+            CoordinationCommand::Decrement => *value = value.wrapping_sub(1),
+        }
+    }
+}
+
+/// One decoded connection between the four authored Gunner waypoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GunnerRoute {
+    pub origin: (i16, i16),
+    pub destination: (i16, i16),
+    pub destination_index: u8,
+    pub heading: u8,
+    pub entry_heading: Option<u8>,
+}
+
 impl EncounterCoordination {
     pub fn apply(
         &mut self,

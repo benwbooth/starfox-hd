@@ -106,10 +106,16 @@ mod rectangular_patrol_tests;
 #[path = "path_popup_turret_tests.rs"]
 mod popup_turret_tests;
 
+#[cfg(test)]
+#[path = "path_gunner_tests.rs"]
+mod gunner_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
+    pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
+    pub primary_feedback: Option<super::player_hit_control::PrimaryFeedback<'a>>,
     pub coordination: Option<&'a mut super::path_scene_state::EncounterCoordination>,
     pub path_latches: Option<&'a mut super::path_scene_state::PathLatches>,
     pub sound_bank_request: Option<&'a mut super::path_scene_state::SoundBankRequest>,
@@ -522,6 +528,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    ChooseGunnerRoute { routes: &'static [super::path_scene_state::GunnerRoute; 8], next: PathCursor },
+    HealthDisplay { field: super::path_scene_state::HealthDisplayField, command: super::path_scene_state::CoordinationCommand, next: PathCursor },
+    SetHealthDisplayLabel { label: &'static str, next: PathCursor },
+    RequestPrimaryEncounterFeedback { next: PathCursor },
     /// One complete source destination-selection block with eight choices.
     ChoosePatrolDestination {
         offsets: &'static [(i16, i16); 8],
@@ -899,6 +909,8 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingHealthDisplay,
+    MissingPrimaryFeedback,
     Death(super::path_death::DeathError),
     MissingEncounterSignals,
     ActorContext(ActorContextError),
@@ -1063,6 +1075,49 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::ChooseGunnerRoute { routes, next } => {
+                    let origin = usize::from(world.random.next_byte() & 3);
+                    let branch = usize::from(world.random.next_byte() & 1);
+                    let index = origin * 2 + branch;
+                    let route = routes[index];
+                    let actor = objects.get_mut(owner).expect("validated gunner owner");
+                    actor.base.position.x = route.origin.0;
+                    actor.base.position.z = route.origin.1;
+                    actor.extension.relative_position.x = route.destination.0;
+                    actor.extension.relative_position.z = route.destination.1;
+                    actor.base.yaw = super::Angle::from_units(route.heading);
+                    actor.extension.relative_rotation.yaw = actor.base.yaw;
+                    if let Some(heading) = route.entry_heading {
+                        actor.extension.relative_rotation.pitch = super::Angle::from_units(heading);
+                    }
+                    actor.extension.path_state.motion_phase = u16::from(index as u8)
+                        | (u16::from(route.destination_index) << 8);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::HealthDisplay { field, command, next } => {
+                    let display = world.health_display.as_deref_mut().ok_or(ProgramError::MissingHealthDisplay)?;
+                    let actor = objects.get_mut(owner).expect("validated display publisher");
+                    display.apply(actor, field, command);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SetHealthDisplayLabel { label, next } => {
+                    world.health_display.as_deref_mut().ok_or(ProgramError::MissingHealthDisplay)?.label = Some(label);
+                    objects.get_mut(owner).expect("validated display label publisher").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::RequestPrimaryEncounterFeedback { next } => {
+                    let primary = world.primary_player.ok_or(ProgramError::MissingPrimaryPlayer)?;
+                    objects.get(primary).ok_or(PathRuntimeError::MissingActor(primary))?;
+                    let mode = world.primary_control.as_ref().ok_or(ProgramError::MissingPrimaryControl)?.target.mode;
+                    if mode == super::player_hit_control::ENCOUNTER_FEEDBACK_TARGET_MODE {
+                        let feedback = world.primary_feedback.as_mut().ok_or(ProgramError::MissingPrimaryFeedback)?;
+                        feedback.hit.request_encounter_feedback(mode, feedback.state);
+                    }
+                    objects.get_mut(owner).expect("validated feedback requester").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ChoosePatrolDestination { offsets, next } => {
                     // The authored block masks one draw to eight choices.
                     // Preserve its low-byte selector, final lookup word and
@@ -2264,6 +2319,8 @@ mod tests {
     pub(super) fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             scene: ScenePathInputs::default(),
+            health_display: None,
+            primary_feedback: None,
             friend_health: None,
             coordination: None,
             path_latches: None,
@@ -9321,6 +9378,8 @@ mod tests {
             };
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                health_display: None,
+                primary_feedback: None,
                 friend_health: None,
                 coordination: None,
                 path_latches: None,
@@ -13403,9 +13462,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 128);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3018);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3041);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 130);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3281);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3325);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13537,6 +13596,8 @@ mod tests {
         for phase in 1..=7 {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                health_display: None,
+                primary_feedback: None,
                 friend_health: None,
                 coordination: None,
                 path_latches: None,
@@ -13681,6 +13742,8 @@ mod tests {
                     owner,
                     &mut PathWorld {
                         scene: ScenePathInputs::default(),
+                        health_display: None,
+                        primary_feedback: None,
                         friend_health: None,
                         coordination: None,
                         path_latches: None,

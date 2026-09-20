@@ -19,6 +19,16 @@ const HEAVY_SOUND_THRESHOLD: u8 = 4;
 const LIGHT_IMPACT_PROFILE: (u8, u8, i16) = (4, 2, 96);
 const HEAVY_IMPACT_PROFILE: (u8, u8, i16) = (10, 8, 128);
 const DEFLECTION_FEEDBACK_DURATION: u8 = 1;
+pub const ENCOUNTER_FEEDBACK_TARGET_MODE: u16 = 8;
+const ENCOUNTER_FEEDBACK_DURATION: u8 = 4;
+const ENCOUNTER_FEEDBACK_MASK: u8 = 0x24;
+
+/// Fresh PRIMARY player state (6C00) and its live hit-feedback owner.
+/// Neither follows path-selected player context.
+pub struct PrimaryFeedback<'a> {
+    pub state: u8,
+    pub hit: &'a mut PlayerHitControl,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Impact {
@@ -73,6 +83,15 @@ impl ShieldRecoveryRequest {
 }
 
 impl PlayerHitControl {
+    /// Complete $07:B64B..B67C leaf. No changes outside target mode eight
+    /// or while the primary player's state is zero. Other flags survive.
+    pub fn request_encounter_feedback(&mut self, target_mode: u16, player_state: u8) {
+        if target_mode == ENCOUNTER_FEEDBACK_TARGET_MODE && player_state != 0 {
+            self.feedback_duration = ENCOUNTER_FEEDBACK_DURATION;
+            self.feedback_flags |= ENCOUNTER_FEEDBACK_MASK;
+        }
+    }
+
     /// Collision-disable follows recovery only. Contact suppression also
     /// follows pause and secondary protection. The clock controls marking,
     /// NOT whether recovery decrements; unmarked phases do not clear a mark.
