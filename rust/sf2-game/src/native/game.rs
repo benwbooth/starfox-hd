@@ -20183,6 +20183,7 @@ impl Game {
                     explosion_frame: object.base.explosion_timer,
                 },
                 depth_offset: object.extension.depth_offset as u8,
+                clipping_plane: object.extension.clipping_plane,
                 texture_scroll_x: object.extension.texture_scroll_x,
                 texture_scroll_y: object.extension.texture_scroll_y,
                 flags: RenderFlags {
@@ -24019,6 +24020,37 @@ mod tests {
             game.build_render_objects().unwrap();
             let mut expected_render = baseline;
             expected_render.material_set = material;
+            assert_eq!(*rendered_object(&game, owner), expected_render);
+            assert_eq!(game.state.objects.get(owner).unwrap(), &expected_actor);
+        }
+    }
+
+    #[test]
+    fn native_clipping_selection_reaches_render_boundary_as_a_full_byte() {
+        use super::super::path_appearance::AppearanceCommand;
+        use super::super::render::ClippingPlaneSelection;
+        assert_eq!(ClippingPlaneSelection::default(), ClippingPlaneSelection::DISABLED);
+        assert_eq!(ClippingPlaneSelection::FIRST.selector_byte(), 1);
+        assert_eq!(ClippingPlaneSelection::SECOND.selector_byte(), 2);
+        let mut game = Game::new();
+        let mut actor = Object::new(ObjectKind::Effect, ShapeId::TITLE_FORMATION_EFFECT, Behavior::FollowPath);
+        actor.base.position = Vector3 { x: -123, y: 456, z: 789 };
+        actor.extension.animation_frame = 71;
+        actor.extension.color_frame = 39;
+        let owner = game.state.objects.allocate(actor).unwrap();
+        game.build_render_objects().unwrap();
+        let baseline = *rendered_object(&game, owner);
+        for byte in 0..=u8::MAX {
+            let plane = ClippingPlaneSelection::from_selector_byte(byte);
+            assert_eq!(plane.selector_byte(), byte);
+            let actor = game.state.objects.get_mut(owner).unwrap();
+            let mut expected_actor = actor.clone();
+            expected_actor.extension.clipping_plane = plane;
+            AppearanceCommand::ClippingPlane(plane).apply(actor);
+            assert_eq!(actor, &expected_actor);
+            game.build_render_objects().unwrap();
+            let mut expected_render = baseline;
+            expected_render.clipping_plane = plane;
             assert_eq!(*rendered_object(&game, owner), expected_render);
             assert_eq!(game.state.objects.get(owner).unwrap(), &expected_actor);
         }

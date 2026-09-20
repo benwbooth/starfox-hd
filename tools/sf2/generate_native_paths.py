@@ -367,6 +367,7 @@ def byte_field(variable: int) -> str:
         0x96: "ByteField::RelativeRotation(Axis::Z)",
         0x99: "ByteField::TextureScrollX",
         0xA9: "ByteField::Part",
+        0xAE: "ByteField::ClippingPlane",
     }
     if variable in fields:
         return fields[variable]
@@ -1147,6 +1148,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "DisableCollision":
             parameters(0)
             statement = f"Statement::DisableCollision {{ next: {next_cursor()} }}"
+        elif name == "SetObject1cef":
+            parameters(0)
+            statement = f"Statement::Appearance {{ command: AppearanceCommand::ClippingPlane(super::render::ClippingPlaneSelection::FIRST), next: {next_cursor()} }}"
         elif name in ("InvisibleOn", "InvisibleOff", "ClearFlag21Bit01", "SetFlag20Bit08", "ClearFlag20Bit08", "SetFlag26Bit10", "ClearFlag26Bit10", "SetFlag09Bit01", "ClearFlag09Bit01", "SetFlag26Bit20", "ClearFlag26Bit20"):
             parameters(0)
             operation, enabled = {

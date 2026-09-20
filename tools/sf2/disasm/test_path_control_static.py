@@ -111,6 +111,21 @@ class PathControlStaticTests(unittest.TestCase):
             "8B 08 E2 20 A9 7E 48 AB C2 30 9C 86 D7 9C 88 D7 9C 8A D7 9C 8C D7 9C 8E D7")
         self.assert_source(0x08FBBA, "80 A3 32")
 
+    def test_clipping_plane_setter_draw_publication_and_non_boolean_producers(self):
+        self.assertEqual(PATH_SEMANTIC_BY_OPCODE[0xC9].rust_name, "SetObject1cef")
+        self.assert_source(0x7FB4D7, "A9 01 9D EF 1C 4C E8 CA")
+        self.assert_source(0x7FB511, "A9 00 9D EF 1C 4C E8 CA")
+        self.assert_source(0x7F141E, "B9 EF 1C 9D 1E 00")
+        # Independent producer assigns two, and its other arm clears. This
+        # selection is not a collision/visibility flag or a boolean toggle.
+        self.assert_source(0x07C096, "A9 02 9D EF 1C 80 0B A9 00 9D EF 1C")
+        self.assert_source(0x08C53C,
+            "C9 79 27 B5 1B 8A 2A 27 05 4D 45 0B 00 AE 41 1B 8A")
+        # The operand resolver adds 1C41 only for extension encodings, so
+        # AE aliases exactly the same 1CEF byte used by the fixed command.
+        self.assert_source(0x7FCB47,
+            "08 C2 20 8E B1 16 29 FF 00 89 80 00 F0 04 18 69 41 1C 18 6D B1 16 A8 28 60")
+
     def test_motion_fade_sprite_setup_and_independent_installers(self):
         # The full shared jitter/fade and saved-byte callback are pinned by
         # their own tests. These three entry prefixes join that exact tail.

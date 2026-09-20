@@ -1028,6 +1028,7 @@ pub struct ObjectExtension {
     pub color_frame: u8,
     pub animation_frame: u8,
     pub material_set: Option<MaterialSetId>,
+    pub clipping_plane: super::render::ClippingPlaneSelection,
     pub relative_position: Vector3,
     pub relative_rotation: super::render::Rotation,
     pub parent: Option<ObjectId>,

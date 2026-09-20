@@ -5228,6 +5228,77 @@ mod tests {
     }
 
     #[test]
+    fn clipping_plane_selection_is_immediate_and_preserves_all_other_actor_state() {
+        use super::super::path_appearance::AppearanceCommand;
+        use super::super::render::ClippingPlaneSelection;
+        let catalog = PathCatalog::new(vec![vec![Statement::Appearance {
+            command: AppearanceCommand::ClippingPlane(ClippingPlaneSelection::FIRST),
+            next: cursor(0, 1),
+        }]]).unwrap();
+        for previous in 0..=u8::MAX {
+            for inverted in [false, true] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                runtime.branch.invert_next = inverted;
+                let original_random = random;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.extension.clipping_plane = ClippingPlaneSelection::from_selector_byte(previous);
+                actor.extension.depth_offset = 0xABCD;
+                actor.base.flags.visible = previous & 1 != 0;
+                actor.base.flags.collision_disabled = previous & 2 != 0;
+                actor.base.flags.maximum_draw_distance = previous & 4 != 0;
+                actor.base.wait_timer = previous;
+                actor.base.hit_flags = previous;
+                actor.extension.path_state.conditions.hit_event_pending = true;
+                let original = objects.clone();
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 0),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
+                assert_eq!(objects, original);
+                let mut expected = objects.get(owner).unwrap().clone();
+                expected.extension.clipping_plane = ClippingPlaneSelection::FIRST;
+                expected.base.path = Some(cursor(0, 1));
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                    Err(ProgramError::BudgetExceeded { cursor: cursor(0, 1), executed: 1 }));
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert_eq!(runtime.branch.invert_next, inverted);
+                assert_eq!(random, original_random);
+            }
+        }
+    }
+
+    #[test]
+    fn clipping_operand_and_fixed_command_alias_one_full_byte() {
+        use super::super::path_appearance::AppearanceCommand;
+        use super::super::render::ClippingPlaneSelection;
+        for value in 0..=u8::MAX {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            let original_random = random;
+            let catalog = PathCatalog::new(vec![vec![
+                Statement::Mutate { mutation: Mutation::Byte {
+                    field: ByteField::ClippingPlane,
+                    operation: ByteOperation::Assign(ByteOperand::Literal(value)),
+                }, next: cursor(0, 1) },
+                Statement::Appearance {
+                    command: AppearanceCommand::ClippingPlane(ClippingPlaneSelection::FIRST),
+                    next: cursor(0, 2),
+                },
+            ]]).unwrap();
+            for (index, expected_byte) in [value, 1].into_iter().enumerate() {
+                let mut expected = objects.get(owner).unwrap().clone();
+                expected.extension.clipping_plane = ClippingPlaneSelection::from_selector_byte(expected_byte);
+                let next = cursor(0, index as u16 + 1);
+                expected.base.path = Some(next);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                    Err(ProgramError::BudgetExceeded { cursor: next, executed: 1 }));
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert_eq!(ByteField::ClippingPlane.read(objects.get(owner).unwrap()), expected_byte);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, original_random);
+            }
+        }
+    }
+
+    #[test]
     fn scenery_transfers_preserve_full_bytes_and_fault_before_mutation() {
         use super::super::path_fields::BytePart;
         let field = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };

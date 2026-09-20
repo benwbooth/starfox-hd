@@ -1408,6 +1408,20 @@ class NativePathGenerationTests(unittest.TestCase):
             generated = generate(bytes(changed), (("FAR_SORT", PathAddress(0xF536)),))
             self.assertIn("use super::path_appearance::AppearanceCommand;", generated)
 
+    def test_scene_clipping_command_selects_first_plane_without_a_boolean_alias(self):
+        self.assertEqual(self.lower_record("c9")[0],
+            "Statement::Appearance { command: AppearanceCommand::ClippingPlane(super::render::ClippingPlaneSelection::FIRST), next: cursor(0, 1) }")
+        changed = bytearray(self.rom)
+        changed[0x4F536:0x4F538] = bytes.fromhex("c9 0f")
+        generated = generate(bytes(changed), (("CLIPPED", PathAddress(0xF536)),))
+        self.assertIn("use super::path_appearance::AppearanceCommand;", generated)
+        self.assertEqual(byte_field(0xAE), "ByteField::ClippingPlane")
+        for value in range(256):
+            self.assertIn(f"field: ByteField::ClippingPlane, operation: ByteOperation::Assign(ByteOperand::Literal({value}))",
+                          self.lower_record(f"0b {value:02x} ae")[0])
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand AE"):
+            word_field(0xAE)
+
     def test_literal_material_override_only_accepts_reviewed_table_roots(self):
         for token in (0x8404, 0x8498):
             low, high = token.to_bytes(2, "little")

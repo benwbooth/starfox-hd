@@ -20,6 +20,7 @@ pub enum AppearanceCommand {
     /// Replace the material catalog selection without changing the shape or
     /// either animation channel. Source field `$1CCD`, draw record `$16`.
     MaterialSet(super::render::MaterialSetId),
+    ClippingPlane(super::render::ClippingPlaneSelection),
     Visibility(bool),
     Collision(bool),
     Shadow(bool),
@@ -35,6 +36,7 @@ impl AppearanceCommand {
         match self {
             Self::Shape(shape) => actor.base.shape = shape,
             Self::MaterialSet(material) => actor.extension.material_set = Some(material),
+            Self::ClippingPlane(plane) => actor.extension.clipping_plane = plane,
             Self::Visibility(visible) => {
                 actor.base.flags.visible = visible;
                 actor.base.flags.collision_disabled = !visible;
@@ -250,6 +252,7 @@ mod tests {
                 ] {
                     let mut expected = original.clone();
                     match command {
+                        AppearanceCommand::ClippingPlane(plane) => expected.extension.clipping_plane = plane,
                         AppearanceCommand::RadarMarker(marker) => {
                             expected.extension.radar_marker = marker
                         }

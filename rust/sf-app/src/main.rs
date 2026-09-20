@@ -1444,6 +1444,7 @@ mod tests {
             sort_depth: 0,
             animation: sf2_game::AnimationState::default(),
             depth_offset: 5,
+            clipping_plane: Default::default(),
             texture_scroll_x: 200,
             texture_scroll_y: 47,
             flags: sf2_game::RenderFlags {

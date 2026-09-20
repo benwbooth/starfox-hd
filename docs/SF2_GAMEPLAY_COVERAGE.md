@@ -2032,3 +2032,26 @@ path tests in debug/release, plus generated freshness, architecture/static
 audits and the application build. Coverage remains **60 roots / 1,028
 source commands / 1,019 native statements**; the larger pickup graphs still
 require other presentation and reward services before publication.
+
+### Scene clipping selection and its authored byte alias
+
+The fixed command at `$7F:B4D7` now selects the first scene clipping plane.
+Its ordinary byte operand aliases the same typed `ClippingPlaneSelection`,
+including the clear in the pickup graph at `44:4547`. This is a complete
+byte, not a visibility or collision boolean: an independent source producer
+selects plane two. Static tests pin both producers, the clear handler, the
+operand resolver, the pickup command sequence, and the source draw-list copy.
+
+Native tests cover every retained/assigned byte, both IFNOT states,
+zero-budget ordering, immediate cursor advancement, operand/command aliasing,
+and preservation of all unrelated actor state. A separate game-level test
+checks exact full-byte publication into `RenderObject` without changing the
+actor or other render fields. This is a native render-record boundary only:
+the application's shared draw-list adapter does not yet consume the selector,
+so scene clipping on screen is not established by these tests.
+
+Validation passes 131 lowerer tests, 294 static path tests, 320 native path
+tests and the clipping-publication test in debug/release, generated freshness,
+architecture/static audits and the app build. Complete-root coverage remains
+**60 roots / 1,028 source commands / 1,019 native statements**. No gameplay
+recordings or source-machine execution were used.

@@ -101,6 +101,7 @@ pub enum BytePart {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ByteField {
     ChildNumber,
+    ClippingPlane,
     /// Packed path control, not the renderer's resolved frame snapshot.
     Animation(AnimationChannel),
     /// Source texture-X channel, also used as scaled-sprite size.
@@ -127,6 +128,7 @@ impl ByteField {
     pub fn read(self, actor: &Object) -> u8 {
         match self {
             Self::ChildNumber => actor.base.child_number,
+            Self::ClippingPlane => actor.extension.clipping_plane.selector_byte(),
             Self::Animation(channel) => match channel {
                 AnimationChannel::Shape => actor.extension.path_state.animation.shape,
                 AnimationChannel::Color => actor.extension.path_state.animation.color,
@@ -168,6 +170,8 @@ impl ByteField {
     pub fn write(self, actor: &mut Object, value: u8) {
         match self {
             Self::ChildNumber => actor.base.child_number = value,
+            Self::ClippingPlane => actor.extension.clipping_plane =
+                super::render::ClippingPlaneSelection::from_selector_byte(value),
             Self::Animation(channel) => {
                 let control = AnimationControl::from_packed(value);
                 match channel {
@@ -837,6 +841,7 @@ mod tests {
         let mut actor = actor();
         let fields = [
             ByteField::ChildNumber,
+            ByteField::ClippingPlane,
             ByteField::Rotation(Axis::X),
             ByteField::Rotation(Axis::Y),
             ByteField::Rotation(Axis::Z),
