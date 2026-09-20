@@ -2370,3 +2370,32 @@ warning. These new statements have not yet added authored roots; coverage
 remains 86 complete roots / 1,381 source commands / 1,372 statements. This
 establishes the typed dispatch contract, not the remaining Game scheduler
 or whole-game completeness.
+
+### Complete actor-context effect graphs
+
+Seven independently installed child graphs now use the context-aware
+dispatcher: the held periodic part/motion emitter, the timed ground-jitter
+emitter, the repeating pulse emitter, three pulse-pair entry points (including
+published-player-position chasing), and the linked-shape reveal attachment.
+Their exact parent installers and all newly reachable command bytes are
+pinned alongside the complete previously reviewed shared callees. The catalog
+now contains 93 roots, 1,442 unique source commands and 1,433 typed statements;
+shared tails retain one identity rather than being duplicated per entry.
+
+Native lifecycle tests exercise periodic callback selection over a complete
+byte clock, wraparound WAIT values, deferred initialization and full retirement
+of spawned effects, pulse color/motion loops, all seventeen reveal yields
+before changing only the linked actor's shape/clipping selector, and exact
+restoration of that actor's optional path. The player-position entry performs
+all health-count chase iterations before spawning, including 65,536 immediate
+iterations for zero health, without inventing a movement boundary. Repeating
+emitters retain the extra yielding GOTO between spawns. Full-pool tests pin
+the source's retained-last-spawn behavior: a failed independent spawn may
+still modify the previous actor; absent prior selection produces a diagnosed
+fault rather than a substitute actor or silently skipped mutation.
+
+The additions remain static source ports and native-service tests, not
+recorded-gameplay validation or production Game scheduler integration.
+Validation passes 375 native path tests in debug/release, 145 lowering tests,
+311 source-static path checks, generated freshness, architecture and static
+gameplay audits, and the app build (the existing app-icon warning remains).

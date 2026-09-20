@@ -11,7 +11,7 @@ use super::super::{
 use super::tests::{setup, world};
 use super::*;
 
-fn audio(events: &mut AudioState) -> PathAudio<'_> {
+pub(super) fn audio(events: &mut AudioState) -> PathAudio<'_> {
     PathAudio {
         events,
         listeners: [CueListener::PrimaryPlayer; 2],
@@ -26,7 +26,7 @@ fn audio(events: &mut AudioState) -> PathAudio<'_> {
     }
 }
 
-fn cues(inputs: &mut PathWorld<'_>) -> Vec<u8> {
+pub(super) fn cues(inputs: &mut PathWorld<'_>) -> Vec<u8> {
     inputs
         .audio
         .as_mut()
@@ -42,7 +42,7 @@ fn cues(inputs: &mut PathWorld<'_>) -> Vec<u8> {
         .collect()
 }
 
-fn callbacks(
+pub(super) fn callbacks(
     runtime: &mut PathRuntime,
     catalog: &PathCatalog,
     objects: &mut ObjectStore,

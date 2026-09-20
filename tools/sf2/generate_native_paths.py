@@ -110,6 +110,13 @@ ROOTS = (
     ("ALTERNATING_DRIFT_SPRITE", PathAddress(0x830D)),
     ("HIT_RELEASED_ROTATING_ATTACHMENT", PathAddress(0x5EC4)),
     ("HEIGHT_SELECTED_ARC_EFFECT", PathAddress(0xB07C)),
+    ("PERIODIC_PART_MOTION_EMITTER", PathAddress(0x2271)),
+    ("TIMED_GROUND_JITTER_EMITTER", PathAddress(0x55D1)),
+    ("REPEATING_PULSE_EMITTER", PathAddress(0x8294)),
+    ("LOW_HEALTH_PULSE_PAIR", PathAddress(0x82B6)),
+    ("PLAYER_POSITION_PULSE_PAIR", PathAddress(0x82C3)),
+    ("PULSE_PAIR", PathAddress(0x82D9)),
+    ("LINKED_SHAPE_REVEAL_ATTACHMENT", PathAddress(0x9A4B)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -171,6 +178,13 @@ CHILD_INSTALLERS = {
     PathAddress(0x830D): (PathAddress(0x546C), PathAddress(0x5604)),
     PathAddress(0x5EC4): (PathAddress(0x5E1D), PathAddress(0x5E3C)),
     PathAddress(0xB07C): (PathAddress(0xB05E), PathAddress(0xB066)),
+    PathAddress(0x2271): (PathAddress(0x2102), PathAddress(0x21DA)),
+    PathAddress(0x55D1): (PathAddress(0x546C), PathAddress(0x556D)),
+    PathAddress(0x8294): (PathAddress(0x66EA), PathAddress(0x6962)),
+    PathAddress(0x82B6): (PathAddress(0x00BC), PathAddress(0x03F3)),
+    PathAddress(0x82C3): (PathAddress(0x2BE9), PathAddress(0x2CCF)),
+    PathAddress(0x82D9): (PathAddress(0x2651), PathAddress(0x82A7)),
+    PathAddress(0x9A4B): (PathAddress(0x9492), PathAddress(0x96DB)),
 }
 
 

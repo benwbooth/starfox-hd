@@ -164,6 +164,38 @@ class NativePathGenerationTests(unittest.TestCase):
         statements = self.lower_record("20 36 f5")
         self.assertEqual(statements[0], "Statement::AttachmentAbsent { taken: cursor(0, 0), next: cursor(0, 1) }")
 
+    def test_context_children_keep_complete_shared_graphs_and_exact_installers(self):
+        extractor = PathExtractor(self.rom)
+        cases = [
+            (0x2271, 0x2102, 0x21DA, "f59cbc712264000000a0fb000001", 60, [0x83F9], "484ac28602195d08bef98364649cc407a9069b42"),
+            (0x55D1, 0x546C, 0x556D, "f59cbcd1550a0a000090ff00000a", 40, [0x8285], "484a14870203220f5d7cbd858264009c6c0ec49b42"),
+            (0x8294, 0x66EA, 0x6962, "f59cbc94820a0a00000000800203", 30, [0x82E3], "c4485d7cbde38264009cc49b030f169682"),
+            (0x82B6, 0x00BC, 0x03F3, "5d7cbdb6826400", 77, [0x83F4, 0x82E3], "5d08bef483010a9cc49b17e382"),
+            (0x82C3, 0x2BE9, 0x2CCF, "5d7cbdc3820200", 85, [0x83F4, 0x82E3], "c47b8e907b90927b9294622d870c8e870e90871092455d08bef483640a9cc49b"),
+            (0x82D9, 0x2651, 0x82A7, "5d7cbdd9826400", 76, [0x83F4, 0x82E3], "5d08bef483640a9cc49b"),
+            (0x9A4B, 0x9492, 0x96DB, "f5dcc14b9a0a0a0000000000000a", 16, [], "00295c0bc8940c90019200079b61107792ed44787792f6789a0c2cdf040b00ae9b19"),
+        ]
+        for root, parent, installer, spawn_bytes, count, shared_roots, new_bytes in cases:
+            with self.subTest(root=f"{root:04X}"):
+                commands = graph(extractor, PathAddress(root))
+                shared = {c.address: c for shared_root in shared_roots for c in graph(extractor, PathAddress(shared_root))}
+                actual = {c.address: c for c in commands}
+                self.assertTrue(shared.keys() <= actual.keys())
+                for address, command in shared.items():
+                    self.assertEqual(actual[address], command)
+                self.assertEqual(''.join(c.raw_hex for c in commands if c.address not in shared), new_bytes)
+                self.assertEqual(len(commands), count)
+                self.assertEqual(len(lower_graph(extractor, PathAddress(root), 0)[1]), count)
+                command = extractor.decode_command(PathAddress(installer))
+                self.assertIn(command, graph(extractor, PathAddress(parent)))
+                self.assertEqual(command.raw_hex, spawn_bytes)
+                spawn = independent_spawn_parameters(command) if command.opcode == 0x5D else child_spawn_parameters(command)
+                self.assertEqual(spawn.path.offset, root)
+                changed = bytearray(self.rom)
+                changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+                with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                    generate(bytes(changed), (("CONTEXT_CHILD", PathAddress(root)),))
+
     def test_weapon_level_branch_uses_literal_byte_not_an_actor_field_or_inverted_compare(self):
         for level in range(256):
             self.assertEqual(self.lower_record(f"00 47 {level:02x} 36 f5")[0],
