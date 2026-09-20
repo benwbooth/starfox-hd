@@ -52,6 +52,15 @@ class PathMovementStaticTests(unittest.TestCase):
         self.assert_source(0x7F8514, "B5 21 09 10 95 21 4C E8 CA")
         self.assert_source(0x7F9F16, "B5 21 29 08 D0 04 5C 4E 9F 7F")
 
+    def test_motion_mode_toggles_are_immediate_and_quadrupling_is_a_separate_flag(self):
+        self.assert_source(0x7F84D7, "B5 21 29 BF 95 21 4C E8 CA")
+        self.assert_source(0x7F84E0, "B5 21 09 40 95 21 4C E8 CA")
+        self.assert_source(0x7F84F2, "B5 21 29 F7 95 21 4C E8 CA")
+        self.assert_source(0x7F851D, "B5 21 29 EF 95 21 4C E8 CA")
+        self.assert_source(0x7F8526, "B5 26 09 80 95 26 4C E8 CA")
+        self.assert_source(0x7F85AE, "B5 26 29 80 F0 04 5C FC 85 7F 60")
+        self.assert_source(0x7F85FC, "C2 20 16 32 16 32 16 34 16 34 16 36 16 36 E2 20 60")
+
     def test_child_gate_precedes_relative_integration_and_walks_first_child_only(self):
         self.assert_source(0x7F9E73, "B5 22 29 01 F0 04 5C 8B 9E 7F B5 23 29 10 D0 04 5C 8B 9E 7F 22 19 23 7F")
         self.assert_source(0x7F2322, "B4 29 F0 07 BB 22 29 22 7F 80 F5")

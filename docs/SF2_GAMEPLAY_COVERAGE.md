@@ -640,3 +640,14 @@ the shared IFNOT latch. Verification passes 35 lowerer tests, 156 static path
 checks, 147 native path tests in debug/release, architecture/dependency checks
 and the app build. Catalog coverage remains nine roots/97 statements; full
 gameplay integration and unported world services remain open.
+
+The catalog lowerer now connects eight reviewed motion commands (speed,
+displacement-follow and per-step-velocity toggles, banking toggles and velocity
+quadrupling), BREAK, stack-pair discard, and both consuming hit branches to the
+existing native services. Hit masks follow the target word in source data and
+remain literal masks. Signed byte/word halving is newly implemented with
+rounding toward zero; logical byte halving is separate. All 65,536 word values
+and 256 byte values pass source-rule arithmetic checks. The complete checks
+pass 38 lowerer tests, 159 static path checks, 148 native path tests in both
+debug/release, the architecture/dependency audit and the app build. This adds
+handler coverage but no new complete root or Game integration claim.

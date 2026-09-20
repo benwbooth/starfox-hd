@@ -221,6 +221,8 @@ pub enum ByteOperation {
     Increment,
     Decrement,
     Negate,
+    HalfTowardZero,
+    LogicalHalf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +234,7 @@ pub enum WordOperation {
     Increment,
     Decrement,
     Negate,
+    HalfTowardZero,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,6 +260,8 @@ impl Mutation {
                     ByteOperation::Increment => old.wrapping_add(1),
                     ByteOperation::Decrement => old.wrapping_sub(1),
                     ByteOperation::Negate => old.wrapping_neg(),
+                    ByteOperation::HalfTowardZero => ((old as i8) / 2) as u8,
+                    ByteOperation::LogicalHalf => old >> 1,
                 };
                 field.write(actor, value);
             }
@@ -270,6 +275,7 @@ impl Mutation {
                     WordOperation::Increment => old.wrapping_add(1),
                     WordOperation::Decrement => old.wrapping_sub(1),
                     WordOperation::Negate => old.wrapping_neg(),
+                    WordOperation::HalfTowardZero => ((old as i16) / 2) as u16,
                 };
                 field.write(actor, value);
             }
@@ -296,6 +302,43 @@ mod tests {
         }
         masks
     };
+
+    #[test]
+    fn signed_halves_round_toward_zero_and_logical_half_keeps_unsigned_meaning() {
+        let mut actor = actor();
+        for old in 0..=u16::MAX {
+            WordField::MotionPhase.write(&mut actor, old);
+            let mut expected = actor.clone();
+            // Source adds one only to negatives before an arithmetic shift.
+            let adjusted = old.wrapping_add(u16::from(old & 0x8000 != 0));
+            expected.extension.path_state.motion_phase = ((adjusted as i16) >> 1) as u16;
+            Mutation::Word {
+                field: WordField::MotionPhase,
+                operation: WordOperation::HalfTowardZero,
+            }
+            .apply(&mut actor);
+            assert_eq!(actor, expected);
+        }
+        for old in 0..=u8::MAX {
+            for operation in [ByteOperation::HalfTowardZero, ByteOperation::LogicalHalf] {
+                ByteField::Speed.write(&mut actor, old);
+                let mut expected = actor.clone();
+                expected.base.speed = match operation {
+                    ByteOperation::HalfTowardZero => {
+                        let adjusted = old.wrapping_add(u8::from(old & 0x80 != 0));
+                        ((adjusted as i8) >> 1) as u8
+                    }
+                    _ => old >> 1,
+                };
+                Mutation::Byte {
+                    field: ByteField::Speed,
+                    operation,
+                }
+                .apply(&mut actor);
+                assert_eq!(actor, expected);
+            }
+        }
+    }
 
     #[test]
     fn indexed_masks_keep_one_based_byte_wrap_and_sample_before_aliasing_writes() {

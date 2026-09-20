@@ -74,6 +74,11 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7FB5EF, "20 E0 C4 20 47 CB 5A 20 FB B5 7A 60")
         self.assert_source(0x7FB5FB, "20 BC C4 20 47 CB B9 00 00 3A 0A C2 20 29 FF 00 8E B1 16 AA BF CF B5 7F AE B1 16 60")
 
+    def test_signed_halves_increment_negatives_before_sign_preserving_shift(self):
+        self.assert_source(0x7FA5BF, "20 BC C4 20 47 CB B9 00 00 10 01 1A C9 80 6A 99 00 00 4C D3 CA")
+        self.assert_source(0x7FA5D4, "20 BC C4 20 47 CB C2 20 B9 00 00 10 01 1A C9 00 80 6A 99 00 00 4C D3 CA")
+        self.assert_source(0x7FA5EC, "20 BC C4 20 47 CB B9 00 00 4A 99 00 00 4C D3 CA")
+
     def test_variable_bit_handlers_mutate_words_and_test_without_ifnot(self):
         self.assert_source(0x7FB637, "20 EF B5 19 00 00 99 00 00 4C BE CA")
         self.assert_source(0x7FB643, "20 EF B5 49 FF FF 39 00 00 99 00 00 4C BE CA")

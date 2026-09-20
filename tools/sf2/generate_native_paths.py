@@ -381,6 +381,20 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if command.successors:
                 raise UnsupportedPath(f"RETURN has static outgoing edges at {command.address.label()}")
             statement = "Statement::Control(ControlCommand::Return)"
+        elif name == "Break":
+            low, high = parameters(2)
+            target = PathAddress(low | (high << 8))
+            if set(command.successors) != {target}:
+                raise UnsupportedPath(f"unexpected BREAK edges at {command.address.label()}")
+            statement = f"Statement::Control(ControlCommand::Break {{ target: {cursor(target)} }})"
+        elif name == "PopPathStackPair":
+            parameters(0)
+            statement = f"Statement::Control(ControlCommand::PopStackPair {{ next: {next_cursor()} }})"
+        elif name in ("IfHitFlag", "IfFlag23Bit08"):
+            operands = parameters(3 if name == "IfHitFlag" else 2)
+            taken, next_ = branch_cursors(int.from_bytes(operands[:2], "little"))
+            branch = f"HitFlags {{ mask: {operands[2]}," if name == "IfHitFlag" else "HitEvent {"
+            statement = f"Statement::Branch(BranchCommand::{branch} taken: {taken}, next: {next_} }})"
         elif name == "IfNot":
             parameters(0)
             statement = f"Statement::Branch(BranchCommand::InvertNext {{ next: {next_cursor()} }})"
@@ -399,6 +413,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             field = word_field(variable) if wide else byte_field(variable)
             mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation} }}"
             statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
+        elif name in ("DivideByteByTwo", "DivideWordByTwo", "ShiftByteRight"):
+            variable, = parameters(1)
+            wide = name == "DivideWordByTwo"
+            kind = "Word" if wide else "Byte"
+            field = word_field(variable) if wide else byte_field(variable)
+            operation = "LogicalHalf" if name == "ShiftByteRight" else "HalfTowardZero"
+            mutation = f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation} }}"
+            statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
         elif name in ("IfZeroByte", "IfZeroWord", "IfNotZeroByte", "IfNotZeroWord"):
             variable, low, high = parameters(3)
             taken, next_ = branch_cursors(low | (high << 8))
@@ -415,6 +437,25 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "SetObjectBytes0a0b":
             target, amount = parameters(2)
             statement = f"Statement::Motion {{ command: MotionCommand::AccelerateTo {{ target: {target}, amount: {amount} }}, next: {next_cursor()} }}"
+        elif name == "SetVelocity":
+            speed, = parameters(1)
+            statement = f"Statement::Motion {{ command: MotionCommand::SetSpeed({speed}), next: {next_cursor()} }}"
+        elif name in (
+            "FollowPlayerDisplacementOn", "FollowPlayerDisplacementOff",
+            "GenerateVelocityEachStepOn", "GenerateVelocityEachStepOff",
+            "HelicopterOn", "HelicopterOff", "SetFlag26Bit80",
+        ):
+            parameters(0)
+            operation, enabled = {
+                "FollowPlayerDisplacementOn": ("FollowPlayerDisplacement", True),
+                "FollowPlayerDisplacementOff": ("FollowPlayerDisplacement", False),
+                "GenerateVelocityEachStepOn": ("GenerateVelocityEachStep", True),
+                "GenerateVelocityEachStepOff": ("GenerateVelocityEachStep", False),
+                "HelicopterOn": ("BankTurn", True),
+                "HelicopterOff": ("BankTurn", False),
+                "SetFlag26Bit80": ("QuadrupleVelocity", True),
+            }[name]
+            statement = f"Statement::Motion {{ command: MotionCommand::{operation}({str(enabled).lower()}), next: {next_cursor()} }}"
         elif name == "DisableCollision":
             parameters(0)
             statement = f"Statement::DisableCollision {{ next: {next_cursor()} }}"

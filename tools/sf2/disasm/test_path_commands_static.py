@@ -45,6 +45,10 @@ class PathCommandsStaticTests(unittest.TestCase):
     def test_byte_loop_counter_is_distinct_from_wait_and_word_loop_stack(self):
         self.assert_source(0x7F860D, "20 BC C4 D5 15 F0 0E F6 15 C2 20 20 4C C7 95 2B E2 20 4C DE 9D 74 15 4C A9 CA")
 
+    def test_hit_mask_is_last_operand_and_only_success_consumes_matching_bits(self):
+        self.assert_source(0x7F9A79, "20 04 C5 8D B1 16 B5 38 2D B1 16 D0 04 5C A9 CA 7F AD B1 16 49 FF 35 38 95 38 4C F3 CA")
+        self.assert_source(0x7F9507, "B5 23 29 08 D0 04 5C BE CA 7F B5 23 29 F7 95 23 4C F3 CA")
+
 
 if __name__ == "__main__":
     unittest.main()

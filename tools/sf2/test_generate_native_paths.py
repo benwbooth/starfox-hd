@@ -188,6 +188,45 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
             self.lower_record("d8 2d 04")
 
+    def test_motion_flags_and_speed_map_to_distinct_reviewed_services(self):
+        for record, operation in [
+            ("01", "FollowPlayerDisplacement(true)"),
+            ("02", "FollowPlayerDisplacement(false)"),
+            ("04", "GenerateVelocityEachStep(true)"),
+            ("05", "GenerateVelocityEachStep(false)"),
+            ("12", "BankTurn(true)"), ("13", "BankTurn(false)"),
+            ("00 5c", "QuadrupleVelocity(true)"),
+            ("06 ff", "SetSpeed(255)"),
+        ]:
+            statements = self.lower_record(record)
+            self.assertEqual(statements[0], f"Statement::Motion {{ command: MotionCommand::{operation}, next: cursor(0, 1) }}")
+            self.assertEqual(statements[1], "Statement::Control(ControlCommand::End)")
+        # A separate source flag cannot be substituted based on its bit number.
+        for opcode in ["2e", "2f"]:
+            with self.assertRaisesRegex(UnsupportedPath, "unsupported .*Flag22Bit08"):
+                self.lower_record(opcode)
+
+    def test_halves_preserve_width_and_signed_vs_unsigned_operation(self):
+        for record, kind, field, operation in [
+            ("8e 18", "Byte", "ByteField::Speed", "HalfTowardZero"),
+            ("8f a1", "Word", "WordField::MotionPhase", "HalfTowardZero"),
+            ("00 54 18", "Byte", "ByteField::Speed", "LogicalHalf"),
+        ]:
+            statement = self.lower_record(record)[0]
+            self.assertIn(f"Mutation::{kind} {{ field: {field}, operation: {kind}Operation::{operation} }}", statement)
+            self.assertIn("next: cursor(0, 1)", statement)
+
+    def test_break_pair_discard_and_consuming_hit_branches_keep_their_edges(self):
+        self.assertEqual(self.lower_record("46 36 f5")[0],
+            "Statement::Control(ControlCommand::Break { target: cursor(0, 0) })")
+        self.assertEqual(self.lower_record("47")[0],
+            "Statement::Control(ControlCommand::PopStackPair { next: cursor(0, 1) })")
+        for mask in [0, 1, 128, 255]:
+            self.assertEqual(self.lower_record(f"5a 36 f5 {mask:02x}")[0],
+                f"Statement::Branch(BranchCommand::HitFlags {{ mask: {mask}, taken: cursor(0, 0), next: cursor(0, 1) }})")
+        self.assertEqual(self.lower_record("3f 36 f5")[0],
+            "Statement::Branch(BranchCommand::HitEvent { taken: cursor(0, 0), next: cursor(0, 1) })")
+
     def test_full_bit_mask_data_is_decoded_offline_and_only_emitted_when_required(self):
         masks = variable_bit_masks(self.rom)
         self.assertEqual(len(masks), 128)
