@@ -17,6 +17,68 @@ const FIELDS: [CoordinationField; 9] = [
 ];
 
 #[test]
+fn completion_totals_wrap_as_words_and_preserve_other_counts_and_actor_state() {
+    for kind in [CompletionKind::Recorded, CompletionKind::Signaled] {
+        let catalog = PathCatalog::new(vec![vec![Statement::CountCompletion { kind, next: at(1) }]]).unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        runtime.enter(&objects, owner).unwrap();
+        runtime.branch.invert_next = true;
+        let before = objects.clone();
+        let before_runtime = runtime.clone();
+        let before_random = random;
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                   Err(ProgramError::MissingObjectiveCounts));
+        assert_eq!(objects, before);
+        assert_eq!(runtime, before_runtime);
+        for value in 0..=u16::MAX {
+            objects = before.clone();
+            let mut counts = EncounterObjectiveCounts {
+                remaining_word: value.wrapping_add(97),
+                node_record: (value as u8) ^ 0xFF,
+                recorded_completions: value,
+                signaled_completions: value ^ 0xFFFF,
+            };
+            let mut expected = counts;
+            match kind {
+                CompletionKind::Recorded => expected.recorded_completions = value.wrapping_add(1),
+                CompletionKind::Signaled => expected.signaled_completions = (value ^ 0xFFFF).wrapping_add(1),
+            }
+            let mut expected_objects = before.clone();
+            expected_objects.get_mut(owner).unwrap().base.path = Some(at(1));
+            let mut inputs = world(&mut random);
+            inputs.objective_counts = Some(&mut counts);
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                       Err(ProgramError::BudgetExceeded { cursor: at(0), executed: 0 }));
+            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                       Err(ProgramError::BudgetExceeded { cursor: at(1), executed: 1 }));
+            assert_eq!(counts, expected);
+            assert_eq!(objects, expected_objects);
+            assert_eq!(runtime, before_runtime);
+            assert_eq!(random, before_random);
+        }
+    }
+}
+
+#[test]
+fn attack_and_weapon_word_observes_both_live_bytes_without_activating_a_weapon() {
+    let (_, mut objects, owner, _) = setup();
+    let actor = objects.get_mut(owner).unwrap();
+    let before = actor.clone();
+    for bits in 0..=u16::MAX {
+        *actor = before.clone();
+        WordField::AttackAndWeapon.write(actor, bits);
+        let mut expected = before.clone();
+        expected.base.attack_power = bits as u8;
+        expected.extension.path_state.weapon_selection = (bits >> 8) as u8;
+        assert_eq!(actor, &expected);
+        assert_eq!(WordField::AttackAndWeapon.read(actor), bits);
+        ByteField::AttackPower.write(actor, !bits as u8);
+        ByteField::WeaponSelection.write(actor, !(bits >> 8) as u8);
+        assert_eq!(WordField::AttackAndWeapon.read(actor), !bits);
+    }
+}
+
+#[test]
 fn objective_count_byte_commands_preserve_the_complete_word_and_other_count() {
     let mut actor = setup().1.active_objects().next().unwrap().1.clone();
     for original in 0..=u16::MAX {
@@ -31,6 +93,8 @@ fn objective_count_byte_commands_preserve_the_complete_word_and_other_count() {
                 let mut counts = EncounterObjectiveCounts {
                     remaining_word: original,
                     node_record: (original as u8) ^ 0xFF,
+                    recorded_completions: original ^ 0xFFFF,
+                    signaled_completions: original.wrapping_add(7),
                 };
                 let mut expected = counts;
                 actor.base.hit_points = (original >> 8) as u8;
@@ -84,7 +148,7 @@ fn objective_count_statements_require_live_state_and_preserve_budget_and_ifnot()
                     let before = objects.clone();
                     let before_runtime = runtime.clone();
                     let before_random = random;
-                    let mut counts = EncounterObjectiveCounts { remaining_word: 0xA500 | u16::from(value), node_record: value };
+                    let mut counts = EncounterObjectiveCounts { remaining_word: 0xA500 | u16::from(value), node_record: value, ..Default::default() };
                     let mut expected = counts;
                     let mut expected_objects = objects.clone();
                     let expected_actor = expected_objects.get_mut(owner).unwrap();
@@ -126,7 +190,7 @@ fn separate_actors_observe_each_other_objective_updates_without_scene_republicat
         observer.base.path = Some(at(2));
         let other = objects.allocate(observer).unwrap();
         let mut second = PathRuntime::default();
-        let mut counts = EncounterObjectiveCounts { remaining_word: 0x5A00 | u16::from(initial), node_record: initial };
+        let mut counts = EncounterObjectiveCounts { remaining_word: 0x5A00 | u16::from(initial), node_record: initial, ..Default::default() };
         let mut inputs = world(&mut random);
         inputs.objective_counts = Some(&mut counts);
         // Yield between the two mutations. These are independent byte writes,
@@ -145,7 +209,7 @@ fn separate_actors_observe_each_other_objective_updates_without_scene_republicat
             Err(ProgramError::BudgetExceeded { cursor: at(4), executed: 2 }));
         assert_eq!(objects.get(other).unwrap().base.hit_points, decremented);
         assert_eq!(objects.get(other).unwrap().base.attack_power, decremented);
-        assert_eq!(counts, EncounterObjectiveCounts { remaining_word: 0x5A00 | u16::from(decremented), node_record: decremented });
+        assert_eq!(counts, EncounterObjectiveCounts { remaining_word: 0x5A00 | u16::from(decremented), node_record: decremented, ..Default::default() });
     }
 }
 

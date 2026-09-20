@@ -1,4 +1,7 @@
 //! Complete source-authored counted constructors, without scheduler emulation.
+use super::super::path_scene_state::{
+    EncounterCoordination, EncounterObjectiveCounts, ObjectiveCompletion,
+};
 use super::super::path_spawn::{SpawnArgument, SpawnError};
 use super::super::{authored_paths, ObjectSpawnDefaults, PathId, ShapeId, OBJECT_CAPACITY};
 use super::tests::{setup, world};
@@ -153,4 +156,167 @@ fn numbered_sprite_constructor_zero_count_is_not_empty_and_missing_argument_is_n
             );
         }
     }
+}
+
+#[test]
+fn numbered_sprite_encounters_decode_the_attack_weapon_overlap_before_completion_skip() {
+    let catalog = authored_paths::catalog();
+    for entry in [
+        authored_paths::NUMBERED_SPRITE_PURSUER,
+        authored_paths::NUMBERED_SPRITE_BANKING_ATTACKER,
+    ] {
+        for attack in 0..=u8::MAX {
+            for weapon in [0u8, 1, 127, 128, 255] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(entry);
+                actor.base.attack_power = attack;
+                actor.base.hit_points = 71;
+                actor.extension.path_state.weapon_selection = weapon;
+                actor.extension.path_state.motion_phase = 0xABCD;
+                actor.extension.path_state.motion_delta.x = i16::MAX;
+                let before = actor.clone();
+                let before_random = random;
+                let mut completion = ObjectiveCompletion { bits: u16::MAX };
+                let mut inputs = world(&mut random);
+                inputs.objective_completion = Some(&mut completion);
+                assert_eq!(
+                    runtime
+                        .enter_program(&catalog, &mut objects, owner, &mut inputs, 100)
+                        .unwrap()
+                        .step,
+                    ControlStep::Ended
+                );
+                let actor = objects.get(owner).unwrap();
+                assert!(matches!(
+                    catalog.statement(actor.base.path.unwrap()).unwrap(),
+                    Statement::Control(ControlCommand::End)
+                ));
+                let mut expected = before;
+                expected.base.path = actor.base.path;
+                expected.base.attack_power = attack & 0x0F;
+                expected.base.flags.remove_after_tick = true;
+                expected.extension.path_state.weapon_selection = weapon;
+                expected.extension.path_state.script_parameter = (attack >> 4) + 2;
+                expected.extension.path_state.script_value = 100;
+                expected.extension.path_state.stack = actor.extension.path_state.stack.clone();
+                if entry == authored_paths::NUMBERED_SPRITE_PURSUER {
+                    expected.extension.path_state.motion_delta.x = i16::MIN;
+                }
+                assert_eq!(actor, &expected);
+                assert_eq!(objects.len(), 1);
+                assert_eq!(runtime.spawns.last_spawn, None);
+                assert_eq!(completion.bits, u16::MAX);
+                assert_eq!(random, before_random);
+            }
+        }
+    }
+}
+
+#[test]
+fn numbered_sprite_encounters_construct_their_child_before_live_transition_wait() {
+    let catalog = authored_paths::catalog();
+    for (entry, attack, offset, weapon) in [
+        (authored_paths::NUMBERED_SPRITE_PURSUER, 60u8, -80, 18),
+        (
+            authored_paths::NUMBERED_SPRITE_BANKING_ATTACKER,
+            80,
+            -240,
+            20,
+        ),
+    ] {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        objects.get_mut(owner).unwrap().base.path = Some(entry);
+        objects.get_mut(owner).unwrap().base.position.y = 32760;
+        let mut completion = ObjectiveCompletion::default();
+        let mut coordination = EncounterCoordination::default();
+        let before_random = random;
+        let mut inputs = world(&mut random);
+        inputs.objective_completion = Some(&mut completion);
+        inputs.coordination = Some(&mut coordination);
+        inputs.scene.height_offset = Some(20);
+        inputs.scene.entry_heading = Some(37);
+        inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+        for _ in 0..3 {
+            assert_eq!(
+                runtime
+                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 128)
+                    .unwrap()
+                    .step,
+                ControlStep::Movement
+            );
+            assert_eq!(objects.len(), 2);
+            let actor = objects.get(owner).unwrap();
+            assert_eq!((actor.base.hit_points, actor.base.attack_power), (100, 4));
+            assert_eq!(actor.base.position.y, 32760i16.wrapping_add(20));
+            assert_eq!(actor.base.yaw.units(), 37);
+            assert_eq!(actor.extension.path_state.weapon_selection, weapon);
+            assert_eq!(runtime.spawns.parameter, Some(attack));
+            assert_eq!(runtime.spawns.companion_parameter, Some(10));
+            assert_eq!(runtime.placement.primary, Some(offset));
+            let child = objects.get(runtime.spawns.last_spawn.unwrap()).unwrap();
+            assert_eq!(child.base.child_number, 9);
+            assert_eq!(child.base.attachment, Some(owner));
+            assert_eq!(child.base.attack_power, attack);
+            assert_eq!(child.extension.relative_position.z, offset);
+            assert_eq!(child.base.path, Some(authored_paths::HIT_TOGGLE_SPRITE));
+        }
+        assert_eq!(random, before_random);
+    }
+}
+
+#[test]
+fn ordinary_objective_completion_counts_before_recording_and_resumes_without_double_count() {
+    let catalog = called_catalog(authored_paths::COUNT_AND_RECORD_OBJECTIVE);
+    let (mut runtime, mut objects, owner, mut random) = setup();
+    let actor = objects.get_mut(owner).unwrap();
+    actor.base.path = Some(caller(0));
+    actor.extension.path_state.script_parameter = 1;
+    let mut counts = EncounterObjectiveCounts {
+        recorded_completions: u16::MAX,
+        signaled_completions: 32767,
+        node_record: 0x21,
+        remaining_word: 0xAB00,
+    };
+    let mut inputs = world(&mut random);
+    inputs.objective_counts = Some(&mut counts);
+    assert_eq!(
+        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 32),
+        Err(ProgramError::MissingObjectiveCompletion)
+    );
+    assert_eq!(
+        inputs
+            .objective_counts
+            .as_deref()
+            .unwrap()
+            .recorded_completions,
+        0
+    );
+    assert_eq!(
+        inputs.objective_counts.as_deref().unwrap().node_record,
+        0x21
+    );
+    assert_eq!(
+        inputs.objective_counts.as_deref().unwrap().remaining_word,
+        0xAB00
+    );
+    let mut completion = ObjectiveCompletion::default();
+    inputs.objective_completion = Some(&mut completion);
+    assert_eq!(
+        runtime
+            .resume_program(&catalog, &mut objects, owner, &mut inputs, 32)
+            .unwrap()
+            .step,
+        ControlStep::Movement
+    );
+    assert_eq!(
+        counts,
+        EncounterObjectiveCounts {
+            recorded_completions: 0,
+            signaled_completions: 32767,
+            node_record: 0x20,
+            remaining_word: 0xABFF
+        }
+    );
+    assert_eq!(completion.bits, 1);
 }

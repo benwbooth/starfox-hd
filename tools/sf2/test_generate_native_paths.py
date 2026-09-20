@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 145;', source)
-        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 7;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5481;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 147;', source)
+        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 8;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5782;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -946,6 +946,26 @@ class NativePathGenerationTests(unittest.TestCase):
         for record in ['7b a3 0b', '80 92 0b', '80 04 0b', '7b 04 0b']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
+
+    def test_numbered_sprite_encounters_and_completion_counter_graphs_are_complete(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, lowered, digest in [
+                (0x23D4, 374, 365, '156757d2f3098db9e5e7d4a66c7d91e25c079393ea79d3572afeeb010b661062'),
+                (0x6003, 335, 335, 'ef30a8d99b33737f58340626bf0116632a4f8c2f44d67b99e9c5068ddff4be9e'),
+                (0x80B1, 18, 18, '8faf195735fcb8572a9f82c3aa834aa592948cb03fec5582e0b103199df07150'),
+                (0x80BB, 21, 21, 'e2b38cf44ab15e0452f468db4e59d0bf4cdab486d284a5d5542b457b1b0e29ca'),
+                (0x8839, 11, 11, '6ed3e2f6ce8f64fdd12dcd1e07bf8faf85f5d80a9650af85f348aa2950f483ab')]:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
+            self.assertEqual(len(lower_graph(extractor, PathAddress(root), 0)[1]), lowered)
+            self.assertEqual(PathAddress(root) in extractor.discover_roots(), root in (0x23D4, 0x6003))
+        for record, kind in [('e6 e4 d7', 'Recorded'), ('e6 e6 d7', 'Signaled')]:
+            self.assertIn(f'CompletionKind::{kind}', self.lower_record(record)[0])
+        for record in ['e6 e3 d7', 'e6 e5 d7', 'e6 e7 d7', 'e5 e4 d7', 'e5 e6 d7']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+        self.assertIn('WordField::AttackAndWeapon', self.lower_record('d9 a1 2e')[0])
 
     def test_warning_and_cooldown_graphs_and_parent_installers_are_complete(self):
         extractor = PathExtractor(self.rom)

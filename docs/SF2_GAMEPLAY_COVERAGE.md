@@ -4148,3 +4148,32 @@ commands and 5,437 typed statements**. All 1,038 native unit tests and two
 integration tests pass in debug and release; 206 lowering tests, exact
 regeneration, architecture guard, static audit and app build pass. These are
 complete callable graphs, not completion claims for their encounter callers.
+
+### Numbered-sprite encounter roots and completion totals
+
+Both source-installed numbered-sprite encounters (`$44:23D4`, `$44:6003`)
+now lower their complete 374/335-command graphs. The ordinary count-and-record
+helper (`$44:80B1`) is also a separately bound callable entry. The catalog
+now contains **147 actor roots, eight helpers, 5,782 source commands and 5,729
+typed statements**.
+
+The two source word-sized completion totals are separate typed fields, distinct
+from remaining-objective and packed node-record bytes. Tests cover every word
+value and wrapping increment, other-count preservation, missing live input,
+instruction budgets, random state and branch inversion. Source fixtures bind
+their full-word increment handler and scene-entry clears. The ordinary helper
+counts before recording completion and resumes after a missing-input fault
+without counting twice; node and remaining-count updates retain source order.
+
+The packed attack/weapon word has typed access to the existing authoritative
+bytes, without activating a weapon. The argument decoder uses one-based bit
+selectors to clear only the attack high nibble, preserves the adjacent weapon
+byte, and derives the completion selector from the original attack value.
+Native tests exercise every initial attack byte, boundary weapon bytes, the
+completed-objective skip, and each live constructor through its retained
+transition wait with source-authored child number, attack and signed offset.
+
+All 1,043 native unit tests and two integration tests pass in debug and release;
+207 lowerer tests, 447 path-static tests, exact regeneration, architecture
+guard, static audit and app build pass. Complete gameplay and shipping-world
+scheduler integration remain unestablished.

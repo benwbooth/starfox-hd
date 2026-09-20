@@ -211,6 +211,7 @@ fn authored_record_restores_scratch_and_decrements_the_selected_packed_count() {
                 let mut counts = EncounterObjectiveCounts {
                     remaining_word: 0xABCD,
                     node_record: count,
+                    ..Default::default()
                 };
                 let mut inputs = world(&mut random);
                 inputs.objective_completion = Some(&mut completion);
@@ -233,7 +234,8 @@ fn authored_record_restores_scratch_and_decrements_the_selected_packed_count() {
                     counts,
                     EncounterObjectiveCounts {
                         remaining_word: 0xABCD,
-                        node_record: count.wrapping_sub(decrement)
+                        node_record: count.wrapping_sub(decrement),
+                        ..Default::default()
                     }
                 );
                 assert_eq!(completion.bits, expected_bits);
@@ -294,6 +296,7 @@ fn record_resumes_after_missing_count_without_losing_saved_scratch() {
     let mut counts = EncounterObjectiveCounts {
         remaining_word: 0xABCD,
         node_record: 0,
+        ..Default::default()
     };
     inputs.objective_counts = Some(&mut counts);
     assert_eq!(
@@ -360,6 +363,7 @@ fn another_actor_observes_published_completion_before_the_separate_count_write()
     let mut counts = EncounterObjectiveCounts {
         remaining_word: 0xABCD,
         node_record: 0x21,
+        ..Default::default()
     };
     let mut inputs = world(&mut random);
     inputs.objective_completion = Some(&mut completion);
@@ -414,7 +418,8 @@ fn another_actor_observes_published_completion_before_the_separate_count_write()
         counts,
         EncounterObjectiveCounts {
             remaining_word: 0xABCD,
-            node_record: 0x11
+            node_record: 0x11,
+            ..Default::default()
         }
     );
 }

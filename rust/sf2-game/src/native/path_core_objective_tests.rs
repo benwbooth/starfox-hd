@@ -166,6 +166,7 @@ fn controller_releases_shield_then_core_and_emits_four_numbered_beams_until_live
     let mut counts = EncounterObjectiveCounts {
         remaining_word: 0xAB01,
         node_record: 0x72,
+        ..Default::default()
     };
     let mut events = AudioState::default();
     let player = objects
@@ -560,6 +561,7 @@ fn core_death_awards_once_decrements_both_bytes_and_retains_its_authored_afterma
             let mut counts = EncounterObjectiveCounts {
                 remaining_word: 0xAB00 | u16::from(initial),
                 node_record: initial ^ 0xFF,
+                ..Default::default()
             };
             let mut score = PlayerScore::from_parts(65000, initial);
             let mut control = PlayerTargetControl {
@@ -645,6 +647,7 @@ fn core_death_awards_once_decrements_both_bytes_and_retains_its_authored_afterma
                     &EncounterObjectiveCounts {
                         remaining_word: 0xAB00 | u16::from(initial.wrapping_sub(1)),
                         node_record: (initial ^ 0xFF).wrapping_sub(1),
+                        ..Default::default()
                     }
                 );
                 assert_eq!(

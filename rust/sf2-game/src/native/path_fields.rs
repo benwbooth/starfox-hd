@@ -58,6 +58,9 @@ impl Axis {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WordField {
+    /// Authored word operations spanning attack and weapon-selection bytes.
+    /// Neither byte is duplicated; writes do not perform weapon activation.
+    AttackAndWeapon,
     DepthOffset,
     MotionPhase,
     /// Unaligned authored word: phase high byte followed by script low byte.
@@ -75,6 +78,9 @@ pub enum WordField {
 impl WordField {
     pub fn read(self, actor: &Object) -> u16 {
         (match self {
+            Self::AttackAndWeapon => u16::from_le_bytes([
+                actor.base.attack_power, actor.extension.path_state.weapon_selection,
+            ]) as i16,
             Self::DepthOffset => actor.extension.depth_offset as i16,
             Self::MotionPhase => actor.extension.path_state.motion_phase as i16,
             Self::MotionScriptOverlap => u16::from_le_bytes([
@@ -92,6 +98,11 @@ impl WordField {
 
     pub fn write(self, actor: &mut Object, value: u16) {
         match self {
+            Self::AttackAndWeapon => {
+                let [attack, weapon] = value.to_le_bytes();
+                actor.base.attack_power = attack;
+                actor.extension.path_state.weapon_selection = weapon;
+            }
             Self::DepthOffset => actor.extension.depth_offset = value,
             Self::MotionPhase => actor.extension.path_state.motion_phase = value,
             Self::MotionScriptOverlap => {

@@ -25,6 +25,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("NUMBERED_SPRITE_PURSUER", PathAddress(0x23D4)),
+    ("NUMBERED_SPRITE_BANKING_ATTACKER", PathAddress(0x6003)),
     ("ORIENTED_PROGRESS_GATED_EXIT", PathAddress(0x0AE7)),
     ("PROGRESS_GATED_EXIT", PathAddress(0x0AEA)),
     ("QUEEN_DIORAY", PathAddress(0x8D82)),
@@ -176,6 +178,7 @@ SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # entry is bound to a direct call or callback registration/redirection reachable
 # from a discovered actor root.
 SUBROUTINES = (
+    ("COUNT_AND_RECORD_OBJECTIVE", PathAddress(0x80B1), PathAddress(0x2102), PathAddress(0x21D0)),
     ("SPAWN_NUMBERED_HIT_SPRITES", PathAddress(0x85C3), PathAddress(0x23D4), PathAddress(0x2404)),
     ("SPAWN_NUMBERED_LARGE_HIT_SPRITES", PathAddress(0x85F0), PathAddress(0x6230), PathAddress(0x6278)),
     ("QUERY_OBJECTIVE_COMPLETION", PathAddress(0x87D3), PathAddress(0x2102), PathAddress(0x2105)),
@@ -789,6 +792,7 @@ def word_field(variable: int) -> str:
         0x8E: "WordField::RelativePosition(Axis::X)",
         0x90: "WordField::RelativePosition(Axis::Y)",
         0x92: "WordField::RelativePosition(Axis::Z)",
+        0x2E: "WordField::AttackAndWeapon",
         0xA1: "WordField::MotionPhase",
         0xA2: "WordField::MotionScriptOverlap",
         0xA3: "WordField::ScriptValue",
@@ -1771,6 +1775,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ImportPlayerPosition {{ axis: Axis::{axis}, destination: {word_field(variable)}, next: {next_cursor()} }}"
             else:
                 raise UnsupportedPath(f"unported shared word {0xD75C + index:04X} at {command.address.label()}")
+        elif name == "IncrementExternalWord":
+            low, high = parameters(2)
+            address = low | high << 8
+            if address not in (0xD7E4, 0xD7E6):
+                raise UnsupportedPath(f"unreviewed completion word {address:04X} at {command.address.label()}")
+            kind = "Recorded" if address == 0xD7E4 else "Signaled"
+            statement = f"Statement::CountCompletion {{ kind: super::path_scene_state::CompletionKind::{kind}, next: {next_cursor()} }}"
         elif name == "StoreExternalWord":
             low, high, value_low, value_high = parameters(4)
             if (low | high << 8) == 0xD777:

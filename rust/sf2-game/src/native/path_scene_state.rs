@@ -83,6 +83,17 @@ pub struct ObjectiveCompletion {
 pub struct EncounterObjectiveCounts {
     pub remaining_word: u16,
     pub node_record: u8,
+    /// Full-word totals, cleared together on scene entry ($04:DF99/DF9C).
+    /// The ordinary helper $44:80B1 records an objective without publishing
+    /// the phase/pilot/position handoff performed by $44:80BB.
+    pub recorded_completions: u16,
+    pub signaled_completions: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletionKind {
+    Recorded,
+    Signaled,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +103,14 @@ pub enum ObjectiveCountField {
 }
 
 impl EncounterObjectiveCounts {
+    pub fn record_completion(&mut self, kind: CompletionKind) {
+        let total = match kind {
+            CompletionKind::Recorded => &mut self.recorded_completions,
+            CompletionKind::Signaled => &mut self.signaled_completions,
+        };
+        *total = total.wrapping_add(1);
+    }
+
     pub fn apply(
         &mut self,
         actor: &mut Object,

@@ -736,6 +736,10 @@ pub enum Statement {
         command: super::path_scene_state::CoordinationCommand,
         next: PathCursor,
     },
+    CountCompletion {
+        kind: super::path_scene_state::CompletionKind,
+        next: PathCursor,
+    },
     ClearPathLatches {
         mask: WordOperand,
         next: PathCursor,
@@ -1391,6 +1395,13 @@ impl PathRuntime {
                     let actor = objects.get_mut(owner).expect("validated coordination actor");
                     coordination.apply(actor, field, command);
                     actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::CountCompletion { kind, next } => {
+                    let counts = world.objective_counts.as_deref_mut()
+                        .ok_or(ProgramError::MissingObjectiveCounts)?;
+                    counts.record_completion(kind);
+                    objects.get_mut(owner).expect("validated completion counter actor").base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::ObjectiveCounts { field, command, next } => {
@@ -13918,10 +13929,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 145);
-        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 7);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 5437);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 5481);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 147);
+        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 8);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 5729);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 5782);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
