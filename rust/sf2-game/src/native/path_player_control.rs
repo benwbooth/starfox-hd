@@ -9,6 +9,8 @@ const TARGET_LIMIT: u16 = 255;
 const TARGET_AXIS_MODE: u8 = 3;
 const TARGET_CONTROL: u8 = 31;
 const CONFIGURED_RATES: [u8; 3] = [4, 8, 8];
+const DOUBLED_LOW_BYTE_RATES: [u8; 3] = [1, 2, 2];
+const ALTERNATE_AXIS_RATES: [u8; 3] = [6, 6, 3];
 const CONFIGURED_LIMITS: [u8; 3] = [31; 3];
 const LOCKED_RATES: [u8; 3] = [3, 3, 4];
 const LOCKED_LIMITS: [u8; 3] = [16, 16, 31];
@@ -43,6 +45,8 @@ pub struct PrimaryControl<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerControlCommand {
     Configure(i16),
+    ConfigureDoubledLowByte(i16),
+    ConfigureAlternateAxes(i16),
     LockForLinkedMode,
     FollowPrimaryPosition,
     RefreshOwnedOrigin,
@@ -59,6 +63,26 @@ impl PlayerTargetControl {
     /// even when B79F/B89B/B861 skip their writes, so an existing matching
     /// owner still refreshes its origin while configuration is locked.
     pub fn configure(&mut self, owner: ObjectId, position: Vector3, range: i16) {
+        self.configure_with_rates(owner, position, range, CONFIGURED_RATES);
+    }
+
+    /// $07:B6EF doubles ONLY the low byte; no carry reaches the high byte.
+    pub fn configure_doubled_low_byte(&mut self, owner: ObjectId, position: Vector3, range: i16) {
+        let range = ((range as u16 & 0xFF00) | u16::from((range as u8).wrapping_mul(2))) as i16;
+        self.configure_with_rates(owner, position, range, DOUBLED_LOW_BYTE_RATES);
+    }
+
+    pub fn configure_alternate_axes(&mut self, owner: ObjectId, position: Vector3, range: i16) {
+        self.configure_with_rates(owner, position, range, ALTERNATE_AXIS_RATES);
+    }
+
+    fn configure_with_rates(
+        &mut self,
+        owner: ObjectId,
+        position: Vector3,
+        range: i16,
+        rates: [u8; 3],
+    ) {
         self.offset_enabled = false;
         if !self.configuration_locked {
             self.mode = OBJECT_ORIGIN_MODE;
@@ -69,7 +93,7 @@ impl PlayerTargetControl {
             self.owner = Some(owner);
             self.axis_mode = TARGET_AXIS_MODE;
             self.control = TARGET_CONTROL;
-            self.axis_rates = CONFIGURED_RATES;
+            self.axis_rates = rates;
             self.axis_limits = CONFIGURED_LIMITS;
         }
         self.refresh_owned_origin(owner, position);
@@ -178,6 +202,43 @@ mod tests {
                     }
                     actual.configure(owner, position, range);
                     assert_eq!(actual, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn configuration_variants_keep_low_byte_doubling_separate_from_word_arithmetic() {
+        let (owner, other) = identities();
+        let position = Vector3 {
+            x: 91,
+            y: -72,
+            z: 53,
+        };
+        for encoded in 0..=u16::MAX {
+            for doubled in [false, true] {
+                let bytes = encoded.to_le_bytes();
+                let expected_range = if doubled {
+                    i16::from_le_bytes([((u16::from(bytes[0]) * 2) % 256) as u8, bytes[1]])
+                } else {
+                    encoded as i16
+                };
+                for locked in [false, true] {
+                    for prior_owner in [None, Some(owner), Some(other)] {
+                        let mut actual = retained(prior_owner);
+                        actual.configuration_locked = locked;
+                        let mut expected = actual;
+                        expected.configure(owner, position, expected_range);
+                        if !locked {
+                            expected.axis_rates = if doubled { [1, 2, 2] } else { [6, 6, 3] };
+                        }
+                        if doubled {
+                            actual.configure_doubled_low_byte(owner, position, encoded as i16);
+                        } else {
+                            actual.configure_alternate_axes(owner, position, encoded as i16);
+                        }
+                        assert_eq!(actual, expected);
+                    }
                 }
             }
         }

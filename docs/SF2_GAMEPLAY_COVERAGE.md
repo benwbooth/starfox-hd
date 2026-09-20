@@ -806,3 +806,12 @@ lowerer tests, 187 static path tests, 174 native path tests in debug/release,
 architecture/dependency checks and the app build. The catalog now has **11
 complete roots and 126 unique statements**. Game scheduler/spawn integration
 and whole-game behavioral completion remain open; no new recordings were used.
+
+Both alternate primary target-configuration forms are now lowered as well.
+One doubles only the low byte of the authored range, retaining its original
+high byte; the other changes the three axis rates without altering the range.
+They share the reviewed lock/ownership behavior above. Every word value under
+all lock/ownership combinations and dispatcher self-aliasing is checked.
+Verification passes 58 lowerer tests, 188 static path tests, 175 native path
+tests in debug/release, architecture/dependency checks and the app build.
+Complete-root coverage remains 11 roots/126 statements.

@@ -297,10 +297,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "SetFlag26Bit08":
             parameters(0)
             statement = f"Statement::RunWhenPaused {{ enabled: true, next: {next_cursor()} }}"
-        elif name in ("ConfigurePlayerAuxiliary", "RefreshOwnedPlayerAuxiliaryOrigin"):
-            if name == "ConfigurePlayerAuxiliary":
+        elif name in ("ConfigurePlayerAuxiliary", "ConfigurePilotAuxModeA", "ConfigurePilotAuxModeB", "RefreshOwnedPlayerAuxiliaryOrigin"):
+            if name != "RefreshOwnedPlayerAuxiliaryOrigin":
                 value = int.from_bytes(parameters(2), "little", signed=True)
-                operation = f"Configure({value})"
+                configuration = {"ConfigurePlayerAuxiliary": "Configure", "ConfigurePilotAuxModeA": "ConfigureDoubledLowByte", "ConfigurePilotAuxModeB": "ConfigureAlternateAxes"}[name]
+                operation = f"{configuration}({value})"
             else:
                 parameters(0)
                 operation = "RefreshOwnedOrigin"

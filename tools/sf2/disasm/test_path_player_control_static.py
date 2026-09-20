@@ -25,6 +25,10 @@ class PathPlayerControlStaticTests(unittest.TestCase):
     def test_configuration_wrapper_does_not_skip_final_owner_refresh_when_locked(self):
         self.assert_source(0x07B746, "DA 08 E2 20 C2 10 A9 03 85 3C A9 1F 85 3E 22 9F B7 07 A9 04 85 3A A9 08 85 3C A9 08 85 3E 22 9B B8 07 A9 1F 85 3A 85 3C 85 3E 22 61 B8 07 22 33 B8 07 28 FA 6B")
 
+    def test_alternate_configuration_handlers_use_distinct_helpers_and_low_byte_only_shift(self):
+        self.assert_source(0x7FC155, "C2 20 20 20 C7 85 3A E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 22 26 B7 07 4C BE CA C2 20 20 20 C7 85 3A E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 22 EF B6 07 4C BE CA")
+        self.assert_source(0x07B6EF, "DA 08 E2 20 C2 10 06 3A A9 03 85 3C A9 1F 85 3E 22 9F B7 07 A9 01 85 3A A9 02 85 3C A9 02 85 3E 22 9B B8 07 A9 1F 85 3A 85 3C 85 3E 22 61 B8 07 22 33 B8 07 28 FA 6B DA 08 E2 20 C2 10 A9 03 85 3C A9 1F 85 3E 22 9F B7 07 A9 06 85 3A A9 06 85 3C A9 03 85 3E 80 1E")
+
     def test_target_configuration_clears_offset_before_lock_and_clamps_negative_secondary_range(self):
         self.assert_source(0x07B79F, "5A 08 E2 20 C2 10 AC C3 12 DA B6 2B 9B FA B9 8C 6A 29 BF 99 8C 6A B9 8C 6A 29 80 F0 04 5C FA B7 07 C2 20 A9 02 00 99 1C 6C B5 0C 99 92 6A B5 0E 99 94 6A B5 10 99 96 6A A9 FF 00 99 24 6C A5 3A 99 90 6A 10 03 A9 01 00 99 26 6C 8A 99 98 6A E2 20 A5 3C 99 29 6C A5 3E 99 28 6C 28 7A 6B")
 

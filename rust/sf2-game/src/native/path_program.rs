@@ -454,6 +454,12 @@ impl PathRuntime {
                         PlayerControlCommand::Configure(range) => {
                             input.target.configure(owner, actor.base.position, range)
                         }
+                        PlayerControlCommand::ConfigureDoubledLowByte(range) => input
+                            .target
+                            .configure_doubled_low_byte(owner, actor.base.position, range),
+                        PlayerControlCommand::ConfigureAlternateAxes(range) => input
+                            .target
+                            .configure_alternate_axes(owner, actor.base.position, range),
                         PlayerControlCommand::LockForLinkedMode => {
                             input.target.lock_for_linked_mode(input.linked_mode)
                         }
@@ -2466,6 +2472,8 @@ mod tests {
         };
         for command in [
             PlayerControlCommand::Configure(-8),
+            PlayerControlCommand::ConfigureDoubledLowByte(-8),
+            PlayerControlCommand::ConfigureAlternateAxes(-8),
             PlayerControlCommand::LockForLinkedMode,
             PlayerControlCommand::FollowPrimaryPosition,
             PlayerControlCommand::RefreshOwnedOrigin,
@@ -2500,6 +2508,12 @@ mod tests {
             match command {
                 PlayerControlCommand::Configure(range) => {
                     expected_control.configure(owner, before.base.position, range)
+                }
+                PlayerControlCommand::ConfigureDoubledLowByte(range) => {
+                    expected_control.configure_doubled_low_byte(owner, before.base.position, range)
+                }
+                PlayerControlCommand::ConfigureAlternateAxes(range) => {
+                    expected_control.configure_alternate_axes(owner, before.base.position, range)
                 }
                 PlayerControlCommand::LockForLinkedMode => {
                     expected_control.lock_for_linked_mode(true)

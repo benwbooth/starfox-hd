@@ -200,6 +200,13 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
                 lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF38A), 0)
 
+    def test_primary_target_configuration_variants_retain_full_word_before_native_low_byte_transform(self):
+        for opcode, operation in [("00 57", "ConfigureDoubledLowByte"), ("00 58", "ConfigureAlternateAxes")]:
+            for word in (0, 127, 128, 255, 256, 32767, 32768, 65528, 65535):
+                value = int.from_bytes(word.to_bytes(2, "little"), "little", signed=True)
+                self.assertEqual(self.lower_record(f"{opcode} {word & 255:02x} {word >> 8:02x}")[0],
+                    f"Statement::PlayerControl {{ command: PlayerControlCommand::{operation}({value}), next: cursor(0, 1) }}")
+
     def test_callback_graph_has_semantic_action_and_deferred_redirection(self):
         _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF32C), 0)
         self.assertEqual(len(statements), 18)
