@@ -908,7 +908,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
         self.assertIn("destination: WordField::MotionPhase", self.lower_record("7b a1 9a")[0])
         for index in range(256):
-            if index != 0x9A:
+            if index not in (0x36, 0x9A):
                 with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                     self.lower_record(f"7b a3 {index:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
@@ -918,6 +918,40 @@ class NativePathGenerationTests(unittest.TestCase):
         for record in ("78 a3 9a", "7a a3 9a", "7e a3 f6 d7", "7c a3 f6 d7"):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
+
+    def test_guidance_history_and_control_style_require_exact_reviewed_fields(self):
+        self.assertEqual(self.lower_record("7b a3 36")[0],
+            "Statement::Guidance { command: GuidanceCommand::CopyTo(WordField::ScriptValue), next: cursor(0, 1) }")
+        self.assertEqual(self.lower_record("80 a3 36")[0],
+            "Statement::Guidance { command: GuidanceCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
+        self.assertIn("Statement::ImportControlStyle", self.lower_record("79 a1 d0 1d")[0])
+        for index in range(256):
+            if index != 0x36:
+                with self.assertRaises(UnsupportedPath):
+                    self.lower_record(f"80 a3 {index:02x}")
+        for record in ["7b a2 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
+    def test_first_control_guidance_retains_history_gate_layout_branch_and_timing(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x04B5))
+        _, statements = lower_graph(extractor, PathAddress(0x04B5), 0)
+        self.assertEqual(len(statements), 27)
+        mapped = dict(zip((c.address.offset for c in commands), statements))
+        self.assertIn("CampaignByte::Difficulty", mapped[0x04B9])
+        self.assertIn("InvertNext", mapped[0x04BC])
+        self.assertIn("SetModeLowNibbleFour", mapped[0x04C4])
+        self.assertIn("GuidanceCommand::CopyTo", mapped[0x04C6])
+        self.assertIn("GuidanceCommand::Assign", mapped[0x04D4])
+        self.assertIn("iterations: 5", mapped[0x04DD])
+        self.assertIn("Statement::ImportControlStyle", mapped[0x04EA])
+        self.assertIn("ActorCondition::ZeroByte", mapped[0x04EE])
+        self.assertIn("number: ByteOperand::Literal(213)", mapped[0x04F2])
+        self.assertIn("immediate: false", mapped[0x04FD])
+        for offset, duration in [(0x04C2, 16), (0x04D7, 30), (0x04FB, 65)]:
+            self.assertIn(f"duration: ByteOperand::Literal({duration})", mapped[offset])
+        self.assertIn("use super::path_program::GuidanceCommand;", generate(self.rom, (("GUIDANCE", PathAddress(0x04B5)),)))
 
     def test_node_gated_target_root_lowers_all_edges_and_live_health_selector(self):
         extractor = PathExtractor(self.rom)

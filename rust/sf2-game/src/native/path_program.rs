@@ -18,6 +18,8 @@ pub struct PathWorld<'a> {
     pub audio: Option<super::path_sound::PathAudio<'a>>,
     pub radio: Option<super::path_radio::PathRadio<'a>>,
     pub campaign: Option<CampaignPathInputs>,
+    pub guidance: Option<&'a mut GuidanceHistory>,
+    pub control_style: Option<super::FlightControlStyle>,
     /// Primary player identity, independent of the current selected slot.
     pub primary_player: Option<ObjectId>,
     pub selected: Option<ObjectId>,
@@ -51,6 +53,19 @@ pub struct PathWorld<'a> {
 pub struct SelectedAuxiliaryState {
     pub mode: u8,
     pub action_flags: u8,
+}
+
+/// Shared authored guidance history ($D792). Paths copy and replace the
+/// complete word; individual paths decide which already-shown bits to test.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct GuidanceHistory {
+    pub flags: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuidanceCommand {
+    CopyTo(super::path_fields::WordField),
+    Assign(WordOperand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,6 +339,14 @@ pub enum Statement {
         destination: super::path_fields::ByteField,
         next: PathCursor,
     },
+    Guidance {
+        command: GuidanceCommand,
+        next: PathCursor,
+    },
+    ImportControlStyle {
+        destination: super::path_fields::ByteField,
+        next: PathCursor,
+    },
     Random {
         mutation: super::path_random::RandomMutation,
         next: PathCursor,
@@ -415,6 +438,8 @@ pub enum ProgramError {
     MissingAudio,
     MissingRadio,
     MissingCampaign,
+    MissingGuidance,
+    MissingControlStyle,
     MissingSoundMarkers,
     MissingCountdown,
     Spawn(super::path_spawn::SpawnError),
@@ -819,6 +844,34 @@ impl PathRuntime {
                         },
                     )
                 }
+                Statement::Guidance { command, next } => {
+                    let history = world
+                        .guidance
+                        .as_deref_mut()
+                        .ok_or(ProgramError::MissingGuidance)?;
+                    let actor = objects.get_mut(owner).expect("validated guidance owner");
+                    match command {
+                        GuidanceCommand::CopyTo(field) => field.write(actor, history.flags),
+                        GuidanceCommand::Assign(value) => history.flags = value.read(actor),
+                    }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportControlStyle { destination, next } => {
+                    let style = world
+                        .control_style
+                        .ok_or(ProgramError::MissingControlStyle)?;
+                    let value = match style {
+                        super::FlightControlStyle::TypeA => 0,
+                        super::FlightControlStyle::TypeB => 1,
+                    };
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated control style owner");
+                    destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ImportCampaignByte {
                     source,
                     destination,
@@ -1029,6 +1082,8 @@ mod tests {
             audio: None,
             radio: None,
             campaign: None,
+            guidance: None,
+            control_style: None,
             primary_player: None,
             selected: None,
             fixed_players: [None; 2],
@@ -2292,7 +2347,10 @@ mod tests {
             expected.base.contacts.run_when_paused = true;
             expected.base.flags.visible = false;
             expected.base.flags.collision_disabled = true;
-            expected.base.path = Some(cursor(0, 4));
+            expected.base.path = Some(PathCursor {
+                command_index: authored_paths::SHARED_COUNTDOWN_SERVICE.command_index + 4,
+                ..authored_paths::SHARED_COUNTDOWN_SERVICE
+            });
             let mut countdown = PathCountdown { remaining: initial };
             for visit in 0..(u16::from(initial) + 3) {
                 let before = countdown.remaining;
@@ -4188,6 +4246,8 @@ mod tests {
                 audio: None,
                 radio: None,
                 campaign: None,
+                guidance: None,
+                control_style: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -4577,6 +4637,241 @@ mod tests {
         assert_eq!(request, original_request);
         assert_eq!(random, original_random);
         assert!(runtime.branch.invert_next);
+    }
+
+    #[test]
+    fn guidance_word_transfers_preserve_all_bits_and_unrelated_state() {
+        use super::super::path_fields::WordField;
+        for command in [
+            GuidanceCommand::CopyTo(WordField::ScriptValue),
+            GuidanceCommand::Assign(WordOperand::Actor(WordField::ScriptValue)),
+        ] {
+            let catalog = PathCatalog::new(vec![vec![Statement::Guidance {
+                command,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            objects.get_mut(owner).unwrap().base.wait_timer = 57;
+            runtime.branch.invert_next = true;
+            let before = objects.clone();
+            let before_random = random;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingGuidance)
+            );
+            assert_eq!(objects, before);
+            for flags in 0..=u16::MAX {
+                objects = before.clone();
+                objects
+                    .get_mut(owner)
+                    .unwrap()
+                    .extension
+                    .path_state
+                    .script_value = flags ^ 0xA55A;
+                let mut expected = objects.clone();
+                expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+                let mut history = GuidanceHistory { flags };
+                let mut inputs = world(&mut random);
+                inputs.guidance = Some(&mut history);
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 1),
+                        executed: 1
+                    })
+                );
+                match command {
+                    GuidanceCommand::CopyTo(_) => {
+                        expected
+                            .get_mut(owner)
+                            .unwrap()
+                            .extension
+                            .path_state
+                            .script_value = flags
+                    }
+                    GuidanceCommand::Assign(_) => assert_eq!(history.flags, flags ^ 0xA55A),
+                }
+                assert_eq!(objects, expected);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, before_random);
+            }
+        }
+    }
+
+    #[test]
+    fn control_style_import_preserves_high_byte_and_missing_input_is_atomic() {
+        use super::super::path_fields::{ByteField, BytePart, WordField};
+        use super::super::FlightControlStyle;
+        let catalog = PathCatalog::new(vec![vec![Statement::ImportControlStyle {
+            destination: ByteField::WordPart {
+                field: WordField::MotionPhase,
+                part: BytePart::Low,
+            },
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .motion_phase = 0xABCD;
+        objects.get_mut(owner).unwrap().base.wait_timer = 57;
+        runtime.branch.invert_next = true;
+        let before = objects.clone();
+        let before_random = random;
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingControlStyle)
+        );
+        assert_eq!(objects, before);
+        for (style, value) in [
+            (FlightControlStyle::TypeA, 0),
+            (FlightControlStyle::TypeB, 1),
+            (FlightControlStyle::TypeA, 0),
+        ] {
+            objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+            let mut inputs = world(&mut random);
+            inputs.control_style = Some(style);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            let mut expected = before.clone();
+            let actor = expected.get_mut(owner).unwrap();
+            actor.base.path = Some(cursor(0, 1));
+            actor.extension.path_state.motion_phase = 0xAB00 | value;
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, before_random);
+        }
+    }
+
+    #[test]
+    fn first_control_guidance_preserves_history_difficulty_layout_and_all_waits() {
+        use super::super::path_countdown::PathCountdown;
+        use super::super::path_radio::{PathRadio, RadioLayout, RadioRequest};
+        use super::super::{authored_paths, Difficulty, FlightControlStyle};
+        let catalog = authored_paths::catalog();
+        for difficulty in [Difficulty::Normal, Difficulty::Hard, Difficulty::Expert] {
+            for style in [FlightControlStyle::TypeA, FlightControlStyle::TypeB] {
+                for flags in [0, 0x0100, 0xFEFF, 0xFFFF] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let before_random = random;
+                    objects.get_mut(owner).unwrap().base.path =
+                        Some(authored_paths::FIRST_CONTROL_GUIDANCE);
+                    objects
+                        .get_mut(owner)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .motion_phase = 0xAB00;
+                    let mut history = GuidanceHistory { flags };
+                    let mut auxiliary = SelectedAuxiliaryState {
+                        mode: 0xA2,
+                        action_flags: 0xFF,
+                    };
+                    let mut request = RadioRequest::default();
+                    let mut countdown = PathCountdown { remaining: 17 };
+                    let final_visit = if difficulty != Difficulty::Normal {
+                        0
+                    } else if flags & 0x0100 != 0 {
+                        16
+                    } else {
+                        375
+                    };
+                    let mut messages = Vec::new();
+                    for visit in 0..=final_visit {
+                        request.pending = false;
+                        let before_countdown = countdown.remaining;
+                        let mut inputs = world(&mut random);
+                        // Supply each shared input only where the graph needs it.
+                        if visit == 0 {
+                            inputs.campaign = Some(CampaignPathInputs {
+                                difficulty,
+                                encounter_variant: 0,
+                            });
+                        }
+                        if visit == 16 {
+                            inputs.guidance = Some(&mut history);
+                            inputs.selected_auxiliary = Some(&mut auxiliary);
+                        }
+                        if [46, 112, 178, 244, 310].contains(&visit) {
+                            inputs.countdown = Some(&mut countdown);
+                            inputs.radio = Some(PathRadio {
+                                request: &mut request,
+                                layout: RadioLayout {
+                                    compact_panel: false,
+                                    tracked_screen_y: 100,
+                                },
+                            });
+                        }
+                        if visit == 244 {
+                            inputs.control_style = Some(style);
+                        }
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 64), Ok(if visit == final_visit { ControlStep::Ended } else { ControlStep::Movement }), "difficulty {difficulty:?}, style {style:?}, flags {flags:04x}, visit {visit}");
+                        if request.pending {
+                            messages.push((visit, request.message.index() + 1));
+                            assert_eq!(countdown.remaining, 80);
+                        } else {
+                            assert_eq!(countdown.remaining, before_countdown);
+                        }
+                        countdown.remaining = countdown.remaining.wrapping_sub(1);
+                        assert_eq!(
+                            history.flags,
+                            if visit >= 16 { flags | 0x0100 } else { flags }
+                        );
+                        assert_eq!(auxiliary.mode, if visit >= 16 { 0xA4 } else { 0xA2 });
+                        assert_eq!(auxiliary.action_flags, 0xFF);
+                        assert_eq!(random, before_random);
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.base.hit_points, 100);
+                        assert!(!actor.base.flags.visible);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert_eq!(actor.base.flags.remove_after_tick, visit == final_visit);
+                        assert_eq!(actor.extension.path_state.motion_phase & 0xFF00, 0xAB00);
+                        assert!(!runtime.branch.invert_next);
+                    }
+                    assert_eq!(
+                        messages,
+                        if final_visit == 375 {
+                            vec![
+                                (46, 204),
+                                (112, 205),
+                                (178, 206),
+                                (
+                                    244,
+                                    if style == FlightControlStyle::TypeA {
+                                        207
+                                    } else {
+                                        213
+                                    },
+                                ),
+                                (310, 208),
+                            ]
+                        } else {
+                            vec![]
+                        }
+                    );
+                    if final_visit == 375 {
+                        assert_eq!(
+                            objects
+                                .get(owner)
+                                .unwrap()
+                                .extension
+                                .path_state
+                                .script_value,
+                            209
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -5176,8 +5471,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 16);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 195);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 17);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 222);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -5311,6 +5606,8 @@ mod tests {
                 audio: None,
                 radio: None,
                 campaign: None,
+                guidance: None,
+                control_style: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -5421,6 +5718,8 @@ mod tests {
                         audio: None,
                         radio: None,
                         campaign: None,
+                        guidance: None,
+                        control_style: None,
                         primary_player: None,
                         selected: None,
                         fixed_players: [None; 2],

@@ -1074,3 +1074,23 @@ byte-width imports, missing inputs and unchanged RNG. Verification passes
 both audits and the app build. Catalog coverage is now **16 complete roots and
 195 unique statements**. Game scheduler/spawn and radio presentation integration
 remain open; these are source-derived path tests, not recorded gameplay.
+
+The first-time control-guidance path at `$44:04B5` is now fully lowered.
+Its shared history is a borrowed, full-width typed word, and its layout input
+uses the existing Type A/Type B enum. Normal difficulty waits 16 invocations,
+sets the selected auxiliary mode, and checks/sets history bit `0x0100` before
+the 30-invocation initial message delay. Hard/Expert exit immediately; already
+shown guidance exits after the mode update. The five requests occur at visits
+46/112/178/244/310 and the path ends at 375. Type A requests 207 in the fourth
+slot; Type B substitutes 213. The shared countdown resets to 80 per request,
+but this path does not tick that countdown itself.
+
+Verification covers every history-word value in both transfer directions,
+missing-input atomicity, preserved byte widths/IFNOT/RNG, all difficulty/layout
+and history branches, and inputs supplied only at the statements needing them.
+The source program, full word-transfer helpers, button-layout provenance and
+zero-branch handler are pinned statically. All 85 lowerer tests, 233 static path
+tests, and 228 native path tests in debug/release pass, as do both audits,
+generated-catalog freshness and the app build. Coverage is **17 complete roots,
+222 unique statements**; this does not establish Game integration or full
+gameplay parity. No recorded gameplay or source-machine execution was used.

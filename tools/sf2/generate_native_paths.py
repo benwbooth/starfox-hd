@@ -40,6 +40,7 @@ ROOTS = (
     ("PLAYER_CHARGE_ORB", PathAddress(0xF04F)),
     ("NODE_GATED_TARGET_SERVICE", PathAddress(0x545F)),
     ("ENCOUNTER_RADIO_SERVICE", PathAddress(0x7BC5)),
+    ("FIRST_CONTROL_GUIDANCE", PathAddress(0x04B5)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -679,13 +680,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             center = {"ContractLocalRadius": "LocalOrigin", "ContractSelectedRadius": "Selected", "ContractLinkedRadius": "Linked"}[name]
             amount = value if value < 128 else value - 256
             statement = f"Statement::Radius {{ command: RadiusCommand {{ center: RadiusCenter::{center}, amount: {amount} }}, next: {next_cursor()} }}"
-        elif name == "ImportWordIndexed":
+        elif name in ("ImportWordIndexed", "ExportWordIndexed"):
             variable, index = parameters(2)
             # $7F:9FE7 widens the second literal without scaling it. Only
-            # this reviewed live domain field is mapped, never shared RAM.
-            if index != 0x9A:
+            # reviewed live domain fields are mapped, never shared RAM.
+            if index == 0x36:
+                operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
+                statement = f"Statement::Guidance {{ command: GuidanceCommand::{operation}, next: {next_cursor()} }}"
+            elif index == 0x9A and name.startswith("Import"):
+                statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
+            else:
                 raise UnsupportedPath(f"unported shared word {0xD75C + index:04X} at {command.address.label()}")
-            statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
@@ -710,6 +715,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 address = low | (high << 8)
             if address == 0x1DD6 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1DD0 and name == "ImportByteAbsolute":
+                statement = f"Statement::ImportControlStyle {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address in (0xD7F2, 0x1C06) and name.startswith("Import"):
@@ -881,6 +890,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_program::SelectedAuxiliaryCommand;\n"
     if any("CampaignByte::" in statement for statement in unique_statements.values()):
         source += "use super::path_program::CampaignByte;\n"
+    if any("GuidanceCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_program::GuidanceCommand;\n"
     if any("RadiusCommand" in statement for statement in unique_statements.values()):
         source += "use super::path_steering::{RadiusCenter, RadiusCommand};\n"
     if any("PlayerControlCommand::" in statement for statement in unique_statements.values()):
