@@ -85,6 +85,10 @@ mod guidance_controller_tests;
 #[path = "path_impact_tests.rs"]
 mod impact_tests;
 
+#[cfg(test)]
+#[path = "path_rapid_projectile_tests.rs"]
+mod rapid_projectile_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -106,6 +110,7 @@ pub struct PathWorld<'a> {
     pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
     pub protection: Option<super::path_protection::PathProtection<'a>>,
     pub linked_shot_count: Option<super::path_shots::LinkedShotCount<'a>>,
+    pub projectile_flight_override: Option<&'a mut super::path_shots::ProjectileFlightOverride>,
     pub audio: Option<super::path_sound::PathAudio<'a>>,
     pub radio: Option<super::path_radio::PathRadio<'a>>,
     pub deferred_message: Option<&'a mut super::path_radio::DeferredMessage>,
@@ -491,6 +496,10 @@ pub enum Statement {
     ImportImpactMaterial { destination: super::path_fields::ByteField, next: PathCursor },
     ImportPairSuppression { destination: super::path_fields::ByteField, next: PathCursor },
     LinkedShotCount { command: super::path_shots::ShotCountCommand, next: PathCursor },
+    ProjectileFlightOverride { command: super::path_shots::FlightOverrideCommand, next: PathCursor },
+    /// Decoded authored shape sequence. Invalid selectors are diagnostics,
+    /// not wrapping source addresses or fabricated fallback shapes.
+    SelectShape { selector: super::path_fields::ByteField, shapes: &'static [super::ShapeId], next: PathCursor },
     MarkForDeath,
     SetActionGate { value: u8, next: PathCursor },
     /// Literal comparisons branch directly without consuming IFNOT.
@@ -885,6 +894,8 @@ pub enum ProgramError {
     MissingSurfaceMode,
     MissingImpactState,
     MissingLinkedShotCount,
+    MissingProjectileFlightOverride,
+    ShapeSelectionOutOfBounds { index: u8, count: usize },
     ShotCount(super::path_shots::ShotCountError),
     MissingPublishedHomingTarget,
     Impact(super::path_impact::ImpactError),
@@ -1819,6 +1830,21 @@ impl PathRuntime {
                     objects.get_mut(owner).expect("validated shot counter owner").base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::ProjectileFlightOverride { command, next } => {
+                    let state = world.projectile_flight_override.as_deref_mut().ok_or(ProgramError::MissingProjectileFlightOverride)?;
+                    let actor = objects.get_mut(owner).expect("validated projectile flight override owner");
+                    state.apply(actor, command);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SelectShape { selector, shapes, next } => {
+                    let actor = objects.get_mut(owner).expect("validated shape selector owner");
+                    let index = selector.read(actor);
+                    let shape = shapes.get(usize::from(index)).ok_or(ProgramError::ShapeSelectionOutOfBounds { index, count: shapes.len() })?;
+                    actor.base.shape = *shape;
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ImportSurfaceMode { destination, next } => {
                     let mode = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?;
                     let actor = objects
@@ -2125,6 +2151,7 @@ mod tests {
             linked_effect_activity: None,
             protection: None,
             linked_shot_count: None,
+            projectile_flight_override: None,
             audio: None,
             radio: None,
             deferred_message: None,
@@ -9178,6 +9205,7 @@ mod tests {
                 linked_effect_activity: None,
                 protection: None,
                 linked_shot_count: None,
+                projectile_flight_override: None,
                 audio: None,
                 radio: None,
                 deferred_message: None,
@@ -13242,9 +13270,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 115);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2066);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2075);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 117);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2316);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2325);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13391,6 +13419,7 @@ mod tests {
                 linked_effect_activity: None,
                 protection: None,
                 linked_shot_count: None,
+                projectile_flight_override: None,
                 audio: None,
                 radio: None,
                 deferred_message: None,
@@ -13532,6 +13561,7 @@ mod tests {
                         linked_effect_activity: None,
                         protection: None,
                         linked_shot_count: None,
+                        projectile_flight_override: None,
                         audio: None,
                         radio: None,
                         deferred_message: None,

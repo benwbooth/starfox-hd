@@ -1,9 +1,34 @@
 //! Player-owned live shot count, shared by the launch gate and linked paths.
 //! Source: `$06:A9E6..AA19`, `$7F:BDC9..BDF7`, auxiliary byte 6C03.
 
+use super::path_fields::{ByteField, ByteOperand};
 use super::{ObjectId, ObjectStore};
 
 const SHOT_LIMIT: u8 = 8;
+
+/// Scene-owned projectile flight override (D7D8). Scene initialization clears
+/// it; the large encounter controller at path 9492 publishes one. The rapid
+/// shots use exactly one to retain their extended-flight route; other codes
+/// fall back to the complete surface-mode byte. Keep the source byte intact.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ProjectileFlightOverride {
+    pub code: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlightOverrideCommand {
+    CopyTo(ByteField),
+    Assign(ByteOperand),
+}
+
+impl ProjectileFlightOverride {
+    pub fn apply(&mut self, actor: &mut super::Object, command: FlightOverrideCommand) {
+        match command {
+            FlightOverrideCommand::CopyTo(field) => field.write(actor, self.code),
+            FlightOverrideCommand::Assign(value) => self.code = value.read(actor),
+        }
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ActiveShots(u8);

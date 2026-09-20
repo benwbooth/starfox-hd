@@ -2936,3 +2936,32 @@ All 457 path tests pass in debug/release, 168 lowerer tests and 356 source-stati
 tests pass, and architecture/static audits plus the app build pass (existing
 icon warning). Coverage stays at 115 roots / 2,075 commands / 2,066 statements;
 rapid-shot graphs and shipping scheduler integration remain open.
+
+### Complete rapid-impact projectile graphs
+
+The `$44:E973` and `$44:EB1A` graphs now lower completely: 166 and 150 source
+commands including shared impact helpers, effect child, count cleanup, shape
+callbacks and forced-exit callbacks. Their scene-owned flight override retains
+the complete source byte; exactly one bypasses surface-mode selection. Static
+pins cover scene initialization, the encounter-controller producer and both
+consumers. The shape tables are decoded offline into six/four four-frame
+groups. Valid launcher inputs and authored increments remain within those
+groups; invalid selectors fault explicitly instead of treating wrapped source
+memory as ROM data or substituting a shape.
+
+Whole-graph tests cover all five launch shapes, normal/extended flight and
+special-character branches, opening motion bursts, callback shape changes,
+all material bytes at four contact stages, count wrap/saturation, forced
+new-contact cleanup, ground/occupancy exits and the lower-exclusive,
+upper-inclusive height callback. The ordinary surface-latch exit retains the
+previous pair suppression byte: it can play its material cue yet suppress the
+impact actor. The first rapid path's IFNOT skips an extra position integration
+in extended mode; the alternate path checks occupancy before contact in its
+extended non-special second stage. Tests preserve both branch-order details.
+
+All 465 path tests pass in debug/release, along with 21 weapon tests, 169
+lowerer tests, 358 source-static tests, architecture/static audits and app
+build (existing icon warning). Catalog coverage is 117 complete roots, 2,325
+unique source commands and 2,316 typed statements. These are native component
+tests, not recorded gameplay evidence; rapid-shot creation selectors and
+shipping scheduler integration remain separate work.

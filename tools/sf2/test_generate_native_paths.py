@@ -4,11 +4,12 @@
 from pathlib import Path
 import unittest
 import re
+import hashlib
 from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, independent_spawn_parameters, spawn_shape, generate, graph, lower_graph, lowering_units, SelectedOffsetAim, shape_index, trigger_kind, variable_bit_masks, word_field,
+    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, independent_spawn_parameters, spawn_shape, generate, graph, lower_graph, lowering_units, SelectedOffsetAim, shape_index, trigger_kind, variable_bit_masks, word_field, rapid_shot_shapes,
 )
 
 
@@ -27,6 +28,35 @@ class NativePathGenerationTests(unittest.TestCase):
         for record in ['7d a1 46 d7', 'fb 46 d7 01']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
+
+    def test_rapid_shot_graphs_are_complete_with_bounded_decoded_shape_sequences(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, checksum in [
+            (0xE973, 166, '6fbb4a1118d31007dcf0e80e273d7b3e59a863a0bcaec70058626a592604dabf'),
+            (0xEB1A, 150, '62add1d89f3ac58bfff290fa62e54fcfcba65df6f09d48311dc1b2e1d996d158'),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), checksum)
+            statements = lower_graph(extractor, PathAddress(root), 0)[1]
+            self.assertEqual(len(statements), count)
+            self.assertEqual(sum('SelectShape' in s for s in statements), 3)
+            self.assertEqual(sum('ShotCountCommand::Increment' in s for s in statements), 1)
+            self.assertEqual(sum('ShotCountCommand::Decrement' in s for s in statements), 1)
+        for address, expected in [
+            (0x06FE93, (359,138,406,407,361,139,408,407,364,140,365,366,359,358,0,0,361,360,0,0,364,363,0,0)),
+            (0x06FEC3, (364,140,365,366,26,27,28,29,364,363,0,0,26,25,0,0)),
+        ]:
+            self.assertEqual(rapid_shot_shapes(self.rom, address), expected)
+            with self.assertRaisesRegex(UnsupportedPath, 'constant-word lookup window'):
+                banked_word_values(self.rom, address)
+            for group in range(0, len(expected), 4):
+                self.assertEqual(len(expected[group:group + 4]), 4)
+        for record in ['91 93 fe 06 26 04', '91 94 fe 06 27 04', '91 c3 fe 05 27 04']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+        for record in ['7a a2 7c', 'fb d8 d7 01']:
+            self.assertIn('ProjectileFlightOverride', self.lower_record(record)[0])
 
     def test_impact_material_producers_and_all_four_branch_edges(self):
         for opcode, operation in [('69', 'OrdinaryImpactMaterial'), ('6a', 'SuppressedImpactMaterial')]:
@@ -1753,8 +1783,8 @@ class NativePathGenerationTests(unittest.TestCase):
                 banked_word_values(self.rom, address)
         with self.assertRaisesRegex(UnsupportedPath, "truncated constant-byte lookup"):
             banked_word_values(self.rom[:0x37E54], 0x06FC55)
-        # Shape-token destinations still need semantic decoding, not u16 writes.
-        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
+        # Arbitrary shape-token destinations still need reviewed sequences.
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed rapid-shot shape selector A1"):
             self.lower_record("91 55 fc 06 a1 04")
 
     def test_spawned_sound_graph_is_complete_and_shared_with_standalone_entry(self):

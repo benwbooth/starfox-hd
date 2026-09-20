@@ -19,7 +19,7 @@ fn player(objects: &mut ObjectStore, position: Vector3) -> ObjectId {
     objects.allocate(actor).unwrap()
 }
 
-fn audio(events: &mut AudioState) -> PathAudio<'_> {
+pub(super) fn audio(events: &mut AudioState) -> PathAudio<'_> {
     PathAudio {
         events,
         listeners: [CueListener::PrimaryPlayer; 2],
@@ -34,7 +34,7 @@ fn audio(events: &mut AudioState) -> PathAudio<'_> {
     }
 }
 
-fn callbacks(
+pub(super) fn callbacks(
     runtime: &mut PathRuntime,
     catalog: &PathCatalog,
     objects: &mut ObjectStore,

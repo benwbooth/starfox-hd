@@ -139,6 +139,8 @@ ROOTS = (
     ("PROXIMITY_WARNING_COOLDOWN", PathAddress(0x88DA)),
     ("GUIDANCE_RADIO_CONTROLLER", PathAddress(0x0591)),
     ("AIMED_IMPACT_PROJECTILE", PathAddress(0xF084)),
+    ("RAPID_IMPACT_PROJECTILE", PathAddress(0xE973)),
+    ("ALTERNATE_RAPID_IMPACT_PROJECTILE", PathAddress(0xEB1A)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -285,6 +287,26 @@ def banked_word_values(rom: bytes, address: int) -> tuple[int, ...]:
         raise UnsupportedPath(f"unreviewed constant-word lookup window {address:06X}")
     data = bytes(banked_byte_values(rom, address) + banked_byte_values(rom, address + 256))
     return tuple(int.from_bytes(data[index:index + 2], "little") for index in range(0, 512, 2))
+
+
+def rapid_shot_shapes(rom: bytes, address: int) -> tuple[int, ...]:
+    """Decode the authored four-frame groups, not a bank-wrapped memory view.
+
+    E973 resets its selector and selects one of six groups (three weapon
+    levels times two flight modes). EB1A receives zero from fresh weapon
+    initialization and selects one of four groups. Both increment through
+    four entries. The native statement faults outside those authored groups;
+    the source's out-of-contract WRAM wrap is not a constant ROM lookup.
+    """
+    counts = {0x06FE93: 24, 0x06FEC3: 16}
+    if address not in counts:
+        raise UnsupportedPath(f"unreviewed rapid-shot shape table {address:06X}")
+    start = source_offset(address)
+    data = rom[start:start + counts[address] * 2]
+    if len(data) != counts[address] * 2:
+        raise UnsupportedPath(f"truncated rapid-shot shape table {address:06X}")
+    return tuple(shape_index(int.from_bytes(data[index:index + 2], "little"))
+                 for index in range(0, len(data), 2))
 
 
 def trigger_kind(condition: int) -> str:
@@ -1362,6 +1384,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ImportPairSuppression {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address == 0xD7D8 and name in ("ImportByteIndexed", "StoreExternalByte"):
+                operation = f"CopyTo({byte_field(variable)})" if name == "ImportByteIndexed" else f"Assign(ByteOperand::Literal({value}))"
+                statement = f"Statement::ProjectileFlightOverride {{ command: super::path_shots::FlightOverrideCommand::{operation}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address in (0xD7F2, 0x1C06) and name.startswith("Import"):
                 source = "Difficulty" if address == 0xD7F2 else "EncounterVariant"
                 statement = f"Statement::ImportCampaignByte {{ source: CampaignByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
@@ -1389,6 +1416,15 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name in ("IndexByteBanked", "IndexWordBanked"):
             low, high, bank, selector, destination = parameters(5)
             wide = name == "IndexWordBanked"
+            if wide and destination == 0x04:
+                address = low | (high << 8) | (bank << 16)
+                if selector != 0x27:
+                    raise UnsupportedPath(f"unreviewed rapid-shot shape selector {selector:02X}")
+                values = rapid_shot_shapes(extractor.rom, address)
+                shapes = ', '.join(f'ShapeId::from_catalog_index({value})' for value in values)
+                statement = f"Statement::SelectShape {{ selector: {byte_field(selector)}, shapes: const {{ &[{shapes}] }}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             kind = "Word" if wide else "Byte"
             values = (banked_word_values if wide else banked_byte_values)(
                 extractor.rom, low | (high << 8) | (bank << 16))
