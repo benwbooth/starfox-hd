@@ -1192,8 +1192,10 @@ The three shared homing-projectile roots (`$44:EE2D`, `$44:EE3B`, `$44:EE4C`)
 are now fully lowered. The first two preserve their distinct speed/doubling
 prefixes and primary horizontal-motion inheritance; the third selects attack
 2/3/4 by difficulty and rejects targets at or beyond 12,000 horizontal units.
-The shared setup subsequently replaces that inherited velocity, creates its
-independent sprite, and selects the lifetime branch using the whole mode byte.
+The shared setup enables per-step velocity generation, creates its independent
+sprite, and selects the lifetime branch using the whole mode byte. Subsequent
+speed assignments retain the inherited velocity until the scheduler's movement
+entry regenerates it; path dispatch does not perform that movement itself.
 
 Zero mode performs three radius contractions per chase yield until the target
 is within 1,000 units, then enters a forty-iteration loop with two-tick smooth

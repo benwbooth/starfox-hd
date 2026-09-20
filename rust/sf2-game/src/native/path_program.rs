@@ -5220,6 +5220,33 @@ mod tests {
                             if exit == 2 { 56 } else { u16::MAX };
                         actor.extension.path_state.conditions.selected_player =
                             PlayerTarget::Secondary;
+                        let prefix_speed =
+                            if root == authored_paths::DOUBLED_MOTION_HOMING_PROJECTILE {
+                                75
+                            } else {
+                                90
+                            };
+                        let prefix_scale =
+                            if root == authored_paths::DOUBLED_MOTION_HOMING_PROJECTILE {
+                                2
+                            } else {
+                                1
+                            };
+                        let direction = super::super::path_motion::direction_velocity(
+                            super::super::Angle::ZERO,
+                            super::super::Angle::ZERO,
+                            prefix_speed,
+                            1,
+                        );
+                        let inherited_velocity = if inherits {
+                            Vector3 {
+                                x: direction.x.wrapping_mul(prefix_scale).wrapping_add(101),
+                                y: direction.y.wrapping_mul(prefix_scale),
+                                z: direction.z.wrapping_mul(prefix_scale).wrapping_add(-303),
+                            }
+                        } else {
+                            Vector3::default()
+                        };
                         let mut audio = AudioState::default();
                         let marker = CueMarker {
                             identity: CueListener::Other,
@@ -5366,6 +5393,47 @@ mod tests {
                             );
                             assert_eq!(actor.base.target_speed, limit as u8);
                             assert_eq!(actor.base.speed, if mode == 0 { 63 } else { 30 });
+                            // Per-step generation was enabled before later SETVELs.
+                            // Path dispatch alone retains the prefix velocity;
+                            // the scheduler regenerates it at movement entry.
+                            assert_eq!(actor.base.velocity, inherited_velocity);
+                            if visit == 0 {
+                                let mut moved = actor.clone();
+                                super::super::path_motion::before_callbacks(
+                                    &mut moved,
+                                    owner,
+                                    super::super::path_motion::PlayerDisplacement::default(),
+                                );
+                                assert_eq!(
+                                    moved.base.velocity,
+                                    super::super::path_motion::direction_velocity(
+                                        actor.base.pitch,
+                                        actor.base.yaw,
+                                        actor.base.speed,
+                                        4
+                                    )
+                                );
+                                assert_eq!(
+                                    moved.base.position,
+                                    Vector3 {
+                                        x: actor
+                                            .base
+                                            .position
+                                            .x
+                                            .wrapping_add(moved.base.velocity.x),
+                                        y: actor
+                                            .base
+                                            .position
+                                            .y
+                                            .wrapping_add(moved.base.velocity.y),
+                                        z: actor
+                                            .base
+                                            .position
+                                            .z
+                                            .wrapping_add(moved.base.velocity.z),
+                                    }
+                                );
+                            }
                             assert_eq!(actor.base.shape, ShapeId::from_catalog_index(357));
                             assert!(!actor.base.flags.casts_shadow);
                             assert_eq!(
