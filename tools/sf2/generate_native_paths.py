@@ -41,6 +41,7 @@ ROOTS = (
     ("NODE_GATED_TARGET_SERVICE", PathAddress(0x545F)),
     ("ENCOUNTER_RADIO_SERVICE", PathAddress(0x7BC5)),
     ("FIRST_CONTROL_GUIDANCE", PathAddress(0x04B5)),
+    ("SURFACE_OR_GROUND_LIMITED", PathAddress(0xEEED)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -369,10 +370,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
             spawn_ = f"ChildSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, position: {position}, rotation: {rotation}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power}, number: {spawn.number} }}"
             statement = f"Statement::SpawnChild {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
-        elif name == "IfSelectedAuxiliaryMapCellOccupied":
+        elif name in ("IfSelectedAuxiliaryMapCellOccupied", "IfCurrentAtOrAboveCollisionTarget"):
             low, high = parameters(2)
             taken, next_ = branch_cursors(low | (high << 8))
-            statement = f"Statement::OccupiedCell {{ taken: {taken}, next: {next_} }}"
+            branch = "OccupiedCell" if name == "IfSelectedAuxiliaryMapCellOccupied" else "AtOrAboveSurface"
+            statement = f"Statement::{branch} {{ taken: {taken}, next: {next_} }}"
         elif name == "QuickSpawn":
             shape_low, shape_high, path_low, path_high, health, power = parameters(6)
             shape, kind = spawn_shape(shape_low | (shape_high << 8))
@@ -730,6 +732,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if address == 0x1DD0 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportControlStyle {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1B4D and name == "ImportByteAbsolute":
+                statement = f"Statement::ImportSurfaceMode {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address in (0xD7F2, 0x1C06) and name.startswith("Import"):

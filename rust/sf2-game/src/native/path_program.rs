@@ -23,6 +23,7 @@ pub struct PathWorld<'a> {
     /// Fresh selected-player exemption (auxiliary map flag bit 80).
     pub selected_occupancy_exempt: Option<bool>,
     pub occupancy: Option<&'a super::world_occupancy::WorldOccupancy>,
+    pub surface_mode: Option<super::collision_surface::SurfaceMode>,
     /// Primary player identity, independent of the current selected slot.
     pub primary_player: Option<ObjectId>,
     pub selected: Option<ObjectId>,
@@ -359,6 +360,14 @@ pub enum Statement {
         taken: PathCursor,
         next: PathCursor,
     },
+    AtOrAboveSurface {
+        taken: PathCursor,
+        next: PathCursor,
+    },
+    ImportSurfaceMode {
+        destination: super::path_fields::ByteField,
+        next: PathCursor,
+    },
     Random {
         mutation: super::path_random::RandomMutation,
         next: PathCursor,
@@ -454,6 +463,8 @@ pub enum ProgramError {
     MissingControlStyle,
     MissingOccupancyExemption,
     MissingOccupancy,
+    MissingSurfaceMode,
+    SurfaceQuery(super::collision_surface::SurfaceQueryError),
     MissingSoundMarkers,
     MissingCountdown,
     Spawn(super::path_spawn::SpawnError),
@@ -897,6 +908,42 @@ impl PathRuntime {
                         .path = Some(if occupied { taken } else { next });
                     Ok(ControlStep::Continue)
                 }
+                Statement::AtOrAboveSurface { taken, next } => {
+                    let search = world
+                        .surface_mode
+                        .ok_or(ProgramError::MissingSurfaceMode)?
+                        .search();
+                    let result = super::collision_surface::query_object_surface(
+                        objects,
+                        owner,
+                        world.animation_clock,
+                        search,
+                    )
+                    .map_err(ProgramError::SurfaceQuery)?;
+                    let actor = objects.get_mut(owner).expect("validated surface owner");
+                    // $7F:BF86 restores the old group byte, but retains both
+                    // the supporting-object link and contact flags, even
+                    // when no surface was found. Both edges bypass IFNOT.
+                    let group = actor.extension.surface_contact.group;
+                    actor.extension.surface_contact = result.contact;
+                    actor.extension.surface_contact.group = group;
+                    actor.base.path =
+                        Some(if actor.base.position.y.wrapping_sub(result.height) >= 0 {
+                            taken
+                        } else {
+                            next
+                        });
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportSurfaceMode { destination, next } => {
+                    let mode = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated surface mode owner");
+                    destination.write(actor, mode.flags);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::Guidance { command, next } => {
                     let history = world
                         .guidance
@@ -1139,6 +1186,7 @@ mod tests {
             control_style: None,
             selected_occupancy_exempt: None,
             occupancy: None,
+            surface_mode: None,
             primary_player: None,
             selected: None,
             fixed_players: [None; 2],
@@ -4415,6 +4463,7 @@ mod tests {
                 control_style: None,
                 selected_occupancy_exempt: None,
                 occupancy: None,
+                surface_mode: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -4804,6 +4853,339 @@ mod tests {
         assert_eq!(request, original_request);
         assert_eq!(random, original_random);
         assert!(runtime.branch.invert_next);
+    }
+
+    #[test]
+    fn surface_mode_import_resamples_all_byte_bits_and_search_uses_only_low_three() {
+        use super::super::collision_surface::{SurfaceMode, SurfaceSearch};
+        let catalog = PathCatalog::new(vec![vec![Statement::ImportSurfaceMode {
+            destination: ByteField::WordPart {
+                field: WordField::MotionPhase,
+                part: super::super::path_fields::BytePart::Low,
+            },
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .motion_phase = 0xABCD;
+        objects.get_mut(owner).unwrap().base.wait_timer = 17;
+        runtime.branch.invert_next = true;
+        let before = objects.clone();
+        let before_random = random;
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingSurfaceMode)
+        );
+        assert_eq!(objects, before);
+        for flags in 0..=u8::MAX {
+            objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+            let mode = SurfaceMode { flags };
+            assert_eq!(
+                mode.search(),
+                if flags % 8 == 0 {
+                    SurfaceSearch::Full
+                } else {
+                    SurfaceSearch::Reduced
+                }
+            );
+            let mut inputs = world(&mut random);
+            inputs.surface_mode = Some(mode);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            let mut expected = before.clone();
+            expected
+                .get_mut(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .motion_phase = 0xAB00 | u16::from(flags);
+            expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 1));
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, before_random);
+        }
+    }
+
+    #[test]
+    fn authored_surface_root_keeps_ten_visit_loop_and_live_surface_ground_contact_callbacks() {
+        use super::super::{
+            authored_paths,
+            collision_surface::{ActorSurfaceContact, SurfaceMode},
+        };
+        let catalog = authored_paths::catalog();
+        // Mode selection is sampled once, while the surface search mode and
+        // geometry remain live on every callback. Ground short-circuits the
+        // surface query only in the nonzero-mode branch.
+        for initial_mode in [0, 1, 8] {
+            for homing in [false, true] {
+                for (surface_visit, ground_visit, contact_visit, last_visit) in [
+                    (None, None, None, 9),
+                    (Some(2), None, None, 2),
+                    (None, Some(3), None, 3),
+                    (None, None, Some(4), 4),
+                ] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let mut target =
+                        Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+                    target.base.position.z = 1000;
+                    let player = objects.allocate(target).unwrap();
+                    let mut surface = Object::new(
+                        ObjectKind::Enemy,
+                        ShapeId::from_catalog_index(156),
+                        Behavior::FollowPath,
+                    );
+                    surface.base.contacts.first_strategy_visit = false;
+                    surface.base.position.x = 1000;
+                    let support = objects.allocate(surface).unwrap();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(authored_paths::SURFACE_OR_GROUND_LIMITED);
+                    actor.base.shape = ShapeId::from_catalog_index(if homing { 363 } else { 0 });
+                    actor.base.position.y = -500;
+                    actor.base.wait_timer = 37;
+                    actor.extension.path_state.motion_phase = 0xABCD;
+                    actor.extension.surface_contact = ActorSurfaceContact {
+                        supporting_object: Some(player),
+                        group: 171,
+                        flags: 99,
+                    };
+                    let initial_random = random;
+                    for visit in 0..=last_visit {
+                        if surface_visit == Some(visit) {
+                            objects.get_mut(support).unwrap().base.position.x = 0;
+                            objects.get_mut(owner).unwrap().base.position.y = -403;
+                        }
+                        if ground_visit == Some(visit) {
+                            objects.get_mut(owner).unwrap().base.position.y = 0;
+                        }
+                        let mut inputs = world(&mut random);
+                        // All variants switch to reduced search AFTER setup,
+                        // without reselecting the installed callback path.
+                        inputs.surface_mode = Some(SurfaceMode {
+                            flags: if visit == 0 { initial_mode } else { 1 },
+                        });
+                        inputs.primary_player = Some(player);
+                        inputs.selected = Some(player);
+                        inputs.fixed_players = [Some(player); 2];
+                        let mut outcome = runtime
+                            .enter_program(&catalog, &mut objects, owner, &mut inputs, 32)
+                            .unwrap();
+                        if outcome == ControlStep::Movement {
+                            if contact_visit == Some(visit) {
+                                objects
+                                    .get_mut(owner)
+                                    .unwrap()
+                                    .base
+                                    .contacts
+                                    .new_contact_latched = true;
+                            }
+                            // The nonzero callback must bypass missing surface
+                            // inputs if its ground test succeeds first.
+                            if initial_mode != 0 && ground_visit == Some(visit) {
+                                inputs.surface_mode = None;
+                            }
+                            assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                            loop {
+                                match runtime
+                                    .step_callbacks(
+                                        &mut objects,
+                                        owner,
+                                        TriggerWorldInputs::default(),
+                                    )
+                                    .unwrap()
+                                {
+                                    CallbackStep::Complete => break,
+                                    CallbackStep::Run(_) => assert_eq!(
+                                        runtime.resume_program(
+                                            &catalog,
+                                            &mut objects,
+                                            owner,
+                                            &mut inputs,
+                                            8
+                                        ),
+                                        Ok(ControlStep::ResumeCallbacks)
+                                    ),
+                                    CallbackStep::Skipped | CallbackStep::Expired => {}
+                                }
+                            }
+                            if visit == last_visit {
+                                assert_eq!(
+                                    catalog
+                                        .statement(objects.get(owner).unwrap().base.path.unwrap())
+                                        .unwrap(),
+                                    Statement::Control(ControlCommand::End)
+                                );
+                                outcome = runtime
+                                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
+                                    .unwrap();
+                            }
+                        }
+                        assert_eq!(
+                            outcome,
+                            if visit == last_visit {
+                                ControlStep::Ended
+                            } else {
+                                ControlStep::Movement
+                            }
+                        );
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(
+                            actor.extension.path_state.motion_phase,
+                            0xAB00 | u16::from(initial_mode)
+                        );
+                        assert_eq!(actor.extension.surface_contact.group, 171);
+                        assert_eq!(
+                            actor.extension.surface_contact.supporting_object,
+                            if surface_visit == Some(visit) {
+                                Some(support)
+                            } else {
+                                None
+                            }
+                        );
+                        assert_eq!(
+                            actor.extension.surface_contact.flags,
+                            if surface_visit == Some(visit) { 6 } else { 0 }
+                        );
+                        assert_eq!(actor.base.speed, 50);
+                        assert_eq!(actor.base.target_speed, 10);
+                        assert!(!actor.base.flags.casts_shadow);
+                        assert!(!runtime.branch.invert_next);
+                    }
+                    assert_eq!(random, initial_random);
+                    assert!(objects.get(owner).unwrap().base.flags.remove_after_tick);
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn surface_branch_updates_support_and_flags_preserves_group_and_uses_wrapped_sign() {
+        use super::super::collision_surface::{ActorSurfaceContact, SurfaceSearch};
+        let catalog = PathCatalog::new(vec![vec![Statement::AtOrAboveSurface {
+            taken: cursor(0, 2),
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        for (search, x, y, contact, taken) in [
+            (SurfaceSearch::Full, 0, -404, true, false),
+            (SurfaceSearch::Full, 0, -403, true, true),
+            (SurfaceSearch::Full, 0, -402, true, true),
+            (SurfaceSearch::Full, 0, 399, true, true),
+            (SurfaceSearch::Full, 0, 400, false, false),
+            (SurfaceSearch::Reduced, 0, 400, false, true),
+            (SurfaceSearch::Full, 1000, i16::MIN, false, true),
+            (SurfaceSearch::Full, 1000, -16385, false, true),
+            (SurfaceSearch::Full, 1000, -16384, false, false),
+            (SurfaceSearch::Full, 1000, 16383, false, false),
+            (SurfaceSearch::Full, 1000, 16384, false, true),
+            (SurfaceSearch::Full, 1000, i16::MAX, false, true),
+            (SurfaceSearch::Reduced, 1000, -1, false, false),
+            (SurfaceSearch::Reduced, 1000, 0, false, true),
+        ] {
+            for inverted in [true, false] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let before_random = random;
+                let mut surface = Object::new(
+                    ObjectKind::Enemy,
+                    ShapeId::from_catalog_index(156),
+                    Behavior::FollowPath,
+                );
+                surface.base.contacts.first_strategy_visit = false;
+                surface.base.flags.collision_disabled = true;
+                let candidate = objects.allocate(surface).unwrap();
+                runtime.branch.invert_next = inverted;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.position.x = x;
+                actor.base.position.y = y;
+                actor.base.wait_timer = 43;
+                actor.extension.surface_contact = ActorSurfaceContact {
+                    supporting_object: Some(owner),
+                    group: 171,
+                    flags: 220,
+                };
+                let mut expected = objects.clone();
+                let expected_cursor = if taken { cursor(0, 2) } else { cursor(0, 1) };
+                let expected_actor = expected.get_mut(owner).unwrap();
+                expected_actor.base.path = Some(expected_cursor);
+                expected_actor.extension.surface_contact = ActorSurfaceContact {
+                    supporting_object: contact.then_some(candidate),
+                    group: 171,
+                    flags: if contact { 6 } else { 0 },
+                };
+                let mut inputs = world(&mut random);
+                inputs.surface_mode = Some(super::super::collision_surface::SurfaceMode {
+                    flags: if search == SurfaceSearch::Full { 0 } else { 1 },
+                });
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: expected_cursor,
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects, expected, "search {search:?}, x {x}, y {y}");
+                assert_eq!(runtime.branch.invert_next, inverted);
+                assert_eq!(random, before_random);
+            }
+        }
+    }
+
+    #[test]
+    fn surface_branch_missing_mode_unknown_shape_and_zero_budget_are_atomic() {
+        use super::super::collision_surface::{ActorSurfaceContact, SurfaceQueryError};
+        let catalog = PathCatalog::new(vec![vec![Statement::AtOrAboveSurface {
+            taken: cursor(0, 2),
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let unknown_shape = ShapeId::from_catalog_index(u16::MAX);
+        let mut surface = Object::new(ObjectKind::Enemy, unknown_shape, Behavior::FollowPath);
+        surface.base.contacts.first_strategy_visit = false;
+        let candidate = objects.allocate(surface).unwrap();
+        objects.get_mut(owner).unwrap().extension.surface_contact = ActorSurfaceContact {
+            supporting_object: Some(candidate),
+            group: 125,
+            flags: 83,
+        };
+        runtime.branch.invert_next = true;
+        let before = objects.clone();
+        let before_random = random;
+        let mut inputs = world(&mut random);
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::MissingSurfaceMode)
+        );
+        inputs.surface_mode = Some(super::super::collision_surface::SurfaceMode { flags: 0 });
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            Err(ProgramError::BudgetExceeded {
+                cursor: cursor(0, 0),
+                executed: 0
+            })
+        );
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::SurfaceQuery(
+                SurfaceQueryError::UnknownShape {
+                    object: candidate,
+                    shape: unknown_shape
+                }
+            ))
+        );
+        assert_eq!(objects, before);
+        assert!(runtime.branch.invert_next);
+        assert_eq!(random, before_random);
     }
 
     #[test]
@@ -5745,8 +6127,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 17);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 222);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 18);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 246);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -5884,6 +6266,7 @@ mod tests {
                 control_style: None,
                 selected_occupancy_exempt: None,
                 occupancy: None,
+                surface_mode: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -5998,6 +6381,7 @@ mod tests {
                         control_style: None,
                         selected_occupancy_exempt: None,
                         occupancy: None,
+                        surface_mode: None,
                         primary_player: None,
                         selected: None,
                         fixed_players: [None; 2],

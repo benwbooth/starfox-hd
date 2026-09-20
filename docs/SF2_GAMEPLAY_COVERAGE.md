@@ -1121,3 +1121,28 @@ negative coordinates, cell edges, height independence and live map changes.
 Verification passes 87 lowerer tests, 235 static path tests, 235 native path
 tests in debug/release and all six world-occupancy tests, plus both audits and
 the app build. Root coverage remains 17/222 and full Game integration is open.
+
+The surface-height path branch (`$7F:BF86`) now queries the existing native
+geometry service through live active objects, preserving source list order,
+first-visit/footprint exemptions, fixed-versus-automatic collision animation,
+and signed wrapping comparisons. It updates the actor's supporting-object
+link and contact flags on both outcomes, clears stale contacts on a miss,
+and restores the old contact-group byte. Both edges preserve IFNOT and the
+wait timer. Missing world mode or unknown eligible shapes fail explicitly.
+The adapter exposes height and actor contacts; response-specific normals and
+footprint outputs remain outside this path observation.
+
+The source collision-mode byte is a typed shared input: imports retain all
+eight bits, while the surface search tests only the low three. With that
+input, `$44:EEED` is fully lowered, including its shape-conditional fixed-player
+facing, new-contact callback, ground-plus-surface versus surface-only callback,
+and ten-visit loop. Tests cover live search-mode changes without reselecting
+the installed callback, missing inputs bypassed by the ground short circuit,
+all termination routes, full-byte imports, and unchanged RNG/group state.
+Static contracts pin the handlers, mode writers, and entire root program.
+
+Verification passes 89 lowerer tests, 238 static path tests, 239 native path
+tests and nine surface tests in debug/release, both audits, catalog freshness
+and the app build. Coverage is **18 complete roots / 246 unique statements**;
+Game scheduler/spawn integration and complete collision response remain open.
+No recorded gameplay or source-machine execution was used.

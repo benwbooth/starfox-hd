@@ -122,6 +122,16 @@ impl AnimationControl {
         self.value | if self.manual { MANUAL_FRAME } else { 0 }
     }
 
+    /// Collision geometry uses the full shared clock byte when automatic,
+    /// unlike the renderer's seven-bit frame selection.
+    pub const fn fixed_frame(self) -> Option<u8> {
+        if self.manual {
+            Some(self.value)
+        } else {
+            None
+        }
+    }
+
     pub const fn resolve(self, clock: u8) -> u8 {
         if self.manual {
             self.value

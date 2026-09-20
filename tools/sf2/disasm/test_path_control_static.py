@@ -219,6 +219,25 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x7FBF9C, "C2 20 B5 0E 38 E5 08 30 03 4C F3 CA")
         self.assert_source(0x7F8CA3, "C2 20 20 20 C7 18 75 0E")
 
+    def test_surface_path_preserves_group_and_keeps_support_and_flags_on_both_edges(self):
+        self.assert_source(0x7FBF86, "A5 5E 29 E7 85 5E 8F 3A 30 00 BD EA 1C 48 22 3A AF 0D 68 9D EA 1C C2 20 B5 0E 38 E5 08 30 03 4C F3 CA 4C BE CA")
+        self.assert_source(0x0DB20B, "AD 5F 19 9F E8 1C 7E F0 56")
+        self.assert_source(0x0DB26A, "E2 20 AD 61 19 9F EA 1C 7E AF 8D 1A 00 9F EB 1C 7E 20 23 AF 7A AB 28 6B")
+        self.assert_source(0x7FCAF3, "C2 20 20 20 C7 95 2B E2 20 4C 75 7E")
+        self.assert_source(0x7FCABE, "E2 20 C2 20 B5 2B 18 69 03 00 95 2B E2 20 4C 75 7E")
+
+    def test_surface_object_order_eligibility_and_unmasked_automatic_animation(self):
+        self.assert_source(0x0DAF4E, "22 68 1B 7F AE A8 12 D0 03 82 9B 02 22 F0 1B 7F")
+        self.assert_source(0x7F1BFE, "E4 3A F0 6E B5 31 29 04 00 D0 67 B5 24 29 04 00 D0 60 B4 04")
+        self.assert_source(0x0DAF86, "BF CB 1C 7E 10 04 29 7F 80 04 A5 C4 29 FF 85 3E 64 3F")
+        self.assert_source(0x7F1B76, "AD 4D 1B 29 07 00 C9 00 00 F0 05 A9 00 20 80 03 A9 00 40 8D 5D 19 9C 5F 19 9C 61 19 9C 49 19 A9 00 00 8D 8B 1A 8D 8D 1A")
+
+    def test_surface_mode_writers_preserve_high_bits_and_complete_authored_path(self):
+        self.assert_source(0x068638, "AD 4D 1B 29 F8 09 01 8D 4D 1B")
+        self.assert_source(0x068656, "AD 4D 1B 29 F8 09 02 8D 4D 1B")
+        self.assert_source(0x0687CC, "AD 4D 1B 29 F8 09 00 8D 4D 1B")
+        self.assert_source(0x09EEED, "00 2c 0b 0a 0a 06 32 8a 2b 04 50 e4 fe ee f8 2a ef 8d 00 76 08 4a 18 f0 08 79 a1 4d 1b 2a a1 00 15 ef f8 1c ef 17 18 ef f8 21 ef 62 0a 44 0f 1a 00 00 26 ef 00 53 26 ef 42 4c 1b ef 42 00 4b 42")
+
     def test_collision_rotation_scales_input_words_and_preserves_product_carries(self):
         self.assert_source(0x01FD6D, "3D A0 34 50 11 50 3D A0 17 50 13 50")
         self.assert_source(0x01FE78, "F0 66 8E 1E 52 EF 15 4D F0 26 8E 1E 52 EF 19 4D")

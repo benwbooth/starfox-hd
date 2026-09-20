@@ -727,6 +727,32 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(self.lower_record("00 5f 36 f5")[0],
             "Statement::OccupiedCell { taken: cursor(0, 0), next: cursor(0, 1) }")
 
+    def test_surface_branch_keeps_object_query_and_mutation_in_native_dispatch(self):
+        self.assertEqual(self.lower_record("00 53 36 f5")[0],
+            "Statement::AtOrAboveSurface { taken: cursor(0, 0), next: cursor(0, 1) }")
+
+    def test_surface_mode_byte_is_read_only_and_complete_root_keeps_all_callbacks(self):
+        self.assertEqual(self.lower_record("79 a1 4d 1b")[0],
+            "Statement::ImportSurfaceMode { destination: ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low }, next: cursor(0, 1) }")
+        for record in ["79 a1 4c 1b", "79 a1 4e 1b", "7d a1 4d 1b", "fb 4d 1b 01", "e5 4d 1b", "e7 4d 1b"]:
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared byte"):
+                self.lower_record(record)
+        with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
+            self.lower_record("7c a1 4d 1b")
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0xEEED))
+        _, statements = lower_graph(extractor, PathAddress(0xEEED), 0)
+        self.assertEqual(len(statements), 27)
+        mapped = dict(zip((command.address.offset for command in commands), statements))
+        self.assertIn("EqualShape(ShapeId::from_catalog_index(363))", mapped[0xEEF5])
+        self.assertIn("ImportSurfaceMode", mapped[0xEF06])
+        self.assertIn("EqualByte", mapped[0xEF0A])
+        self.assertIn("GroundThreshold(0)", mapped[0xEF1C])
+        self.assertIn("AtOrAboveSurface", mapped[0xEF21])
+        self.assertIn("FixedPlayerImmediate", mapped[0xEF2A])
+        self.assertIn("ForceAfterCallbacks", mapped[0xEF26])
+        self.assertIn("ForceAfterCallbacks", mapped[0xF018])
+
     def test_independent_spawn_keeps_literal_bytes_independent_entry_and_no_child_fields(self):
         for health, power in [(0, 255), (129, 254), (255, 0)]:
             changed = bytearray(self.rom)

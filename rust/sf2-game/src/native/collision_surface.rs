@@ -6,7 +6,7 @@
 
 use sf2_data::collision_data::CollisionProfile;
 
-use super::{collision_math, Angle, ShapeId, Vector3};
+use super::{collision_math, Angle, ObjectId, ObjectStore, ShapeId, Vector3};
 
 const FULL_SEARCH_HEIGHT: i16 = 16_384;
 const REDUCED_SEARCH_HEIGHT: i16 = 8_192;
@@ -16,6 +16,24 @@ const VERTICAL_MARGIN: i16 = 2;
 pub enum SurfaceSearch {
     Full,
     Reduced,
+}
+
+/// Shared collision-mode byte maintained by player setup ($1B4D).
+/// Paths read the whole byte; the surface search tests only its low three bits.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SurfaceMode {
+    pub flags: u8,
+}
+
+impl SurfaceMode {
+    pub const fn search(self) -> SurfaceSearch {
+        const SEARCH_MODE_BITS: u8 = 0x07;
+        if self.flags & SEARCH_MODE_BITS == 0 {
+            SurfaceSearch::Full
+        } else {
+            SurfaceSearch::Reduced
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -54,6 +72,76 @@ pub struct SurfaceContact {
     /// Compound group counted backward, as authored; ordinary boxes use 0.
     pub group: u8,
     pub flags: u8,
+}
+
+/// Persistent actor outputs of the downward probe ($1CE8..1CEB).
+/// This relationship is independent of parenting and object-pair contacts.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ActorSurfaceContact {
+    pub supporting_object: Option<ObjectId>,
+    pub group: u8,
+    pub flags: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectSurfaceContact {
+    pub height: i16,
+    pub contact: ActorSurfaceContact,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceQueryError {
+    MissingOwner(ObjectId),
+    UnknownShape { object: ObjectId, shape: ShapeId },
+}
+
+/// Object-list adapter for $0D:AF3A, including the eligibility rules in
+/// $7F:1BF0. A query is read-only; callers explicitly publish actor outputs.
+/// This adapter exposes height and actor contacts only; response-specific
+/// normals and footprint outputs remain outside this path observation.
+pub fn query_object_surface(
+    objects: &ObjectStore,
+    owner: ObjectId,
+    strategy_tick: u8,
+    search: SurfaceSearch,
+) -> Result<ObjectSurfaceContact, SurfaceQueryError> {
+    let position = objects
+        .get(owner)
+        .ok_or(SurfaceQueryError::MissingOwner(owner))?
+        .base
+        .position;
+    let mut identities = Vec::new();
+    let mut colliders = Vec::new();
+    for &id in objects.active_ids() {
+        let actor = objects.get(id).expect("active surface candidate");
+        if id == owner
+            || actor.base.contacts.first_strategy_visit
+            || actor.base.flags.exclude_from_shape_footprint_search
+        {
+            continue;
+        }
+        let collider = SurfaceCollider::from_shape(
+            actor.base.shape,
+            actor.base.position,
+            actor.base.yaw,
+            actor.extension.path_state.animation.shape.fixed_frame(),
+        )
+        .ok_or(SurfaceQueryError::UnknownShape {
+            object: id,
+            shape: actor.base.shape,
+        })?;
+        identities.push(id);
+        colliders.push(collider);
+    }
+    let result = query_surface(position, &colliders, strategy_tick, search);
+    Ok(ObjectSurfaceContact {
+        height: result.height,
+        contact: ActorSurfaceContact {
+            supporting_object: result.collider_index.map(|index| identities[index]),
+            group: result.group,
+            flags: result.flags,
+        },
+    })
 }
 
 /// Source bounds admit the positive edge and reject the negative edge.
@@ -160,6 +248,7 @@ pub fn query_surface(
 
 #[cfg(test)]
 mod tests {
+    use super::super::{Behavior, Object, ObjectKind};
     use super::*;
     use sf2_data::collision_data::{CollisionGroup, CollisionRecord};
 
@@ -195,6 +284,137 @@ mod tests {
             profile,
             animation_frame: None,
         }
+    }
+
+    fn object(shape: u16, y: i16) -> Object {
+        let mut object = Object::new(
+            ObjectKind::Enemy,
+            ShapeId::from_catalog_index(shape),
+            Behavior::FollowPath,
+        );
+        object.base.position.y = y;
+        object.base.contacts.first_strategy_visit = false;
+        object
+    }
+
+    #[test]
+    fn object_query_uses_live_list_order_and_only_source_eligibility_flags() {
+        let mut objects = ObjectStore::new();
+        // Shape 7 is an ordinary box with half extents [16, 16, 16].
+        let owner = objects.allocate(object(7, -100)).unwrap();
+        let first = objects.allocate(object(7, 0)).unwrap();
+        let second = objects.allocate(object(7, 0)).unwrap();
+        let order: Vec<_> = objects
+            .active_ids()
+            .iter()
+            .copied()
+            .filter(|id| *id != owner)
+            .collect();
+        assert!(order.contains(&first) && order.contains(&second));
+        let [head, tail] = [order[0], order[1]];
+        objects.get_mut(head).unwrap().base.flags.collision_disabled = true;
+        let before = objects.clone();
+        let result = query_object_surface(&objects, owner, 0, SurfaceSearch::Full).unwrap();
+        assert_eq!(result.height, -16);
+        assert_eq!(
+            result.contact,
+            ActorSurfaceContact {
+                supporting_object: Some(head),
+                group: 0,
+                flags: 0
+            }
+        );
+        assert_eq!(objects, before);
+        for (fresh, excluded) in [(true, false), (false, true), (true, true)] {
+            let actor = objects.get_mut(head).unwrap();
+            actor.base.contacts.first_strategy_visit = fresh;
+            actor.base.flags.exclude_from_shape_footprint_search = excluded;
+            assert_eq!(
+                query_object_surface(&objects, owner, 0, SurfaceSearch::Full)
+                    .unwrap()
+                    .contact
+                    .supporting_object,
+                Some(tail)
+            );
+        }
+        objects.get_mut(tail).unwrap().base.position.x = 100;
+        assert_eq!(
+            query_object_surface(&objects, owner, 0, SurfaceSearch::Reduced).unwrap(),
+            ObjectSurfaceContact {
+                height: 0,
+                contact: ActorSurfaceContact::default()
+            }
+        );
+    }
+
+    #[test]
+    fn object_query_samples_authored_animation_without_render_clock_masking() {
+        use super::super::path_appearance::AnimationControl;
+        let mut objects = ObjectStore::new();
+        let owner = objects.allocate(object(0, -1000)).unwrap();
+        // Source shape 200: three flat planes, with offsets 64, 128, 192.
+        let candidate = objects.allocate(object(200, 0)).unwrap();
+        for (packed, clock, expected) in [
+            (0, 0, -65),
+            (0, 1, -129),
+            (0, 129, -65),
+            (129, 0, -129),
+            (129, 255, -129),
+            (255, 1, -65),
+        ] {
+            let actor = objects.get_mut(candidate).unwrap();
+            actor.extension.path_state.animation.shape = AnimationControl::from_packed(packed);
+            actor.extension.animation_frame = 2; // Renderer output is not the source channel.
+            let result = query_object_surface(&objects, owner, clock, SurfaceSearch::Full).unwrap();
+            assert_eq!(result.height, expected, "packed {packed}, clock {clock}");
+            assert_eq!(result.contact.supporting_object, Some(candidate));
+            assert_eq!(result.contact.group, 1);
+        }
+    }
+
+    #[test]
+    fn object_query_returns_compound_flags_and_rejects_unknown_eligible_shapes() {
+        let mut objects = ObjectStore::new();
+        let owner = objects.allocate(object(0, -1000)).unwrap();
+        let candidate = objects.allocate(object(156, 0)).unwrap();
+        assert_eq!(
+            query_object_surface(&objects, owner, 0, SurfaceSearch::Full).unwrap(),
+            ObjectSurfaceContact {
+                height: -403,
+                contact: ActorSurfaceContact {
+                    supporting_object: Some(candidate),
+                    group: 1,
+                    flags: 6
+                }
+            }
+        );
+        objects.get_mut(candidate).unwrap().base.shape = ShapeId::from_catalog_index(u16::MAX);
+        let before = objects.clone();
+        assert_eq!(
+            query_object_surface(&objects, owner, 0, SurfaceSearch::Full),
+            Err(SurfaceQueryError::UnknownShape {
+                object: candidate,
+                shape: ShapeId::from_catalog_index(u16::MAX)
+            })
+        );
+        assert_eq!(objects, before);
+        objects
+            .get_mut(candidate)
+            .unwrap()
+            .base
+            .contacts
+            .first_strategy_visit = true;
+        assert_eq!(
+            query_object_surface(&objects, owner, 0, SurfaceSearch::Full)
+                .unwrap()
+                .contact,
+            ActorSurfaceContact::default()
+        );
+        objects.remove(owner).unwrap();
+        assert_eq!(
+            query_object_surface(&objects, owner, 0, SurfaceSearch::Full),
+            Err(SurfaceQueryError::MissingOwner(owner))
+        );
     }
 
     #[test]

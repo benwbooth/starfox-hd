@@ -1008,6 +1008,7 @@ pub struct ObjectBase {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ObjectExtension {
     pub path_state: super::path_runtime::ActorPathState,
+    pub surface_contact: super::collision_surface::ActorSurfaceContact,
     /// Scene-owned snapshot; retirement detaches it before contact callbacks.
     pub scene_proxy: Option<super::scene_proxy::SceneProxyId>,
     pub depth_offset: u8,
