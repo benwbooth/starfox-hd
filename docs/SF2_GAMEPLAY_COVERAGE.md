@@ -782,3 +782,9 @@ All 65,536 angle pairs and dispatcher link changes are covered. Verification
 passes 55 lowerer tests, 180 static path tests, 169 native path tests in both
 debug/release, architecture/dependency checks and the app build. The complete
 catalog remains 10 roots/117 statements, without new recorded-gameplay input.
+
+The one-byte manual-zero-frame command now lowers to the same shape-channel
+initializer as `INITANIM 0`; its source write is pinned beside that initializer's
+handler. This reuses the existing animation state and does not confuse manual
+zero with automatic clock-driven animation. All 56 lowerer and 181 static path
+tests pass, with unchanged generated complete-root coverage and native code.

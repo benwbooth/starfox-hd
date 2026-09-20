@@ -174,6 +174,11 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(self.lower_record("f2")[0],
             "Statement::Relationship { command: RelationshipCommand::RefreshLinkedRotation, next: cursor(0, 1) }")
 
+    def test_short_zero_frame_is_the_existing_typed_manual_shape_initializer(self):
+        self.assertEqual(self.lower_record("f9"), self.lower_record("1b 00"))
+        self.assertEqual(self.lower_record("f9")[0],
+            "Statement::Animation { command: AnimationCommand::Initialize { channel: AnimationChannel::Shape, value: 0 }, next: cursor(0, 1) }")
+
     def test_callback_graph_has_semantic_action_and_deferred_redirection(self):
         _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF32C), 0)
         self.assertEqual(len(statements), 18)

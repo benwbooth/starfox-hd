@@ -622,9 +622,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             iterations = (f"WordOperand::UnsignedByte(ByteOperand::Actor({byte_field(variable)}))"
                           if name == "DoVariableByte" else f"WordOperand::Actor({word_field(variable)})")
             statement = f"Statement::BeginLoop {{ iterations: {iterations}, next: {next_cursor()} }}"
-        elif name in ("InitAnimation", "InitColorAnimation"):
-            value, = parameters(1)
-            channel = "Shape" if name == "InitAnimation" else "Color"
+        elif name in ("InitAnimation", "InitColorAnimation", "WriteObject1ccb80"):
+            if name == "WriteObject1ccb80":
+                parameters(0)
+                value = 0
+            else:
+                value, = parameters(1)
+            channel = "Color" if name == "InitColorAnimation" else "Shape"
             statement = f"Statement::Animation {{ command: AnimationCommand::Initialize {{ channel: AnimationChannel::{channel}, value: {value} }}, next: {next_cursor()} }}"
         elif name in ("AddAnimation", "AddColorAnimation"):
             amount, period = parameters(2)

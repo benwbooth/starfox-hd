@@ -34,6 +34,9 @@ class PathAppearanceStaticTests(unittest.TestCase):
         self.assert_source(0x7F8CFD, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CB 1C 4C D3 CA")
         self.assert_source(0x7F8D3A, "20 BC C4 8D B1 16 AD B1 16 09 80 9D CA 1C 4C D3 CA")
 
+    def test_zero_frame_short_form_is_manual_shape_initialization_not_automatic_animation(self):
+        self.assert_source(0x7FC3CF, "A9 00 09 80 9D CB 1C 4C E8 CA")
+
     def test_both_channels_add_then_correct_once_not_modulo(self):
         operands = "20 BC C4 8D B1 16 20 E0 C4 8D B7 16"
         arithmetic = "18 6D B1 16 30 04 18 6D B7 16 29 7F CD B7 16 90 04 38 ED B7 16 09 80"
