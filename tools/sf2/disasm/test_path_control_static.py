@@ -26,6 +26,17 @@ class PathControlStaticTests(unittest.TestCase):
         offset = source_offset(address)
         self.assertEqual(self.rom[offset:offset + len(expected)], expected)
 
+    def test_hit_toggle_sprite_graph_and_both_independent_parent_spawns(self):
+        self.assert_source(0x098486,
+            "6D 27 C4 4D 00 08 52 99 2E C4 5C CD F7 EF 4A AD 84 0A "
+            "1D 00 61 03 1E 01 04 44 78 69 27 C7 84 1D 00 78 1D 01 16 A5 84 "
+            "48 4C B2 84 42 4B AD 84 B8 4A BB 84 0A 19 49 5C 4C C1 84 42 "
+            "4B BB 84 17 94 84 62 2D 1D 00 78 1D 01 44 0F")
+        self.assert_source(0x0881CA, "F5 B0 BE 88 84 64 46 10 FF 28 00 A0 00 0A")
+        self.assert_source(0x08897D, "F5 B0 BE 86 84 04 00 00 00 00 00 E2 FF 01")
+        # The apparent NOP at 84B5 is a verified RTS helper, not a stub.
+        self.assert_source(0x7FAFF6, "20 FC AF 4C E8 CA 60")
+
     def test_suspension_enters_movement_and_both_strategy_passes_skip_it(self):
         self.assert_source(0x7FBC80, "B5 26 09 40 95 26 4C DE 9D")
         self.assert_source(0x7F9DDE, "A5 5E 09 18 85 5E 8F 3A 30 00 B5 0B")

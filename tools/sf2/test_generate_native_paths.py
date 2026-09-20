@@ -24,6 +24,42 @@ class NativePathGenerationTests(unittest.TestCase):
         statements = self.lower_record("20 36 f5")
         self.assertEqual(statements[0], "Statement::AttachmentAbsent { taken: cursor(0, 0), next: cursor(0, 1) }")
 
+    def test_hit_toggle_sprite_entries_keep_both_hit_callbacks_and_counted_exit(self):
+        extractor = PathExtractor(self.rom)
+        for root, count in [(0x8488, 37), (0x8486, 38)]:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((c.address.offset for c in commands), statements))
+            for address, fragment in [
+                (0x8488, "RunWhenPaused"), (0x848C, "ByteField::AttackPower"),
+                (0x8494, "TriggerKind::ConsumeHitEvent"), (0x849A, "BeginLoop"),
+                (0x84A1, "NonzeroByte(ByteOperand::Actor(ByteField::ScriptParameter))"),
+                (0x84AD, "Visibility(false)"), (0x84AE, "ForceAfterCallbacks"),
+                (0x84B2, "Cancel"), (0x84B5, "ControlCommand::Jump"),
+                (0x84B6, "TriggerKind::ConsumeHitEvent"), (0x84BA, "Hold"),
+                (0x84BB, "Visibility(true)"), (0x84BC, "DisableCollision"),
+                (0x84BD, "ForceAfterCallbacks"), (0x84C1, "Cancel"),
+                (0x84C4, "ControlCommand::Jump"), (0x84C7, "ByteField::Health"),
+                (0x84CF, "ControlCommand::End"),
+            ]:
+                self.assertIn(fragment, mapped[address])
+            if root == 0x8486:
+                self.assertIn("ByteField::ScriptParameter", mapped[root])
+                self.assertIn("ByteOperation::Increment", mapped[root])
+        # The independently reachable parent spawns are installation proof,
+        # not a claim that either parent graph can be lowered in full.
+        for source, target in [(0x401CD, 0x8489), (0x40980, 0x8487)]:
+            changed = bytearray(self.rom)
+            changed[source:source + 2] = target.to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+        for path in [0x8486, 0x8488]:
+            self.assertEqual(spawn_shape(0xBEB0, PathAddress(path)), (19, "ObjectKind::Effect"))
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+            spawn_shape(0xBEB0, PathAddress(0x8489))
+
     def test_scene_material_child_has_complete_graph_and_verified_reachable_spawn(self):
         extractor = PathExtractor(self.rom)
         root = PathAddress(0x7FAA)
@@ -1234,7 +1270,7 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_sprite_shape_metadata_requires_the_reviewed_transient_path(self):
         self.assertEqual(spawn_shape(0xBEB0, PathAddress(0xF5A1)), (19, "ObjectKind::Effect"))
         self.assertEqual(spawn_shape(0xBEB0, PathAddress(0xF306)), (19, "ObjectKind::Effect"))
-        for path in [None, PathAddress(0), PathAddress(0x8488), PathAddress(0xF32F)]:
+        for path in [None, PathAddress(0), PathAddress(0x8489), PathAddress(0xF32F)]:
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(0xBEB0, path)
         extractor = PathExtractor(self.rom)

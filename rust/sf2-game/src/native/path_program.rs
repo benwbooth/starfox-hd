@@ -5174,6 +5174,112 @@ mod tests {
     }
 
     #[test]
+    fn hit_toggle_sprite_entries_preserve_wrapping_parameters_and_exact_counted_timing() {
+        use super::super::authored_paths;
+        let catalog = authored_paths::catalog();
+        for (root, increments) in [(authored_paths::HIT_TOGGLE_SPRITE, false),
+            (authored_paths::COUNTED_HIT_TOGGLE_SPRITE, true)] {
+            for parameter in 0..=u8::MAX {
+                for health in [0, 1, 2, 255] {
+                    if health == 0 && ![0, 1, 255].contains(&parameter) { continue; }
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(root);
+                    actor.base.hit_points = health;
+                    actor.base.attack_power = parameter;
+                    actor.extension.path_state.script_parameter = parameter;
+                    actor.extension.depth_offset = 0xABCD;
+                    runtime.branch.invert_next = true;
+                    let initial_random = random;
+                    let effective_parameter = parameter.wrapping_add(u8::from(increments));
+                    // DOV widens the byte into the word-sized loop counter:
+                    // zero takes 65,536 NEXT decrements, not 256.
+                    let iterations = if health == 0 { 65_536 } else { usize::from(health) };
+                    let visits = if effective_parameter == 0 { 32 } else { 3 + 2 * iterations };
+                    for visit in 0..visits {
+                        let ending = effective_parameter != 0 && visit + 1 == visits;
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16),
+                            Ok(if ending { ControlStep::Ended } else { ControlStep::Movement }),
+                            "increments={increments} parameter={parameter} health={health} visit={visit}");
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.extension.path_state.animation.color.fixed_frame(),
+                            Some(if visit < 3 { visit as u8 + 1 } else { ((visit - 3) % 2) as u8 }));
+                        assert_eq!(actor.extension.path_state.script_parameter, effective_parameter);
+                        assert_eq!(actor.extension.texture_scroll_x, 8u8.wrapping_add(parameter));
+                        assert_eq!(actor.extension.depth_offset, 0xAB00);
+                        assert_eq!(actor.base.hit_points, health);
+                        assert!(actor.base.flags.scaled_sprite);
+                        assert!(actor.base.flags.visible);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert!(actor.base.flags.maximum_draw_distance);
+                        assert!(actor.base.contacts.run_when_paused);
+                        assert_eq!(actor.base.flags.remove_after_tick, ending);
+                        assert_eq!(actor.base.wait_timer, 0);
+                        assert!(runtime.branch.invert_next);
+                        assert_eq!(random, initial_random);
+                    }
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hit_toggle_sprite_callbacks_switch_visibility_then_restart_fade_without_reinitializing_sprite() {
+        use super::super::{authored_paths, path_triggers::TriggerKind};
+        let catalog = authored_paths::catalog();
+        for hit_visit in 0..8 {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            objects.get_mut(owner).unwrap().base.path = Some(authored_paths::HIT_TOGGLE_SPRITE);
+            objects.get_mut(owner).unwrap().base.attack_power = 37;
+            runtime.branch.invert_next = true;
+            let initial_random = random;
+            for _ in 0..=hit_visit {
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 16),
+                    Ok(ControlStep::Movement));
+            }
+            for visible in [false, true, false, true] {
+                let saved_main = objects.get(owner).unwrap().base.path;
+                // A pass without a new hit neither toggles nor redirects.
+                assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Skipped));
+                assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                assert_eq!(objects.get(owner).unwrap().base.path, saved_main);
+                objects.get_mut(owner).unwrap().extension.path_state.conditions.hit_event_pending = true;
+                assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
+                assert!(!objects.get(owner).unwrap().extension.path_state.conditions.hit_event_pending);
+                assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 4), Ok(ControlStep::ResumeCallbacks));
+                assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(actor.base.flags.visible, visible);
+                assert!(actor.base.flags.collision_disabled);
+                let redirected = actor.base.path;
+                assert_ne!(redirected, saved_main);
+                assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 12), Ok(ControlStep::Movement));
+                let actor = objects.get(owner).unwrap();
+                let triggers = actor.extension.path_state.triggers.entries(&runtime.resources, owner).unwrap();
+                assert_eq!(triggers.len(), 1);
+                assert_eq!(triggers[0].kind, TriggerKind::ConsumeHitEvent);
+                assert_eq!(actor.extension.texture_scroll_x, 45);
+                assert_eq!(actor.base.flags.visible, visible);
+                if visible {
+                    assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(1));
+                } else {
+                    let held = actor.base.path;
+                    for _ in 0..3 {
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 1), Ok(ControlStep::Movement));
+                        assert_eq!(objects.get(owner).unwrap().base.path, held);
+                    }
+                }
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, initial_random);
+            }
+            runtime.release_actor_programs(&mut objects, owner).unwrap();
+        }
+    }
+
+    #[test]
     fn attachment_absence_branch_ignores_health_retirement_and_slot_liveness() {
         let catalog = PathCatalog::new(vec![vec![Statement::AttachmentAbsent {
             taken: cursor(0, 2), next: cursor(0, 1),
@@ -10609,9 +10715,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 32);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 724);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 733);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 34);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 762);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 771);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

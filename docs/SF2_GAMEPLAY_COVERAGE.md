@@ -1658,3 +1658,34 @@ statements**. Validation passes 117 lowerer tests, 281 static path tests,
 292 native path tests in debug and release, generated freshness, the
 architecture/static audits and the application build. No source-machine
 execution or recorded gameplay was used.
+
+### Complete hit-toggle sprite child paths
+
+`HIT_TOGGLE_SPRITE` and `COUNTED_HIT_TOGGLE_SPRITE` now publish the complete
+shared graph at `44:8488`/`44:8486`, including both hit callbacks and the
+health-counted exit. Their parent spawns at `44:01CA` and `44:097D` are
+reachable from independently discovered roots. Both parents remain outside
+the complete-root allow-list. The shared sprite shape is classified as an
+effect only for the reviewed paths; adjacent/unreviewed entries still fail.
+
+The first three visits fade through color frames 1, 2 and 3. The sprite then
+alternates frames 0 and 1 indefinitely when its parameter is zero, or for
+the snapshotted health count otherwise. The alternate entry increments the
+parameter with byte wrapping: 255 therefore chooses the indefinite branch.
+The byte health operand is widened into a word loop counter, so zero takes
+65,536 iterations. A hit consumes the hit-event latch and hides the sprite;
+after callback completion the path replaces its trigger and holds. The next
+hit restores visibility, keeps collision disabled, and restarts the fade
+without resetting sprite size. The apparent NOP has a verified source RTS
+body and is not an unimplemented-command placeholder.
+
+Native tests cover all parameter/size byte values, health boundaries, full
+zero-count completion, both entry points, and repeated hide/show events
+during each of the initial eight visits. Source tests pin the entire graph,
+both spawn records and the actual NOP helper; installer mutations fail.
+
+Coverage is **34 complete roots / 771 source commands / 762 native
+statements**. Validation passes 118 lowerer tests, 282 static path tests and
+294 native path tests in debug and release, generated freshness,
+architecture/static audits and the application build. This is static
+source lowering and native service verification, not whole-game completion.

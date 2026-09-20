@@ -56,6 +56,8 @@ ROOTS = (
     ("DISTANCE_GATED_SCENERY", PathAddress(0x7F27)),
     ("HEALTH_ROTATED_DISTANCE_SCENERY", PathAddress(0x7F24)),
     ("TARGETING_UPGRADE_GLOW", PathAddress(0x81E1)),
+    ("HIT_TOGGLE_SPRITE", PathAddress(0x8488)),
+    ("COUNTED_HIT_TOGGLE_SPRITE", PathAddress(0x8486)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -63,6 +65,8 @@ SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 CHILD_INSTALLERS = {
     PathAddress(0x7FAA): (PathAddress(0x787D), PathAddress(0x7887)),
     PathAddress(0x81E1): (PathAddress(0x787D), PathAddress(0x7895)),
+    PathAddress(0x8488): (PathAddress(0x00BC), PathAddress(0x01CA)),
+    PathAddress(0x8486): (PathAddress(0x0691), PathAddress(0x097D)),
 }
 
 
@@ -199,7 +203,8 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # Shape 19 also serves unrelated damaging/attached objects. Only this
     # complete, collision-disabled sprite paths are effects;
     # the mesh alone is insufficient evidence for other uses of that shape.
-    if index == 19 and path in (PathAddress(0xF5A1), PathAddress(0xF306)):
+    if index == 19 and path in (PathAddress(0xF5A1), PathAddress(0xF306),
+                               PathAddress(0x8486), PathAddress(0x8488)):
         return index, "ObjectKind::Effect"
     # Moving/contact-triggered child of the primary weapon service D11D.
     if index == 7 and path == PathAddress(0xF4CA):
