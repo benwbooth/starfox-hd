@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("HEAVY_CHARIOT", PathAddress(0x0F7E)),
     ("TAL_KONG", PathAddress(0xA2E6)),
     ("INNER_ARENA_KICK_GUNNER", PathAddress(0x32EF)),
     ("OUTER_ARENA_KICK_GUNNER", PathAddress(0x348B)),
@@ -453,6 +454,32 @@ class IndependentSpawnParameters:
     attack_power: int
 
 
+@dataclass(frozen=True)
+class OffsetSpawnParameters:
+    actor: IndependentSpawnParameters
+    rotation: tuple[int, int, int]
+    offset: tuple[int, int, int]
+
+    @property
+    def path(self):
+        return self.actor.path
+
+
+def offset_spawn_parameters(command: PathCommand) -> OffsetSpawnParameters:
+    spec = SEMANTICS.get(command.opcode)
+    raw = bytes.fromhex(command.raw_hex)
+    if (spec is None or spec.handler_address != command.handler_address
+            or spec.rust_name != 'SpawnObject' or command.prefix_size
+            or len(raw) != 16 or raw[0] != command.opcode):
+        raise UnsupportedPath(f'unreviewed offset spawn at {command.address.label()}')
+    return OffsetSpawnParameters(
+        IndependentSpawnParameters(int.from_bytes(raw[1:3], 'little'),
+                                   PathAddress(int.from_bytes(raw[3:5], 'little')), raw[8], raw[9]),
+        tuple(raw[5:8]),
+        tuple(int.from_bytes(raw[i:i+1], 'little', signed=True) for i in (10, 12, 14)),
+    )
+
+
 def independent_spawn_parameters(command: PathCommand) -> IndependentSpawnParameters:
     spec = SEMANTICS.get(command.opcode)
     if (spec is None or spec.handler_address != command.handler_address
@@ -552,6 +579,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # Tal Kong's limb controllers and detached death presentation disable
     # collision themselves. The hittable hand they install stays an Enemy.
     if (shape, path) in ((0xE028, PathAddress(0xA4ED)), (0xE044, PathAddress(0xAF2E))):
+        return index, "ObjectKind::Effect"
+    if shape in (0xCA9C, 0xCAB8) and path == PathAddress(0x1109):
+        return index, "ObjectKind::Enemy"
+    if (shape, path) == (0xBCD4, PathAddress(0x0A0D)):
         return index, "ObjectKind::Effect"
     # Encounter fighters remain collidable until their explicit abort/death
     # paths; health/attack still come from the authored spawn record.
@@ -658,6 +689,10 @@ def graph(extractor: PathExtractor, root: PathAddress) -> list[PathCommand]:
             child_path = independent_spawn_parameters(command).path
             if child_path.offset:
                 pending.append(child_path)
+        elif command.opcode == 0x031:
+            child_path = offset_spawn_parameters(command).path
+            if child_path.offset:
+                pending.append(child_path)
     return [found[address] for address in sorted(found)]
 
 
@@ -679,6 +714,8 @@ def lowering_units(extractor: PathExtractor, root: PathAddress):
             entries.add(child_spawn_parameters(command).path)
         elif command.opcode == 0x05D:
             entries.add(independent_spawn_parameters(command).path)
+        elif command.opcode == 0x031:
+            entries.add(offset_spawn_parameters(command).path)
     consumed = set()
     units = []
     for command in commands:
@@ -1106,6 +1143,19 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             path = f"Some({cursor(spawn.path)})" if spawn.path.offset else "None"
             spawn_ = f"IndependentSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power} }}"
             statement = f"Statement::SpawnIndependent {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
+        elif name == "SpawnObject":
+            spawn = offset_spawn_parameters(command)
+            child_path = spawn.path
+            shape, kind = spawn_shape(spawn.actor.shape, child_path)
+            path = f"Some({cursor(child_path)})" if child_path.offset else "None"
+            pitch, yaw, roll = spawn.rotation
+            # The rotation service sign-extends only the low byte of each
+            # authored word. High-byte changes must not alter native position.
+            x, y, z = spawn.offset
+            actor = f"IndependentSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, hit_points: {spawn.actor.hit_points}, attack_power: {spawn.actor.attack_power} }}"
+            rotation = f"Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}"
+            spawn_ = f"super::path_spawn::OffsetSpawn {{ actor: {actor}, rotation: {rotation}, offset: super::weapon_launch::MuzzleOffset {{ x: {x}, y: {y}, z: {z} }} }}"
+            statement = f"Statement::SpawnOffset {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
         elif name == "SwapVariableWords":
             first, second = parameters(2)
             statement = f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: {next_cursor()} }}"
@@ -1496,7 +1546,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             low, high, value_low, value_high = parameters(4)
             if (low | high << 8) == 0xD777:
                 label_pointer = value_low | value_high << 8
-                labels = {0x8999: b'KICK GUNNER\0', 0x89C0: b'TAL KONG\0'}
+                labels = {0x8999: b'KICK GUNNER\0', 0x89A5: b'HEAVY CHARIOT\0', 0x89C0: b'TAL KONG\0'}
                 if label_pointer not in labels:
                     raise UnsupportedPath(f'unreviewed health display label at {command.address.label()}')
                 start = source_offset(0x030000 | label_pointer)
@@ -1520,6 +1570,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "CopyWorldPositionTo1e01":
             parameters(0)
             statement = f"Statement::PublishEncounterCameraFocus {{ next: {next_cursor()} }}"
+        elif name == "SpawnLinkedObjectEffects":
+            parameters(0)
+            statement = f"Statement::ReflectContactShots {{ next: {next_cursor()} }}"
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
@@ -1838,7 +1891,8 @@ def generate(rom: bytes, roots=ROOTS) -> str:
             parent, source = installer
             spawn = next((command for command in graph(extractor, parent)
                           if command.address == source), None)
-            installed = (independent_spawn_parameters(spawn).path if spawn is not None and spawn.opcode == 0x05D
+            installed = (offset_spawn_parameters(spawn).path if spawn is not None and spawn.opcode == 0x031
+                         else independent_spawn_parameters(spawn).path if spawn is not None and spawn.opcode == 0x05D
                          else child_spawn_parameters(spawn).path if spawn is not None else None)
             if installed != root:
                 raise UnsupportedPath(f"{name} has no verified child installer")
@@ -1914,13 +1968,13 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_triggers::{Trigger, TriggerKind};\n"
     if any("TriggerPeriod::" in statement for statement in unique_statements.values()):
         source += "use super::path_control::TriggerPeriod;\n"
-    if any("Statement::SpawnChild" in statement for statement in unique_statements.values()):
+    if any("Statement::SpawnChild" in statement or "Statement::SpawnOffset" in statement for statement in unique_statements.values()):
         source += "use super::path_spawn::ChildSpawn;\nuse super::{Angle, ObjectKind, Rotation, ShapeId, Vector3};\n"
     elif any("Statement::SpawnIndependent" in statement for statement in unique_statements.values()):
         source += "use super::{ObjectKind, ShapeId};\n"
     elif any("ShapeId::" in statement for statement in unique_statements.values()):
         source += "use super::ShapeId;\n"
-    if any("Statement::SpawnIndependent" in statement for statement in unique_statements.values()):
+    if any("Statement::SpawnIndependent" in statement or "Statement::SpawnOffset" in statement for statement in unique_statements.values()):
         source += "use super::path_spawn::IndependentSpawn;\n"
     source += "\n".join(declarations)
     source += f"\npub const LOWERED_ROOT_COUNT: usize = {len(roots)};"

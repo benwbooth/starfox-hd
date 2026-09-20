@@ -21,6 +21,48 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_heavy_chariot_closes_rotated_spawner_dependencies_and_reflection_callbacks(self):
+        from generate_native_paths import offset_spawn_parameters
+        e = PathExtractor(self.rom)
+        root = PathAddress(0x0F7E)
+        commands = graph(e, root)
+        self.assertEqual(len(commands), 462)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '1bc57c2cb3c5d0ef6b7943470f4ad47a05d11fecb4c8f7b512a834c2f392565e')
+        statements = lower_graph(e, root, 0)[1]
+        self.assertEqual(len(statements), 462)
+        self.assertEqual(sum('Statement::SpawnOffset' in s for s in statements), 1)
+        self.assertEqual(sum('Statement::ReflectContactShots' in s for s in statements), 1)
+        self.assertTrue(any('label: "HEAVY CHARIOT"' in s for s in statements))
+        for dependency in [0x12E5, 0xF5A1, 0x1109, 0x0A0D, 0x89E3]:
+            self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        spawn = e.decode_command(PathAddress(0x105B))
+        self.assertEqual(spawn.successors, (PathAddress(0x106B),))
+        self.assertEqual(offset_spawn_parameters(spawn).offset, (0, -32, 32))
+        for index, byte in enumerate([10, 12, 14]):
+            for low in range(256):
+                raw = bytearray.fromhex(spawn.raw_hex)
+                raw[byte] = low
+                raw[byte+1] = low ^ 255
+                offset = offset_spawn_parameters(replace(spawn, raw_hex=raw.hex())).offset
+                expected = [0, -32, 32]
+                expected[index] = low if low < 128 else low - 256
+                self.assertEqual(offset, tuple(expected))
+        for mutation in [replace(spawn, raw_hex=spawn.raw_hex[:-2]), replace(spawn, prefix_size=1),
+                         replace(spawn, handler_address=spawn.handler_address+1)]:
+            with self.assertRaises(UnsupportedPath):
+                offset_spawn_parameters(mutation)
+        # Depend on the whole emitted actor path even without any other root
+        # in the catalog, and reject a changed unsupported spawn dependency.
+        changed = bytearray(self.rom)
+        changed[0x4105E:0x41060] = b'\x00\x80'
+        with self.assertRaises(UnsupportedPath):
+            lower_graph(PathExtractor(bytes(changed)), root, 0)
+        for shape in [0xCA9C, 0xCAB8]:
+            self.assertEqual(spawn_shape(shape, PathAddress(0x1109))[1], 'ObjectKind::Enemy')
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(0x110A))
+
     def test_tal_kong_closes_controller_hands_and_death_presentation(self):
         extractor = PathExtractor(self.rom)
         root = PathAddress(0xA2E6)

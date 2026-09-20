@@ -1,4 +1,4 @@
-//! Authored child and independent creation (`$7F:9042..922E`). Operands are
+//! Authored child and independent creation (`$7F:9042..936A`). Operands are
 //! decoded into catalog identities and literal values. The two attached-child
 //! forms share a service; the compact form supplies zero relative rotation.
 //! Independent spawning instead samples the caller's live world pose.
@@ -27,6 +27,15 @@ pub struct IndependentSpawn {
     pub path: Option<PathCursor>,
     pub hit_points: u8,
     pub attack_power: u8,
+}
+
+/// Unattached spawn with separately added angles and a rotated muzzle offset.
+/// The source reads word offsets but rotates only their signed low bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OffsetSpawn {
+    pub actor: IndependentSpawn,
+    pub rotation: Rotation,
+    pub offset: super::weapon_launch::MuzzleOffset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +70,70 @@ pub enum SpawnParameterCommand {
 }
 
 impl SpawnState {
+    /// `$7F:9235..936A`: rotate roll, pitch, yaw with byte truncation between
+    /// stages, scale by four, then add the caller's full world coordinates.
+    /// Unlike QuickSpawn, this form does not inherit selected-player flags.
+    pub fn offset(
+        &mut self,
+        objects: &mut ObjectStore,
+        caller: ObjectId,
+        kind: ObjectKind,
+        parameters: OffsetSpawn,
+        defaults: ObjectSpawnDefaults,
+    ) -> Result<Option<ObjectId>, SpawnError> {
+        const WORLD_SCALE_SHIFT: u32 = 2;
+        let source = objects.get(caller).ok_or(SpawnError::Relationships(
+            RelationshipError::MissingActor(caller),
+        ))?;
+        let (x, y, z) = sf_core::snes_trig::strat_roffs_full_scaled(
+            source.base.roll.units(),
+            source.base.pitch.units(),
+            source.base.yaw.units(),
+            parameters.offset.x,
+            parameters.offset.y,
+            parameters.offset.z,
+            WORLD_SCALE_SHIFT,
+        );
+        let mut fresh =
+            Object::new_authored(kind, parameters.actor.shape, Behavior::FollowPath, defaults);
+        fresh.extension.path_state.needs_path_initialization = true;
+        fresh.base.position = Vector3 {
+            x: source.base.position.x.wrapping_add(x),
+            y: source.base.position.y.wrapping_add(y),
+            z: source.base.position.z.wrapping_add(z),
+        };
+        fresh.base.pitch = super::Angle::from_units(
+            source
+                .base
+                .pitch
+                .units()
+                .wrapping_add(parameters.rotation.pitch.units()),
+        );
+        fresh.base.yaw = super::Angle::from_units(
+            source
+                .base
+                .yaw
+                .units()
+                .wrapping_add(parameters.rotation.yaw.units()),
+        );
+        fresh.base.roll = super::Angle::from_units(
+            source
+                .base
+                .roll
+                .units()
+                .wrapping_add(parameters.rotation.roll.units()),
+        );
+        fresh.extension.spawn_group = source.extension.spawn_group;
+        fresh.base.path = parameters.actor.path;
+        fresh.base.hit_points = parameters.actor.hit_points;
+        fresh.base.attack_power = parameters.actor.attack_power;
+        let Some(created) = objects.allocate_scoped_after(caller, fresh) else {
+            return Ok(None);
+        };
+        self.last_spawn = Some(created);
+        Ok(Some(created))
+    }
+
     /// `$7F:91A3`: an independent actor copies the caller's world pose and
     /// player/group selection, but no attachment, relative pose, or velocity.
     /// Allocation failure is an ordinary skipped spawn and leaves last_spawn

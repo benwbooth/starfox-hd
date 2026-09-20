@@ -72,7 +72,7 @@ class RetailPathExtractionTests(unittest.TestCase):
                 0xF5B4,
             ],
         )
-        self.assertEqual(len(self.result.commands), 14220)
+        self.assertEqual(len(self.result.commands), 14237)
         self.assertEqual(len(self.result.handlers), 279)
         self.assertEqual(self.result.invalid_opcodes, [])
         self.assertEqual(self.result.unresolved_handlers, [])

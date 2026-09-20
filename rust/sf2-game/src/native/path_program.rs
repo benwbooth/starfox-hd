@@ -114,11 +114,16 @@ mod gunner_tests;
 #[path = "path_tal_kong_tests.rs"]
 mod tal_kong_tests;
 
+#[cfg(test)]
+#[path = "path_chariot_tests.rs"]
+mod chariot_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
     pub camera_focus: Option<&'a mut super::path_scene_state::EncounterCameraFocus>,
+    pub reflection: Option<super::weapon_reflection::ReflectionRules>,
     pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
     pub primary_feedback: Option<super::player_hit_control::PrimaryFeedback<'a>>,
     pub coordination: Option<&'a mut super::path_scene_state::EncounterCoordination>,
@@ -538,6 +543,8 @@ pub enum Statement {
     SetHealthDisplayLabel { label: &'static str, next: PathCursor },
     RequestPrimaryEncounterFeedback { next: PathCursor },
     PublishEncounterCameraFocus { next: PathCursor },
+    SpawnOffset { kind: super::ObjectKind, parameters: super::path_spawn::OffsetSpawn, next: PathCursor },
+    ReflectContactShots { next: PathCursor },
     /// One complete source destination-selection block with eight choices.
     ChoosePatrolDestination {
         offsets: &'static [(i16, i16); 8],
@@ -915,6 +922,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    Reflection(super::weapon_reflection::ReflectionError),
     MissingEncounterCameraFocus,
     MissingHealthDisplay,
     MissingPrimaryFeedback,
@@ -1082,6 +1090,22 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::ReflectContactShots { next } => {
+                    super::weapon_reflection::reflect_contacts(objects, owner, &mut super::weapon_reflection::ReflectionWorld {
+                        contacts: world.contacts, rules: world.reflection, weapons: world.weapons.as_deref_mut(),
+                        defaults: world.spawn_defaults, primary: world.primary_player, secondary: world.secondary_player,
+                        random: world.random,
+                    }).map_err(ProgramError::Reflection)?;
+                    objects.get_mut(owner).expect("validated reflecting actor").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SpawnOffset { kind, parameters, next } => {
+                    let defaults = world.spawn_defaults.ok_or(ProgramError::MissingSpawnDefaults)?;
+                    if let Some(path) = parameters.actor.path { catalog.statement(path)?; }
+                    self.spawns.offset(objects, owner, kind, parameters, defaults).map_err(ProgramError::Spawn)?;
+                    objects.get_mut(owner).expect("validated offset spawn caller").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::PublishEncounterCameraFocus { next } => {
                     world.camera_focus.as_deref_mut().ok_or(ProgramError::MissingEncounterCameraFocus)?.position = actor.base.position;
                     objects.get_mut(owner).expect("validated camera focus publisher").base.path = Some(next);
@@ -2333,6 +2357,7 @@ mod tests {
             scene: ScenePathInputs::default(),
             health_display: None,
             camera_focus: None,
+            reflection: None,
             primary_feedback: None,
             friend_health: None,
             coordination: None,
@@ -9393,6 +9418,7 @@ mod tests {
                 scene: ScenePathInputs::default(),
                 health_display: None,
                 camera_focus: None,
+                reflection: None,
                 primary_feedback: None,
                 friend_health: None,
                 coordination: None,
@@ -13476,9 +13502,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 131);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3442);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3486);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 132);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 3585);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 3629);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13612,6 +13638,7 @@ mod tests {
                 scene: ScenePathInputs::default(),
                 health_display: None,
                 camera_focus: None,
+                reflection: None,
                 primary_feedback: None,
                 friend_health: None,
                 coordination: None,
@@ -13759,6 +13786,7 @@ mod tests {
                         scene: ScenePathInputs::default(),
                         health_display: None,
                         camera_focus: None,
+                        reflection: None,
                         primary_feedback: None,
                         friend_health: None,
                         coordination: None,

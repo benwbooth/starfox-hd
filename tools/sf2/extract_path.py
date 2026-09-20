@@ -10,6 +10,7 @@ catalog without reading the user's ROM at run time.
 from __future__ import annotations
 
 import os
+import subprocess
 
 from disasm.extract_path import PathExtractor
 from disasm.path_semantics import PATH_SEMANTICS, PATH_SEMANTIC_BY_OPCODE
@@ -44,7 +45,7 @@ def _effect(effect) -> str:
     )
 
 
-def emit_rust(extraction) -> None:
+def render_rust(extraction) -> str:
     if extraction.invalid_opcodes or extraction.unresolved_handlers:
         raise RuntimeError(
             "refusing to generate ambiguous path data: "
@@ -52,7 +53,11 @@ def emit_rust(extraction) -> None:
             f"unresolved_handlers={extraction.unresolved_handlers}"
         )
 
-    for spec in PATH_SEMANTICS:
+    # The reviewed semantic catalog also includes handlers used only by
+    # separately installed native paths. This artifact represents the scanned
+    # graph, so neither require nor emit unreachable handlers as if discovered.
+    reachable_semantics = [spec for spec in PATH_SEMANTICS if spec.opcode in extraction.handlers]
+    for spec in reachable_semantics:
         handler = extraction.handlers.get(spec.opcode)
         if handler is None or handler.handler_address != spec.handler_address:
             actual = None if handler is None else handler.handler_address
@@ -107,7 +112,7 @@ def emit_rust(extraction) -> None:
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
         "pub enum PathSemantic {",
     ]
-    for spec in PATH_SEMANTICS:
+    for spec in reachable_semantics:
         lines.append(f"    {spec.rust_name},")
     lines += [
         "}",
@@ -200,12 +205,20 @@ def emit_rust(extraction) -> None:
         )
     lines += ["];", ""]
 
+    return subprocess.run(
+        ["rustfmt", "--edition", "2021", "--emit", "stdout"],
+        input="\n".join(lines), text=True, capture_output=True, check=True,
+    ).stdout
+
+
+def emit_rust(extraction) -> None:
+    source = render_rust(extraction)
     out = os.path.join(RUST_SRC, "path.rs")
     with open(out, "w") as file:
-        file.write("\n".join(lines))
+        file.write(source)
     print(
         f"  path.rs: {len(extraction.roots)} roots, "
-        f"{len(extraction.commands)} commands, {len(handlers)} handlers"
+        f"{len(extraction.commands)} commands, {len(extraction.handlers)} handlers"
     )
 
 

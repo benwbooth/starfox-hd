@@ -3288,3 +3288,52 @@ Debug and release suites each pass **916 unit tests and two integration tests**;
 exact regeneration and app build pass (pre-existing unused icon warnings only).
 These are static-source and native-Rust checks, not recorded gameplay, original
 program execution, whole-game completion or shipping scheduler/spawn proof.
+
+## Heavy Chariot, rotated spawns and contact reflection (2026-09-20)
+
+Complete root `$44:0F7E` now lowers the arena controller, both armor parts,
+all firing/opening/closing callbacks and its contact/death tail. Its closed
+graph contains **462 commands**; shared dependencies leave **143 newly lowered
+source commands and statements**. Catalog totals are **132 complete roots,
+3629 source commands and 3585 typed statements**.
+
+The full sixteen-byte spawner `$7F:922F` now decodes shape/path identities,
+three rotation additions, health, attack and signed low-byte offsets. It
+rotates roll, pitch then yaw, truncating between stages; only afterward does
+it scale by four and add wrapping world coordinates. Unlike QuickSpawn it does
+not inherit selected-player flags. Source group and authored initialization
+are preserved; pool exhaustion leaves last-spawn selection unchanged.
+
+The misleadingly named source `SpawnLinkedObjectEffects` invokes contact-shot
+reflection (`$07:F1AE..F2ED`). Native reflection now walks the actual contact
+list in source order, gates on live contact suppression and incoming hit-side
+class, disables eligible incoming shots and launches the existing native heavy
+weapon. Player protection determines angular scatter; armor always scatters.
+Pitch/yaw draws precede any hostile launch draw. Retained original shape,
+material and incoming position replace the reflected shot's corresponding
+fields. Sprite color/size propagate separately, and the source writes speed
+60 to the incoming sprite without regenerating its velocity. Full-pool fallback,
+single/all-contact modes and unchanged path last-spawn selection are retained.
+
+The extractor and lowerer now follow the offset spawner's child path as a
+dependency, not a parent control-flow edge. This discovers **17 additional
+static commands**, bringing the scanned inventory to **14237 commands across
+106 roots and 279 opcodes**. The verification-only data catalog is regenerated.
+Its emitter now distinguishes reviewed-but-unreachable semantics from scanned
+handlers and emits consistently formatted output; mutation tests still reject
+changed reachable handlers and ambiguous extraction.
+
+Six authored-path tests cover every offset byte, wrapping rotations, allocation
+failure, all activation-gate and health bytes, the complete 104-visit attack
+cycle, armor reflection and the eighteen-visit death tail. The first shot fires
+on visit 75 after the final pre-fire facing iteration; shots two and three fire
+on visits 80 and 85. Four reflection tests cover contact order, both player
+identities, armor, scatter/random accounting, sprites, fallback and dependency
+faults. Shared native rotation tables are checked against the source bytes.
+
+Debug and release suites each pass **926 unit tests and two integration tests**.
+Also passing: **180 lowerer, 390 path-static, 11 extractor, three emitter and
+eight static-data catalog tests**, architecture/static inventory checks, exact
+regeneration and app build (pre-existing unused icon warnings only). No original
+CPU/GSU program execution or recorded gameplay was used. Shipping scheduler,
+world-service integration and whole-game completion remain separate work.

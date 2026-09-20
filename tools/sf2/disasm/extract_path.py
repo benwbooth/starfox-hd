@@ -20,7 +20,7 @@ routines at ``$7F:CA0C..$CB3B`` rather than inferred from path data.
 Path roots are the operands of reachable map opcode ``$8C`` records plus the
 operands of reviewed 65816 instructions which directly install a path into an
 object's ``+$2B`` field.  The reachable graph additionally follows the literal
-child-path operands of the three spawn opcodes; those paths start independent
+child-path operands of the four spawn opcodes; those paths start independent
 object VMs and therefore are entry edges even though they are not control-flow
 successors of the spawning object.  Path bytes themselves live in Super FX ROM
 bank ``$44`` (file offset ``$40000``).  Every direct installer is signature
@@ -57,9 +57,9 @@ REDISPATCH = 0x7F7E75
 MOVE_AND_YIELD = 0x7F9DDE
 
 # These handlers create an independent object-path VM.  The child path is the
-# word at operand +3 for both the short quick-spawn record and the two aliases
-# of the full child-spawn record.
-_SPAWN_PATH_OPCODES = frozenset((0x033, 0x05D, 0x0F5))
+# word at operand +3 for the quick and rotated-offset forms and both aliases
+# of the attached-child record.
+_SPAWN_PATH_OPCODES = frozenset((0x031, 0x033, 0x05D, 0x0F5))
 
 # Reviewed native 65816 sites which load a literal path and store it through
 # ``STA $002B,Y``.  These entries are reached by object strategies and weapon

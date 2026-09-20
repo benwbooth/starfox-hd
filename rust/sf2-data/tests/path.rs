@@ -56,7 +56,7 @@ fn path_semantic(address: u16) -> PathSemantic {
 #[test]
 fn reachable_path_catalog_is_closed_and_self_consistent() {
     assert_eq!(PATH_ROOT_COUNT, 106);
-    assert_eq!(PATH_COMMAND_COUNT, 14_220);
+    assert_eq!(PATH_COMMAND_COUNT, 14_237);
     assert_eq!(PATH_HANDLER_COUNT, 279);
 
     let handlers: BTreeSet<u16> = PATH_HANDLERS.iter().map(|handler| handler.opcode).collect();
