@@ -157,6 +157,7 @@ pub struct PathWorld<'a> {
     /// this invocation reaches a spawn; they are not guessed from pause state.
     pub spawn_defaults: Option<super::ObjectSpawnDefaults>,
     pub weapons: Option<&'a mut super::weapon_dispatch::WeaponState>,
+    pub caller_weapon_inputs: Option<super::weapon_rapid::CallerWeaponInputs>,
     pub random: &'a mut RandomState,
     /// Shared strategy/animation clock (C4), also read by authored clock gates.
     pub animation_clock: u8,
@@ -1673,7 +1674,7 @@ impl PathRuntime {
                     }
                     let defaults = world.spawn_defaults.ok_or(ProgramError::MissingSpawnDefaults)?;
                     let state = world.weapons.as_deref_mut().ok_or(ProgramError::MissingWeaponState)?;
-                    // The source allocator can fail normally. Its wrapper
+                    // Admission or allocation can fail normally. The wrapper
                     // substitutes the reserved scene actor, then still applies
                     // the authored exclusion class and publishes last-spawn.
                     let fallback = if objects.len() == super::OBJECT_CAPACITY {
@@ -1687,6 +1688,8 @@ impl PathRuntime {
                     let created = weapon_dispatch::launch(objects, owner, LaunchRequest {
                         weapon, parameters: state.parameters, defaults,
                     }, &mut LaunchWorld {
+                        caller_inputs: world.caller_weapon_inputs,
+                        fallback: state.fallback,
                         published_pitch: state.published_pitch,
                         primary: world.primary_player,
                         secondary: world.secondary_player,
@@ -1694,8 +1697,8 @@ impl PathRuntime {
                         hostile_counts: Some(&mut state.hostile_counts),
                         random: world.random,
                     }).map_err(ProgramError::WeaponLaunch)?;
-                    let result = created.or(fallback).ok_or(ProgramError::MissingWeaponFallback)?;
-                    let actor = objects.get_mut(result).expect("created or validated fallback actor");
+                    let result = created.or(fallback).or(state.fallback).ok_or(ProgramError::MissingWeaponFallback)?;
+                    let actor = objects.get_mut(result).ok_or(PathRuntimeError::MissingActor(result))?;
                     actor.base.contacts.exclusion_groups = actor.base.contacts.exclusion_groups
                         .union(super::collision_pass::ExclusionGroups::PATH_SPAWN);
                     self.spawns.last_spawn = Some(result);
@@ -2182,6 +2185,7 @@ mod tests {
             selected_equipment: None,
             selected_score: None,
             weapons: None,
+            caller_weapon_inputs: None,
             spawn_defaults: None,
             random,
             animation_clock: 0,
@@ -9221,6 +9225,7 @@ mod tests {
                 surface_mode: None,
                 secondary_player: None,
                 weapons: None,
+                caller_weapon_inputs: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -13435,6 +13440,7 @@ mod tests {
                 surface_mode: None,
                 secondary_player: None,
                 weapons: None,
+                caller_weapon_inputs: None,
                 primary_player: None,
                 selected: None,
                 fixed_players: [None; 2],
@@ -13577,6 +13583,7 @@ mod tests {
                         surface_mode: None,
                         secondary_player: None,
                         weapons: None,
+                        caller_weapon_inputs: None,
                         primary_player: None,
                         selected: None,
                         fixed_players: [None; 2],

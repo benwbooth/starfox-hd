@@ -37,10 +37,24 @@ fn selector_mapping_is_explicit_and_unreviewed_variants_are_rejected() {
     for selection in 0..=u8::MAX {
         assert_eq!(
             PathWeapon::from_selection(selection),
-            PROFILES
-                .iter()
-                .find(|(value, _)| *value == selection)
-                .map(|(_, profile)| *profile)
+            match selection {
+                4 => Some(PathWeapon::Rapid(
+                    super::super::weapon_rapid::RapidWeapon::Alternate
+                )),
+                6 => Some(PathWeapon::Rapid(
+                    super::super::weapon_rapid::RapidWeapon::Basic
+                )),
+                8 => Some(PathWeapon::Rapid(
+                    super::super::weapon_rapid::RapidWeapon::Upgraded
+                )),
+                10 => Some(PathWeapon::Rapid(
+                    super::super::weapon_rapid::RapidWeapon::Maximum
+                )),
+                _ => PROFILES
+                    .iter()
+                    .find(|(value, _)| *value == selection)
+                    .map(|(_, profile)| *profile),
+            }
         );
     }
 }
@@ -106,6 +120,8 @@ fn charged_mesh_uses_published_pitch_caller_roll_and_retained_reflection_shape_w
                         caller,
                         request,
                         &mut LaunchWorld {
+                            caller_inputs: None,
+                            fallback: None,
                             published_pitch: Some(Angle::from_units(pitch)),
                             primary: None,
                             secondary: None,
@@ -158,6 +174,8 @@ fn charged_mesh_requires_a_pitch_snapshot_unless_allocation_already_fails() {
             caller,
             request,
             &mut LaunchWorld {
+                caller_inputs: None,
+                fallback: None,
                 published_pitch: None,
                 primary: None,
                 secondary: None,
@@ -179,6 +197,8 @@ fn charged_mesh_requires_a_pitch_snapshot_unless_allocation_already_fails() {
             caller,
             request,
             &mut LaunchWorld {
+                caller_inputs: None,
+                fallback: None,
                 published_pitch: None,
                 primary: None,
                 secondary: None,
@@ -241,6 +261,7 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                     && !(profile == PathWeapon::PlayerOrHostileHeavy && role < 2);
                 let actor = expected.get_mut(expected_id).unwrap();
                 actor.base.path = Some(match profile {
+                    PathWeapon::Rapid(weapon) => weapon.paths()[0],
                     PathWeapon::PlayerChargedMesh => authored_paths::AIMED_IMPACT_PROJECTILE,
                     PathWeapon::PlayerOrHostileHeavy if role < 2 => {
                         authored_paths::PRIMARY_MOTION_GROUND_LIMITED
@@ -311,6 +332,8 @@ fn every_profile_and_primary_mode_installs_exact_path_flags_speed_and_damage() {
                     caller,
                     launch_request,
                     &mut LaunchWorld {
+                        caller_inputs: None,
+                        fallback: None,
                         published_pitch: Some(Angle::from_units(197)),
                         primary: Some(primary),
                         secondary: Some(secondary),
@@ -388,6 +411,8 @@ fn hostile_gate_uses_formatted_heading_and_primary_yaw_with_exact_shared_draw_co
                     caller,
                     launch_request,
                     &mut LaunchWorld {
+                        caller_inputs: None,
+                        fallback: None,
                         published_pitch: Some(Angle::from_units(197)),
                         primary: Some(primary),
                         secondary: None,
@@ -429,6 +454,8 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
                 caller,
                 request(profile),
                 &mut LaunchWorld {
+                    caller_inputs: None,
+                    fallback: None,
                     published_pitch: Some(Angle::from_units(197)),
                     primary: None,
                     secondary: None,
@@ -451,6 +478,8 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
                 caller,
                 request(profile),
                 &mut LaunchWorld {
+                    caller_inputs: None,
+                    fallback: None,
                     published_pitch: Some(Angle::from_units(197)),
                     primary: None,
                     secondary: None,
@@ -470,6 +499,8 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
                 caller,
                 request(profile),
                 &mut LaunchWorld {
+                    caller_inputs: None,
+                    fallback: None,
                     published_pitch: Some(Angle::from_units(197)),
                     primary: Some(caller),
                     secondary: None,
@@ -509,6 +540,8 @@ fn each_required_world_input_is_validated_before_allocation_or_random_consumptio
             caller,
             request(profile),
             &mut LaunchWorld {
+                caller_inputs: None,
+                fallback: None,
                 published_pitch: Some(Angle::from_units(197)),
                 primary: Some(primary),
                 secondary: None,

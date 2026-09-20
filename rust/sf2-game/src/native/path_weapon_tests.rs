@@ -62,10 +62,24 @@ fn prior_state(fallback: Option<ObjectId>) -> WeaponState {
     }
 }
 
+fn rapid_inputs(owner: ObjectId) -> super::super::weapon_rapid::CallerWeaponInputs {
+    super::super::weapon_rapid::CallerWeaponInputs {
+        owner,
+        active_shots: Some(super::super::path_shots::ActiveShots::from_count(7)),
+        weapon_level: Some(1),
+        roll_step: Some(Angle::from_units(239)),
+        retained_aim: Some(Vector3 {
+            x: -23000,
+            y: 900,
+            z: 500,
+        }),
+    }
+}
+
 #[test]
 fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or_running_it() {
     let (catalog, entry, finish) = fire_catalog();
-    for selection in [2, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32] {
+    for selection in [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32] {
         for invert in [false, true] {
             let (mut runtime, mut objects, owner, mut random) = setup();
             let primary = objects.allocate(actor()).unwrap();
@@ -90,7 +104,7 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
                 group: 56,
                 run_when_paused: true,
             };
-            let mut state = prior_state(None);
+            let mut state = prior_state(Some(primary));
             let mut expected = objects.clone();
             let mut expected_random = random;
             let mut expected_state = state;
@@ -104,6 +118,8 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
                     defaults,
                 },
                 &mut LaunchWorld {
+                    caller_inputs: Some(rapid_inputs(owner)),
+                    fallback: Some(primary),
                     published_pitch: Some(Angle::from_units(197)),
                     primary: Some(primary),
                     secondary: Some(secondary),
@@ -130,6 +146,7 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
             });
             inputs.spawn_defaults = Some(defaults);
             inputs.weapons = Some(&mut state);
+            inputs.caller_weapon_inputs = Some(rapid_inputs(owner));
             assert_eq!(
                 runtime
                     .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
@@ -157,7 +174,7 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
 #[test]
 fn full_pool_publishes_real_fallback_and_only_adds_path_exclusion_membership() {
     let (catalog, entry, finish) = fire_catalog();
-    for selection in [2, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32] {
+    for selection in [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32] {
         for owner_is_fallback in [false, true] {
             let (mut runtime, mut objects, owner, mut random) = setup();
             let fallback = if owner_is_fallback {
@@ -202,6 +219,7 @@ fn full_pool_publishes_real_fallback_and_only_adds_path_exclusion_membership() {
             let mut inputs = world(&mut random);
             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
             inputs.weapons = Some(&mut state);
+            inputs.caller_weapon_inputs = Some(rapid_inputs(owner));
             assert_eq!(
                 runtime
                     .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
@@ -214,6 +232,79 @@ fn full_pool_publishes_real_fallback_and_only_adds_path_exclusion_membership() {
             assert_eq!(state, expected_state);
             assert_eq!(runtime.spawns.last_spawn, Some(fallback));
             assert!(runtime.branch.invert_next);
+        }
+    }
+}
+
+#[test]
+fn admission_rejection_uses_real_fallback_even_with_free_pool_slots() {
+    let (catalog, entry, finish) = fire_catalog();
+    for selection in [4, 6, 8, 10] {
+        for zero_level in [false, true] {
+            if zero_level && selection != 4 {
+                continue;
+            }
+            for fallback_case in 0..3 {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let fallback = objects.allocate(actor()).unwrap();
+                if fallback_case == 2 {
+                    objects.remove(fallback).unwrap();
+                }
+                let source = objects.get_mut(owner).unwrap();
+                source.base.path = Some(entry);
+                source.extension.path_state.weapon_selection = selection;
+                let mut expected = objects.clone();
+                if fallback_case == 0 {
+                    expected.get_mut(owner).unwrap().base.path = Some(finish);
+                    let actor = expected.get_mut(fallback).unwrap();
+                    actor.base.contacts.exclusion_groups = actor
+                        .base
+                        .contacts
+                        .exclusion_groups
+                        .union(ExclusionGroups::PATH_SPAWN);
+                }
+                let mut state = prior_state(if fallback_case == 1 {
+                    None
+                } else {
+                    Some(fallback)
+                });
+                let before_random = random;
+                let mut inputs = world(&mut random);
+                let caller = super::super::weapon_rapid::CallerWeaponInputs {
+                    owner,
+                    active_shots: if zero_level {
+                        None
+                    } else {
+                        Some(super::super::path_shots::ActiveShots::from_count(8))
+                    },
+                    weapon_level: Some(if zero_level { 0xFC } else { 1 }),
+                    roll_step: None,
+                    retained_aim: None,
+                };
+                inputs.caller_weapon_inputs = Some(caller);
+                inputs.weapons = Some(&mut state);
+                inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+                runtime.branch.invert_next = true;
+                let result = runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 2);
+                match fallback_case {
+                    0 => {
+                        assert_eq!(result.unwrap().step, ControlStep::Movement);
+                        assert_eq!(runtime.spawns.last_spawn, Some(fallback));
+                    }
+                    1 => assert_eq!(result, Err(ProgramError::MissingWeaponFallback)),
+                    _ => assert_eq!(
+                        result,
+                        Err(ProgramError::Runtime(PathRuntimeError::MissingActor(
+                            fallback
+                        )))
+                    ),
+                }
+                assert_eq!(objects, expected);
+                assert_eq!(inputs.caller_weapon_inputs, Some(caller));
+                assert_eq!(*inputs.random, before_random);
+                assert!(runtime.branch.invert_next);
+                assert_eq!(state.parameters, LaunchParameters::default());
+            }
         }
     }
 }

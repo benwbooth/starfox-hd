@@ -1,6 +1,6 @@
-//! Statically identified path-weapon variants ($0D:DBAA..DCBE).
+//! Statically identified path-weapon variants ($0D:DBAA..DE37).
 //! These variants create one actor and install an already lowered path.
-//! Unported player-auxiliary variants remain explicit selection errors.
+//! Unreviewed selectors remain explicit selection errors.
 
 use super::authored_paths;
 use super::collision_pass::ExclusionGroups;
@@ -23,6 +23,7 @@ const HOSTILE_EXCLUSION: ExclusionGroups = ExclusionGroups::from_authored_class(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathWeapon {
+    Rapid(super::weapon_rapid::RapidWeapon),
     PlayerOrHostileHeavy,
     PlayerChargedMesh,
     VariantGuided,
@@ -41,6 +42,7 @@ impl PathWeapon {
     /// catalog that accepts this creation service.
     pub const fn paths(self) -> &'static [PathCursor] {
         match self {
+            Self::Rapid(weapon) => weapon.paths(),
             Self::PlayerChargedMesh => &[authored_paths::AIMED_IMPACT_PROJECTILE],
             Self::PlayerOrHostileHeavy => &[
                 authored_paths::PRIMARY_MOTION_GROUND_LIMITED,
@@ -62,6 +64,10 @@ impl PathWeapon {
     pub const fn from_selection(selection: u8) -> Option<Self> {
         Some(match selection {
             2 => Self::PlayerOrHostileHeavy,
+            4 => Self::Rapid(super::weapon_rapid::RapidWeapon::Alternate),
+            6 => Self::Rapid(super::weapon_rapid::RapidWeapon::Basic),
+            8 => Self::Rapid(super::weapon_rapid::RapidWeapon::Upgraded),
+            10 => Self::Rapid(super::weapon_rapid::RapidWeapon::Maximum),
             12 | 14 | 16 => Self::PlayerChargedMesh,
             18 => Self::VariantGuided,
             20 => Self::DifficultyHoming,
@@ -77,6 +83,9 @@ impl PathWeapon {
 }
 
 pub struct LaunchWorld<'a> {
+    pub caller_inputs: Option<super::weapon_rapid::CallerWeaponInputs>,
+    /// Reserved scene actor: also the rapid launcher's retained aim proxy.
+    pub fallback: Option<ObjectId>,
     /// Published aiming pitch (1DF2), not caller pitch or a fresh target
     /// angle. Walker aim correction and ordinary flight both publish here.
     pub published_pitch: Option<Angle>,
@@ -100,6 +109,7 @@ pub struct WeaponState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchError {
+    Rapid(super::weapon_rapid::RapidLaunchError),
     MissingPublishedPitch,
     Creation(CreationError),
     MissingPrimary,
@@ -116,8 +126,9 @@ pub struct LaunchRequest {
 }
 
 /// Install a complete path without executing it. Input faults are validated
-/// before mutation; full-pool failure requires no player state and consumes
-/// no random bytes, matching the source's allocation-before-classification.
+/// before mutation. Simple/charged full-pool failure reads no player state;
+/// rapid variants first observe their caller-owned admission gates. Failure
+/// consumes no random bytes; the installed paths own live shot accounting.
 pub fn launch(
     objects: &mut ObjectStore,
     caller: ObjectId,
@@ -126,6 +137,16 @@ pub fn launch(
 ) -> Result<Option<ObjectId>, LaunchError> {
     if objects.get(caller).is_none() {
         return Err(LaunchError::Creation(CreationError::MissingActor(caller)));
+    }
+    if let PathWeapon::Rapid(weapon) = request.weapon {
+        return super::weapon_rapid::launch(
+            objects,
+            caller,
+            weapon,
+            request.parameters,
+            request.defaults,
+            world,
+        );
     }
     if objects.len() == OBJECT_CAPACITY {
         return Ok(None);

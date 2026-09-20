@@ -2965,3 +2965,32 @@ build (existing icon warning). Catalog coverage is 117 complete roots, 2,325
 unique source commands and 2,316 typed statements. These are native component
 tests, not recorded gameplay evidence; rapid-shot creation selectors and
 shipping scheduler integration remain separate work.
+
+### Rapid weapon selectors and admission-aware fallback
+
+Selectors 4/6/8/10 now install the complete alternate/basic/upgraded/maximum
+rapid-shot paths. They read the firing actor's typed auxiliary observations,
+not fresh path-selected equipment or published active-pilot state. Alternate
+equipment admission masks the low two bits and precedes shot-count admission;
+all rapid admission gates precede pool allocation. Launching does not change
+the count: the installed path increments it on entry and decrements on exit.
+
+Basic/upgraded/maximum creation uses the player-linked wrapper, retains caller
+roll, assigns the initial shape/frame, copies the roll step only for upgraded
+levels, and re-aims yaw from the formatted muzzle position to the retained aim
+point. It also preserves the source's full position write to the real reserved
+aim-proxy actor. Pitch and the formatter's earlier heading aliases remain
+unchanged. Alternate creation masks every equipment byte, chooses sprite or
+mesh and attack 2/4, copies published pitch, and does not read the retained aim
+or roll step. All four variants record their original reflection shape and
+avoid hostile classification and random draws.
+
+Path FIRE now substitutes the real fallback for rejected admission even with
+free pool slots. Missing/stale fallbacks fault explicitly. Tests cover all
+roll-step bytes, all equipment/published-pitch pairs, all count bytes, full
+pools, opposite player-side flags, missing caller observations, pre-allocation
+gate ordering, and all sixteen implemented selector values through FIRE.
+All 25 weapon tests and 466 path tests pass in debug/release; 360 source-static
+tests, architecture/static audits and app build pass (existing icon warning).
+Catalog counts remain 117 / 2,325 / 2,316. Player-control publishers, scheduler
+integration and remaining unported source graphs are not implied complete.
