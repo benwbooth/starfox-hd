@@ -20,6 +20,44 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_guidance_controller_entire_graph_includes_callbacks_and_delayed_reply(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x0591)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 134)
+        self.assertEqual(''.join(c.raw_hex for c in commands),
+            '48f7eff80c07fd4403799a701e2a9affda057b3b34683bb405553b9adf3b6c3b803b34'
+            '030f7b3b367a99962a9902da05792fe21d2a2f09e1050b0599da993bda05033cfd5a07'
+            'fd930019ed080ee803420b1099da993bda050314792fb51b8a2a2f08f8050b012f4a84'
+            '8507fd0400192a2fff1d067b3b368a2a2f012106bc20060b10997b3b36d8993b803b36'
+            '4c270642bd20061711064b84854b0006196aa3670669276706699467067a2e2a692e69'
+            '067a2e98672e69060c1a00a3792ed01d672e570677a36055a39abd6206be6206dfa36c'
+            'a30b03946f9442001271066ca3426ea32ba328007a06420b05997b3b36d8993b803b36'
+            '4c8a06424b2e064b6a061969273f077aa99867a9490779a9841e67a94907dfa92a9aff'
+            '390779275bdb2a270839072aa9104a072aa9114a070b3c277f272a6f27692749077d27'
+            '841e427fa9085d9cbcb60764009c7aa1089b0b7827173f0779a95bdb2aa908d6074879'
+            'a2701e033c2aa110ce070b06990799265299a2df990f6927a4856994a4857aa92a69a9'
+            'a6850b3ca97fa92a0b38a952a99adfa90b03946f9442')
+        self.assertEqual(len(lower_graph(extractor, root, 0)[1]), 134)
+        child = PathAddress(0x07B6)
+        self.assertTrue({c.address for c in graph(extractor, child)} <= {c.address for c in commands})
+        self.assertEqual(spawn_shape(0xBC9C, child), (0, 'ObjectKind::Effect'))
+        spawn = extractor.decode_command(PathAddress(0x074D))
+        self.assertEqual(independent_spawn_parameters(spawn).path, child)
+        self.assertIn(spawn, commands)
+
+    def test_radio_event_low_byte_spawn_parameter_and_map_region_are_exact_typed_aliases(self):
+        for record, operation in [('79 a9 84 1e', 'CopyTo(ByteField::Part)'),
+                                  ('7d a9 84 1e', 'Assign(ByteOperand::Actor(ByteField::Part))')]:
+            self.assertIn(f'RadioEventCommand::{operation}', self.lower_record(record)[0])
+        for record, operation in [('7a a9 08', 'CopyTo(ByteField::Part)'),
+                                  ('7f a9 08', 'Assign(ByteOperand::Actor(ByteField::Part))')]:
+            self.assertIn(f'SpawnParameterCommand::{operation}', self.lower_record(record)[0])
+        self.assertIn('SceneByte::MapRegion', self.lower_record('79 a9 5b db')[0])
+        for record in ['79 a9 85 1e', '7d a9 5b db', '7a a9 09', '7b a3 08']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_warning_and_cooldown_graphs_and_parent_installers_are_complete(self):
         extractor = PathExtractor(self.rom)
         parent = graph(extractor, PathAddress(0x22AA))

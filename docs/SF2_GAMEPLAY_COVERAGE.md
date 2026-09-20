@@ -2804,3 +2804,35 @@ both complete service lifetimes. Debug/release pass 429 native path tests;
 build pass (existing icon warning). The catalog reaches 113 complete roots,
 1,845 source commands and 1,836 statements. The parent encounter controllers,
 radio presentation and production scheduling remain separate integration work.
+
+### Complete guidance/radio controller and strategic event bridge
+
+The complete 134-command `$44:0591` graph now lowers, including both tutorial
+routes, all four callback bodies and the independently spawned delayed reply.
+Its startup preserves the absent-wingmate shortcut, signed deferred-message
+addition, fifteen-count initial wait, sixty-/twenty-count tutorial waits,
+history gates and expert-mode bypass. Periodic callbacks follow the selected
+player with wrapped vertical offset and emit gated guidance; the ordinary
+tutorial finishes after forty consecutive action-bit ticks, while the
+alternate finishes on the authored selected-mode transition. Forced exits
+cancel the corresponding two callbacks on the next main-path invocation.
+
+The strategic radio-event word is separate from the deferred word and the
+formatted presentation request. Byte imports retain its low byte and byte
+exports preserve its high byte. The generic event route publishes a sixty
+count shared cooldown; special events 16/17 instead spawn a reply, borrow it
+to copy the shared spawn-argument byte, and retain a private 120-count cooldown.
+The reply samples its own map region and wingmate snapshot, waits sixty counts
+and emits the appropriate message family; region 8 exits before visibility
+changes or pilot lookup. The shared spawn parameter is explicit and missing
+imports fault; publishing it never changes allocation groups or actor fields.
+
+Source pins cover the complete graph, strategic event producers and campaign
+region lookup. Native tests cover word/byte preservation, the shared argument,
+both timed tutorial lifetimes and callback cancellation, action-progress
+reset, expert/absence/history shortcuts, special reply lifetimes, generic
+event cooldown and early exits. All 437 native path tests pass debug/release,
+with 165 lowerer and 347 source-static tests, freshness, audits and app build
+passing (existing icon warning). Coverage is now 114 complete roots, 1,979
+source commands and 1,970 typed statements. Strategic event production and
+shipping scheduler integration remain open, not implied by these tests.

@@ -77,6 +77,10 @@ mod scene_state_tests;
 #[path = "path_radio_service_tests.rs"]
 mod radio_service_tests;
 
+#[cfg(test)]
+#[path = "path_guidance_controller_tests.rs"]
+mod guidance_controller_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -100,6 +104,7 @@ pub struct PathWorld<'a> {
     pub audio: Option<super::path_sound::PathAudio<'a>>,
     pub radio: Option<super::path_radio::PathRadio<'a>>,
     pub deferred_message: Option<&'a mut super::path_radio::DeferredMessage>,
+    pub radio_event: Option<&'a mut super::path_radio::RadioEvent>,
     pub campaign: Option<CampaignPathInputs>,
     pub guidance: Option<&'a mut GuidanceHistory>,
     pub pickup_history: Option<&'a mut PickupHistory>,
@@ -149,6 +154,9 @@ pub struct PathWorld<'a> {
 /// (`$04:B1FC`). Keep full bytes, not the special-case predicates they drive.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ScenePathInputs {
+    /// Strategic-map region ($DB5B), sampled from the campaign actor's
+    /// map coordinates through the region grid. Not the encounter node kind.
+    pub map_region: Option<u8>,
     /// Published wingmate pilot byte ($1E70), refreshed during pilot exchange
     /// and set to 255 when absent. Not the path-selected actor identity.
     pub wingmate_pilot: Option<u8>,
@@ -219,6 +227,7 @@ pub enum SceneryDistanceCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneByte {
+    MapRegion,
     WingmatePilot,
     RemainingObjectives,
     EntryHeading,
@@ -230,6 +239,7 @@ pub enum SceneByte {
 impl SceneByte {
     fn read(self, input: ScenePathInputs) -> Option<u8> {
         match self {
+            Self::MapRegion => input.map_region,
             Self::WingmatePilot => input.wingmate_pilot,
             Self::RemainingObjectives => input.remaining_objectives,
             Self::EntryHeading => input.entry_heading,
@@ -523,6 +533,14 @@ pub enum Statement {
     },
     DeferredMessage {
         command: super::path_radio::DeferredMessageCommand,
+        next: PathCursor,
+    },
+    RadioEvent {
+        command: super::path_radio::RadioEventCommand,
+        next: PathCursor,
+    },
+    SpawnParameter {
+        command: super::path_spawn::SpawnParameterCommand,
         next: PathCursor,
     },
     ClockBitsSet {
@@ -822,6 +840,8 @@ pub enum ProgramError {
     MissingPathLatches,
     MissingSoundBankRequest,
     MissingDeferredMessage,
+    MissingRadioEvent,
+    MissingSpawnParameter,
     MissingSceneByte(SceneByte),
     MissingSceneHeightOffset,
     MissingShieldRecovery,
@@ -1005,6 +1025,28 @@ impl PathRuntime {
                     match command {
                         DeferredMessageCommand::CopyTo(field) => field.write(actor, deferred.number),
                         DeferredMessageCommand::Assign(value) => deferred.number = value.read(actor),
+                    }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::RadioEvent { command, next } => {
+                    use super::path_radio::RadioEventCommand;
+                    let event = world.radio_event.as_deref_mut().ok_or(ProgramError::MissingRadioEvent)?;
+                    let actor = objects.get_mut(owner).expect("validated radio event actor");
+                    match command {
+                        RadioEventCommand::CopyTo(field) => field.write(actor, event.number as u8),
+                        RadioEventCommand::Assign(value) => event.number = (event.number & 0xFF00) | u16::from(value.read(actor)),
+                    }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::SpawnParameter { command, next } => {
+                    use super::path_spawn::SpawnParameterCommand;
+                    let actor = objects.get_mut(owner).expect("validated spawn parameter actor");
+                    match command {
+                        SpawnParameterCommand::CopyTo(field) => field.write(actor,
+                            self.spawns.parameter.ok_or(ProgramError::MissingSpawnParameter)?),
+                        SpawnParameterCommand::Assign(value) => self.spawns.parameter = Some(value.read(actor)),
                     }
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
@@ -2014,6 +2056,7 @@ mod tests {
             audio: None,
             radio: None,
             deferred_message: None,
+            radio_event: None,
             campaign: None,
             guidance: None,
             pickup_history: None,
@@ -7572,7 +7615,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::ActiveWeaponLevel] {
+        for source in [SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::RemainingObjectives, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::EncounterLocation, SceneByte::ActiveWeaponLevel] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -7587,6 +7630,7 @@ mod tests {
                 assert_eq!(objects, before);
                 let mut inputs = world(&mut random);
                 match source {
+                    SceneByte::MapRegion => inputs.scene.map_region = Some(value),
                     SceneByte::WingmatePilot => inputs.scene.wingmate_pilot = Some(value),
                     SceneByte::RemainingObjectives => inputs.scene.remaining_objectives = Some(value),
                     SceneByte::EntryHeading => inputs.scene.entry_heading = Some(value),
@@ -9061,6 +9105,7 @@ mod tests {
                 audio: None,
                 radio: None,
                 deferred_message: None,
+                radio_event: None,
                 campaign: None,
                 guidance: None,
                 pickup_history: None,
@@ -13118,9 +13163,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 113);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1836);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1845);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 114);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1970);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1979);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -13269,6 +13314,7 @@ mod tests {
                 audio: None,
                 radio: None,
                 deferred_message: None,
+                radio_event: None,
                 campaign: None,
                 guidance: None,
                 pickup_history: None,
@@ -13405,6 +13451,7 @@ mod tests {
                         audio: None,
                         radio: None,
                         deferred_message: None,
+                        radio_event: None,
                         campaign: None,
                         guidance: None,
                         pickup_history: None,

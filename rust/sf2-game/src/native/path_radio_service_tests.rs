@@ -7,6 +7,120 @@ use super::super::{authored_paths, FlightControlStyle, PathId};
 use super::tests::{setup, world};
 use super::*;
 
+#[test]
+fn radio_event_byte_transfers_preserve_the_word_high_byte_and_every_other_actor_field() {
+    use super::super::path_fields::ByteField;
+    use super::super::path_radio::{RadioEvent, RadioEventCommand};
+    for importing in [false, true] {
+        let command = if importing {
+            RadioEventCommand::CopyTo(ByteField::Part)
+        } else {
+            RadioEventCommand::Assign(ByteOperand::Actor(ByteField::Part))
+        };
+        let catalog = PathCatalog::new(vec![vec![Statement::RadioEvent {
+            command,
+            next: at(1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let before = objects.get(owner).unwrap().clone();
+        let before_random = random;
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingRadioEvent)
+        );
+        assert_eq!(objects.get(owner), Some(&before));
+        for number in 0..=u16::MAX {
+            *objects.get_mut(owner).unwrap() = before.clone();
+            let source = (number as u8) ^ 0xFF;
+            objects.get_mut(owner).unwrap().extension.path_state.part = source;
+            let mut expected = objects.get(owner).unwrap().clone();
+            expected.base.path = Some(at(1));
+            if importing {
+                expected.extension.path_state.part = number as u8;
+            }
+            let mut event = RadioEvent { number };
+            let mut inputs = world(&mut random);
+            inputs.radio_event = Some(&mut event);
+            runtime.branch.invert_next = true;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: at(1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects.get(owner), Some(&expected));
+            assert_eq!(
+                event.number,
+                if importing {
+                    number
+                } else {
+                    number / 256 * 256 + u16::from(source)
+                }
+            );
+            assert!(runtime.branch.invert_next);
+        }
+        assert_eq!(random, before_random);
+    }
+}
+
+#[test]
+fn spawn_parameter_is_a_shared_mailbox_not_a_child_or_allocation_field() {
+    use super::super::path_fields::ByteField;
+    use super::super::path_spawn::SpawnParameterCommand;
+    for importing in [false, true] {
+        let command = if importing {
+            SpawnParameterCommand::CopyTo(ByteField::Part)
+        } else {
+            SpawnParameterCommand::Assign(ByteOperand::Actor(ByteField::Part))
+        };
+        let catalog = PathCatalog::new(vec![vec![Statement::SpawnParameter {
+            command,
+            next: at(1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        runtime.spawns.last_spawn = Some(owner);
+        let before = objects.clone();
+        let before_random = random;
+        if importing {
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingSpawnParameter)
+            );
+            assert_eq!(objects, before);
+        }
+        for value in 0..=u8::MAX {
+            objects = before.clone();
+            objects.get_mut(owner).unwrap().extension.path_state.part = value ^ 0xFF;
+            let mut expected = objects.clone();
+            let actor = expected.get_mut(owner).unwrap();
+            actor.base.path = Some(at(1));
+            if importing {
+                actor.extension.path_state.part = value;
+            }
+            runtime.spawns.parameter = if importing { Some(value) } else { None };
+            runtime.branch.invert_next = true;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: at(1),
+                    executed: 1
+                })
+            );
+            assert_eq!(
+                runtime.spawns.parameter,
+                Some(if importing { value } else { value ^ 0xFF })
+            );
+            assert_eq!(runtime.spawns.last_spawn, Some(owner));
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+        }
+        assert_eq!(random, before_random);
+    }
+}
+
 fn at(index: u16) -> PathCursor {
     PathCursor {
         path: PathId::from_catalog_index(0),

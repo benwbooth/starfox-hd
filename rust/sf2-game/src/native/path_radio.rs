@@ -47,6 +47,19 @@ pub enum DeferredMessageCommand {
     Assign(super::path_fields::WordOperand),
 }
 
+/// Current message selected by the strategic event queues ($1E84). Those
+/// producers write a word; authored byte exports must preserve its high byte.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RadioEvent {
+    pub number: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RadioEventCommand {
+    CopyTo(super::path_fields::ByteField),
+    Assign(super::path_fields::ByteOperand),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RadioLayout {
     /// The live nonzero compact-layout flag read by the source radio service.

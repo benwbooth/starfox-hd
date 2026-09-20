@@ -197,6 +197,18 @@ class PathFieldsStaticTests(unittest.TestCase):
         data = bytes.fromhex('7b3b34683bb405553b9adf3b6c3b803b34')
         self.assertEqual(self.rom[0x405A3:0x405A3 + len(data)], data)
 
+    def test_radio_event_producers_write_words_while_the_controller_clears_only_a_byte(self):
+        self.assert_source(0x0BA113, 'bf8ffb0b29ff00f0228d841e')
+        self.assert_source(0x7F779A, 'bfd6777f29ff00d00320bd778d841e')
+        self.assertEqual(self.rom[0x40741:0x4074A], bytes.fromhex('692749077d27841e42'))
+
+    def test_map_region_publication_uses_campaign_actor_coordinates_and_region_grid(self):
+        self.assert_source(0x7F64FB, '2092668d5bdb')
+        self.assert_source(0x7F6692, 'b91c0029ff008502b91f0029ff00850820316960')
+        self.assert_source(0x7F6931,
+            'e220a5084a4a4a8f024200a9208f034200eaeaeaeac220a50229ff004a4a4a'
+            '186f164200c220c210daaabf00d47f29ff00fa60')
+
     def test_signed_halves_increment_negatives_before_sign_preserving_shift(self):
         self.assert_source(0x7FA5BF, "20 BC C4 20 47 CB B9 00 00 10 01 1A C9 80 6A 99 00 00 4C D3 CA")
         self.assert_source(0x7FA5D4, "20 BC C4 20 47 CB C2 20 B9 00 00 10 01 1A C9 00 80 6A 99 00 00 4C D3 CA")

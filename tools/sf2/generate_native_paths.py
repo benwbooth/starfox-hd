@@ -137,6 +137,7 @@ ROOTS = (
     ("SCENE_COORDINATION_RESET", PathAddress(0x7BA0)),
     ("WINGMATE_PROXIMITY_WARNING", PathAddress(0x888E)),
     ("PROXIMITY_WARNING_COOLDOWN", PathAddress(0x88DA)),
+    ("GUIDANCE_RADIO_CONTROLLER", PathAddress(0x0591)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -416,7 +417,7 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
         return index, "ObjectKind::Effect"
     # Invisible, noncolliding scene-radio services. Their shape is empty;
     # neither has enemy motion, damage or a drawable projectile lifetime.
-    if index == 0 and path in (PathAddress(0x888E), PathAddress(0x88DA)):
+    if index == 0 and path in (PathAddress(0x888E), PathAddress(0x88DA), PathAddress(0x07B6)):
         return index, "ObjectKind::Effect"
     if (index, path) == (14, PathAddress(0x83F9)):
         return index, "ObjectKind::Effect"
@@ -1264,6 +1265,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::RequestSoundBank {{ selection: ByteOperand::Actor({byte_field(variable)}), next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address == 0xD764 and name in ("ImportByteIndexed", "ExportByteIndexed"):
+                operation = f"CopyTo({byte_field(variable)})" if name.startswith("Import") else f"Assign(ByteOperand::Actor({byte_field(variable)}))"
+                statement = f"Statement::SpawnParameter {{ command: super::path_spawn::SpawnParameterCommand::{operation}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1E84 and name in ("ImportByteAbsolute", "ExportByteAbsolute"):
+                operation = f"CopyTo({byte_field(variable)})" if name.startswith("Import") else f"Assign(ByteOperand::Actor({byte_field(variable)}))"
+                statement = f"Statement::RadioEvent {{ command: super::path_radio::RadioEventCommand::{operation}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B):
                 field = {0xD787: "Progress", 0xD788: "SecondaryProgress", 0xD789: "CompletedParts",
                          0xD78A: "ActiveMessages", 0xD78B: "Handshake"}[address]
@@ -1283,9 +1294,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::SceneryDistance {{ command: super::path_program::SceneryDistanceCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0x1DE2, 0x1BB5, 0x1BA9, 0x1E70, 0xD7F4) and name.startswith("Import"):
+            if address in (0x1DE2, 0x1BB5, 0x1BA9, 0x1E70, 0xD7F4, 0xDB5B) and name.startswith("Import"):
                 source = {0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA9: "EntryHeading",
-                          0x1E70: "WingmatePilot", 0xD7F4: "RemainingObjectives"}[address]
+                          0x1E70: "WingmatePilot", 0xD7F4: "RemainingObjectives", 0xDB5B: "MapRegion"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue

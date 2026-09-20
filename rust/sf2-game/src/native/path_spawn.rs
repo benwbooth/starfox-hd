@@ -48,6 +48,16 @@ pub enum SpawnError {
 pub struct SpawnState {
     /// Shared last-spawn selection, not a per-parent property (source D771).
     pub last_spawn: Option<ObjectId>,
+    /// Authored argument mailbox ($D764). Callers publish a byte around
+    /// spawning/borrowing another actor; it is not an allocation group or
+    /// automatically copied actor field. An unprovided observation faults.
+    pub parameter: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnParameterCommand {
+    CopyTo(super::path_fields::ByteField),
+    Assign(super::path_fields::ByteOperand),
 }
 
 impl SpawnState {
@@ -268,6 +278,7 @@ mod tests {
         let before = objects.clone();
         let mut spawns = SpawnState {
             last_spawn: Some(caller),
+            ..Default::default()
         };
         assert_eq!(
             spawns.independent(
@@ -510,6 +521,7 @@ mod tests {
         let before = objects.clone();
         let mut spawns = SpawnState {
             last_spawn: Some(caller),
+            ..Default::default()
         };
         assert_eq!(
             spawns.child(
@@ -539,6 +551,7 @@ mod tests {
         let before = objects.clone();
         let mut spawns = SpawnState {
             last_spawn: Some(caller),
+            ..Default::default()
         };
         assert_eq!(
             spawns.child(
@@ -563,6 +576,7 @@ mod tests {
         objects.get_mut(caller).unwrap().base.first_child = Some(caller);
         let mut spawns = SpawnState {
             last_spawn: Some(caller),
+            ..Default::default()
         };
         let error = spawns
             .child(
