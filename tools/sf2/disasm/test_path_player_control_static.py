@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Primary target-control source contracts, without executing source code."""
+
+from pathlib import Path
+import unittest
+
+from dump_runtime_routine import source_offset
+from extract_map import DEFAULT_ROM
+
+
+class PathPlayerControlStaticTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.rom = Path(DEFAULT_ROM).read_bytes()
+
+    def assert_source(self, address, expected):
+        expected = bytes.fromhex(expected)
+        offset = source_offset(address)
+        self.assertEqual(self.rom[offset:offset + len(expected)], expected)
+
+    def test_path_handlers_read_word_parameter_and_call_distinct_primary_services(self):
+        self.assert_source(0x7FC13B, "C2 20 20 20 C7 85 3A E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 22 46 B7 07 4C BE CA")
+        self.assert_source(0x7FC189, "E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 22 33 B8 07 4C E8 CA")
+
+    def test_configuration_wrapper_does_not_skip_final_owner_refresh_when_locked(self):
+        self.assert_source(0x07B746, "DA 08 E2 20 C2 10 A9 03 85 3C A9 1F 85 3E 22 9F B7 07 A9 04 85 3A A9 08 85 3C A9 08 85 3E 22 9B B8 07 A9 1F 85 3A 85 3C 85 3E 22 61 B8 07 22 33 B8 07 28 FA 6B")
+
+    def test_target_configuration_clears_offset_before_lock_and_clamps_negative_secondary_range(self):
+        self.assert_source(0x07B79F, "5A 08 E2 20 C2 10 AC C3 12 DA B6 2B 9B FA B9 8C 6A 29 BF 99 8C 6A B9 8C 6A 29 80 F0 04 5C FA B7 07 C2 20 A9 02 00 99 1C 6C B5 0C 99 92 6A B5 0E 99 94 6A B5 10 99 96 6A A9 FF 00 99 24 6C A5 3A 99 90 6A 10 03 A9 01 00 99 26 6C 8A 99 98 6A E2 20 A5 3C 99 29 6C A5 3E 99 28 6C 28 7A 6B")
+
+    def test_refresh_checks_owner_while_rate_and_limit_setters_independently_check_lock(self):
+        self.assert_source(0x07B833, "5A 08 E2 20 C2 10 AC C3 12 20 42 B8 28 7A 6B DA B6 2B 9B FA C2 20 8A D9 98 6A D0 0F B5 0C 99 92 6A B5 0E 99 94 6A B5 10 99 96 6A E2 20 60 5A 08 E2 20 C2 10 AC C3 12 20 7B B8 AD A6 1A 89 02 F0 04 5C 78 B8 07 28 7A 6B DA B6 2B 9B FA B9 8C 6A 29 80 F0 04 5C 9A B8 07 A5 3A 99 2A 6C A5 3C 99 2B 6C A5 3E 99 2C 6C 60 5A 08 E2 20 C2 10 AC C3 12 20 AA B8 28 7A 6B DA B6 2B 9B FA B9 8C 6A 29 80 F0 04 5C C9 B8 07 A5 3A 99 8D 6A A5 3C 99 8E 6A A5 3E 99 8F 6A 60")
+
+    def test_linked_lock_sets_rates_limits_and_conditionally_both_ranges(self):
+        self.assert_source(0x07F5EC, "DA AE C3 12 B4 2B B9 8C 6A 09 80 99 8C 6A A9 10 99 2A 6C A9 10 99 2B 6C A9 1F 99 2C 6C A9 03 99 8D 6A A9 03 99 8E 6A A9 04 99 8F 6A B9 63 6B 29 80 D0 04 5C 32 F6 07 C2 20 A9 08 00 99 90 6A 99 26 6C E2 20 FA 6B FA 6B")
+
+    def test_position_copy_or_two_stage_byte_offset_uses_primary_not_selected(self):
+        self.assert_source(0x07F634, "5A AC C3 12 DA BB 7A 5A B4 2B B9 63 6B 7A DA BB 7A 29 80 D0 04 5C BB F6 07 A9 00 85 02 85 04 89 80 F0 06 A9 FF 85 05 80 02 64 05 A9 00 85 08 85 0A 89 80 F0 06 A9 FF 85 0B 80 02 64 0B A9 50 85 97 85 E4 89 80 F0 06 A9 FF 85 E5 80 02 64 E5 B9 12 00 22 4E 3A 7F A5 04 85 02 A5 0A 85 08 A5 E4 85 97 B9 14 00 22 A9 38 7F C2 20 A5 04 18 79 0C 00 95 0C A5 E4 18 79 10 00 95 10 A5 0A 18 79 0E 00 95 0E E2 20 7A 6B C2 20 B9 0C 00 95 0C B9 0E 00 95 0E B9 10 00 95 10 E2 20 7A 6B")
+
+
+if __name__ == "__main__":
+    unittest.main()

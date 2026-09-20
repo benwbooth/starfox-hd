@@ -179,6 +179,27 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(self.lower_record("f9")[0],
             "Statement::Animation { command: AnimationCommand::Initialize { channel: AnimationChannel::Shape, value: 0 }, next: cursor(0, 1) }")
 
+    def test_primary_target_control_literals_and_complete_follower_root(self):
+        for word, value in [(0, 0), (32767, 32767), (32768, -32768), (65535, -1)]:
+            self.assertIn(f"PlayerControlCommand::Configure({value})", self.lower_record(f"fe {word & 255:02x} {word >> 8:02x}")[0])
+        self.assertIn("PlayerControlCommand::RefreshOwnedOrigin", self.lower_record("00 56")[0])
+        _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF38A), 0)
+        self.assertEqual(len(statements), 9)
+        self.assertIn("Configure(-8)", statements[2])
+        self.assertIn("LockForLinkedMode", statements[3])
+        self.assertIn("iterations: 8", statements[4])
+        self.assertIn("FollowPrimaryPosition", statements[5])
+        self.assertIn("RefreshOwnedOrigin", statements[6])
+        self.assertIn("ControlCommand::Next", statements[7])
+        self.assertIn("ControlCommand::End", statements[8])
+        generated = generate(self.rom, (("FOLLOWER", PathAddress(0xF38A)),))
+        self.assertIn("use super::path_player_control::PlayerControlCommand;", generated)
+        for offset in (0xF393, 0xF398, 0xF3A0, 0xF3A5):
+            changed = bytearray(self.rom)
+            changed[0x40000 + offset] ^= 1
+            with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(0xF38A), 0)
+
     def test_callback_graph_has_semantic_action_and_deferred_redirection(self):
         _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xF32C), 0)
         self.assertEqual(len(statements), 18)

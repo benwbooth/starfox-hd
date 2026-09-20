@@ -788,3 +788,21 @@ initializer as `INITANIM 0`; its source write is pinned beside that initializer'
 handler. This reuses the existing animation state and does not confuse manual
 zero with automatic clock-driven animation. All 56 lowerer and 181 static path
 tests pass, with unchanged generated complete-root coverage and native code.
+
+The nine-command `PRIMARY_TARGET_FOLLOWER` root is now fully lowered, including
+both reviewed inline calls. A shared, typed primary target-control record owns
+configuration, origin and limits; these are not duplicated in actor path state.
+Configuration clears the offset flag before its lock check, and matching-owner
+origin refresh still runs when configuration is locked. The follower samples
+the live primary pose and link mode on all eight iterations, using the source's
+two signed-byte rotations for the optional 80-unit forward offset. Zero angles
+do not bypass coefficient truncation. The cue and initial configuration occur
+once; selection, velocity and world rotation remain independent of following.
+
+Full helper signatures, every range word under lock/ownership combinations,
+all pitch/yaw pairs, self-aliasing, missing-input faults and the complete eight-
+iteration graph are checked statically/native-only. Verification passes 57
+lowerer tests, 187 static path tests, 174 native path tests in debug/release,
+architecture/dependency checks and the app build. The catalog now has **11
+complete roots and 126 unique statements**. Game scheduler/spawn integration
+and whole-game behavioral completion remain open; no new recordings were used.

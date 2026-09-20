@@ -24,6 +24,7 @@ pub struct PathWorld<'a> {
     /// Fresh primary auxiliary mode and retained displacement, required only
     /// by the one-time primary-motion inheritance action.
     pub primary_motion: Option<PrimaryMotionInput>,
+    pub primary_control: Option<super::path_player_control::PrimaryControl<'a>>,
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
     pub selected_auxiliary: Option<AuxiliaryContinuationInput>,
@@ -169,6 +170,10 @@ pub enum Statement {
     InheritPrimaryHorizontalMotion {
         next: PathCursor,
     },
+    PlayerControl {
+        command: super::path_player_control::PlayerControlCommand,
+        next: PathCursor,
+    },
     Sound {
         cue: super::path_sound::AuthoredCue,
         next: PathCursor,
@@ -265,6 +270,7 @@ pub enum Statement {
 pub enum ProgramError {
     MissingPrimaryPlayer,
     MissingPrimaryMotion,
+    MissingPrimaryControl,
     MissingAudio,
     MissingSoundMarkers,
     Spawn(super::path_spawn::SpawnError),
@@ -425,6 +431,40 @@ impl PathRuntime {
                         input.displacement,
                         input.auxiliary_mode,
                     );
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::PlayerControl { command, next } => {
+                    use super::path_player_control::{primary_position, PlayerControlCommand};
+                    let primary = world
+                        .primary_player
+                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                    let player = objects
+                        .get(primary)
+                        .ok_or(PathRuntimeError::MissingActor(primary))?;
+                    let pose = (player.base.position, player.base.pitch, player.base.yaw);
+                    let input = world
+                        .primary_control
+                        .as_mut()
+                        .ok_or(ProgramError::MissingPrimaryControl)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated player-control owner");
+                    match command {
+                        PlayerControlCommand::Configure(range) => {
+                            input.target.configure(owner, actor.base.position, range)
+                        }
+                        PlayerControlCommand::LockForLinkedMode => {
+                            input.target.lock_for_linked_mode(input.linked_mode)
+                        }
+                        PlayerControlCommand::FollowPrimaryPosition => {
+                            actor.base.position =
+                                primary_position(pose.0, pose.1, pose.2, input.linked_mode)
+                        }
+                        PlayerControlCommand::RefreshOwnedOrigin => input
+                            .target
+                            .refresh_owned_origin(owner, actor.base.position),
+                    }
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -658,6 +698,7 @@ mod tests {
             selected: None,
             fixed_players: [None; 2],
             primary_motion: None,
+            primary_control: None,
             selected_auxiliary: None,
             spawn_defaults: None,
             random,
@@ -2204,6 +2245,7 @@ mod tests {
                 selected: None,
                 fixed_players: [None; 2],
                 primary_motion: None,
+                primary_control: None,
                 spawn_defaults: None,
                 // The initial four-count loop does not read this record.
                 selected_auxiliary: (visit >= 3).then_some(AuxiliaryContinuationInput {
@@ -2418,14 +2460,233 @@ mod tests {
     }
 
     #[test]
+    fn player_control_requires_live_primary_and_target_record_before_mutation() {
+        use super::super::path_player_control::{
+            primary_position, PlayerControlCommand, PlayerTargetControl, PrimaryControl,
+        };
+        for command in [
+            PlayerControlCommand::Configure(-8),
+            PlayerControlCommand::LockForLinkedMode,
+            PlayerControlCommand::FollowPrimaryPosition,
+            PlayerControlCommand::RefreshOwnedOrigin,
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let before = objects.get(owner).unwrap().clone();
+            let original_random = random;
+            let catalog = PathCatalog::new(vec![vec![Statement::PlayerControl {
+                command,
+                next: cursor(0, 1),
+            }]])
+            .unwrap();
+            let mut inputs = world(&mut random);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::MissingPrimaryPlayer)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+            inputs.primary_player = Some(owner);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::MissingPrimaryControl)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+            assert_eq!(inputs.random, &original_random);
+            let mut control = PlayerTargetControl {
+                owner: Some(owner),
+                ..PlayerTargetControl::default()
+            };
+            let mut expected_control = control;
+            let mut expected = before.clone();
+            match command {
+                PlayerControlCommand::Configure(range) => {
+                    expected_control.configure(owner, before.base.position, range)
+                }
+                PlayerControlCommand::LockForLinkedMode => {
+                    expected_control.lock_for_linked_mode(true)
+                }
+                PlayerControlCommand::FollowPrimaryPosition => {
+                    expected.base.position = primary_position(
+                        before.base.position,
+                        before.base.pitch,
+                        before.base.yaw,
+                        true,
+                    )
+                }
+                PlayerControlCommand::RefreshOwnedOrigin => {
+                    expected_control.refresh_owned_origin(owner, before.base.position)
+                }
+            }
+            expected.base.path = Some(cursor(0, 1));
+            inputs.primary_control = Some(PrimaryControl {
+                target: &mut control,
+                linked_mode: true,
+            });
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1
+                })
+            );
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            assert_eq!(
+                *inputs.primary_control.as_ref().unwrap().target,
+                expected_control
+            );
+            assert_eq!(inputs.random, &original_random);
+        }
+    }
+
+    #[test]
+    fn authored_primary_target_follower_runs_eight_live_updates_and_configures_only_once() {
+        use super::super::path_player_control::{
+            primary_position, PlayerTargetControl, PrimaryControl,
+        };
+        use super::super::path_sound::{AuthoredCue, CueListener, PathAudio};
+        use super::super::{authored_paths, Angle, AudioState, SoundEvent, Vector3};
+        for initially_linked in [false, true] {
+            for locked in [false, true] {
+                for owned in [false, true] {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let primary = objects
+                        .allocate(Object::new(
+                            ObjectKind::Player,
+                            ShapeId::EMPTY,
+                            Behavior::PlayerFlight,
+                        ))
+                        .unwrap();
+                    let original_random = random;
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(authored_paths::PRIMARY_TARGET_FOLLOWER);
+                    actor.base.position = Vector3 { x: 1, y: 2, z: 3 };
+                    actor.base.velocity = Vector3 { x: 9, y: -8, z: 7 };
+                    actor.base.wait_timer = 57;
+                    actor.base.pitch = Angle::from_units(21);
+                    actor.base.yaw = Angle::from_units(22);
+                    actor.base.roll = Angle::from_units(23);
+                    actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+                    let stable_owner = actor.clone();
+                    let mut control = PlayerTargetControl {
+                        configuration_locked: locked,
+                        offset_enabled: true,
+                        owner: Some(if owned { owner } else { primary }),
+                        origin: Vector3 {
+                            x: -10,
+                            y: -20,
+                            z: -30,
+                        },
+                        range: -100,
+                        positive_range: 200,
+                        mode: 7,
+                        ..PlayerTargetControl::default()
+                    };
+                    let mut expected_control = control;
+                    expected_control.configure(owner, actor.base.position, -8);
+                    expected_control.lock_for_linked_mode(initially_linked);
+                    let mut audio = AudioState::default();
+                    let catalog = authored_paths::catalog();
+                    for visit in 0..8 {
+                        let linked = if visit == 0 {
+                            initially_linked
+                        } else {
+                            visit % 2 == 0
+                        };
+                        let player = objects.get_mut(primary).unwrap();
+                        player.base.position = Vector3 {
+                            x: i16::MAX - visit * 100,
+                            y: i16::MIN + visit * 200,
+                            z: visit * 300,
+                        };
+                        player.base.pitch = Angle::from_units((visit * 37) as u8);
+                        player.base.yaw = Angle::from_units((visit * 51) as u8);
+                        let expected_position = primary_position(
+                            player.base.position,
+                            player.base.pitch,
+                            player.base.yaw,
+                            linked,
+                        );
+                        let primary_before = player.clone();
+                        expected_control.refresh_owned_origin(owner, expected_position);
+                        let mut inputs = world(&mut random);
+                        inputs.primary_player = Some(primary);
+                        // A distinct selected actor must never replace primary.
+                        inputs.selected = Some(owner);
+                        inputs.primary_control = Some(PrimaryControl {
+                            target: &mut control,
+                            linked_mode: linked,
+                        });
+                        inputs.audio = Some(PathAudio {
+                            events: &mut audio,
+                            listeners: [CueListener::PrimaryPlayer, CueListener::Other],
+                            markers: None,
+                        });
+                        runtime.branch.invert_next = true;
+                        assert_eq!(
+                            runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                            Ok(if visit < 7 {
+                                ControlStep::Movement
+                            } else {
+                                ControlStep::Ended
+                            })
+                        );
+                        assert_eq!(
+                            *inputs.primary_control.as_ref().unwrap().target,
+                            expected_control
+                        );
+                        let expected_cues = if visit == 0 {
+                            vec![SoundEvent::Authored(AuthoredCue::new(
+                                50,
+                                0,
+                                PlayerTarget::Secondary,
+                            ))]
+                        } else {
+                            vec![]
+                        };
+                        assert_eq!(
+                            inputs
+                                .audio
+                                .as_mut()
+                                .unwrap()
+                                .events
+                                .take_events()
+                                .into_iter()
+                                .flatten()
+                                .collect::<Vec<_>>(),
+                            expected_cues
+                        );
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.base.position, expected_position);
+                        assert_eq!(actor.base.velocity, stable_owner.base.velocity);
+                        assert_eq!(
+                            (actor.base.pitch, actor.base.yaw, actor.base.roll),
+                            (
+                                stable_owner.base.pitch,
+                                stable_owner.base.yaw,
+                                stable_owner.base.roll
+                            )
+                        );
+                        assert_eq!(actor.base.wait_timer, 57);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert_eq!(actor.base.flags.remove_after_tick, visit == 7);
+                        assert_eq!(objects.get(primary).unwrap(), &primary_before);
+                        assert_eq!(inputs.random, &original_random);
+                        assert!(runtime.branch.invert_next);
+                    }
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
     fn authored_alternate_exhaust_runs_complete_graph_with_two_movement_yields() {
         use super::super::{authored_paths, path_appearance, path_motion};
         let (mut runtime, mut objects, owner, mut random) = setup();
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 10);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 117);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 11);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 126);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -2561,6 +2822,7 @@ mod tests {
                 selected: None,
                 fixed_players: [None; 2],
                 primary_motion: None,
+                primary_control: None,
                 selected_auxiliary: None,
                 spawn_defaults: None,
                 random: &mut random,
@@ -2662,6 +2924,7 @@ mod tests {
                         selected: None,
                         fixed_players: [None; 2],
                         primary_motion: None,
+                        primary_control: None,
                         selected_auxiliary: None,
                         spawn_defaults: None,
                         random: &mut random,

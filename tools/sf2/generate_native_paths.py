@@ -34,6 +34,7 @@ ROOTS = (
     ("SOUND_COLOR_SPRITE", PathAddress(0xF582)),
     ("CALLBACK_GATED_SPRITE", PathAddress(0xF32C)),
     ("PRIMARY_MOTION_GROUND_LIMITED", PathAddress(0xF029)),
+    ("PRIMARY_TARGET_FOLLOWER", PathAddress(0xF38A)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -296,6 +297,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "SetFlag26Bit08":
             parameters(0)
             statement = f"Statement::RunWhenPaused {{ enabled: true, next: {next_cursor()} }}"
+        elif name in ("ConfigurePlayerAuxiliary", "RefreshOwnedPlayerAuxiliaryOrigin"):
+            if name == "ConfigurePlayerAuxiliary":
+                value = int.from_bytes(parameters(2), "little", signed=True)
+                operation = f"Configure({value})"
+            else:
+                parameters(0)
+                operation = "RefreshOwnedOrigin"
+            statement = f"Statement::PlayerControl {{ command: PlayerControlCommand::{operation}, next: {next_cursor()} }}"
         elif name == "Inline65816":
             # The extractor checks the COMPLETE instruction signature and
             # returned continuation before exposing each reviewed action.
@@ -303,10 +312,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF348): "LatchPrimaryViewFilter",
                 PathAddress(0xE78A): "InheritPrimaryHorizontalMotion",
             }
-            if command.address not in actions:
+            controls = {
+                PathAddress(0xF391): "LockForLinkedMode",
+                PathAddress(0xF39E): "FollowPrimaryPosition",
+            }
+            if command.address not in actions and command.address not in controls:
                 raise UnsupportedPath(f"unported inline action at {command.address.label()}")
             parameters(0)
-            statement = f"Statement::{actions[command.address]} {{ next: {next_cursor()} }}"
+            if command.address in controls:
+                statement = f"Statement::PlayerControl {{ command: PlayerControlCommand::{controls[command.address]}, next: {next_cursor()} }}"
+            else:
+                statement = f"Statement::{actions[command.address]} {{ next: {next_cursor()} }}"
         elif name in ("SpawnChild", "SpawnChildAlias"):
             spawn = child_spawn_parameters(command)
             shape, kind = child_spawn_shape(spawn.shape)
@@ -692,6 +708,8 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
         source += "use super::path_conditions::SpatialCondition;\n"
     if any("FacingCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_steering::FacingCommand;\n"
+    if any("PlayerControlCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_player_control::PlayerControlCommand;\n"
     if any("SelectedTransformCommand::" in statement for statement in unique_statements.values()):
         source += "use super::path_relationships::SelectedTransformCommand;\n"
     if any("ContactCommand::" in statement for statement in unique_statements.values()):
