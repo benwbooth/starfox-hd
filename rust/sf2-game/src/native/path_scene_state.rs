@@ -23,6 +23,9 @@ pub struct EncounterCoordination {
     /// Persistent authored actor-retirement bits ($D78D). Actor paths retain
     /// their initial identity byte and set its bit through the shared helper.
     pub retired_actors: u8,
+    /// Encounter-specific phase ($D79A), including full-byte sentinels.
+    /// Fighter emitters clear it; fighters poll it to enter their abort path.
+    pub phase: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +36,7 @@ pub enum CoordinationField {
     ActiveMessages,
     Handshake,
     RetiredActors,
+    Phase,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +61,7 @@ impl EncounterCoordination {
             CoordinationField::ActiveMessages => &mut self.active_messages,
             CoordinationField::Handshake => &mut self.handshake,
             CoordinationField::RetiredActors => &mut self.retired_actors,
+            CoordinationField::Phase => &mut self.phase,
         };
         match command {
             CoordinationCommand::CopyTo(destination) => destination.write(actor, *value),

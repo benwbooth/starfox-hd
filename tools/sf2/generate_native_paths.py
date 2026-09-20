@@ -24,6 +24,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("DISTANCE_GATED_FIGHTER_EMITTER", PathAddress(0x4C68)),
+    ("FIGHTER_EMITTER", PathAddress(0x4C6A)),
     ("PAIRED_PART_YAW_PATROL", PathAddress(0x3114)),
     ("PAIRED_PART_PITCH_PATROL", PathAddress(0x31B8)),
     ("SELECTED_SCENERY_SPRITE_EMITTER", PathAddress(0xB050)),
@@ -243,6 +245,22 @@ class SurfaceHeightQuery:
     """Direct query and immediately imported result, with no scratch state."""
 
     commands: tuple[PathCommand, ...]
+
+    @property
+    def address(self):
+        return self.commands[0].address
+
+    @property
+    def next(self):
+        return self.commands[-1].successors[0]
+
+
+@dataclass(frozen=True)
+class WorldPositionTransfer:
+    """Reviewed complete three-coordinate capture or restore helper."""
+
+    commands: tuple[PathCommand, ...]
+    capture: bool
 
     @property
     def address(self):
@@ -493,6 +511,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # sprite; scope the classification to this shape AND complete path.
     if (index, path) == (323, PathAddress(0xA481)):
         return index, "ObjectKind::Enemy"
+    # Encounter fighters remain collidable until their explicit abort/death
+    # paths; health/attack still come from the authored spawn record.
+    if (shape, path) in ((0xCF6C, PathAddress(0x4CF7)), (0xCB98, PathAddress(0x4CCD))):
+        return index, "ObjectKind::Enemy"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
@@ -608,6 +630,24 @@ def lowering_units(extractor: PathExtractor, root: PathAddress):
     for command in commands:
         if command.address in consumed:
             continue
+        if command.address in (PathAddress(0x8054), PathAddress(0x805E)):
+            capture = command.address == PathAddress(0x8054)
+            opcode = 0x80 if capture else 0x7B
+            block = []
+            for index, (field, slot) in enumerate(((0x0C, 0x0B), (0x0E, 0x0D), (0x10, 0x0F))):
+                address = PathAddress(command.address.offset + index * 3)
+                part = by_address.get(address)
+                if (part is None or part.opcode != opcode or part.prefix_size != 0
+                        or part.handler_address != SEMANTICS[opcode].handler_address
+                        or part.raw_hex != bytes((opcode, field, slot)).hex()
+                        or part.successors != (PathAddress(address.offset + 3),)):
+                    raise UnsupportedPath("unexpected world-position transfer")
+                if index and (address in entries or predecessors.get(address) != {block[-1].address}):
+                    raise UnsupportedPath("external entry into world-position transfer")
+                block.append(part)
+            consumed.update(part.address for part in block[1:])
+            units.append(WorldPositionTransfer(tuple(block), capture))
+            continue
         if command.address == PathAddress(0xB116):
             consumer = by_address.get(PathAddress(0xB121))
             if (command.opcode != 0x089 or command.raw_hex != "89"
@@ -667,6 +707,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
 
     statements = []
     for command in commands:
+        if isinstance(command, WorldPositionTransfer):
+            operation = "Capture" if command.capture else "Restore"
+            statements.append(f"Statement::{operation}WorldPosition {{ next: {cursor(command.next)} }}")
+            continue
         if isinstance(command, SurfaceHeightQuery):
             statements.append(f"Statement::QuerySurfaceHeight {{ destination: WordField::ScriptValue, next: {cursor(command.next)} }}")
             continue
@@ -1396,9 +1440,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::RadioEvent {{ command: super::path_radio::RadioEventCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B, 0xD78D):
+            if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B, 0xD78D, 0xD79A):
                 field = {0xD787: "Progress", 0xD788: "SecondaryProgress", 0xD789: "CompletedParts",
-                         0xD78A: "ActiveMessages", 0xD78B: "Handshake", 0xD78D: "RetiredActors"}[address]
+                         0xD78A: "ActiveMessages", 0xD78B: "Handshake", 0xD78D: "RetiredActors", 0xD79A: "Phase"}[address]
                 if name.startswith("Import"):
                     operation = f"CopyTo({byte_field(variable)})"
                 elif name.startswith("Export"):

@@ -4,13 +4,14 @@ use super::super::{authored_paths, PathId};
 use super::tests::{setup, world};
 use super::*;
 
-const FIELDS: [CoordinationField; 6] = [
+const FIELDS: [CoordinationField; 7] = [
     CoordinationField::Progress,
     CoordinationField::SecondaryProgress,
     CoordinationField::CompletedParts,
     CoordinationField::ActiveMessages,
     CoordinationField::Handshake,
     CoordinationField::RetiredActors,
+    CoordinationField::Phase,
 ];
 
 fn at(index: u16) -> PathCursor {
@@ -28,6 +29,7 @@ fn state(value: u8) -> EncounterCoordination {
         active_messages: value,
         handshake: value,
         retired_actors: value,
+        phase: value,
     }
 }
 
@@ -39,6 +41,7 @@ fn replace_field(state: &mut EncounterCoordination, field: CoordinationField, va
         CoordinationField::ActiveMessages => state.active_messages = value,
         CoordinationField::Handshake => state.handshake = value,
         CoordinationField::RetiredActors => state.retired_actors = value,
+        CoordinationField::Phase => state.phase = value,
     }
 }
 
@@ -300,9 +303,10 @@ fn complete_scene_reset_copies_initial_values_then_clears_sixteen_masks_without_
                 Ok(ControlStep::Ended)
             );
             // This authored reset stops at D78C before the pickup word;
-            // remembered actor retirements at D78D survive the reset.
+            // remembered actor retirements at D78D and phase at D79A survive.
             assert_eq!(coordination, EncounterCoordination {
                 retired_actors: value ^ 0xFF,
+                phase: value ^ 0xFF,
                 ..state(value)
             });
             assert_eq!(sound.selection, value);

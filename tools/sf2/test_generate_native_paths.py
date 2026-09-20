@@ -21,6 +21,39 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_fighter_emitters_close_children_and_fold_only_complete_position_helpers(self):
+        extractor = PathExtractor(self.rom)
+        for address, count, checksum in [
+            (0x4C68, 349, 'f95c8abc7a272569781a9584cb6cedeef01c843edeb48f153e947a580fce1e29'),
+            (0x4C6A, 348, '04fccc0b98a56cd75b395d1be94f448428b0be63bf8fe91846e8aadbbcefb575'),
+        ]:
+            root = PathAddress(address)
+            commands = graph(extractor, root)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), checksum)
+            statements = lower_graph(extractor, root, 0)[1]
+            self.assertEqual(len(statements), count - 7)
+            for name in ['CaptureWorldPosition', 'RestoreWorldPosition', 'FaceSelectedOffset']:
+                self.assertEqual(sum(name in s for s in statements), 1)
+            self.assertEqual(sum('CoordinationField::Phase' in s for s in statements), 3)
+            for dependency in [0x4CCD, 0x4CF7, 0x89CA, 0x8692, 0x8C26, 0x44B2]:
+                self.assertIn(PathAddress(dependency), {c.address for c in commands})
+        for offset, changed_bytes, expected in [
+            (0x48058, b'\x10', 'unexpected world-position transfer'),
+            (0x48063, b'\x0b', 'unexpected world-position transfer'),
+            (0x44CC6, b'\x57\x80', 'unported shared word'),
+            (0x44CCA, b'\x61\x80', 'unported shared word'),
+            (0x44CCA, b'\x57\x80', 'external entry into world-position transfer'),
+        ]:
+            changed = bytearray(self.rom)
+            changed[offset:offset + len(changed_bytes)] = changed_bytes
+            with self.assertRaisesRegex(UnsupportedPath, expected):
+                lower_graph(PathExtractor(bytes(changed)), PathAddress(0x4C68), 0)
+        for shape, index, path in [(0xCB98, 137, 0x4CCD), (0xCF6C, 172, 0x4CF7)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path)), (index, 'ObjectKind::Enemy'))
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+
     def test_paired_patrol_graphs_include_detaching_parts_charge_launchers_and_every_drop(self):
         extractor = PathExtractor(self.rom)
         for address, count, checksum in [
@@ -248,7 +281,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn('End', statements[-1])
 
     def test_coordination_commands_decode_named_fields_and_reject_unreviewed_neighbors(self):
-        for index, field in [*enumerate(['Progress', 'SecondaryProgress', 'CompletedParts', 'ActiveMessages', 'Handshake'], 0x2B), (0x31, 'RetiredActors')]:
+        for index, field in [*enumerate(['Progress', 'SecondaryProgress', 'CompletedParts', 'ActiveMessages', 'Handshake'], 0x2B), (0x31, 'RetiredActors'), (0x3E, 'Phase')]:
             address = (0xD75C + index).to_bytes(2, 'little').hex(' ')
             for record, operation in [
                 (f'7a a1 {index:02x}', 'CopyTo'), (f'7f a1 {index:02x}', 'Assign(ByteOperand::Actor'),

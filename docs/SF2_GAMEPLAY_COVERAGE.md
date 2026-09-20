@@ -3079,3 +3079,48 @@ was changed. The full SF2 package now passes all **875 unit tests and two
 integration tests in both debug and release**. The architecture audit passes.
 This removes the test failure noted above without establishing full source
 coverage or shipping scheduler integration.
+
+## Fighter-spawning controllers and complete children (2026-09-20)
+
+Added the full `$4C68` and `$4C6A` graphs, including both independently spawned
+fighters, contact deaths, pickup dependency, and their firing helper. The first
+entry increments the existing script parameter (wrapping); both clear the
+encounter phase, wait for the nearest authored anchor, and retain the source
+counter and pacing rules. The counter branch is the **sign of `4 - count`**,
+not an unsigned capacity comparison: equality still permits the fifth fighter.
+Allocation failure still increments the counter and preserves last-spawn state.
+The ordinary pacing is 25 waits plus two visits per nonzero attack parameter.
+
+The linked callback keeps explicit Become/Gosub/Unbecome ownership. Reviewed
+closed three-word helpers become typed world-position capture/restore actions;
+mutated operands and external entries into their interiors fail generation.
+A missing link still restores the last complete publication; an unprovided
+publication faults. These helpers are not general numeric aliases for other
+uses of the source temporary storage. Borrowed actor paths are restored, while
+their own Gosub stack allocation remains, as in the source ownership contract.
+
+The rolling fighter consumes one random roll-step draw, waits 100 visits, then
+decrements the shared count and requests death. Its phase abort instead ends
+immediately without that decrement. The guided fighter preserves its initial
+yaw, initializes health/attack, waits 45 visits, chases pitch, and fires on the
+randomized 30-step timer before its 64-step turn phase. The plane condition uses
+the selected player's orientation. Nonzero phase disables collision and ends
+after 30 waits without decrementing. Contact death instead cancels the contact
+callback, makes the source drop-choice draw even with no remaining objectives,
+awards 50 low-word-saturating points, decrements the count, emits four fades
+with part parameter increased by six, then requests death rather than removal.
+
+Ten new native tests cover all counter/phase bytes, seed-dependent roll and
+firing behavior, score boundaries, wrapped count decrement, linked/unlinked
+position observations, source pacing, and full-pool behavior. Shared phase
+operations also use the existing exhaustive byte/IFNOT tests. Static tests pin
+the original helpers and lifecycle records; whole-graph hashes and synthetic
+mutations guard extraction. Full debug and release suites pass **885 unit tests
+and two integration tests each**. All 172 lowerer tests, 371 path-static tests,
+architecture/static audits, regeneration check, and app build pass (existing
+unused icon-function warnings only).
+
+Coverage is **123 complete roots, 2716 source commands, 2699 typed statements**.
+This remains a typed-catalog milestone, not full source coverage or integration
+of the shipping Game scheduler and spawning. No original-code execution or
+recorded gameplay was used for this increment.

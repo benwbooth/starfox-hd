@@ -111,6 +111,9 @@ pub struct PathRuntime {
     /// Other source uses of the same temporary storage have separate domain
     /// contracts; they are not implicitly exposed as numeric actor handles.
     pub scenery_placement_height: Option<i16>,
+    /// Complete transform mailbox used by the reviewed capture/restore
+    /// helpers. A missing linked actor leaves the previous publication intact.
+    pub captured_world_position: Option<super::Vector3>,
     pub steering: super::path_steering::SteeringState,
     pub branch: super::path_conditions::BranchState,
     calls: PathCalls,
@@ -128,6 +131,7 @@ impl Default for PathRuntime {
             actor_context: super::path_actor_context::ActorContextState::default(),
             spawns: super::path_spawn::SpawnState::default(),
             scenery_placement_height: None,
+            captured_world_position: None,
             steering: super::path_steering::SteeringState::default(),
             branch: super::path_conditions::BranchState::default(),
             calls: PathCalls::default(),

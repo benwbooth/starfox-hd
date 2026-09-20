@@ -96,6 +96,9 @@ mod scenery_emitter_tests;
 #[cfg(test)]
 #[path = "path_paired_patrol_tests.rs"]
 mod paired_patrol_tests;
+#[cfg(test)]
+#[path = "path_fighter_emitter_tests.rs"]
+mod fighter_emitter_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -510,6 +513,8 @@ impl ActorCondition {
 pub enum Statement {
     IncludeSelectedParticleFlags { mask: u8, next: PathCursor },
     SetSceneryPlacementHeight { height: i16, next: PathCursor },
+    CaptureWorldPosition { next: PathCursor },
+    RestoreWorldPosition { next: PathCursor },
     ImportSceneryPlacementHeight { next: PathCursor },
     AttachLastSpawn { next: PathCursor },
     QuerySurfaceHeight { destination: super::path_fields::WordField, next: PathCursor },
@@ -917,6 +922,7 @@ pub enum ProgramError {
     MissingOccupancy,
     MissingSurfaceMode,
     MissingSceneryPlacementHeight,
+    MissingCapturedWorldPosition,
     MissingSelectedParticleEffects,
     MissingImpactState,
     MissingLinkedShotCount,
@@ -1125,6 +1131,19 @@ impl PathRuntime {
                 Statement::SetSceneryPlacementHeight { height, next } => {
                     self.scenery_placement_height = Some(height);
                     objects.get_mut(owner).expect("validated placement writer").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::CaptureWorldPosition { next } => {
+                    let actor = objects.get_mut(owner).expect("validated position publisher");
+                    self.captured_world_position = Some(actor.base.position);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::RestoreWorldPosition { next } => {
+                    let position = self.captured_world_position.ok_or(ProgramError::MissingCapturedWorldPosition)?;
+                    let actor = objects.get_mut(owner).expect("validated position observer");
+                    actor.base.position = position;
+                    actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::IncludeSelectedParticleFlags { mask, next } => {
@@ -13348,9 +13367,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 121);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2572);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2582);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 123);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 2699);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 2716);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

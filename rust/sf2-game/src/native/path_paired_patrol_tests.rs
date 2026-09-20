@@ -173,7 +173,7 @@ fn pitch_patrol_emits_at_wrapped_endpoints_and_reverses_only_at_its_authored_hea
     assert!(launches >= 4);
 }
 
-fn callbacks(
+pub(super) fn callbacks(
     runtime: &mut PathRuntime,
     catalog: &PathCatalog,
     objects: &mut ObjectStore,
