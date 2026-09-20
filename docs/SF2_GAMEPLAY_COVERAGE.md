@@ -3710,3 +3710,34 @@ integration tests**; **193 lowerer tests and 424 path-static tests**, exact
 regeneration, architecture guard, static inventory and app build pass
 (existing unused icon-function warnings only). Caller graph completion and
 scene/scheduler integration remain separate unfinished work.
+
+### Scene continuation retention
+
+The `$44:1682` preservation-and-END path now lowers completely, with its
+callback redirection at `$44:167E` verified from the discovered `$44:360A`
+graph. Totals are **139 actor roots, five callable/redirected helper paths,
+4273 source commands and 4229 typed statements**. The containing encounter
+graphs still have other unsupported commands.
+
+Preservation copies the current decoded instruction identity into the linked
+scene proxy. When no proxy exists, it saves `ObjectExtension::scene_continuation`
+(the source auxiliary-type-three value). It does not retain the successor or
+turn END into RETURN. Capture now reads that fallback before using its supplied
+next instruction; it leaves the fallback intact. Existing-proxy preservation
+does not overwrite the separate fallback. Program cleanup clears the fallback
+without changing a scene-owned proxy. Missing stores and dangling proxy handles
+fail before actor state changes and do not silently take the no-proxy branch.
+
+Three native tests cover both branches, old/absent fallback values, entire
+actor/proxy state, IFNOT and randomness, missing-state retry, actual generated
+preservation and END, later capture, repeat capture, and cleanup. Two new static
+tests bind the handler, redirection, complete graph and capture/auxiliary lookup
+to original bytes. The auxiliary value is a typed optional path; original
+auxiliary-table bookkeeping allocation pressure is not yet connected, as with
+the separately retained weapon reflection shape. This does not establish full
+source allocation-pressure fidelity.
+
+Debug/release pass **989 unit tests and two integration tests**; **194 lowerer
+tests and 426 path-static tests**, exact regeneration, architecture guard,
+static inventory and app build pass (existing unused icon-function warnings
+only). No recorded gameplay or original instruction execution was used.

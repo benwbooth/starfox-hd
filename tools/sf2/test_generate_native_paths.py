@@ -36,8 +36,8 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
         self.assertIn('LOWERED_ROOT_COUNT: usize = 139;', source)
-        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 4;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4271;', source)
+        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 5;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4273;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -57,6 +57,16 @@ class NativePathGenerationTests(unittest.TestCase):
                                       'Statement::Control(ControlCommand::Return)'])
         self.assertIn('Statement::ConsiderPrimaryTarget {', self.lower_record('c7')[0])
         self.assertIn('Statement::ConsiderPrimaryTargetAndMarkSceneProxy {', self.lower_record('c6')[0])
+
+    def test_scene_continuation_retains_the_current_instruction_then_ends(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x1682)
+        self.assertNotIn(root, extractor.discover_roots())
+        self.assertEqual([c.raw_hex for c in graph(extractor, root)], ['b6', '0f'])
+        entry, statements = lower_graph(extractor, root, 0)
+        self.assertEqual(entry, 0)
+        self.assertEqual(statements, ['Statement::PreserveSceneContinuation { next: cursor(0, 1) }',
+                                      'Statement::Control(ControlCommand::End)'])
 
     def test_completion_word_import_export_reject_unreviewed_neighbors_and_byte_views(self):
         self.assertIn('Statement::ImportObjectiveCompletion { destination: WordField::ScriptValue', self.lower_record('7b a3 43')[0])

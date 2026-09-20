@@ -121,8 +121,8 @@ impl SceneProxyStore {
         Ok(proxy)
     }
 
-    /// The path owner supplies the decoded continuation: auxiliary type 3
-    /// overrides the instruction following capture. It is not a callback.
+    /// The retained scene path (auxiliary type 3) overrides the supplied
+    /// decoded instruction following capture. It is not a callback.
     /// A second capture replaces the actor's handle WITHOUT freeing its old
     /// proxy, matching the source; callers must not infer exclusive ownership.
     pub fn capture_actor(
@@ -142,7 +142,7 @@ impl SceneProxyStore {
                 roll: actor.base.roll,
             },
             shape: actor.base.shape,
-            continuation,
+            continuation: actor.extension.scene_continuation.unwrap_or(continuation),
             flags: SceneProxyFlags(ACTOR_ATTACHED | ACTOR_CAPTURED),
             owner: Some(owner),
         };

@@ -145,6 +145,9 @@ mod transition_wait_tests;
 #[cfg(test)]
 #[path = "path_target_proxy_tests.rs"]
 mod target_proxy_tests;
+#[cfg(test)]
+#[path = "path_scene_continuation_tests.rs"]
+mod scene_continuation_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -853,6 +856,9 @@ pub enum Statement {
         next: PathCursor,
     },
     ConsiderPrimaryTargetAndMarkSceneProxy {
+        next: PathCursor,
+    },
+    PreserveSceneContinuation {
         next: PathCursor,
     },
     ChildMissing {
@@ -1718,6 +1724,22 @@ impl PathRuntime {
                         *phase = (*phase & 0xFF00) | 1;
                     }
                     actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::PreserveSceneContinuation { next } => {
+                    // Retain THIS instruction, not its successor: a later scene
+                    // recreation must execute preservation before the terminal path.
+                    if let Some(id) = actor.extension.scene_proxy {
+                        world.scene_proxies.as_mut()
+                            .ok_or(ProgramError::MissingSceneProxies)?
+                            .get_mut(id).ok_or(ProgramError::MissingSceneProxy(id))?
+                            .continuation = cursor;
+                    } else {
+                        objects.get_mut(owner).expect("validated scene continuation owner")
+                            .extension.scene_continuation = Some(cursor);
+                    }
+                    objects.get_mut(owner).expect("validated scene continuation owner")
+                        .base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
                 Statement::ConsiderPrimaryTarget { next }
@@ -13770,9 +13792,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
         assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 139);
-        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 4);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4227);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4271);
+        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 5);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 4229);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 4273);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

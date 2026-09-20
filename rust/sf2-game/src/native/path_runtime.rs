@@ -540,6 +540,7 @@ impl PathRuntime {
     ) -> Result<(), PathRuntimeError> {
         let actor = actor_mut(objects, owner)?;
         self.resources.release_owner(owner);
+        actor.extension.scene_continuation = None;
         let state = &mut actor.extension.path_state;
         state
             .stack
