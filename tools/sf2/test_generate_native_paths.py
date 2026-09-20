@@ -51,6 +51,28 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("use super::path_contact::ContactClassMask;", generated)
         self.assertIn("use super::collision_pass::ExclusionGroups;", generated)
 
+    def test_published_player_motion_imports_and_complete_counter_motion_root(self):
+        for address, axis in [(0x1E1C, "X"), (0x1E1E, "Y"), (0x1E20, "Z")]:
+            self.assertEqual(self.lower_record(f"7c a3 {address & 255:02x} {address >> 8:02x}")[0],
+                f"Statement::ImportPlayerMotion {{ axis: Axis::{axis}, destination: WordField::ScriptValue, next: cursor(0, 1) }}")
+        for address in [0x1E1B, 0x1E1D, 0x1E1F, 0x1E21, 0xD7EC]:
+            with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
+                self.lower_record(f"7c a3 {address & 255:02x} {address >> 8:02x}")
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
+            self.lower_record("7c 04 1c 1e")
+        _, statements = lower_graph(PathExtractor(self.rom), PathAddress(0xBE65), 0)
+        self.assertEqual(len(statements), 10)
+        self.assertEqual(statements[0], "Statement::DisableCollision { next: cursor(0, 1) }")
+        self.assertIn("FarSortBias(true)", statements[1])
+        self.assertIn("axis: Axis::X, destination: WordField::Velocity(Axis::X)", statements[2])
+        self.assertIn("axis: Axis::Z, destination: WordField::Velocity(Axis::Z)", statements[3])
+        self.assertIn("WordOperation::Negate", statements[4])
+        self.assertIn("WordOperation::Negate", statements[5])
+        self.assertIn("SelectedTransformCommand::WorldRotation", statements[6])
+        self.assertIn("ByteOperation::Assign(ByteOperand::Literal(64))", statements[7])
+        self.assertIn("ByteOperation::Assign(ByteOperand::Literal(128))", statements[8])
+        self.assertIn("target: cursor(0, 2)", statements[9])
+
     def test_lowering_reads_authored_parameters_instead_of_hardcoding_fixture(self):
         changed = bytearray(self.rom)
         changed[0x40000 + 0xF537] = 17

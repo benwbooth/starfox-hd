@@ -12,6 +12,27 @@ const ENLARGED_VELOCITY_SCALE: i16 = 4;
 const AUXILIARY_MODE_CLASS_MASK: u8 = 0xF0;
 const VELOCITY_INHERITANCE_CLASS: u8 = 0x10;
 
+/// Published by the player service at `$07:EA15`. Paths consume the retained
+/// snapshot, not the player's potentially newer position, mode or velocity.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PublishedPlayerMotion {
+    pub position: Vector3,
+    pub delta: Vector3,
+}
+
+impl PublishedPlayerMotion {
+    pub fn capture(player: &Object, displacement: Vector3, auxiliary_mode: u8) -> Self {
+        Self {
+            position: player.base.position,
+            delta: if auxiliary_mode & AUXILIARY_MODE_CLASS_MASK == VELOCITY_INHERITANCE_CLASS {
+                player.base.velocity
+            } else {
+                displacement
+            },
+        }
+    }
+}
+
 /// Add primary-player horizontal motion (`$06:A885..A8D1`). The player's
 /// auxiliary mode selects its velocity or retained displacement. This is a
 /// one-time velocity addition, not ordinary per-step displacement following.
@@ -256,6 +277,44 @@ mod tests {
         let object = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
         let owner = ObjectStore::new().allocate(object.clone()).unwrap();
         (object, owner)
+    }
+
+    #[test]
+    fn published_motion_captures_all_axes_and_only_mode_class_one_uses_velocity() {
+        let (mut player, _) = setup();
+        for mode in 0..=u8::MAX {
+            player.base.position = Vector3 {
+                x: i16::MIN,
+                y: 18,
+                z: i16::MAX,
+            };
+            player.base.velocity = Vector3 {
+                x: -1,
+                y: 273,
+                z: -309,
+            };
+            let displacement = Vector3 {
+                x: 719,
+                y: -887,
+                z: i16::MIN,
+            };
+            let before = player.clone();
+            let published = PublishedPlayerMotion::capture(&player, displacement, mode);
+            assert_eq!(published.position, before.base.position);
+            assert_eq!(
+                published.delta,
+                if (16..32).contains(&mode) {
+                    before.base.velocity
+                } else {
+                    displacement
+                }
+            );
+            assert_eq!(player, before);
+            player.base.position = Vector3::default();
+            player.base.velocity = Vector3::default();
+            assert_eq!(published.position, before.base.position);
+            assert_ne!(published.delta, player.base.velocity);
+        }
     }
 
     #[test]

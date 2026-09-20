@@ -889,3 +889,18 @@ contract, not full renderer parity or another complete authored root.
 Verification passes 65 lowerer tests, 197 static path tests, 183 native path
 tests plus the render-boundary test in debug/release, architecture/dependency
 checks and the app build. Complete-root coverage remains 12 roots/134 statements.
+
+The ten-command `COUNTER_MOTION_EFFECT` root now imports the published player
+motion snapshot, negates its horizontal components and follows the selected
+player's yaw with fixed pitch/roll. Its initial collision and far-sort setup
+runs only once. The player-service snapshot preserves position and chooses
+velocity versus retained displacement by auxiliary mode; path reads do not
+recompute it from a newer player state. Only the three reviewed motion words
+are importable, with unreviewed or misaligned shared operands rejected.
+
+Tests cover every mode byte, every imported word on each axis, missing-snapshot
+failures, live snapshots and yaw over repeated yields, self-selection, actor
+preservation and IFNOT/RNG retention. Verification passes 66 lowerer tests,
+199 static path tests, 186 native path tests in debug/release, the architecture
+and dependency audits, and the app build. The catalog now has **13 complete
+roots and 144 unique statements**; scheduler integration remains open.

@@ -32,6 +32,23 @@ class PathMovementStaticTests(unittest.TestCase):
             "B9 36 00 18 75 36 95 36 80 12 C2 20 B9 C1 1C 18 75 32 95 32 "
             "B9 C5 1C 18 75 36 95 36 E2 20 28 7A 6B")
 
+    def test_published_motion_snapshot_selects_velocity_or_retained_displacement(self):
+        self.assert_source(0x069CE7, "22 15 EA 07")
+        self.assert_source(0x07EA15,
+            "08 E2 20 C2 10 C2 20 B5 0C 8D EC D7 B5 0E 8D EE D7 B5 10 8D F0 D7 "
+            "E2 20 5A B4 2B B9 A0 6A 7A 29 F0 C9 10 F0 04 5C 51 EA 07 "
+            "C2 20 B5 32 8D 1C 1E B5 34 8D 1E 1E B5 36 8D 20 1E 80 14 "
+            "C2 20 BD C1 1C 8D 1C 1E BD C3 1C 8D 1E 1E BD C5 1C 8D 20 1E 28 6B")
+
+    def test_word_import_reads_snapshot_and_counter_motion_root_repeats_after_setup(self):
+        self.assert_source(0x7F89A8, "20 E0 C4 20 47 CB E2 20 20 BC C4 99 00 00 4C BE CA")
+        self.assert_source(0x7F9F67, "20 D2 9F C2 20 AD B7 16 99 00 00 4C A9 CA")
+        self.assert_source(0x7F9FD2,
+            "C2 20 20 4C C7 A8 B9 00 00 8D B7 16 E2 20 20 BC C4 20 47 CB 60")
+        # Path bank 44 is a decoded data window, not a normal CPU ROM bank.
+        expected = bytes.fromhex("5c 00 29 7c 32 1c 1e 7c 36 20 1e 57 32 57 36 00 44 0b 40 12 0b 80 16 16 68 be")
+        self.assertEqual(self.rom[0x4BE65:0x4BE65 + len(expected)], expected)
+
     def test_acceleration_writes_target_and_amount_without_regenerating(self):
         self.assert_source(0x7F8C96, "20 BC C4 95 0A 20 E0 C4 95 0B 4C BE CA")
 

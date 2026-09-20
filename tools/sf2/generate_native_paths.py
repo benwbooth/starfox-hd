@@ -36,6 +36,7 @@ ROOTS = (
     ("PRIMARY_MOTION_GROUND_LIMITED", PathAddress(0xF029)),
     ("PRIMARY_TARGET_FOLLOWER", PathAddress(0xF38A)),
     ("SHARED_COUNTDOWN_SERVICE", PathAddress(0x04FF)),
+    ("COUNTER_MOTION_EFFECT", PathAddress(0xBE65)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -613,6 +614,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "FaceMother": "LinkedImmediate",
             }[name]
             statement = f"Statement::Facing {{ command: FacingCommand::{operation}, next: {next_cursor()} }}"
+        elif name == "ImportWordAbsolute":
+            variable, low, high = parameters(3)
+            address = low | (high << 8)
+            axes = {0x1E1C: "X", 0x1E1E: "Y", 0x1E20: "Z"}
+            if address not in axes:
+                raise UnsupportedPath(f"unported shared word {address:04X} at {command.address.label()}")
+            statement = f"Statement::ImportPlayerMotion {{ axis: Axis::{axes[address]}, destination: {word_field(variable)}, next: {next_cursor()} }}"
         elif name in ("ImportByteAbsolute", "ImportByteIndexed", "ExportByteAbsolute",
                        "ExportByteIndexed", "StoreExternalByte", "IncrementExternalByte",
                        "DecrementExternalByte"):

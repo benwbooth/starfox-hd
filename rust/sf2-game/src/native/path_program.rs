@@ -24,6 +24,8 @@ pub struct PathWorld<'a> {
     /// Fresh primary auxiliary mode and retained displacement, required only
     /// by the one-time primary-motion inheritance action.
     pub primary_motion: Option<PrimaryMotionInput>,
+    /// Published player-service snapshot, distinct from fresh primary inputs.
+    pub published_motion: Option<super::path_motion::PublishedPlayerMotion>,
     pub primary_control: Option<super::path_player_control::PrimaryControl<'a>>,
     pub countdown: Option<&'a mut super::path_countdown::PathCountdown>,
     /// Fresh selected auxiliary observations for this invocation; absent
@@ -171,6 +173,11 @@ pub enum Statement {
     InheritPrimaryHorizontalMotion {
         next: PathCursor,
     },
+    ImportPlayerMotion {
+        axis: super::path_fields::Axis,
+        destination: super::path_fields::WordField,
+        next: PathCursor,
+    },
     PlayerControl {
         command: super::path_player_control::PlayerControlCommand,
         next: PathCursor,
@@ -279,6 +286,7 @@ pub enum Statement {
 pub enum ProgramError {
     MissingPrimaryPlayer,
     MissingPrimaryMotion,
+    MissingPublishedMotion,
     MissingPrimaryControl,
     MissingAudio,
     MissingSoundMarkers,
@@ -441,6 +449,28 @@ impl PathRuntime {
                         input.displacement,
                         input.auxiliary_mode,
                     );
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportPlayerMotion {
+                    axis,
+                    destination,
+                    next,
+                } => {
+                    use super::path_fields::Axis;
+                    let delta = world
+                        .published_motion
+                        .ok_or(ProgramError::MissingPublishedMotion)?
+                        .delta;
+                    let value = match axis {
+                        Axis::X => delta.x,
+                        Axis::Y => delta.y,
+                        Axis::Z => delta.z,
+                    };
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated motion-import owner");
+                    destination.write(actor, value as u16);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
@@ -730,6 +760,7 @@ mod tests {
             selected: None,
             fixed_players: [None; 2],
             primary_motion: None,
+            published_motion: None,
             primary_control: None,
             countdown: None,
             selected_auxiliary: None,
@@ -750,6 +781,135 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn published_motion_imports_preserve_words_and_require_the_snapshot_not_a_live_player() {
+        use super::super::path_fields::Axis;
+        use super::super::path_motion::PublishedPlayerMotion;
+        use super::super::Vector3;
+        for axis in [Axis::X, Axis::Y, Axis::Z] {
+            let catalog = PathCatalog::new(vec![vec![Statement::ImportPlayerMotion {
+                axis,
+                destination: WordField::ScriptValue,
+                next: cursor(0, 0),
+            }]])
+            .unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            let before = objects.get(owner).unwrap().clone();
+            let original_random = random;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::MissingPublishedMotion)
+            );
+            assert_eq!(objects.get(owner).unwrap(), &before);
+            for bits in 0..=u16::MAX {
+                let mut delta = Vector3 {
+                    x: 13,
+                    y: 29,
+                    z: 43,
+                };
+                match axis {
+                    Axis::X => delta.x = bits as i16,
+                    Axis::Y => delta.y = bits as i16,
+                    Axis::Z => delta.z = bits as i16,
+                }
+                let snapshot = PublishedPlayerMotion {
+                    position: Vector3::default(),
+                    delta,
+                };
+                let mut inputs = world(&mut random);
+                inputs.published_motion = Some(snapshot);
+                let mut expected = before.clone();
+                expected.extension.path_state.script_value = bits;
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 0),
+                        executed: 1
+                    })
+                );
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                assert_eq!(inputs.published_motion, Some(snapshot));
+                assert!(runtime.branch.invert_next);
+                assert_eq!(inputs.random, &original_random);
+            }
+        }
+    }
+
+    #[test]
+    fn complete_counter_motion_root_resamples_snapshot_and_selected_rotation_each_yield() {
+        use super::super::path_motion::PublishedPlayerMotion;
+        use super::super::{authored_paths, Angle, Vector3};
+        let catalog = authored_paths::catalog();
+        for selected_is_owner in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            let selected = if selected_is_owner {
+                owner
+            } else {
+                objects
+                    .allocate(Object::new(
+                        ObjectKind::Player,
+                        ShapeId::EMPTY,
+                        Behavior::FollowPath,
+                    ))
+                    .unwrap()
+            };
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::COUNTER_MOTION_EFFECT);
+            actor.base.position = Vector3 {
+                x: i16::MIN,
+                y: 437,
+                z: i16::MAX,
+            };
+            actor.base.velocity.y = -371;
+            actor.base.wait_timer = 97;
+            let original_random = random;
+            for visit in 0..=u8::MAX {
+                let target = objects.get_mut(selected).unwrap();
+                target.base.pitch = Angle::from_units(visit);
+                target.base.yaw = Angle::from_units(visit.wrapping_mul(3));
+                target.base.roll = Angle::from_units(visit.wrapping_neg());
+                let selected_before = target.clone();
+                let delta = Vector3 {
+                    x: (u16::from(visit) * 257) as i16,
+                    y: 809,
+                    z: (u16::from(visit) * 257).wrapping_add(32768) as i16,
+                };
+                let snapshot = PublishedPlayerMotion {
+                    position: Vector3 { x: 3, y: 5, z: 7 },
+                    delta,
+                };
+                let mut expected = objects.get(owner).unwrap().clone();
+                expected.base.flags.collision_disabled = true;
+                expected.base.flags.far_sort_bias = true;
+                expected.base.velocity.x = delta.x.wrapping_neg();
+                expected.base.velocity.z = delta.z.wrapping_neg();
+                expected.base.pitch = Angle::from_units(64);
+                expected.base.yaw = selected_before.base.yaw;
+                expected.base.roll = Angle::from_units(128);
+                expected.base.path = Some(PathCursor {
+                    command_index: authored_paths::COUNTER_MOTION_EFFECT.command_index + 2,
+                    ..authored_paths::COUNTER_MOTION_EFFECT
+                });
+                let mut inputs = world(&mut random);
+                inputs.published_motion = Some(snapshot);
+                inputs.selected = Some(selected);
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 10),
+                    Ok(ControlStep::Movement)
+                );
+                assert_eq!(objects.get(owner).unwrap(), &expected);
+                if !selected_is_owner {
+                    assert_eq!(objects.get(selected).unwrap(), &selected_before);
+                }
+                assert_eq!(inputs.published_motion, Some(snapshot));
+                assert_eq!(inputs.random, &original_random);
+                assert!(runtime.branch.invert_next);
+            }
+        }
     }
 
     #[test]
@@ -2438,6 +2598,7 @@ mod tests {
                 selected: None,
                 fixed_players: [None; 2],
                 primary_motion: None,
+                published_motion: None,
                 primary_control: None,
                 spawn_defaults: None,
                 countdown: None,
@@ -2887,8 +3048,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 12);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 134);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 13);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 144);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -3024,6 +3185,7 @@ mod tests {
                 selected: None,
                 fixed_players: [None; 2],
                 primary_motion: None,
+                published_motion: None,
                 primary_control: None,
                 selected_auxiliary: None,
                 countdown: None,
@@ -3127,6 +3289,7 @@ mod tests {
                         selected: None,
                         fixed_players: [None; 2],
                         primary_motion: None,
+                        published_motion: None,
                         primary_control: None,
                         selected_auxiliary: None,
                         countdown: None,
