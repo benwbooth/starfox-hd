@@ -93,6 +93,10 @@ ROOTS = (
     ("CONSUMABLE_PICKUP_TYPE_ZERO", PathAddress(0x44B6)),
     ("CONSUMABLE_PICKUP_TYPE_THREE", PathAddress(0x44BA)),
     ("CONSUMABLE_PICKUP_TYPE_ONE", PathAddress(0x44BC)),
+    ("RANDOM_TEXTURE_CONTACT_SPRITE", PathAddress(0xF9DD)),
+    ("DISTANCE_AIMED_PROJECTILE", PathAddress(0x4DF9)),
+    ("RANDOMIZED_YAW_GUIDED_PROJECTILE", PathAddress(0x6BCD)),
+    ("DELAYED_CONTACT_PROJECTILE", PathAddress(0x9E9A)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -137,6 +141,10 @@ CHILD_INSTALLERS = {
     PathAddress(0x44B6): (PathAddress(0x0F7E), PathAddress(0x8CDD)),
     PathAddress(0x44BA): (PathAddress(0x0F7E), PathAddress(0x8CE7)),
     PathAddress(0x44BC): (PathAddress(0x0F7E), PathAddress(0x8CF1)),
+    PathAddress(0xF9DD): (PathAddress(0xF5B4), PathAddress(0xF7A1)),
+    PathAddress(0x4DF9): (PathAddress(0x4D7E), PathAddress(0x4DCF)),
+    PathAddress(0x6BCD): (PathAddress(0x6A15), PathAddress(0x6BB9)),
+    PathAddress(0x9E9A): (PathAddress(0x9492), PathAddress(0x9E46)),
 }
 
 

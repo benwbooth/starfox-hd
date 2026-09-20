@@ -64,6 +64,38 @@ class NativePathGenerationTests(unittest.TestCase):
         with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
             spawn_shape(0xF50C, PathAddress(0x44B8))
 
+    def test_contact_projectile_children_preserve_complete_source_graphs_and_installation(self):
+        extractor = PathExtractor(self.rom)
+        cases = [
+            (0xF9DD, 0xF5B4, 0xF7A1, "5d70c0ddf90104", 9, "4d0000f7ef007620005c00749903063c031e6b2d19"),
+            (0x4DF9, 0x4D7E, 0x4DCF, "5dece7f94d6408", 20, "9312000f95128a141027074e000f005c0664fd13000c04848cfaaf00050f194b1e4e03050f5f224e424c184e42"),
+            (0x6BCD, 0x6A15, 0x6BB9, "5dece7cd6b6404", 23, "040b642d0b042e29e66b0b10a14172895212a14172895214a1005c0664faaf611e0021f60af76b17f96b000f5ffe6b440f46fd6b29778956a142"),
+            (0x9E9A, 0x9492, 0x9E46, "5df4de9a9e0a00", 27, "5c4ea12e0b012d0b042e52a1a10065eb9e11320065ce9e1107002c000f90f19e09a1a25214a290f29e09a1a25212a2065a03320f5bfd0408422aa201dc9e4cef9e42c1424cef9e420f"),
+        ]
+        for root, parent, installer, spawn_bytes, count, source in cases:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(''.join(c.raw_hex for c in commands), source)
+            self.assertEqual(len(commands), count)
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(statements), count)
+            command = extractor.decode_command(PathAddress(installer))
+            self.assertIn(command, graph(extractor, PathAddress(parent)))
+            self.assertEqual(command.raw_hex, spawn_bytes)
+            self.assertEqual(independent_spawn_parameters(command).path.offset, root)
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed), (("CHILD", PathAddress(root)),))
+        _, statements = lower_graph(extractor, PathAddress(0x9E9A), 0)
+        self.assertEqual(sum("TriggerKind::TimerPenultimate" in s for s in statements), 2)
+        self.assertIn("TriggerKind::NewContact", statements[17])
+        self.assertIn("ContactCommand::MarkHit", statements[22])
+        # Eight authored yaw/pitch pairs; the offline decoder also retains
+        # all reachable trailing bytes for noncanonical actor selectors.
+        self.assertEqual(self.rom[0x49EF1:0x49F01].hex(), "f0001000001000f0f0f010f0f0101010")
+        for source in [0x099EF1, 0x099EF2]:
+            self.assertEqual(len(banked_byte_values(self.rom, source)), 256)
+
     def test_shape_dead_lowers_to_attachment_presence_not_health_or_generic_predicate(self):
         statements = self.lower_record("20 36 f5")
         self.assertEqual(statements[0], "Statement::AttachmentAbsent { taken: cursor(0, 0), next: cursor(0, 1) }")

@@ -2229,3 +2229,42 @@ source lowering and native catalog behavior, not whole-game completion or
 runtime equivalence. Parent allocation/classification and Game scheduler
 integration remain separately tracked; no gameplay recording or source
 machine execution was used for this work.
+
+### Complete contact-projectile and texture-sprite paths
+
+Four more verified child entries are now native catalog roots:
+`RANDOM_TEXTURE_CONTACT_SPRITE` (`$F9DD`, nine commands),
+`DISTANCE_AIMED_PROJECTILE` (`$4DF9`, twenty),
+`RANDOMIZED_YAW_GUIDED_PROJECTILE` (`$6BCD`, twenty-three), and
+`DELAYED_CONTACT_PROJECTILE` (`$9E9A`, twenty-seven). Their source installers,
+complete graphs and the eight authored yaw/pitch offset pairs are pinned;
+all 256 possible byte-table offsets remain decoded, not truncated to the
+usual eight patterns. Installer mutations fail catalog generation.
+
+Native checks cover every initial wait byte for the texture sprite, exact
+single-draw size wrapping, contact-class updates, immediate/deferred velocity
+generation and zero-health HOLD without premature path retirement. The
+distance-aimed path saves/restores pitch outside its 10,000-unit horizontal
+range, publishes material and positional audio, and preserves the selected
+plane's doubled-word overflow. Forced crossing resets wait state before its
+five-visit delay and removes the callback without clearing retained health
+or spatial audio. The randomized guided path exercises every jitter-sign
+route and the no-jitter route, exact shared draw order, the wrapped relative
+yaw gate, the thirty-pass limit and early plane-crossing loop unwind.
+
+The delayed-contact path retains both timer callbacks and all eight ordinary
+offset pairs. Collision enables on callback visit seven; registration does
+not extend that pass. Visit eight expires the arming trigger, whose deletion
+and common advance both decrement the source pass budget, skipping the final
+contact entry. The new-contact callback is first evaluated on visit nine.
+Tests preserve this source behavior, fresh high-phase mark-only versus forced
+retirement branches, and the independent visit-fifty forced expiry. These
+details follow the existing pinned trigger handlers, not adjustments made to
+the implementation to fit the tests.
+
+Coverage is **73 complete roots / 1,280 source commands / 1,271 native
+statements**. Validation passes 141 lowerer tests, 302 source-static path
+tests and 350 native path tests in debug/release, generated freshness,
+architecture/static audits and the app build. This remains static native
+catalog coverage; parent spawning, Game integration and whole-game runtime
+equivalence are not established by these checks.
