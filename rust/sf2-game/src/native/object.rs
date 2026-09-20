@@ -1030,9 +1030,10 @@ pub struct ObjectExtension {
     pub surface_contact: super::collision_surface::ActorSurfaceContact,
     /// Scene-owned snapshot; retirement detaches it before contact callbacks.
     pub scene_proxy: Option<super::scene_proxy::SceneProxyId>,
-    /// Retained scene re-entry path (auxiliary type 3), used when no proxy
-    /// exists yet. Capturing a proxy copies it without consuming it.
-    pub scene_continuation: Option<PathCursor>,
+    /// Actor-owned semantic auxiliary table (source extension 1CEC).
+    /// Contents compete with callbacks, saved views and path stacks for
+    /// program capacity; copying the base record does not roll this back.
+    pub auxiliary: super::actor_auxiliary::ActorAuxiliary,
     /// Authored depth word (source 1CC8/9). Render publication and sprite
     /// colour use only its low byte; path arithmetic retains both bytes.
     pub depth_offset: u16,

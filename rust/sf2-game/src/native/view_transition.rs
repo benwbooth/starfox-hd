@@ -2,14 +2,26 @@
 //! cleanup (`$03:A6A5`). The saved source record ends at base field 3E;
 //! separately indexed extension state is deliberately not rolled back.
 
+use super::actor_auxiliary::{ActorAuxiliary, AuxiliaryError, AuxiliaryKind, AuxiliaryRecord};
 use super::collision_pass::ExclusionGroups;
 use super::object::ObjectBase;
 use super::path_motion::MotionSettings;
 use super::path_runtime::ActorPathState;
 use super::path_trigger_conditions::TriggerActorState;
+use super::program_resources::{AllocationFailure, ProgramResources};
+use super::program_state::ProgramData;
+use super::ObjectId;
 use super::{Object, ObjectStore, Vector3};
 
 const HOSTILE_PROJECTILE_CLASSES: ExclusionGroups = ExclusionGroups::from_authored_class(0x50);
+const VIEW_BASE_COST: u16 = 63;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ViewSaveError {
+    Auxiliary(AuxiliaryError),
+    Allocation(AllocationFailure),
+    MissingSavedView,
+}
 
 /// Typed contents of the fixed view actor's source base record. A source
 /// copy includes the base links themselves, but never visits their targets
@@ -87,6 +99,51 @@ impl ViewBaseSnapshot {
         path.conditions = self.conditions;
         path.repeat_counter = self.repeat_counter;
     }
+}
+
+/// Allocate a fresh actor-owned save, then publish it in auxiliary type 8.
+/// Repeated saves deliberately retain the previous owned payload. If table
+/// growth fails, the newly allocated payload also remains owned for later
+/// actor cleanup, matching the source's allocation-before-publication order.
+pub fn save_view(
+    resources: &mut ProgramResources<ProgramData>,
+    auxiliary: &mut ActorAuxiliary,
+    owner: ObjectId,
+    view: &Object,
+) -> Result<(), ViewSaveError> {
+    let value = ProgramData::SavedView(Box::new(ViewBaseSnapshot::capture(view)));
+    let id = resources
+        .allocate_owned(owner, VIEW_BASE_COST, value)
+        .map_err(|error| ViewSaveError::Allocation(error.reason))?;
+    auxiliary
+        .set(resources, owner, AuxiliaryRecord::SavedView(id))
+        .map_err(ViewSaveError::Auxiliary)
+}
+
+/// Restore a present save and free only its payload. The auxiliary table
+/// retains its reference, so repeating restore without another save is a
+/// stale-reference error, not an absent-record success. No saved entry is a
+/// valid no-copy case; the outer command still performs its mode/audio work.
+pub fn restore_view(
+    resources: &mut ProgramResources<ProgramData>,
+    auxiliary: &ActorAuxiliary,
+    owner: ObjectId,
+    view: &mut Object,
+) -> Result<bool, ViewSaveError> {
+    let Some(AuxiliaryRecord::SavedView(id)) = auxiliary
+        .find(resources, owner, AuxiliaryKind::SavedView)
+        .map_err(ViewSaveError::Auxiliary)?
+    else {
+        return Ok(false);
+    };
+    let Some(ProgramData::SavedView(snapshot)) = resources.get_owned(owner, id) else {
+        return Err(ViewSaveError::MissingSavedView);
+    };
+    snapshot.restore(view);
+    resources
+        .release_owned(owner, id)
+        .expect("validated saved-view owner");
+    Ok(true)
 }
 
 /// Mark the two source projectile classes before capturing the view. Both

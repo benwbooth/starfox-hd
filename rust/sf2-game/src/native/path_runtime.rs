@@ -69,6 +69,7 @@ struct ActiveCallbacks {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathRuntimeError {
+    Auxiliary(super::actor_auxiliary::AuxiliaryError),
     MissingActor(ObjectId),
     MissingPath(ObjectId),
     WrongCallbackOwner,
@@ -541,7 +542,8 @@ impl PathRuntime {
     ) -> Result<(), PathRuntimeError> {
         let actor = actor_mut(objects, owner)?;
         self.resources.release_owner(owner);
-        actor.extension.scene_continuation = None;
+        actor.extension.auxiliary.clear_after_owner_release(&self.resources, owner)
+            .map_err(PathRuntimeError::Auxiliary)?;
         let state = &mut actor.extension.path_state;
         state
             .stack

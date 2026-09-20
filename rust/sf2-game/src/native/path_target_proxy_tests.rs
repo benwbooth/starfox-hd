@@ -26,7 +26,7 @@ fn target_proxy_callback_preserves_request_bits_and_marks_even_locked_or_rejecte
                 objects.get_mut(owner).unwrap().base.position.z = 100;
                 objects.get_mut(owner).unwrap().base.wait_timer = bits;
                 let id = proxies
-                    .capture_actor(&mut objects, owner, entry)
+                    .capture_actor(&mut objects, owner, entry, &runtime.resources)
                     .unwrap()
                     .unwrap();
                 proxies.get_mut(id).unwrap().flags = SceneProxyFlags::from_authored_bits(bits);
@@ -147,7 +147,7 @@ fn target_proxy_missing_services_and_dangling_handle_are_retryable_before_any_mu
     objects.get_mut(owner).unwrap().base.path = Some(entry);
     let mut proxies = SceneProxyStore::default();
     let id = proxies
-        .capture_actor(&mut objects, owner, entry)
+        .capture_actor(&mut objects, owner, entry, &runtime.resources)
         .unwrap()
         .unwrap();
     let retained = proxies.release(id).unwrap();

@@ -38,6 +38,20 @@ class ViewTransitionStaticTests(unittest.TestCase):
             'c220b9626aa8e220c220981869616aa8e220dabba03f0320f7b29b'
             'c2209838e9616aa8e220fac22098226b197fe220a9f720b8a34ce8ca')
 
+    def test_auxiliary_lookup_walks_four_byte_entries_and_grows_before_publishing(self):
+        self.assert_source(0x7F233B,
+            'e2208d2acfbcec1cf01ab9616a8d29cfc8b9616acd2acff00b'
+            'c8c8c8ce29cfd0efa000006b')
+        self.assert_source(0x7F2360,
+            'e2208d2acfbcec1cf031b9616a8d29cfc8b9616acd2acff058'
+            'c8c8c8ce29cfd0efbcec1cb9616a1ac22029ff000a0a1ac220'
+            '22001b7fa8e2208011c220a90500224e197fa8e220a90099616a'
+            'c220989dec1ce220b9616a1a99616a3ac22029ff000a0a187dec1c'
+            '1aa8e220ad2acf99616a6b')
+        self.assert_source(0x7FB2D1,
+            'c2209838e9616aa8e220c2209848e220a9082260237fc2206899626a'
+            'e220a9f820b8a34ce8ca')
+
 
 if __name__ == '__main__':
     unittest.main()

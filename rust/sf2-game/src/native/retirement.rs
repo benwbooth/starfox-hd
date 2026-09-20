@@ -107,6 +107,7 @@ mod tests {
                         path: PathId::from_catalog_index(2),
                         command_index: 4,
                     },
+                    &ProgramResources::default(),
                 )
                 .unwrap()
                 .unwrap();

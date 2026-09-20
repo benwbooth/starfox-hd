@@ -1016,6 +1016,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    Auxiliary(super::actor_auxiliary::AuxiliaryError),
     MissingEncounterHandoff,
     MissingCameraHeading,
     MissingCameraTrackingTarget,
@@ -1751,7 +1752,9 @@ impl PathRuntime {
                             .continuation = cursor;
                     } else {
                         objects.get_mut(owner).expect("validated scene continuation owner")
-                            .extension.scene_continuation = Some(cursor);
+                            .extension.auxiliary.set(&mut self.resources, owner,
+                                super::actor_auxiliary::AuxiliaryRecord::SceneContinuation(cursor))
+                            .map_err(ProgramError::Auxiliary)?;
                     }
                     objects.get_mut(owner).expect("validated scene continuation owner")
                         .base.path = Some(next);

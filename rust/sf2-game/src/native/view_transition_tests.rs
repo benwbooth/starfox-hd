@@ -161,7 +161,14 @@ fn snapshot_restores_base_fields_but_preserves_live_extensions_and_allocations()
     live.extension.texture_scroll_y = 193;
     live.extension.color_frame = 111;
     live.extension.animation_frame = 37;
-    live.extension.scene_continuation = Some(cursor(6, 91));
+    live.extension
+        .auxiliary
+        .set(
+            &mut resources,
+            id,
+            AuxiliaryRecord::SceneContinuation(cursor(6, 91)),
+        )
+        .unwrap();
     live.extension
         .path_state
         .stack
@@ -239,4 +246,128 @@ fn view_capture_observes_cleanup_and_restore_does_not_undo_live_motion_work() {
     assert!(view.base.contacts.run_when_paused);
     assert!(view.base.flags.collision_disabled);
     assert_eq!(view.extension.path_state.motion_delta.x, 2077);
+}
+
+#[test]
+fn repeated_saves_retain_owned_payloads_and_restore_keeps_a_stale_entry() {
+    use crate::program_resources::PROGRAM_CAPACITY;
+    let mut objects = ObjectStore::new();
+    let owner = objects
+        .allocate(Object::new(
+            ObjectKind::Enemy,
+            ShapeId::EMPTY,
+            Behavior::FollowPath,
+        ))
+        .unwrap();
+    let mut pool = ProgramResources::default();
+    let mut auxiliary = ActorAuxiliary::default();
+    let mut view = Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+    let untouched = view.clone();
+    assert_eq!(
+        restore_view(&mut pool, &auxiliary, owner, &mut view),
+        Ok(false)
+    );
+    assert_eq!(view, untouched);
+    for count in 1..=3 {
+        view.base.hit_points = count;
+        save_view(&mut pool, &mut auxiliary, owner, &view).unwrap();
+        assert_eq!(
+            pool.available_capacity(),
+            PROGRAM_CAPACITY - 10 - u16::from(count) * 68
+        );
+        assert_eq!(pool.owner_count(owner), usize::from(count) + 1);
+    }
+    let table_before = auxiliary.clone();
+    let entries_before = auxiliary.entries(&pool, owner).unwrap().to_vec();
+    view.base.hit_points = 254;
+    assert_eq!(
+        restore_view(&mut pool, &auxiliary, owner, &mut view),
+        Ok(true)
+    );
+    assert_eq!(view.base.hit_points, 3);
+    assert_eq!(pool.owner_count(owner), 3);
+    assert_eq!(pool.available_capacity(), PROGRAM_CAPACITY - 10 - 2 * 68);
+    assert_eq!(auxiliary, table_before);
+    assert_eq!(auxiliary.entries(&pool, owner).unwrap(), entries_before);
+    let before = view.clone();
+    let pool_before = pool.clone();
+    assert_eq!(
+        restore_view(&mut pool, &auxiliary, owner, &mut view),
+        Err(ViewSaveError::MissingSavedView)
+    );
+    assert_eq!(view, before);
+    assert_eq!(pool, pool_before);
+    view.base.hit_points = 79;
+    save_view(&mut pool, &mut auxiliary, owner, &view).unwrap();
+    view.base.hit_points = 0;
+    assert_eq!(
+        restore_view(&mut pool, &auxiliary, owner, &mut view),
+        Ok(true)
+    );
+    assert_eq!(view.base.hit_points, 79);
+    assert_eq!(pool.owner_count(owner), 3);
+    pool.release_owner(owner);
+    auxiliary.clear_after_owner_release(&pool, owner).unwrap();
+    assert_eq!(pool.available_capacity(), PROGRAM_CAPACITY);
+}
+
+#[test]
+fn failed_table_publication_leaves_new_payload_owned_and_old_continuation_intact() {
+    use crate::program_resources::PROGRAM_CAPACITY;
+    let mut objects = ObjectStore::new();
+    let owner = objects
+        .allocate(Object::new(
+            ObjectKind::Enemy,
+            ShapeId::EMPTY,
+            Behavior::FollowPath,
+        ))
+        .unwrap();
+    let mut pool = ProgramResources::default();
+    let mut auxiliary = ActorAuxiliary::default();
+    auxiliary
+        .set(
+            &mut pool,
+            owner,
+            AuxiliaryRecord::SceneContinuation(cursor(8, 7)),
+        )
+        .unwrap();
+    // A successful 68-cost snapshot leaves 8, insufficient for a 14-cost
+    // replacement table even though freeing the old table would fund it.
+    let reserve = pool
+        .allocate_shared(
+            PROGRAM_CAPACITY - 10 - 76 - 2,
+            ProgramData::PathStack(Default::default()),
+        )
+        .unwrap();
+    let view = Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+    let table_before = auxiliary.clone();
+    assert_eq!(
+        save_view(&mut pool, &mut auxiliary, owner, &view),
+        Err(ViewSaveError::Auxiliary(AuxiliaryError::Allocation(
+            AllocationFailure::NoContiguousFit
+        )))
+    );
+    assert_eq!(pool.available_capacity(), 8);
+    assert_eq!(pool.owner_count(owner), 2);
+    assert_eq!(auxiliary, table_before);
+    assert_eq!(
+        auxiliary.find(&pool, owner, AuxiliaryKind::SavedView),
+        Ok(None)
+    );
+    assert_eq!(
+        auxiliary.find(&pool, owner, AuxiliaryKind::SceneContinuation),
+        Ok(Some(AuxiliaryRecord::SceneContinuation(cursor(8, 7))))
+    );
+    let before = pool.clone();
+    assert_eq!(
+        save_view(&mut pool, &mut auxiliary, owner, &view),
+        Err(ViewSaveError::Allocation(
+            AllocationFailure::NoContiguousFit
+        ))
+    );
+    assert_eq!(pool, before);
+    pool.release_shared(reserve).unwrap();
+    save_view(&mut pool, &mut auxiliary, owner, &view).unwrap();
+    assert_eq!(pool.owner_count(owner), 3);
+    assert_eq!(pool.available_capacity(), PROGRAM_CAPACITY - 14 - 2 * 68);
 }

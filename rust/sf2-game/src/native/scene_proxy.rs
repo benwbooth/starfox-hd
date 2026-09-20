@@ -3,6 +3,8 @@
 //! Actor retirement detaches it; only the scene owner later releases its slot.
 
 use super::{ObjectId, ObjectStore, PathCursor, Rotation, ShapeId, Vector3};
+use super::program_resources::ProgramResources;
+use super::program_state::ProgramData;
 
 pub const SCENE_PROXY_CAPACITY: usize = 512;
 const ACTOR_ATTACHED: u8 = 0x01;
@@ -58,6 +60,7 @@ pub struct SceneProxy {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SceneProxyError {
+    Auxiliary(super::actor_auxiliary::AuxiliaryError),
     MissingActor(ObjectId),
     MissingProxy(SceneProxyId),
 }
@@ -130,6 +133,7 @@ impl SceneProxyStore {
         objects: &mut ObjectStore,
         owner: ObjectId,
         continuation: PathCursor,
+        resources: &ProgramResources<ProgramData>,
     ) -> Result<Option<SceneProxyId>, SceneProxyError> {
         let actor = objects
             .get(owner)
@@ -142,7 +146,8 @@ impl SceneProxyStore {
                 roll: actor.base.roll,
             },
             shape: actor.base.shape,
-            continuation: actor.extension.scene_continuation.unwrap_or(continuation),
+            continuation: actor.extension.auxiliary.scene_continuation(resources, owner)
+                .map_err(SceneProxyError::Auxiliary)?.unwrap_or(continuation),
             flags: SceneProxyFlags(ACTOR_ATTACHED | ACTOR_CAPTURED),
             owner: Some(owner),
         };
@@ -255,7 +260,7 @@ mod tests {
         let ids: Vec<_> = (0..SCENE_PROXY_CAPACITY)
             .map(|index| {
                 let id = proxies
-                    .capture_actor(&mut objects, owner, continuation(index as u16))
+                    .capture_actor(&mut objects, owner, continuation(index as u16), &ProgramResources::default())
                     .unwrap()
                     .unwrap();
                 assert_eq!(id.index(), index);
@@ -270,7 +275,7 @@ mod tests {
         let before = proxies.clone();
         assert_eq!(
             proxies
-                .capture_actor(&mut objects, owner, continuation(999))
+                .capture_actor(&mut objects, owner, continuation(999), &ProgramResources::default())
                 .unwrap(),
             None
         );
@@ -288,7 +293,7 @@ mod tests {
         let owner = actor(&mut objects);
         let mut proxies = SceneProxyStore::default();
         let id = proxies
-            .capture_actor(&mut objects, owner, continuation(31))
+            .capture_actor(&mut objects, owner, continuation(31), &ProgramResources::default())
             .unwrap()
             .unwrap();
         let snapshot = *proxies.get(id).unwrap();
@@ -319,7 +324,7 @@ mod tests {
             let owner = actor(&mut objects);
             let mut proxies = SceneProxyStore::default();
             let id = proxies
-                .capture_actor(&mut objects, owner, continuation(31))
+                .capture_actor(&mut objects, owner, continuation(31), &ProgramResources::default())
                 .unwrap()
                 .unwrap();
             proxies.get_mut(id).unwrap().flags = SceneProxyFlags::from_authored_bits(bits);
@@ -338,7 +343,7 @@ mod tests {
             assert_eq!(replacement, owner);
             assert_eq!(proxies.get(id).unwrap().owner, None);
             let next = proxies
-                .capture_actor(&mut objects, replacement, continuation(32))
+                .capture_actor(&mut objects, replacement, continuation(32), &ProgramResources::default())
                 .unwrap()
                 .unwrap();
             assert_ne!(next, id);
@@ -355,7 +360,7 @@ mod tests {
                 .iter()
                 .map(|&owner| {
                     proxies
-                        .capture_actor(&mut objects, owner, continuation(4))
+                        .capture_actor(&mut objects, owner, continuation(4), &ProgramResources::default())
                         .unwrap()
                         .unwrap()
                 })
@@ -375,7 +380,7 @@ mod tests {
             );
             assert_eq!(proxies.get(ids[index]), None);
             let fresh = proxies
-                .capture_actor(&mut objects, owners[index], continuation(5))
+                .capture_actor(&mut objects, owners[index], continuation(5), &ProgramResources::default())
                 .unwrap()
                 .unwrap();
             assert_eq!(fresh, ids[index]);
@@ -389,11 +394,11 @@ mod tests {
         let owner = actor(&mut objects);
         let mut proxies = SceneProxyStore::default();
         let first = proxies
-            .capture_actor(&mut objects, owner, continuation(1))
+            .capture_actor(&mut objects, owner, continuation(1), &ProgramResources::default())
             .unwrap()
             .unwrap();
         let second = proxies
-            .capture_actor(&mut objects, owner, continuation(2))
+            .capture_actor(&mut objects, owner, continuation(2), &ProgramResources::default())
             .unwrap()
             .unwrap();
         proxies.retire_actor(&mut objects, owner).unwrap();

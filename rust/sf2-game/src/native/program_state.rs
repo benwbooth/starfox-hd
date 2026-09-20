@@ -36,6 +36,8 @@ pub struct PathEntries {
 pub enum ProgramData {
     PathStack(PathEntries),
     PathTriggers(super::path_triggers::TriggerRecords),
+    ActorAuxiliary(super::actor_auxiliary::AuxiliaryRecords),
+    SavedView(Box<super::view_transition::ViewBaseSnapshot>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

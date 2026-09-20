@@ -5,6 +5,7 @@
 //! operate on the domain structs exported from this module.
 
 pub mod attachments;
+pub mod actor_auxiliary;
 pub mod authored_paths;
 pub mod collision_boxes;
 pub mod collision_contacts;

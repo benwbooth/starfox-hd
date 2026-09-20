@@ -3852,3 +3852,38 @@ Validation passes 999 native unit tests and two integration tests in both
 debug and release, 197 lowerer tests, 435 path-static tests, exact catalog
 regeneration, architecture guard, static inventory and app build (only the
 two existing unused icon-helper warnings).
+
+### Shared auxiliary table and saved-view allocation lifetime
+
+`ActorAuxiliary` now ports `$7F:233B..23D1` as a typed, actor-owned table in
+the existing shared program-resource pool. Lookup and overwrite use the first
+matching kind; overwrite allocates nothing. A new kind allocates the exact
+replacement size before releasing the old table. Count overflow and stale or
+foreign ownership fail explicitly. Source types 3 and 8 have semantic payloads
+(a scene continuation and a saved-view resource handle), not packed bytes.
+
+Scene-continuation commands and proxy capture now use that table. The earlier
+optional-field representation has been removed. Retention can consequently
+fail under real allocation pressure without advancing its path, and actor
+program cleanup releases the table along with callbacks, loops and saves.
+Proxy-only retention does not allocate or change an existing fallback entry.
+
+The save/restore support now uses the same pool: each save allocates a fresh
+63-unit base payload before table publication; repeated saves retain older
+owned payloads, and failed publication retains the new allocation. Restore
+frees only the selected payload, leaving its table entry present. A second
+restore detects the stale payload instead of silently treating it as absent;
+another save can replace that reference. A missing entry remains a valid
+no-copy case. Tests cover capacity costs, table-growth failure, every 16-bit
+continuation overwrite, duplicate-key lookup, stale/foreign ownership,
+retirement, repeated save/restore and authored retention under pressure.
+
+This closes the auxiliary bookkeeping gap for scene continuation and saved
+views, not yet for impact materials or retained weapon shapes. Their separate
+optional fields still need migration, and the outer C2/C3 mode/audio dispatch
+is not yet lowered. Catalog totals remain 140 roots and five helpers.
+
+Validation passes 1,006 native unit tests and two integration tests in debug
+and release, 197 lowerer tests, 436 path-static tests, exact regeneration,
+architecture guard, static inventory and app build. Verification remains
+static source plus native execution, without recorded gameplay.
