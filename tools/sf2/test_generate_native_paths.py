@@ -187,6 +187,30 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
                 lower_graph(PathExtractor(bytes(changed)), PathAddress(0xEF2D), 0)
 
+    def test_linked_protection_effect_retains_both_inline_exits_and_full_flicker_table(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xF2B9)
+        _, statements = lower_graph(extractor, root, 0)
+        self.assertEqual(len(statements), 23)
+        mapped = dict(zip((unit.address.offset for unit in lowering_units(extractor, root)), statements))
+        for offset, fragment in [
+            (0xF2BB, "SelectedTransformCommand::WorldPosition"),
+            (0xF2C2, "ActivityCommand::CopyTo(ByteField::TextureScrollX)"),
+            (0xF2CA, "AuthoredCue::new(20, 0, PlayerTarget::Primary)"),
+            (0xF2CD, "iterations: 9"), (0xF2CF, "amount: 1, period: 10"),
+            (0xF2D6, "ActivityCommand::Assign(ByteOperand::Literal(0))"),
+            (0xF2DA, "value: 9"),
+            (0xF2E4, "ordinary_return: cursor(0, 19), flicker: cursor(0, 20)"),
+            (0xF2FD, "values: &[136, 135, 134, 133, 134, 135, 134, 133"),
+            (0xF303, "ByteOperation::Increment"),
+        ]:
+            self.assertIn(fragment, mapped[offset])
+        for offset in (0xF2E6, 0xF2ED, 0xF2F4, 0xF2FB):
+            changed = bytearray(self.rom)
+            changed[0x40000 + offset] ^= 1
+            with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
+                lower_graph(PathExtractor(bytes(changed)), root, 0)
+
     def test_primary_motion_ground_limited_root_includes_inline_callee_and_contact_callback(self):
         extractor = PathExtractor(self.rom)
         commands = graph(extractor, PathAddress(0xF029))
@@ -510,7 +534,7 @@ class NativePathGenerationTests(unittest.TestCase):
 
     def test_unported_or_changed_inline_actions_are_rejected(self):
         with self.assertRaisesRegex(UnsupportedPath, "unported inline action"):
-            lower_graph(PathExtractor(self.rom), PathAddress(0xF2E4), 0)
+            lower_graph(PathExtractor(self.rom), PathAddress(0xD253), 0)
         changed = bytearray(self.rom)
         changed[0x4F350] = 0x40  # change the primary flag mask inside the action
         with self.assertRaisesRegex(ValueError, "inline signature mismatch"):

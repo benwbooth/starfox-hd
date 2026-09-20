@@ -1309,3 +1309,37 @@ remain untouched. Verification passes 98 lowerer tests, 246 static path tests,
 256 native path tests and 10 program-stack tests in debug/release, both audits,
 catalog freshness and the app build. Coverage remains 25 complete roots,
 534 source commands and 528 lowered statements.
+
+### Linked protection effect: source gates and complete lifecycle
+
+The `$44:F2B9` root now lowers its complete 23-command graph. A typed
+`DeflectionProtection` preserves the player's full protection control while
+exposing the five-bit count and projectile-deflection flag. The effect spins
+its relative pitch/roll, then reads its **attachment owner**, not the current
+selected actor. Special-character/full-surface-mode blocking clears only the
+effect's low phase byte and bypasses linked-player access. An explicit minimum
+override, **or disabled contacts**, replaces a non-minimal protection byte with
+one. Otherwise zero remaining protection clears bit 20; that bit's producer is
+not established here and is described only as a clear-on-expiry latch.
+
+The shared linked-effect activity byte can suppress startup animation/audio;
+the active loop clears it on every visit. Normal startup performs nine
+animation advances over eight yielded visits. Counts zero/one follow the
+authored 256-entry flicker lookup and increment the phase high byte, including
+wraparound; higher counts return without advancing it. The main loop observes
+zero and ends on its next visit, after resetting the shape frame to nine.
+
+Tests cover all protection bytes and gate combinations, all initial spin
+bytes, missing/mismatched linked inputs, selected-versus-attached identity,
+startup activity values 0/1/2/255, live minimum/blocked/expiry transitions,
+flicker-table boundaries and byte wrap. The separately ported countdown
+subsection (`$06:9F0D..9F20`) tests every control byte against every shared-clock
+phase; it decrements only nonzero low-five-bit counts on eighth updates. Its
+surrounding player-update admission gates remain the caller's responsibility.
+
+Verification passes 99 lowerer tests, 250 static path tests and 263 native path
+tests in debug/release, both audits, catalog freshness and the app build.
+Coverage is **26 complete roots / 557 source commands / 551 native statements**.
+The general Game scheduler, live protection-state ownership/producer wiring,
+and automatic source protection-effect spawning remain integration work.
+No recorded gameplay, CPU execution or graphics-coprocessor execution was used.

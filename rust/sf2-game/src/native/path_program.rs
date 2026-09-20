@@ -15,6 +15,8 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
+    pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
+    pub protection: Option<super::path_protection::PathProtection<'a>>,
     pub audio: Option<super::path_sound::PathAudio<'a>>,
     pub radio: Option<super::path_radio::PathRadio<'a>>,
     pub campaign: Option<CampaignPathInputs>,
@@ -251,6 +253,14 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    LinkedEffectActivity {
+        command: super::path_protection::ActivityCommand,
+        next: PathCursor,
+    },
+    UpdateProtectionEffect {
+        ordinary_return: PathCursor,
+        flicker: PathCursor,
+    },
     StackValue {
         command: super::path_commands::StackValueCommand,
         next: PathCursor,
@@ -456,6 +466,9 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingLinkedEffectActivity,
+    MissingProtection,
+    Protection(super::path_protection::ProtectionError),
     MissingPrimaryPlayer,
     MissingPrimaryMotion,
     MissingPublishedMotion,
@@ -569,6 +582,40 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::LinkedEffectActivity { command, next } => {
+                    let activity = world
+                        .linked_effect_activity
+                        .as_deref_mut()
+                        .ok_or(ProgramError::MissingLinkedEffectActivity)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated effect-activity owner");
+                    activity.apply(actor, command);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::UpdateProtectionEffect {
+                    ordinary_return,
+                    flicker,
+                } => {
+                    let input = world
+                        .protection
+                        .as_mut()
+                        .ok_or(ProgramError::MissingProtection)?;
+                    let ordinary = super::path_protection::update_effect(
+                        objects,
+                        owner,
+                        input,
+                        world.surface_mode,
+                    )
+                    .map_err(ProgramError::Protection)?;
+                    objects
+                        .get_mut(owner)
+                        .expect("validated protection effect")
+                        .base
+                        .path = Some(if ordinary { ordinary_return } else { flicker });
+                    Ok(ControlStep::Continue)
+                }
                 Statement::StackValue { command, next } => {
                     self.execute_stack_value(objects, owner, command, next)
                 }
@@ -1193,6 +1240,8 @@ mod tests {
 
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
+            linked_effect_activity: None,
+            protection: None,
             audio: None,
             radio: None,
             campaign: None,
@@ -4766,6 +4815,8 @@ mod tests {
                 action_flags: 0x20,
             };
             let mut inputs = PathWorld {
+                linked_effect_activity: None,
+                protection: None,
                 audio: None,
                 radio: None,
                 campaign: None,
@@ -5223,6 +5274,306 @@ mod tests {
             assert_eq!(objects, expected);
             assert!(runtime.branch.invert_next);
             assert_eq!(random, before_random);
+        }
+    }
+
+    #[test]
+    fn authored_linked_protection_runs_intro_live_owner_refresh_flicker_and_shutdown() {
+        use super::super::collision_surface::SurfaceMode;
+        use super::super::path_protection::{
+            DeflectionProtection, LinkedEffectActivity, LinkedProtection, PathProtection,
+            ProtectionRules,
+        };
+        use super::super::path_sound::{AuthoredCue, CueListener, PathAudio};
+        use super::super::{authored_paths, Angle, AudioState, SoundEvent, Vector3};
+        let catalog = authored_paths::catalog();
+        for initial_activity in [0, 1, 2, 255] {
+            for exit in 0..3 {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let original_random = random;
+                let linked = objects
+                    .allocate(Object::new(
+                        ObjectKind::Player,
+                        ShapeId::EMPTY,
+                        Behavior::PlayerFlight,
+                    ))
+                    .unwrap();
+                let mut selected =
+                    Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
+                selected.base.position = Vector3 {
+                    x: 400,
+                    y: -700,
+                    z: 900,
+                };
+                let copied_position = selected.base.position;
+                let selected = objects.allocate(selected).unwrap();
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(authored_paths::LINKED_PROTECTION_EFFECT);
+                actor.base.attachment = Some(linked);
+                actor.base.shape = ShapeId::from_catalog_index(31);
+                actor.extension.relative_rotation.pitch = Angle::from_units(250);
+                actor.extension.relative_rotation.yaw = Angle::from_units(88);
+                actor.extension.relative_rotation.roll = Angle::from_units(253);
+                actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+                let mut activity = LinkedEffectActivity {
+                    recent_spawn: initial_activity,
+                };
+                let mut protection = DeflectionProtection::from_control(0x6A);
+                let mut audio = AudioState::default();
+                let first_callback = if initial_activity == 0 { 8 } else { 0 };
+                let last_visit = first_callback + 7;
+                let first_flicker = first_callback + if exit == 2 { 0 } else { 3 };
+                for visit in 0..=last_visit {
+                    if visit == 1 {
+                        objects.get_mut(selected).unwrap().base.position.x = 1234;
+                    }
+                    if visit == first_callback + 3 {
+                        protection = DeflectionProtection::from_control(1);
+                    }
+                    let blocked = exit == 1 && visit >= first_callback + 6;
+                    if visit == first_callback + 6 && !blocked {
+                        protection = DeflectionProtection::from_control(0xE0);
+                    }
+                    if visit == first_callback + 6 && exit == 2 {
+                        protection = DeflectionProtection::from_control(0);
+                    }
+                    if visit == first_callback + 1 {
+                        activity.recent_spawn = 9;
+                    }
+                    let mut inputs = world(&mut random);
+                    if visit == 0 {
+                        inputs.selected = Some(selected);
+                        inputs.audio = Some(PathAudio {
+                            events: &mut audio,
+                            listeners: [CueListener::Other; 2],
+                            markers: None,
+                        });
+                    }
+                    inputs.linked_effect_activity = Some(&mut activity);
+                    if !blocked {
+                        inputs.surface_mode = Some(SurfaceMode { flags: 8 });
+                    }
+                    inputs.protection = Some(PathProtection {
+                        rules: ProtectionRules {
+                            special_character: blocked,
+                            blocked,
+                            minimum_override: false,
+                            contacts_enabled: exit != 2,
+                        },
+                        linked: if blocked {
+                            None
+                        } else {
+                            Some(LinkedProtection {
+                                owner: linked,
+                                state: &mut protection,
+                            })
+                        },
+                    });
+                    assert_eq!(
+                        runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30),
+                        Ok(if visit == last_visit {
+                            ControlStep::Ended
+                        } else {
+                            ControlStep::Movement
+                        })
+                    );
+                    if visit >= first_callback && visit < last_visit {
+                        assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                        assert!(matches!(
+                            runtime.step_callbacks(
+                                &mut objects,
+                                owner,
+                                TriggerWorldInputs::default()
+                            ),
+                            Ok(CallbackStep::Run(_))
+                        ));
+                        assert_eq!(
+                            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4),
+                            Ok(ControlStep::ResumeCallbacks)
+                        );
+                        assert_eq!(
+                            runtime.step_callbacks(
+                                &mut objects,
+                                owner,
+                                TriggerWorldInputs::default()
+                            ),
+                            Ok(CallbackStep::Complete)
+                        );
+                    } else if visit < first_callback {
+                        assert!(!runtime.begin_callbacks(&objects, owner).unwrap());
+                    }
+                    let actor = objects.get(owner).unwrap();
+                    let callbacks = if visit < first_callback {
+                        0
+                    } else {
+                        (visit - first_callback + 1).min(7)
+                    };
+                    assert_eq!(
+                        actor.extension.relative_rotation.pitch.units(),
+                        250u8.wrapping_add(callbacks as u8 * 8)
+                    );
+                    assert_eq!(
+                        actor.extension.relative_rotation.roll.units(),
+                        253u8.wrapping_add(callbacks as u8 * 6)
+                    );
+                    assert_eq!(actor.extension.relative_rotation.yaw.units(), 88);
+                    let flicker_count = if visit < first_flicker {
+                        0
+                    } else {
+                        (visit.min(last_visit - 1) - first_flicker + 1) as u8
+                    };
+                    let phase = if visit < first_callback {
+                        1
+                    } else if visit >= first_callback + 6 {
+                        0
+                    } else if exit == 2 || visit >= first_flicker {
+                        1
+                    } else {
+                        10
+                    };
+                    assert_eq!(
+                        actor.extension.path_state.motion_phase,
+                        (u16::from(flicker_count) << 8) | phase
+                    );
+                    let animation = if visit < first_callback {
+                        128 + visit as u8 + 1
+                    } else if visit >= first_flicker && visit < last_visit {
+                        [136, 135, 134, 133, 134, 135, 134][usize::from(flicker_count - 1)]
+                    } else {
+                        137
+                    };
+                    assert_eq!(
+                        actor.extension.path_state.animation.shape.packed(),
+                        animation
+                    );
+                    assert_eq!(actor.base.position, copied_position);
+                    assert_eq!(actor.base.velocity, Vector3::default());
+                    assert_eq!(actor.base.attachment, Some(linked));
+                    assert_eq!(actor.base.shape, ShapeId::from_catalog_index(31));
+                    assert!(actor.base.flags.collision_disabled);
+                    assert!(!actor.base.flags.casts_shadow);
+                    assert_eq!(actor.extension.texture_scroll_x, initial_activity);
+                    assert_eq!(
+                        activity.recent_spawn,
+                        if visit < first_callback {
+                            initial_activity
+                        } else {
+                            0
+                        }
+                    );
+                    if visit == last_visit {
+                        assert_eq!(
+                            protection.control(),
+                            if exit == 0 {
+                                0xC0
+                            } else if exit == 1 {
+                                1
+                            } else {
+                                0
+                            }
+                        );
+                    }
+                }
+                assert_eq!(random, original_random);
+                assert_eq!(
+                    audio
+                        .take_events()
+                        .into_iter()
+                        .flatten()
+                        .collect::<Vec<_>>(),
+                    if initial_activity == 0 {
+                        vec![SoundEvent::Authored(AuthoredCue::new(
+                            20,
+                            0,
+                            PlayerTarget::Secondary,
+                        ))]
+                    } else {
+                        vec![]
+                    }
+                );
+                assert_eq!(objects.len(), 3);
+                runtime.release_actor_programs(&mut objects, owner).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn authored_protection_flicker_indexes_the_full_phase_byte_and_wraps_it() {
+        use super::super::authored_paths;
+        use super::super::collision_surface::SurfaceMode;
+        use super::super::path_protection::{
+            DeflectionProtection, LinkedEffectActivity, LinkedProtection, PathProtection,
+            ProtectionRules,
+        };
+        let catalog = authored_paths::catalog();
+        for (index, animation) in [
+            (0_u8, 136),
+            (1, 135),
+            (15, 129),
+            (16, 15),
+            (254, 1),
+            (255, 0),
+        ] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let player = objects
+                .allocate(Object::new(
+                    ObjectKind::Player,
+                    ShapeId::EMPTY,
+                    Behavior::PlayerFlight,
+                ))
+                .unwrap();
+            objects.get_mut(owner).unwrap().base.path =
+                Some(authored_paths::LINKED_PROTECTION_EFFECT);
+            objects.get_mut(owner).unwrap().base.attachment = Some(player);
+            let mut activity = LinkedEffectActivity { recent_spawn: 1 };
+            let mut protection = DeflectionProtection::from_control(1);
+            let mut inputs = world(&mut random);
+            inputs.selected = Some(player);
+            inputs.linked_effect_activity = Some(&mut activity);
+            inputs.surface_mode = Some(SurfaceMode { flags: 1 });
+            inputs.protection = Some(PathProtection {
+                rules: ProtectionRules {
+                    contacts_enabled: true,
+                    ..Default::default()
+                },
+                linked: Some(LinkedProtection {
+                    owner: player,
+                    state: &mut protection,
+                }),
+            });
+            assert_eq!(
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30),
+                Ok(ControlStep::Movement)
+            );
+            objects
+                .get_mut(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .motion_phase = (u16::from(index) << 8) | 1;
+            assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+            assert!(matches!(
+                runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                Ok(CallbackStep::Run(_))
+            ));
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4),
+                Ok(ControlStep::ResumeCallbacks)
+            );
+            assert_eq!(
+                runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                Ok(CallbackStep::Complete)
+            );
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(
+                actor.extension.path_state.motion_phase,
+                (u16::from(index.wrapping_add(1)) << 8) | 1
+            );
+            assert_eq!(
+                actor.extension.path_state.animation.shape.packed(),
+                animation
+            );
+            runtime.release_actor_programs(&mut objects, owner).unwrap();
         }
     }
 
@@ -8306,9 +8657,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 25);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 528);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 534);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 26);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 551);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 557);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -8439,6 +8790,8 @@ mod tests {
         let catalog = authored_paths::catalog();
         for phase in 1..=7 {
             let mut inputs = PathWorld {
+                linked_effect_activity: None,
+                protection: None,
                 audio: None,
                 radio: None,
                 campaign: None,
@@ -8554,6 +8907,8 @@ mod tests {
                     &mut objects,
                     owner,
                     &mut PathWorld {
+                        linked_effect_activity: None,
+                        protection: None,
                         audio: None,
                         radio: None,
                         campaign: None,

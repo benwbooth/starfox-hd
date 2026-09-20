@@ -49,6 +49,7 @@ ROOTS = (
     ("DIFFICULTY_HOMING_PROJECTILE", PathAddress(0xEE4C)),
     ("VARIANT_GUIDED_PROJECTILE", PathAddress(0xEF2D)),
     ("OFFSET_GUIDED_PROJECTILE", PathAddress(0xECF7)),
+    ("LINKED_PROTECTION_EFFECT", PathAddress(0xF2B9)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -448,6 +449,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::Appearance {{ command: AppearanceCommand::SuppressDeathEffects(true), next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if command.address == PathAddress(0xF2E4):
+                parameters(0)
+                ordinary, flicker = PathAddress(0xF2F6), PathAddress(0xF2FD)
+                if set(command.successors) != {ordinary, flicker}:
+                    raise UnsupportedPath("unexpected protection effect continuation")
+                statement = f"Statement::UpdateProtectionEffect {{ ordinary_return: {cursor(ordinary)}, flicker: {cursor(flicker)} }}"
+                statements.append(statement)
+                continue
             if command.address not in actions and command.address not in controls:
                 raise UnsupportedPath(f"unported inline action at {command.address.label()}")
             parameters(0)
@@ -845,6 +854,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 address = low | (high << 8)
             if address == 0x1DD6 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1DDF and name in ("ImportByteAbsolute", "StoreExternalByte"):
+                operation = f"CopyTo({byte_field(variable)})" if name == "ImportByteAbsolute" else f"Assign(ByteOperand::Literal({value}))"
+                statement = f"Statement::LinkedEffectActivity {{ command: super::path_protection::ActivityCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address == 0x1DD0 and name == "ImportByteAbsolute":
