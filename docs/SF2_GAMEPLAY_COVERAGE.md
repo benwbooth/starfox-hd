@@ -2190,3 +2190,42 @@ audits and the app build. Complete-root counts remain **64 / 1,061 / 1,052**.
 The 140-command `$44BC` pickup closure now lowers successfully; promotion
 of its independently installed family requires whole-graph native checks
 and source-installer verification, not merely this operand coverage.
+
+### Complete shield, weapon and consumable pickup paths
+
+The five independently spawned entries `$44B2/$44B4/$44B6/$44BA/$44BC`
+now share one complete 140-command native graph. Their seven-byte source
+installers at `$09:8CD3/8CFB/8CDD/8CE7/8CF1` are reachable from the discovered
+`$0F7E` parent, and mutation tests reject a changed installation target.
+`$44B8` is an internal fallthrough, not an additional independent root.
+The source spans, shared clipping/visibility subroutines and all callbacks
+are pinned; neither graph copies nor shortened success-only paths are used.
+
+Whole-graph native checks cover all five rewards, persistent history and
+already-collected suppression, primary/secondary sound routing, callback
+redirection and cancellation, the one-visit collection delay, score-word
+saturation and wrapped shield accumulation. Every packed consumable byte
+is exercised with matching/different types: full same-type pickups return
+to their held collection path without score/history/parent effects; a later
+live count change permits collection. Successful part pickups signal their
+linked actor. All published weapon-level bytes are tested independently of
+fresh equipment, with all eight fallback random outcomes and exact shared
+RNG consumption. Internal consumable type codes remain neutral names.
+
+The range branches retain strict depth and wrapped X/Y-sum limits of
+500/150/70. Nonzero-part paths wait on their hit-event latch before enabling
+collection. The location-specific visibility subroutine preserves saved
+position, reads published rather than live player Y, and keeps the wrapped
+word-subtraction boundary, including overflow. Its two live auxiliary-flag
+callbacks coexist with color/facing and collection callbacks. Finite-health
+paths run their full thirty-visit wait loops and alternating blink loops
+through expiry; full-health paths hold with callbacks active.
+
+Coverage is **69 complete roots / 1,201 source commands / 1,192 native
+statements**. Validation passes 140 lowerer tests, 302 source-static path
+tests, 346 native path tests in debug/release, generated freshness, both
+architecture/static audits and the app build. This establishes static
+source lowering and native catalog behavior, not whole-game completion or
+runtime equivalence. Parent allocation/classification and Game scheduler
+integration remain separately tracked; no gameplay recording or source
+machine execution was used for this work.

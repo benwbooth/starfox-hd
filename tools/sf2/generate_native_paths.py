@@ -88,6 +88,11 @@ ROOTS = (
     ("ROLLING_CONTACT_SHAPE", PathAddress(0x9A04)),
     ("RESET_SHAPE_HOLD", PathAddress(0x77C0)),
     ("DISTANT_SHAPE_HOLD", PathAddress(0x7FA1)),
+    ("SHIELD_RECOVERY_PICKUP", PathAddress(0x44B2)),
+    ("WEAPON_UPGRADE_PICKUP", PathAddress(0x44B4)),
+    ("CONSUMABLE_PICKUP_TYPE_ZERO", PathAddress(0x44B6)),
+    ("CONSUMABLE_PICKUP_TYPE_THREE", PathAddress(0x44BA)),
+    ("CONSUMABLE_PICKUP_TYPE_ONE", PathAddress(0x44BC)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -127,6 +132,11 @@ CHILD_INSTALLERS = {
     PathAddress(0x9A04): (PathAddress(0x9492), PathAddress(0x99FC)),
     PathAddress(0x77C0): (PathAddress(0x7442), PathAddress(0x76AD)),
     PathAddress(0x7FA1): (PathAddress(0x7442), PathAddress(0x7791)),
+    PathAddress(0x44B2): (PathAddress(0x0F7E), PathAddress(0x8CD3)),
+    PathAddress(0x44B4): (PathAddress(0x0F7E), PathAddress(0x8CFB)),
+    PathAddress(0x44B6): (PathAddress(0x0F7E), PathAddress(0x8CDD)),
+    PathAddress(0x44BA): (PathAddress(0x0F7E), PathAddress(0x8CE7)),
+    PathAddress(0x44BC): (PathAddress(0x0F7E), PathAddress(0x8CF1)),
 }
 
 

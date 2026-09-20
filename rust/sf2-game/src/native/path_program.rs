@@ -12,6 +12,10 @@ use super::path_fields::{ByteOperand, Mutation, WordOperand};
 use super::path_runtime::{PathRuntime, PathRuntimeError};
 use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 
+#[cfg(test)]
+#[path = "path_pickup_tests.rs"]
+mod pickup_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -1656,7 +1660,7 @@ mod tests {
         }
     }
 
-    fn world(random: &mut RandomState) -> PathWorld<'_> {
+    pub(super) fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             scene: ScenePathInputs::default(),
             scenery_distance: None,
@@ -2677,7 +2681,7 @@ mod tests {
         }
     }
 
-    fn setup() -> (PathRuntime, ObjectStore, ObjectId, RandomState) {
+    pub(super) fn setup() -> (PathRuntime, ObjectStore, ObjectId, RandomState) {
         let mut objects = ObjectStore::new();
         let mut actor = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
         actor.base.path = Some(cursor(0, 0));
@@ -12755,9 +12759,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 64);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1052);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1061);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 69);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1192);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1201);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

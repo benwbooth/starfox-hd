@@ -20,6 +20,50 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_checked_in_catalog_is_exact_generated_output(self):
         self.assertEqual(OUTPUT.read_text(), generate(self.rom))
 
+    def test_pickup_roots_share_the_complete_collection_fallback_and_visibility_graph(self):
+        extractor = PathExtractor(self.rom)
+        shared = graph(extractor, PathAddress(0x44BC))
+        spans = [
+            (0x44B2, 0x45F5, "6da16da16da16da16da18a2aa104c744004703e24441618a4e2e146b126b146b16672efd447ba332da2ea3f94417fd446ba158a2072aa201bc442aa202ba442aa204b64417b244480ff7ef692d06450b642d8df68267a134452aa1012d452aa10326452aa10421451d0c1738451d08173845b9001d0a173845b9031d04173845b9011d0067a94d45c97927b51b8a2a27054d450b00ae411b8a5c0c0100a3f8ed4567a95f453f5f45165945792f4d1b8a2a2f006d450c28f504fd17008a2a2d64774519622d031e44622d4878495c440f69a99a458a2a2f00944597f401a04542979600a04542974600a045424ca445424b8445782aa104c5452aa105d145bb015f4567a9bb453e41df459d64000004450f41df459d6400001b0004430f41df450b08a1eb1b1ea19d01000f672eec457ba332d82ea380a332425389a357a3004bf242"),
+            (0x8A1B, 0x8A34, "94397ba3920c18fc39efa3392a8a484a788a0f4a7d8a10963942"),
+            (0x8A61, 0x8A70, "93a179a1b51b8a2aa1056e8ac995a142"),
+            (0x8A78, 0x8A7E, "495c424842"),
+        ]
+        for lo, hi, expected in spans:
+            self.assertEqual(''.join(c.raw_hex for c in shared if lo <= c.address.offset <= hi), expected)
+        roots = []
+        for root, installer in [(0x44B2, 0x8CD3), (0x44B4, 0x8CFB), (0x44B6, 0x8CDD), (0x44BA, 0x8CE7), (0x44BC, 0x8CF1)]:
+            roots.append((f"PICKUP_{root:X}", PathAddress(root)))
+            command = extractor.decode_command(PathAddress(installer))
+            self.assertEqual(command.raw_hex, f"5d0cf5{root & 255:02x}440a00")
+            self.assertIn(command, graph(extractor, PathAddress(0x0F7E)))
+            spawn = independent_spawn_parameters(command)
+            self.assertEqual((spawn.shape, spawn.path.offset, spawn.hit_points, spawn.attack_power), (0xF50C, root, 10, 0))
+            self.assertEqual(shape_index(spawn.shape), 516)
+            self.assertEqual(graph(extractor, PathAddress(root)), shared)
+            entry, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(statements), 140)
+            self.assertEqual(shared[entry].address.offset, root)
+            mapped = dict(zip((c.address.offset for c in shared), statements))
+            for source, fragment in [(0x456D, "TriggerKind::Always"), (0x45A4, "ControlCommand::Cancel"),
+                (0x45A0, "ForceAfterCallbacks"), (0x45B2, "already_full: cursor(0, 59)"),
+                (0x45CB, "UpgradeSelectedWeapon"), (0x45D7, "AccumulateShieldRecovery"),
+                (0x45E9, "PickupHistoryCommand::Assign"), (0x8A1D, "ImportPlayerPosition"),
+                (0x8A32, "RestoreWord(WordField::SavedPosition(Axis::X))")]:
+                self.assertIn(fragment, mapped[source])
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = bytes.fromhex("b844")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed), (roots[-1],))
+        output = generate(self.rom, tuple(roots))
+        self.assertIn("LOWERED_ROOT_COUNT: usize = 5;", output)
+        self.assertIn("LOWERED_COMMAND_COUNT: usize = 140;", output)
+        self.assertIn("LOWERED_SOURCE_COMMAND_COUNT: usize = 140;", output)
+        with self.assertRaisesRegex(UnsupportedPath, "no verified source installer"):
+            generate(self.rom, (("FALLTHROUGH_ONLY", PathAddress(0x44B8)),))
+        with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+            spawn_shape(0xF50C, PathAddress(0x44B8))
+
     def test_shape_dead_lowers_to_attachment_presence_not_health_or_generic_predicate(self):
         statements = self.lower_record("20 36 f5")
         self.assertEqual(statements[0], "Statement::AttachmentAbsent { taken: cursor(0, 0), next: cursor(0, 1) }")
