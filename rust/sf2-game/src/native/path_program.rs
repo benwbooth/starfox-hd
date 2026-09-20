@@ -5174,6 +5174,120 @@ mod tests {
     }
 
     #[test]
+    fn held_sprite_and_depth_effects_preserve_distinct_full_word_and_sprite_contracts() {
+        use super::super::{authored_paths, Vector3};
+        let catalog = authored_paths::catalog();
+        for solid in [false, true] {
+            for sprite in [false, true] {
+                for retained in 0..=u8::MAX {
+                    let (mut runtime, mut objects, owner, mut random) = setup();
+                    let actor = objects.get_mut(owner).unwrap();
+                    actor.base.path = Some(if solid { authored_paths::SOLID_SPRITE_HOLD } else { authored_paths::BIASED_DEPTH_HOLD });
+                    actor.base.position = Vector3 { x: i16::MIN, y: i16::MAX, z: -1234 };
+                    actor.base.flags.scaled_sprite = sprite;
+                    actor.base.flags.far_sort_bias = sprite;
+                    actor.base.wait_timer = retained;
+                    actor.base.attack_power = retained;
+                    actor.extension.texture_scroll_x = retained;
+                    actor.extension.depth_offset = u16::from_be_bytes([retained, 173]);
+                    let original_animation = actor.extension.path_state.animation;
+                    runtime.branch.invert_next = true;
+                    let initial_random = random;
+                    for _ in 0..4 {
+                        assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 4), Ok(ControlStep::Movement));
+                        let actor = objects.get(owner).unwrap();
+                        assert_eq!(actor.extension.texture_scroll_x, if solid { 64 } else { retained });
+                        assert_eq!(actor.extension.depth_offset, if solid { u16::from(retained) << 8 } else { 3 });
+                        assert_eq!(actor.base.flags.far_sort_bias, !solid || sprite);
+                        assert_eq!(actor.base.flags.scaled_sprite, solid || sprite);
+                        assert!(actor.base.flags.collision_disabled);
+                        assert!(!actor.base.flags.remove_after_tick);
+                        assert!(!actor.base.flags.strategy_suspended);
+                        assert!(actor.extension.path_state.hold_latched);
+                        assert_eq!(actor.base.behavior, Behavior::PathMovement);
+                        assert!(matches!(catalog.statement(actor.base.path.unwrap()), Ok(Statement::Control(ControlCommand::Hold))));
+                        assert_eq!(actor.extension.path_state.animation, original_animation);
+                        assert_eq!(actor.base.position, Vector3 { x: i16::MIN, y: i16::MAX, z: -1234 });
+                        assert_eq!((actor.base.wait_timer, actor.base.attack_power), (retained, retained));
+                        assert!(runtime.branch.invert_next);
+                        assert_eq!(random, initial_random);
+                    }
+                    runtime.release_actor_programs(&mut objects, owner).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn table_color_reveal_uses_every_initial_selector_and_keeps_callbacks_after_hold() {
+        use super::super::{authored_paths, path_appearance::AnimationChannel, Vector3};
+        let catalog = authored_paths::catalog();
+        // The full 256-byte source table is independently pinned by static
+        // source tests. Here prove live lookup and boundary-state behavior,
+        // including initial selectors beyond the nominal seven-frame loop.
+        let tables: Vec<_> = catalog.paths.iter().flatten().filter_map(|statement| match statement {
+            Statement::Mutate { mutation: Mutation::Byte {
+                field: ByteField::Animation(AnimationChannel::Color),
+                operation: ByteOperation::Assign(ByteOperand::Lookup { values, .. }),
+            }, .. } if values.len() == 256 && values[..7] == [128, 129, 130, 131, 130, 129, 128] => Some(*values),
+            _ => None,
+        }).collect();
+        assert_eq!(tables.len(), 1);
+        let table = tables[0];
+        for initial_phase in 0..=u8::MAX {
+            for retained_wait in [0u8, 3, 4, 255] {
+                for initial_visible in [false, true] {
+                    for initially_disabled in [false, true] {
+                        let (mut runtime, mut objects, owner, mut random) = setup();
+                        let actor = objects.get_mut(owner).unwrap();
+                        actor.base.path = Some(authored_paths::TABLE_COLOR_REVEAL);
+                        actor.base.flags.visible = initial_visible;
+                        actor.base.flags.collision_disabled = initially_disabled;
+                        actor.base.wait_timer = retained_wait;
+                        actor.base.position = Vector3 { x: -1234, y: i16::MIN, z: i16::MAX };
+                        actor.extension.depth_offset = 0xABCD;
+                        actor.extension.texture_scroll_x = 241;
+                        actor.extension.path_state.motion_phase = 0xAB00 | u16::from(initial_phase);
+                        runtime.branch.invert_next = true;
+                        let initial_random = random;
+                        let reveal_visit = usize::from(3u8.wrapping_sub(retained_wait));
+                        let mut phase = initial_phase;
+                        for visit in 0..(reveal_visit + 270) {
+                            assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut world(&mut random), 6), Ok(ControlStep::Movement));
+                            if visit == 0 {
+                                assert_eq!(objects.get(owner).unwrap().extension.path_state.animation.color.packed(), 129);
+                            }
+                            assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                            assert!(matches!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Run(_))));
+                            assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 6), Ok(ControlStep::ResumeCallbacks));
+                            assert_eq!(runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()), Ok(CallbackStep::Complete));
+                            let color = table[usize::from(phase)];
+                            phase = phase.wrapping_add(1);
+                            if phase == 7 { phase = 0; }
+                            let actor = objects.get(owner).unwrap();
+                            assert_eq!(actor.extension.path_state.animation.color.packed(), color);
+                            assert_eq!(actor.extension.path_state.motion_phase, 0xAB00 | u16::from(phase));
+                            assert_eq!(actor.base.wait_timer, if visit >= reveal_visit { 0 }
+                                else { retained_wait.wrapping_add((visit + 1) as u8) });
+                            assert_eq!(actor.base.flags.visible, initial_visible || visit >= reveal_visit);
+                            assert_eq!(actor.base.flags.collision_disabled, initially_disabled || visit >= reveal_visit);
+                            assert_eq!(actor.extension.path_state.hold_latched, visit >= reveal_visit);
+                            assert!(!actor.base.flags.remove_after_tick);
+                            assert!(!actor.base.flags.strategy_suspended);
+                            assert_eq!(actor.base.position, Vector3 { x: -1234, y: i16::MIN, z: i16::MAX });
+                            assert_eq!(actor.extension.depth_offset, 0xABCD);
+                            assert_eq!(actor.extension.texture_scroll_x, 241);
+                            assert!(!runtime.branch.invert_next);
+                            assert_eq!(random, initial_random);
+                        }
+                        runtime.release_actor_programs(&mut objects, owner).unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn fixed_count_sprite_effects_keep_exact_frames_and_offset_without_repeated_setup() {
         use super::super::{authored_paths, Vector3};
         let catalog = authored_paths::catalog();
@@ -11268,9 +11382,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 46);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 906);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 915);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 49);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 926);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 935);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

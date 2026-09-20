@@ -1824,3 +1824,34 @@ reject generation. Coverage is **46 complete roots / 915 source commands /
 path tests, 304 native path tests in debug and release, generated freshness,
 architecture/static audits and the app build. This remains static lowering
 and native service verification, not whole-game scheduling or completion.
+
+### Held sprite/depth effects and table-driven color reveal
+
+`SOLID_SPRITE_HOLD` (`44:4DF1`), `BIASED_DEPTH_HOLD` (`44:CFD4`) and
+`TABLE_COLOR_REVEAL` (`44:5667`) have complete graphs and verified child
+installers at `44:4DA7`, `44:8121` and `44:562E`. The solid sprite's immediate
+size-32 setup is overwritten with size 64 before holding. The depth effect
+does not enable sprite mode: it enables far-sort bias and assigns the full
+depth-offset word to three before holding. Tests distinguish these writes
+from low-byte sprite setup and preserve unrelated state through repeated holds.
+
+The table-color effect initializes manual color one, registers an always
+callback, waits against retained timer three, then restores visibility,
+disables collision and holds. Callbacks continue after the reveal/hold.
+Every callback reads the full byte-indexed source table into the packed
+color control, increments the phase-low byte, and resets only on equality
+with seven. Initial phases outside 0–6 therefore read later ROM bytes before
+wrapping back into the seven-entry cycle; those reads are retained as data,
+not interpreted as code or replaced with clamping/modulo.
+
+Static tests pin the entire 256-byte lookup window by digest as well as all
+graph and installer bytes. Native tests cover all initial phases, retained
+wait boundaries including the 255-visit wrap case, both initial visibility
+and collision states, continued callbacks after hold and retained high-byte
+state. Shape-kind review is restricted to these child path/shape pairs.
+
+Coverage is **49 complete roots / 935 source commands / 926 native
+statements**. Validation passes 124 lowerer tests, 287 static path tests,
+306 native path tests in debug and release, generated freshness,
+architecture/static audits and the application build. Parent graph lowering
+and whole-game scheduling remain separate, unclaimed work.

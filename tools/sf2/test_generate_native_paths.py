@@ -148,6 +148,45 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
                 spawn_shape(shape, PathAddress(root))
 
+    def test_held_effect_children_preserve_full_depth_and_table_driven_color_callbacks(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, installer, shape, index in [
+            (0x4DF1, 4, 0x4DA7, 0xBE94, 18), (0xCFD4, 4, 0x8121, 0xBC9C, 0),
+            (0x5667, 12, 0x562E, 0xBC9C, 0),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            _, statements = lower_graph(extractor, PathAddress(root), 0)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(statements), count)
+            mapped = dict(zip((c.address.offset for c in commands), statements))
+            if root == 0x4DF1:
+                self.assertIn("size: 32", mapped[0x4DF2])
+                self.assertIn("ByteOperation::Assign(ByteOperand::Literal(64))", mapped[0x4DF5])
+            elif root == 0xCFD4:
+                self.assertIn("FarSortBias(true)", mapped[0xCFD5])
+                self.assertIn("WordField::DepthOffset", mapped[0xCFD7])
+                self.assertIn("WordOperand::Literal(3)", mapped[0xCFD7])
+            else:
+                self.assertIn("value: 1", mapped[0x5667])
+                self.assertIn("TriggerKind::Always", mapped[0x5669])
+                self.assertIn("Literal(3)", mapped[0x566C])
+                self.assertIn("Visibility(true)", mapped[0x566E])
+                self.assertIn("DisableCollision", mapped[0x566F])
+                self.assertIn("ByteField::Animation(AnimationChannel::Color)", mapped[0x5671])
+                values = banked_byte_values(self.rom, 0x06FC2A)
+                self.assertEqual(len(values), 256)
+                self.assertEqual(values[:7], (128, 129, 130, 131, 130, 129, 128))
+                self.assertIn("values: &[" + ", ".join(map(str, values)) + "]", mapped[0x5671])
+                self.assertIn("Literal(7)", mapped[0x567A])
+                self.assertIn("ByteOperation::Assign(ByteOperand::Literal(0))", mapped[0x567F])
+            self.assertEqual(spawn_shape(shape, PathAddress(root)), (index, "ObjectKind::Effect"))
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+                spawn_shape(shape, PathAddress(root + 1))
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = commands[1].address.offset.to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed))
+
     def test_hit_toggle_sprite_entries_keep_both_hit_callbacks_and_counted_exit(self):
         extractor = PathExtractor(self.rom)
         for root, count in [(0x8488, 37), (0x8486, 38)]:

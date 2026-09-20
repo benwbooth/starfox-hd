@@ -2,6 +2,7 @@
 """Assembly-backed checks for native path control; no gameplay execution."""
 
 from pathlib import Path
+import hashlib
 import re
 import unittest
 
@@ -77,6 +78,18 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x098F63, "5D A8 C0 FD 90 0A 0A")
         self.assert_source(0x09926F, "5D 04 BF 77 92 0A 0A")
         self.assert_source(0x09C344, "5D D0 BD 20 C5 01 01")
+
+    def test_held_effect_graphs_installers_and_entire_byte_indexed_color_table(self):
+        self.assert_source(0x08CDF1, "5C 4D 00 20 0B 40 99 19")
+        self.assert_source(0x09CFD4, "5C 00 29 0C 03 00 87 19")
+        self.assert_source(0x08D667,
+            "1D 01 FD 08 00 03 03 49 5C 19 90 2A FC 06 A1 89 6D A1 8A 2A A1 07 81 56 6B A1 42")
+        self.assert_source(0x08CDA7, "F5 94 BE F1 4D 01 01 00 00 40 FC 40 15 07")
+        self.assert_source(0x098121, "F5 9C BC D4 CF 01 01 00 00 00 00 00 00 01")
+        self.assert_source(0x08D62E, "F5 9C BC 67 56 0A 0A 00 00 00 00 00 00 02")
+        start = source_offset(0x06FC2A)
+        self.assertEqual(hashlib.sha256(self.rom[start:start + 256]).hexdigest(),
+                         "541f238f2bc0ac7b2f91a6cf6ce778a756b3ed903ac0afbc55bd6fe037d99b03")
 
     def test_suspension_enters_movement_and_both_strategy_passes_skip_it(self):
         self.assert_source(0x7FBC80, "B5 26 09 40 95 26 4C DE 9D")
