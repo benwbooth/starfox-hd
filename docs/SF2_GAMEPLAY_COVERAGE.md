@@ -3819,3 +3819,36 @@ tests and 432 path-static tests**, exact regeneration, architecture guard,
 static inventory and app build pass. Catalog totals remain 140 roots and five
 helpers: those exit callers still require the paired player-state save/restore
 and other dependencies. No gameplay recordings were used.
+
+### Fixed-view base-copy and projectile-cleanup support
+
+The two source operations underneath the paired view-state commands are now
+typed Rust services. `ViewBaseSnapshot` captures/restores the fixed view's base
+record, including the base fields currently grouped under actor path state;
+it leaves extension motion words, animation, relative pose, callback/stack
+ownership, scene continuation and other extension state live. Base list links
+are values in the copy, not instructions to alter the object pool. Exhaustive
+actor-path-field matching makes any newly added field require an explicit
+saved-versus-live decision.
+
+The preceding `$03:A6A5` traversal now disables collision, sets pause exemption
+and clears health for actors with both hostile-class bits or the hit-side
+class. It does not retire actors, run callbacks or filter by high-level kind,
+visibility, health, collision state or general-search eligibility. Native
+tests cover all 256 class bytes across 64 independent state combinations,
+idempotence, the complete pool/actor preservation boundary, saved base versus
+live extension fields, retained stack allocations and capture after cleanup.
+Three static tests bind the source traversal, fixed view selection, exact
+63-byte copy, operation order and restore/free tail.
+
+These are supporting services, not completion of opcodes C2/C3 or promotion
+of their callers. The source auxiliary table retains its entry after the
+saved payload is freed; repeated saves replace its reference without freeing
+the previous payload. Shared auxiliary-table allocation/accounting and this
+lifetime behavior still need integration before those commands can be marked
+lowered. No original instructions or gameplay recordings were executed.
+
+Validation passes 999 native unit tests and two integration tests in both
+debug and release, 197 lowerer tests, 435 path-static tests, exact catalog
+regeneration, architecture guard, static inventory and app build (only the
+two existing unused icon-helper warnings).

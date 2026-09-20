@@ -10,6 +10,7 @@ pub use native::{authored_paths, path_appearance, path_program, path_random, pat
 pub use native::{path_effect, path_impact, path_radio, path_scene_state};
 pub use native::path_shots;
 pub use native::weapon_rapid;
+pub use native::view_transition;
 pub use native::{
     attachments, collision_boxes, collision_contacts, collision_math, collision_pass,
     collision_surface, hit_response, hostile_laser_control, path_calls, path_commands,
