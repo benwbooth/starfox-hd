@@ -87,6 +87,21 @@ class PathFieldsStaticTests(unittest.TestCase):
         # The imported bit set is tested and explicitly cleared on one arm.
         self.assertEqual(self.rom[0x487D3:0x487E0], bytes.fromhex("7B A3 43 6D 27 DA 27 A3 E0 87 6C A3 42"))
 
+    def test_indexed_node_import_widens_literal_index_and_copies_the_full_word(self):
+        self.assert_source(0x7F9F75, "20e79fc220adb7169900004cbeca")
+        self.assert_source(0x7F9FE7, "20e0c4c22029ff00a8b95cd78db716e22020bcc42047cb60")
+        self.assert_source(0x7FCABE, "e220c220b52b18690300952be2204c757e")
+        self.assertEqual(self.rom[0x4545F:0x4546C], bytes.fromhex("48 7b a3 9a da 2d a3 53 8d c7 16 60 54"))
+        self.assertEqual(self.rom[0x48D53], 0x0F)
+
+    def test_active_node_flags_low_byte_load_and_full_word_writeback_are_distinct(self):
+        # Active node at DB07 supplies node kind, scenario, and flags. The
+        # flag load is byte-wide; its high byte is not implicitly zeroed.
+        self.assert_source(0x04B1FC, "ae07dbbd0400c22029ff00e2208db51bbd08008da51bbd0a008df6d7")
+        self.assert_source(0x04B23B, "da08c220ada51b9d0800adf6d79d0a00e220aeb51bada1d79d94d728fa60")
+        # Another live writer changes bit 5 except in scenarios 3 and 9.
+        self.assert_source(0x06A241, "ade21dc909f00cc903f008adf6d709208df6d7")
+
     def test_world_position_add_sign_extends_literal_byte_before_word_add(self):
         self.assert_source(0x7F865B, "20 BC C4 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 18 75 0C 95 0C 4C D3 CA")
         self.assert_source(0x7F8687, "18 75 0E 95 0E 4C D3 CA")

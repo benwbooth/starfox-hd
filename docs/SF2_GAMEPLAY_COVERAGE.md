@@ -989,3 +989,19 @@ passes 73 lowerer tests, 217 static path tests, the seven reused angle/source
 checks, 205 native path tests in debug/release, both architecture/dependency
 audits and the app build. The separate linked-field variant remains rejected;
 complete-root coverage remains 14/161 and Game integration is still open.
+
+The complete node-gated target-service root now lowers to native Rust. Its
+indexed import reads the live active campaign-node flag word, retaining both
+bytes despite the source node loader's low-byte-only initialization. The loop
+resamples that word and the actor's health-byte bit selector on each visit,
+preserves pending IFNOT, yields after target selection, and exits without
+requiring target inputs when the selected bit is set. Visibility/collision
+setup runs only once, outside the backedge. All 256 selector values retain the
+source's wrapped table indexing, including instruction-overlap data entries.
+
+Verification passes 75 lowerer tests, 219 static path tests, 208 native path
+tests in debug/release, architecture/dependency audits and the app build.
+Tests include every imported word, live flag/health changes, the complete
+target-service loop, full actor preservation and missing-input errors.
+Catalog coverage is now **15 complete roots and 167 unique statements**.
+This is source-only verification; scheduler/spawn integration remains open.

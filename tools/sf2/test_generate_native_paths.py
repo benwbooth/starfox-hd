@@ -685,7 +685,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(masks[:16], tuple(1 << bit for bit in range(16)))
         self.assertEqual(masks[16], 0xE020)
         self.assertEqual(masks[-1], 0x9902)
-        self.assertNotIn("VARIABLE_BIT_MASKS", generate(self.rom))
+        self.assertNotIn("VARIABLE_BIT_MASKS", generate(self.rom, (("EXHAUST", PathAddress(0xF536)),)))
         changed = bytearray(self.rom)
         changed[0x4F536:0x4F53A] = bytes.fromhex("d8 2d a1 0f")
         generated = generate(bytes(changed), (("BITS", PathAddress(0xF536)),))
@@ -813,6 +813,40 @@ class NativePathGenerationTests(unittest.TestCase):
         # it cannot alias the target-only command before that field is ported.
         with self.assertRaisesRegex(UnsupportedPath, "unsupported UpdatePlayerTargetAndFlagLinked"):
             self.lower_record("c6")
+
+    def test_active_node_flags_import_requires_the_reviewed_live_word(self):
+        self.assertEqual(self.lower_record("7b a3 9a")[0],
+            "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
+        self.assertIn("destination: WordField::MotionPhase", self.lower_record("7b a1 9a")[0])
+        for index in range(256):
+            if index != 0x9A:
+                with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
+                    self.lower_record(f"7b a3 {index:02x}")
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
+            self.lower_record("7b 04 9a")
+        # Writing back or accessing another width is not authorized by this
+        # read-only mapping; neither is a guessed absolute-address alias.
+        for record in ("78 a3 9a", "7a a3 9a", "7e a3 f6 d7", "7c a3 f6 d7"):
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
+    def test_node_gated_target_root_lowers_all_edges_and_live_health_selector(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0x545F))
+        _, statements = lower_graph(extractor, PathAddress(0x545F), 0)
+        self.assertEqual([command.address.offset for command in commands],
+                         [0x545F, 0x5460, 0x5463, 0x5468, 0x5469, 0x8D53])
+        self.assertEqual(statements, [
+            "Statement::Appearance { command: AppearanceCommand::Visibility(false), next: cursor(0, 1) }",
+            "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 2) }",
+            "Statement::Compare { condition: ActorCondition::AnyWordBitsSet(WordOperand::Actor(WordField::ScriptValue), WordOperand::IndexedBitMask { selector: ByteOperand::Actor(ByteField::Health), masks: &VARIABLE_BIT_MASKS }), taken: cursor(0, 5), next: cursor(0, 3) }",
+            "Statement::ConsiderPrimaryTarget { next: cursor(0, 4) }",
+            "Statement::Control(ControlCommand::Goto { target: cursor(0, 1) })",
+            "Statement::Control(ControlCommand::End)",
+        ])
+        generated = generate(self.rom, (("TARGET_SERVICE", PathAddress(0x545F)),))
+        self.assertIn("const VARIABLE_BIT_MASKS: [u16; 128]", generated)
+        self.assertIn("LOWERED_COMMAND_COUNT: usize = 6", generated)
 
     def lower_record(self, record):
         changed = bytearray(self.rom)

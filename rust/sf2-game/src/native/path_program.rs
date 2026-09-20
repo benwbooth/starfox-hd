@@ -31,6 +31,9 @@ pub struct PathWorld<'a> {
     pub selected_charge: Option<super::path_charge::SelectedChargeInput>,
     pub primary_control: Option<super::path_player_control::PrimaryControl<'a>>,
     pub primary_target: Option<super::path_target::PrimaryTarget<'a>>,
+    /// Live active campaign-node flags. Source node loading updates only the
+    /// low byte, while path imports and node writeback retain the whole word.
+    pub active_node_flags: Option<u16>,
     pub countdown: Option<&'a mut super::path_countdown::PathCountdown>,
     /// Fresh selected auxiliary observations for this invocation; absent
     /// observations are an error only when a statement actually needs them.
@@ -191,6 +194,10 @@ pub enum Statement {
         destination: super::path_fields::ByteField,
         next: PathCursor,
     },
+    ImportActiveNodeFlags {
+        destination: super::path_fields::WordField,
+        next: PathCursor,
+    },
     RefreshSelectedChargeAttachment {
         next: PathCursor,
     },
@@ -315,6 +322,7 @@ pub enum ProgramError {
     MissingSelectedCharge,
     MissingPrimaryControl,
     MissingPrimaryTarget,
+    MissingActiveNodeFlags,
     MissingAudio,
     MissingSoundMarkers,
     MissingCountdown,
@@ -532,6 +540,17 @@ impl PathRuntime {
                     let actor = objects
                         .get_mut(owner)
                         .expect("validated charge-import owner");
+                    destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportActiveNodeFlags { destination, next } => {
+                    let value = world
+                        .active_node_flags
+                        .ok_or(ProgramError::MissingActiveNodeFlags)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated node-flags import owner");
                     destination.write(actor, value);
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
@@ -860,6 +879,7 @@ mod tests {
             selected_charge: None,
             primary_control: None,
             primary_target: None,
+            active_node_flags: None,
             countdown: None,
             selected_auxiliary: None,
             spawn_defaults: None,
@@ -879,6 +899,200 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn node_flag_import_preserves_every_word_and_faults_before_mutation() {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let original_random = random;
+        runtime.branch.invert_next = true;
+        objects.get_mut(owner).unwrap().base.wait_timer = 173;
+        let catalog = PathCatalog::new(vec![vec![Statement::ImportActiveNodeFlags {
+            destination: WordField::ScriptValue,
+            next: cursor(0, 1),
+        }]])
+        .unwrap();
+        let before = objects.clone();
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+            Err(ProgramError::MissingActiveNodeFlags)
+        );
+        assert_eq!(objects, before);
+        for flags in 0..=u16::MAX {
+            objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+            let mut expected = objects.get(owner).unwrap().clone();
+            expected.extension.path_state.script_value = flags;
+            expected.base.path = Some(cursor(0, 1));
+            let mut inputs = world(&mut random);
+            inputs.active_node_flags = Some(flags);
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: cursor(0, 1),
+                    executed: 1,
+                })
+            );
+            assert_eq!(objects.get(owner).unwrap(), &expected);
+            assert!(runtime.branch.invert_next);
+            assert_eq!(random, original_random);
+        }
+    }
+
+    #[test]
+    fn authored_node_target_gate_uses_all_health_selectors_and_skips_target_inputs_on_exit() {
+        use super::super::authored_paths;
+        use super::super::path_target::{PrimaryTarget, TargetAnchor, TargetSelection};
+        use super::super::Vector3;
+        let catalog = authored_paths::catalog();
+        let entry = authored_paths::NODE_GATED_TARGET_SERVICE;
+        let Statement::Appearance { next: import, .. } = catalog.statement(entry).unwrap() else {
+            panic!("target service must begin with visibility");
+        };
+        let Statement::ImportActiveNodeFlags {
+            next: comparison, ..
+        } = catalog.statement(import).unwrap()
+        else {
+            panic!("target service requires a fresh node-flags import");
+        };
+        let Statement::Compare {
+            condition:
+                ActorCondition::AnyWordBitsSet(
+                    WordOperand::Actor(WordField::ScriptValue),
+                    WordOperand::IndexedBitMask {
+                        selector: ByteOperand::Actor(ByteField::Health),
+                        masks,
+                    },
+                ),
+            taken: terminal,
+            ..
+        } = catalog.statement(comparison).unwrap()
+        else {
+            panic!("target service requires live health, not a literal bit selector");
+        };
+        for health in 0..=u8::MAX {
+            // Independent table indexing: decrement/double wraps as a byte,
+            // making health 0 alias 128, and health 129 alias 1.
+            let mask = masks[(usize::from(health) + 127) % 128];
+            for flags in [0, !mask, mask, u16::MAX] {
+                let ended = flags & mask != 0;
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                let original_random = random;
+                runtime.branch.invert_next = true;
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(entry);
+                actor.base.hit_points = health;
+                actor.base.wait_timer = 193;
+                actor.base.position.z = 100;
+                actor.base.contacts.new_contact_latched = true;
+                actor.base.contacts.hit_by_primary = true;
+                actor.base.contacts.hit_by_secondary = true;
+                actor.extension.path_state.clear_on_path_exit_latch = true;
+                let mut expected = objects.clone();
+                let actor = expected.get_mut(owner).unwrap();
+                actor.base.flags.visible = false;
+                actor.base.flags.collision_disabled = true;
+                actor.extension.path_state.script_value = flags;
+                actor.base.path = Some(if ended { terminal } else { import });
+                if ended {
+                    actor.base.flags.remove_after_tick = true;
+                    actor.base.contacts.new_contact_latched = false;
+                    actor.base.contacts.hit_by_primary = false;
+                    actor.base.contacts.hit_by_secondary = false;
+                    actor.extension.path_state.clear_on_path_exit_latch = false;
+                }
+                let mut selection = TargetSelection {
+                    distance: u16::MAX,
+                    ..TargetSelection::default()
+                };
+                let mut expected_selection = selection;
+                if !ended {
+                    expected_selection.control_flags = 0x08;
+                    expected_selection.candidate = Some(owner);
+                    expected_selection.distance = 56;
+                    expected_selection.auxiliary_distance = 100;
+                    expected_selection.position.z = 100;
+                    expected_selection.screen = [112, 96];
+                }
+                let mut inputs = world(&mut random);
+                inputs.active_node_flags = Some(flags);
+                // The taken exit must not ask for either target input.
+                if !ended {
+                    inputs.primary_player = Some(owner);
+                    inputs.primary_target = Some(PrimaryTarget {
+                        anchor: TargetAnchor {
+                            position: Vector3::default(),
+                            pitch: 0,
+                            yaw: 0,
+                        },
+                        selection: &mut selection,
+                    });
+                }
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6),
+                    Ok(if ended {
+                        ControlStep::Ended
+                    } else {
+                        ControlStep::Movement
+                    }),
+                    "health={health} flags={flags}"
+                );
+                assert_eq!(objects, expected);
+                assert_eq!(selection, expected_selection);
+                // The bit-test branch bypasses, rather than consumes, IFNOT.
+                assert!(runtime.branch.invert_next);
+                assert_eq!(random, original_random);
+            }
+        }
+    }
+
+    #[test]
+    fn authored_node_target_loop_resamples_flags_and_health_without_repeating_visibility() {
+        use super::super::authored_paths;
+        use super::super::path_target::{PrimaryTarget, TargetAnchor, TargetSelection};
+        use super::super::Vector3;
+        let catalog = authored_paths::catalog();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        objects.get_mut(owner).unwrap().base.path = Some(authored_paths::NODE_GATED_TARGET_SERVICE);
+        let mut selection = TargetSelection::default();
+        for (visit, (health, flags)) in [(16, 1), (1, 2), (16, 0x8000)].into_iter().enumerate() {
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.hit_points = health;
+            actor.base.position.z = 100 + visit as i16;
+            // Visibility is run only on entry, not on the yielding backedge.
+            actor.base.flags.visible = true;
+            actor.base.flags.collision_disabled = false;
+            selection.distance = u16::MAX;
+            let previous_selection = selection;
+            let mut inputs = world(&mut random);
+            inputs.active_node_flags = Some(flags);
+            inputs.primary_player = Some(owner);
+            inputs.primary_target = Some(PrimaryTarget {
+                anchor: TargetAnchor {
+                    position: Vector3::default(),
+                    pitch: 0,
+                    yaw: 0,
+                },
+                selection: &mut selection,
+            });
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 6),
+                Ok(if visit == 2 {
+                    ControlStep::Ended
+                } else {
+                    ControlStep::Movement
+                })
+            );
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(actor.extension.path_state.script_value, flags);
+            assert_eq!(actor.base.flags.visible, visit != 0);
+            assert_eq!(actor.base.flags.collision_disabled, visit == 0);
+            if visit == 2 {
+                assert_eq!(selection, previous_selection);
+            } else {
+                assert_eq!(selection.position, actor.base.position);
+                assert_eq!(selection.candidate, Some(owner));
+            }
+        }
     }
 
     #[test]
@@ -3408,6 +3622,7 @@ mod tests {
                 selected_charge: None,
                 primary_control: None,
                 primary_target: None,
+                active_node_flags: None,
                 spawn_defaults: None,
                 countdown: None,
                 // The initial four-count loop does not read this record.
@@ -3903,8 +4118,8 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 14);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 161);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 15);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 167);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -4045,6 +4260,7 @@ mod tests {
                 selected_charge: None,
                 primary_control: None,
                 primary_target: None,
+                active_node_flags: None,
                 selected_auxiliary: None,
                 countdown: None,
                 spawn_defaults: None,
@@ -4152,6 +4368,7 @@ mod tests {
                         selected_charge: None,
                         primary_control: None,
                         primary_target: None,
+                        active_node_flags: None,
                         selected_auxiliary: None,
                         countdown: None,
                         spawn_defaults: None,

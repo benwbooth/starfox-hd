@@ -38,6 +38,7 @@ ROOTS = (
     ("SHARED_COUNTDOWN_SERVICE", PathAddress(0x04FF)),
     ("COUNTER_MOTION_EFFECT", PathAddress(0xBE65)),
     ("PLAYER_CHARGE_ORB", PathAddress(0xF04F)),
+    ("NODE_GATED_TARGET_SERVICE", PathAddress(0x545F)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -647,6 +648,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "FaceMother": "LinkedImmediate",
             }[name]
             statement = f"Statement::Facing {{ command: FacingCommand::{operation}, next: {next_cursor()} }}"
+        elif name == "ImportWordIndexed":
+            variable, index = parameters(2)
+            # $7F:9FE7 widens the second literal without scaling it. Only
+            # this reviewed live domain field is mapped, never shared RAM.
+            if index != 0x9A:
+                raise UnsupportedPath(f"unported shared word {0xD75C + index:04X} at {command.address.label()}")
+            statement = f"Statement::ImportActiveNodeFlags {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
