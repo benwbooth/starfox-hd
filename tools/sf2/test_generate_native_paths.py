@@ -51,6 +51,34 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("immediate: false", statements[6])
         self.assertEqual(statements[7], "Statement::Control(ControlCommand::End)")
 
+    def test_hold_is_terminal_and_does_not_publish_an_unreachable_end(self):
+        self.assertEqual(self.lower_record("19"), ["Statement::Control(ControlCommand::Hold)"])
+        changed = bytearray(self.rom)
+        changed[0x4F536] = 0x19
+        extractor = PathExtractor(bytes(changed))
+        command = extractor.decode_command(PathAddress(0xF536))
+        self.assertFalse(command.successors)
+        broken = replace(command, successors=[PathAddress(0xF537)])
+        extractor.decode_command = lambda address: broken if address == broken.address else command
+        with self.assertRaisesRegex(UnsupportedPath, "PathHold has outgoing edges"):
+            lower_graph(extractor, PathAddress(0xF536), 0)
+
+    def test_script_parameter_decodes_to_a_separate_named_byte(self):
+        self.assertEqual(byte_field(0x27), "ByteField::ScriptParameter")
+        for record, fragment in [
+            ("4e 27 2d", "ByteOperation::Assign(ByteOperand::Actor(ByteField::Health))"),
+            ("4f 27 0e", "ByteOperation::Assign(ByteOperand::LowWord(WordField::Position(Axis::Y)))"),
+            ("6f 27", "ByteOperation::Decrement"),
+        ]:
+            statement = self.lower_record(record)[0]
+            self.assertIn("field: ByteField::ScriptParameter", statement)
+            self.assertIn(fragment, statement)
+        for opcode in ("d8", "d9"):
+            self.assertIn("selector: ByteOperand::Actor(ByteField::ScriptParameter)",
+                          self.lower_record(f"{opcode} 27 a1")[0])
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 27"):
+            word_field(0x27)
+
     def test_unsupported_complete_root_is_rejected_not_partially_published(self):
         # An unsupported independently spawned child rejects its parent too.
         changed = bytearray(self.rom)

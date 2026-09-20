@@ -24,6 +24,16 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7F8645, "20 BC C4 18 75 14 95 14 4C D3 CA")
         self.assert_source(0x7F8650, "20 BC C4 18 75 16 95 16 4C D3 CA")
 
+    def test_script_parameter_is_path_owned_not_a_health_or_height_alias(self):
+        # Authored COPY byte stores health, then decrements the saved byte.
+        self.assertEqual(self.rom[0x45E1D:0x45E22], bytes.fromhex("4E 27 2D 6F 27"))
+        # Another path saves height's low byte before clearing the height.
+        self.assertEqual(self.rom[0x47F2A:0x47F2F], bytes.fromhex("4F 27 0E 6C 0E"))
+        # That saved byte is a one-based bit selector, not an elapsed timer.
+        self.assertEqual(self.rom[0x47F45:0x47F49], bytes.fromhex("67 27 52 7F"))
+        self.assertEqual(self.rom[0x47F4C:0x47F4F], bytes.fromhex("D9 27 A1"))
+        self.assertEqual(self.rom[0x47F64:0x47F67], bytes.fromhex("D8 27 A1"))
+
     def test_world_position_add_sign_extends_literal_byte_before_word_add(self):
         self.assert_source(0x7F865B, "20 BC C4 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 18 75 0C 95 0C 4C D3 CA")
         self.assert_source(0x7F8687, "18 75 0E 95 0E 4C D3 CA")

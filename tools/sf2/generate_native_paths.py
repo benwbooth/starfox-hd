@@ -160,6 +160,7 @@ def byte_field(variable: int) -> str:
         0x16: "ByteField::Rotation(Axis::Z)",
         0x17: "ByteField::WaitTimer",
         0x18: "ByteField::Speed",
+        0x27: "ByteField::ScriptParameter",
         0x28: "ByteField::RepeatCounter",
         0x2D: "ByteField::Health",
         0x2E: "ByteField::AttackPower",
@@ -572,11 +573,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             parameters(0)
             immediate = "true" if name == "ImmediateNext" else "false"
             statement = f"Statement::Control(ControlCommand::Next {{ immediate: {immediate}, next: {next_cursor()} }})"
-        elif name == "End":
+        elif name in ("End", "PathHold"):
             parameters(0)
             if command.successors:
-                raise UnsupportedPath(f"END has outgoing edges at {command.address.label()}")
-            statement = "Statement::Control(ControlCommand::End)"
+                raise UnsupportedPath(f"{name} has outgoing edges at {command.address.label()}")
+            operation = "End" if name == "End" else "Hold"
+            statement = f"Statement::Control(ControlCommand::{operation})"
         else:
             raise UnsupportedPath(f"unsupported {name} at {command.address.label()}")
         statements.append(statement)

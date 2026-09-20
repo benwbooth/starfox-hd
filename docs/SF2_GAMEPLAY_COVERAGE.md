@@ -682,3 +682,12 @@ with generic host-language comparisons. Shape/raw-pointer arithmetic remains
 rejected. Verification passes 44 lowerer tests, 164 static path checks, 151
 native path tests in release, and architecture/dependency checks. No additional
 complete root is claimed; unported world services still reject whole graphs.
+
+PATHHOLD now lowers to the existing movement-only terminal command without
+inventing a continuation. Actor byte 27 is a separate typed script parameter:
+source paths explicitly copy health or height's low byte into it, then use it
+as saved state or a bit selector. It does not alias health, position, wait or
+LOOP counters. Static authored-byte fixtures and exhaustive native copy tests
+cover those contracts. Verification passes 46 lowerer tests, 165 static path
+checks, 152 native path tests in debug/release, architecture/dependency checks
+and the app build. Complete catalog coverage remains nine roots/97 statements.

@@ -77,6 +77,7 @@ pub enum ByteField {
     TargetSpeed,
     Acceleration,
     WaitTimer,
+    ScriptParameter,
     RepeatCounter,
     Part,
     Health,
@@ -109,6 +110,7 @@ impl ByteField {
             Self::TargetSpeed => actor.base.target_speed,
             Self::Acceleration => actor.base.acceleration,
             Self::WaitTimer => actor.base.wait_timer,
+            Self::ScriptParameter => actor.extension.path_state.script_parameter,
             Self::RepeatCounter => actor.extension.path_state.repeat_counter,
             Self::Part => actor.extension.path_state.part,
             Self::Health => actor.base.hit_points,
@@ -148,6 +150,7 @@ impl ByteField {
             Self::TargetSpeed => actor.base.target_speed = value,
             Self::Acceleration => actor.base.acceleration = value,
             Self::WaitTimer => actor.base.wait_timer = value,
+            Self::ScriptParameter => actor.extension.path_state.script_parameter = value,
             Self::RepeatCounter => actor.extension.path_state.repeat_counter = value,
             Self::Part => actor.extension.path_state.part = value,
             Self::Health => actor.base.hit_points = value,
@@ -392,6 +395,7 @@ mod tests {
             ByteField::TargetSpeed,
             ByteField::Acceleration,
             ByteField::WaitTimer,
+            ByteField::ScriptParameter,
             ByteField::RepeatCounter,
             ByteField::Part,
             ByteField::Health,
@@ -407,6 +411,42 @@ mod tests {
         }
         for (index, field) in fields.into_iter().enumerate() {
             assert_eq!(field.read(&actor), index as u8);
+        }
+    }
+
+    #[test]
+    fn script_parameter_copies_values_without_aliasing_health_height_or_loop_count() {
+        for value in 0..=u8::MAX {
+            let mut actual = actor();
+            actual.base.hit_points = value;
+            actual.base.position.y = i16::from_le_bytes([value, 0xAB]);
+            actual.base.wait_timer = 17;
+            actual.extension.path_state.repeat_counter = 29;
+            actual.extension.path_state.motion_phase = 0x5678;
+            let original = actual.clone();
+            let mut expected = original.clone();
+            expected.extension.path_state.script_parameter = value;
+            for operand in [
+                ByteOperand::Actor(ByteField::Health),
+                ByteOperand::LowWord(WordField::Position(Axis::Y)),
+            ] {
+                actual = original.clone();
+                Mutation::Byte {
+                    field: ByteField::ScriptParameter,
+                    operation: ByteOperation::Assign(operand),
+                }
+                .apply(&mut actual);
+                assert_eq!(actual, expected);
+                assert_eq!(ByteField::ScriptParameter.read(&actual), value);
+                Mutation::Byte {
+                    field: ByteField::ScriptParameter,
+                    operation: ByteOperation::Add(ByteOperand::Literal(255)),
+                }
+                .apply(&mut actual);
+                let mut decremented = expected.clone();
+                decremented.extension.path_state.script_parameter = value.wrapping_sub(1);
+                assert_eq!(actual, decremented);
+            }
         }
     }
 
