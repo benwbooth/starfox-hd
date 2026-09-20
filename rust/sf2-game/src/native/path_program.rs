@@ -33,10 +33,15 @@ mod actor_context_tests;
 #[path = "path_actor_effect_tests.rs"]
 mod actor_effect_tests;
 
+#[cfg(test)]
+#[path = "path_encounter_signal_tests.rs"]
+mod encounter_signal_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
     pub scene: ScenePathInputs,
+    pub encounter_signals: Option<&'a mut EncounterSignals>,
     pub scenery_distance: Option<&'a mut SceneryDistanceState>,
     pub targeting_upgrade: Option<&'a mut super::path_target::TargetingUpgradeState>,
     pub shield_recovery: Option<&'a mut super::player_hit_control::ShieldRecoveryRequest>,
@@ -110,6 +115,27 @@ pub struct ScenePathInputs {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SceneryDistanceState {
     pub near_mask: u8,
+}
+
+/// Scene-owned script synchronization signals ($D77D/$D77E), shared by
+/// encounter controllers and their independently scheduled parts. Bit roles
+/// belong to the authored encounter, not to the observing actor's flags.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EncounterSignals {
+    pub raised: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncounterSignalCommand {
+    Raise(u16),
+    Clear(u16),
+    Reset,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncounterSignalCondition {
+    AnyRaised(u16),
+    AllClear(u16),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,6 +388,16 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    EncounterSignal {
+        command: EncounterSignalCommand,
+        next: PathCursor,
+    },
+    /// Direct source branches bypass and preserve the shared IFNOT latch.
+    EncounterSignalBranch {
+        condition: EncounterSignalCondition,
+        taken: PathCursor,
+        next: PathCursor,
+    },
     SelectActor { selection: ActorSelection, next: PathCursor },
     SelectChild { number: ByteOperand, missing: PathCursor, next: PathCursor },
     RestoreActor { next: PathCursor },
@@ -670,6 +706,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingEncounterSignals,
     ActorContext(ActorContextError),
     MissingTargetingUpgrade,
     MissingSceneryDistance,
@@ -811,6 +848,28 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::EncounterSignal { command, next } => {
+                    let signals = world.encounter_signals.as_deref_mut()
+                        .ok_or(ProgramError::MissingEncounterSignals)?;
+                    match command {
+                        EncounterSignalCommand::Raise(mask) => signals.raised |= mask,
+                        EncounterSignalCommand::Clear(mask) => signals.raised &= !mask,
+                        EncounterSignalCommand::Reset => signals.raised = 0,
+                    }
+                    objects.get_mut(owner).expect("validated encounter signal writer").base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::EncounterSignalBranch { condition, taken, next } => {
+                    let signals = world.encounter_signals.as_deref()
+                        .ok_or(ProgramError::MissingEncounterSignals)?;
+                    let matches = match condition {
+                        EncounterSignalCondition::AnyRaised(mask) => signals.raised & mask != 0,
+                        EncounterSignalCondition::AllClear(mask) => signals.raised & mask == 0,
+                    };
+                    objects.get_mut(owner).expect("validated encounter signal reader").base.path =
+                        Some(if matches { taken } else { next });
+                    Ok(ControlStep::Continue)
+                }
                 Statement::SelectActor { selection, next } => {
                     owner = self.actor_context
                         .select(objects, owner, self.spawns.last_spawn, selection, next)
@@ -1721,6 +1780,7 @@ mod tests {
     pub(super) fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
             scene: ScenePathInputs::default(),
+            encounter_signals: None,
             scenery_distance: None,
             targeting_upgrade: None,
             shield_recovery: None,
@@ -8752,6 +8812,7 @@ mod tests {
             };
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                encounter_signals: None,
                 scenery_distance: None,
                 targeting_upgrade: None,
                 shield_recovery: None,
@@ -12818,9 +12879,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 93);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1433);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1442);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 95);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 1478);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 1487);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -12952,6 +13013,7 @@ mod tests {
         for phase in 1..=7 {
             let mut inputs = PathWorld {
                 scene: ScenePathInputs::default(),
+                encounter_signals: None,
                 scenery_distance: None,
                 targeting_upgrade: None,
                 shield_recovery: None,
@@ -13080,6 +13142,7 @@ mod tests {
                     owner,
                     &mut PathWorld {
                         scene: ScenePathInputs::default(),
+                        encounter_signals: None,
                         scenery_distance: None,
                         targeting_upgrade: None,
                         shield_recovery: None,

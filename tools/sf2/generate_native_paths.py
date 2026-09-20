@@ -117,6 +117,8 @@ ROOTS = (
     ("PLAYER_POSITION_PULSE_PAIR", PathAddress(0x82C3)),
     ("PULSE_PAIR", PathAddress(0x82D9)),
     ("LINKED_SHAPE_REVEAL_ATTACHMENT", PathAddress(0x9A4B)),
+    ("SIGNAL_GATED_RELATIVE_LIFT", PathAddress(0x9DA1)),
+    ("SIGNAL_GATED_LOOPING_MESH", PathAddress(0xAE1E)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
@@ -185,6 +187,8 @@ CHILD_INSTALLERS = {
     PathAddress(0x82C3): (PathAddress(0x2BE9), PathAddress(0x2CCF)),
     PathAddress(0x82D9): (PathAddress(0x2651), PathAddress(0x82A7)),
     PathAddress(0x9A4B): (PathAddress(0x9492), PathAddress(0x96DB)),
+    PathAddress(0x9DA1): (PathAddress(0x9492), PathAddress(0x9CF1)),
+    PathAddress(0xAE1E): (PathAddress(0xAA8A), PathAddress(0xAAD8)),
 }
 
 
@@ -574,7 +578,21 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 raise UnsupportedPath(f"unexpected {name} branch edges at {command.address.label()}")
             return cursor(destination), cursor(fallthrough)
 
-        if name in ("Become", "BecomeLinked"):
+        if name in ("OrExternalD77d", "ClearExternalD77dBits", "ClearExternalD77d"):
+            if name == "ClearExternalD77d":
+                parameters(0)
+                operation = "Reset"
+            else:
+                low, high = parameters(2)
+                mask = low | (high << 8)
+                operation = f"{'Raise' if name == 'OrExternalD77d' else 'Clear'}({mask})"
+            statement = f"Statement::EncounterSignal {{ command: EncounterSignalCommand::{operation}, next: {next_cursor()} }}"
+        elif name in ("IfExternalD77dBitsSet", "IfExternalD77dBitsClear"):
+            low, high, target_low, target_high = parameters(4)
+            taken, next_ = branch_cursors(target_low | (target_high << 8))
+            condition = "AnyRaised" if name == "IfExternalD77dBitsSet" else "AllClear"
+            statement = f"Statement::EncounterSignalBranch {{ condition: EncounterSignalCondition::{condition}({low | (high << 8)}), taken: {taken}, next: {next_} }}"
+        elif name in ("Become", "BecomeLinked"):
             parameters(0)
             selection = "LastSpawn" if name == "Become" else "Linked"
             statement = f"Statement::SelectActor {{ selection: ActorSelection::{selection}, next: {next_cursor()} }}"
@@ -1379,6 +1397,10 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
 """
     if any("ActorSelection::" in statement for statement in unique_statements.values()):
         source += "use super::path_actor_context::ActorSelection;\n"
+    if any("EncounterSignalCommand::" in statement for statement in unique_statements.values()):
+        source += "use super::path_program::EncounterSignalCommand;\n"
+    if any("EncounterSignalCondition::" in statement for statement in unique_statements.values()):
+        source += "use super::path_program::EncounterSignalCondition;\n"
     if any("WordOperand::" in statement for statement in unique_statements.values()):
         source += "use super::path_fields::WordOperand;\n"
     if any("AppearanceCommand::" in statement for statement in unique_statements.values()):

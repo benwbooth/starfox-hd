@@ -2399,3 +2399,28 @@ recorded-gameplay validation or production Game scheduler integration.
 Validation passes 375 native path tests in debug/release, 145 lowering tests,
 311 source-static path checks, generated freshness, architecture and static
 gameplay audits, and the app build (the existing app-icon warning remains).
+
+### Shared encounter signals and two complete attachment graphs
+
+The five encounter-synchronization handlers (`$7F:B7C6..B804`) now operate on
+a scene-owned `EncounterSignals` word: raise selected bits, clear selected
+bits, reset both bytes, branch on any raised bit, and branch when all selected
+bits are clear. Masks are literal full words. Both branches bypass IFNOT and
+retain WAIT, selection and other actor state; missing shared state faults
+before mutation. Native tests cover all 65,536 stored values with zero,
+single-bit, mixed-byte and full-word masks, both IFNOT states, live resampling,
+and producer/observer actors using separate runtime instances. Static tests
+pin complete handler bytes and immediate continuation helpers.
+
+Two further independently installed graphs are complete: the signal-gated
+relative lift and the signal-gated looping mesh. The former retains its
+one-time offset, byte-wrap WAIT, four counted motion loops, two live signal
+waits, roll gate, and yielding restart. The latter changes between stopping
+at animation frame twelve and looping sixteen frames through its callback,
+including the authored cue on frame six. Full graph/installer pins and native
+multi-cycle tests cover both. The catalog reaches 95 complete roots, 1,487
+unique source commands and 1,478 statements. This remains a static native
+path subset, not a claim of complete Game integration.
+Validation: 381 native path tests pass in debug and release, 147 lowering
+tests and 314 source-static checks pass, generated output is current, both
+audits pass, and the app builds with the existing unused app-icon warning.

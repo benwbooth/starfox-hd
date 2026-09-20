@@ -34,6 +34,24 @@ class NativePathGenerationTests(unittest.TestCase):
             generated = generate(bytes(changed), (("CONTEXT", PathAddress(0xF536)),))
             self.assertEqual("use super::path_actor_context::ActorSelection;" in generated, record != "9b")
 
+    def test_encounter_signals_decode_word_literals_and_direct_branch_edges(self):
+        for mask in [0, 1, 255, 256, 0x8000, 0xABCD, 0xFFFF]:
+            word = mask.to_bytes(2, "little").hex()
+            for opcode, operation in [(0xE2, "Raise"), (0xE3, "Clear")]:
+                self.assertEqual(self.lower_record(f"{opcode:02x} {word}")[0],
+                    f"Statement::EncounterSignal {{ command: EncounterSignalCommand::{operation}({mask}), next: cursor(0, 1) }}")
+            for opcode, condition in [(0xE0, "AnyRaised"), (0xE1, "AllClear")]:
+                self.assertEqual(self.lower_record(f"{opcode:02x} {word} 36 f5")[0],
+                    f"Statement::EncounterSignalBranch {{ condition: EncounterSignalCondition::{condition}({mask}), taken: cursor(0, 0), next: cursor(0, 1) }}")
+        self.assertEqual(self.lower_record("e4")[0],
+            "Statement::EncounterSignal { command: EncounterSignalCommand::Reset, next: cursor(0, 1) }")
+        changed = bytearray(self.rom)
+        code = bytes.fromhex("e4 e2 a5 ff e3 03 80 e0 00 80 36 f5 e1 ff ff 36 f5 0f")
+        changed[0x4F536:0x4F536 + len(code)] = code
+        output = generate(bytes(changed), (("SIGNALS", PathAddress(0xF536)),))
+        self.assertIn("use super::path_program::EncounterSignalCommand;", output)
+        self.assertIn("use super::path_program::EncounterSignalCondition;", output)
+
     def test_numbered_actor_selection_keeps_full_literal_byte_and_decodes_field_before_switch(self):
         for number in range(256):
             self.assertEqual(self.lower_record(f"98 {number:02x} 36 f5")[0],
@@ -195,6 +213,27 @@ class NativePathGenerationTests(unittest.TestCase):
                 changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
                 with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
                     generate(bytes(changed), (("CONTEXT_CHILD", PathAddress(root)),))
+
+    def test_signal_gated_children_keep_full_graphs_and_independent_installers(self):
+        extractor = PathExtractor(self.rom)
+        for root, parent, installer, record, count, source in [
+            (0x9DA1, 0x9492, 0x9CF1, "f5f8c1a19d0a0a0000000000002d", 23,
+             "5c00297790f6033261197790f64478e00001af9d611977900a442c16fa06c49d16bb9d61147790324478e08000ca9d61147790ce4416a79d"),
+            (0xAE1E, 0xAA8A, 0xAAD8, "33c8e21eae0080000a0a2200ceff000003", 22,
+             "2e5c8cf9fd22000b01a2e020003aae6ba22a8a8c37ae1c01101628ae69a241ae0b01a21628ae528aa28a2c8a8fa051ae078af08a2a8a865aae00048242"),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(''.join(c.raw_hex for c in commands), source)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(lower_graph(extractor, PathAddress(root), 0)[1]), count)
+            command = extractor.decode_command(PathAddress(installer))
+            self.assertEqual(command.raw_hex, record)
+            self.assertIn(command, graph(extractor, PathAddress(parent)))
+            self.assertEqual(child_spawn_parameters(command).path.offset, root)
+            changed = bytearray(self.rom)
+            changed[0x40003 + installer:0x40005 + installer] = (root + 1).to_bytes(2, "little")
+            with self.assertRaisesRegex(UnsupportedPath, "no verified child installer"):
+                generate(bytes(changed), (("SIGNAL_CHILD", PathAddress(root)),))
 
     def test_weapon_level_branch_uses_literal_byte_not_an_actor_field_or_inverted_compare(self):
         for level in range(256):
