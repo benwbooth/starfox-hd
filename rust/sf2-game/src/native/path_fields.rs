@@ -297,6 +297,12 @@ pub enum WordOperation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexedAddField {
+    Byte(ByteField),
+    SignedWord(WordField),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mutation {
     Byte {
         field: ByteField,
@@ -306,11 +312,48 @@ pub enum Mutation {
         field: WordField,
         operation: WordOperation,
     },
+    IndexedAddAndAdvance {
+        field: IndexedAddField,
+        selector: ByteField,
+        values: &'static [u8; 256],
+        period: u8,
+    },
 }
 
 impl Mutation {
     pub fn apply(self, actor: &mut Object) {
         match self {
+            Self::IndexedAddAndAdvance {
+                field,
+                selector,
+                values,
+                period,
+            } => {
+                // $7F:A690/$7F:A6CD read the index before adding, but
+                // increment its LIVE value afterward. Aliased destinations
+                // can change that value (including a word's high byte).
+                let value = values[usize::from(selector.read(actor))];
+                match field {
+                    IndexedAddField::Byte(field) => {
+                        let next = field.read(actor).wrapping_add(value);
+                        field.write(actor, next);
+                    }
+                    IndexedAddField::SignedWord(field) => {
+                        let next = field.read(actor).wrapping_add(value as i8 as i16 as u16);
+                        field.write(actor, next);
+                    }
+                }
+                let next = selector.read(actor).wrapping_add(1);
+                // Period zero gives an inclusive limit of 255, not zero.
+                selector.write(
+                    actor,
+                    if next > period.wrapping_sub(1) {
+                        0
+                    } else {
+                        next
+                    },
+                );
+            }
             Self::Byte { field, operation } => {
                 let old = field.read(actor);
                 let value = match operation {
@@ -351,6 +394,78 @@ mod tests {
 
     fn actor() -> Object {
         Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath)
+    }
+
+    #[test]
+    fn indexed_add_advances_the_post_write_selector_with_exact_period_and_aliasing() {
+        static VALUES: [u8; 256] = {
+            let mut values = [0; 256];
+            let mut index = 0;
+            while index < 256 {
+                values[index] = (index as u8).wrapping_mul(73).wrapping_add(151);
+                index += 1;
+            }
+            values
+        };
+        let phase_low = ByteField::WordPart {
+            field: WordField::MotionPhase,
+            part: BytePart::Low,
+        };
+        let phase_high = ByteField::WordPart {
+            field: WordField::MotionPhase,
+            part: BytePart::High,
+        };
+        for (field, selector) in [
+            (IndexedAddField::Byte(ByteField::Part), phase_low),
+            (IndexedAddField::Byte(phase_low), phase_low),
+            (IndexedAddField::Byte(phase_high), phase_high),
+            (
+                IndexedAddField::SignedWord(WordField::MotionPhase),
+                phase_low,
+            ),
+            (
+                IndexedAddField::SignedWord(WordField::MotionPhase),
+                phase_high,
+            ),
+        ] {
+            for period in 0..=u8::MAX {
+                for index in 0..=u8::MAX {
+                    let mut actual = actor();
+                    actual.extension.path_state.motion_phase =
+                        (u16::from(!index) << 8) | u16::from(index);
+                    selector.write(&mut actual, index);
+                    let mut expected = actual.clone();
+                    let addend = VALUES[usize::from(index)];
+                    match field {
+                        IndexedAddField::Byte(field) => {
+                            let result =
+                                (u16::from(field.read(&expected)) + u16::from(addend)) as u8;
+                            field.write(&mut expected, result);
+                        }
+                        IndexedAddField::SignedWord(field) => {
+                            let result =
+                                (i32::from(field.read(&expected)) + i32::from(addend as i8)) as u16;
+                            field.write(&mut expected, result);
+                        }
+                    }
+                    let incremented = ((u16::from(selector.read(&expected)) + 1) & 255) as u8;
+                    let result = if period == 0 || incremented < period {
+                        incremented
+                    } else {
+                        0
+                    };
+                    selector.write(&mut expected, result);
+                    Mutation::IndexedAddAndAdvance {
+                        field,
+                        selector,
+                        values: &VALUES,
+                        period,
+                    }
+                    .apply(&mut actual);
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
     }
 
     #[test]

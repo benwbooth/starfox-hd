@@ -37,6 +37,20 @@ class PathFieldsStaticTests(unittest.TestCase):
         self.assert_source(0x7FA713, "B9 00 00 8C B3 16 8D B7 16 9C B8 16 20 4C C5 20 47 CB C2 20 60")
         self.assertEqual(self.rom[0x45585:0x4558B], bytes.fromhex("9155fc06a192"))
 
+    def test_indexed_add_resamples_selector_after_destination_write_then_bounds_after_increment(self):
+        self.assert_source(0x7FA690,
+            "20 FF A6 AD B7 16 18 65 54 85 54 E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 "
+            "A7 54 18 79 00 00 99 00 00 E2 20 AC B3 16 B9 00 00 1A 99 00 00 "
+            "20 70 C5 3A D9 00 00 B0 05 A9 00 99 00 00 4C 72 CA")
+        self.assert_source(0x7FA6CD,
+            "20 FF A6 AD B7 16 18 65 54 85 54 E2 20 A5 5E 29 E7 85 5E 8F 3A 30 00 "
+            "A7 54 C2 20 89 80 00 F0 05 09 00 FF 80 03 29 FF 00 18 79 00 00 99 00 00 4C B0 A6")
+        self.assert_source(0x7FC570,
+            "84 79 A0 06 00 A5 5E 29 EF 85 5E 8F 3A 30 00 B7 F9 8D 11 19 "
+            "A5 5E 09 10 85 5E 8F 3A 30 00 AD 11 19 A4 79 60")
+        self.assert_source(0x7FCA72, "E2 20 C2 20 B5 2B 18 69 07 00 95 2B E2 20 4C 75 7E")
+        self.assertEqual(self.rom[0x4129A:0x412A2], bytes.fromhex("00 03 1B B3 00 A1 0E 14"))
+
     def test_script_parameter_is_path_owned_not_a_health_or_height_alias(self):
         # Authored COPY byte stores health, then decrements the saved byte.
         self.assertEqual(self.rom[0x45E1D:0x45E22], bytes.fromhex("4E 27 2D 6F 27"))

@@ -932,3 +932,14 @@ self-selection, missing/dangling selection and whole-object preservation.
 Verification passes 68 lowerer tests, 205 static path tests, 192 native path
 tests in debug/release, architecture/dependency audits and the app build.
 Complete-root coverage remains 14 roots/161 statements.
+
+Indexed byte and signed-byte-to-word additions now preserve their compound
+source ordering: sample the lookup index, add at destination width, then
+increment and bound the selector's live post-write byte. This matters when
+the selector overlaps either destination byte. Period zero retains natural
+byte wrap. Only fully reviewed immutable lookup windows are accepted; a
+later short wrap period is not evidence that the first index is bounded.
+Exhaustive period/index tests, whole-object alias checks and immediate-dispatch
+checks pass alongside 69 lowerer tests, 206 static path tests, 194 native path
+tests in debug/release, architecture/dependency audits and the app build.
+This adds command coverage; complete-root coverage is unchanged.

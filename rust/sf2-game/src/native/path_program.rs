@@ -827,6 +827,76 @@ mod tests {
     }
 
     #[test]
+    fn indexed_add_and_advance_is_immediate_and_preserves_branch_rng_and_wait_state() {
+        use super::super::path_fields::{BytePart, IndexedAddField};
+        static VALUES: [u8; 256] = [255; 256];
+        let selector = ByteField::WordPart {
+            field: WordField::MotionPhase,
+            part: BytePart::High,
+        };
+        for field in [
+            IndexedAddField::Byte(selector),
+            IndexedAddField::SignedWord(WordField::MotionPhase),
+        ] {
+            for period in [0, 1, 3, 255] {
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                objects.get_mut(owner).unwrap().base.wait_timer = 183;
+                runtime.branch.invert_next = true;
+                let initial_random = random;
+                let catalog = PathCatalog::new(vec![vec![Statement::Mutate {
+                    mutation: Mutation::IndexedAddAndAdvance {
+                        field,
+                        selector,
+                        values: &VALUES,
+                        period,
+                    },
+                    next: cursor(0, 0),
+                }]])
+                .unwrap();
+                for phase in [0, 1, 255, 256, 32767, 32768, 65535] {
+                    objects
+                        .get_mut(owner)
+                        .unwrap()
+                        .extension
+                        .path_state
+                        .motion_phase = phase;
+                    let mut expected = objects.get(owner).unwrap().clone();
+                    let added = match field {
+                        IndexedAddField::Byte(_) => {
+                            ((phase >> 8).wrapping_sub(1) << 8) | (phase & 255)
+                        }
+                        IndexedAddField::SignedWord(_) => phase.wrapping_sub(1),
+                    };
+                    let incremented = (((added >> 8) + 1) & 255) as u8;
+                    let bounded = if period != 0 && incremented >= period {
+                        0
+                    } else {
+                        incremented
+                    };
+                    expected.extension.path_state.motion_phase =
+                        (u16::from(bounded) << 8) | (added & 255);
+                    assert_eq!(
+                        runtime.resume_program(
+                            &catalog,
+                            &mut objects,
+                            owner,
+                            &mut world(&mut random),
+                            1
+                        ),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: cursor(0, 0),
+                            executed: 1
+                        })
+                    );
+                    assert_eq!(objects.get(owner).unwrap(), &expected);
+                    assert!(runtime.branch.invert_next);
+                    assert_eq!(random, initial_random);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn charge_inputs_are_live_and_missing_observations_fault_before_mutation() {
         use super::super::path_charge::SelectedChargeInput;
         use super::super::path_fields::BytePart;

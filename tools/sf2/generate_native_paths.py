@@ -658,6 +658,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             else:
                 operation = "Increment" if name == "IncrementExternalByte" else "Decrement"
             statement = f"Statement::Countdown {{ command: CountdownCommand::{operation}, next: {next_cursor()} }}"
+        elif name in ("AddIndexedByteAndAdvanceFrame", "AddIndexedSignedByteAndAdvanceFrame"):
+            low, high, bank, selector, destination, period = parameters(6)
+            wide = name == "AddIndexedSignedByteAndAdvanceFrame"
+            kind = "SignedWord" if wide else "Byte"
+            values = banked_byte_values(extractor.rom, low | (high << 8) | (bank << 16))
+            field = (word_field if wide else byte_field)(destination)
+            mutation = f"Mutation::IndexedAddAndAdvance {{ field: super::path_fields::IndexedAddField::{kind}({field}), selector: {byte_field(selector)}, values: &[{', '.join(map(str, values))}], period: {period} }}"
+            statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"
         elif name in ("IndexByteBanked", "IndexWordBanked"):
             low, high, bank, selector, destination = parameters(5)
             wide = name == "IndexWordBanked"

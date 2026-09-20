@@ -515,6 +515,26 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(self.lower_record(record)[0],
                 f"Statement::Relationship {{ command: RelationshipCommand::{operation}, next: cursor(0, 1) }}")
 
+    def test_indexed_add_and_advance_preserves_width_and_all_literal_periods(self):
+        values = banked_byte_values(self.rom, 0x00B31B)
+        for opcode, destination, kind, field in [
+            ("92", "a2", "Byte", byte_field(0xA2)),
+            ("00 03", "0e", "SignedWord", word_field(0x0E)),
+        ]:
+            for period in [0, 1, 20, 255]:
+                statement = self.lower_record(f"{opcode} 1b b3 00 a1 {destination} {period:02x}")[0]
+                self.assertIn(f"field: super::path_fields::IndexedAddField::{kind}({field})", statement)
+                self.assertIn(f"values: &[{', '.join(map(str, values))}], period: {period}", statement)
+                self.assertIn(f"selector: {byte_field(0xA1)}", statement)
+                self.assertIn("next: cursor(0, 1)", statement)
+        # A later wrap period does not prove the FIRST index is in range.
+        # The full lookup window must still be immutable source data.
+        for record in ["92 36 ff 06 a2 16 0a", "00 03 00 80 7e a1 0e 14"]:
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed constant-byte lookup window"):
+                self.lower_record(record)
+        with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
+            self.lower_record("00 03 1b b3 00 a1 04 14")
+
     def test_arithmetic_chase_preserves_literal_and_variable_operand_order_and_waiting(self):
         for record, fragment in [
             ("81 ff 27", "field: ByteField::ScriptParameter, operation: ByteOperation::Chase(ByteOperand::Literal(255))"),
