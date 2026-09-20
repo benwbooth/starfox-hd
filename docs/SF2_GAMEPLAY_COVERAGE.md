@@ -1418,3 +1418,43 @@ check and application build pass. This is a primitive checkpoint, not another
 complete effect root: coverage remains **27 complete roots / 604 source
 commands / 595 native statements**. The parent effect's shared action gate,
 recovery requests, altitude input and shape metadata still require review.
+
+### Complete attached recovery effect
+
+`$44:F3AD` now lowers its full 66-command parent/child/callback graph. The
+parent emits cue 55, spawns shapes 112/113 as collision-disabled effects and
+zeros its world pitch/roll for 45 visits. Children settle for five visits,
+center during a 25-visit callback, publish three replace-not-add shield
+requests of 40, alternate authored depth using the shared clock, and wait
+for independently authored three/eight-visit delays. The 35-visit action-gate
+callback preserves phase low byte on its stack and redirects to END after
+the callback batch; requests first arriving after expiry do not redirect.
+
+The terminal branch tests the whole surface-mode byte and a wrapped signed
+world-Y difference against the environmental plane. The self-frame route
+keeps the existing attachment/child relationship, zeros relative pose, chases
+world roll toward saved relative X and moves world Y by -4 for ten visits.
+The alternate route draws one shared random byte, tumbles for at most ten
+visits, and can finish early at the surface. Both normal routes clear health
+and switch to PATHHOLD; they do not emit END or directly retire the actor.
+
+`ShieldRecoveryRequest` ports the `$06:9F36..9F53` consumer: clear the request,
+wrap the reserve-shield byte addition, then clamp unsigned to capacity. A
+nonzero request asks the caller for recovery feedback even when addition
+wraps to zero. All 16,777,216 amount/current/capacity combinations are tested.
+Missing live requests, action-gate input or environmental height fault before
+statement mutation. Full-width import tests, every clock/mask/IFNOT combination,
+and complete-path tests cover both children, early/expired gates, three
+request visits, callback lifetimes, both exits, surface interception, signed
+comparison wrap, retained attachment identity, depth flicker and random order.
+The whole-graph tests explicitly exercise path/callback service visits rather
+than implicitly simulating the surrounding world or player scheduler.
+
+Verification passes 106 lowerer tests, 265 static path tests and 277 native
+path tests in debug/release, plus exhaustive shield recovery, catalog freshness,
+architecture/static audit and application build. Coverage is now **28 complete
+roots / 670 source commands / 661 native statements**. The full library passes
+642/643 tests with only the previously reproduced radio-cue baseline failure.
+General Game scheduling, automatic source spawning and the live player-service
+recovery/feedback call remain integration work. No gameplay recordings or
+original-code execution were used.

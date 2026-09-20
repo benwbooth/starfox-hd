@@ -15,6 +15,11 @@ use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
+    pub shield_recovery: Option<&'a mut super::player_hit_control::ShieldRecoveryRequest>,
+    /// Whole shared action-gate byte (1D72), not a narrowed protection flag.
+    pub action_gate: Option<u8>,
+    /// Shared environmental reference plane (1E0F), in world-Y coordinates.
+    pub environment_plane_height: Option<i16>,
     pub projectile_trigger: Option<&'a mut ProjectileTrigger>,
     pub primary_pitch_recoil: Option<&'a mut super::path_player_control::PitchRecoil>,
     pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
@@ -54,6 +59,7 @@ pub struct PathWorld<'a> {
     /// this invocation reaches a spawn; they are not guessed from pause state.
     pub spawn_defaults: Option<super::ObjectSpawnDefaults>,
     pub random: &'a mut RandomState,
+    /// Shared strategy/animation clock (C4), also read by authored clock gates.
     pub animation_clock: u8,
 }
 
@@ -269,6 +275,23 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    ClockBitsSet {
+        mask: u8,
+        taken: PathCursor,
+        next: PathCursor,
+    },
+    RequestShieldRecovery {
+        amount: ByteOperand,
+        next: PathCursor,
+    },
+    ImportActionGate {
+        destination: super::path_fields::ByteField,
+        next: PathCursor,
+    },
+    ImportEnvironmentPlaneHeight {
+        destination: super::path_fields::WordField,
+        next: PathCursor,
+    },
     ProjectileTrigger {
         command: ProjectileTriggerCommand,
         next: PathCursor,
@@ -497,6 +520,9 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    MissingShieldRecovery,
+    MissingActionGate,
+    MissingEnvironmentPlaneHeight,
     MissingProjectileTrigger,
     MissingPrimaryPitchRecoil,
     MissingLinkedEffectActivity,
@@ -615,6 +641,52 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::ClockBitsSet { mask, taken, next } => {
+                    // $7F:BD06 takes direct branches: IFNOT is untouched.
+                    objects
+                        .get_mut(owner)
+                        .expect("validated clock-gate owner")
+                        .base
+                        .path = Some(if world.animation_clock & mask != 0 {
+                        taken
+                    } else {
+                        next
+                    });
+                    Ok(ControlStep::Continue)
+                }
+                Statement::RequestShieldRecovery { amount, next } => {
+                    let request = world
+                        .shield_recovery
+                        .as_mut()
+                        .ok_or(ProgramError::MissingShieldRecovery)?;
+                    request.amount = amount.read(actor);
+                    objects
+                        .get_mut(owner)
+                        .expect("validated recovery requester")
+                        .base
+                        .path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportActionGate { destination, next } => {
+                    let value = world.action_gate.ok_or(ProgramError::MissingActionGate)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated action-gate reader");
+                    destination.write(actor, value);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
+                Statement::ImportEnvironmentPlaneHeight { destination, next } => {
+                    let value = world
+                        .environment_plane_height
+                        .ok_or(ProgramError::MissingEnvironmentPlaneHeight)?;
+                    let actor = objects
+                        .get_mut(owner)
+                        .expect("validated environmental-plane reader");
+                    destination.write(actor, value as u16);
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::ProjectileTrigger { command, next } => {
                     let trigger = world
                         .projectile_trigger
@@ -1334,6 +1406,9 @@ mod tests {
 
     fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
+            shield_recovery: None,
+            action_gate: None,
+            environment_plane_height: None,
             projectile_trigger: None,
             primary_pitch_recoil: None,
             linked_effect_activity: None,
@@ -1361,6 +1436,454 @@ mod tests {
             spawn_defaults: None,
             random,
             animation_clock: 0,
+        }
+    }
+
+    #[test]
+    fn recovery_and_environment_statements_require_live_inputs_and_keep_full_field_widths() {
+        use super::super::player_hit_control::ShieldRecoveryRequest;
+        let statements = [
+            (
+                Statement::RequestShieldRecovery {
+                    amount: ByteOperand::Actor(ByteField::AttackPower),
+                    next: cursor(0, 1),
+                },
+                ProgramError::MissingShieldRecovery,
+            ),
+            (
+                Statement::ImportActionGate {
+                    destination: ByteField::AttackPower,
+                    next: cursor(0, 1),
+                },
+                ProgramError::MissingActionGate,
+            ),
+            (
+                Statement::ImportEnvironmentPlaneHeight {
+                    destination: WordField::ScriptValue,
+                    next: cursor(0, 1),
+                },
+                ProgramError::MissingEnvironmentPlaneHeight,
+            ),
+        ];
+        for (statement, error) in statements {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.branch.invert_next = true;
+            let initial_random = random;
+            objects.get_mut(owner).unwrap().base.wait_timer = 91;
+            let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
+            let before = objects.clone();
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(error)
+            );
+            assert_eq!(objects, before);
+            for value in 0..=u16::MAX {
+                let actor = objects.get_mut(owner).unwrap();
+                actor.base.path = Some(cursor(0, 0));
+                actor.base.attack_power = if matches!(statement, Statement::ImportActionGate { .. })
+                {
+                    !(value as u8)
+                } else {
+                    value as u8
+                };
+                actor.extension.path_state.script_value = !value;
+                let mut expected = objects.clone();
+                let actor = expected.get_mut(owner).unwrap();
+                actor.base.path = Some(cursor(0, 1));
+                if matches!(statement, Statement::ImportActionGate { .. }) {
+                    actor.base.attack_power = value as u8;
+                }
+                if matches!(statement, Statement::ImportEnvironmentPlaneHeight { .. }) {
+                    actor.extension.path_state.script_value = value;
+                }
+                let mut request = ShieldRecoveryRequest {
+                    amount: !(value as u8),
+                };
+                let mut inputs = world(&mut random);
+                inputs.shield_recovery = Some(&mut request);
+                inputs.action_gate = Some(value as u8);
+                inputs.environment_plane_height = Some(value as i16);
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 0),
+                        executed: 0
+                    })
+                );
+                assert_eq!(
+                    inputs.shield_recovery.as_ref().unwrap().amount,
+                    !(value as u8)
+                );
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: cursor(0, 1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(
+                    request.amount,
+                    if matches!(statement, Statement::RequestShieldRecovery { .. }) {
+                        value as u8
+                    } else {
+                        !(value as u8)
+                    }
+                );
+                assert_eq!(objects, expected);
+                assert!(runtime.branch.invert_next);
+            }
+            assert_eq!(random, initial_random);
+        }
+    }
+
+    #[test]
+    fn clock_mask_branch_samples_live_shared_clock_and_preserves_ifnot() {
+        for inverted in [false, true] {
+            for mask in 0..=u8::MAX {
+                let catalog = PathCatalog::new(vec![vec![Statement::ClockBitsSet {
+                    mask,
+                    taken: cursor(0, 2),
+                    next: cursor(0, 1),
+                }]])
+                .unwrap();
+                let (mut runtime, mut objects, owner, mut random) = setup();
+                runtime.branch.invert_next = inverted;
+                let original_random = random;
+                for clock in 0..=u8::MAX {
+                    objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+                    let mut expected = objects.clone();
+                    let next = cursor(0, if clock & mask != 0 { 2 } else { 1 });
+                    expected.get_mut(owner).unwrap().base.path = Some(next);
+                    let mut inputs = world(&mut random);
+                    inputs.animation_clock = clock;
+                    assert_eq!(
+                        runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+                        Err(ProgramError::BudgetExceeded {
+                            cursor: next,
+                            executed: 1
+                        })
+                    );
+                    assert_eq!(objects, expected);
+                    assert_eq!(runtime.branch.invert_next, inverted);
+                }
+                assert_eq!(random, original_random);
+            }
+        }
+    }
+
+    #[test]
+    fn authored_recovery_parent_spawns_both_panels_and_flattens_pose_for_forty_five_visits() {
+        use super::super::path_sound::{AuthoredCue, CueListener, PathAudio};
+        use super::super::{authored_paths, Angle, AudioState, ObjectSpawnDefaults, SoundEvent};
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.path = Some(authored_paths::ATTACHED_RECOVERY_EFFECT);
+        actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
+        let original_random = random;
+        let mut audio = AudioState::default();
+        let catalog = authored_paths::catalog();
+        for visit in 0..45 {
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.pitch = Angle::from_units(57);
+            actor.base.roll = Angle::from_units(99);
+            actor.base.yaw = Angle::from_units(193);
+            let mut inputs = world(&mut random);
+            inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+            inputs.audio = Some(PathAudio {
+                events: &mut audio,
+                listeners: [CueListener::Other; 2],
+                markers: None,
+            });
+            assert_eq!(
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 16),
+                Ok(if visit == 44 {
+                    ControlStep::Ended
+                } else {
+                    ControlStep::Movement
+                })
+            );
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(
+                (actor.base.pitch, actor.base.roll, actor.base.yaw.units()),
+                (Angle::ZERO, Angle::ZERO, 193)
+            );
+            assert_eq!(objects.len(), 3);
+        }
+        for (number, shape, x) in [(41, 112, 5), (42, 113, -5)] {
+            let child = objects
+                .active_ids()
+                .iter()
+                .copied()
+                .find(|id| objects.get(*id).unwrap().base.child_number == number)
+                .unwrap();
+            let actor = objects.get(child).unwrap();
+            assert_eq!(actor.base.kind, ObjectKind::Effect);
+            assert_eq!(actor.base.shape, ShapeId::from_catalog_index(shape));
+            assert_eq!(
+                actor.extension.relative_position,
+                super::super::Vector3 {
+                    x,
+                    y: -100,
+                    z: -200
+                }
+            );
+            assert_eq!(actor.base.attachment, Some(owner));
+            assert_eq!(actor.extension.parent, Some(owner));
+            assert_eq!((actor.base.hit_points, actor.base.attack_power), (1, 1));
+            assert_eq!(
+                actor.extension.path_state.conditions.selected_player,
+                PlayerTarget::Secondary
+            );
+        }
+        assert_eq!(
+            audio
+                .take_events()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            [SoundEvent::Authored(AuthoredCue::new(
+                55,
+                0,
+                PlayerTarget::Secondary
+            ))]
+        );
+        assert_eq!(random, original_random);
+    }
+
+    #[test]
+    fn authored_recovery_children_preserve_timed_callbacks_requests_and_both_terminal_routes() {
+        use super::super::collision_surface::SurfaceMode;
+        use super::super::path_sound::{CueListener, PathAudio};
+        use super::super::path_steering::AttachedEffectMotion;
+        use super::super::player_hit_control::{PlayerHitControl, ShieldRecoveryRequest};
+        use super::super::{authored_paths, Angle, AudioState, ObjectSpawnDefaults, Vector3};
+        let catalog = authored_paths::catalog();
+        // Exercise pure authored dispatch and callbacks; world pose is an
+        // explicit observation here, not an implicit attachment-service tick.
+        for number in [41, 42] {
+            for gate_at in [None, Some(0), Some(9), Some(34), Some(35)] {
+                for route in 0..7 {
+                    let (mut runtime, mut objects, parent, mut random) = setup();
+                    objects.get_mut(parent).unwrap().base.path =
+                        Some(authored_paths::ATTACHED_RECOVERY_EFFECT);
+                    let mut audio = AudioState::default();
+                    let mut inputs = world(&mut random);
+                    inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+                    inputs.audio = Some(PathAudio {
+                        events: &mut audio,
+                        listeners: [CueListener::Other; 2],
+                        markers: None,
+                    });
+                    assert_eq!(
+                        runtime.enter_program(&catalog, &mut objects, parent, &mut inputs, 16),
+                        Ok(ControlStep::Movement)
+                    );
+                    let child = objects
+                        .active_ids()
+                        .iter()
+                        .copied()
+                        .find(|id| objects.get(*id).unwrap().base.child_number == number)
+                        .unwrap();
+                    for id in objects.active_ids().to_vec() {
+                        objects
+                            .get_mut(id)
+                            .unwrap()
+                            .base
+                            .flags
+                            .exclude_from_shape_footprint_search = true;
+                    }
+                    let actor = objects.get_mut(child).unwrap();
+                    actor.base.position = Vector3 {
+                        x: 31,
+                        y: -500,
+                        z: 77,
+                    };
+                    actor.base.roll = Angle::from_units(19);
+                    actor.extension.path_state.motion_phase = 0xA5E6;
+                    let mut expected = actor.clone();
+                    expected.extension.path_state.script_value =
+                        if number == 41 { 40 } else { (-40i16) as u16 };
+                    let mode = [1, 2, 2, 130, 1, 2, 2][route];
+                    let plane = match route {
+                        1 => -500,
+                        5 => 32767,
+                        6 => -32768,
+                        _ => -499,
+                    };
+                    // The world-Y comparison wraps its subtraction. In
+                    // particular, -500 versus 32767 takes the self-frame edge.
+                    let self_relative = matches!(route, 1 | 5 | 6);
+                    let release_visit = if number == 41 { 40 } else { 45 };
+                    let early_end = gate_at.filter(|at| *at < 35).map(|at| at + 1);
+                    let final_visit =
+                        early_end.unwrap_or(release_visit + if route == 4 { 3 } else { 9 });
+                    let mut request = ShieldRecoveryRequest::default();
+                    let mut player = PlayerHitControl {
+                        reserve_shield: 1,
+                        ..Default::default()
+                    };
+                    let mut recovered_at = Vec::new();
+                    let mut expected_random = random;
+                    let mut roll_target = 0;
+                    for visit in 0..=final_visit {
+                        if route == 4 && visit == release_visit + 3 {
+                            objects.get_mut(child).unwrap().base.position.y = 0;
+                            expected.base.position.y = 0;
+                        }
+                        let mut inputs = world(&mut random);
+                        inputs.shield_recovery = Some(&mut request);
+                        inputs.action_gate = Some(if gate_at == Some(visit) { 255 } else { 0 });
+                        inputs.surface_mode = Some(SurfaceMode { flags: mode });
+                        if mode == 2 {
+                            inputs.environment_plane_height = Some(plane);
+                        }
+                        inputs.animation_clock = (visit + 1) as u8;
+                        let outcome = runtime
+                            .enter_program(&catalog, &mut objects, child, &mut inputs, 48)
+                            .unwrap();
+                        if early_end == Some(visit) {
+                            assert_eq!(outcome, ControlStep::Ended);
+                            assert_eq!(objects.get(child).unwrap().base.hit_points, 1);
+                            assert_eq!(
+                                objects
+                                    .get(child)
+                                    .unwrap()
+                                    .extension
+                                    .path_state
+                                    .motion_phase,
+                                0xA5E6
+                            );
+                            break;
+                        }
+                        assert_eq!(outcome, ControlStep::Movement);
+                        if visit <= 4 {
+                            AttachedEffectMotion::Settle.apply(&mut expected);
+                        }
+                        if visit == release_visit {
+                            if self_relative {
+                                roll_target = expected.extension.relative_position.x as u8;
+                                expected.extension.relative_position = Vector3::default();
+                                expected.extension.relative_rotation = Default::default();
+                                expected.extension.path_state.motion_phase =
+                                    (u16::from(mode) << 8) | u16::from(roll_target);
+                            } else {
+                                let turn = (expected_random.next_byte() & 31).wrapping_add(240);
+                                expected.extension.path_state.motion_phase =
+                                    (u16::from(mode) << 8) | u16::from(turn);
+                            }
+                        }
+                        if visit >= release_visit {
+                            if self_relative {
+                                expected.base.roll =
+                                    Angle::from_units(super::super::path_fields::chase_byte(
+                                        expected.base.roll.units(),
+                                        roll_target,
+                                    ));
+                                expected.base.position.y -= 4;
+                            } else {
+                                AttachedEffectMotion::Tumble.apply(&mut expected);
+                            }
+                        }
+                        let active_callbacks = runtime.begin_callbacks(&objects, child).unwrap();
+                        let mut callback_count = 0;
+                        while active_callbacks {
+                            match runtime
+                                .step_callbacks(&mut objects, child, TriggerWorldInputs::default())
+                                .unwrap()
+                            {
+                                CallbackStep::Complete => break,
+                                CallbackStep::Run(_) => {
+                                    callback_count += 1;
+                                    assert_eq!(
+                                        runtime.resume_program(
+                                            &catalog,
+                                            &mut objects,
+                                            child,
+                                            &mut inputs,
+                                            12
+                                        ),
+                                        Ok(ControlStep::ResumeCallbacks)
+                                    );
+                                }
+                                CallbackStep::Skipped | CallbackStep::Expired => {}
+                            }
+                        }
+                        assert_eq!(
+                            callback_count,
+                            usize::from(visit < 35) + usize::from((4..29).contains(&visit)),
+                            "visit {visit}"
+                        );
+                        if (4..29).contains(&visit) {
+                            AttachedEffectMotion::Center.apply(&mut expected);
+                        }
+                        let actor = objects.get(child).unwrap();
+                        assert_eq!(
+                            actor.extension.relative_position, expected.extension.relative_position,
+                            "number {number}, route {route}, visit {visit}"
+                        );
+                        assert_eq!(
+                            actor.extension.relative_rotation,
+                            expected.extension.relative_rotation
+                        );
+                        assert_eq!(actor.base.position, expected.base.position);
+                        assert_eq!(actor.base.roll, expected.base.roll);
+                        assert_eq!(
+                            actor.extension.path_state.motion_phase,
+                            expected.extension.path_state.motion_phase
+                        );
+                        assert_eq!(
+                            actor.extension.parent,
+                            Some(if self_relative && visit >= release_visit {
+                                child
+                            } else {
+                                parent
+                            })
+                        );
+                        assert_eq!(actor.base.attachment, Some(parent));
+                        assert!(actor.base.flags.collision_disabled);
+                        if visit >= 29 {
+                            assert_eq!(
+                                actor.extension.depth_offset,
+                                if visit <= 37 && (visit + 1) & 1 == 0 {
+                                    1
+                                } else {
+                                    3
+                                }
+                            );
+                        }
+                        // Source allocation already sets the hold flag;
+                        // PATHHOLD also switches the strategy to movement.
+                        assert!(actor.extension.path_state.hold_latched);
+                        assert_eq!(
+                            actor.base.behavior,
+                            if visit == final_visit && early_end.is_none() {
+                                Behavior::PathMovement
+                            } else {
+                                Behavior::FollowPath
+                            }
+                        );
+                        assert_eq!(
+                            actor.base.hit_points,
+                            if visit == final_visit && early_end.is_none() {
+                                0
+                            } else {
+                                1
+                            }
+                        );
+                        assert!(!actor.base.flags.remove_after_tick);
+                        if request.consume(&mut player, 127) {
+                            recovered_at.push(visit);
+                        }
+                    }
+                    let expected_recovery: Vec<_> = [9, 19, 29]
+                        .into_iter()
+                        .filter(|at| *at < early_end.unwrap_or(100))
+                        .collect();
+                    assert_eq!(recovered_at, expected_recovery);
+                    assert_eq!(player.reserve_shield, 1 + 40 * recovered_at.len() as u8);
+                    assert_eq!(random, expected_random);
+                }
+            }
         }
     }
 
@@ -5495,6 +6018,9 @@ mod tests {
                 action_flags: 0x20,
             };
             let mut inputs = PathWorld {
+                shield_recovery: None,
+                action_gate: None,
+                environment_plane_height: None,
                 projectile_trigger: None,
                 primary_pitch_recoil: None,
                 linked_effect_activity: None,
@@ -9343,9 +9869,9 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 27);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 595);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 604);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 28);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 661);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 670);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -9476,6 +10002,9 @@ mod tests {
         let catalog = authored_paths::catalog();
         for phase in 1..=7 {
             let mut inputs = PathWorld {
+                shield_recovery: None,
+                action_gate: None,
+                environment_plane_height: None,
                 projectile_trigger: None,
                 primary_pitch_recoil: None,
                 linked_effect_activity: None,
@@ -9595,6 +10124,9 @@ mod tests {
                     &mut objects,
                     owner,
                     &mut PathWorld {
+                        shield_recovery: None,
+                        action_gate: None,
+                        environment_plane_height: None,
                         projectile_trigger: None,
                         primary_pitch_recoil: None,
                         linked_effect_activity: None,

@@ -51,6 +51,27 @@ pub struct PlayerHitControl {
     pub deflection_sound_cooldown: u8,
 }
 
+/// Shared reserve-shield replenishment request (1E1B), consumed by the next
+/// admitted player-service visit. Authored stores replace, not accumulate.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ShieldRecoveryRequest {
+    pub amount: u8,
+}
+
+impl ShieldRecoveryRequest {
+    /// `$06:9F36..9F53`: clear first, then wrap the byte addition BEFORE
+    /// unsigned capacity clamping. True asks the caller to run the existing
+    /// recovery-effect installer, even when the resulting shield is zero.
+    pub fn consume(&mut self, player: &mut PlayerHitControl, capacity: u8) -> bool {
+        let amount = std::mem::take(&mut self.amount);
+        if amount == 0 {
+            return false;
+        }
+        player.reserve_shield = player.reserve_shield.wrapping_add(amount).min(capacity);
+        true
+    }
+}
+
 impl PlayerHitControl {
     /// Collision-disable follows recovery only. Contact suppression also
     /// follows pause and secondary protection. The clock controls marking,
@@ -173,6 +194,38 @@ pub fn turn_from_contact(position: Vector3, yaw: Angle, other: Vector3) -> Conta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shield_recovery_consumes_once_and_wraps_before_unsigned_capacity_clamping() {
+        for initial in 0..=u8::MAX {
+            for amount in 0..=u8::MAX {
+                for capacity in 0..=u8::MAX {
+                    let mut player = PlayerHitControl {
+                        reserve_shield: initial,
+                        recovery: 199,
+                        feedback_flags: 143,
+                        camera_pitch_recoil: -32768,
+                        ..PlayerHitControl::default()
+                    };
+                    let mut expected = player;
+                    if amount != 0 {
+                        let sum = (u16::from(initial) + u16::from(amount)) % 256;
+                        expected.reserve_shield = if sum < u16::from(capacity) {
+                            sum as u8
+                        } else {
+                            capacity
+                        };
+                    }
+                    let mut request = ShieldRecoveryRequest { amount };
+                    assert_eq!(request.consume(&mut player, capacity), amount != 0);
+                    assert_eq!(request.amount, 0);
+                    assert_eq!(player, expected);
+                    assert!(!request.consume(&mut player, capacity));
+                    assert_eq!(player, expected);
+                }
+            }
+        }
+    }
 
     #[test]
     fn recovery_counts_every_visit_but_blink_only_sets_marks() {

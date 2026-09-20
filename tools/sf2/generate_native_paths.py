@@ -51,6 +51,7 @@ ROOTS = (
     ("OFFSET_GUIDED_PROJECTILE", PathAddress(0xECF7)),
     ("LINKED_PROTECTION_EFFECT", PathAddress(0xF2B9)),
     ("TRIGGERED_LINKED_PROJECTILE", PathAddress(0xF48B)),
+    ("ATTACHED_RECOVERY_EFFECT", PathAddress(0xF3AD)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -193,6 +194,10 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     # Moving/contact-triggered child of the primary weapon service D11D.
     if index == 7 and path == PathAddress(0xF4CA):
         return index, "ObjectKind::Projectile"
+    # Collision-disabled recovery effects: settle, center, then self-frame/tumble
+    # before clearing health. Classification applies only to these paths.
+    if (index, path) in ((112, PathAddress(0xF3D4)), (113, PathAddress(0xF3DE))):
+        return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
@@ -671,6 +676,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             taken, next_ = branch_cursors(int.from_bytes(operands[:2], "little"))
             branch = f"HitFlags {{ mask: {operands[2]}," if name == "IfHitFlag" else "HitEvent {"
             statement = f"Statement::Branch(BranchCommand::{branch} taken: {taken}, next: {next_} }})"
+        elif name == "IfExternalC4BitsSet":
+            mask, low, high = parameters(3)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::ClockBitsSet {{ mask: {mask}, taken: {taken}, next: {next_} }}"
         elif name == "IfNot":
             parameters(0)
             statement = f"Statement::Branch(BranchCommand::InvertNext {{ next: {next_cursor()} }})"
@@ -856,6 +865,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::LinkPrimaryCollisionExclusion {{ next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address == 0x1E0F:
+                statement = f"Statement::ImportEnvironmentPlaneHeight {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             axes = {0x1E1C: "X", 0x1E1E: "Y", 0x1E20: "Z"}
             if address not in axes:
                 raise UnsupportedPath(f"unported shared word {address:04X} at {command.address.label()}")
@@ -877,6 +890,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 address = low | (high << 8)
             if address == 0x1DD6 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportChargeThreshold {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1D72 and name == "ImportByteAbsolute":
+                statement = f"Statement::ImportActionGate {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1E1B and name == "StoreExternalByte":
+                statement = f"Statement::RequestShieldRecovery {{ amount: ByteOperand::Literal({value}), next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address == 0x1DDF and name in ("ImportByteAbsolute", "StoreExternalByte"):

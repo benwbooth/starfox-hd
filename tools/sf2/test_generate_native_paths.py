@@ -169,6 +169,44 @@ class NativePathGenerationTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         lower_graph(PathExtractor(bytes(changed)), PathAddress(address), 0)
 
+    def test_attached_recovery_effect_lowers_complete_parent_children_and_timed_callbacks(self):
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0xF3AD))
+        _, statements = lower_graph(extractor, PathAddress(0xF3AD), 0)
+        self.assertEqual(len(commands), 66)
+        self.assertEqual(len(statements), 66)
+        mapped = dict(zip((c.address.offset for c in commands), statements))
+        for address, text in [
+            (0xF3AD, "AuthoredCue::new(55"), (0xF3B0, "catalog_index(112)"),
+            (0xF3BE, "catalog_index(113)"), (0xF3D4, "ByteOperand::Literal(3)"),
+            (0xF3DE, "ByteOperand::Literal(8)"), (0xF3E5, "TriggerKind::Always, 35"),
+            (0xF3F0, "AttachedEffectMotion::Settle"), (0xF3FC, "TriggerKind::Always, 25"),
+            (0xF404, "RequestShieldRecovery"), (0xF40A, "RequestShieldRecovery"),
+            (0xF410, "RequestShieldRecovery"), (0xF416, "WordField::DepthOffset"),
+            (0xF41A, "ClockBitsSet { mask: 1"), (0xF435, "ImportEnvironmentPlaneHeight"),
+            (0xF441, "UseSelfRelativeFrame"), (0xF45B, "AttachedEffectMotion::Tumble"),
+            (0xF46E, "AttachedEffectMotion::Center"), (0xF47C, "ImportActionGate"),
+            (0xF484, "ForceAfterCallbacks"), (0xF48A, "ControlCommand::End"),
+        ]:
+            self.assertIn(text, mapped[address])
+        for shape, path in ((0xC8DC, 0xF3D4), (0xC8F8, 0xF3DE)):
+            self.assertEqual(spawn_shape(shape, PathAddress(path))[1], "ObjectKind::Effect")
+            for other in (None, PathAddress(0xF3AD), PathAddress(path ^ 10)):
+                with self.assertRaises(UnsupportedPath):
+                    spawn_shape(shape, other)
+
+    def test_recovery_environment_and_clock_inputs_are_reviewed_access_forms_only(self):
+        for value in range(256):
+            self.assertIn(f"RequestShieldRecovery {{ amount: ByteOperand::Literal({value})",
+                          self.lower_record(f"fb 1b 1e {value:02x}")[0])
+            self.assertEqual(self.lower_record(f"00 2d {value:02x} 36 f5")[0],
+                f"Statement::ClockBitsSet {{ mask: {value}, taken: cursor(0, 0), next: cursor(0, 1) }}")
+        self.assertIn("ImportActionGate", self.lower_record("79 a1 72 1d")[0])
+        self.assertIn("ImportEnvironmentPlaneHeight", self.lower_record("7c a3 0f 1e")[0])
+        for record in ("79 a1 1b 1e", "7c a3 1b 1e", "fb 72 1d 01", "79 a1 0f 1e", "7c a3 10 1e"):
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
     def test_three_homing_projectile_roots_retain_full_shared_callbacks_and_effect(self):
         for address, count in [(0xEE2D, 82), (0xEE3B, 78), (0xEE4C, 82)]:
             extractor = PathExtractor(self.rom)
