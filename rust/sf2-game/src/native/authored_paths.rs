@@ -1025,6 +1025,7 @@ pub fn catalog() -> PathCatalog {
         },
         Statement::Control(ControlCommand::Return),
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::Part,
             )),
@@ -1045,6 +1046,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 150),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
@@ -1820,6 +1822,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 290),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::Rotation(Axis::Y),
             )),
@@ -1829,6 +1832,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 292),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::RelativeRotation(
                 Axis::Y,
             )),
@@ -9656,6 +9660,7 @@ pub fn catalog() -> PathCatalog {
         },
         Statement::Control(ControlCommand::Hold),
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::ScriptParameter,
             )),
@@ -9687,6 +9692,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1568),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::ScriptParameter),
             next: cursor(0, 1569),
         },
@@ -9950,6 +9956,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1612),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Literal(0)),
             next: cursor(0, 1613),
         },
@@ -9983,6 +9990,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1616),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
@@ -10082,6 +10090,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1621),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Increment,
             next: cursor(0, 1622),
         },
@@ -10413,6 +10422,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1682),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Literal(0)),
             next: cursor(0, 1683),
         },
@@ -10442,6 +10452,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1686),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::High,
@@ -10520,6 +10531,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1691),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Increment,
             next: cursor(0, 1692),
         },
@@ -11255,6 +11267,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1817),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::Part,
             )),
@@ -11268,6 +11281,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1820),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
@@ -11597,6 +11611,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1880),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::Part,
             )),
@@ -11622,6 +11637,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1884),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::Part),
             next: cursor(0, 1885),
         },
@@ -11657,6 +11673,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1892),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Literal(0)),
             next: cursor(0, 1893),
         },
@@ -11686,6 +11703,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1896),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
@@ -11816,6 +11834,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 1902),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Increment,
             next: cursor(0, 1903),
         },
@@ -12665,6 +12684,7 @@ pub fn catalog() -> PathCatalog {
             target: cursor(0, 2061),
         }),
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Literal(0)),
             next: cursor(0, 2064),
         },
@@ -12698,6 +12718,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 2067),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::AttackPower),
             next: cursor(0, 2068),
         },
@@ -12735,6 +12756,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 2073),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Increment,
             next: cursor(0, 2074),
         },
@@ -14069,6 +14091,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 2317),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::Rotation(Axis::Y),
             )),
@@ -14092,6 +14115,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 2321),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
@@ -15641,6 +15665,7 @@ pub fn catalog() -> PathCatalog {
         },
         Statement::Control(ControlCommand::Return),
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Literal(0)),
             next: cursor(0, 2591),
         },
@@ -15670,6 +15695,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 2594),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
@@ -15749,6 +15775,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 2599),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Increment,
             next: cursor(0, 2600),
         },
@@ -20832,6 +20859,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 3472),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::ScriptParameter,
             )),
@@ -20852,6 +20880,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 3475),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::ScriptParameter),
             next: cursor(0, 3476),
         },
@@ -21819,6 +21848,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 3645),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::ChildNumber,
             )),
@@ -21829,6 +21859,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 3647),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::ChildNumber),
             next: cursor(0, 3648),
         },
@@ -22101,6 +22132,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 3684),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::ChildNumber,
             )),
@@ -22111,6 +22143,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 3686),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::ChildNumber),
             next: cursor(0, 3687),
         },
@@ -22185,6 +22218,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 3701),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::ChildNumber,
             )),
@@ -22195,6 +22229,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 3703),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::ChildNumber),
             next: cursor(0, 3704),
         },
@@ -29660,6 +29695,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 5072),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::Assign(ByteOperand::Actor(
                 ByteField::WordPart {
                     field: WordField::MotionPhase,
@@ -29673,6 +29709,7 @@ pub fn catalog() -> PathCatalog {
             next: cursor(0, 5074),
         },
         Statement::SpawnParameter {
+            argument: super::path_spawn::SpawnArgument::Primary,
             command: super::path_spawn::SpawnParameterCommand::CopyTo(ByteField::AttackPower),
             next: cursor(0, 5075),
         },

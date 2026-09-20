@@ -61,6 +61,15 @@ pub struct SpawnState {
     /// spawning/borrowing another actor; it is not an allocation group or
     /// automatically copied actor field. An unprovided observation faults.
     pub parameter: Option<u8>,
+    /// Companion argument ($D765), used for child numbering and orientation
+    /// handoffs. Like the primary argument, it survives individual spawns.
+    pub companion_parameter: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpawnArgument {
+    Primary,
+    Companion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +80,13 @@ pub enum SpawnParameterCommand {
 }
 
 impl SpawnState {
+    pub fn argument_mut(&mut self, argument: SpawnArgument) -> &mut Option<u8> {
+        match argument {
+            SpawnArgument::Primary => &mut self.parameter,
+            SpawnArgument::Companion => &mut self.companion_parameter,
+        }
+    }
+
     /// `$7F:9235..936A`: rotate roll, pitch, yaw with byte truncation between
     /// stages, scale by four, then add the caller's full world coordinates.
     /// Unlike QuickSpawn, this form does not inherit selected-player flags.

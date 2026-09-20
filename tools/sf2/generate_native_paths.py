@@ -1894,14 +1894,15 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::StoreHeading(ByteOperand::Actor({byte_field(variable)})), next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address == 0xD764 and name in ("ImportByteIndexed", "ExportByteIndexed", "StoreExternalByte", "IncrementExternalByte"):
+            if address in (0xD764, 0xD765) and name in ("ImportByteIndexed", "ExportByteIndexed", "StoreExternalByte", "IncrementExternalByte"):
+                argument = "Primary" if address == 0xD764 else "Companion"
                 if name == 'StoreExternalByte':
                     operation = f'Assign(ByteOperand::Literal({value}))'
                 elif name == 'IncrementExternalByte':
                     operation = 'Increment'
                 else:
                     operation = f"CopyTo({byte_field(variable)})" if name.startswith("Import") else f"Assign(ByteOperand::Actor({byte_field(variable)}))"
-                statement = f"Statement::SpawnParameter {{ command: super::path_spawn::SpawnParameterCommand::{operation}, next: {next_cursor()} }}"
+                statement = f"Statement::SpawnParameter {{ argument: super::path_spawn::SpawnArgument::{argument}, command: super::path_spawn::SpawnParameterCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address == 0x1E84 and name in ("ImportByteAbsolute", "ExportByteAbsolute"):

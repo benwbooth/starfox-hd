@@ -750,6 +750,7 @@ pub enum Statement {
         next: PathCursor,
     },
     SpawnParameter {
+        argument: super::path_spawn::SpawnArgument,
         command: super::path_spawn::SpawnParameterCommand,
         next: PathCursor,
     },
@@ -1087,7 +1088,7 @@ pub enum ProgramError {
     MissingSoundBankRequest,
     MissingDeferredMessage,
     MissingRadioEvent,
-    MissingSpawnParameter,
+    MissingSpawnParameter(super::path_spawn::SpawnArgument),
     MissingSceneByte(SceneByte),
     MissingSceneHeightOffset,
     MissingShieldRecovery,
@@ -1440,15 +1441,16 @@ impl PathRuntime {
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
-                Statement::SpawnParameter { command, next } => {
+                Statement::SpawnParameter { argument, command, next } => {
                     use super::path_spawn::SpawnParameterCommand;
                     let actor = objects.get_mut(owner).expect("validated spawn parameter actor");
+                    let parameter = self.spawns.argument_mut(argument);
                     match command {
                         SpawnParameterCommand::CopyTo(field) => field.write(actor,
-                            self.spawns.parameter.ok_or(ProgramError::MissingSpawnParameter)?),
-                        SpawnParameterCommand::Assign(value) => self.spawns.parameter = Some(value.read(actor)),
-                        SpawnParameterCommand::Increment => self.spawns.parameter = Some(
-                            self.spawns.parameter.ok_or(ProgramError::MissingSpawnParameter)?.wrapping_add(1)),
+                            parameter.ok_or(ProgramError::MissingSpawnParameter(argument))?),
+                        SpawnParameterCommand::Assign(value) => *parameter = Some(value.read(actor)),
+                        SpawnParameterCommand::Increment => *parameter = Some(
+                            parameter.ok_or(ProgramError::MissingSpawnParameter(argument))?.wrapping_add(1)),
                     }
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)

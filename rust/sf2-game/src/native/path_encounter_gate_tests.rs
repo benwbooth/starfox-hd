@@ -298,39 +298,47 @@ fn handoff_copies_each_complete_signed_coordinate_without_publishing_height() {
 
 #[test]
 fn spawn_parameter_increment_requires_input_wraps_and_preserves_last_spawn() {
-    let catalog = PathCatalog::new(vec![vec![Statement::SpawnParameter {
-        command: SpawnParameterCommand::Increment,
-        next: at(1),
-    }]])
-    .unwrap();
-    let (mut runtime, mut objects, owner, mut random) = setup();
-    runtime.spawns.last_spawn = Some(owner);
-    let before = objects.clone();
-    let original_random = random;
-    assert_eq!(
-        runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
-        Err(ProgramError::MissingSpawnParameter)
-    );
-    assert_eq!(objects, before);
-    for value in 0..=u8::MAX {
-        objects.get_mut(owner).unwrap().base.path = Some(at(0));
-        let mut expected = objects.clone();
-        expected.get_mut(owner).unwrap().base.path = Some(at(1));
-        runtime.spawns.parameter = Some(value);
-        runtime.branch.invert_next = true;
+    use super::super::path_spawn::SpawnArgument;
+    for argument in [SpawnArgument::Primary, SpawnArgument::Companion] {
+        let catalog = PathCatalog::new(vec![vec![Statement::SpawnParameter {
+            argument,
+            command: SpawnParameterCommand::Increment,
+            next: at(1),
+        }]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        runtime.spawns.last_spawn = Some(owner);
+        let before = objects.clone();
+        let original_random = random;
         assert_eq!(
             runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
-            Err(ProgramError::BudgetExceeded {
-                cursor: at(1),
-                executed: 1
-            })
+            Err(ProgramError::MissingSpawnParameter(argument))
         );
-        assert_eq!(runtime.spawns.parameter, Some(value.wrapping_add(1)));
-        assert_eq!(runtime.spawns.last_spawn, Some(owner));
-        assert_eq!(objects, expected);
-        assert!(runtime.branch.invert_next);
+        assert_eq!(objects, before);
+        for value in 0..=u8::MAX {
+            objects.get_mut(owner).unwrap().base.path = Some(at(0));
+            let mut expected = objects.clone();
+            expected.get_mut(owner).unwrap().base.path = Some(at(1));
+            runtime.spawns.parameter = Some(value.wrapping_add(7));
+            runtime.spawns.companion_parameter = Some(value.wrapping_add(11));
+            *runtime.spawns.argument_mut(argument) = Some(value);
+            let mut expected_spawns = runtime.spawns;
+            *expected_spawns.argument_mut(argument) = Some(value.wrapping_add(1));
+            runtime.branch.invert_next = true;
+            assert_eq!(
+                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
+                Err(ProgramError::BudgetExceeded {
+                    cursor: at(1),
+                    executed: 1
+                })
+            );
+            assert_eq!(runtime.spawns, expected_spawns);
+            assert_eq!(runtime.spawns.last_spawn, Some(owner));
+            assert_eq!(objects, expected);
+            assert!(runtime.branch.invert_next);
+        }
+        assert_eq!(random, original_random);
     }
-    assert_eq!(random, original_random);
 }
 
 #[test]

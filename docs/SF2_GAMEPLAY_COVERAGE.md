@@ -4111,3 +4111,18 @@ All 1,036 native unit tests and two integration tests pass in debug and
 release; 204 lowerer tests, 444 path-static tests, exact regeneration,
 architecture guard, static audit and app build pass. These checks do not
 establish complete gameplay or shipping scheduler/world integration.
+
+### Companion spawn-argument handoff
+
+The primary and companion authored spawn arguments are now separate typed
+byte mailboxes. Neither is automatically copied or reset during allocation.
+The companion carries sequential child numbers and orientation handoffs;
+absent inputs fault with the specific argument identity before mutation.
+Exhaustive transfer/increment checks preserve the other mailbox, last-spawn
+selection, actor fields, branch inversion and random state, including wrap.
+Unreviewed adjacent bytes and overlapping word operations remain rejected.
+
+All 1,036 native unit tests and two integration tests pass in debug and
+release; 205 lowerer tests, 444 path-static tests, exact regeneration,
+architecture guard, static audit and app build pass. Catalog totals remain
+145 roots and five helpers; this primitive does not complete their callers.

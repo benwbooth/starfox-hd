@@ -901,9 +901,20 @@ class NativePathGenerationTests(unittest.TestCase):
                                   ('7f a9 08', 'Assign(ByteOperand::Actor(ByteField::Part))')]:
             self.assertIn(f'SpawnParameterCommand::{operation}', self.lower_record(record)[0])
         self.assertIn('SceneByte::MapRegion', self.lower_record('79 a9 5b db')[0])
-        for record in ['79 a9 85 1e', '7d a9 5b db', '7a a9 09', '7b a3 08']:
+        for record in ['79 a9 85 1e', '7d a9 5b db', '7a a9 0a', '7b a3 08', '7b a3 09']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
+
+    def test_spawn_argument_mailboxes_have_separate_byte_only_identity(self):
+        for index, address, argument in [('08', '64 d7', 'Primary'), ('09', '65 d7', 'Companion')]:
+            for record, operation in [
+                    (f'7a a9 {index}', 'CopyTo(ByteField::Part)'),
+                    (f'7f a9 {index}', 'Assign(ByteOperand::Actor(ByteField::Part))'),
+                    (f'fb {address} ff', 'Assign(ByteOperand::Literal(255))'),
+                    (f'e5 {address}', 'Increment')]:
+                statement = self.lower_record(record)[0]
+                self.assertIn(f'SpawnArgument::{argument}', statement)
+                self.assertIn(f'SpawnParameterCommand::{operation}', statement)
 
     def test_warning_and_cooldown_graphs_and_parent_installers_are_complete(self):
         extractor = PathExtractor(self.rom)

@@ -68,56 +68,73 @@ fn radio_event_byte_transfers_preserve_the_word_high_byte_and_every_other_actor_
 #[test]
 fn spawn_parameter_is_a_shared_mailbox_not_a_child_or_allocation_field() {
     use super::super::path_fields::ByteField;
-    use super::super::path_spawn::SpawnParameterCommand;
-    for importing in [false, true] {
-        let command = if importing {
-            SpawnParameterCommand::CopyTo(ByteField::Part)
-        } else {
-            SpawnParameterCommand::Assign(ByteOperand::Actor(ByteField::Part))
-        };
-        let catalog = PathCatalog::new(vec![vec![Statement::SpawnParameter {
-            command,
-            next: at(1),
-        }]])
-        .unwrap();
-        let (mut runtime, mut objects, owner, mut random) = setup();
-        runtime.spawns.last_spawn = Some(owner);
-        let before = objects.clone();
-        let before_random = random;
-        if importing {
-            assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
-                Err(ProgramError::MissingSpawnParameter)
-            );
-            assert_eq!(objects, before);
-        }
-        for value in 0..=u8::MAX {
-            objects = before.clone();
-            objects.get_mut(owner).unwrap().extension.path_state.part = value ^ 0xFF;
-            let mut expected = objects.clone();
-            let actor = expected.get_mut(owner).unwrap();
-            actor.base.path = Some(at(1));
+    use super::super::path_spawn::{SpawnArgument, SpawnParameterCommand};
+    for argument in [SpawnArgument::Primary, SpawnArgument::Companion] {
+        for importing in [false, true] {
+            let command = if importing {
+                SpawnParameterCommand::CopyTo(ByteField::Part)
+            } else {
+                SpawnParameterCommand::Assign(ByteOperand::Actor(ByteField::Part))
+            };
+            let catalog = PathCatalog::new(vec![vec![Statement::SpawnParameter {
+                argument,
+                command,
+                next: at(1),
+            }]])
+            .unwrap();
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            runtime.spawns.last_spawn = Some(owner);
+            let before = objects.clone();
+            let before_random = random;
             if importing {
-                actor.extension.path_state.part = value;
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1
+                    ),
+                    Err(ProgramError::MissingSpawnParameter(argument))
+                );
+                assert_eq!(objects, before);
             }
-            runtime.spawns.parameter = if importing { Some(value) } else { None };
-            runtime.branch.invert_next = true;
-            assert_eq!(
-                runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1),
-                Err(ProgramError::BudgetExceeded {
-                    cursor: at(1),
-                    executed: 1
-                })
-            );
-            assert_eq!(
-                runtime.spawns.parameter,
-                Some(if importing { value } else { value ^ 0xFF })
-            );
-            assert_eq!(runtime.spawns.last_spawn, Some(owner));
-            assert_eq!(objects, expected);
-            assert!(runtime.branch.invert_next);
+            for value in 0..=u8::MAX {
+                objects = before.clone();
+                objects.get_mut(owner).unwrap().extension.path_state.part = value ^ 0xFF;
+                let mut expected = objects.clone();
+                let actor = expected.get_mut(owner).unwrap();
+                actor.base.path = Some(at(1));
+                if importing {
+                    actor.extension.path_state.part = value;
+                }
+                runtime.spawns.parameter = Some(value.wrapping_add(7));
+                runtime.spawns.companion_parameter = Some(value.wrapping_add(11));
+                *runtime.spawns.argument_mut(argument) = if importing { Some(value) } else { None };
+                let mut expected_spawns = runtime.spawns;
+                *expected_spawns.argument_mut(argument) =
+                    Some(if importing { value } else { value ^ 0xFF });
+                runtime.branch.invert_next = true;
+                assert_eq!(
+                    runtime.resume_program(
+                        &catalog,
+                        &mut objects,
+                        owner,
+                        &mut world(&mut random),
+                        1
+                    ),
+                    Err(ProgramError::BudgetExceeded {
+                        cursor: at(1),
+                        executed: 1
+                    })
+                );
+                assert_eq!(runtime.spawns, expected_spawns);
+                assert_eq!(runtime.spawns.last_spawn, Some(owner));
+                assert_eq!(objects, expected);
+                assert!(runtime.branch.invert_next);
+            }
+            assert_eq!(random, before_random);
         }
-        assert_eq!(random, before_random);
     }
 }
 
