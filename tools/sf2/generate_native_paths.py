@@ -48,6 +48,7 @@ ROOTS = (
     ("PRIMARY_MOTION_HOMING_PROJECTILE", PathAddress(0xEE3B)),
     ("DIFFICULTY_HOMING_PROJECTILE", PathAddress(0xEE4C)),
     ("VARIANT_GUIDED_PROJECTILE", PathAddress(0xEF2D)),
+    ("OFFSET_GUIDED_PROJECTILE", PathAddress(0xECF7)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 

@@ -1259,3 +1259,28 @@ Verification passes 96 lowerer tests, 244 static path tests and 252 native path
 tests in debug/release, both audits, catalog freshness and the app build.
 No additional root is included in this primitive checkpoint; coverage remains
 24 roots, 444 source commands and 444 native statements.
+
+### Offset-guided projectile: complete static graph
+
+The `$44:ECF7` root now lowers all 93 reachable source commands to 87 typed
+statements, including both offset-argument folds. Whole-graph source-byte pins
+cover setup, both chase loops, the held path, timed steering, the nonzero-mode
+waits, all callbacks, cleanup and the relative-pitch table. Duplicate per-step
+velocity-generation commands are deliberately retained.
+
+Native tests cover every random seed byte at nine exact distance-band edges,
+difficulty-scaled attack power, random draw order, persistent relative angles,
+two offset aims in the chase-transition visit, the 13-run callback and its
+expiration, and the 110-count exit including word wraparound. The nonzero-mode
+branch runs its callback during the initial three collision-disabled visits;
+it needs no selected-object input and subsequently waits fifty visits. Contact,
+counter, occupancy, ground and surface exits are exercised in both applicable
+mode branches, with live surface-mode inputs. Source cleanup cancels the
+zero-mode callback even when the nonzero-mode callback caused the exit; tests
+preserve that asymmetry. Path execution does not advance movement by itself.
+
+Verification passes 97 lowerer tests, 245 static path tests and 254 native path
+tests in debug/release, both audits, catalog freshness and the app build.
+Coverage is **25 complete roots / 534 source commands / 528 native statements**.
+This is static lowering and native path execution, not yet general Game
+scheduler/spawn integration, whole-game completeness or recorded-gameplay proof.

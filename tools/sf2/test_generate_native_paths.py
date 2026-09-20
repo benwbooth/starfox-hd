@@ -114,6 +114,40 @@ class NativePathGenerationTests(unittest.TestCase):
                 self.assertIn("InheritPrimaryHorizontalMotion", mapped[0xE78A])
                 self.assertNotIn(0xEE6E, mapped)
 
+    def test_offset_guided_projectile_folds_only_argument_preparation_and_keeps_full_graph(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xECF7)
+        self.assertEqual(len(graph(extractor, root)), 93)
+        units = lowering_units(extractor, root)
+        _, statements = lower_graph(extractor, root, 0)
+        self.assertEqual(len(statements), 87)
+        mapped = dict(zip((unit.address.offset for unit in units), statements))
+        for offset in (0xED76, 0xED95):
+            self.assertIn("FaceSelectedOffset", mapped[offset])
+            self.assertIn("x: 0, y: 0, z: 64", mapped[offset])
+            for interior in (offset + 4, offset + 8, offset + 12):
+                self.assertNotIn(interior, mapped)
+        for offset, fragment in [
+            (0xECFA, "CampaignByte::Difficulty"),
+            (0xED26, "GenerateVelocityEachStep(true)"),
+            (0xED27, "GenerateVelocityEachStep(true)"),
+            (0xED31, "ImportSurfaceMode"),
+            (0xED3B, "values: &[1, 1, 1, 1, 2, 2, 3, 3"),
+            (0xEDAE, "Trigger::timed"), (0xEDAE, "Always, 13)"),
+            (0xEDB4, "ControlCommand::Hold"),
+            (0xEDB5, "ControlCommand::Cancel"),
+            (0xEDB8, "ControlCommand::Cancel"),
+            (0xEDBD, "TriggerKind::Always"),
+            (0xEDCA, "Literal(3)"), (0xEDCD, "Literal(50)"),
+            (0xEDD0, "lower: 224, upper: 32"),
+            (0xEDD9, "OccupiedCell"), (0xEDEA, "OccupiedCell"),
+            (0xEDF0, "AtOrAboveSurface"),
+            (0xEDF4, "GroundThreshold(0)"),
+            (0xEDFA, "WordOperand::Literal(110)"),
+            (0xF018, "ForceAfterCallbacks"),
+        ]:
+            self.assertIn(fragment, mapped[offset])
+
     def test_variant_projectile_covers_full_parent_and_death_suppressed_child_graph(self):
         extractor = PathExtractor(self.rom)
         commands = graph(extractor, PathAddress(0xEF2D))

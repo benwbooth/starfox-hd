@@ -485,6 +485,13 @@ class PathControlStaticTests(unittest.TestCase):
         self.assert_source(0x09EE9D, "14 E8 03 AD EE AE 7F AE 7F AE 7F 00 0F 16 9D EE 00 0F 06 3F 17 BC EE")
         self.assert_source(0x09EEBB, "0F 4A D5 EE 01 4A C8 EE 0D 61 28 44 0F 4C CC EE 42 4B D5 EE 4B C8 EE 03 0F 0F A4 20 DA EE 42 09 42 00 5F E9 EE 6E A3 8A 2B A3 3C 00 EC EE 4C BB EE 42")
 
+    def test_offset_guided_projectile_complete_graph_and_pitch_data(self):
+        self.assert_source(0x09ECF7, "0b 01 2d 7a 2e 96 2a 2e 00 13 ed 2a 2e 02 0d ed 0b 04 2e 17 16 ed 0b 06 2e 17 16 ed 0b 02 2e 00 05 0c fa 73 8d 00 76 08 0c 00 c0 04 4d 00 05 04 04 00 5c 4a 18 f0 08 58 a2 07 79 a1 4d 1b 8a 2a a1 00 bd ed")
+        self.assert_source(0x09ED3B, "90 04 ee 09 a2 94 58 95 07 07 95 04 14 88 13 6b ed 14 4c 1d 66 ed 14 10 27 61 ed 14 c8 32 5c ed 0f 06 2d 17 6d ed 06 29 17 6d ed 06 26 17 6d ed 06 23 58 a9 03 58 a2 ff f8 d9 ed")
+        self.assert_source(0x09ED76, "fb b1 16 00 fb b3 16 00 fb b5 16 40 00 30 14 a0 0f 8c ed 16 76 ed 2c 18 00 26 95 ed 18 26 02 fb b1 16 00 fb b3 16 00 fb b5 16 40 00 30 14 dc 05 ab ed 16 95 ed 18 19 02 00 65 d0 ed 00 0d 19")
+        self.assert_source(0x09EDB5, "4b d9 ed 4b 18 f0 b8 0f f8 ea ed bc c5 ed 71 fd 00 5c 06 1e 5c 03 03 5b 03 32 0f 00 21 e0 20 d7 ed 42 09 42 00 5f 00 ee 6e a3 8a 2b a3 6e 00 e9 ed 4c b5 ed 42 00 5f 00 ee 6e a3 00 53 00 ee 1a 00 00 00 ee 8a 2b a3 6e 00 03 ee 4c b5 ed 42")
+        self.assert_source(0x09EE04, "01 01 01 01 02 02 03 03")
+
     def test_variant_guided_projectile_complete_branches_and_attached_effect(self):
         self.assert_source(0x09EF2D, "0B 01 2D 0B 06 2E 14 10 27 39 EF 0F 00 05 02 F7 F7 00 04 74 4A 14 F0 08 00 5C 06 02 04 79 A1 4D 1B 2A 27 01 66 EF 2A 27 02 5F EF 0C C0 C8 04 17 6A EF 0C 88 C8 04 17 6A EF 0C A4 C8 04")
         self.assert_source(0x09EF6A, "8A 2A 27 01 77 EF 61 0A 75 0A 73 05 44 8A 2A 27 02 84 EF 00 5C 06 2D 17 87 EF 18 14 02 2A 27 01 B3 EF 2A 27 02 A2 EF")
