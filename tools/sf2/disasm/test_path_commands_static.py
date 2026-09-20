@@ -22,6 +22,15 @@ class PathCommandsStaticTests(unittest.TestCase):
         self.assert_source(0x7F84FB, "20 BC C4 D5 17 D0 04 5C CF CA 7F F6 17 4C DE 9D")
         self.assert_source(0x7FCACF, "A9 00 95 17")
 
+    def test_variable_saves_and_restores_share_path_stack_and_exact_access_widths(self):
+        self.assert_source(0x7FA752, "20 BC C4 20 47 CB E2 20 B9 00 00 8D 69 B2 C2 20 BD DE 1C 22 0F 1A 7F 9D DE 1C E2 20 4C D3 CA")
+        self.assert_source(0x7FA771, "20 BC C4 20 47 CB E2 20 C2 20 B9 00 00 8D 69 B2 BD DE 1C 22 0F 1A 7F 9D DE 1C E2 20 4C D3 CA")
+        self.assert_source(0x7FA790, "20 BC C4 20 47 CB E2 20 C2 20 BD DE 1C 22 C1 1A 7F 9D DE 1C E2 20 AD 69 B2 99 00 00 4C D3 CA")
+        self.assert_source(0x7FA7AF, "20 BC C4 20 47 CB E2 20 C2 20 BD DE 1C 22 C1 1A 7F 9D DE 1C AD 69 B2 99 00 00 E2 20 4C D3 CA")
+        self.assert_source(0x7F1A20, "A9 21 00 22 4E 19 7F A8 E2 20 A9 01 99 61 6A C2 20 80 27")
+        self.assert_source(0x7F1A33, "B9 61 6A 29 FF 00 1A E2 20 99 61 6A 89 07 C2 20 D0 15 18 69 08 00 0A 0A 1A 22 00 1B 7F C9 00 00 D0 04 22 27 80 00 A8")
+        self.assert_source(0x7F1AC1, "DA 5A 08 8B 48 E2 20 A9 7E 48 AB C2 20 7A 5A B9 61 6A 29 FF 00 D0 04 22 27 80 00 3A E2 20 99 61 6A C2 20 0A 0A 8C 61 B2 38 6D 61 B2 A8 B9 61 6A 8D 69 B2 B9 63 6A 8D 6B B2 68 AB 28 7A FA 6B")
+
     def test_contact_class_masks_modify_one_class_byte_with_immediate_continuation(self):
         self.assert_source(0x7FC3AF, "20 BC C4 8D B1 16 B5 31 2D B1 16 95 31 4C D3 CA")
         self.assert_source(0x7FC3BF, "20 BC C4 8D B1 16 B5 31 0D B1 16 95 31 4C D3 CA")

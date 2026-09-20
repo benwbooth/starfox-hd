@@ -3,6 +3,7 @@
 //! no encoded operand reader, source address lookup or instruction emulator.
 
 use super::path_calls::PathReturn;
+use super::path_fields::{ByteField, WordField};
 use super::path_runtime::{PathRuntime, PathRuntimeError};
 use super::path_triggers::Trigger;
 use super::program_state::LoopRepeat;
@@ -82,6 +83,72 @@ pub enum ControlStep {
     ResumeCallbacks,
     /// END runs only exit-latch cleanup; retirement is the scheduler's job.
     Ended,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StackValueCommand {
+    SaveByte(ByteField),
+    SaveWord(WordField),
+    RestoreByte(ByteField),
+    RestoreWord(WordField),
+}
+
+impl PathRuntime {
+    pub fn execute_stack_value(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        command: StackValueCommand,
+        next: PathCursor,
+    ) -> Result<ControlStep, PathRuntimeError> {
+        self.check_execution_owner(owner)?;
+        let actor = objects
+            .get_mut(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        if actor.base.path.is_none() {
+            return Err(PathRuntimeError::MissingPath(owner));
+        }
+        match command {
+            StackValueCommand::SaveByte(field) => {
+                let value = field.read(actor);
+                actor
+                    .extension
+                    .path_state
+                    .stack
+                    .save_byte(&mut self.resources, owner, value)
+                    .map_err(PathRuntimeError::Stack)?;
+            }
+            StackValueCommand::SaveWord(field) => {
+                let value = field.read(actor);
+                actor
+                    .extension
+                    .path_state
+                    .stack
+                    .save_word(&mut self.resources, owner, value)
+                    .map_err(PathRuntimeError::Stack)?;
+            }
+            StackValueCommand::RestoreByte(field) => {
+                let value = actor
+                    .extension
+                    .path_state
+                    .stack
+                    .restore_byte(&mut self.resources)
+                    .map_err(PathRuntimeError::Stack)?;
+                field.write(actor, value);
+            }
+            StackValueCommand::RestoreWord(field) => {
+                let value = actor
+                    .extension
+                    .path_state
+                    .stack
+                    .restore_word(&mut self.resources)
+                    .map_err(PathRuntimeError::Stack)?;
+                field.write(actor, value);
+            }
+        }
+        actor.base.path = Some(next);
+        Ok(ControlStep::Continue)
+    }
 }
 
 /// Source motion configuration statements; every one continues immediately.

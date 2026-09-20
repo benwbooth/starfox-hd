@@ -20,6 +20,8 @@ enum PathEntry {
     CallReturn(PathCursor),
     Continuation(PathCursor),
     Counter(CountedLoop),
+    SavedByte(u8),
+    SavedWord(u16),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -40,6 +42,7 @@ pub enum PathStackError {
     MissingStorage,
     MissingLoop,
     IncompleteLoop,
+    IncompatibleSavedValue,
     EntryCountOverflow,
     StorageStillOwned,
     Allocation(AllocationFailure),
@@ -176,6 +179,59 @@ impl PathStack {
         Ok(continuation)
     }
 
+    /// Variable saves use the same one-entry allocation as a call, not a
+    /// separate value stack (`$7F:A752..A78D`). Byte saves define only their
+    /// low byte; retaining an invented high byte would leak machine scratch
+    /// state into the native program model.
+    pub fn save_byte(
+        &mut self,
+        resources: &mut ProgramResources<ProgramData>,
+        owner: ObjectId,
+        value: u8,
+    ) -> Result<(), PathStackError> {
+        self.push(resources, owner, PathEntry::SavedByte(value))
+    }
+
+    pub fn save_word(
+        &mut self,
+        resources: &mut ProgramResources<ProgramData>,
+        owner: ObjectId,
+        value: u16,
+    ) -> Result<(), PathStackError> {
+        self.push(resources, owner, PathEntry::SavedWord(value))
+    }
+
+    /// Byte restore also accepts the low byte of a saved word. It cannot
+    /// reinterpret typed call/loop continuations as numeric source addresses.
+    pub fn restore_byte(
+        &mut self,
+        resources: &mut ProgramResources<ProgramData>,
+    ) -> Result<u8, PathStackError> {
+        let entries = self.entries_mut(resources)?;
+        let value = match entries.last() {
+            Some(PathEntry::SavedByte(value)) => *value,
+            Some(PathEntry::SavedWord(value)) => *value as u8,
+            _ => return Err(PathStackError::IncompatibleSavedValue),
+        };
+        entries.pop();
+        Ok(value)
+    }
+
+    /// A word restore requires a fully defined word. Widening an unmatched
+    /// byte save depends on stale source-machine temporaries and is outside
+    /// this typed contract; reject without consuming or fabricating a value.
+    pub fn restore_word(
+        &mut self,
+        resources: &mut ProgramResources<ProgramData>,
+    ) -> Result<u16, PathStackError> {
+        let entries = self.entries_mut(resources)?;
+        let Some(PathEntry::SavedWord(value)) = entries.last().cloned() else {
+            return Err(PathStackError::IncompatibleSavedValue);
+        };
+        entries.pop();
+        Ok(value)
+    }
+
     /// `$7F:96AE` and `$7F:9708` share this decrement/branch operation.
     /// The two handlers differ only in whether their caller yields movement
     /// after a repeat. Completion pops both entries without freeing storage.
@@ -251,6 +307,113 @@ mod tests {
             path: PathId::from_catalog_index(0),
             command_index: index,
         }
+    }
+
+    #[test]
+    fn saved_values_preserve_width_and_all_word_bits_without_machine_temporaries() {
+        let owner = owner();
+        let mut stack = PathStack::default();
+        let mut resources = ProgramResources::default();
+        for value in 0..=u16::MAX {
+            stack.save_word(&mut resources, owner, value).unwrap();
+            assert_eq!(stack.restore_word(&mut resources), Ok(value));
+            stack.save_word(&mut resources, owner, value).unwrap();
+            assert_eq!(stack.restore_byte(&mut resources), Ok(value as u8));
+        }
+        for value in 0..=u8::MAX {
+            stack.save_byte(&mut resources, owner, value).unwrap();
+            let before = (stack.clone(), resources.clone());
+            assert_eq!(
+                stack.restore_word(&mut resources),
+                Err(PathStackError::IncompatibleSavedValue)
+            );
+            assert_eq!((&stack, &resources), (&before.0, &before.1));
+            assert_eq!(stack.restore_byte(&mut resources), Ok(value));
+        }
+        assert_eq!(resources.available_capacity(), PROGRAM_CAPACITY - 38);
+        assert_eq!(resources.owner_count(owner), 1);
+        assert_eq!(
+            stack.restore_byte(&mut resources),
+            Err(PathStackError::MissingLoop)
+        );
+        resources.release_owner(owner);
+        stack.clear_released(&resources).unwrap();
+        assert_eq!(resources.available_capacity(), PROGRAM_CAPACITY);
+    }
+
+    #[test]
+    fn saved_values_calls_and_loops_share_order_and_pair_discard() {
+        let owner = owner();
+        let mut stack = PathStack::default();
+        let mut resources = ProgramResources::default();
+        stack.begin(&mut resources, owner, cursor(1), 2).unwrap();
+        stack.save_word(&mut resources, owner, 513).unwrap();
+        stack.push_call(&mut resources, owner, cursor(2)).unwrap();
+        stack.save_byte(&mut resources, owner, 255).unwrap();
+        let before = (stack.clone(), resources.clone());
+        assert_eq!(
+            stack.next(&mut resources),
+            Err(PathStackError::IncompleteLoop)
+        );
+        assert_eq!(
+            stack.pop_call(&mut resources),
+            Err(PathStackError::IncompleteLoop)
+        );
+        assert_eq!((&stack, &resources), (&before.0, &before.1));
+        assert_eq!(stack.restore_byte(&mut resources), Ok(255));
+        let before = (stack.clone(), resources.clone());
+        assert_eq!(
+            stack.restore_word(&mut resources),
+            Err(PathStackError::IncompatibleSavedValue)
+        );
+        assert_eq!((&stack, &resources), (&before.0, &before.1));
+        assert_eq!(stack.pop_call(&mut resources), Ok(cursor(2)));
+        assert_eq!(stack.restore_word(&mut resources), Ok(513));
+        assert_eq!(
+            stack.next(&mut resources),
+            Ok(LoopRepeat::Repeat {
+                continuation: cursor(1)
+            })
+        );
+        stack.save_byte(&mut resources, owner, 7).unwrap();
+        stack.push_call(&mut resources, owner, cursor(3)).unwrap();
+        stack.discard(&mut resources).unwrap();
+        assert_eq!(stack.next(&mut resources), Ok(LoopRepeat::Complete));
+    }
+
+    #[test]
+    fn value_saves_have_identical_eighth_entry_growth_and_failure_pressure() {
+        let owner = owner();
+        let mut stack = PathStack::default();
+        let mut resources = ProgramResources::default();
+        for value in 0..7 {
+            stack.save_byte(&mut resources, owner, value).unwrap();
+        }
+        let remaining = resources.available_capacity();
+        let occupied = resources
+            .allocate_shared(
+                remaining - 12,
+                ProgramData::PathStack(PathEntries::default()),
+            )
+            .unwrap();
+        let before = (stack.clone(), resources.clone());
+        assert_eq!(
+            stack.save_word(&mut resources, owner, 900),
+            Err(PathStackError::Allocation(
+                AllocationFailure::NoContiguousFit
+            ))
+        );
+        assert_eq!((&stack, &resources), (&before.0, &before.1));
+        resources.release_shared(occupied).unwrap();
+        let before_growth = stack.storage;
+        stack.save_word(&mut resources, owner, 900).unwrap();
+        assert_ne!(stack.storage, before_growth);
+        assert_eq!(resources.available_capacity(), PROGRAM_CAPACITY - 70);
+        assert_eq!(stack.restore_word(&mut resources), Ok(900));
+        for value in (0..7).rev() {
+            assert_eq!(stack.restore_byte(&mut resources), Ok(value));
+        }
+        assert_eq!(resources.available_capacity(), PROGRAM_CAPACITY - 70);
     }
 
     #[test]

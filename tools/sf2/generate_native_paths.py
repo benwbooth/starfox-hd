@@ -635,6 +635,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "PopPathStackPair":
             parameters(0)
             statement = f"Statement::Control(ControlCommand::PopStackPair {{ next: {next_cursor()} }})"
+        elif name in ("PushByte", "PushWord", "PullByte", "PullWord"):
+            variable, = parameters(1)
+            wide = name.endswith("Word")
+            field = word_field(variable) if wide else byte_field(variable)
+            operation = ("Save" if name.startswith("Push") else "Restore") + ("Word" if wide else "Byte")
+            statement = f"Statement::StackValue {{ command: super::path_commands::StackValueCommand::{operation}({field}), next: {next_cursor()} }}"
         elif name in ("IfHitFlag", "IfFlag23Bit08"):
             operands = parameters(3 if name == "IfHitFlag" else 2)
             taken, next_ = branch_cursors(int.from_bytes(operands[:2], "little"))

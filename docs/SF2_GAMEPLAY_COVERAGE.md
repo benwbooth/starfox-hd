@@ -1284,3 +1284,28 @@ tests in debug/release, both audits, catalog freshness and the app build.
 Coverage is **25 complete roots / 534 source commands / 528 native statements**.
 This is static lowering and native path execution, not yet general Game
 scheduler/spawn integration, whole-game completeness or recorded-gameplay proof.
+
+### Typed path-variable saves and restores
+
+The four source handlers `$7F:A752..A7CD` now lower byte/word variable
+saves/restores to decoded actor fields. Values share the actor's existing
+call/loop stack and resource pool: one saved value consumes one four-unit
+entry, every eighth entry reallocates, and an emptied stack keeps its storage
+until actor cleanup. Pair discard may discard saved values as well as calls
+and loops. Callback-root return does not consume a suspended main-path save.
+
+This contract preserves all word bits and accepts a byte restore from the low
+byte of a saved word. It deliberately rejects word restore from only a byte
+save, or numeric reinterpretation of a typed continuation: those cases would
+require unreviewed stale source temporaries or source addresses. Such errors
+do not silently widen values, consume entries or alter the destination field.
+No additional complete source root is claimed by this primitive checkpoint.
+
+Tests cover all 65,536 word values, all byte values, interleaved calls/loops/
+saves, pair discard, allocation-pressure failure, and a three-iteration path
+whose saves span movement and nested callback calls. Budget-zero, missing-path
+and incompatible-restore checks preserve state; wait/repeat and pending IFNOT
+remain untouched. Verification passes 98 lowerer tests, 246 static path tests,
+256 native path tests and 10 program-stack tests in debug/release, both audits,
+catalog freshness and the app build. Coverage remains 25 complete roots,
+534 source commands and 528 lowered statements.

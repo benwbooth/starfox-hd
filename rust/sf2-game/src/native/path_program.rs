@@ -251,6 +251,10 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    StackValue {
+        command: super::path_commands::StackValueCommand,
+        next: PathCursor,
+    },
     Appearance {
         command: super::path_appearance::AppearanceCommand,
         next: PathCursor,
@@ -565,6 +569,9 @@ impl PathRuntime {
             }
             let statement = catalog.statement(cursor)?;
             let outcome = match statement {
+                Statement::StackValue { command, next } => {
+                    self.execute_stack_value(objects, owner, command, next)
+                }
                 Statement::Appearance { command, next } => {
                     let actor = objects.get_mut(owner).expect("validated appearance owner");
                     command.apply(actor);
@@ -1223,6 +1230,232 @@ mod tests {
             owner,
             RandomState::default(),
         )
+    }
+
+    #[test]
+    fn saved_variables_survive_movement_callbacks_calls_and_counted_loops() {
+        use super::super::path_commands::StackValueCommand;
+        use super::super::path_fields::{BytePart, WordOperation};
+        let phase_low = ByteField::WordPart {
+            field: WordField::MotionPhase,
+            part: BytePart::Low,
+        };
+        let callback = cursor(0, 9);
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::Control(ControlCommand::BeginLoop {
+                iterations: 3,
+                next: cursor(0, 1),
+            }),
+            Statement::StackValue {
+                command: StackValueCommand::SaveByte(phase_low),
+                next: cursor(0, 2),
+            },
+            Statement::Mutate {
+                mutation: Mutation::Byte {
+                    field: phase_low,
+                    operation: ByteOperation::Assign(ByteOperand::Literal(17)),
+                },
+                next: cursor(0, 3),
+            },
+            Statement::Control(ControlCommand::Register {
+                trigger: Trigger {
+                    path: callback,
+                    kind: TriggerKind::Always,
+                    timer: 0,
+                },
+                next: cursor(0, 4),
+            }),
+            Statement::Control(ControlCommand::WaitOne { next: cursor(0, 5) }),
+            Statement::StackValue {
+                command: StackValueCommand::RestoreByte(phase_low),
+                next: cursor(0, 6),
+            },
+            Statement::Control(ControlCommand::Cancel {
+                path: callback,
+                next: cursor(0, 7),
+            }),
+            Statement::Control(ControlCommand::Next {
+                immediate: false,
+                next: cursor(0, 8),
+            }),
+            Statement::Control(ControlCommand::End),
+            Statement::StackValue {
+                command: StackValueCommand::SaveWord(WordField::ScriptValue),
+                next: cursor(0, 10),
+            },
+            Statement::Mutate {
+                mutation: Mutation::Word {
+                    field: WordField::ScriptValue,
+                    operation: WordOperation::Assign(WordOperand::Literal(512)),
+                },
+                next: cursor(0, 11),
+            },
+            Statement::Control(ControlCommand::Call {
+                target: cursor(0, 14),
+                next: cursor(0, 12),
+            }),
+            Statement::StackValue {
+                command: StackValueCommand::RestoreWord(WordField::ScriptValue),
+                next: cursor(0, 13),
+            },
+            Statement::Control(ControlCommand::Return),
+            Statement::StackValue {
+                command: StackValueCommand::SaveByte(ByteField::Health),
+                next: cursor(0, 15),
+            },
+            Statement::Mutate {
+                mutation: Mutation::Byte {
+                    field: ByteField::Health,
+                    operation: ByteOperation::Assign(ByteOperand::Literal(0)),
+                },
+                next: cursor(0, 16),
+            },
+            Statement::StackValue {
+                command: StackValueCommand::RestoreByte(ByteField::Health),
+                next: cursor(0, 17),
+            },
+            Statement::Control(ControlCommand::Return),
+        ]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.hit_points = 73;
+        actor.extension.path_state.motion_phase = 0x1234;
+        actor.extension.path_state.script_value = 0xABCD;
+        for visit in 0..6 {
+            let mut inputs = world(&mut random);
+            assert_eq!(
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 12),
+                Ok(if visit == 5 {
+                    ControlStep::Ended
+                } else {
+                    ControlStep::Movement
+                })
+            );
+            if visit % 2 == 0 {
+                assert!(runtime.begin_callbacks(&objects, owner).unwrap());
+                assert_eq!(
+                    runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                    Ok(CallbackStep::Run(callback))
+                );
+                assert_eq!(
+                    runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 12),
+                    Ok(ControlStep::ResumeCallbacks)
+                );
+                assert_eq!(
+                    runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
+                    Ok(CallbackStep::Complete)
+                );
+            } else if visit != 5 {
+                assert!(!runtime.begin_callbacks(&objects, owner).unwrap());
+            }
+            let actor = objects.get(owner).unwrap();
+            assert_eq!(
+                actor.extension.path_state.motion_phase,
+                if visit % 2 == 0 { 0x1211 } else { 0x1234 }
+            );
+            assert_eq!(actor.extension.path_state.script_value, 0xABCD);
+            assert_eq!(actor.base.hit_points, 73);
+            assert_eq!(actor.base.position, Default::default());
+        }
+        assert_eq!(runtime.resources.owner_count(owner), 1); // Empty stack remains; canceling the final trigger releases its list.
+        runtime.release_actor_programs(&mut objects, owner).unwrap();
+        assert_eq!(
+            runtime.resources.available_capacity(),
+            super::super::program_resources::PROGRAM_CAPACITY
+        );
+    }
+
+    #[test]
+    fn stack_value_statement_budget_and_failed_restore_leave_cursor_and_actor_unchanged() {
+        use super::super::path_commands::StackValueCommand;
+        use super::super::program_state::PathStackError;
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::StackValue {
+                command: StackValueCommand::SaveByte(ByteField::Health),
+                next: cursor(0, 1),
+            },
+            Statement::StackValue {
+                command: StackValueCommand::RestoreWord(WordField::ScriptValue),
+                next: cursor(0, 2),
+            },
+            Statement::Control(ControlCommand::End),
+        ]])
+        .unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        objects.get_mut(owner).unwrap().base.hit_points = 251;
+        objects.get_mut(owner).unwrap().base.wait_timer = 19;
+        objects
+            .get_mut(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .repeat_counter = 37;
+        runtime.branch.invert_next = true;
+        let mut inputs = world(&mut random);
+        let before = (runtime.clone(), objects.clone());
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0),
+            Err(ProgramError::BudgetExceeded {
+                cursor: cursor(0, 0),
+                executed: 0
+            })
+        );
+        assert_eq!((&runtime, &objects), (&before.0, &before.1));
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::BudgetExceeded {
+                cursor: cursor(0, 1),
+                executed: 1
+            })
+        );
+        let before = (runtime.clone(), objects.clone());
+        assert_eq!(
+            runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
+            Err(ProgramError::Runtime(PathRuntimeError::Stack(
+                PathStackError::IncompatibleSavedValue
+            )))
+        );
+        assert_eq!((&runtime, &objects), (&before.0, &before.1));
+        assert_eq!(
+            runtime.execute_stack_value(
+                &mut objects,
+                owner,
+                StackValueCommand::RestoreByte(ByteField::AttackPower),
+                cursor(0, 2)
+            ),
+            Ok(ControlStep::Continue)
+        );
+        assert_eq!(objects.get(owner).unwrap().base.attack_power, 251);
+        assert_eq!(objects.get(owner).unwrap().base.wait_timer, 19);
+        assert_eq!(
+            objects
+                .get(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .repeat_counter,
+            37
+        );
+        assert!(runtime.branch.invert_next);
+        let other = objects
+            .allocate(Object::new(
+                ObjectKind::Enemy,
+                ShapeId::EMPTY,
+                Behavior::FollowPath,
+            ))
+            .unwrap();
+        let before = (runtime.clone(), objects.clone());
+        assert_eq!(
+            runtime.execute_stack_value(
+                &mut objects,
+                other,
+                StackValueCommand::SaveByte(ByteField::Health),
+                cursor(0, 0)
+            ),
+            Err(PathRuntimeError::MissingPath(other))
+        );
+        assert_eq!((&runtime, &objects), (&before.0, &before.1));
     }
 
     #[test]

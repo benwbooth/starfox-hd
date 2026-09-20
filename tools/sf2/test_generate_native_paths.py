@@ -82,6 +82,19 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("immediate: false", statements[3])
         self.assertEqual(statements[4], "Statement::Control(ControlCommand::End)")
 
+    def test_variable_stack_commands_decode_fields_without_source_operand_leakage(self):
+        for opcode, command, field in [
+            ("93 a1", "SaveByte", "ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low }"),
+            ("95 2d", "RestoreByte", "ByteField::Health"),
+            ("94 a3", "SaveWord", "WordField::ScriptValue"),
+            ("96 0c", "RestoreWord", "WordField::Position(Axis::X)"),
+        ]:
+            self.assertEqual(self.lower_record(opcode)[0],
+                f"Statement::StackValue {{ command: super::path_commands::StackValueCommand::{command}({field}), next: cursor(0, 1) }}")
+        for opcode in ("93", "94", "95", "96"):
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(f"{opcode} ff")
+
     def test_three_homing_projectile_roots_retain_full_shared_callbacks_and_effect(self):
         for address, count in [(0xEE2D, 82), (0xEE3B, 78), (0xEE4C, 82)]:
             extractor = PathExtractor(self.rom)
