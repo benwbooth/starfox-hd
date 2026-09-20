@@ -43,6 +43,7 @@ ROOTS = (
     ("FIRST_CONTROL_GUIDANCE", PathAddress(0x04B5)),
     ("SURFACE_OR_GROUND_LIMITED", PathAddress(0xEEED)),
     ("PRIMARY_MOTION_SURFACE_LIMITED", PathAddress(0xEE10)),
+    ("OCCUPANCY_SURFACE_LIMITED", PathAddress(0xEC98)),
 )
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 
@@ -156,11 +157,16 @@ def shape_index(shape: int) -> int:
     return delta // SHAPE_HEADER_SIZE
 
 
-def spawn_shape(shape: int) -> tuple[int, str]:
+def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     index = shape_index(shape)
     # Reviewed transient sprite family, also named by the source pool-pressure
     # sweep. Other shapes need native metadata review; never guess enemy vs
     # scenery vs projectile from a numerically valid shape header alone.
+    # Shape 19 also serves unrelated damaging/attached objects. Only this
+    # complete, collision-disabled three-frame sprite path is an effect;
+    # the mesh alone is insufficient evidence for other uses of that shape.
+    if index == 19 and path == PathAddress(0xF5A1):
+        return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
@@ -363,7 +369,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::{actions[command.address]} {{ next: {next_cursor()} }}"
         elif name in ("SpawnChild", "SpawnChildAlias"):
             spawn = child_spawn_parameters(command)
-            shape, kind = spawn_shape(spawn.shape)
+            shape, kind = spawn_shape(spawn.shape, spawn.path)
             path = f"Some({cursor(spawn.path)})" if spawn.path.offset else "None"
             x, y, z = spawn.position
             pitch, yaw, roll = spawn.rotation
@@ -378,8 +384,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             statement = f"Statement::{branch} {{ taken: {taken}, next: {next_} }}"
         elif name == "QuickSpawn":
             shape_low, shape_high, path_low, path_high, health, power = parameters(6)
-            shape, kind = spawn_shape(shape_low | (shape_high << 8))
             target = PathAddress(path_low | (path_high << 8))
+            shape, kind = spawn_shape(shape_low | (shape_high << 8), target)
             path = f"Some({cursor(target)})" if target.offset else "None"
             spawn_ = f"IndependentSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, hit_points: {health}, attack_power: {power} }}"
             statement = f"Statement::SpawnIndependent {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"

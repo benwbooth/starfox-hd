@@ -789,6 +789,32 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
+    def test_sprite_shape_metadata_requires_the_reviewed_transient_path(self):
+        self.assertEqual(spawn_shape(0xBEB0, PathAddress(0xF5A1)), (19, "ObjectKind::Effect"))
+        for path in [None, PathAddress(0), PathAddress(0x8488), PathAddress(0xF306), PathAddress(0xF32F)]:
+            with self.assertRaisesRegex(UnsupportedPath, "unreviewed native spawn kind"):
+                spawn_shape(0xBEB0, path)
+        extractor = PathExtractor(self.rom)
+        commands = graph(extractor, PathAddress(0xEC98))
+        _, statements = lower_graph(extractor, PathAddress(0xEC98), 0)
+        self.assertEqual(len(statements), 42)
+        mapped = dict(zip((command.address.offset for command in commands), statements))
+        self.assertIn("ImportCampaignByte", mapped[0xEC98])
+        self.assertIn("ObjectKind::Effect", mapped[0xECC1])
+        self.assertIn("ShapeId::from_catalog_index(19)", mapped[0xECC1])
+        self.assertIn("ByteOperand::Literal(253)", mapped[0xECD0])
+        self.assertIn("QuadrupleVelocity(true)", mapped[0xECD2])
+        self.assertIn("ByteOperand::Literal(3)", mapped[0xECD7])
+        self.assertIn("AppearanceCommand::Collision(true)", mapped[0xECD9])
+        self.assertIn("ByteOperand::Literal(50)", mapped[0xECE1])
+        self.assertIn("OccupiedCell", mapped[0xECE4])
+        self.assertIn("GroundThreshold(0)", mapped[0xECE8])
+        self.assertIn("AtOrAboveSurface", mapped[0xECED])
+        self.assertIn("color: 0, size: 16", mapped[0xF5A1])
+        self.assertIn("DisableCollision", mapped[0xF5A4])
+        self.assertIn("iterations: 3", mapped[0xF5A5])
+        self.assertIn("channel: AnimationChannel::Color, amount: 1, period: 2", mapped[0xF5A7])
+
     def test_spawn_null_path_is_absent_and_unknown_shapes_or_native_kinds_are_rejected(self):
         self.assertIn("path: None", self.lower_record("f5 98 bd 00 00 01 01 00 00 00 00 00 00 00")[0])
         for shape in [0, 0xBD99, 0xFBB8, 0xFFFF]:

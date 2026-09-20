@@ -1168,3 +1168,22 @@ checked, with exhaustive rotation-byte pairs and coordinate edge cases in Rust.
 Verification passes 91 lowerer tests, 240 static path tests and 241 native path
 tests in debug/release, both audits, catalog freshness and the app build.
 These commands alone do not complete another root; coverage remains 19/256.
+
+The occupancy/surface-limited projectile path (`$44:EC98`) is fully lowered,
+including its independent sprite path at `$44:F5A1`. Native metadata admits
+shape 19 as an effect only with that reviewed path; other uses of the same
+shape remain rejected instead of being broadly classified as effects. The
+effect has its own three-visit color loop and is not pool-pressure-reclaimable.
+
+Whole-path tests cover all difficulties (attack 2/4/6), both auxiliary pitch
+branches, spawn-before-pitch ordering, initial health/shape/quadrupled velocity,
+one positioned sound, the first three collision-disabled visits, collision
+reenabling at visit 3, and expiry at visit 53. They independently test occupancy,
+ground, surface and new-contact exits, with later inputs omitted when an
+earlier branch short-circuits them. Parent and effect are scheduled separately;
+their world positions are not advanced by the path dispatcher.
+
+Verification passes 92 lowerer tests, 241 static path tests and 242 native path
+tests in debug/release, both audits, catalog freshness and the app build.
+Coverage is **20 complete roots / 295 unique statements**. Game integration
+remains open; no recorded gameplay or source-machine execution was used.
