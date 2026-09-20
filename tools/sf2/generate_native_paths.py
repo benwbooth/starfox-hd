@@ -171,6 +171,7 @@ SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 SUBROUTINES = (
     ("QUERY_OBJECTIVE_COMPLETION", PathAddress(0x87D3), PathAddress(0x2102), PathAddress(0x2105)),
     ("RECORD_OBJECTIVE_COMPLETION", PathAddress(0x87E5), PathAddress(0x2102), PathAddress(0x80B4)),
+    ("WAIT_FOR_TRANSITION_READY", PathAddress(0x872C), PathAddress(0x2102), PathAddress(0x2132)),
 )
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
 # This proves installation only; it does not claim the parent graph is lowered.
@@ -1815,9 +1816,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::RadioEvent {{ command: super::path_radio::RadioEventCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B, 0xD78D, 0xD79A):
+            if address in (0xD787, 0xD788, 0xD789, 0xD78A, 0xD78B, 0xD78D, 0xD79A, 0xD7D5):
                 field = {0xD787: "Progress", 0xD788: "SecondaryProgress", 0xD789: "CompletedParts",
-                         0xD78A: "ActiveMessages", 0xD78B: "Handshake", 0xD78D: "RetiredActors", 0xD79A: "Phase"}[address]
+                         0xD78A: "ActiveMessages", 0xD78B: "Handshake", 0xD78D: "RetiredActors", 0xD79A: "Phase", 0xD7D5: "TransitionReady"}[address]
                 if name.startswith("Import"):
                     operation = f"CopyTo({byte_field(variable)})"
                 elif name.startswith("Export"):

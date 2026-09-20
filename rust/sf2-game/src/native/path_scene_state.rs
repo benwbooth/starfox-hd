@@ -141,6 +141,10 @@ pub struct EncounterCoordination {
     /// Encounter-specific phase ($D79A), including full-byte sentinels.
     /// Fighter emitters clear it; fighters poll it to enter their abort path.
     pub phase: u8,
+    /// Transition-script publication ($D7D5): cleared on encounter/player
+    /// initialization, published by $44:B92A and polled by $44:872C.
+    /// Keep the whole byte; waiting tests nonzero, not equality with one.
+    pub transition_ready: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,6 +156,7 @@ pub enum CoordinationField {
     Handshake,
     RetiredActors,
     Phase,
+    TransitionReady,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,6 +227,7 @@ impl EncounterCoordination {
             CoordinationField::Handshake => &mut self.handshake,
             CoordinationField::RetiredActors => &mut self.retired_actors,
             CoordinationField::Phase => &mut self.phase,
+            CoordinationField::TransitionReady => &mut self.transition_ready,
         };
         match command {
             CoordinationCommand::CopyTo(destination) => destination.write(actor, *value),

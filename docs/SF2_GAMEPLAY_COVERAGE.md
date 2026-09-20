@@ -3650,3 +3650,35 @@ Debug/release each pass **980 unit tests and two integration tests**;
 static inventory, architecture guard and app build pass (existing unused
 icon-function warnings only). Campaign lifecycle integration, unfinished
 caller graphs, map/spawn scheduling and whole-game completion remain open.
+
+### Live transition-readiness wait
+
+The `$44:872C` helper is now lowered as a complete **seven-command**
+callable graph, with its call at `$44:2132` verified. Catalog totals are
+**139 actor roots, three callable subroutines, 4269 source commands and
+4225 typed statements**. This does not claim the calling actor or the
+transition producer's full graphs are complete.
+
+`EncounterCoordination::transition_ready` retains the entire live byte
+cleared at encounter initialization and published by the transition path.
+The helper saves motion-phase low, imports readiness and tests nonzero,
+then restores scratch before either yielding back to its own entry or
+returning to its original caller. The zero/nonzero predicate preserves
+IFNOT. Each subsequent visit rereads shared state; waiting does not retain
+a stale readiness snapshot, modify the wait timer, or consume randomness.
+The separate authored coordination reset does not clear this field.
+
+Three new native tests cover every readiness byte, IFNOT preservation,
+scratch values, repeated waits and fresh publication/re-clearing, and
+retrying missing input without duplicating saved-stack entries. Existing
+coordination tests now include this eighth field for all byte operations.
+Two source-static tests bind reset, publication, both loop exits and the
+branch handler to original bytes; lowerer tests reject adjacent fields and
+unreviewed word views.
+
+Debug/release each pass **983 unit tests and two integration tests**;
+**192 lowerer tests and 422 path-static tests**, exact regeneration,
+architecture guard, static inventory and app build pass (existing unused
+icon-function warnings only). No recorded gameplay or original instruction
+execution was used. Remaining actor graphs and scene integration are still
+open; these component results do not establish whole-game completion.

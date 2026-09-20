@@ -36,8 +36,8 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
         self.assertIn('LOWERED_ROOT_COUNT: usize = 139;', source)
-        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 2;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4262;', source)
+        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 3;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 4269;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -49,6 +49,28 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn('Statement::ImportObjectiveCompletion { destination: WordField::ScriptValue', self.lower_record('7b a3 43')[0])
         self.assertIn('Statement::ExportObjectiveCompletion { source: WordOperand::Actor(WordField::ScriptValue)', self.lower_record('80 a3 43')[0])
         for record in ['7b a3 42', '7b a3 44', '80 a3 42', '80 a3 44', '7a a1 43', '7f a1 43']:
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+
+    def test_transition_wait_is_a_complete_scratch_preserving_live_coordination_loop(self):
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0x872C)
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 7)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '09eb52f996a981262adb5947e2bf9f35f3b1981f1b923f178414d45bfeb4c764')
+        entry, statements = lower_graph(extractor, root, 0)
+        self.assertEqual(entry, 0)
+        self.assertEqual(len(statements), 7)
+        self.assertIn('SaveByte', statements[0])
+        self.assertIn('CoordinationField::TransitionReady', statements[1])
+        self.assertIn('ActorCondition::NonzeroByte', statements[2])
+        self.assertIn('RestoreByte', statements[3])
+        self.assertIn('ControlCommand::Goto { target: cursor(0, 0)', statements[4])
+        self.assertIn('RestoreByte', statements[5])
+        self.assertEqual(statements[6], 'Statement::Control(ControlCommand::Return)')
+        self.assertIn('CoordinationField::TransitionReady', self.lower_record('fb d5 d7 01')[0])
+        for record in ['7b a3 79', '80 a3 79', '7a a1 78', '7a a1 7a']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
@@ -753,7 +775,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn('End', statements[-1])
 
     def test_coordination_commands_decode_named_fields_and_reject_unreviewed_neighbors(self):
-        for index, field in [*enumerate(['Progress', 'SecondaryProgress', 'CompletedParts', 'ActiveMessages', 'Handshake'], 0x2B), (0x31, 'RetiredActors'), (0x3E, 'Phase')]:
+        for index, field in [*enumerate(['Progress', 'SecondaryProgress', 'CompletedParts', 'ActiveMessages', 'Handshake'], 0x2B), (0x31, 'RetiredActors'), (0x3E, 'Phase'), (0x79, 'TransitionReady')]:
             address = (0xD75C + index).to_bytes(2, 'little').hex(' ')
             for record, operation in [
                 (f'7a a1 {index:02x}', 'CopyTo'), (f'7f a1 {index:02x}', 'Assign(ByteOperand::Actor'),
