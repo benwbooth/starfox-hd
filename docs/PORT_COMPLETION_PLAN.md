@@ -344,6 +344,17 @@ running; scheduled work is not a guarantee of a completion date.
   regeneration, architecture and app build pass. **The retained forward aim
   point has a separate producer, and consumable/outer player/frame ownership
   remain open.** These are still scene services, not shipping-loop adoption.
+- Implemented the separately scheduled retained forward-point producer. It
+  uses the live caller's position/yaw, published pitch, high-byte turning lead
+  and three byte-quantized rotations, then updates the real shared proxy and
+  that caller's retained aim. It does not perform another target search.
+  Five tests cover every pitch/yaw pair and turning word, proxy/owner aliasing,
+  partial-fault ordering and a subsequent real rapid launch after the player
+  has moved. All 1,137 native tests and two integration tests pass in debug
+  and release from the final tree; 584 source tests, exact regeneration,
+  architecture and app build pass. Consumable use also installs a parallel
+  timed player-action stream; its state and actual service calls must be
+  ported before the enclosing weapon/player sequence is source-complete.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

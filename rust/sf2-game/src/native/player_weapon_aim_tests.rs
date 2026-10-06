@@ -90,6 +90,25 @@ impl Scene {
         }
         .publish_player_weapon_aim(self.owner)
     }
+    fn retain(&mut self) -> Result<(), SceneError<()>> {
+        SceneActors {
+            objects: &mut self.objects,
+            world: &mut self.world,
+            execution: &mut self.execution,
+            catalog: &PathCatalog::new(vec![]).unwrap(),
+            callbacks: &mut Callbacks,
+            statement_budget: 100,
+        }
+        .retain_player_weapon_aim(self.owner)
+    }
+    fn prepare_retained(&mut self, motion: u16) {
+        let record = self.world.player_mut(&self.objects, self.owner).unwrap();
+        record.yaw_motion = Some(motion);
+        record.rapid_aim = Some(crate::player_rapid::RapidAim {
+            roll_step: Angle::from_units(97),
+            retained_aim: Vector3::default(),
+        });
+    }
     fn target(&mut self, y: i16) -> ObjectId {
         let mut target = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::Unassigned);
         target.base.position = Vector3 { x: 0, y, z: 1000 };
@@ -256,4 +275,171 @@ fn faults_preserve_early_zero_publication_and_cannot_replay_the_visit() {
         )))
     );
     assert_eq!(scene.pitch(), Angle::ZERO);
+}
+
+fn reference_forward(origin: Vector3, pitch: u8, yaw: u8) -> Vector3 {
+    // All operands here are at most 75: signed integer division implements
+    // the source's magnitude multiply with a separately restored sign.
+    use sf_core::snes_trig::{COSTAB, SINTAB};
+    let y = 75 * i16::from(SINTAB[pitch as usize]) / 128;
+    let forward = 75 * i16::from(COSTAB[pitch as usize]) / 128;
+    let angle = yaw.wrapping_neg() as usize;
+    let x = forward * i16::from(SINTAB[angle]) / 128;
+    let z = forward * i16::from(COSTAB[angle]) / 128;
+    Vector3 {
+        x: origin.x.wrapping_add(x * 128),
+        y: origin.y.wrapping_add(y * 128),
+        z: origin.z.wrapping_add(z * 128),
+    }
+}
+
+#[test]
+fn retained_point_exhausts_pitch_yaw_and_preserves_proxy_roll_and_other_records() {
+    let mut scene = Scene::new(0x10);
+    scene.prepare_retained(0xF3AC);
+    let origin = Vector3 {
+        x: 32001,
+        y: -32001,
+        z: 32760,
+    };
+    scene.objects.get_mut(scene.owner).unwrap().base.position = origin;
+    scene.world.primary_player = Some(scene.proxy);
+    // No fixed-view object is consumed by this routine: its initial fixed
+    // identity assignment is overwritten shared work, not the origin.
+    assert!(scene.world.fixed_players[0].is_none());
+    for pitch in 0..=u8::MAX {
+        scene.world.weapons.as_mut().unwrap().published_pitch = Some(Angle::from_units(pitch));
+        for yaw in 0..=u8::MAX {
+            scene.objects.get_mut(scene.owner).unwrap().base.yaw = Angle::from_units(yaw);
+            scene.objects.get_mut(scene.proxy).unwrap().base.roll = Angle::from_units(!pitch);
+            scene.retain().unwrap();
+            let led_yaw = yaw.wrapping_add(0xE6);
+            let expected = reference_forward(origin, pitch, led_yaw);
+            let proxy = scene.objects.get(scene.proxy).unwrap();
+            assert_eq!(proxy.base.position, expected);
+            assert_eq!(proxy.base.pitch.units(), pitch);
+            assert_eq!(proxy.base.yaw.units(), led_yaw);
+            assert_eq!(proxy.base.roll.units(), !pitch);
+            let record = scene.world.player(&scene.objects, scene.owner).unwrap();
+            assert_eq!(record.rapid_aim.unwrap().retained_aim, expected);
+            assert_eq!(record.rapid_aim.unwrap().roll_step.units(), 97);
+            assert_eq!(
+                scene.objects.get(scene.owner).unwrap().base.position,
+                origin
+            );
+            assert_eq!(scene.execution.paths.runtime.steering.unchanged_axes, 37);
+        }
+    }
+}
+
+#[test]
+fn retained_yaw_lead_reads_high_byte_before_doubling_for_every_motion_word() {
+    let mut scene = Scene::new(0x10);
+    scene.prepare_retained(0);
+    scene.objects.get_mut(scene.owner).unwrap().base.yaw = Angle::from_units(41);
+    scene.world.weapons.as_mut().unwrap().published_pitch = Some(Angle::from_units(19));
+    for motion in 0..=u16::MAX {
+        scene
+            .world
+            .player_mut(&scene.objects, scene.owner)
+            .unwrap()
+            .yaw_motion = Some(motion);
+        scene.retain().unwrap();
+        let yaw = ((41 + u32::from(motion / 256) * 2) % 256) as u8;
+        assert_eq!(
+            scene.objects.get(scene.proxy).unwrap().base.yaw.units(),
+            yaw
+        );
+        assert_eq!(
+            scene.objects.get(scene.proxy).unwrap().base.position,
+            reference_forward(Vector3::default(), 19, yaw)
+        );
+    }
+}
+
+#[test]
+fn retained_proxy_can_alias_owner_without_reapplying_lead_or_using_old_pitch() {
+    let mut scene = Scene::new(0x10);
+    scene.prepare_retained(0x8101);
+    scene.world.weapons.as_mut().unwrap().fallback = Some(scene.owner);
+    scene.world.weapons.as_mut().unwrap().published_pitch = Some(Angle::from_units(11));
+    scene.objects.get_mut(scene.owner).unwrap().base.yaw = Angle::from_units(39);
+    scene.objects.get_mut(scene.owner).unwrap().base.position = Vector3 {
+        x: -32700,
+        y: 32600,
+        z: 32000,
+    };
+    let origin = scene.objects.get(scene.owner).unwrap().base.position;
+    scene.retain().unwrap();
+    let expected = reference_forward(origin, 11, 41);
+    let actor = scene.objects.get(scene.owner).unwrap();
+    assert_eq!(actor.base.position, expected);
+    assert_eq!(actor.base.yaw.units(), 41);
+    assert_eq!(actor.base.pitch.units(), 11);
+    assert_eq!(
+        scene
+            .world
+            .player(&scene.objects, scene.owner)
+            .unwrap()
+            .rapid_aim
+            .unwrap()
+            .retained_aim,
+        expected
+    );
+}
+
+#[test]
+fn retained_faults_keep_each_preceding_publication_and_latch_partial_visits() {
+    let mut scene = Scene::new(0x10);
+    scene.prepare_retained(0);
+    scene.objects.get_mut(scene.owner).unwrap().base.yaw = Angle::from_units(55);
+    scene.world.weapons.as_mut().unwrap().published_pitch = None;
+    assert_eq!(
+        scene.retain(),
+        Err(SceneError::WeaponAim(WeaponAimError::MissingPublishedPitch))
+    );
+    assert_eq!(scene.objects.get(scene.proxy).unwrap().base.yaw.units(), 55);
+    assert_eq!(
+        scene.objects.get(scene.proxy).unwrap().base.pitch,
+        Angle::ZERO
+    );
+    assert!(scene.execution.is_faulted());
+    assert_eq!(scene.retain(), Err(SceneError::Faulted));
+
+    let mut scene = Scene::new(0x10);
+    assert_eq!(
+        scene.retain(),
+        Err(SceneError::WeaponAim(WeaponAimError::MissingYawMotion(
+            scene.owner
+        )))
+    );
+    assert_eq!(
+        scene.objects.get(scene.proxy).unwrap().base.pitch,
+        Angle::HALF_TURN
+    );
+    assert_eq!(
+        scene.objects.get(scene.proxy).unwrap().base.position,
+        Vector3::default()
+    );
+
+    let mut scene = Scene::new(0x10);
+    scene
+        .world
+        .player_mut(&scene.objects, scene.owner)
+        .unwrap()
+        .yaw_motion = Some(0);
+    assert_eq!(
+        scene.retain(),
+        Err(SceneError::WeaponAim(WeaponAimError::MissingRetainedAim(
+            scene.owner
+        )))
+    );
+    assert_eq!(
+        scene.objects.get(scene.proxy).unwrap().base.position,
+        Vector3 {
+            x: 0,
+            y: 0,
+            z: -9344
+        }
+    );
 }

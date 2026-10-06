@@ -142,6 +142,25 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Independently scheduled forward-point update for future rapid fire.
+    pub fn retain_player_weapon_aim(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_weapon_aim::retain_forward_point(
+            self.objects,
+            self.world,
+            owner,
+        )
+        .map_err(SceneError::WeaponAim);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Beginning of the weapon service, before consumables and rapid fire.
     pub fn publish_player_weapon_aim(
         &mut self,

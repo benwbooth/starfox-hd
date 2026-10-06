@@ -1,5 +1,5 @@
-//! Aim publication preceding consumable/rapid fire (`$07:D6CC..D78A`).
-//! This is distinct from the player's retained-target update at `$07:AA14`.
+//! Aim publication preceding consumable/rapid fire (`$07:D6CC..D78A`) and
+//! the separately scheduled retained forward-point update (`$07:A941..AA2B`).
 
 use super::path_steering::SteeringState;
 use super::scene_path_world::{ScenePathWorld, WorldInputError};
@@ -18,6 +18,9 @@ const WALKER_TARGET_WINDOW: AimWindow = AimWindow {
 const PREDICTION_TICKS: i16 = 4;
 const PITCH_LIMIT: i8 = 25;
 const FINE_TO_COARSE_SHIFT: u32 = u8::BITS;
+const RETAINED_FORWARD_DISTANCE: i8 = 75;
+const RETAINED_WORLD_SCALE: i16 = 128;
+const RETAINED_YAW_LEAD: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WeaponAimError {
@@ -26,6 +29,83 @@ pub enum WeaponAimError {
     MissingWeapons,
     MissingProxy,
     MissingActor(ObjectId),
+    MissingPublishedPitch,
+    MissingYawMotion(ObjectId),
+    MissingRetainedAim(ObjectId),
+}
+
+/// Project a point ahead of the craft for subsequent rapid launches. The
+/// source calls this separately from firing; do not update it implicitly
+/// inside the launcher or replace it with the current Walker candidate.
+pub fn retain_forward_point(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    owner: ObjectId,
+) -> Result<(), WeaponAimError> {
+    let weapons = world
+        .weapons
+        .as_ref()
+        .ok_or(WeaponAimError::MissingWeapons)?;
+    let proxy = weapons.fallback.ok_or(WeaponAimError::MissingProxy)?;
+    let yaw = objects
+        .get(owner)
+        .ok_or(WeaponAimError::MissingActor(owner))?
+        .base
+        .yaw;
+    objects
+        .get_mut(proxy)
+        .ok_or(WeaponAimError::MissingActor(proxy))?
+        .base
+        .yaw = yaw;
+    let pitch = weapons
+        .published_pitch
+        .ok_or(WeaponAimError::MissingPublishedPitch)?;
+    objects
+        .get_mut(proxy)
+        .expect("validated aim proxy")
+        .base
+        .pitch = pitch;
+    let yaw_motion = world
+        .player(objects, owner)
+        .map_err(WeaponAimError::World)?
+        .yaw_motion
+        .ok_or(WeaponAimError::MissingYawMotion(owner))?;
+    let lead = ((yaw_motion >> FINE_TO_COARSE_SHIFT) as u8).wrapping_mul(RETAINED_YAW_LEAD);
+    let proxy_actor = objects.get_mut(proxy).expect("validated aim proxy");
+    proxy_actor.base.yaw = yaw.wrapping_add(lead as i8);
+    // Roll acts on a zero lateral/vertical pair. Preserve the live proxy's
+    // roll and each byte-quantized rotation; the forward value starts at 75.
+    let (x, y, z) = sf_core::snes_trig::strat_roffs_full(
+        proxy_actor.base.roll.units(),
+        proxy_actor.base.pitch.units(),
+        proxy_actor.base.yaw.units(),
+        0,
+        0,
+        RETAINED_FORWARD_DISTANCE,
+    );
+    let origin = objects
+        .get(owner)
+        .expect("validated aim owner")
+        .base
+        .position;
+    let position = Vector3 {
+        x: origin.x.wrapping_add(x.wrapping_mul(RETAINED_WORLD_SCALE)),
+        y: origin.y.wrapping_add(y.wrapping_mul(RETAINED_WORLD_SCALE)),
+        z: origin.z.wrapping_add(z.wrapping_mul(RETAINED_WORLD_SCALE)),
+    };
+    objects
+        .get_mut(proxy)
+        .expect("validated aim proxy")
+        .base
+        .position = position;
+    world
+        .player_mut(objects, owner)
+        .map_err(WeaponAimError::World)?
+        .rapid_aim
+        .as_mut()
+        .ok_or(WeaponAimError::MissingRetainedAim(owner))?
+        .retained_aim = position;
+    Ok(())
 }
 
 fn walker_pitch(fine: u16) -> Angle {

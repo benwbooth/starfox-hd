@@ -447,6 +447,33 @@ fn alternate_branch_uses_pressed_edge_action_gate_level_mask_and_published_pitch
 }
 
 #[test]
+fn flight_rapid_consumes_last_published_forward_point_without_resampling_player() {
+    let mut scene = Scene::new();
+    scene.record().yaw_motion = Some(0x0321);
+    let owner = scene.owner;
+    scene.objects.get_mut(owner).unwrap().base.pitch = Angle::from_units(13);
+    scene.objects.get_mut(owner).unwrap().base.yaw = Angle::from_units(21);
+    scene.host().publish_player_weapon_aim(owner).unwrap();
+    scene.host().retain_player_weapon_aim(owner).unwrap();
+    let retained = scene.record().rapid_aim.unwrap().retained_aim;
+    scene.objects.get_mut(owner).unwrap().base.yaw = Angle::from_units(150);
+    scene.objects.get_mut(owner).unwrap().base.position.x += 1700;
+    scene.objects.get_mut(scene.proxy).unwrap().base.position = Vector3::default();
+    scene.visit(true).unwrap();
+    let shot = scene.objects.get(scene.spawned()[0]).unwrap();
+    let expected = sf_core::aim_angle::sf2_yaw_to_target(
+        retained.x.wrapping_sub(shot.base.position.x),
+        retained.z.wrapping_sub(shot.base.position.z),
+    );
+    assert_eq!(shot.base.yaw.units(), expected);
+    assert_eq!(
+        scene.objects.get(scene.proxy).unwrap().base.position,
+        retained
+    );
+    assert_eq!(scene.record().rapid_aim.unwrap().retained_aim, retained);
+}
+
+#[test]
 fn freshly_published_walker_pitch_reaches_real_alternate_projectile() {
     let mut scene = Scene::new();
     scene.record().auxiliary.as_mut().unwrap().mode = 0x20;

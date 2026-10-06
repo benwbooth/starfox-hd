@@ -48,6 +48,9 @@ pub struct PlayerPathRecords {
     pub auxiliary: Option<SelectedAuxiliaryState>,
     pub charge: Option<super::player_charge::PlayerCharge>,
     pub rapid_aim: Option<super::player_rapid::RapidAim>,
+    /// Turning increment (6ACD/E). Flight integrates the full fine-angle
+    /// word; Walker control updates its low byte. Aim lead reads the high.
+    pub yaw_motion: Option<u16>,
     /// Selected auxiliary map flag bit 80, read by occupancy checks.
     pub occupancy_exempt: Option<bool>,
     pub equipment: Option<SelectedEquipment>,

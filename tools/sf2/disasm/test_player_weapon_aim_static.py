@@ -46,6 +46,21 @@ class PlayerWeaponAimStaticTests(unittest.TestCase):
     def test_final_flags_acceptance_and_list_iteration_have_no_health_or_death_gate(self):
         self.assert_source(0x7F20CE, "B5 21 29 01 F0 04 5C EB 20 7F B5 22 29 08 F0 04 5C EB 20 7F C2 20 AD DE 12 85 3A 86 3C C2 20 B4 00 BB F0 04 5C F2 1F 7F 8C 36 14 A4 3C A6 04 6B")
 
+    def test_retained_producer_publishes_angles_before_reading_turn_increment(self):
+        self.assert_source(0x07A941, "5A 08 A0 3F 03 8C B0 1D AC D6 14 B5 14 99 14 00 AD F2 1D 99 12 00 5A B4 2B B9 CE 6A 18 79 CE 6A 7A 18 79 14 00 99 14 00")
+        self.assert_source(0x06A316, "B4 2B 22 41 A9 07 6B")
+
+    def test_retained_rotation_starts_with_forward_75_and_resamples_each_byte(self):
+        self.assert_source(0x07A969, "A9 00 85 02 85 04 89 80 F0 06 A9 FF 85 05 80 02 64 05 A9 00 85 08 85 0A 89 80 F0 06 A9 FF 85 0B 80 02 64 0B A9 4B 85 97 85 E4 89 80 F0 06 A9 FF 85 E5 80 02 64 E5")
+        self.assert_source(0x07A99F, "B9 16 00 22 F0 3B 7F A5 04 85 02 A5 0A 85 08 A5 E4 85 97 B9 12 00 22 4E 3A 7F A5 04 85 02 A5 0A 85 08 A5 E4 85 97 B9 14 00 22 A9 38 7F")
+
+    def test_retained_point_scales_then_adds_owner_origin_then_copies_to_owner_auxiliary(self):
+        self.assert_source(0x07A9CC, "C2 20 A5 04 0A 0A 0A 0A 0A 0A 0A 85 04 A5 0A 0A 0A 0A 0A 0A 0A 0A 85 0A A5 E4 0A 0A 0A 0A 0A 0A 0A 85 E4 A5 04 18 7D 0C 00 99 0C 00 A5 E4 18 7D 10 00 99 10 00 A5 0A 18 7D 0E 00 99 0E 00 E2 20 DA 5A B4 2B BB 7A C2 20 B9 0C 00 9D 9C 6B B9 0E 00 9D 9E 6B B9 10 00 9D A0 6B E2 20 FA 28 7A 6B")
+
+    def test_turn_increment_is_a_word_in_flight_but_walker_consumes_its_low_byte(self):
+        self.assert_source(0x06ED61, "C2 20 AD 38 1E 99 CD 6A E2 20 C2 20 B9 BB 6A 18 6D 38 1E 99 BB 6A E2 20")
+        self.assert_source(0x06B5A2, "B9 BC 6A 18 79 CD 6A 99 BC 6A")
+
 
 if __name__ == "__main__":
     unittest.main()
