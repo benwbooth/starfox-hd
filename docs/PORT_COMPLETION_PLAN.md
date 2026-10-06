@@ -113,6 +113,25 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete flight speed/thrust service (`$06:F05D..F1FB`),
+  including all seven pilot tables, boost-before-brake selection, forced
+  speed gates, submode selection and inherited surface targets. Directional
+  left/right input (not shoulder buttons) uses the original alternating-visit
+  speed step. Base-speed easing wraps at byte width; thrust sign-extends both
+  inputs before subtraction and updates only its byte, preserving adjacent
+  charge flags. Five native groups and five original-comparison groups pass
+  307,968 source visits, including every signed thrust pair, every input word,
+  retained sequences and 768 continuous surface-to-speed handoffs. All 1,351
+  native tests and both architecture checks pass in debug/release;
+  oracle-enabled checks pass 1,359 unit tests, 35 runtime tests and both
+  architecture checks. All 82 original player-service groups pass in both
+  profiles, together with 691 source checks, 209 lowerer tests, exact catalog
+  and architecture checks, and builds of all three application binaries.
+  This is connected to the scene service owner, not yet shipping `Game::tick`.
+  The next movement service includes a separate collision-constrained branch
+  in configuration nine; its real geometry response must be implemented,
+  not substituted with ordinary free-flight integration.
+
 - Ported the complete two-wing surface response (`$07:DD6F..E0C8`) and
   both wing-effect installers (`$07:D403..D4D4`). It uses the live reserved
   probe actor, original byte-quantized roll/pitch/yaw and wrapping plane

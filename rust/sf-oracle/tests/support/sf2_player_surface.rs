@@ -66,6 +66,7 @@ struct Fixture {
     runtime: PathRuntime,
     case: Case,
     alternate_thrust_target: Option<i8>,
+    last_response: Option<SurfaceResponse>,
 }
 impl Fixture {
     fn new(source: &mut Source, count: usize, case: Case) -> Self {
@@ -173,6 +174,7 @@ impl Fixture {
             runtime,
             case,
             alternate_thrust_target: Some(197_u8 as i8),
+            last_response: None,
         }
     }
 
@@ -209,7 +211,9 @@ impl Fixture {
                     alternate_thrust_target: Some(source.bus.read8(0x1DB9) as i8),
                 })
             );
-            self.alternate_thrust_target = actual.unwrap().alternate_thrust_target;
+            let response = actual.unwrap();
+            self.alternate_thrust_target = response.alternate_thrust_target;
+            self.last_response = Some(response);
         }
         expected.pose.as_mut().unwrap().shoulder_bank =
             source.bus.read16(WRAM + SLOT + 0x6AD8) as i16;
@@ -320,6 +324,129 @@ impl Fixture {
 }
 
 #[test]
+fn surface_to_speed_handoff_retains_original_events_and_height_targets_across_visits() {
+    use sf2_game::path_program::ActionGate;
+    use sf2_game::player_speed::{self, SpeedContext};
+    use sf2_game::{Buttons, InputState};
+    let mut source = Source::new(&rom(), 0);
+    for seed in 0..32_u8 {
+        let case = Case {
+            material: seed % 6,
+            pilot: seed % 8,
+            upper: (u16::from(seed) * 2003) as i16,
+            height: if seed & 1 == 0 { -20 } else { 20 },
+            configuration: if seed & 2 == 0 { 9 } else { 0 },
+            ..Default::default()
+        };
+        let mut fixture = Fixture::new(&mut source, 2, case);
+        fixture
+            .native
+            .objects
+            .get_mut(fixture.native.owner)
+            .unwrap()
+            .base
+            .speed = seed.wrapping_mul(17);
+        fixture
+            .native
+            .world
+            .player_mut(&fixture.native.objects, fixture.native.owner)
+            .unwrap()
+            .speed
+            .as_mut()
+            .unwrap()
+            .thrust = seed.wrapping_mul(13) as i8;
+        source
+            .bus
+            .write8(u32::from(OWNER) + 0x18, seed.wrapping_mul(17));
+        source
+            .bus
+            .write8(WRAM + SLOT + 0x6B62, seed.wrapping_mul(13));
+        for visit in 0..24_u16 {
+            let surface_mode = if visit % 7 == 0 { 0 } else { 1 };
+            let hold = visit % 11 == 0;
+            fixture.native.world.surface_mode = Some(SurfaceMode {
+                flags: surface_mode,
+            });
+            fixture
+                .native
+                .world
+                .player_mut(&fixture.native.objects, fixture.native.owner)
+                .unwrap()
+                .contact
+                .as_mut()
+                .unwrap()
+                .hit
+                .hold_secondary_protection = hold;
+            source.bus.write8(0x1B4D, surface_mode);
+            source
+                .bus
+                .write8(WRAM + SLOT + 0x6B7D, if hold { 0x80 } else { 0 });
+            fixture.run(&mut source, false);
+            let native = &mut fixture.native;
+            let mode = if visit % 3 == 0 { 0 } else { 1 };
+            let actions = [4, 0, 0x20, 0x40][usize::from(visit / 6)];
+            let held = if visit % 3 == 1 { 0x300 } else { 0 };
+            let gate = u8::from(visit % 13 == 0);
+            native.world.action_gate = Some(ActionGate { code: gate });
+            native.world.strategy_clock = visit;
+            native.world.processed_player_input = Some(InputState {
+                held: Buttons::from_bits(held),
+                pressed: Buttons::default(),
+            });
+            let auxiliary = native
+                .world
+                .player_mut(&native.objects, native.owner)
+                .unwrap()
+                .auxiliary
+                .as_mut()
+                .unwrap();
+            auxiliary.mode = mode;
+            auxiliary.action_flags = actions;
+            source.bus.write8(0x1D72, gate);
+            source.bus.write16(0x1938, held);
+            source.bus.write16(0xC4, visit);
+            source.bus.write8(WRAM + SLOT + 0x6AA0, mode);
+            source.bus.write8(WRAM + SLOT + 0x6B77, actions);
+            source.run(0x06F05D, Some(0x06F1FB), 0, OWNER, true);
+            let context = SpeedContext::from(fixture.last_response.unwrap());
+            player_speed::advance(
+                &mut native.objects,
+                &mut native.world,
+                native.owner,
+                context,
+            )
+            .unwrap();
+            assert_eq!(
+                native.objects.get(native.owner).unwrap().base.speed,
+                source.bus.read8(u32::from(OWNER) + 0x18)
+            );
+            assert_eq!(
+                native
+                    .world
+                    .player(&native.objects, native.owner)
+                    .unwrap()
+                    .speed
+                    .unwrap()
+                    .thrust,
+                source.bus.read8(WRAM + SLOT + 0x6B62) as i8
+            );
+            // The next source service inherits the alternate target written
+            // by speed. Mirror its branch semantics from native inputs only,
+            // never importing a reference-machine result into native state.
+            if gate == 0 {
+                let pilot = usize::from(if case.pilot < 6 { case.pilot } else { 0 });
+                fixture.alternate_thrust_target = match actions {
+                    0x40 => Some([105, 107, 92, 90, 125, 123][pilot]),
+                    0x20 => Some([-32, -32, -28, -26, -41, -43][pilot]),
+                    0 if held == 0 => Some(0),
+                    _ => fixture.alternate_thrust_target,
+                };
+            }
+        }
+    }
+}
+
+#[test]
 fn surface_all_modes_materials_and_gate_combinations_match_original() {
     let mut source = Source::new(&rom(), 0);
     for mode in 0..=u8::MAX {
@@ -422,9 +549,16 @@ fn surface_both_allocation_sites_preserve_partial_state_at_original_fatal_pool_b
 fn surface_continuous_visits_preserve_independent_pose_and_effects_across_all_early_skips() {
     let mut source = Source::new(&rom(), 0);
     for seed in 0..32_u8 {
-        let mut fixture = Fixture::new(&mut source, 2, Case {
-            pilot: seed, number: seed, upper: -512, ..Default::default()
-        });
+        let mut fixture = Fixture::new(
+            &mut source,
+            2,
+            Case {
+                pilot: seed,
+                number: seed,
+                upper: -512,
+                ..Default::default()
+            },
+        );
         for visit in 0..24_u8 {
             let mode = if visit % 7 == 0 { 0 } else { 1 };
             let hold = visit % 5 == 0;
@@ -434,15 +568,25 @@ fn surface_continuous_visits_preserve_independent_pose_and_effects_across_all_ea
             let native = &mut fixture.native;
             native.world.surface_mode = Some(SurfaceMode { flags: mode });
             native.world.view_transition_mode = Some(ViewTransitionMode { flags: view });
-            let records = native.world.player_mut(&native.objects, native.owner).unwrap();
-            records.contact.as_mut().unwrap().hit.hold_secondary_protection = hold;
+            let records = native
+                .world
+                .player_mut(&native.objects, native.owner)
+                .unwrap();
+            records
+                .contact
+                .as_mut()
+                .unwrap()
+                .hit
+                .hold_secondary_protection = hold;
             records.surface.as_mut().unwrap().material = visit % 6;
             let actor = native.objects.get_mut(native.owner).unwrap();
             actor.base.position.y = height;
             actor.base.roll = Angle::from_units(roll);
             source.bus.write8(0x1B4D, mode);
             source.bus.write16(0x1B84, view);
-            source.bus.write8(WRAM + SLOT + 0x6B7D, if hold { 0x80 } else { 0 });
+            source
+                .bus
+                .write8(WRAM + SLOT + 0x6B7D, if hold { 0x80 } else { 0 });
             source.bus.write8(WRAM + SLOT + 0x6A82, visit % 6);
             source.bus.write16(u32::from(OWNER) + 14, height as u16);
             source.bus.write8(u32::from(OWNER) + 0x16, roll);

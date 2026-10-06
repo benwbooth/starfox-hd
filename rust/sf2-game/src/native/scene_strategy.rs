@@ -134,6 +134,7 @@ pub enum SceneError<E> {
     PlayerAmbient(super::player_ambient::AmbientError),
     PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
     PlayerSurface(super::player_surface::SurfaceError),
+    PlayerSpeed(super::player_speed::SpeedError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -162,6 +163,23 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Speed follows surface response and precedes pose and displacement.
+    pub fn advance_player_speed(
+        &mut self,
+        owner: ObjectId,
+        context: super::player_speed::SpeedContext,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_speed::advance(self.objects, self.world, owner, context)
+            .map_err(SceneError::PlayerSpeed);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Retained ambient terms, after roll input and before boost/brake.
     pub fn advance_player_ambient(
         &mut self,

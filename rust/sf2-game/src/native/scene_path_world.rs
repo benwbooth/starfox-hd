@@ -77,6 +77,7 @@ pub struct PlayerPathRecords {
     /// It is neither base velocity nor the published path displacement.
     pub flight_displacement: Option<super::Vector3>,
     pub surface: Option<super::player_surface::PlayerSurface>,
+    pub speed: Option<super::player_speed::PlayerSpeed>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
