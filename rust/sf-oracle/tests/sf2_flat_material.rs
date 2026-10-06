@@ -1,5 +1,7 @@
 //! Exercise original flat material selection without replacing source data.
-use sf2_game::intro_material::{DepthGroup, FlatMaterial};
+use sf2_game::intro_material::{
+    DepthColorFamily, DepthGroup, DepthThresholdTable, FlatMaterial, SceneLighting,
+};
 use sf_oracle::gsu::Gsu;
 
 fn put(source: &mut Gsu, address: usize, value: u16) {
@@ -54,6 +56,18 @@ fn depth_groups_match_original_scene_and_object_threshold_selection() {
             }
             assert!(source.execution_watch_hit(), "row={row} depth={depth}");
             let group = DepthGroup::for_camera_depth(depth, thresholds);
+            let lighting = SceneLighting {
+                thresholds: DepthThresholdTable::from_catalog_index(if override_enabled {
+                    3
+                } else {
+                    row as usize
+                }),
+                depth_colors: Some(DepthColorFamily::STANDARD),
+            };
+            assert_eq!(
+                lighting.depth_group(depth, if override_enabled { (row + 1) as u8 } else { 0 }),
+                Ok(group)
+            );
             let bank = groups
                 .iter()
                 .position(|candidate| *candidate == group)
@@ -105,56 +119,82 @@ fn flat_palette_pairs_match_original_material_branches() {
         let Some(material) = FlatMaterial::from_word(word) else {
             continue;
         };
-        for (bank, group) in groups.into_iter().enumerate() {
-            for enabled in [false, true] {
-                random ^= random << 13;
-                random ^= random >> 17;
-                random ^= random << 5;
-                let address = 0x8000 + (random as usize % 32765);
-                let normal = std::array::from_fn(|axis| rom[address + axis] as i8);
-                let light = [random as i8, (random >> 8) as i8, (random >> 16) as i8];
-                put(&mut source, 0x1C, 1);
-                put(&mut source, 0x4C, 0x8AAC + bank as u16 * 24);
-                put(&mut source, 0x52, 0x8B0C + bank as u16 * 32);
-                put(&mut source, 0x54, if enabled { 0x8000 } else { 0 });
-                for (axis, component) in light.into_iter().enumerate() {
-                    put(&mut source, 0x106 + axis * 2, component as i16 as u16);
-                }
-                source.r[2] = address as u16 - 1;
-                source.r[3] = word;
-                source.watch_execution(1, 0x9EFD);
-                source.start(1, 0x9E85);
-                while !source.execution_watch_hit()
-                    && source.is_running()
-                    && source.last_run_steps < 500
-                {
+        for family_index in 0..5 {
+            let family = DepthColorFamily::from_catalog_index(family_index).unwrap();
+            for (bank, group) in groups.into_iter().enumerate() {
+                for enabled in [false, true] {
+                    random ^= random << 13;
+                    random ^= random >> 17;
+                    random ^= random << 5;
+                    let address = 0x8000 + (random as usize % 32765);
+                    let normal = std::array::from_fn(|axis| rom[address + axis] as i8);
+                    let light = [random as i8, (random >> 8) as i8, (random >> 16) as i8];
+                    put(&mut source, 0x1C, 1);
+                    put(&mut source, 0x4C, 0x8AAC + bank as u16 * 24);
+                    put(
+                        &mut source,
+                        0x52,
+                        0x8B0C + family_index as u16 * 128 + bank as u16 * 32,
+                    );
+                    put(&mut source, 0x54, if enabled { 0x8000 } else { 0 });
+                    for (axis, component) in light.into_iter().enumerate() {
+                        put(&mut source, 0x106 + axis * 2, component as i16 as u16);
+                    }
+                    source.r[2] = address as u16 - 1;
+                    source.r[3] = word;
+                    source.watch_execution(1, 0x9EFD);
+                    source.start(1, 0x9E85);
+                    while !source.execution_watch_hit()
+                        && source.is_running()
+                        && source.last_run_steps < 500
+                    {
+                        source.run_slice(1);
+                    }
+                    assert!(source.execution_watch_hit(), "word={word:04X}");
+                    assert_eq!(
+                        u16::from(
+                            material
+                                .palette_pair_with_family(family, group, enabled, normal, light)
+                        ),
+                        source.r[0],
+                        "word={word:04X} family={family_index} bank={bank} enabled={enabled}"
+                    );
+                    let lighting = SceneLighting {
+                        thresholds: None,
+                        depth_colors: Some(family),
+                    };
+                    let scene_pair = lighting
+                        .palette_pair(material, group, enabled, normal, light)
+                        .unwrap();
+                    assert_eq!(
+                        u16::from(scene_pair), source.r[0],
+                        "scene-selected word={word:04X} family={family_index} bank={bank} enabled={enabled}"
+                    );
+                    if family == DepthColorFamily::STANDARD {
+                        assert_eq!(
+                            u16::from(material.palette_pair(group, enabled, normal, light)),
+                            source.r[0]
+                        );
+                        assert_eq!(
+                            u16::from(material.palette_pair_at_depth(
+                                bank as i16 * 4096,
+                                [-16, -32, -48],
+                                enabled,
+                                normal,
+                                light,
+                            )),
+                            source.r[0]
+                        );
+                    }
+                    // The watch executed ALT1. Consume its LMS before restarting
+                    // another independent material, preserving clean prefix state.
                     source.run_slice(1);
+                    cases += 1;
                 }
-                assert!(source.execution_watch_hit(), "word={word:04X}");
-                assert_eq!(
-                    u16::from(material.palette_pair(group, enabled, normal, light)),
-                    source.r[0],
-                    "word={word:04X} bank={bank} enabled={enabled}"
-                );
-                assert_eq!(
-                    u16::from(material.palette_pair_at_depth(
-                        bank as i16 * 4096,
-                        [-16, -32, -48],
-                        enabled,
-                        normal,
-                        light,
-                    )),
-                    source.r[0],
-                    "depth-selected word={word:04X} bank={bank} enabled={enabled}"
-                );
-                // The watch executed ALT1. Consume its LMS before restarting
-                // another independent material, preserving clean prefix state.
-                source.run_slice(1);
-                cases += 1;
             }
         }
     }
-    assert_eq!(cases, (12 * 256 + 32 + 256) * 4 * 2);
+    assert_eq!(cases, (12 * 256 + 32 + 256) * 5 * 4 * 2);
 }
 
 #[test]

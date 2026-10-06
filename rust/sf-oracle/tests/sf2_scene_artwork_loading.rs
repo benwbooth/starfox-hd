@@ -1,12 +1,14 @@
 //! Native opening-artwork publications compared at original loader/service
 //! boundaries. The source runs from reset with its original IRQ and DMA code.
 //! This verifies publication order and content, not native IRQ timing, scene
-//! mode setup, palette effects, or the final render-state handoff.
+//! mode setup or palette effects. Lighting publication is checked separately
+//! at setup completion and at the final main-loop handoff.
 
 use std::sync::Arc;
 
 use sf2_data::opening_artwork::{ForegroundPaletteId, OpeningArtwork};
 use sf2_game::intro_controller::{IntroColor, OpeningScenePalette};
+use sf2_game::intro_material::{DepthColorFamily, DepthThresholdTable};
 use sf2_game::intro_scene::OpeningScene;
 use sf2_game::scene_artwork::{
     ArtworkLoadPhase, ArtworkPublication, ArtworkResume, ForegroundSelection,
@@ -74,12 +76,21 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
         .unwrap();
     compare_palette(&source, &native);
 
-    reach(&mut source, 0x7F0BBF); // Setup's polygon-palette copy has returned.
+    reach(&mut source, 0x7F0C24); // Setup's palette and threshold publications completed.
     assert_eq!(
         native.publish_artwork(),
         Some(ArtworkPublication::PolygonPalette)
     );
     compare_palette(&source, &native);
+    assert_eq!(
+        native.lighting().thresholds,
+        Some(DepthThresholdTable::NORMAL)
+    );
+    assert_eq!(native.lighting().depth_colors, None);
+    assert_eq!(
+        [source.peek_gsu_ram(0x50), source.peek_gsu_ram(0x51)],
+        [0x2C, 0x8F]
+    );
     assert!(native.artwork().characters.is_none() && native.artwork().map.is_none());
 
     reach(&mut source, 0x03C813); // Setup has completed; main loader resumes.
@@ -186,7 +197,37 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
     }
     assert_eq!(
         native.artwork_load_phase(),
+        Some(ArtworkLoadPhase::RenderHandoff)
+    );
+    assert_eq!(
+        native.lighting().thresholds,
+        Some(DepthThresholdTable::NORMAL)
+    );
+    assert_eq!(native.lighting().depth_colors, None);
+    reach(&mut source, 0x03D56F);
+    assert_eq!(
+        native.resume_artwork_load(selection).unwrap(),
+        ArtworkResume::Complete
+    );
+    assert_eq!(
+        native.artwork_load_phase(),
         Some(ArtworkLoadPhase::Complete)
+    );
+    assert_eq!(
+        native.lighting().thresholds,
+        Some(DepthThresholdTable::OPENING)
+    );
+    assert_eq!(
+        native.lighting().depth_colors,
+        Some(DepthColorFamily::STANDARD)
+    );
+    assert_eq!(
+        [source.peek_gsu_ram(0x50), source.peek_gsu_ram(0x51)],
+        [0x40, 0x8F]
+    );
+    assert_eq!(
+        [source.peek_gsu_ram(0x4E), source.peek_gsu_ram(0x4F)],
+        [0x0C, 0x8B]
     );
     assert_eq!(
         native.controller().elapsed_updates(),

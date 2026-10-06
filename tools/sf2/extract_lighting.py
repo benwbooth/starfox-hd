@@ -2,8 +2,8 @@
 """Extract Star Fox 2 polygon depth-colour and light-shade lookup tables.
 
 The retail renderer stores five four-bank depth-colour families followed by
-four groups of ten light-shade rows.  Verified live SF2 mission states select
-the first (standard) depth family.  The light pointer catalog contains twelve
+four groups of ten light-shade rows and fourteen depth-threshold records.
+The light pointer catalog contains twelve
 rows per group, with its final two entries aliasing row nine; validating that
 catalog proves the table shape rather than merely copying a plausible byte
 window.
@@ -14,7 +14,8 @@ oracle/data-extraction tool.
 
 from __future__ import annotations
 
-import os
+import argparse
+from pathlib import Path
 
 from rom import AUTOGEN_HEADER, RUST_SRC, load_rom, u16
 
@@ -29,6 +30,9 @@ SHADE_GROUP_COUNT = 4
 SHADE_ROW_COUNT = 10
 SHADE_LEVEL_COUNT = 10
 POINTER_ROWS_PER_GROUP = 12
+DEPTH_THRESHOLDS_START = 0x8F1C
+DEPTH_THRESHOLD_COUNT = 14
+DEPTH_THRESHOLD_STRIDE = 4
 
 
 def chunks(values: bytes, size: int) -> list[list[int]]:
@@ -36,15 +40,18 @@ def chunks(values: bytes, size: int) -> list[list[int]]:
     return [list(values[start : start + size]) for start in range(0, len(values), size)]
 
 
-def extract(d: bytes):
+def decode(d: bytes):
+    required_length = DEPTH_THRESHOLDS_START + DEPTH_THRESHOLD_COUNT * DEPTH_THRESHOLD_STRIDE
+    if len(d) < required_length:
+        raise ValueError("source ends before the complete lighting catalog")
     family_size = DEPTH_BANK_COUNT * DEPTH_PAIR_COUNT
     depth_end = DEPTH_FAMILY_START + DEPTH_FAMILY_COUNT * family_size
     assert depth_end == SHADE_TABLE_START
 
-    standard_depth = chunks(
-        d[DEPTH_FAMILY_START : DEPTH_FAMILY_START + family_size],
-        DEPTH_PAIR_COUNT,
-    )
+    depth_families = [
+        chunks(d[start : start + family_size], DEPTH_PAIR_COUNT)
+        for start in range(DEPTH_FAMILY_START, depth_end, family_size)
+    ]
 
     shade_size = SHADE_GROUP_COUNT * SHADE_ROW_COUNT * SHADE_LEVEL_COUNT
     flat_shades = chunks(
@@ -73,15 +80,21 @@ def extract(d: bytes):
                 f"0x{actual:04X} != 0x{expected:04X}"
             )
 
-    emit_rust(standard_depth, shades)
-    return standard_depth, shades
+    assert SHADE_TABLE_START + shade_size == DEPTH_THRESHOLDS_START
+    thresholds = []
+    for row in range(DEPTH_THRESHOLD_COUNT):
+        start = DEPTH_THRESHOLDS_START + row * DEPTH_THRESHOLD_STRIDE
+        record = d[start : start + DEPTH_THRESHOLD_STRIDE]
+        assert len(record) == DEPTH_THRESHOLD_STRIDE and record[3] == 0
+        thresholds.append([value if value < 128 else value - 256 for value in record[:3]])
+    return depth_families, shades, thresholds
 
 
 def rust_row(values: list[int]) -> str:
     return ", ".join(f"0x{value:02X}" for value in values)
 
 
-def emit_rust(standard_depth: list[list[int]], shades: list[list[list[int]]]):
+def render_rust(depth_families, shades, thresholds) -> str:
     lines = [
         AUTOGEN_HEADER.format(tool="extract_lighting.py"),
         "//! Exact SF2 polygon depth-colour and light-shade palette pairs.",
@@ -89,15 +102,32 @@ def emit_rust(standard_depth: list[list[int]], shades: list[list[list[int]]]):
         "",
         f"pub const DEPTH_BANK_COUNT: usize = {DEPTH_BANK_COUNT};",
         f"pub const DEPTH_PAIR_COUNT: usize = {DEPTH_PAIR_COUNT};",
+        f"pub const DEPTH_FAMILY_COUNT: usize = {DEPTH_FAMILY_COUNT};",
+        f"pub const DEPTH_THRESHOLD_COUNT: usize = {DEPTH_THRESHOLD_COUNT};",
         f"pub const SHADE_GROUP_COUNT: usize = {SHADE_GROUP_COUNT};",
         f"pub const SHADE_ROW_COUNT: usize = {SHADE_ROW_COUNT};",
         f"pub const SHADE_LEVEL_COUNT: usize = {SHADE_LEVEL_COUNT};",
         "",
         "#[rustfmt::skip]",
-        "pub static STANDARD_DEPTH_PAIRS: [[u8; DEPTH_PAIR_COUNT]; DEPTH_BANK_COUNT] = [",
+        "pub static DEPTH_PAIRS: [[[u8; DEPTH_PAIR_COUNT]; DEPTH_BANK_COUNT]; DEPTH_FAMILY_COUNT] = [",
     ]
-    for row in standard_depth:
-        lines.append(f"    [{rust_row(row)}],")
+    for family in depth_families:
+        lines.append("    [")
+        for row in family:
+            lines.append(f"        [{rust_row(row)}],")
+        lines.append("    ],")
+    lines.extend(
+        [
+            "];",
+            "",
+            "pub static STANDARD_DEPTH_PAIRS: [[u8; DEPTH_PAIR_COUNT]; DEPTH_BANK_COUNT] = DEPTH_PAIRS[0];",
+            "",
+            "#[rustfmt::skip]",
+            "pub static DEPTH_THRESHOLDS: [[i8; 3]; DEPTH_THRESHOLD_COUNT] = [",
+        ]
+    )
+    for row in thresholds:
+        lines.append(f"    [{', '.join(map(str, row))}],")
     lines.extend(
         [
             "];",
@@ -113,10 +143,22 @@ def emit_rust(standard_depth: list[list[int]], shades: list[list[list[int]]]):
         lines.append("    ],")
     lines.extend(["];"])
 
-    with open(os.path.join(RUST_SRC, "lighting.rs"), "w") as output:
-        output.write("\n".join(lines) + "\n")
-    print("  lighting.rs: 4 depth banks, 4 x 10 x 10 light-shade pairs")
+    return "\n".join(lines) + "\n"
+
+
+def extract(d: bytes):
+    decoded = decode(d)
+    Path(RUST_SRC, "lighting.rs").write_text(render_rust(*decoded))
+    print("  lighting.rs: 5 depth families, 14 threshold rows, 4 x 10 x 10 light-shade pairs")
+    return decoded
 
 
 if __name__ == "__main__":
-    extract(load_rom())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    if args.check:
+        assert Path(RUST_SRC, "lighting.rs").read_text() == render_rust(*decode(load_rom()))
+        print("lighting.rs matches source tables")
+    else:
+        extract(load_rom())

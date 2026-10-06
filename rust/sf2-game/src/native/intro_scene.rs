@@ -31,6 +31,7 @@ use super::intro_logo::{
     LogoActorPhase, LogoLayer, LogoSceneScroll, LogoSweepPhase, NintendoLogoActor,
     NintendoLogoAssembly, NintendoLogoOutline, NintendoLogoSweep,
 };
+use super::intro_material::SceneLighting;
 use super::intro_motion::{IntroAttachment, IntroPlayerAnchor, IntroScenePose};
 use super::intro_root::{
     OpeningAttachmentGroup, OpeningBackgroundOrigin, OpeningRootActor, OpeningRootEvent,
@@ -358,6 +359,7 @@ pub struct OpeningScene {
     controller: OpeningSceneController,
     exit: CinematicExit,
     palette: OpeningScenePalette,
+    lighting: SceneLighting,
     artwork: SceneArtwork,
     artwork_load: Option<OpeningArtworkLoad>,
     deferred_artwork: Option<DeferredOpeningArtwork>,
@@ -423,6 +425,7 @@ impl OpeningScene {
             controller: OpeningSceneController::default(),
             exit: CinematicExit::new(OPENING_INPUT_HOLD),
             palette,
+            lighting: SceneLighting::default(),
             artwork: SceneArtwork::default(),
             artwork_load: None,
             deferred_artwork: None,
@@ -491,6 +494,9 @@ impl OpeningScene {
     pub fn artwork(&self) -> &SceneArtwork {
         &self.artwork
     }
+    pub fn lighting(&self) -> SceneLighting {
+        self.lighting
+    }
     pub fn artwork_load_phase(&self) -> Option<ArtworkLoadPhase> {
         self.artwork_load.as_ref().map(OpeningArtworkLoad::phase)
     }
@@ -551,17 +557,29 @@ impl OpeningScene {
         &mut self,
         foreground: ForegroundSelection,
     ) -> Result<ArtworkResume, OpeningArtworkRequestError> {
-        self.artwork_load
+        let handoff = self.artwork_load_phase() == Some(ArtworkLoadPhase::RenderHandoff);
+        let result = self
+            .artwork_load
             .as_mut()
             .map(|load| load.resume(foreground))
-            .ok_or(OpeningArtworkRequestError::NotStarted)
+            .ok_or(OpeningArtworkRequestError::NotStarted)?;
+        if handoff {
+            self.lighting.finish_opening_load();
+        }
+        Ok(result)
     }
     /// The host calls this only at an artwork service boundary. This does not
-    /// advance actors, palette effects, clocks or unrelated scene-mode setup.
+    /// advance actors, palette effects or clocks. The setup service also
+    /// selects normal depth thresholds; other scene-mode resets remain open.
     pub fn publish_artwork(&mut self) -> Option<ArtworkPublication> {
-        self.artwork_load
+        let publication = self
+            .artwork_load
             .as_mut()?
-            .publish(&mut self.artwork, &mut self.palette)
+            .publish(&mut self.artwork, &mut self.palette)?;
+        if publication == ArtworkPublication::PolygonPalette {
+            self.lighting.setup_scene();
+        }
+        Some(publication)
     }
 
     /// Project the artwork portion of the main loop's blocking load onto its
@@ -588,7 +606,8 @@ impl OpeningScene {
                 }
                 ArtworkLoadPhase::RequestBackground
                 | ArtworkLoadPhase::SelectForeground
-                | ArtworkLoadPhase::RequestSprites => {
+                | ArtworkLoadPhase::RequestSprites
+                | ArtworkLoadPhase::RenderHandoff => {
                     self.resume_artwork_load(self.foreground_selection)
                         .expect("accepted artwork request");
                 }

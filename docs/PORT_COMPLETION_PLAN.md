@@ -113,6 +113,27 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Connected opening lighting selections to the native scene loader. Setup
+  publishes the normal depth thresholds while retaining the inherited colour
+  family; the opening thresholds and standard colour family are installed by
+  a separate main-loop handoff after the sprite palette publication. That
+  pending handoff prevents replacement and does not run actors; repeating a
+  completed resume does not reinstall state. The joined-frame load path owns
+  this continuation too. Native flat shading now accepts the selected family
+  and one-based object threshold overrides, with explicit diagnostics for
+  missing or unreviewed inputs. All five colour families and fourteen threshold
+  records are extracted and checked exactly. Unmodified original code verifies
+  917,504 depth selections and 134,400 flat-material cases, plus reset-to-loader
+  publication boundaries and all 440 opening visits. The latter still supplies
+  original actor-refresh partitions; native display timing is not certified.
+  All 18 data tests, 1,206 native game tests and two architecture tests pass in
+  debug/release; all 1,251 compatibility-enabled tests pass in debug. The nine
+  scoped original-code tests pass in both profiles with the pre-existing
+  autonomous-timing gate still ignored. The 619 source/extraction tests, exact
+  generation, architecture audit and all three app builds pass. Layer setup,
+  the remaining scene-reset/postload effects, non-lighting handoff work and
+  `Game::tick` adoption remain open; this is not rendered-frame certification.
+
 - Completed the SF1 wire-shield pickup/drop and selected-ship lifecycle.
   Collection now preserves exposed-player selection, wrapped ranges, flag-byte
   ownership and repeated removal ordering; enemy drops have the real pickup

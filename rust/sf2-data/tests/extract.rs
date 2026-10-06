@@ -237,6 +237,11 @@ fn colors_decode_to_material_words() {
 
 #[test]
 fn lighting_tables_match_the_sf2_retail_variants() {
+    assert_eq!(lighting::DEPTH_PAIRS.len(), 5);
+    assert_eq!(lighting::STANDARD_DEPTH_PAIRS, lighting::DEPTH_PAIRS[0]);
+    assert_eq!(lighting::DEPTH_THRESHOLDS.len(), 14);
+    assert_eq!(lighting::DEPTH_THRESHOLDS[4], [-10, -13, -15]);
+    assert_eq!(lighting::DEPTH_THRESHOLDS[9], [-31, -39, -46]);
     assert_eq!(lighting::STANDARD_DEPTH_PAIRS.len(), 4);
     assert!(lighting::STANDARD_DEPTH_PAIRS
         .iter()

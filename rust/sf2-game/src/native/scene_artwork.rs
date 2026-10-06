@@ -8,7 +8,8 @@
 //!
 //! This owns artwork only. The frame host still owns scene-mode setup, layer
 //! configuration, display blanking, palette effects and the loader's final
-//! render-state handoff. Calling this service is not completing those actions.
+//! render-state handoff. The last main-loop resume is explicit so the host
+//! can perform that handoff after, not during, the sprite publication.
 
 use std::sync::Arc;
 
@@ -76,6 +77,7 @@ pub enum ArtworkLoadPhase {
     RequestBackground,
     SelectForeground,
     RequestSprites,
+    RenderHandoff,
     Complete,
 }
 
@@ -114,6 +116,10 @@ impl OpeningArtworkLoad {
         let publication = match self.phase {
             Pending(_) => return ArtworkResume::WaitingForPublication,
             Complete => return ArtworkResume::Complete,
+            RenderHandoff => {
+                self.phase = Complete;
+                return ArtworkResume::Complete;
+            }
             RequestBackground => ArtworkPublication::BackgroundCharacters,
             SelectForeground => ArtworkPublication::ForegroundPalette(foreground.palette()),
             RequestSprites => ArtworkPublication::SpritePalette,
@@ -160,7 +166,7 @@ impl OpeningArtworkLoad {
             }
             SpritePalette => {
                 target.sprite_colors = self.artwork.palettes.sprites.map(IntroColor::from_bgr555);
-                Complete
+                RenderHandoff
             }
         };
         Some(publication)
@@ -169,6 +175,7 @@ impl OpeningArtworkLoad {
 
 #[cfg(test)]
 mod tests {
+    use super::super::intro_material::{DepthColorFamily, DepthThresholdTable};
     use super::super::intro_scene::{OpeningArtworkRequestError, OpeningScene};
     use super::*;
 
@@ -276,9 +283,10 @@ mod tests {
             target.sprite_colors,
             artwork.palettes.sprites.map(IntroColor::from_bgr555)
         );
-        assert_eq!(load.phase(), ArtworkLoadPhase::Complete);
+        assert_eq!(load.phase(), ArtworkLoadPhase::RenderHandoff);
         let final_state = (target.clone(), palette.clone());
         assert_eq!(load.resume(alternate), ArtworkResume::Complete);
+        assert_eq!(load.phase(), ArtworkLoadPhase::Complete);
         assert_eq!(load.publish(&mut target, &mut palette), None);
         assert_eq!((target, palette.clone()), final_state);
         assert_eq!(palette.saved_colors, initial.saved_colors);
@@ -308,6 +316,8 @@ mod tests {
     fn opening_scene_owns_publications_without_advancing_actors_or_accepting_overlapping_loads() {
         let artwork = artwork();
         let mut scene = OpeningScene::default();
+        assert_eq!(scene.lighting().thresholds, None);
+        assert_eq!(scene.lighting().depth_colors, None);
         assert_eq!(
             scene.resume_artwork_load(ForegroundSelection::STANDARD),
             Err(OpeningArtworkRequestError::NotStarted)
@@ -331,6 +341,11 @@ mod tests {
                 .resume_artwork_load(ForegroundSelection::STANDARD)
                 .unwrap();
             assert_eq!(scene.publish_artwork(), Some(expected));
+            assert_eq!(
+                scene.lighting().thresholds,
+                Some(DepthThresholdTable::NORMAL)
+            );
+            assert_eq!(scene.lighting().depth_colors, None);
         }
         assert_eq!(scene.global_clock(), 0);
         assert_eq!(scene.controller(), before.controller());
@@ -338,9 +353,53 @@ mod tests {
             scene.actors().collect::<Vec<_>>(),
             before.actors().collect::<Vec<_>>()
         );
+        assert_eq!(
+            scene.artwork_load_phase(),
+            Some(ArtworkLoadPhase::RenderHandoff)
+        );
+        let before_handoff = scene.clone();
+        assert_eq!(
+            scene.begin_artwork_load(artwork.clone(), false),
+            Err(OpeningArtworkRequestError::AlreadyLoading)
+        );
+        assert_eq!(
+            scene.queue_artwork_load(artwork.clone(), true),
+            Err(OpeningArtworkRequestError::AlreadyLoading)
+        );
+        assert_eq!(scene.publish_artwork(), None);
+        assert_eq!(scene, before_handoff);
+        scene
+            .resume_artwork_load(ForegroundSelection::STANDARD)
+            .unwrap();
         assert_eq!(scene.artwork_load_phase(), Some(ArtworkLoadPhase::Complete));
+        assert_eq!(
+            scene.lighting().thresholds,
+            Some(DepthThresholdTable::OPENING)
+        );
+        assert_eq!(
+            scene.lighting().depth_colors,
+            Some(DepthColorFamily::STANDARD)
+        );
+        let complete = scene.clone();
+        scene
+            .resume_artwork_load(ForegroundSelection::STANDARD)
+            .unwrap();
+        assert_eq!(scene, complete);
         let old_artwork = scene.artwork().clone();
         scene.begin_artwork_load(artwork, false).unwrap();
         assert_eq!(scene.artwork(), &old_artwork);
+        assert_eq!(scene.lighting(), complete.lighting());
+        assert_eq!(
+            scene.publish_artwork(),
+            Some(ArtworkPublication::PolygonPalette)
+        );
+        assert_eq!(
+            scene.lighting().thresholds,
+            Some(DepthThresholdTable::NORMAL)
+        );
+        assert_eq!(
+            scene.lighting().depth_colors,
+            Some(DepthColorFamily::STANDARD)
+        );
     }
 }

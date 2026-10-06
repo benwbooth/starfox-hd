@@ -114,6 +114,7 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         0x03D509, // Foreground publication completed.
         0x03D520, // Main loader requests sprites.
         0x03D52C, // Sprite publication completed.
+        0x03D56F, // Main-loop lighting handoff completed.
     ]);
     assert!(machine
         .tick_until_cpu_execution(0, CONTROLLER, 240)
@@ -229,6 +230,15 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
                         None
                     }
                     0x03D52C => Some(ArtworkPublication::SpritePalette),
+                    0x03D56F => {
+                        assert_eq!(
+                            native
+                                .resume_artwork_load(ForegroundSelection::STANDARD)
+                                .unwrap(),
+                            ArtworkResume::Complete
+                        );
+                        None
+                    }
                     _ => None,
                 };
                 if let Some(publication) = publication {
@@ -242,6 +252,25 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         );
         assert_eq!(native.controller().elapsed_updates(), completed_updates);
         if check_palette {
+            let lighting = native.lighting();
+            let source_word = |field| {
+                u16::from(machine.peek_gsu_ram(field))
+                    | u16::from(machine.peek_gsu_ram(field + 1)) << 8
+            };
+            assert_eq!(
+                lighting
+                    .thresholds
+                    .map_or(0, |table| 0x8F1C + table.catalog_index() as u16 * 4),
+                source_word(0x50),
+                "scene thresholds update={completed_updates}"
+            );
+            assert_eq!(
+                lighting
+                    .depth_colors
+                    .map_or(0, |family| 0x8B0C + family.catalog_index() as u16 * 128),
+                source_word(0x4E),
+                "scene depth colours update={completed_updates}"
+            );
             // Compare state, never inject source colors after initialization.
             for (index, (live, saved)) in native
                 .palette()

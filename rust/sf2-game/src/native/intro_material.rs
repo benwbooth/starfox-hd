@@ -2,7 +2,119 @@
 //! Palette bytes retain both source dithering nibbles; they are not RGB.
 
 use super::intro_transform::face_shade_index;
-use sf2_data::lighting::{SHADE_PAIRS, STANDARD_DEPTH_PAIRS};
+use sf2_data::lighting::{DEPTH_PAIRS, DEPTH_THRESHOLDS, SHADE_PAIRS};
+
+/// A decoded depth-colour family, not an address in the source palette bank.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DepthColorFamily(usize);
+
+impl DepthColorFamily {
+    pub const STANDARD: Self = Self(0);
+
+    pub fn from_catalog_index(index: usize) -> Option<Self> {
+        (index < DEPTH_PAIRS.len()).then_some(Self(index))
+    }
+
+    pub const fn catalog_index(self) -> usize {
+        self.0
+    }
+}
+
+/// The three signed high-byte thresholds in one authored depth record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DepthThresholdTable(usize);
+
+impl DepthThresholdTable {
+    pub const NORMAL: Self = Self(4);
+    pub const OPENING: Self = Self(9);
+
+    pub fn from_catalog_index(index: usize) -> Option<Self> {
+        (index < DEPTH_THRESHOLDS.len()).then_some(Self(index))
+    }
+
+    pub const fn catalog_index(self) -> usize {
+        self.0
+    }
+
+    pub const fn thresholds(self) -> [i8; 3] {
+        DEPTH_THRESHOLDS[self.0]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SceneLightingError {
+    MissingSceneThresholds,
+    UnknownObjectThreshold(u8),
+    MissingDepthColors,
+}
+
+/// Scene-owned lighting selections. Boot has not published either table;
+/// mode setup changes only thresholds, while the main loader's final handoff
+/// installs both. Loading a palette or an object's material does not select
+/// these tables implicitly.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SceneLighting {
+    pub thresholds: Option<DepthThresholdTable>,
+    pub depth_colors: Option<DepthColorFamily>,
+}
+
+impl SceneLighting {
+    pub fn setup_scene(&mut self) {
+        self.thresholds = Some(DepthThresholdTable::NORMAL);
+    }
+
+    pub fn finish_opening_load(&mut self) {
+        self.thresholds = Some(DepthThresholdTable::OPENING);
+        self.depth_colors = Some(DepthColorFamily::STANDARD);
+    }
+
+    /// Zero inherits the scene's table; all nonzero selectors are one-based.
+    /// The submitted low byte is authoritative. Unreviewed selectors are a
+    /// diagnostic, never a clamp to the nearest supported table.
+    pub fn depth_group(
+        self,
+        camera_depth: i16,
+        object_selector: u8,
+    ) -> Result<DepthGroup, SceneLightingError> {
+        let thresholds = if object_selector == 0 {
+            self.thresholds
+                .ok_or(SceneLightingError::MissingSceneThresholds)?
+        } else {
+            DepthThresholdTable::from_catalog_index(usize::from(object_selector - 1))
+                .ok_or(SceneLightingError::UnknownObjectThreshold(object_selector))?
+        };
+        Ok(DepthGroup::for_camera_depth(
+            camera_depth,
+            thresholds.thresholds(),
+        ))
+    }
+
+    pub fn palette_pair(
+        self,
+        material: FlatMaterial,
+        group: DepthGroup,
+        lighting_enabled: bool,
+        normal: [i8; 3],
+        object_light: [i8; 3],
+    ) -> Result<u8, SceneLightingError> {
+        // Solid and face-lit materials never read the depth-colour family.
+        let family = if matches!(material.0, FlatColor::Depth(_)) {
+            self.depth_colors
+                .ok_or(SceneLightingError::MissingDepthColors)?
+        } else {
+            DepthColorFamily::STANDARD
+        };
+        Ok(
+            material.palette_pair_with_family(
+                family,
+                group,
+                lighting_enabled,
+                normal,
+                object_light,
+            ),
+        )
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DepthGroup {
@@ -84,6 +196,25 @@ impl FlatMaterial {
         normal: [i8; 3],
         object_light: [i8; 3],
     ) -> u8 {
+        self.palette_pair_with_family(
+            DepthColorFamily::STANDARD,
+            group,
+            lighting_enabled,
+            normal,
+            object_light,
+        )
+    }
+
+    /// Select the scene's actual depth-colour family. The shade-row catalog
+    /// is shared across families; only depth-indexed materials use this input.
+    pub fn palette_pair_with_family(
+        self,
+        family: DepthColorFamily,
+        group: DepthGroup,
+        lighting_enabled: bool,
+        normal: [i8; 3],
+        object_light: [i8; 3],
+    ) -> u8 {
         let bank = match group {
             DepthGroup::Near => 0,
             DepthGroup::Middle => 1,
@@ -92,7 +223,7 @@ impl FlatMaterial {
         };
         match self.0 {
             FlatColor::Solid(pair) => pair,
-            FlatColor::Depth(index) => STANDARD_DEPTH_PAIRS[bank][usize::from(index)],
+            FlatColor::Depth(index) => DEPTH_PAIRS[family.0][bank][usize::from(index)],
             // The original has already replaced r3 with the decoded row
             // before testing the lighting flag. It does not use the word's
             // low byte or a default shade when lighting is disabled.
@@ -104,5 +235,78 @@ impl FlatMaterial {
                 SHADE_PAIRS[bank][usize::from(row.min(9))][usize::from(shade)]
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setup_and_handoff_change_their_own_lighting_selections() {
+        let inherited = DepthColorFamily::from_catalog_index(4).unwrap();
+        let mut lighting = SceneLighting {
+            thresholds: DepthThresholdTable::from_catalog_index(13),
+            depth_colors: Some(inherited),
+        };
+        lighting.setup_scene();
+        assert_eq!(lighting.thresholds, Some(DepthThresholdTable::NORMAL));
+        assert_eq!(lighting.depth_colors, Some(inherited));
+        lighting.finish_opening_load();
+        assert_eq!(lighting.thresholds, Some(DepthThresholdTable::OPENING));
+        assert_eq!(lighting.depth_colors, Some(DepthColorFamily::STANDARD));
+    }
+
+    #[test]
+    fn object_override_is_one_based_and_does_not_require_a_scene_default() {
+        let mut lighting = SceneLighting::default();
+        assert_eq!(
+            lighting.depth_group(0, 0),
+            Err(SceneLightingError::MissingSceneThresholds)
+        );
+        for selector in 1..=14 {
+            let table = DepthThresholdTable::from_catalog_index(usize::from(selector - 1)).unwrap();
+            for depth in [i16::MIN, -1, 0, 255, 256, 4095, 4096, i16::MAX] {
+                assert_eq!(
+                    lighting.depth_group(depth, selector),
+                    Ok(DepthGroup::for_camera_depth(depth, table.thresholds()))
+                );
+            }
+        }
+        for selector in 15..=u8::MAX {
+            assert_eq!(
+                lighting.depth_group(0, selector),
+                Err(SceneLightingError::UnknownObjectThreshold(selector))
+            );
+        }
+        lighting.setup_scene();
+        assert_eq!(lighting.depth_group(4096, 0), Ok(DepthGroup::Farthest));
+        lighting.finish_opening_load();
+        assert_eq!(lighting.depth_group(4096, 0), Ok(DepthGroup::Near));
+        // An actor's explicit normal record still overrides the opening table.
+        assert_eq!(lighting.depth_group(4096, 5), Ok(DepthGroup::Farthest));
+        assert_eq!(DepthThresholdTable::from_catalog_index(14), None);
+        assert_eq!(DepthColorFamily::from_catalog_index(5), None);
+    }
+
+    #[test]
+    fn only_depth_materials_require_the_selected_depth_color_family() {
+        let lighting = SceneLighting::default();
+        let pair = |word, enabled| {
+            lighting.palette_pair(
+                FlatMaterial::from_word(word).unwrap(),
+                DepthGroup::Near,
+                enabled,
+                [0; 3],
+                [0; 3],
+            )
+        };
+        assert_eq!(pair(0x3F67, false), Ok(0x67));
+        assert_eq!(pair(0x0900, false), Ok(9));
+        assert!(pair(0x0900, true).is_ok());
+        assert_eq!(
+            pair(0x3E00, false),
+            Err(SceneLightingError::MissingDepthColors)
+        );
     }
 }
