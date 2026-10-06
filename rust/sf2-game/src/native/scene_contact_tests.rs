@@ -140,6 +140,24 @@ impl Scene {
 }
 
 #[test]
+fn contact_gate_reads_live_objective_low_byte_instead_of_stale_initializer_flag() {
+    use crate::path_scene_state::{CoordinationCommand, EncounterObjectiveCounts, ObjectiveCountField};
+    for word in [0, 1, 0x00FF, 0x0100, 0xAB01, 0xFF00, 0xFFFF] {
+        let mut scene = Scene::new();
+        scene.world.contacts_enabled = Some(word as u8 == 0);
+        scene.world.objective_counts = Some(EncounterObjectiveCounts {
+            remaining_word: word, ..Default::default()
+        });
+        assert_eq!(PlayerContactHost::contacts_enabled(&scene.host()), Ok(word as u8 != 0));
+        scene.world.objective_counts.as_mut().unwrap().apply(
+            scene.objects.get_mut(scene.owner).unwrap(), ObjectiveCountField::Remaining,
+            CoordinationCommand::Decrement);
+        assert_eq!(PlayerContactHost::contacts_enabled(&scene.host()), Ok((word as u8).wrapping_sub(1) != 0));
+        assert_eq!(scene.world.objective_counts.unwrap().remaining_word >> 8, word >> 8);
+    }
+}
+
+#[test]
 fn native_registrations_share_auxiliary_capacity_order_and_allocation_free_replacement() {
     let mut scene = Scene::new();
     let pool = &mut scene.execution.paths.runtime.resources;

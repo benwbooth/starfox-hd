@@ -213,7 +213,7 @@ fn deferred_message_transfers_every_word_without_creating_a_presentation_request
 }
 
 #[test]
-fn wingmate_warning_uses_published_pilot_control_style_and_three_fresh_mask_visits() {
+fn wingmate_warning_uses_published_pilot_button_layout_and_three_fresh_mask_visits() {
     let catalog = authored_paths::catalog();
     for pilot in 0..=u8::MAX {
         for style in [FlightControlStyle::TypeA, FlightControlStyle::TypeB] {
@@ -241,7 +241,7 @@ fn wingmate_warning_uses_published_pilot_control_style_and_three_fresh_mask_visi
                         inputs.scene.wingmate_pilot = Some(pilot);
                     }
                     if !expected_skip {
-                        inputs.control_style = Some(style);
+                        inputs.button_layout = Some(u8::from(matches!(style, FlightControlStyle::TypeB)));
                         inputs.radio = Some(PathRadio {
                             request: &mut request,
                             layout: RadioLayout {

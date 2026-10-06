@@ -60,7 +60,7 @@ impl Services {
             difficulty: self.difficulty,
             encounter_variant: 0,
         });
-        inputs.control_style = Some(self.style);
+        inputs.button_layout = Some(u8::from(matches!(self.style, FlightControlStyle::TypeB)));
         inputs.deferred_message = Some(&mut self.deferred);
         inputs.radio_event = Some(&mut self.event);
         inputs.radio = Some(PathRadio {

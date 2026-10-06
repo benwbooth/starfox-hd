@@ -3523,12 +3523,12 @@ class NativePathGenerationTests(unittest.TestCase):
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
-    def test_guidance_history_and_control_style_require_exact_reviewed_fields(self):
+    def test_guidance_history_and_button_layout_require_exact_reviewed_fields(self):
         self.assertEqual(self.lower_record("7b a3 36")[0],
             "Statement::Guidance { command: GuidanceCommand::CopyTo(WordField::ScriptValue), next: cursor(0, 1) }")
         self.assertEqual(self.lower_record("80 a3 36")[0],
             "Statement::Guidance { command: GuidanceCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) }")
-        self.assertIn("Statement::ImportControlStyle", self.lower_record("79 a1 d0 1d")[0])
+        self.assertIn("Statement::ImportButtonLayout", self.lower_record("79 a1 d0 1d")[0])
         self.assertIn("GuidanceCommand::CopyTo(WordField::MotionScriptOverlap)", self.lower_record("7b a2 36")[0])
         for index in range(256):
             if index not in (0x0B, 0x32, 0x34, 0x36, 0x43, 0x9A):
@@ -3550,7 +3550,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("GuidanceCommand::CopyTo", mapped[0x04C6])
         self.assertIn("GuidanceCommand::Assign", mapped[0x04D4])
         self.assertIn("iterations: 5", mapped[0x04DD])
-        self.assertIn("Statement::ImportControlStyle", mapped[0x04EA])
+        self.assertIn("Statement::ImportButtonLayout", mapped[0x04EA])
         self.assertIn("ActorCondition::ZeroByte", mapped[0x04EE])
         self.assertIn("number: ByteOperand::Literal(213)", mapped[0x04F2])
         self.assertIn("immediate: false", mapped[0x04FD])

@@ -113,6 +113,25 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Closed the nine omitted scene-to-path bindings: caller reflection, retained
+  friend health, targeting upgrades, environmental plane, linked-effect activity,
+  attachment-owned protection, button layout, retained homing target and the
+  shared countdown. All use live canonical records; unpublished inputs stay
+  absent, and recycled actors/replaced player storage cannot inherit bindings.
+  The adapter now explicitly constructs every `PathWorld` field, making future
+  additions require a binding decision. Source review also corrected the full
+  button-layout byte import, the contact gate's alias of the objective word's
+  low byte, and protection's rotation-before-gates ordering. Independent
+  original-instruction tests cover 24,576 complete protection cases and 256
+  partial-prefix cases. Fourteen new native tests include complete authored
+  countdown/protection paths, real reflection launches, same-invocation shared
+  writes, lazy missing-input gates and failure latching. All 1,256 native tests
+  pass in debug/release; catalog regeneration, 209 lowerer tests, 619 source
+  checks and the architecture audit pass. Compatibility tests, all ten player
+  original-instruction tests in debug/release and all three app builds also
+  pass. This closes an adapter omission, not
+  player-mode producers, the full player initializer or `Game::tick` integration.
+
 - Completed the SF2 shared player-storage entry through its actual formatter,
   retaining separate boundaries for allocation and formatting. It publishes
   the retained display subject, selects manual shape frame zero, clears the
@@ -127,9 +146,8 @@ running; scheduled work is not a guarantee of a completion date.
   plus compatibility tests, eight player source-comparison tests in both
   profiles, 619 source tests, architecture checks and all three app builds.
   The enclosing shared reset, first player entry/modes and production frame
-  owner remain open. The next integration audit found nine `PathWorld` inputs
-  that `ScenePathWorld` never binds; those missing canonical owners must be
-  connected before treating the scene adapter as a usable general path host.
+  owner remain open. The next integration audit found nine omitted `PathWorld`
+  bindings, subsequently addressed in the checkpoint above.
 
 - Implemented the complete processed-input service used by player movement
   modes. It selects the live actor's controller side, preserves sampled edges,

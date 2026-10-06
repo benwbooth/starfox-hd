@@ -41,15 +41,15 @@ fn override_branch_reads_live_rules_without_linked_state_and_preserves_ifnot() {
                 let mut inputs = world(&mut random);
                 inputs.protection = Some(PathProtection {
                     rules: ProtectionRules {
-                        minimum_override: enabled,
-                        special_character: unrelated_flags & 1 != 0,
-                        blocked: unrelated_flags & 2 != 0,
-                        contacts_enabled: unrelated_flags & 4 != 0,
+                        minimum_override: Some(enabled),
+                        special_character: Some(unrelated_flags & 1 != 0),
+                        blocked: Some(unrelated_flags & 2 != 0),
+                        contacts_enabled: Some(unrelated_flags & 4 != 0),
                     },
                     linked: None,
                 });
                 for current in [enabled, !enabled, enabled] {
-                    inputs.protection.as_mut().unwrap().rules.minimum_override = current;
+                    inputs.protection.as_mut().unwrap().rules.minimum_override = Some(current);
                     objects.get_mut(owner).unwrap().base.path = Some(at(0));
                     let target = at(if current { 2 } else { 1 });
                     let mut expected = before.clone();
@@ -66,7 +66,7 @@ fn override_branch_reads_live_rules_without_linked_state_and_preserves_ifnot() {
                     assert_eq!(*inputs.random, before_random);
                     assert_eq!(
                         inputs.protection.as_ref().unwrap().rules.minimum_override,
-                        current
+                        Some(current)
                     );
                 }
             }

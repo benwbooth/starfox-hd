@@ -14,7 +14,7 @@ use super::program_resources::ProgramResources;
 use super::program_state::ProgramData;
 use super::scene_path_world::WorldInputError;
 use super::scene_strategy::{SceneActors, SceneCallbacks, SceneError};
-use super::weapon_reflection::{self, ReflectionRules, ReflectionWorld};
+use super::weapon_reflection::{self, ReflectionWorld};
 use super::{ObjectId, ObjectStore, SoundEvent};
 
 const PLAYER_ACTIVE: u8 = 0x01;
@@ -245,7 +245,7 @@ impl<C: SceneCallbacks> PlayerContactHost for SceneActors<'_, C> {
     }
     fn contacts_enabled(&self) -> Result<bool, Self::Error> {
         self.world
-            .contacts_enabled
+            .contacts_enabled()
             .ok_or(SceneError::World(WorldInputError::MissingContactEnable))
     }
     fn contacts_blocked(&self) -> Result<bool, Self::Error> {
@@ -291,20 +291,7 @@ impl<C: SceneCallbacks> PlayerContactHost for SceneActors<'_, C> {
         }
         // The reflector service diagnoses these observations only if a live
         // eligible incoming shot actually needs them.
-        let scatter = self
-            .world
-            .player(self.objects, owner)
-            .ok()
-            .and_then(|record| record.protection)
-            .map(DeflectionProtection::projectile_deflection);
-        let rules = self
-            .world
-            .reflect_all_contacts
-            .map(|process_all| ReflectionRules {
-                process_all,
-                player_scatter: scatter,
-                owner,
-            });
+        let rules = self.world.reflection_rules(self.objects, owner);
         let defaults = self.world.spawn_defaults();
         weapon_reflection::reflect_contacts(
             self.objects,

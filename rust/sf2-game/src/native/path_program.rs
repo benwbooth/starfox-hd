@@ -220,7 +220,8 @@ pub struct PathWorld<'a> {
     pub campaign: Option<CampaignPathInputs>,
     pub guidance: Option<&'a mut GuidanceHistory>,
     pub pickup_history: Option<&'a mut PickupHistory>,
-    pub control_style: Option<super::FlightControlStyle>,
+    /// Full shared button-layout byte (1DD0), not flight inversion (1DCF).
+    pub button_layout: Option<u8>,
     /// Fresh selected-player exemption (auxiliary map flag bit 80).
     pub selected_occupancy_exempt: Option<bool>,
     pub occupancy: Option<&'a super::world_occupancy::WorldOccupancy>,
@@ -309,7 +310,7 @@ impl PathWorld<'_> {
             campaign: None,
             guidance: None,
             pickup_history: None,
-            control_style: None,
+            button_layout: None,
             selected_occupancy_exempt: None,
             occupancy: None,
             surface_mode: None,
@@ -1051,7 +1052,7 @@ pub enum Statement {
         command: PickupHistoryCommand,
         next: PathCursor,
     },
-    ImportControlStyle {
+    ImportButtonLayout {
         destination: super::path_fields::ByteField,
         next: PathCursor,
     },
@@ -1207,7 +1208,7 @@ pub enum ProgramError {
     MissingCampaign,
     MissingGuidance,
     MissingPickupHistory,
-    MissingControlStyle,
+    MissingButtonLayout,
     MissingOccupancyExemption,
     MissingOccupancy,
     MissingSurfaceMode,
@@ -1903,7 +1904,8 @@ impl PathRuntime {
             }
             Statement::IfProtectionOverride { taken, next } => {
                 let enabled = world.protection.as_ref()
-                    .ok_or(ProgramError::MissingProtection)?.rules.minimum_override;
+                    .ok_or(ProgramError::MissingProtection)?.rules.minimum_override
+                    .ok_or(ProgramError::Protection(super::path_protection::ProtectionError::MissingMinimumOverride))?;
                 objects.get_mut(owner).expect("validated protection-override branch").base.path =
                     Some(if enabled { taken } else { next });
                 Ok(ControlStep::Continue)
@@ -2565,17 +2567,13 @@ impl PathRuntime {
                 actor.base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
-            Statement::ImportControlStyle { destination, next } => {
-                let style = world
-                    .control_style
-                    .ok_or(ProgramError::MissingControlStyle)?;
-                let value = match style {
-                    super::FlightControlStyle::TypeA => 0,
-                    super::FlightControlStyle::TypeB => 1,
-                };
+            Statement::ImportButtonLayout { destination, next } => {
+                let value = world
+                    .button_layout
+                    .ok_or(ProgramError::MissingButtonLayout)?;
                 let actor = objects
                     .get_mut(owner)
-                    .expect("validated control style owner");
+                    .expect("validated button layout owner");
                 destination.write(actor, value);
                 actor.base.path = Some(next);
                 Ok(ControlStep::Continue)
@@ -2854,7 +2852,7 @@ mod tests {
             campaign: None,
             guidance: None,
             pickup_history: None,
-            control_style: None,
+            button_layout: None,
             selected_occupancy_exempt: None,
             occupancy: None,
             impact: None,
@@ -9992,7 +9990,7 @@ mod tests {
                 campaign: None,
                 guidance: None,
                 pickup_history: None,
-                control_style: None,
+                button_layout: None,
                 selected_occupancy_exempt: None,
                 occupancy: None,
                 impact: None,
@@ -10747,10 +10745,10 @@ mod tests {
                     }
                     inputs.protection = Some(PathProtection {
                         rules: ProtectionRules {
-                            special_character: blocked,
-                            blocked,
-                            minimum_override: false,
-                            contacts_enabled: exit != 2,
+                            special_character: Some(blocked),
+                            blocked: Some(blocked),
+                            minimum_override: Some(false),
+                            contacts_enabled: Some(exit != 2),
                         },
                         linked: if blocked {
                             None
@@ -10925,7 +10923,9 @@ mod tests {
             inputs.surface_mode = Some(SurfaceMode { flags: 1 });
             inputs.protection = Some(PathProtection {
                 rules: ProtectionRules {
-                    contacts_enabled: true,
+                    special_character: Some(false),
+                    minimum_override: Some(false),
+                    contacts_enabled: Some(true),
                     ..Default::default()
                 },
                 linked: Some(LinkedProtection {
@@ -13278,10 +13278,9 @@ mod tests {
     }
 
     #[test]
-    fn control_style_import_preserves_high_byte_and_missing_input_is_atomic() {
+    fn button_layout_import_preserves_high_byte_and_missing_input_is_atomic() {
         use super::super::path_fields::{ByteField, BytePart, WordField};
-        use super::super::FlightControlStyle;
-        let catalog = PathCatalog::new(vec![vec![Statement::ImportControlStyle {
+        let catalog = PathCatalog::new(vec![vec![Statement::ImportButtonLayout {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
@@ -13302,17 +13301,13 @@ mod tests {
         let before_random = random;
         assert_eq!(
             runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
-            Err(ProgramError::MissingControlStyle)
+            Err(ProgramError::MissingButtonLayout)
         );
         assert_eq!(objects, before);
-        for (style, value) in [
-            (FlightControlStyle::TypeA, 0),
-            (FlightControlStyle::TypeB, 1),
-            (FlightControlStyle::TypeA, 0),
-        ] {
+        for value in 0..=u8::MAX {
             objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
             let mut inputs = world(&mut random);
-            inputs.control_style = Some(style);
+            inputs.button_layout = Some(value);
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
@@ -13323,7 +13318,7 @@ mod tests {
             let mut expected = before.clone();
             let actor = expected.get_mut(owner).unwrap();
             actor.base.path = Some(cursor(0, 1));
-            actor.extension.path_state.motion_phase = 0xAB00 | value;
+            actor.extension.path_state.motion_phase = 0xAB00 | u16::from(value);
             assert_eq!(objects, expected);
             assert!(runtime.branch.invert_next);
             assert_eq!(random, before_random);
@@ -13390,7 +13385,7 @@ mod tests {
                             });
                         }
                         if visit == 244 {
-                            inputs.control_style = Some(style);
+                            inputs.button_layout = Some(u8::from(matches!(style, FlightControlStyle::TypeB)));
                         }
                         assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 64).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(if visit == final_visit { ControlStep::Ended } else { ControlStep::Movement }), "difficulty {difficulty:?}, style {style:?}, flags {flags:04x}, visit {visit}");
                         if request.pending {
@@ -14221,7 +14216,7 @@ mod tests {
                 campaign: None,
                 guidance: None,
                 pickup_history: None,
-                control_style: None,
+                button_layout: None,
                 selected_occupancy_exempt: None,
                 occupancy: None,
                 impact: None,
@@ -14376,7 +14371,7 @@ mod tests {
                         campaign: None,
                         guidance: None,
                         pickup_history: None,
-                        control_style: None,
+                        button_layout: None,
                         selected_occupancy_exempt: None,
                         occupancy: None,
                         impact: None,

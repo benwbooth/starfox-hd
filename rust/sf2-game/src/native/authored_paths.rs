@@ -368,7 +368,7 @@ pub fn catalog() -> PathCatalog {
             taken: cursor(0, 30),
             next: cursor(0, 26),
         },
-        Statement::ImportControlStyle {
+        Statement::ImportButtonLayout {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,
@@ -802,7 +802,7 @@ pub fn catalog() -> PathCatalog {
             },
             next: cursor(0, 104),
         },
-        Statement::ImportControlStyle {
+        Statement::ImportButtonLayout {
             destination: ByteField::AttackPower,
             next: cursor(0, 105),
         },
@@ -21609,7 +21609,7 @@ pub fn catalog() -> PathCatalog {
             },
             next: cursor(0, 3608),
         },
-        Statement::ImportControlStyle {
+        Statement::ImportButtonLayout {
             destination: ByteField::WordPart {
                 field: WordField::MotionPhase,
                 part: BytePart::Low,

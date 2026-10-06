@@ -2014,7 +2014,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statements.append(statement)
                 continue
             if address == 0x1DD0 and name == "ImportByteAbsolute":
-                statement = f"Statement::ImportControlStyle {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
+                statement = f"Statement::ImportButtonLayout {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
             if address == 0x1E59 and name in ("ImportByteAbsolute", "StoreExternalByte"):

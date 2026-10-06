@@ -152,6 +152,24 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The scene adapter now binds all current path inputs to their actual scene or
+generation-checked player owners. The nine previously omitted inputs cover
+reflection, friend health, targeting upgrades, environmental height, linked
+effects/protection, button layout, homing publication and shared countdown.
+Full-byte option imports no longer narrow the button-layout setting into a
+flight-style enum. Both contact and protection services read the live objective
+word's low byte, including updates by an earlier statement in the same invocation.
+Protection retains source-ordered spinning before lazy input gates, and the
+scene host latches partial failures. Fourteen new native tests cover these
+contracts and composed authored paths; all 1,256 native tests pass in both
+profiles. The original protection routine matches 24,576 complete cases plus
+256 rotation-prefix cases, without modifying source instructions. Catalog,
+209 lowerer tests, 619 source tests, compatibility tests, all ten player
+original-instruction tests in both profiles, all app builds and architecture
+checks pass. The adapter
+is no longer silently missing those fields; real initialization, mode-specific
+producers and the production frame owner are still separate unfinished work.
+
 The shared player-storage entry now reaches the end of its formatter
 (`$06:8260..82E9`) through the scene actor host. Storage replacement, retained
 selection, manual animation, path-hold clearing, attack power and selective
@@ -161,8 +179,8 @@ earlier release effects and prevents formatting/retry. All 256 original flag
 bytes and eight allocation-to-formatter cases match the unmodified source;
 1,242 native tests pass in debug/release, eight player source-comparison tests
 pass in both profiles, and 619 source tests plus all app builds pass. This is
-not the enclosing player initializer: shared reset, first-entry/mode services,
-missing scene-to-path bindings and production frame ownership remain open.
+not the enclosing player initializer: shared reset, first-entry/mode services
+and production frame ownership remain open.
 
 The contact subsystem now has ROM-extracted profiles for all 61 shapes using
 compound object-contact boxes, word-exact center/overlap math, directional

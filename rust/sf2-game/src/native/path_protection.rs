@@ -15,6 +15,7 @@ const SPIN_ROLL: i8 = 6;
 const PHASE_HIGH_MASK: u16 = 0xFF00;
 const SURFACE_MODE_MASK: u8 = 0x07;
 const COUNTDOWN_PERIOD_MASK: u8 = 0x07;
+pub(crate) const SPECIAL_PLAYER_CONFIGURATION: u8 = 9;
 
 /// Authored player-protection control (auxiliary 6C02). All bits survive
 /// ordinary observation; the source's minimum override replaces the full
@@ -50,8 +51,8 @@ impl DeflectionProtection {
         }
     }
 
-    fn refresh_effect(&mut self, minimum_override: bool, contacts_enabled: bool) -> u8 {
-        if (minimum_override || !contacts_enabled) && self.0 & ABOVE_MINIMUM_MASK != 0 {
+    fn refresh_effect(&mut self, force_minimum: bool) -> u8 {
+        if force_minimum && self.0 & ABOVE_MINIMUM_MASK != 0 {
             self.0 = MINIMUM_CONTROL;
         }
         let remaining = self.remaining();
@@ -87,14 +88,16 @@ impl LinkedEffectActivity {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ProtectionRules {
+    // Each gate is independently optional: source branches deliberately
+    // skip later observations, so absence must not become a guessed false.
     /// Shared character/mode 1DE2 equals nine, as in player-contact rules.
-    pub special_character: bool,
+    pub special_character: Option<bool>,
     /// Shared action gate 1D72 is nonzero.
-    pub blocked: bool,
+    pub blocked: Option<bool>,
     /// Shared refresh override 1E0D bit 01.
-    pub minimum_override: bool,
-    /// Shared D7F4 is nonzero, the player-contact enable gate.
-    pub contacts_enabled: bool,
+    pub minimum_override: Option<bool>,
+    /// Shared D7F4 low byte is nonzero, the player-contact enable gate.
+    pub contacts_enabled: Option<bool>,
 }
 
 pub struct LinkedProtection<'a> {
@@ -110,7 +113,11 @@ pub struct PathProtection<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProtectionError {
     MissingActor(ObjectId),
+    MissingPlayerConfiguration,
     MissingSurfaceMode,
+    MissingActionGate,
+    MissingMinimumOverride,
+    MissingContactEnable,
     MissingAttachment,
     MissingLinkedProtection,
     WrongLinkedOwner {
@@ -129,24 +136,41 @@ pub fn update_effect(
     surface_mode: Option<SurfaceMode>,
 ) -> Result<bool, ProtectionError> {
     let actor = objects
-        .get(owner)
+        .get_mut(owner)
         .ok_or(ProtectionError::MissingActor(owner))?;
+    // The source rotates before any gate or linked-player read. Preserve
+    // this completed prefix when a later observation is unavailable.
+    actor.extension.relative_rotation.pitch = actor
+        .extension
+        .relative_rotation
+        .pitch
+        .wrapping_add(SPIN_PITCH);
+    actor.extension.relative_rotation.roll = actor
+        .extension
+        .relative_rotation
+        .roll
+        .wrapping_add(SPIN_ROLL);
     // The character-mode branch skips the surface-mode read altogether.
-    let gated_scene = input.rules.special_character
+    let gated_scene = input
+        .rules
+        .special_character
+        .ok_or(ProtectionError::MissingPlayerConfiguration)?
         || surface_mode
             .ok_or(ProtectionError::MissingSurfaceMode)?
             .flags
             & SURFACE_MODE_MASK
             == 0;
-    let suppressed = gated_scene && input.rules.blocked;
+    let suppressed = gated_scene
+        && input
+            .rules
+            .blocked
+            .ok_or(ProtectionError::MissingActionGate)?;
+    let attachment = actor.base.attachment;
     let remaining = if suppressed {
         // This early exit never resolves or modifies the attached player.
         0
     } else {
-        let linked_owner = actor
-            .base
-            .attachment
-            .ok_or(ProtectionError::MissingAttachment)?;
+        let linked_owner = attachment.ok_or(ProtectionError::MissingAttachment)?;
         objects
             .get(linked_owner)
             .ok_or(ProtectionError::MissingActor(linked_owner))?;
@@ -160,21 +184,19 @@ pub fn update_effect(
                 supplied: linked.owner,
             });
         }
-        linked
-            .state
-            .refresh_effect(input.rules.minimum_override, input.rules.contacts_enabled)
+        let minimum_override = input
+            .rules
+            .minimum_override
+            .ok_or(ProtectionError::MissingMinimumOverride)?;
+        // Override takes the refresh branch without reading the contact gate.
+        let refresh = minimum_override
+            || !input
+                .rules
+                .contacts_enabled
+                .ok_or(ProtectionError::MissingContactEnable)?;
+        linked.state.refresh_effect(refresh)
     };
     let actor = objects.get_mut(owner).expect("validated protection effect");
-    actor.extension.relative_rotation.pitch = actor
-        .extension
-        .relative_rotation
-        .pitch
-        .wrapping_add(SPIN_PITCH);
-    actor.extension.relative_rotation.roll = actor
-        .extension
-        .relative_rotation
-        .roll
-        .wrapping_add(SPIN_ROLL);
     actor.extension.path_state.motion_phase =
         (actor.extension.path_state.motion_phase & PHASE_HIGH_MASK) | u16::from(remaining);
     Ok(remaining & ABOVE_MINIMUM_MASK != 0)
@@ -219,17 +241,17 @@ mod tests {
             for mode in [0, 1, 2, 7, 8, 255] {
                 for flags in 0..16 {
                     let rules = ProtectionRules {
-                        special_character: flags & 1 != 0,
-                        blocked: flags & 2 != 0,
-                        minimum_override: flags & 4 != 0,
-                        contacts_enabled: flags & 8 != 0,
+                        special_character: Some(flags & 1 != 0),
+                        blocked: Some(flags & 2 != 0),
+                        minimum_override: Some(flags & 4 != 0),
+                        contacts_enabled: Some(flags & 8 != 0),
                     };
-                    let suppressed = (rules.special_character || mode & 7 == 0) && rules.blocked;
+                    let suppressed = (flags & 1 != 0 || mode & 7 == 0) && flags & 2 != 0;
                     let mut expected_control = control;
                     let remaining = if suppressed {
                         0
                     } else {
-                        if (rules.minimum_override || !rules.contacts_enabled) && control >= 2 {
+                        if (flags & 4 != 0 || flags & 8 == 0) && control >= 2 {
                             expected_control = 1;
                         }
                         let count = expected_control & 31;
@@ -301,8 +323,8 @@ mod tests {
             actor.extension.path_state.motion_phase = 0xD300;
             let mut input = PathProtection {
                 rules: ProtectionRules {
-                    special_character,
-                    blocked: true,
+                    special_character: Some(special_character),
+                    blocked: Some(true),
                     ..Default::default()
                 },
                 linked: None,
@@ -321,7 +343,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_or_wrong_linked_inputs_fail_before_actor_or_protection_mutation() {
+    fn missing_or_wrong_linked_inputs_preserve_only_the_completed_spin_prefix() {
         for failure in 0..5 {
             let (mut objects, owner, player) = setup();
             let mut protection = DeflectionProtection::from_control(255);
@@ -332,9 +354,15 @@ mod tests {
                 objects.remove(player);
                 objects.get_mut(owner).unwrap().base.attachment = Some(player);
             }
-            let expected = objects.clone();
+            let mut expected = objects.clone();
+            let actor = expected.get_mut(owner).unwrap();
+            actor.extension.relative_rotation.pitch = Angle::from_units(8);
+            actor.extension.relative_rotation.roll = Angle::from_units(6);
             let mut input = PathProtection {
-                rules: ProtectionRules::default(),
+                rules: ProtectionRules {
+                    special_character: Some(false),
+                    ..Default::default()
+                },
                 linked: if failure == 2 {
                     None
                 } else {
@@ -365,6 +393,79 @@ mod tests {
             assert_eq!(objects, expected);
             assert_eq!(protection.control(), 255);
         }
+    }
+
+    #[test]
+    fn missing_gates_follow_source_read_order_and_keep_the_spin_prefix() {
+        for failure in 0..6 {
+            let (mut objects, owner, player) = setup();
+            let mut protection = DeflectionProtection::from_control(255);
+            let mut expected = objects.clone();
+            let actor = expected.get_mut(owner).unwrap();
+            actor.extension.relative_rotation.pitch = Angle::from_units(8);
+            actor.extension.relative_rotation.roll = Angle::from_units(6);
+            if failure == 3 {
+                objects.get_mut(owner).unwrap().base.attachment = None;
+                expected.get_mut(owner).unwrap().base.attachment = None;
+            }
+            let mut input = PathProtection {
+                rules: ProtectionRules {
+                    special_character: (failure != 0).then_some(failure == 2),
+                    blocked: None,
+                    minimum_override: (failure == 5).then_some(false),
+                    contacts_enabled: None,
+                },
+                linked: Some(LinkedProtection {
+                    owner: player,
+                    state: &mut protection,
+                }),
+            };
+            assert_eq!(
+                update_effect(
+                    &mut objects,
+                    owner,
+                    &mut input,
+                    (failure >= 3).then_some(SurfaceMode { flags: 1 })
+                ),
+                Err(match failure {
+                    0 => ProtectionError::MissingPlayerConfiguration,
+                    1 => ProtectionError::MissingSurfaceMode,
+                    2 => ProtectionError::MissingActionGate,
+                    3 => ProtectionError::MissingAttachment,
+                    4 => ProtectionError::MissingMinimumOverride,
+                    _ => ProtectionError::MissingContactEnable,
+                })
+            );
+            assert_eq!(objects, expected);
+            assert_eq!(protection.control(), 255);
+        }
+    }
+
+    #[test]
+    fn minimum_override_skips_contact_gate_and_surface_mode_skips_action_gate() {
+        let (mut objects, owner, player) = setup();
+        let mut protection = DeflectionProtection::from_control(255);
+        let mut input = PathProtection {
+            rules: ProtectionRules {
+                special_character: Some(false),
+                minimum_override: Some(true),
+                ..Default::default()
+            },
+            linked: Some(LinkedProtection {
+                owner: player,
+                state: &mut protection,
+            }),
+        };
+        assert_eq!(
+            update_effect(
+                &mut objects,
+                owner,
+                &mut input,
+                Some(SurfaceMode { flags: 1 })
+            ),
+            Ok(false)
+        );
+        assert_eq!(protection.control(), 1);
     }
 
     #[test]

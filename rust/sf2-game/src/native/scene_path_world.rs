@@ -10,6 +10,10 @@
 #[path = "scene_path_world_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "scene_path_services_tests.rs"]
+mod services_tests;
+
 use super::collision_contacts::ContactStore;
 use super::path_control::{forward_plane_projection, PlayerTarget};
 use super::path_equipment::SelectedEquipment;
@@ -153,7 +157,8 @@ pub struct ScenePathWorld {
     /// actor, with no independent readers/writers in the recovered scene
     /// code. They are not the primary-player or fixed-camera selection.
     pub player_display_subject: Option<ObjectId>,
-    /// Shared D7F4 enable, also consumed by the linked protection service.
+    /// Initializer observation of the contact gate. Once objective_counts is
+    /// present, contacts_enabled() reads its live low byte instead.
     pub contacts_enabled: Option<bool>,
     /// Shared 1AA6 bit 02 for reflection-list traversal.
     pub reflect_all_contacts: Option<bool>,
@@ -175,6 +180,13 @@ pub struct ScenePathWorld {
     pub active_consumables: Option<super::player_visit::PublishedConsumables>,
     pub shield_recovery: Option<super::player_hit_control::ShieldRecoveryRequest>,
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
+    pub environment_plane_height: Option<i16>,
+    pub friend_health: Option<super::path_death::FriendHealth>,
+    pub targeting_upgrade: Option<super::path_target::TargetingUpgradeState>,
+    pub linked_effect_activity: Option<super::path_protection::LinkedEffectActivity>,
+    /// Retained homing publication, independent of fresh target selection.
+    pub published_homing_target: Option<super::path_target::PublishedHomingTarget>,
+    pub countdown: Option<super::path_countdown::PathCountdown>,
     pub impact: Option<super::path_impact::ImpactState>,
     pub occupancy: Option<super::world_occupancy::WorldOccupancy>,
     players: [Option<BoundPlayer>; OBJECT_CAPACITY],
@@ -219,6 +231,33 @@ pub struct ScenePathWorld {
 }
 
 impl ScenePathWorld {
+    /// Both player contacts and the linked protection effect test the low
+    /// byte of the shared objective word ($D7F4), not the complete word.
+    pub fn contacts_enabled(&self) -> Option<bool> {
+        self.objective_counts
+            .map(|counts| counts.remaining_word as u8 != 0)
+            .or(self.contacts_enabled)
+    }
+
+    /// Reflection reads the caller's live storage, never path selection or
+    /// an attachment. Keep optional scatter lazy for non-player reflectors.
+    pub fn reflection_rules(
+        &self,
+        objects: &ObjectStore,
+        owner: ObjectId,
+    ) -> Option<super::weapon_reflection::ReflectionRules> {
+        self.reflect_all_contacts
+            .map(|process_all| super::weapon_reflection::ReflectionRules {
+                process_all,
+                player_scatter: self
+                    .player(objects, owner)
+                    .ok()
+                    .and_then(|records| records.protection)
+                    .map(super::path_protection::DeflectionProtection::projectile_deflection),
+                owner,
+            })
+    }
+
     /// Preserve the published allocation group while taking pause exemption
     /// from the same live mode word that authored view transitions modify.
     pub fn spawn_defaults(&self) -> Option<ObjectSpawnDefaults> {
@@ -266,6 +305,12 @@ impl ScenePathWorld {
             active_consumables: None,
             shield_recovery: None,
             surface_mode: None,
+            environment_plane_height: None,
+            friend_health: None,
+            targeting_upgrade: None,
+            linked_effect_activity: None,
+            published_homing_target: None,
+            countdown: None,
             impact: None,
             occupancy: None,
             players: [None; OBJECT_CAPACITY],
@@ -415,6 +460,17 @@ impl InvocationWorld for ScenePathWorld {
         selected: PlayerTarget,
     ) -> Result<PathWorld<'_>, Self::Error> {
         let caller_weapon_inputs = self.caller_weapon_inputs(objects, actor);
+        let reflection = self.reflection_rules(objects, actor);
+        let protection_rules = super::path_protection::ProtectionRules {
+            special_character: self.scene.player_configuration.map(|configuration| {
+                configuration == super::path_protection::SPECIAL_PLAYER_CONFIGURATION
+            }),
+            blocked: self.action_gate.map(|gate| gate.code != 0),
+            minimum_override: self
+                .player_service_flags
+                .map(|flags| flags.minimum_protection()),
+            contacts_enabled: self.contacts_enabled(),
+        };
         let actor = objects
             .get(actor)
             .ok_or(WorldInputError::MissingActor(actor))?;
@@ -429,8 +485,11 @@ impl InvocationWorld for ScenePathWorld {
             .and_then(|binding| {
                 Some(PrimaryMotionInput {
                     auxiliary_mode: binding.records.auxiliary?.mode,
-                    displacement: objects.get(binding.lifetime.slot())?
-                        .extension.path_state.motion_delta,
+                    displacement: objects
+                        .get(binding.lifetime.slot())?
+                        .extension
+                        .path_state
+                        .motion_delta,
                 })
             });
         let linked_shots = actor
@@ -438,16 +497,89 @@ impl InvocationWorld for ScenePathWorld {
             .attachment
             .and_then(|id| self.shots[id.index()].as_mut())
             .filter(|binding| binding.is_live(objects));
-        let mut world = PathWorld::unbound(&mut self.random, self.strategy_clock as u8);
-        world.scene = self.scene;
-        world.primary_player = self.primary_player;
-        world.secondary_player = self.secondary_player;
-        world.fixed_players = self.fixed_players;
-        world.selected = selected;
-        world.primary_motion = primary_motion;
-        world.caller_weapon_inputs = caller_weapon_inputs;
-        world.published_motion = self.published_motion;
-        world.active_charge_threshold = self.active_charge_threshold;
+        // List every input explicitly so a new PathWorld field requires a
+        // scene-binding decision at compile time. Player borrows below remain
+        // absent only when their actual live owner or record is unavailable.
+        let mut world = PathWorld {
+            scene: self.scene,
+            primary_player: self.primary_player,
+            secondary_player: self.secondary_player,
+            fixed_players: self.fixed_players,
+            selected,
+            primary_motion,
+            caller_weapon_inputs,
+            published_motion: self.published_motion,
+            active_charge_threshold: self.active_charge_threshold,
+            reflection,
+            protection: Some(super::path_protection::PathProtection {
+                rules: protection_rules,
+                linked: None,
+            }),
+            selected_auxiliary: None,
+            selected_charge: None,
+            selected_occupancy_exempt: None,
+            selected_equipment: None,
+            selected_score: None,
+            selected_particle_effects: None,
+            primary_target: None,
+            primary_control: None,
+            primary_feedback: None,
+            linked_shot_count: linked_shots.map(|binding| LinkedShotCount {
+                owner: binding.lifetime.slot(),
+                state: &mut binding.count,
+            }),
+            audio: self.audio_routing.map(|routing| PathAudio {
+                events: &mut self.audio,
+                listeners: routing.listeners,
+                markers: routing.markers,
+            }),
+            radio: self.radio.as_mut().map(|(request, layout)| PathRadio {
+                request,
+                layout: *layout,
+            }),
+            contacts: Some(&self.contacts),
+            surface_mode: self.surface_mode,
+            environment_plane_height: self.environment_plane_height,
+            friend_health: self.friend_health.as_mut(),
+            targeting_upgrade: self.targeting_upgrade.as_mut(),
+            linked_effect_activity: self.linked_effect_activity.as_mut(),
+            published_homing_target: self.published_homing_target,
+            countdown: self.countdown.as_mut(),
+            button_layout: self
+                .player_input_settings
+                .map(|settings| settings.button_layout),
+            impact: self.impact.as_mut(),
+            occupancy: self.occupancy.as_ref(),
+            scene_proxies: Some(&mut self.proxies),
+            campaign: self.campaign,
+            camera_heading: self.camera_heading,
+            spawn_defaults: self.spawn_defaults,
+            view_transition_mode: self.view_transition_mode.as_mut(),
+            handoff: self.handoff.as_mut(),
+            camera_focus: self.camera_focus.as_mut(),
+            camera_tracking: self.camera_tracking.as_mut(),
+            health_display: self.health_display.as_mut(),
+            coordination: self.coordination.as_mut(),
+            objective_counts: self.objective_counts.as_mut(),
+            objective_completion: self.objective_completion.as_mut(),
+            scene_events: self.scene_events.as_mut(),
+            path_latches: self.path_latches.as_mut(),
+            sound_bank_request: self.sound_bank_request.as_mut(),
+            encounter_signals: self.encounter_signals.as_mut(),
+            scenery_distance: self.scenery_distance.as_mut(),
+            action_gate: self.action_gate.as_mut(),
+            shield_recovery: self.shield_recovery.as_mut(),
+            projectile_trigger: self.projectile_trigger.as_mut(),
+            projectile_flight_override: self.projectile_flight_override.as_mut(),
+            deferred_message: self.deferred_message.as_mut(),
+            radio_event: self.radio_event.as_mut(),
+            guidance: self.guidance.as_mut(),
+            pickup_history: self.pickup_history.as_mut(),
+            active_node_flags: self.active_node_flags.as_mut(),
+            weapons: self.weapons.as_mut(),
+            random: &mut self.random,
+            animation_clock: self.strategy_clock as u8,
+        };
         // One traversal can borrow disjoint fields even when selected and
         // primary identify the same player. No cloned hit-state copyback.
         for player in self.players.iter_mut().flatten() {
@@ -456,6 +588,12 @@ impl InvocationWorld for ScenePathWorld {
                 continue;
             }
             let records = &mut player.records;
+            if actor.base.attachment == Some(owner) {
+                world.protection.as_mut().expect("bound rules").linked = records
+                    .protection
+                    .as_mut()
+                    .map(|state| super::path_protection::LinkedProtection { owner, state });
+            }
             if selected == Some(owner) {
                 world.selected_auxiliary = records.auxiliary.as_mut();
                 world.selected_charge = records.charge.map(|charge| charge.path_input());
@@ -465,14 +603,9 @@ impl InvocationWorld for ScenePathWorld {
                 world.selected_particle_effects = records.particles.as_mut();
             }
             if self.primary_player == Some(owner) {
-                world.primary_target = records
-                    .target_selection
-                    .as_mut()
-                    .zip(target_anchor)
-                    .map(|(selection, anchor)| super::path_target::PrimaryTarget {
-                        anchor,
-                        selection,
-                    });
+                world.primary_target = records.target_selection.as_mut().zip(target_anchor).map(
+                    |(selection, anchor)| super::path_target::PrimaryTarget { anchor, selection },
+                );
                 world.primary_control = records.target_control.as_mut().map(|target| {
                     super::path_player_control::PrimaryControl {
                         target,
@@ -487,50 +620,6 @@ impl InvocationWorld for ScenePathWorld {
                 });
             }
         }
-        world.linked_shot_count = linked_shots.map(|binding| LinkedShotCount {
-            owner: binding.lifetime.slot(),
-            state: &mut binding.count,
-        });
-        world.audio = self.audio_routing.map(|routing| PathAudio {
-            events: &mut self.audio,
-            listeners: routing.listeners,
-            markers: routing.markers,
-        });
-        world.radio = self.radio.as_mut().map(|(request, layout)| PathRadio {
-            request,
-            layout: *layout,
-        });
-        world.contacts = Some(&self.contacts);
-        world.surface_mode = self.surface_mode;
-        world.impact = self.impact.as_mut();
-        world.occupancy = self.occupancy.as_ref();
-        world.scene_proxies = Some(&mut self.proxies);
-        world.campaign = self.campaign;
-        world.camera_heading = self.camera_heading;
-        world.spawn_defaults = self.spawn_defaults;
-        world.view_transition_mode = self.view_transition_mode.as_mut();
-        world.handoff = self.handoff.as_mut();
-        world.camera_focus = self.camera_focus.as_mut();
-        world.camera_tracking = self.camera_tracking.as_mut();
-        world.health_display = self.health_display.as_mut();
-        world.coordination = self.coordination.as_mut();
-        world.objective_counts = self.objective_counts.as_mut();
-        world.objective_completion = self.objective_completion.as_mut();
-        world.scene_events = self.scene_events.as_mut();
-        world.path_latches = self.path_latches.as_mut();
-        world.sound_bank_request = self.sound_bank_request.as_mut();
-        world.encounter_signals = self.encounter_signals.as_mut();
-        world.scenery_distance = self.scenery_distance.as_mut();
-        world.action_gate = self.action_gate.as_mut();
-        world.shield_recovery = self.shield_recovery.as_mut();
-        world.projectile_trigger = self.projectile_trigger.as_mut();
-        world.projectile_flight_override = self.projectile_flight_override.as_mut();
-        world.deferred_message = self.deferred_message.as_mut();
-        world.radio_event = self.radio_event.as_mut();
-        world.guidance = self.guidance.as_mut();
-        world.pickup_history = self.pickup_history.as_mut();
-        world.active_node_flags = self.active_node_flags.as_mut();
-        world.weapons = self.weapons.as_mut();
         Ok(world)
     }
 
@@ -542,12 +631,18 @@ impl InvocationWorld for ScenePathWorld {
         let owner = self
             .selected(selected)
             .ok_or(WorldInputError::MissingSelectedPlayer(selected))?;
-        let suppress_horizontal = self.player(objects, owner)?
+        let suppress_horizontal = self
+            .player(objects, owner)?
             .suppress_horizontal_follow
             .ok_or(WorldInputError::MissingDisplacement(selected))?;
-        let world_delta = self.published_motion
-            .ok_or(WorldInputError::MissingPublishedMotion)?.delta;
-        Ok(PlayerDisplacement { world_delta, suppress_horizontal })
+        let world_delta = self
+            .published_motion
+            .ok_or(WorldInputError::MissingPublishedMotion)?
+            .delta;
+        Ok(PlayerDisplacement {
+            world_delta,
+            suppress_horizontal,
+        })
     }
 
     fn trigger_inputs(

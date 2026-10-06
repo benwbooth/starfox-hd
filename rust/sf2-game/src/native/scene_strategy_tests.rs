@@ -162,6 +162,33 @@ impl Scene {
 }
 
 #[test]
+fn missing_protection_gate_latches_after_the_source_spin_without_replaying_it() {
+    use crate::path_program::{ProgramError, Statement};
+    use crate::path_protection::ProtectionError;
+    let mut scene = Scene::new();
+    let owner = scene.actor(Behavior::FollowPath);
+    let cursor = PathCursor { path: PathId::from_catalog_index(0), command_index: 0 };
+    scene.objects.get_mut(owner).unwrap().base.path = Some(cursor);
+    scene.catalog = PathCatalog::new(vec![vec![Statement::UpdateProtectionEffect {
+        ordinary_return: cursor, flicker: cursor,
+    }]]).unwrap();
+    assert_eq!(scene.host().run_strategy(owner, 1),
+        Err(SceneError::Path(InvocationError::Program(ProgramError::Protection(ProtectionError::MissingPlayerConfiguration)))));
+    assert!(scene.execution.is_faulted());
+    let actor = scene.objects.get(owner).unwrap();
+    assert_eq!(actor.extension.relative_rotation.pitch, Angle::from_units(8));
+    assert_eq!(actor.extension.relative_rotation.roll, Angle::from_units(6));
+    assert_eq!(actor.base.path, Some(cursor));
+    let after_failure = scene.objects.clone();
+    scene.world.scene.player_configuration = Some(9);
+    scene.world.action_gate = Some(crate::path_program::ActionGate { code: 1 });
+    for _ in 0..3 {
+        assert_eq!(scene.host().run_strategy(owner, 2), Err(SceneError::Faulted));
+        assert_eq!(scene.objects, after_failure);
+    }
+}
+
+#[test]
 fn split_schedule_composes_authored_charge_callbacks_and_live_selected_records() {
     let mut scene = Scene::new();
     let player = scene.actor(Behavior::Unassigned);
