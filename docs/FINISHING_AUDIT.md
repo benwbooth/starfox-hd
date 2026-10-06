@@ -194,6 +194,38 @@ Other evidence: `/tmp/sf2-opening-visits-oct06.log`,
 `/tmp/sf2-entropy-final-counted-checks-oct06.log` and
 `/tmp/sf2-entropy-static-oct06.log`.
 
+### SF1 Training handoff — 2026-10-06
+
+The corrected reference exposed a real duplicate movement reset. Training's
+`BGS.bg_training_1` uses the `pstrat` macro to queue `playeronplanet_Istrat`;
+`WORLD.setbginforeq_l` installs that pointer without rerunning
+`PSTRATS.playermove_init`. The native Training branch nevertheless called
+`player_move_init` after its base-player transfer pass, replacing camera speed
+64 with 65. Removing that extra call preserves the following source speeds
+and view depths (63, 107, then 63, 165). Other initialization remains intact.
+
+Two new native tests cover the completed base-player handoff and retained
+movement/weapon fields at signed velocity boundaries. A new differential test
+executes the unmodified source background-request routine for all 256 seeded
+byte values, checks the installed strategy pointer, and compares retained
+speed, rotation and weapon state. Two source-contract checks bind this test
+to the actual Training map macro and base/planet initializer call order.
+
+The existing complete first-course gate now passes unchanged in debug and
+release: 1,758 semantic/draw/audio-event updates, 1,752 source-bitmap updates,
+129 object births, all thirteen required shape families and the course restart.
+Each bitmap comparison covers the 224-by-152 scene region (34,048 pixels), not
+the lower radio/HUD region or a newly independent Mesen full-screen capture.
+No expected state or fixture was regenerated.
+
+All 1,553 game/path/strategy tests, all forty original-instruction strategy
+tests, the complete Training gate and all three app builds pass in both
+profiles. All 58 SF1 source checks and the architecture audit also pass.
+Evidence: `/tmp/sf1-training-handoff-final-oct06.log`. These checks used the
+current working tree, retaining its unrelated pre-existing changes. This
+closes the Training velocity failure, not the front-end timing, controller
+route or remaining whole-game gates.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from

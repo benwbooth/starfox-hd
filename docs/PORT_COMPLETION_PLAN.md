@@ -978,6 +978,17 @@ running; scheduled work is not a guarantee of a completion date.
   The autonomous timing gate and shipping coarse refresh are still open.
   Source-bound SF1 synchronization and production timing remain next blockers.
 
+- Fixed the Training handoff's duplicate movement initialization. The actual
+  map queues a planet strategy and the original background-request routine
+  installs it without resetting shared camera/weapon state. Two native tests,
+  256 original-instruction cases and two source checks protect that boundary.
+  The unchanged first-course gate passes 1,758 logic/draw/audio updates and
+  1,752 scene-region bitmap comparisons through all thirteen required shape
+  families and the restart, in debug and release. All 1,553 game/path/strategy
+  tests, forty original strategy tests, 58 SF1 source checks, architecture and
+  all three app builds pass. Front-end timing and the remaining route/oracle
+  failures remain open; this is not whole-game or full-screen certification.
+
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
 working merely because the user is due back.

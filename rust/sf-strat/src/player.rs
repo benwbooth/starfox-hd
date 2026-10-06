@@ -1587,6 +1587,52 @@ mod level_initialization_tests {
     use super::*;
 
     #[test]
+    fn training_handoff_preserves_the_completed_base_player_camera_chase() {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).expect("player");
+        advance_player_during_level_initialization(&mut game, player);
+        assert_eq!(game.vars.pviewvelz, 64);
+        initialize_player_for_map(&mut game, sf_map::catalog::map_id::TRAINING, player);
+        assert_eq!(game.vars.pviewvelz, 64);
+
+        // Reset-to-Training source entries: the first live visit still uses
+        // the credits movement body, then the installed planet initializer
+        // falls through on the following visit. No movement reset intervenes.
+        for (depth, view_depth) in [(126, 107), (189, 165)] {
+            game.sync_player_snapshot();
+            strat_player(&mut game, player);
+            assert_eq!(game.objs.aliens[player as usize].worldz, depth);
+            assert_eq!(game.vars.pviewvelz, 63);
+            assert_eq!(game.vars.strategy.player_view_position[2], view_depth);
+        }
+    }
+
+    #[test]
+    fn training_strategy_selection_does_not_reset_shared_movement_or_weapon_state() {
+        for speed in [i16::MIN, -257, -1, 0, 1, 63, 64, 65, i16::MAX] {
+            let mut game = Game::new();
+            let player = strat_spawn_player(&mut game).expect("player");
+            game.vars.pviewvelz = speed;
+            game.vars.playervel_z = speed.wrapping_add(19);
+            game.vars.strategy.player_rotation = [1234, -789, 32760];
+            game.vars.strategy.player_target_speed = 201;
+            game.vars.strategy.player_medium_speed = 72;
+            game.vars.strategy.special_delay = 117;
+            game.vars.strategy.player_laser_count = 3;
+            game.vars.strategy.boost_depth_offset = -79;
+            initialize_player_for_map(&mut game, sf_map::catalog::map_id::TRAINING, player);
+            assert_eq!(game.vars.pviewvelz, speed);
+            assert_eq!(game.vars.playervel_z, speed.wrapping_add(19));
+            assert_eq!(game.vars.strategy.player_rotation, [1234, -789, 32760]);
+            assert_eq!(game.vars.strategy.player_target_speed, 201);
+            assert_eq!(game.vars.strategy.player_medium_speed, 72);
+            assert_eq!(game.vars.strategy.special_delay, 117);
+            assert_eq!(game.vars.strategy.player_laser_count, 3);
+            assert_eq!(game.vars.strategy.boost_depth_offset, -79);
+        }
+    }
+
+    #[test]
     fn transfer_initializer_installs_the_authored_camera_pullback() {
         let mut game = Game::new();
         let player = strat_spawn_player(&mut game).expect("player");
@@ -3405,7 +3451,9 @@ pub fn initialize_player_for_map(g: &mut Game, map_id: u32, idx: u16) {
             // gameplay update. Other planet-map callbacks enter through the
             // source routine that falls through immediately.
             initialize_planet_flight(g, idx);
-            player_move_init(g, idx);
+            // BGS's `pstrat` queues this strategy for `setbginforeq_l` to
+            // install, without repeating `playermove_init`. The base-player
+            // pass has already advanced the shared camera velocity.
             g.vars
                 .set_sv_i16(sv::PVIEWPOSZ, g.objs.aliens[idx as usize].worldz);
             g.vars.playerflymode &= !PFM_WOBBLE;

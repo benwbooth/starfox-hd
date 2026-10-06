@@ -7,7 +7,7 @@ use sf_map::catalog::{
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{
     initialize_planet_flight, player_colony_flyin_istrat, player_divegnd_istrat,
-    player_inside_space_flyin_istrat, player_move_init, player_planet_flyin_istrat,
+    player_inside_space_flyin_istrat, player_planet_flyin_istrat,
     player_space_flyin_istrat, player_warp_out_istrat, queue_player_cred_istrat,
     queue_player_on_cont_istrat, set_player_in_ltexit, set_player_on_planet, set_player_undergnd,
     strat_player_opening_init, strat_spawn_player, strat_spawn_player_for_map,
@@ -34,7 +34,8 @@ fn apply_reference_opening(
         OpeningPlayerStrategy::GroundDive => player_divegnd_istrat(game, player),
         OpeningPlayerStrategy::PlanetFlight if map == map_id::TRAINING => {
             initialize_planet_flight(game, player);
-            player_move_init(game, player);
+            // The pending source strategy install does not reset the shared
+            // movement state already initialized by the base-player pass.
             game.vars
                 .set_sv_i16(sv::PVIEWPOSZ, game.objs.aliens[player as usize].worldz);
             game.vars.playerflymode &= !PFM_WOBBLE;

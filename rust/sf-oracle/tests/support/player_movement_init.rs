@@ -5,7 +5,9 @@ use super::{Source, OBJECT, WRAM};
 use sf_core::{player_view::PlayerViewMode, shape::resolve_shape_word};
 use sf_game::Game;
 use sf_oracle::SnesBus;
-use sf_strat::player::{player_move_init, select_ship};
+use sf_strat::player::{
+    initialize_player_for_map, player_move_init, select_ship, strat_spawn_player,
+};
 
 fn words(game: &Game) -> Vec<(&'static str, i16)> {
     let v = &game.vars;
@@ -63,6 +65,78 @@ fn bytes(game: &Game) -> Vec<(&'static str, u8)> {
         ("PLAYER_ROLLDELAY", s.player_roll_delay),
         ("PLAYER_NOCTRLCNT", s.player_control_delay),
     ]
+}
+
+#[test]
+fn pending_planet_strategy_install_preserves_shared_movement_and_weapon_fields() {
+    let source = Source::load();
+    let speeds = [i16::MIN, -257, -1, 0, 1, 63, 64, 65, i16::MAX];
+    for byte in u8::MIN..=u8::MAX {
+        let mut game = Game::new();
+        let player = strat_spawn_player(&mut game).unwrap();
+        let speed = speeds[usize::from(byte) % speeds.len()];
+        game.vars.pviewvelz = speed;
+        game.vars.playervel_z = speed.wrapping_add(19);
+        game.vars.strategy.player_rotation = [speed, speed.wrapping_mul(13), !speed];
+        game.vars.strategy.player_target_speed = byte;
+        game.vars.strategy.player_medium_speed = byte.wrapping_add(47);
+        game.vars.strategy.special_delay = byte.wrapping_add(113);
+        game.vars.strategy.player_laser_count = byte.wrapping_add(7);
+        game.vars.strategy.boost_depth_offset = byte as i8;
+        let retained_words = ["PVIEWVELZ", "PLAYERVELZ", "PLROTX", "PLROTY", "PLROTZ"];
+        let retained_bytes = [
+            "PLAYER_TOSPEED",
+            "PLAYER_MEDSPEED",
+            "SPECIALDELAY",
+            "NUMPLASERS",
+            "BOOSTZOFF",
+        ];
+        let mut bus = SnesBus::new(source.rom.clone());
+        // BGS.bg_training_1's pstrat macro queues the initializer. WORLD's
+        // background request installs it without executing its movement body.
+        source.word(&mut bus, 0, "PLAYPT", OBJECT as i16);
+        let initializer = source.symbol("PLAYERONPLANET_ISTRAT");
+        source.word(&mut bus, 0, "NEWPLAYERSTRAT", initializer as i16);
+        source.byte(&mut bus, 2, "NEWPLAYERSTRAT", (initializer >> 16) as u8);
+        for (name, value) in words(&game)
+            .into_iter()
+            .filter(|(name, _)| retained_words.contains(name))
+        {
+            source.word(&mut bus, 0, name, value);
+        }
+        for (name, value) in bytes(&game)
+            .into_iter()
+            .filter(|(name, _)| retained_bytes.contains(name))
+        {
+            source.byte(&mut bus, 0, name, value);
+        }
+        source.run(&mut bus, "SETBGINFOREQ_L");
+        let installed = WRAM | (OBJECT + source.symbol("AL_STRATPTR"));
+        assert_eq!(bus.read8(installed), initializer as u8);
+        assert_eq!(bus.read8(installed + 1), (initializer >> 8) as u8);
+        assert_eq!(bus.read8(installed + 2), (initializer >> 16) as u8);
+        initialize_player_for_map(&mut game, sf_map::catalog::map_id::TRAINING, player);
+        for (name, value) in words(&game)
+            .into_iter()
+            .filter(|(name, _)| retained_words.contains(name))
+        {
+            assert_eq!(
+                value,
+                bus.wram_read16(source.symbol(name)) as i16,
+                "{name} seed={byte}"
+            );
+        }
+        for (name, value) in bytes(&game)
+            .into_iter()
+            .filter(|(name, _)| retained_bytes.contains(name))
+        {
+            assert_eq!(
+                value,
+                bus.read8(WRAM | source.symbol(name)),
+                "{name} seed={byte}"
+            );
+        }
+    }
 }
 
 #[test]
