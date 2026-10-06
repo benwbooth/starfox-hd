@@ -113,6 +113,21 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Restored the shared SF1 movement initializer's missing gameplay resets:
+  invulnerable player-body data and shadow/cull flags, accumulated rotation,
+  slime, roll/shake state, hit/laser counts, special delay, movement speeds and
+  background scroll policy. The source's byte-only death-yaw write preserves
+  its inherited upper byte. Ship, inventory, shield-proxy HP, camera X/Y,
+  firing state and control/roll timers are not indiscriminately reset. A new
+  original-code gate compares 43 scalar fields plus object data and player/view
+  targets across 1,280 inherited-state/view combinations. The checkpoint
+  handoff test also exercises the immediate credits movement visit after reset.
+  All 1,543 scoped native tests and 28 weapon/player original-code tests pass
+  in debug/release; all three app binaries build in both profiles and the
+  architecture check passes. This is integrated gameplay-state closure for
+  that initializer, not closure of its still-missing particle activation,
+  one-shot red-palette latch or separate source camera-object role.
+
 - Connected SF1's source cockpit reticle to completed scene snapshots and both
   shipping render paths. The native lines preserve the original rotation's
   low-word subtraction/borrow behavior, ordered mirrored strokes, transparent

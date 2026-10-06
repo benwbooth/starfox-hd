@@ -26,6 +26,58 @@ fn player_start_and_move_init() {
 }
 
 #[test]
+fn checkpoint_player_handoff_clears_stale_motion_without_resetting_inventory() {
+    use sf_game::alien::{ASF_SHADOW, ATGND, ATZREMOVE};
+    use sf_strat::player::{prepare_checkpoint_restart_player, strat_spawn_player};
+
+    let mut g = Game::new();
+    let p = strat_spawn_player(&mut g).unwrap();
+    let body = g.objs.alloc().unwrap();
+    g.coldet.pcbox.body = Some(body);
+    g.objs.aliens[body as usize].hp = 37;
+    g.objs.aliens[p as usize].hp = 10;
+    g.objs.aliens[p as usize].ap = 0;
+    g.objs.aliens[p as usize].type_ = ATGND | ATZREMOVE;
+    g.objs.aliens[p as usize].sflags = 0;
+    g.vars.shared.slime_count = 29;
+    g.vars.strategy.player_roll_velocity = -32;
+    g.vars.strategy.player_roll_offset = 67;
+    g.vars.strategy.player_depth_shake = -913;
+    g.vars.strategy.player_depth_strategy_offset = 84;
+    g.vars.strategy.player_hit_count = 3;
+    g.vars.strategy.player_laser_count = 2;
+    g.vars.strategy.special_delay = 50;
+    g.vars.strategy.special_weapon_count = 7;
+    g.vars.strategy.player_roll_delay = 2;
+    g.vars.strategy.player_control_delay = 19;
+    g.vars.strategy.fire_count = 6;
+    g.vars.strategy.fire_delay = 8;
+
+    prepare_checkpoint_restart_player(&mut g, p);
+
+    assert_eq!(g.vars.shared.slime_count, 0);
+    assert_eq!(g.vars.strategy.player_roll_velocity, 0);
+    assert_eq!(g.vars.strategy.player_roll_offset, 0);
+    assert_eq!(g.vars.strategy.player_depth_shake, 0);
+    assert_eq!(g.vars.strategy.player_depth_strategy_offset, 0);
+    assert_eq!(g.vars.strategy.player_hit_count, 0);
+    assert_eq!(g.vars.strategy.player_laser_count, 0);
+    assert_eq!(g.vars.strategy.special_delay, 1);
+    assert_eq!(g.vars.strategy.special_weapon_count, 7);
+    // The initializer retains both timers; playercred's immediate movement
+    // body then consumes one visit, as in the source fall-through path.
+    assert_eq!(g.vars.strategy.player_roll_delay, 1);
+    assert_eq!(g.vars.strategy.player_control_delay, 18);
+    assert_eq!(g.vars.strategy.fire_count, 6);
+    assert_eq!(g.vars.strategy.fire_delay, 8);
+    assert_eq!(g.objs.aliens[p as usize].hp, 255);
+    assert_eq!(g.objs.aliens[p as usize].ap, 8);
+    assert_eq!(g.objs.aliens[p as usize].type_, ATGND);
+    assert_ne!(g.objs.aliens[p as usize].sflags & ASF_SHADOW, 0);
+    assert_eq!(g.objs.aliens[body as usize].hp, 37);
+}
+
+#[test]
 fn phase2_dup_inits() {
     let mut g = Game::new();
     let p = g.objs.alloc().expect("slot");

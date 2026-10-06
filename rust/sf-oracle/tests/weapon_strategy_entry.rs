@@ -34,6 +34,9 @@ mod wire_pickup;
 #[path = "support/cockpit_hud.rs"]
 mod cockpit_hud;
 
+#[path = "support/player_movement_init.rs"]
+mod player_movement_init;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,

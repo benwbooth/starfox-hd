@@ -7352,16 +7352,54 @@ pub fn player_start_init(g: &mut Game) {
     select_ship(g, PSHIPNUM_NORM);
 }
 
-/// ROM `playermove_init_l` — view/play pointers + outviewdist.
+/// Source `playermove_init_l`: restore the movement, weapon-count and camera
+/// state without resetting the run's shield, wing damage or weapon inventory.
+/// Particle activation and the one-shot red-palette latch still belong to the
+/// pending source presentation lifecycle; this routine does not replace it.
 pub fn player_move_init(g: &mut Game, idx: u16) {
-    g.vars.set_sv_u8(sv::VIEWTYPE, VIEWTYPE_NORM);
-    g.vars.set_sv_i16(sv::VIEWTOOBJ, idx as i16);
-    g.vars.internal_playpt = idx as i16;
-    g.vars.player_object = idx as i16;
-    g.vars.viewdist = OUTVIEWDIST;
-    g.vars.set_sv_i16(sv::OUTDIST, OUTVIEWDIST);
-    g.vars.strategy.player_death_yaw_step = PLAYER_DEATH_YAW_STEP;
+    const INITIAL_SPECIAL_DELAY: u8 = 1;
+    const INITIAL_BOOST_DEPTH_OFFSET: i8 = -30;
+    let vars = &mut g.vars;
+    vars.strategy.view_kind = VIEWTYPE_NORM;
+    vars.strategy.view_target_object = idx as i16;
+    vars.internal_playpt = idx as i16;
+    vars.player_object = idx as i16;
+    vars.viewdist = OUTVIEWDIST;
+    vars.strategy.view_distance = OUTVIEWDIST;
+
+    let player = &mut g.objs.aliens[idx as usize];
+    player.type_ &= !ATZREMOVE;
+    player.hp = HARD_HP;
+    player.ap = HARD_AP;
+    player.sflags |= ASF_SHADOW;
+
+    vars.strategy.player_rotation = [0; 3];
+    vars.shared.slime_count = 0;
+    vars.pstratflags = 0;
+    vars.strategy.player_turn_rotation = 0;
+    vars.strategy.player_depth_tilt = 0;
+    vars.strategy.player_depth_shake = 0;
+    vars.strategy.player_depth_strategy_offset = 0;
+    vars.strategy.player_roll_velocity = 0;
+    vars.strategy.player_roll_offset = 0;
+    vars.strategy.player_hit_count = 0;
+    vars.strategy.player_laser_count = 0;
+    vars.strategy.special_delay = INITIAL_SPECIAL_DELAY;
+    // Unlike a fresh spawn, the shared initializer leaves X/Y, roll-delay,
+    // control-delay, object velocity and the rest of the camera state intact.
+    vars.strategy.player_view_position[2] = 0;
+    let inherited_yaw_high = vars.strategy.player_death_yaw_step.to_le_bytes()[1];
+    vars.strategy.player_death_yaw_step =
+        i16::from_le_bytes([PLAYER_DEATH_YAW_STEP as u8, inherited_yaw_high]);
+    vars.pviewvelz = MED_PSPEED;
+    vars.strategy.player_target_speed = MED_PSPEED as u8;
+    vars.strategy.player_medium_speed = MED_PSPEED as u8;
+    vars.playervel_z = MED_PSPEED;
+    vars.strategy.boost_depth_offset = INITIAL_BOOST_DEPTH_OFFSET;
+    vars.strategy.no_maximum_background_y = 0;
     setcurrpshape(g, idx);
+    g.vars.pshipflags3 &= !(PSF3_INTUNNEL | PSF3_FORCEBRAKE | PSF3_NOCOLLISIONS);
+    g.vars.pshipflags3 |= PSF3_ENGINESND;
 }
 
 /// ROM `playerCHASE2_init` — dup + silence engines; continue as space.
