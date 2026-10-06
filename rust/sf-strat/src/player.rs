@@ -159,9 +159,9 @@ const SHAPE_LINE_SPARK: u16 = 380;
 
 // --- Player ship shape table (GSTRATS.ASM:146-170, STRATEQU.INC:790-796) ---
 /// `pshipnum_norm` — default Arwing row.
-pub const PSHIPNUM_NORM: u8 = 0;
+pub const PSHIPNUM_NORM: u8 = sf_game::vars::PLAYER_SHIP_NORMAL;
 /// `pshipnum_wire` — wireframe flash / item7.
-pub const PSHIPNUM_WIRE: u8 = 1;
+pub const PSHIPNUM_WIRE: u8 = sf_game::vars::PLAYER_SHIP_WIREFRAME;
 /// `pshipnum_null` — invisible.
 pub const PSHIPNUM_NULL: u8 = 2;
 /// `pshipnum_cockship` — cockpit / my_up.
@@ -244,11 +244,14 @@ const PLAYER_SHAPES: [PlayerShipShapes; MAX_PSHIPS as usize] = [
 /// `player_shapes[ship_num]`. Ship numbers ≥ `maxpships` clamp to 0.
 pub fn select_ship(g: &mut Game, ship_num: u8) {
     let row = player_ship_row(ship_num);
-    let v = &mut g.vars;
-    v.set_sv_u16(sv::PLAYERSHAPE, row.intact);
-    v.set_sv_u16(sv::PLAYERSHAPEL, row.no_left);
-    v.set_sv_u16(sv::PLAYERSHAPER, row.no_right);
-    v.set_sv_u16(sv::PLAYERSHAPELR, row.both);
+    g.vars.strategy.player_shapes = [row.intact, row.no_left, row.no_right, row.both];
+}
+
+/// Call sites that write `curr_ship` before `select_ship_l`. Loading a shape
+/// row alone (including temporary flash/cutscene shapes) does not select it.
+pub(crate) fn select_current_ship(g: &mut Game, ship_num: u8) {
+    g.vars.strategy.player_ship_selection = ship_num;
+    select_ship(g, ship_num);
 }
 
 /// ROM `setYplayershape_l` (GSTRATS.ASM:178-203): set `al_shape` from
@@ -2193,30 +2196,34 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     player_hitflash_update(g, idx);
 
     // Wire-ship (Shield Power-up) hit check — PSTRATS.ASM:1775-1796.
-    // While psf2_wireship: if pnumhits >= 3, flash shieldup for wireendflash
-    // frames then clear the wire bit; else arm wireendflash=50.
+    // Preserve the source byte subtraction's zero/negative test, including
+    // wrapped high hit counts. Expiry falls through to rearm its countdown.
+    const LAST_UNDAMAGED_WIRE_HIT_COUNT: u8 = 2;
+    const WIRE_EXPIRY_FLASH_VISITS: u8 = 50;
+    const WIRE_EXPIRY_BLINK_MASK: u8 = 3;
     if g.vars.pshipflags2 & PSF2_WIRESHIP != 0 {
-        let hits = g.vars.sv_u8(sv::PNUMHITS);
-        if hits >= 3 {
+        let hits = g.vars.strategy.player_hit_count;
+        if (hits.wrapping_sub(LAST_UNDAMAGED_WIRE_HIT_COUNT) as i8) > 0 {
             let flash = g.vars.wireendflash;
             if flash == 0 {
                 g.vars.shieldup = 0;
-                select_ship(g, PSHIPNUM_NORM);
+                select_current_ship(g, PSHIPNUM_NORM);
                 g.vars.pshipflags2 &= !PSF2_WIRESHIP;
+                g.vars.wireendflash = WIRE_EXPIRY_FLASH_VISITS;
             } else {
                 let remaining = flash.wrapping_sub(1);
                 g.vars.wireendflash = remaining;
                 // Blink: shieldup on when (wireendflash & 3) != 0.
-                if remaining & 3 != 0 {
+                if remaining & WIRE_EXPIRY_BLINK_MASK != 0 {
                     g.vars.shieldup = 1;
-                    select_ship(g, PSHIPNUM_WIRE);
+                    select_current_ship(g, PSHIPNUM_WIRE);
                 } else {
                     g.vars.shieldup = 0;
-                    select_ship(g, PSHIPNUM_NORM);
+                    select_current_ship(g, PSHIPNUM_NORM);
                 }
             }
         } else {
-            g.vars.wireendflash = 50;
+            g.vars.wireendflash = WIRE_EXPIRY_FLASH_VISITS;
         }
     }
 

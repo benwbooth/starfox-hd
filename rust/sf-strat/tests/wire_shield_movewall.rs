@@ -3,7 +3,7 @@
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemies_ground::{item6_istrat, wall1_strat, walll_istrat, wallnothit};
-use sf_strat::player::{player_start_init, strat_player};
+use sf_strat::player::{player_start_init, select_ship, strat_player};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -66,6 +66,7 @@ fn item6_sets_shieldup_and_clears_pnumhits() {
     assert_ne!(g.vars.pshipflags2 & PSF2_WIRESHIP, 0);
     assert_eq!(g.vars.shieldup, 1);
     assert_eq!(g.vars.sv_u8(sv::PNUMHITS), 0);
+    assert_eq!(g.vars.strategy.player_ship_selection, 1);
     assert_ne!(g.vars.sv_u16(sv::PLAYERSHAPE), normal_shape);
     assert!(log.borrow().contains(&SndEvent::PlaySe(0x16)));
     assert_eq!(g.objs.aldead, 1);
@@ -91,11 +92,13 @@ fn wire_ship_expiration_selects_normal_mesh_before_clearing_the_powerup() {
 
     assert_eq!(g.vars.wireendflash, 0);
     assert_eq!(g.vars.shieldup, 0);
+    assert_eq!(g.vars.strategy.player_ship_selection, 0);
     assert_eq!(g.vars.sv_u16(sv::PLAYERSHAPE), normal_shape);
     assert_ne!(g.vars.pshipflags2 & PSF2_WIRESHIP, 0);
 
     strat_player(&mut g, 0);
     assert_eq!(g.vars.pshipflags2 & PSF2_WIRESHIP, 0);
+    assert_eq!(g.vars.wireendflash, 50, "expiry falls into countdown rearm");
 }
 
 #[test]
@@ -104,10 +107,21 @@ fn player_start_init_clears_shieldup() {
     g.vars.shieldup = 1;
     g.vars.wireendflash = 40;
     g.vars.pshipflags2 = PSF2_WIRESHIP;
+    g.vars.strategy.player_ship_selection = 1;
     player_start_init(&mut g);
     assert_eq!(g.vars.shieldup, 0);
     assert_eq!(g.vars.wireendflash, 0);
     assert_eq!(g.vars.pshipflags2, 0);
+    assert_eq!(g.vars.strategy.player_ship_selection, 0);
+}
+
+#[test]
+fn loading_temporary_shape_rows_does_not_replace_the_selected_ship() {
+    let mut g = Game::new();
+    g.vars.strategy.player_ship_selection = 1;
+    select_ship(&mut g, 5);
+    assert_eq!(g.vars.strategy.player_ship_selection, 1);
+    assert_eq!(g.vars.strategy.player_shapes, [372, 373, 374, 375]);
 }
 
 #[test]

@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Completed the SF1 wire-shield pickup/drop and selected-ship lifecycle.
+  Collection now preserves exposed-player selection, wrapped ranges, flag-byte
+  ownership and repeated removal ordering; enemy drops have the real pickup
+  mesh and defer their first visit. The selected ship table row now has its
+  own typed state, distinct from loading temporary shape rows or retaining a
+  shield flag. Expiry preserves the source's signed hit-count gate and rearms
+  its countdown after switching back to the normal ship. The ordinary strategy
+  pass publishes cockpit HUD colour from the exposed ship's previous colour
+  frame, then advances or parks that ship's animation under the original gates.
+  This is verified game-state publication; the renderer still lacks its
+  cockpit-line consumer. Four original-code tests cover wrapped pickup/death
+  cases, failed drops, every expiry countdown at signed hit-count boundaries,
+  and all 256 colour bytes across selection/shield/hit-flash branches. All
+  1,544 game/path/strategy tests and 24 weapon/pickup original-code tests pass
+  in debug/release; all 49 SF1 source tests, the architecture audit and all
+  three app builds pass. Existing timing/route and SF2 frame/scene gates remain
+  open; the one-up carrier family is not included in these pickup batches.
+
 - Completed SF1's body-health pickup and the two laser-drop callers. Health
   now targets the collision system's live body, enters movement/collection on
   its initializer visit, preserves signed wrapping range and health arithmetic,

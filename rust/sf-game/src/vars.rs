@@ -39,7 +39,12 @@ pub const PSF_NOFIRE: u8 = 64;
 pub const PSF_STAGE_DAMAGE: u8 = PSF_BROKEN_LEFT_WING | PSF_BROKEN_RIGHT_WING;
 
 // pshipflags2
+pub const PSF2_WIREFRAME_SHIP: u8 = 2;
 pub const PSF2_PLAYERHP0: u8 = 128;
+
+/// GSTRATS player-shape table selections, kept separate from power-up flags.
+pub const PLAYER_SHIP_NORMAL: u8 = 0;
+pub const PLAYER_SHIP_WIREFRAME: u8 = 1;
 
 // pshipflags3
 pub const PSF3_INTUNNEL: u8 = 1;
@@ -402,6 +407,10 @@ pub struct StrategyVariables {
     pub strategy_words: [i16; 3],
     pub player_collision_objects: [i16; 3],
     pub player_shapes: [u16; 4],
+    /// Source `curr_ship`: the selected table row, independently of shield flags.
+    pub player_ship_selection: u8,
+    /// Source `m_hudcolour`: cockpit line palette index, published before colour animation.
+    pub cockpit_hud_color: u8,
     pub fire_count: u8,
     pub fire_delay: u8,
     pub special_delay: u8,
@@ -876,6 +885,7 @@ impl GameVars {
         self.pshipflags2 = 0;
         self.pshipflags3 = 0;
         self.shieldup = 0;
+        self.strategy.player_ship_selection = PLAYER_SHIP_NORMAL;
         self.wireendflash = 0;
         self.player_death_fade_delay = 0;
         self.screen_fill_circle.clear();

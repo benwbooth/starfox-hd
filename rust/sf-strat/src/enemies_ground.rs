@@ -1438,18 +1438,12 @@ pub fn wiremandie_istrat(g: &mut Game, idx: u16) {
 }
 
 fn wiremandie_strat(g: &mut Game, idx: u16) {
-    if let Some(drop) = make_obj(g, 0) {
-        let (px, py, pz) = {
-            let me = &g.objs.aliens[idx as usize];
-            (me.worldx, me.worldy, me.worldz)
-        };
-        {
-            let al = &mut g.objs.aliens[drop as usize];
-            al.worldx = px;
-            al.worldy = py;
-            al.worldz = pz;
-        }
-        item6_istrat(g, drop);
+    const WIRE_PICKUP_SHAPE: u16 = 159;
+    if let Some(drop) = make_obj(g, WIRE_PICKUP_SHAPE) {
+        g.objs.active_move_after(drop, idx);
+        let entry = sid(g, item6_istrat);
+        g.objs.aliens[drop as usize].stratptr = Some(entry);
+        copy_pos(g, drop, idx);
     }
     strat_explode(g, idx);
 }
@@ -5322,8 +5316,8 @@ const SOKUTEN_AP: u8 = 16;
 const BODY_PICKUP_HEALTH: u8 = 5;
 const BODY_PICKUP_SPIN: u8 = 4;
 const BODY_PICKUP_DRIFT: i16 = 20;
-const BODY_PICKUP_Z_RANGE: i16 = 120;
-const BODY_PICKUP_XY_RANGE: i16 = 60;
+const STANDARD_PICKUP_Z_RANGE: i16 = 120;
+const STANDARD_PICKUP_XY_RANGE: i16 = 60;
 const SE_BODY_PICKUP: u8 = 0x10;
 
 /// `jump1_Istrat` (GASTRATS.ASM:1633-1640): hard/static scenery facing 180°.
@@ -5464,8 +5458,8 @@ pub fn item3_strat(g: &mut Game, idx: u16) {
     };
     let pl = g.objs.aliens[player as usize];
     let me = g.objs.aliens[idx as usize];
-    if pickup_outside_z(&me, &pl, BODY_PICKUP_Z_RANGE)
-        || pickup_outside_xy(&me, &pl, BODY_PICKUP_XY_RANGE)
+    if pickup_outside_z(&me, &pl, STANDARD_PICKUP_Z_RANGE)
+        || pickup_outside_xy(&me, &pl, STANDARD_PICKUP_XY_RANGE)
     {
         return;
     }
@@ -8352,6 +8346,9 @@ fn truckcol_strat(g: &mut Game, idx: u16) {
 // ------------------------------------------------------------
 // item6 (IS 176) — GASTRATS.ASM:2598-2621. Wireframe-ship power-up.
 // ------------------------------------------------------------
+const WIRE_PICKUP_DRIFT: i16 = 20;
+const WIRE_PICKUP_SPIN: u8 = 4;
+const SE_WIRE_PICKUP: u8 = 0x16;
 
 /// `item6_Istrat` (GASTRATS.ASM:2598-2601): tick=item6_strat (no collide/explode),
 /// colldisable. There is NO s_start_strat/s_end_strat guard here — it falls
@@ -8368,7 +8365,7 @@ fn item6_init(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick); // s_set_alptrs x,item6_strat,0,0
         al.collstratptr = None;
         al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+        al.sflags2 |= ASF2_COLLDISABLE; // s_set_alsflag x,colldisable
     }
     item6_strat(g, idx); // fall-through
 }
@@ -8379,43 +8376,38 @@ fn item6_init(g: &mut Game, idx: u16) {
 /// (`psf2_wireship` + `shieldup=1` + `pnumhits=0`), chime `$16`, and
 /// self-remove.
 pub fn item6_strat(g: &mut Game, idx: u16) {
-    // s_remove_ifplayerdead x (mirrors item5: removes on pshipflags2 HP0 / no player).
-    let Some(pl) = player(g) else {
-        g.objs.aldead = 1;
-        return;
-    };
+    use crate::enemy_a::{mark_pickup_removal, pickup_outside_xy, pickup_outside_z};
     if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
-        g.objs.aldead = 1;
-        return;
+        mark_pickup_removal(g, idx);
     }
     {
         let al = &mut g.objs.aliens[idx as usize];
         // s_jmp_alvarNOTZERO B,x,al_sbyte1,.stop ; s_add_alvar W,x,al_worldz,#20.
         if al.sbyte1 == 0 {
-            al.worldz = al.worldz.wrapping_add(20);
+            al.worldz = al.worldz.wrapping_add(WIRE_PICKUP_DRIFT);
         }
-        al.roty = al.roty.wrapping_add(4); // s_add_alvar B,x,al_roty,#4
+        al.roty = al.roty.wrapping_add(WIRE_PICKUP_SPIN);
     }
     // s_set_objtobeplayer y ; s_jmp_Zdistmore #60*2 ; s_jmp_XYdistmore #30*2 (skip
     // when |dz|>=120 or |dx|+|dy|>=60 — pickup needs strictly less).
-    let me = g.objs.aliens[idx as usize];
-    let zdist = (me.worldz as i32 - pl.worldz as i32).abs();
-    if zdist >= 120 {
+    let Some(player) = g.player_object() else {
         return;
-    }
-    let xydist =
-        (me.worldx as i32 - pl.worldx as i32).abs() + (me.worldy as i32 - pl.worldy as i32).abs();
-    if xydist >= 60 {
+    };
+    let pl = g.objs.aliens[player as usize];
+    let me = g.objs.aliens[idx as usize];
+    if pickup_outside_z(&me, &pl, STANDARD_PICKUP_Z_RANGE)
+        || pickup_outside_xy(&me, &pl, STANDARD_PICKUP_XY_RANGE)
+    {
         return;
     }
     // Pickup: select the wireframe ship, set its shield state, chime, remove.
     // ROM GASTRATS.ASM:2615-2620.
-    g.vars.set_sv_u8(sv::PNUMHITS, 0);
-    crate::player::select_ship(g, crate::player::PSHIPNUM_WIRE);
+    g.vars.strategy.player_hit_count = 0;
+    crate::player::select_current_ship(g, crate::player::PSHIPNUM_WIRE);
     g.vars.pshipflags2 |= PSF2_WIRESHIP; // s_or_var pshipflags2,#psf2_wireship
     g.vars.shieldup = 1; // s_set_var B,shieldup,#1
-    g.hooks.play_se(0x16); // TRIGSE $16
-    g.objs.aldead = 1; // s_jmp remove_Istrat
+    g.hooks.play_se(SE_WIRE_PICKUP);
+    mark_pickup_removal(g, idx); // s_jmp remove_Istrat
 }
 
 // ============================================================

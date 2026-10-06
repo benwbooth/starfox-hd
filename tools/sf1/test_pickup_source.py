@@ -5,6 +5,35 @@ from test_strategy_source_contracts import instructions, source
 
 
 class PickupSourceTests(unittest.TestCase):
+    def test_wire_pickup_selects_current_ship_and_removes_without_flash(self):
+        body = source("STRAT/GASTRATS.ASM").split("\nitem6_Istrat", 1)[1].split(";********", 1)[0]
+        self.assertEqual(instructions(body), [
+            "s_set_alptrs x,item6_strat,0,0", "s_set_alsflag x,colldisable", "item6_strat",
+            "s_start_strat", "s_remove_ifplayerdead x", "s_jmp_alvarNOTZERO B,x,al_sbyte1,.stop",
+            "s_add_alvar W,x,al_worldz,#20", ".stop", "s_add_alvar B,x,al_roty,#4", "s_set_objtobeplayer y",
+            "s_jmp_Zdistmore x,y,#60*2,.nitem", "s_jmp_XYdistmore x,y,#30*2,.nitem",
+            "s_set_var B,pnumhits,#0", "lda #pshipnum_wire", "sta curr_ship", "jsl select_ship_l",
+            "s_or_var B,pshipflags2,#psf2_wireship", "s_set_var B,shieldup,#1", "TRIGSE $16",
+            "s_jmp remove_Istrat", ".nitem s_end_strat",
+        ])
+        drop = source("STRAT/GASTRATS.ASM").split("\nwiremandie_Istrat", 1)[1].split(";********", 1)[0]
+        self.assertEqual(instructions(drop), [
+            "s_start_strat", "s_make_obj #item_6,.badobj", "s_set_strat y,item6_Istrat",
+            "s_copy_pos y,x", ".badobj", "s_jmp explode_Istrat",
+        ])
+
+    def test_wire_expiry_has_signed_hit_gate_and_rearms_after_clearing_the_shield(self):
+        body = source("STRAT/PSTRATS.ASM").split("\nplayermove_srou\n", 1)[1].split("\n.notwire", 1)[0]
+        self.assertEqual(instructions(body), [
+            "s_jmpNOT_varAND B,pshipflags2,#psf2_wireship,.notwire",
+            "s_jmp_varlesseq B,pnumhits,#3-1,.iswire", "s_beqdec_var B,wireendflash,.backtonorm",
+            "s_jmp_varAND B,wireendflash,#3,.wire", "stz shieldup", "lda #pshipnum_norm",
+            "sta curr_ship", "jsl select_ship_l", "brl .notwire", ".wire lda #1", "sta shieldup",
+            "lda #pshipnum_wire", "sta curr_ship", "jsl select_ship_l", "brl .notwire", ".backtonorm",
+            "stz shieldup", "lda #pshipnum_norm", "sta curr_ship", "jsl select_ship_l",
+            "s_and_var B,pshipflags2,#~psf2_wireship", ".iswire", "s_set_var B,wireendflash,#50",
+        ])
+
     def test_body_pickup_falls_through_and_heals_the_live_body_with_byte_arithmetic(self):
         body = source("STRAT/GASTRATS.ASM").split("\nitem3_Istrat", 1)[1].split(";********", 1)[0]
         self.assertEqual(instructions(body), [

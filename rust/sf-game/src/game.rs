@@ -15,7 +15,7 @@
 
 use crate::alien::{
     StratId, ACF_FIRSTFRAME, ASF2_LCOLLIDE, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_PLAYEROBJ,
-    ASF4_SFLAG8, ASF_COLLIDE, ASF_SPECIAL, ATNUKED, ATZREMOVE, NUMBER_AL,
+    ASF4_SFLAG8, ASF_COLLIDE, ASF_HITFLASH, ASF_SPECIAL, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use crate::alien_compat as compat;
 use crate::coldet::Coldet;
@@ -37,6 +37,8 @@ const VIEW_FLOAT_ENTRY_BYTES: u16 = 2;
 const VIEW_FLOAT_TABLE_BYTE_LENGTH: u16 = 72;
 const PLAYER_COLOR_CYCLE_FRAME_COUNT: u8 = 4;
 const FIXED_COLOR_FRAME_FLAG: u8 = 0x80;
+const DEFAULT_COCKPIT_HUD_COLOR: u8 = 15;
+const WIRE_COCKPIT_HUD_COLORS: [u8; 4] = [8, 7, 6, 5];
 const PLAYER_DEATH_VIEW_PITCH_CHASE_SHIFT: u32 = 3;
 const PLAYER_DEATH_ROLL_CHASE_SHIFT: u32 = 2;
 const PLAYER_DEATH_VIEW_DISTANCE_CHASE_SHIFT: u32 = 4;
@@ -434,14 +436,34 @@ impl Game {
             return;
         };
         self.try_change_player_view(player);
-        // GSTRATS.ASM `init_strats_l` advances the ordinary Arwing's fixed
-        // four-frame colour cycle before the object strategy walk.
-        let player_color = &mut self.objs.aliens[usize::from(player)].colframe;
-        let mut color = (*player_color & !FIXED_COLOR_FRAME_FLAG).wrapping_add(1);
-        if color >= PLAYER_COLOR_CYCLE_FRAME_COUNT {
-            color = color.wrapping_sub(PLAYER_COLOR_CYCLE_FRAME_COUNT);
+        // GSTRATS selects HUD colour from the exposed ship's PREVIOUS frame,
+        // then advances its animation. An unshielded wire selection instead
+        // parks at frame four unless hit-flashing. internal_playpt can name a
+        // different actor during death-camera handoffs.
+        self.vars.strategy.cockpit_hud_color = DEFAULT_COCKPIT_HUD_COLOR;
+        if let Some(exposed) = self.player_object() {
+            let ship = &mut self.objs.aliens[usize::from(exposed)];
+            let wire = self.vars.strategy.player_ship_selection == PLAYER_SHIP_WIREFRAME;
+            let shield = self.vars.pshipflags2 & PSF2_WIREFRAME_SHIP != 0;
+            if wire && shield {
+                let color_index = ship.colframe & (PLAYER_COLOR_CYCLE_FRAME_COUNT - 1);
+                self.vars.strategy.cockpit_hud_color =
+                    WIRE_COCKPIT_HUD_COLORS[usize::from(color_index)];
+            }
+            if wire && !shield && ship.sflags & ASF_HITFLASH == 0 {
+                ship.colframe = FIXED_COLOR_FRAME_FLAG | PLAYER_COLOR_CYCLE_FRAME_COUNT;
+            } else {
+                let mut color = ship.colframe.wrapping_add(1);
+                if color & FIXED_COLOR_FRAME_FLAG == 0 {
+                    color = color.wrapping_add(PLAYER_COLOR_CYCLE_FRAME_COUNT);
+                }
+                color &= !FIXED_COLOR_FRAME_FLAG;
+                if color >= PLAYER_COLOR_CYCLE_FRAME_COUNT {
+                    color = color.wrapping_sub(PLAYER_COLOR_CYCLE_FRAME_COUNT);
+                }
+                ship.colframe = FIXED_COLOR_FRAME_FLAG | color;
+            }
         }
-        *player_color = FIXED_COLOR_FRAME_FLAG | color;
         // GSTRATS.ASM init_strats float block: the two shared oscillators
         // advance only while the active player view enables wobble.
         if self.vars.playerflymode & PFM_WOBBLE != 0 {

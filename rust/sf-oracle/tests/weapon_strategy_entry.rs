@@ -28,6 +28,9 @@ mod special_pickup;
 #[path = "support/body_pickup.rs"]
 mod body_pickup;
 
+#[path = "support/wire_pickup.rs"]
+mod wire_pickup;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,

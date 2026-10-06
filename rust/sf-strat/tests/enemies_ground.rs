@@ -2550,7 +2550,11 @@ fn item6_init_colldisable_and_drifts() {
     let e = place(&mut g, IS_ITEM6, 0, 0, 5000, 160);
     tick(&mut g, e);
     let a = g.objs.aliens[e as usize];
-    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_ne!(
+        a.sflags2 & sf_game::alien::ASF2_COLLDISABLE,
+        0,
+        "colldisable"
+    );
     assert_eq!(a.worldz, 5020, "drift +20 z (sbyte1==0)");
     assert_eq!(a.roty, 4, "spin roty +4");
     assert_eq!(a.hp, 0, "far away: not picked up (still alive-ish)");
