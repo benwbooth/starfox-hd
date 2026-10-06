@@ -120,8 +120,8 @@ fn item3_heals_body_item6_wireship() {
     item3_istrat(&mut g, idx);
     item3_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[box_idx as usize].hp, 15);
-    // Switched into flashplayer (count=20).
-    assert_eq!(g.objs.aliens[idx as usize].count, 20);
+    // The flash initializer falls through into its first lifetime visit.
+    assert_eq!(g.objs.aliens[idx as usize].count, 19);
 
     let w = spawn_obj(&mut g);
     g.objs.aliens[w as usize].worldz = 50;

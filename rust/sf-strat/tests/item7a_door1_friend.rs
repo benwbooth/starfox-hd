@@ -10,8 +10,7 @@ use sf_strat::enemies_ground::{
 };
 use sf_strat::enemy_a::{
     friend02_strat, friend0_istrat, friend0_strat, friend1_istrat, friend1_strat,
-    friendkill_istrat, helpball_istrat, item7a_istrat, item7a_strat, ASF2_SFLAG3,
-    COLLTYPE_ENEMYWEAP, DEG180,
+    friendkill_istrat, item7a_istrat, ASF2_SFLAG3, COLLTYPE_ENEMYWEAP, DEG180,
 };
 
 fn spawn_player(g: &mut Game, z: i16) {
@@ -44,14 +43,11 @@ fn item7a_spawns_helpball() {
     g.objs.aliens[idx as usize].worldz = 50;
     g.objs.aliens[idx as usize].worldx = 0;
     g.objs.aliens[idx as usize].worldy = -40;
-    item7a_istrat(&mut g, idx);
     let before = g.objs.aliens.iter().filter(|a| a.active).count();
-    item7a_strat(&mut g, idx);
+    item7a_istrat(&mut g, idx);
     let after = g.objs.aliens.iter().filter(|a| a.active).count();
     assert!(after > before, "helpball spawned");
-    assert_eq!(g.objs.aliens[idx as usize].count, 20); // flashplayer
-                                                       // helpball should have been inited on a new slot
-    let _ = helpball_istrat;
+    assert_eq!(g.objs.aliens[idx as usize].count, 19); // immediate flash visit
 }
 
 #[test]
@@ -70,7 +66,6 @@ fn item7a_restores_source_wing_health() {
     g.objs.aliens[pickup as usize].worldy = -40;
     g.objs.aliens[pickup as usize].worldz = 50;
     item7a_istrat(&mut g, pickup);
-    item7a_strat(&mut g, pickup);
 
     assert_eq!(g.objs.aliens[left_wing as usize].hp, PCBOX_WING_HP);
     assert_eq!(g.objs.aliens[right_wing as usize].hp, PCBOX_WING_HP);

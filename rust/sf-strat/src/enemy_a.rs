@@ -32,7 +32,7 @@ use sf_game::alien::{
     ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL, ASF_SSPRITE,
     ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
-use sf_game::coldet::PCBOX_WING_HP;
+use sf_game::coldet::{PCBOX_WING_AP, PCBOX_WING_HP};
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
     GF_BOSSDEAD, GF_STRATDONE1, GF_STRATDONE2, HARD_AP, HARD_HP, PFM_SHADOWS, PSF2_PLAYERHP0,
@@ -916,11 +916,6 @@ const UP1MAN_SCROLL_Z: i16 = 30;
 const UP1MAN_ROT_SPEED: u8 = 5;
 const UP1MAN_SFLAG1: u8 = 0x10;
 const SH_MYSHIP_4: u16 = 2;
-// Wireframe Arwing variants proxied on the player mesh (C comment).
-const SH_MY_W_PROXY: u16 = 351;
-const SH_MY_R_W_PROXY: u16 = 352;
-const SH_MY_L_W_PROXY: u16 = 353;
-const SH_MY_B_W_PROXY: u16 = 354;
 const SH_UP1_MAN_PROXY: u16 = 355;
 const ITEM7_PICKUP_Z: i16 = 120;
 const ITEM7_PICKUP_XY: i16 = 60;
@@ -1350,7 +1345,11 @@ fn remove_attached_fire(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].flags & AFONFIRE == 0 {
         return;
     }
-    let fire = g.objs.aliens[idx as usize].fireobjptr.wrapping_sub(1);
+    let attachment = g.objs.aliens[idx as usize].fireobjptr;
+    if attachment == 0 {
+        return; // s_remove_fire leaves the flag intact when no fire is linked.
+    }
+    let fire = attachment - 1;
     if (fire as usize) < NUMBER_AL && g.objs.aliens[fire as usize].active {
         g.objs.free(fire);
     }
@@ -9514,7 +9513,7 @@ fn itemtorange_srou(g: &mut Game, idx: u16) {
     // when worldy < minpmoveY+50. (Audit A #13)
     let min_y = g.vars.minpmove_y.wrapping_add(50);
     let al = &mut g.objs.aliens[idx as usize];
-    if al.worldy < min_y {
+    if al.worldy.wrapping_sub(min_y) < 0 {
         al.worldy = al.worldy.wrapping_add(3);
     }
 }
@@ -9522,20 +9521,6 @@ fn itemtorange_srou(g: &mut Game, idx: u16) {
 /// C `item_repair_player_wings` (strat_enemy.c:4035).
 fn item_repair_player_wings(g: &mut Game) {
     g.vars.pshipflags &= !(PSF_BRKLWING | PSF_LWINGCOLL | PSF_BRKRWING | PSF_RWINGCOLL);
-}
-
-/// C `flashplayer_wire_shape` (strat_enemy.c:4040).
-fn flashplayer_wire_shape(g: &Game) -> u16 {
-    let wing_breaks = g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING);
-    if wing_breaks == 0 {
-        SH_MY_W_PROXY
-    } else if wing_breaks == PSF_BRKLWING {
-        SH_MY_R_W_PROXY
-    } else if wing_breaks == PSF_BRKRWING {
-        SH_MY_L_W_PROXY
-    } else {
-        SH_MY_B_W_PROXY
-    }
 }
 
 /// C `Strat_Item7_Init` / ROM `item7_Istrat` (GASTRATS.ASM:2915-2917).
@@ -9692,32 +9677,46 @@ pub fn ripair_strat(g: &mut Game, idx: u16) {
         al.worldz = pl.worldz;
     }
     g.hooks.play_se(0x17);
-    flashplayer_istrat(g, idx);
+    // Unlike collected pickups, the repair ship only installs the flash
+    // initializer here; GASTRATS returns before its first flash visit.
+    let flash = sid(g, flashplayer_istrat);
+    g.objs.aliens[idx as usize].stratptr = Some(flash);
 }
 
-/// C `flashplayer_Istrat` (strat_enemy.c:4068) / ROM GASTRATS item pickup flash.
+const PICKUP_FLASH_LIFETIME: u8 = 20;
+const PICKUP_FLASH_COLORS: u8 = 4;
+
+/// Source `sr_remove_objx` retires a linked fire immediately, then marks the
+/// current actor. Repeated marks do not prevent the rest of this visit.
+fn mark_pickup_removal(g: &mut Game, idx: u16) {
+    remove_attached_fire(g, idx);
+    g.objs.aldead = g.objs.aldead.wrapping_add(1);
+}
+
+/// `flashplayer_Istrat` enters its follower/animation body on the same visit.
 pub fn flashplayer_istrat(g: &mut Game, idx: u16) {
     if g.vars.player_view_mode == PlayerViewMode::Cockpit {
-        g.objs.aldead = 1;
+        mark_pickup_removal(g, idx);
         return;
     }
     let s = sid(g, flashplayer_strat);
     let al = &mut g.objs.aliens[idx as usize];
-    al.count = 20;
-    al.sflags |= ASF_COLLDISABLE;
-    // ASM flashplayer_Istrat (GASTRATS.ASM:3130-3132) does not touch colframe.
-    // (Audit A Minor 10)
+    al.count = PICKUP_FLASH_LIFETIME;
+    al.sflags2 |= ASF2_COLLDISABLE;
+    // The initializer does not seed colour; its immediately following body
+    // advances the existing animation only on odd strategy clocks.
     al.stratptr = Some(s);
+    flashplayer_strat(g, idx);
 }
 
-/// C `flashplayer_strat` (strat_enemy.c:4084).
+/// `flashplayer_strat` (GASTRATS.ASM): follow before the death marker, alternate
+/// wire/hidden frames, and wrap the lifetime byte before testing for removal.
 fn flashplayer_strat(g: &mut Game, idx: u16) {
-    let pl = player(g);
-    if pl.is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+    let Some(player) = g.player_object() else {
         g.objs.aldead = 1;
         return;
-    }
-    let pl = pl.unwrap();
+    };
+    let pl = g.objs.aliens[player as usize];
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.rotx = pl.rotx;
@@ -9727,20 +9726,30 @@ fn flashplayer_strat(g: &mut Game, idx: u16) {
         al.worldy = pl.worldy;
         al.worldz = pl.worldz;
     }
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        mark_pickup_removal(g, idx);
+    }
     if g.vars.gameframe & 1 == 0 {
         g.objs.aliens[idx as usize].shape = 0;
     } else {
-        let shape = flashplayer_wire_shape(g);
+        crate::player::set_y_player_shape(g, idx, crate::player::PSHIPNUM_WIRE);
         let al = &mut g.objs.aliens[idx as usize];
-        al.shape = shape;
-        al.colframe = al.colframe.wrapping_add(1) & 3;
+        // STRATLIB's encoded animation wraps once, not with a four-colour
+        // mask: preserve its behavior even for an inherited invalid frame.
+        let mut color = al.colframe.wrapping_add(1);
+        if color as i8 >= 0 {
+            color = color.wrapping_add(PICKUP_FLASH_COLORS);
+        }
+        color &= 0x7F;
+        if color >= PICKUP_FLASH_COLORS {
+            color -= PICKUP_FLASH_COLORS;
+        }
+        al.colframe = color | 0x80;
     }
     let al = &mut g.objs.aliens[idx as usize];
-    if al.count > 0 {
-        al.count -= 1;
-    }
+    al.count = al.count.wrapping_sub(1);
     if al.count == 0 {
-        g.objs.aldead = 1;
+        mark_pickup_removal(g, idx);
     }
 }
 
@@ -9805,6 +9814,9 @@ fn item7_strat(g: &mut Game, idx: u16) {
 
 const ITEM7A_PICKUP_Z: i16 = 120; // 60*2
 const ITEM7A_PICKUP_XY: i16 = 60; // 30*2
+const ITEM7A_FORWARD_STEP: i16 = 20;
+const ITEM7A_SPIN_STEP: u8 = 4;
+const SE_HELPBALL_PICKUP: u8 = 0x10;
 
 /// ROM `item7a_Istrat` — spinning pickup that spawns a helpball + repairs wings.
 pub fn item7a_istrat(g: &mut Game, idx: u16) {
@@ -9813,37 +9825,45 @@ pub fn item7a_istrat(g: &mut Game, idx: u16) {
     al.stratptr = Some(s);
     al.collstratptr = None;
     al.expstratptr = None;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
+    item7a_strat(g, idx);
 }
 
 /// ROM `item7a_strat` — drift/spin; on pickup spawn helpball, repair wings, flash.
 pub fn item7a_strat(g: &mut Game, idx: u16) {
-    let pl = player(g);
-    if pl.is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
-        g.objs.aldead = 1;
-        return;
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        mark_pickup_removal(g, idx);
+        // s_remove_ifplayerdead marks this visit for retirement; it does not
+        // return, so movement, collection and child installation still run.
     }
-    let pl = pl.unwrap();
     {
         let al = &mut g.objs.aliens[idx as usize];
         if al.sbyte1 == 0 {
-            al.worldz = al.worldz.wrapping_add(20);
+            al.worldz = al.worldz.wrapping_add(ITEM7A_FORWARD_STEP);
         }
     }
     itemtorange_srou(g, idx);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.roty = al.roty.wrapping_add(4);
-        al.rotz = al.rotz.wrapping_add(4);
+        al.roty = al.roty.wrapping_add(ITEM7A_SPIN_STEP);
+        al.rotz = al.rotz.wrapping_add(ITEM7A_SPIN_STEP);
     }
+    let Some(player) = g.player_object() else {
+        g.objs.aldead = 1;
+        return;
+    };
+    let pl = g.objs.aliens[player as usize];
     let me = g.objs.aliens[idx as usize];
-    let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
-    if zdist >= ITEM7A_PICKUP_Z {
+    let zdist = pl.worldz.wrapping_sub(me.worldz).wrapping_abs();
+    if zdist.wrapping_sub(ITEM7A_PICKUP_Z) >= 0 {
         return;
     }
-    let mut xydist = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
-    xydist = xydist.wrapping_add((me.worldy as i32 - pl.worldy as i32).abs() as i16);
-    if xydist >= ITEM7A_PICKUP_XY {
+    let xydist = pl
+        .worldx
+        .wrapping_sub(me.worldx)
+        .wrapping_abs()
+        .wrapping_add(pl.worldy.wrapping_sub(me.worldy).wrapping_abs());
+    if xydist.wrapping_sub(ITEM7A_PICKUP_XY) >= 0 {
         return;
     }
     // Source installs the helper for its own visit, which anchors it to the
@@ -9852,17 +9872,27 @@ pub fn item7a_strat(g: &mut Game, idx: u16) {
         g.objs.active_move_after(ball, idx);
         let init = sid(g, helpball_istrat);
         g.objs.aliens[ball as usize].stratptr = Some(init);
-    }
-    g.hooks.play_se(0x10);
-    // ROM jsl pLWing_Istrat / pRWing_Istrat on pcbox wings — repair flags.
-    item_repair_player_wings(g);
-    if let Some(lw) = g.coldet.pcbox.lwing {
-        g.objs.aliens[lw as usize].hp = PCBOX_WING_HP;
-        g.objs.aliens[lw as usize].sflags |= ASF_COLLDISABLE;
-    }
-    if let Some(rw) = g.coldet.pcbox.rwing {
-        g.objs.aliens[rw as usize].hp = PCBOX_WING_HP;
-        g.objs.aliens[rw as usize].sflags |= ASF_COLLDISABLE;
+        g.hooks.play_se(SE_HELPBALL_PICKUP);
+        // PSTRATS' wing entries restore gameplay data and handlers. Their
+        // ship-flag clears are commented out in the original; unlike the
+        // later repair-pod catch this pickup must not clear those flags.
+        // The left entry also copies the display-transfer phase to unused
+        // strategy scratch. No reachable wing strategy reads that scratch;
+        // the native gameplay model does not carry this hardware snapshot.
+        let ids = crate::player::install(g);
+        for wing in [g.coldet.pcbox.lwing, g.coldet.pcbox.rwing]
+            .into_iter()
+            .flatten()
+        {
+            let al = &mut g.objs.aliens[wing as usize];
+            al.type_ &= !ATZREMOVE;
+            al.stratptr = Some(ids.pcbox_wing);
+            al.collstratptr = Some(ids.pcbox_coll);
+            al.expstratptr = Some(ids.pcbox_coll);
+            al.hp = PCBOX_WING_HP;
+            al.ap = PCBOX_WING_AP;
+            al.sflags2 |= ASF2_COLLDISABLE;
+        }
     }
     flashplayer_istrat(g, idx);
 }

@@ -402,6 +402,24 @@ running; scheduled work is not a guarantee of a completion date.
   in debug/release; 607 source checks, exact regeneration, architecture and
   the app build pass. The enclosing post-movement player service still needs
   its remaining branches before these services can replace shipping control.
+- Corrected the shipping SF1 helper pickup and shared pickup flash: immediate
+  initializer visits, real exposed-player ownership, wrapped distance/height
+  tests, correct collision-flag byte, allocation-gated sound/wing restoration,
+  retained ship flags, source colour encoding and wrapping lifetimes. Removal
+  marks do not return early, and linked fire is retired before subsequent
+  allocation. The repair ship retains its separate deferred flash transition.
+  Seven native tests include full pools, nonzero player slots, cleanup/reuse,
+  successful wing handlers and a complete twenty-visit flash lifetime through
+  the real strategy pass. Nine original-instruction differential tests now
+  cover 2,067 executions, including every colour/lifetime and ship-flag byte;
+  the harness now supplies the source strategy loop's actual WRAM data bank
+  when probing higher object slots. The source's unused left-wing display
+  transfer snapshot is deliberately omitted, with its lack of gameplay
+  consumers checked separately. All 1,526 game/path/strategy tests pass in
+  debug/release; the nine source-execution tests pass in both profiles; all
+  37 SF1 source checks, architecture checks and three app launcher builds pass.
+  This does not certify the other pickup families, repair-pod construction/
+  movement, the two outstanding SF1 route/oracle failures, or SF2 frame wiring.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

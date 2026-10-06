@@ -9,7 +9,8 @@ use sf_oracle::{
     BUILT_RUNMARIO_L_ROM,
 };
 use sf_strat::enemy_a::{
-    flatmiss_istrat, helpball_istrat, helpball_strat, helpballhome_istrat, relflatmiss_istrat,
+    flashplayer_istrat, flatmiss_istrat, helpball_istrat, helpball_strat, helpballhome_istrat,
+    item7a_istrat, relflatmiss_istrat,
 };
 
 // Keep clear of the call harness's bootstrap and return trap.
@@ -21,6 +22,308 @@ const WRAM: u32 = 0x7E_0000;
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,
+}
+
+fn seed_pickup_player(source: &Source, bus: &mut SnesBus, game: &Game) {
+    let player = &game.objs.aliens[game.player_object().unwrap() as usize];
+    source.word(bus, 0, "PLAYPT", TARGET as i16);
+    for (name, value) in [
+        ("AL_WORLDX", player.worldx),
+        ("AL_WORLDY", player.worldy),
+        ("AL_WORLDZ", player.worldz),
+    ] {
+        source.word(bus, TARGET, name, value);
+    }
+    for (name, value) in [
+        ("AL_ROTX", player.rotx),
+        ("AL_ROTY", player.roty),
+        ("AL_ROTZ", player.rotz),
+    ] {
+        source.byte(bus, TARGET, name, value);
+    }
+    source.byte(bus, 0, "PSHIPFLAGS", game.vars.pshipflags);
+    source.byte(bus, 0, "PSHIPFLAGS2", game.vars.pshipflags2);
+    source.word(bus, 0, "MINPMOVEY", game.vars.minpmove_y);
+    source.word(bus, 0, "GAMEFRAME", game.vars.gameframe as i16);
+    source.word(bus, 0, "ALFREELST", 0);
+}
+
+fn compare_pickup(source: &Source, bus: &mut SnesBus, game: &Game, id: u16, context: &str) {
+    let mut translated = game.objs.aliens[id as usize];
+    // Catalog IDs are decoded native shape handles, not source addresses.
+    if let Some(address) = match translated.shape {
+        351..=354 => Some(source.symbol("PWIRESHAPES") + u32::from(translated.shape - 351) * 2),
+        0 => Some(source.symbol("PNULLSHAPES")),
+        _ => None,
+    } {
+        // Shape labels appear twice in the linker map (header and graphics
+        // data). Read the original gameplay table, not the ambiguous label.
+        translated.shape = u16::from_le_bytes([bus.read8(address), bus.read8(address + 1)]);
+    }
+    source.compare(bus, &translated, context);
+    assert_eq!(
+        translated.colframe,
+        bus.read8(WRAM | (OBJECT + source.symbol("ALX_COLFRAME"))),
+        "{context}: color"
+    );
+    assert_eq!(
+        game.objs.aldead,
+        bus.read8(WRAM | source.symbol("ALDEAD")),
+        "{context}: removal"
+    );
+    assert_eq!(
+        game.vars.pshipflags,
+        bus.read8(WRAM | source.symbol("PSHIPFLAGS")),
+        "{context}: ship flags"
+    );
+    assert_eq!(
+        bus.read8(WRAM | source.symbol("SDSPT3")),
+        0,
+        "full pool must not play pickup sound"
+    );
+}
+
+#[test]
+fn flash_entry_and_following_visits_match_source_for_every_color_and_lifetime_byte() {
+    let source = Source::load();
+    for initial in [false, true] {
+        for color in 0..=255 {
+            for frame in [0, 1] {
+                let mut game = Game::new();
+                game.objs.alloc().unwrap(); // decoy slot zero
+                let player = game.objs.alloc().unwrap();
+                game.vars.player_object = player as i16;
+                let pl = &mut game.objs.aliens[player as usize];
+                [pl.worldx, pl.worldy, pl.worldz] = [32760, -32760, 812];
+                [pl.rotx, pl.roty, pl.rotz] = [7, 19, 31];
+                let id = game.objs.alloc().unwrap();
+                flashplayer_istrat(&mut game, id);
+                // Keep the installed continuation for direct non-entry calls.
+                let strategy = game.objs.aliens[id as usize].stratptr.unwrap();
+                game.objs.aldead = 0;
+                let al = &mut game.objs.aliens[id as usize];
+                al.shape = 123;
+                al.count = color;
+                al.colframe = color;
+                al.sflags = 0xA4;
+                al.sflags2 = 0xB0;
+                [al.worldx, al.worldy, al.worldz] = [10, 20, 30];
+                game.vars.pshipflags = color;
+                game.vars.gameframe = frame;
+                let mut bus = SnesBus::new(source.rom.clone());
+                source.seed(&mut bus, &game.objs.aliens[id as usize], &game);
+                source.byte(&mut bus, OBJECT, "ALX_COLFRAME", color);
+                seed_pickup_player(&source, &mut bus, &game);
+                let name = if initial {
+                    "FLASHPLAYER_ISTRAT"
+                } else {
+                    "FLASHPLAYER_STRAT"
+                };
+                source.run(&mut bus, name);
+                if initial {
+                    flashplayer_istrat(&mut game, id);
+                } else {
+                    game.call_strat(strategy, id);
+                }
+                compare_pickup(
+                    &source,
+                    &mut bus,
+                    &game,
+                    id,
+                    &format!("{name} color={color} frame={frame}"),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flash_entry_matches_source_cockpit_and_player_death_read_order() {
+    use sf_core::player_view::PlayerViewMode;
+    use sf_game::vars::PSF2_PLAYERHP0;
+    let source = Source::load();
+    for cockpit in [false, true] {
+        for dead in [false, true] {
+            for frame in [0, 1] {
+                let mut game = Game::new();
+                let player = game.objs.alloc().unwrap();
+                let id = game.objs.alloc().unwrap();
+                let ship = &mut game.objs.aliens[player as usize];
+                [ship.worldx, ship.worldy, ship.worldz] = [14, -27, 185];
+                [ship.rotx, ship.roty, ship.rotz] = [32, 54, 76];
+                let item = &mut game.objs.aliens[id as usize];
+                item.shape = 123;
+                item.count = 201;
+                item.colframe = 0x85;
+                item.sflags = 0xA4;
+                item.sflags2 = 0xB0;
+                if cockpit {
+                    game.vars.player_view_mode = PlayerViewMode::Cockpit;
+                }
+                if dead {
+                    game.vars.pshipflags2 = PSF2_PLAYERHP0;
+                }
+                game.vars.gameframe = frame;
+                let mut bus = SnesBus::new(source.rom.clone());
+                source.seed(&mut bus, &game.objs.aliens[id as usize], &game);
+                source.byte(&mut bus, OBJECT, "ALX_COLFRAME", 0x85);
+                seed_pickup_player(&source, &mut bus, &game);
+                if cockpit {
+                    source.byte(
+                        &mut bus,
+                        0,
+                        "SPLAYERFLYMODE",
+                        source.symbol("SPFM_INSIDE") as u8,
+                    );
+                }
+                source.run(&mut bus, "FLASHPLAYER_ISTRAT");
+                flashplayer_istrat(&mut game, id);
+                compare_pickup(
+                    &source,
+                    &mut bus,
+                    &game,
+                    id,
+                    &format!("cockpit={cockpit} dead={dead} frame={frame}"),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pickup_entry_matches_source_wrapped_height_range_and_full_pool_paths() {
+    let source = Source::load();
+    let edges = [
+        -32768i16, -32760, -121, -120, -119, -61, -60, -59, -1, 0, 1, 59, 60, 61, 119, 120, 121,
+        32760, 32767,
+    ];
+    for axis in 0..3 {
+        for value in edges {
+            for reference in [-32760, 0, 32760] {
+                for (drift, death_flags) in [(0, 0), (1, 0), (0, 128), (1, 128)] {
+                    let mut game = Game::new();
+                    let player = game.objs.alloc().unwrap();
+                    let id = game.objs.alloc().unwrap();
+                    let mut position = [0i16; 3];
+                    position[axis] = reference;
+                    let pl = &mut game.objs.aliens[player as usize];
+                    [pl.worldx, pl.worldy, pl.worldz] = position;
+                    position[axis] = value;
+                    let al = &mut game.objs.aliens[id as usize];
+                    [al.worldx, al.worldy, al.worldz] = position;
+                    al.sbyte1 = drift;
+                    al.sflags = 0xA4;
+                    al.sflags2 = 0xB0;
+                    al.shape = 123;
+                    al.colframe = 0x83;
+                    [al.roty, al.rotz] = [254, 255];
+                    game.vars.minpmove_y = reference.wrapping_sub(50);
+                    game.vars.pshipflags = 0xFF;
+                    game.vars.pshipflags2 = death_flags;
+                    game.vars.gameframe = 1;
+                    let mut bus = SnesBus::new(source.rom.clone());
+                    source.seed(&mut bus, &game.objs.aliens[id as usize], &game);
+                    source.byte(&mut bus, OBJECT, "ALX_COLFRAME", 0x83);
+                    seed_pickup_player(&source, &mut bus, &game);
+                    while game.objs.alloc().is_some() {}
+                    source.run(&mut bus, "ITEM7A_ISTRAT");
+                    item7a_istrat(&mut game, id);
+                    compare_pickup(
+                        &source,
+                        &mut bus,
+                        &game,
+                        id,
+                        &format!(
+                            "axis={axis} coordinate={value} reference={reference} drift={drift} death={death_flags}"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn successful_pickup_matches_source_wing_gameplay_data_and_preserves_all_ship_flags() {
+    const CHILD: u32 = 0x0700;
+    const LEFT: u32 = 0x0900;
+    const RIGHT: u32 = 0x0A00;
+    let source = Source::load();
+    for flags in 0..=255 {
+        let mut game = Game::new();
+        game.objs.alloc().unwrap(); // live exposed player at origin
+        let id = game.objs.alloc().unwrap();
+        let left = game.objs.alloc().unwrap();
+        let right = game.objs.alloc().unwrap();
+        game.coldet.pcbox.lwing = Some(left);
+        game.coldet.pcbox.rwing = Some(right);
+        game.vars.minpmove_y = -50;
+        game.vars.pshipflags = flags;
+        game.objs.aliens[id as usize].sbyte1 = 1;
+        let mut bus = SnesBus::new(source.rom.clone());
+        source.seed(&mut bus, &game.objs.aliens[id as usize], &game);
+        seed_pickup_player(&source, &mut bus, &game);
+        source.word(&mut bus, 0, "ALLST", OBJECT as i16);
+        source.word(&mut bus, 0, "ALFREELST", CHILD as i16);
+        source.word(&mut bus, 0, "PCBOXOBJ_LW", LEFT as i16);
+        source.word(&mut bus, 0, "PCBOXOBJ_RW", RIGHT as i16);
+        source.byte(&mut bus, 0, "TRANS_FLAG", flags);
+        for (wing, base) in [(left, LEFT), (right, RIGHT)] {
+            let al = &mut game.objs.aliens[wing as usize];
+            al.hp = flags;
+            al.ap = 0xEA;
+            al.type_ = flags;
+            al.sflags = flags;
+            al.sflags2 = flags;
+            for (name, value) in [
+                ("AL_HP", flags),
+                ("AL_AP", 0xEA),
+                ("AL_TYPE", flags),
+                ("AL_SFLAGS", flags),
+                ("AL_SFLAGS2", flags),
+                ("AL_COLLFLAGS", al.collflags),
+            ] {
+                source.byte(&mut bus, base, name, value);
+            }
+        }
+        source.run(&mut bus, "ITEM7A_ISTRAT");
+        item7a_istrat(&mut game, id);
+        for (wing, base) in [(left, LEFT), (right, RIGHT)] {
+            source.compare_at(
+                &mut bus,
+                base,
+                &game.objs.aliens[wing as usize],
+                &format!("wing={wing} flags={flags}"),
+            );
+        }
+        assert_eq!(
+            game.vars.pshipflags,
+            bus.read8(WRAM | source.symbol("PSHIPFLAGS"))
+        );
+        assert_eq!(game.vars.pshipflags, flags);
+        assert_eq!(
+            bus.read8(WRAM | source.symbol("SDSPT3")),
+            1,
+            "flags={flags}"
+        );
+        assert_eq!(bus.read8(WRAM | source.symbol("SDPORT3")), 0x10);
+        assert_eq!(
+            game.objs.aliens[id as usize].count,
+            bus.read8(WRAM | (OBJECT + source.symbol("AL_COUNT")))
+        );
+        // PSTRATS writes the display-transfer phase, not literal zero, into
+        // unused left-wing scratch. Static source tests prove no reachable
+        // wing routine consumes it, so no hardware snapshot is ported.
+        assert_eq!(
+            bus.read8(WRAM | (LEFT + source.symbol("ALX_STRATSTATE"))),
+            flags
+        );
+        let pointer = WRAM | (CHILD + source.symbol("AL_STRATPTR"));
+        let installed = u32::from(bus.read8(pointer))
+            | (u32::from(bus.read8(pointer + 1)) << 8)
+            | (u32::from(bus.read8(pointer + 2)) << 16);
+        assert_eq!(installed, source.symbol("HELPBALL_ISTRAT"));
+    }
 }
 
 impl Source {
@@ -107,6 +410,7 @@ impl Source {
             &Entry {
                 x: OBJECT as u16,
                 p: 0x20,
+                dbr: 0x7E, // TRANS.dostrats owns extended actor data in WRAM.
                 ..Default::default()
             },
         );
@@ -118,6 +422,10 @@ impl Source {
     }
 
     fn compare(&self, bus: &mut SnesBus, actual: &Alien, context: &str) {
+        self.compare_at(bus, OBJECT, actual, context);
+    }
+
+    fn compare_at(&self, bus: &mut SnesBus, base: u32, actual: &Alien, context: &str) {
         for (name, value) in [
             ("AL_ROTX", actual.rotx),
             ("AL_ROTY", actual.roty),
@@ -139,7 +447,7 @@ impl Source {
             ("ALX_SND2", actual.snd2),
             ("ALX_TX", actual.tx),
         ] {
-            let expected = bus.read8(WRAM | (OBJECT + self.symbol(name)));
+            let expected = bus.read8(WRAM | (base + self.symbol(name)));
             assert_eq!(value, expected, "{context}: {name}");
         }
         for (name, value) in [
@@ -152,7 +460,7 @@ impl Source {
             ("AL_VZ", actual.vz),
             ("ALX_DEPTHOFFSET", actual.depthoffset),
         ] {
-            let address = WRAM | (OBJECT + self.symbol(name));
+            let address = WRAM | (base + self.symbol(name));
             let expected = i16::from_le_bytes([bus.read8(address), bus.read8(address + 1)]);
             assert_eq!(value, expected, "{context}: {name}");
         }

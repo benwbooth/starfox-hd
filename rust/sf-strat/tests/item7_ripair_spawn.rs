@@ -82,7 +82,7 @@ fn item7_broken_wings_spawns_ripair_not_inline_repair() {
         "ripair_Istrat trigse $8b; got {:?}",
         log.borrow()
     );
-    assert_eq!(g.objs.aliens[idx as usize].count, 20, "flashplayer lifecnt");
+    assert_eq!(g.objs.aliens[idx as usize].count, 19, "immediate flash visit");
 }
 
 /// Intact wings: $15 + score + doublaser, no ripair.
