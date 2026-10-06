@@ -10,6 +10,9 @@ use super::ObjectId;
 pub const PROGRAM_CAPACITY: u16 = 18_430;
 const WORD_COST: u16 = 2;
 const MIN_BLOCK_COST: u16 = 6;
+const ALLOCATION_PAGE_COST: u16 = 256;
+// Free-list head, allocation header, and owned-chain link each cost a word.
+const OWNED_PAYLOAD_PREFIX_COST: u16 = WORD_COST * 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProgramResourceId(u64);
@@ -101,6 +104,26 @@ impl<T> ProgramResources<T> {
                     .is_some_and(|r| r.owner == Some(owner))
             })
             .count()
+    }
+
+    /// A source allocation-alignment quirk is observable when rapid-shot
+    /// admission rejects. Expose only this property of the retained capacity
+    /// partitions, never a source address or access to another payload.
+    pub fn owned_payload_is_page_aligned(
+        &self,
+        owner: ObjectId,
+        id: ProgramResourceId,
+    ) -> Option<bool> {
+        let mut preceding_cost = OWNED_PAYLOAD_PREFIX_COST;
+        for partition in &self.partitions {
+            if partition.id == id {
+                return partition.resource.as_ref()
+                    .filter(|resource| resource.owner == Some(owner))
+                    .map(|_| preceding_cost % ALLOCATION_PAGE_COST == 0);
+            }
+            preceding_cost += partition.cost;
+        }
+        None
     }
 
     pub fn get(&self, id: ProgramResourceId) -> Option<&T> {
@@ -331,6 +354,25 @@ mod tests {
         assert_eq!(block_cost(5), Some(8));
         assert_eq!(block_cost(6), Some(8));
         assert_eq!(block_cost(7), Some(10));
+    }
+
+    #[test]
+    fn owned_alignment_tracks_capacity_partitions_not_handle_or_owner_numbers() {
+        let [owner, other] = owners();
+        let mut pool = ProgramResources::default();
+        // 36 payload + two headers consumes 40; the following 472-byte
+        // player payload then begins exactly on an allocation-page boundary.
+        let prefix = pool.allocate_owned(other, 36, 1).unwrap();
+        let player = pool.allocate_owned(owner, 472, 2).unwrap();
+        assert_eq!(pool.owned_payload_is_page_aligned(owner, player), Some(true));
+        assert_eq!(pool.owned_payload_is_page_aligned(other, player), None);
+        assert_eq!(pool.owned_payload_is_page_aligned(other, prefix), Some(false));
+        pool.release_owned(other, prefix).unwrap();
+        assert_eq!(pool.owned_payload_is_page_aligned(owner, player), Some(true));
+        pool.release_owned(owner, player).unwrap();
+        assert_eq!(pool.owned_payload_is_page_aligned(owner, player), None);
+        let next = pool.allocate_owned(owner, 472, 3).unwrap();
+        assert_eq!(pool.owned_payload_is_page_aligned(owner, next), Some(false));
     }
 
     #[test]

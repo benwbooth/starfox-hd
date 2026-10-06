@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Audited rapid-shot rejection through the complete original opcode and
+  weapon dispatchers. The latter narrows the retained selection before
+  entering the launcher. Therefore ordinary player shot-count rejection
+  consumes a queued request only when its allocation is not page-aligned;
+  fixed linked-view firing still consumes it, and no-weapon levels bypass
+  narrowing. The typed capacity allocator now exposes only the needed
+  alignment property, and the real player initializer publishes the queue
+  policy. No source address or byte arena is retained. Original allocation
+  and firing comparisons pass for 5,140 layout/level/linked-mode cases;
+  another 1,024 cases cover path-dispatch rejection and diagnostics.
+  In path fire, the rejected basic selectors retain a truncated caller
+  selection and alternate retains an auxiliary selection: these are not
+  native object references. Removed the fabricated reserved-actor fallback
+  and report `UnsupportedWeaponRejection` before actor/cursor/publication
+  edits. This is an explicit unsupported context, not emulation of corrupt
+  source writes or a claim of complete path-rejection support. Authored
+  reachability/dataflow for these malformed contexts remains open.
+  All 1,333 native tests and both architecture checks pass in debug/release;
+  oracle-enabled checks pass 1,341 unit tests, 35 runtime tests and both
+  architecture checks. All 64 original player-service groups pass in both
+  profiles, alongside 671 source checks, 209 lowerer tests, the exact catalog
+  and architecture checks, and builds of all three application binaries.
+
 - Corrected the shared strategy-object exhaustion contract across charged
   fire, consumables, shield feedback, ordinary/rapid weapons, reflection,
   path fire, and all three path-spawn forms. Errors stop at the original
@@ -137,9 +160,8 @@ running; scheduled work is not a guarantee of a completion date.
   unit tests, 35 runtime tests and two architecture checks. All 670 source
   checks, 209 lowerer tests, exact catalog/architecture checks and all three
   application builds pass.
-  The caller-dependent result of a rejected rapid selector in path fire
-  still needs a separate source-context audit; player-flight rejection must
-  not be generalized into an assumed reserved-actor fallback. Production
+  The later dispatcher audit above supersedes this batch's assumption that
+  every player allocation produces a non-null rejection. Production
   flight/frame integration and the previously recorded whole-game blockers
   remain open.
 

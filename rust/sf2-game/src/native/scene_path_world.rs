@@ -52,6 +52,9 @@ pub struct PlayerPathRecords {
     pub auxiliary: Option<SelectedAuxiliaryState>,
     pub charge: Option<super::player_charge::PlayerCharge>,
     pub rapid_aim: Option<super::player_rapid::RapidAim>,
+    /// Allocation-derived queue policy for an ordinary flight shot rejected
+    /// by its active-shot limit. Linked-view firing has a separate policy.
+    pub rapid_rejection_consumes_queue: Option<bool>,
     pub action: Option<super::player_action::PlayerActionState>,
     pub consumable: Option<super::player_consumable::PlayerConsumableControl>,
     pub target_control: Option<super::path_player_control::PlayerTargetControl>,

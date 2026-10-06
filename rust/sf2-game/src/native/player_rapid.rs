@@ -38,6 +38,7 @@ pub enum RapidError {
     MissingSpawnDefaults,
     MissingFixedView,
     MissingActor(ObjectId),
+    MissingRejectionPolicy(ObjectId),
     Launch(LaunchError),
 }
 
@@ -58,7 +59,9 @@ fn control<'a>(
 }
 
 fn defaults(world: &ScenePathWorld) -> Result<ObjectSpawnDefaults, RapidError> {
-    world.spawn_defaults().ok_or(RapidError::MissingSpawnDefaults)
+    world
+        .spawn_defaults()
+        .ok_or(RapidError::MissingSpawnDefaults)
 }
 
 fn dispatch(
@@ -115,6 +118,7 @@ fn flight_helper(
     owner: ObjectId,
     level: u8,
     distance: i8,
+    linked_view: bool,
     defaults: ObjectSpawnDefaults,
 ) -> Result<bool, RapidError> {
     let parameters = &mut world
@@ -133,12 +137,20 @@ fn flight_helper(
         y: 0,
         z: distance,
     };
-    dispatch(objects, world, resources, owner, weapon, defaults)?;
-    // Shot-count rejection preserves the helper's non-null player/view
-    // selection just like a no-weapon level. The enclosing flight wrapper
-    // accepts that return and consumes the queued request without a shot.
-    // Pool exhaustion, unlike admission rejection, never returns here.
-    Ok(true)
+    let created = dispatch(objects, world, resources, owner, weapon, defaults)?;
+    // The dispatcher truncates its retained selection ($03:A89E). A real
+    // shot and the fixed linked view remain non-null; ordinary rejection
+    // depends on the player's allocation alignment. No-weapon levels above
+    // bypass the dispatcher altogether. Exhaustion never returns here.
+    if created.is_some() || linked_view {
+        Ok(true)
+    } else {
+        world
+            .player(objects, owner)
+            .map_err(RapidError::World)?
+            .rapid_rejection_consumes_queue
+            .ok_or(RapidError::MissingRejectionPolicy(owner))
+    }
 }
 
 fn launch_flight(
@@ -155,7 +167,10 @@ fn launch_flight(
         .weapon_level;
     world.scene.active_weapon_level = Some(level);
     // Shared initializer mode 1B84 bit 02, not strategy pause or 1D72.
-    if world.scripted_view_active().ok_or(RapidError::MissingSpawnDefaults)? {
+    if world
+        .scripted_view_active()
+        .ok_or(RapidError::MissingSpawnDefaults)?
+    {
         return Ok(false);
     }
     let defaults = defaults(world)?;
@@ -167,7 +182,7 @@ fn launch_flight(
             owner,
         )))?;
     if !charge.linked_mode || charge.linked_muzzle_disabled {
-        return flight_helper(objects, world, resources, owner, level, 0, defaults);
+        return flight_helper(objects, world, resources, owner, level, 0, false, defaults);
     }
     let distance = if matches!(level, 1 | 2) {
         -LINKED_MUZZLE_DISTANCE
@@ -188,7 +203,9 @@ fn launch_flight(
     actor.base.position.z = position.z;
     // On an ordinary admission rejection, restore the source origin. A
     // diagnostic fault retains earlier writes and must not be retried.
-    let result = flight_helper(objects, world, resources, owner, level, distance, defaults)?;
+    let result = flight_helper(
+        objects, world, resources, owner, level, distance, true, defaults,
+    )?;
     let actor = objects.get_mut(owner).expect("live rapid caller");
     (actor.base.position.x, actor.base.position.z) = original;
     Ok(result)
@@ -221,7 +238,10 @@ pub fn advance(
         {
             return Ok(());
         }
-        if world.scripted_view_active().ok_or(RapidError::MissingSpawnDefaults)? {
+        if world
+            .scripted_view_active()
+            .ok_or(RapidError::MissingSpawnDefaults)?
+        {
             return Ok(());
         }
         let defaults = defaults(world)?;

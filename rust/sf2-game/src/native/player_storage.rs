@@ -150,6 +150,9 @@ pub fn replace(
         }),
         charge: Some(Default::default()),
         rapid_aim: Some(Default::default()),
+        rapid_rejection_consumes_queue: Some(!runtime.resources
+            .owned_payload_is_page_aligned(owner, resource)
+            .expect("fresh player allocation")),
         action: Some(Default::default()),
         consumable: Some(Default::default()),
         target_control: Some(Default::default()),

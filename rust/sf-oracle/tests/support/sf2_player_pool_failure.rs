@@ -107,6 +107,8 @@ impl FullPool {
                 owner,
                 PlayerPathRecords {
                     charge: Some(PlayerCharge::default()),
+                    // This fixture's explicit auxiliary slot is not aligned.
+                    rapid_rejection_consumes_queue: Some(true),
                     contact: Some(PlayerContactControl::default()),
                     action: Some(PlayerActionState::default()),
                     consumable: Some(PlayerConsumableControl::default()),
@@ -776,6 +778,231 @@ fn path_fire_fatal_prefix_clears_parameters_but_preserves_cursor_and_reserved_se
         assert_eq!(native.objects, actors);
         native.check(&source, before);
     }
+}
+
+#[test]
+fn rejected_path_rapid_fire_exposes_original_non_actor_publication_and_native_diagnostic() {
+    use sf2_game::collision_pass::ExclusionGroups;
+    use sf2_game::path_program::{PathWorld, ProgramError, Statement};
+    use sf2_game::path_runtime::PathRuntime;
+    use sf2_game::{PathCursor, PathId};
+    let mut source = source_path_runtime();
+    let catalog = sf2_game::authored_paths::catalog();
+    let entry = (0..=u16::MAX)
+        .map(|command_index| PathCursor {
+            path: PathId::from_catalog_index(0),
+            command_index,
+        })
+        .find(|&cursor| matches!(catalog.statement(cursor), Ok(Statement::FireWeapon { .. })))
+        .unwrap();
+    for selection in [6, 8, 10] {
+        for count in 8_u8..=135 {
+            for reserved in [false, true] {
+                let mut native = FullPool::new(&mut source);
+                let other = native.objects.active_ids()[1];
+                let actor = native.objects.get_mut(native.owner).unwrap();
+                actor.base.path = Some(entry);
+                actor.extension.path_state.weapon_selection = selection;
+                let flags = count.wrapping_mul(37);
+                actor.base.contacts.exclusion_groups = ExclusionGroups::from_authored_class(flags);
+                let expected = native.objects.clone();
+                source.bus.write8(u32::from(OWNER) + 0x2F, selection);
+                source.bus.write8(u32::from(OWNER) + 0x31, flags);
+                source.bus.write16(WRAM + 0xD771, address(other));
+                source
+                    .bus
+                    .write16(0x14D6, if reserved { address(other) } else { 0 });
+                native.world.weapons.as_mut().unwrap().fallback = reserved.then_some(other);
+                FullPool::byte(&mut source, 0x6C03, count);
+                let before = FullPool::auxiliary(&source);
+                // Enter the real opcode dispatcher. The weapon dispatcher
+                // truncates its selection; stop before the non-object write.
+                source.bus.write8(0x1911, 0x35);
+                source.run_with_y(
+                    0x7F7E9C,
+                    Some(0x7F8861),
+                    0,
+                    OWNER,
+                    true,
+                    Some(address(other)),
+                );
+                let mut runtime = PathRuntime::default();
+                runtime.spawns.last_spawn = Some(other);
+                let mut inputs = PathWorld::unbound(&mut native.world.random, 0);
+                inputs.weapons = native.world.weapons.as_mut();
+                inputs.spawn_defaults = native.world.spawn_defaults;
+                inputs.caller_weapon_inputs = Some(CallerWeaponInputs {
+                    owner: native.owner,
+                    active_shots: Some(ActiveShots::from_count(count)),
+                    weapon_level: None,
+                    roll_step: None,
+                    retained_aim: None,
+                });
+                assert_eq!(
+                    runtime.enter_program(
+                        &catalog,
+                        &mut native.objects,
+                        native.owner,
+                        &mut inputs,
+                        1
+                    ),
+                    Err(ProgramError::UnsupportedWeaponRejection(selection))
+                );
+                assert_eq!(runtime.spawns.last_spawn, Some(other));
+                assert_eq!(source.bus.read16(WRAM + 0xD771), OWNER & 0xFF);
+                assert_eq!(source.bus.read8(u32::from(OWNER) + 0x31), flags);
+                assert_eq!(source.bus.read8(u32::from(address(other)) + 0x31), 0);
+                assert_eq!(native.objects, expected);
+                native.check(&source, before);
+            }
+        }
+    }
+}
+
+#[test]
+fn alternate_path_rejection_reports_non_object_selection_instead_of_modifying_reserved_actor() {
+    use sf2_game::path_program::{PathWorld, ProgramError, Statement};
+    use sf2_game::path_runtime::PathRuntime;
+    use sf2_game::{PathCursor, PathId};
+    let mut source = source_path_runtime();
+    let catalog = sf2_game::authored_paths::catalog();
+    let entry = (0..=u16::MAX)
+        .map(|command_index| PathCursor {
+            path: PathId::from_catalog_index(0),
+            command_index,
+        })
+        .find(|&cursor| matches!(catalog.statement(cursor), Ok(Statement::FireWeapon { .. })))
+        .unwrap();
+    for level in 0..=u8::MAX {
+        let mut native = FullPool::new(&mut source);
+        let other = native.objects.active_ids()[1];
+        let actor = native.objects.get_mut(native.owner).unwrap();
+        actor.base.path = Some(entry);
+        actor.extension.path_state.weapon_selection = 4;
+        let expected = native.objects.clone();
+        FullPool::byte(&mut source, 0x6C06, level);
+        FullPool::byte(&mut source, 0x6C03, 8);
+        source.bus.write8(u32::from(OWNER) + 0x2F, 4);
+        source.bus.write16(WRAM + 0xD771, address(other));
+        source.bus.write16(0x14D6, address(other));
+        native.world.weapons.as_mut().unwrap().fallback = Some(other);
+        source.bus.write8(0x1911, 0x35);
+        // Observe the original non-actor publication, before its invalid
+        // object-field write. Native intentionally reports this unsupported
+        // path context; it does not emulate an address-based memory write.
+        source.run(0x7F7E9C, Some(0x7F8861), 0, OWNER, true);
+        assert_eq!(source.bus.read16(WRAM + 0xD771), SLOT);
+        let mut runtime = PathRuntime::default();
+        runtime.spawns.last_spawn = Some(other);
+        let mut inputs = PathWorld::unbound(&mut native.world.random, 0);
+        inputs.weapons = native.world.weapons.as_mut();
+        inputs.spawn_defaults = native.world.spawn_defaults;
+        inputs.caller_weapon_inputs = Some(CallerWeaponInputs {
+            owner: native.owner,
+            active_shots: (level & 3 != 0).then_some(ActiveShots::from_count(8)),
+            weapon_level: Some(level),
+            roll_step: None,
+            retained_aim: None,
+        });
+        assert_eq!(
+            runtime.enter_program(&catalog, &mut native.objects, native.owner, &mut inputs, 1),
+            Err(ProgramError::UnsupportedWeaponRejection(4))
+        );
+        assert_eq!(runtime.spawns.last_spawn, Some(other));
+        assert_eq!(native.objects, expected);
+        assert_eq!(
+            native.world.weapons.unwrap().parameters,
+            LaunchParameters::default()
+        );
+    }
+}
+
+#[test]
+fn real_player_allocations_drive_original_rapid_rejection_queue_policy() {
+    use sf2_game::path_runtime::PathRuntime;
+    use sf2_game::player_rapid;
+    use sf2_game::player_storage::{self, PlayerStorageInputs};
+    let mut source = Source::new(&rom(), 0);
+    let mut aligned_cases = 0;
+    let mut ordinary_cases = 0;
+    for prefix_cost in (0..=512).step_by(2) {
+        for level in [0, 1, 2, 3, 129] {
+            for linked in [0, 0x40, 0x80, 0xC0] {
+                let mut native = FullPool::new(&mut source);
+                let other = native.objects.active_ids()[1];
+                source.run(0x7F1737, None, 0, OWNER, true);
+                let mut runtime = PathRuntime::default();
+                if prefix_cost != 0 {
+                    source.run(0x7F194E, None, prefix_cost, address(other), false);
+                    runtime
+                        .resources
+                        .allocate_owned(
+                            other,
+                            prefix_cost,
+                            ProgramData::PathStack(Default::default()),
+                        )
+                        .unwrap();
+                }
+                source.run(0x068260, Some(0x0682B7), 0, OWNER, true);
+                player_storage::replace(
+                    &mut native.objects,
+                    &mut native.world,
+                    &mut runtime,
+                    native.owner,
+                    PlayerStorageInputs {
+                        pilot_code: 0,
+                        reserve_shield: 0,
+                        score: Default::default(),
+                    },
+                )
+                .unwrap();
+                let slot = u32::from(source.bus.read16(u32::from(OWNER) + 0x2B));
+                assert_ne!(slot, 0);
+                assert_eq!(
+                    native.record().rapid_rejection_consumes_queue,
+                    Some(slot & 255 != 0)
+                );
+                if slot & 255 == 0 {
+                    aligned_cases += 1;
+                } else {
+                    ordinary_cases += 1;
+                }
+                native.record().equipment.as_mut().unwrap().weapon_level = level;
+                native.record().auxiliary.as_mut().unwrap().mode = 0x10;
+                let charge = native.record().charge.as_mut().unwrap();
+                charge.rapid_control = 0x20;
+                charge.linked_mode = linked & 0x80 != 0;
+                charge.linked_muzzle_disabled = linked & 0x40 != 0;
+                native
+                    .world
+                    .bind_shots(&native.objects, native.owner, ActiveShots::from_count(8))
+                    .unwrap();
+                native.world.fixed_players[0] = Some(other);
+                source.bus.write8(WRAM + slot + 0x6C06, level);
+                source.bus.write8(WRAM + slot + 0x6AA0, 0x10);
+                source.bus.write8(WRAM + slot + 0x6B60, 0x20);
+                source.bus.write8(WRAM + slot + 0x6C03, 8);
+                source.bus.write8(WRAM + slot + 0x6B63, linked);
+                source.run(0x07D7E4, Some(0x07D89F), 0, OWNER, true);
+                player_rapid::advance(
+                    &mut native.objects,
+                    &mut native.world,
+                    &mut runtime.resources,
+                    native.owner,
+                    InputState::default(),
+                )
+                .unwrap();
+                assert_eq!(
+                    native.record().charge.unwrap().rapid_control,
+                    source.bus.read8(WRAM + slot + 0x6B60),
+                    "prefix {prefix_cost}, slot {slot:X}, level {level}, linked {linked:X}"
+                );
+                assert_eq!(native.objects.len(), 60);
+                assert_eq!(source.bus.read16(0x12AA), 0);
+            }
+        }
+    }
+    assert!(aligned_cases > 0 && ordinary_cases > 0);
 }
 
 #[test]

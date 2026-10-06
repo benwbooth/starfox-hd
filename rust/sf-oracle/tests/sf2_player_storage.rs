@@ -358,6 +358,7 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                 assert_eq!(records.yaw_motion.unwrap(), word(0x6ACD));
                 assert_eq!(records.consumable.unwrap().input_control, byte(0x6B61));
                 assert_eq!(records.rapid_aim.unwrap().roll_step.units(), byte(0x6ADD));
+                assert_eq!(records.rapid_rejection_consumes_queue, Some(slot & 255 != 0));
                 assert_eq!(
                     player_storage::get(&objects, &runtime.resources, owner).unwrap(),
                     &PlayerStorage {

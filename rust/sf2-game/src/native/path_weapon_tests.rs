@@ -1,4 +1,4 @@
-//! Immediate weapon dispatch and reserved-actor failure behavior. All path
+//! Immediate weapon dispatch and caller-dependent rejection behavior. All path
 //! entries are statically lowered; creation never executes the projectile.
 use super::super::collision_pass::ExclusionGroups;
 use super::super::weapon_dispatch::{self, LaunchRequest, LaunchWorld, PathWeapon, WeaponState};
@@ -231,8 +231,8 @@ fn full_pool_faults_before_fallback_edits_or_last_spawn_and_path_advance() {
 }
 
 #[test]
-fn admission_rejection_uses_real_fallback_even_with_free_pool_slots() {
-    let (catalog, entry, finish) = fire_catalog();
+fn rapid_admission_rejection_diagnoses_unsupported_context_without_borrowing_fallback() {
+    let (catalog, entry, _) = fire_catalog();
     for selection in [4, 6, 8, 10] {
         for zero_level in [false, true] {
             if zero_level && selection != 4 {
@@ -247,16 +247,7 @@ fn admission_rejection_uses_real_fallback_even_with_free_pool_slots() {
                 let source = objects.get_mut(owner).unwrap();
                 source.base.path = Some(entry);
                 source.extension.path_state.weapon_selection = selection;
-                let mut expected = objects.clone();
-                if fallback_case == 0 {
-                    expected.get_mut(owner).unwrap().base.path = Some(finish);
-                    let actor = expected.get_mut(fallback).unwrap();
-                    actor.base.contacts.exclusion_groups = actor
-                        .base
-                        .contacts
-                        .exclusion_groups
-                        .union(ExclusionGroups::PATH_SPAWN);
-                }
+                let expected = objects.clone();
                 let mut state = prior_state(if fallback_case == 1 {
                     None
                 } else {
@@ -280,19 +271,8 @@ fn admission_rejection_uses_real_fallback_even_with_free_pool_slots() {
                 inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
                 runtime.branch.invert_next = true;
                 let result = runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 2);
-                match fallback_case {
-                    0 => {
-                        assert_eq!(result.unwrap().step, ControlStep::Movement);
-                        assert_eq!(runtime.spawns.last_spawn, Some(fallback));
-                    }
-                    1 => assert_eq!(result, Err(ProgramError::MissingWeaponFallback)),
-                    _ => assert_eq!(
-                        result,
-                        Err(ProgramError::Runtime(PathRuntimeError::MissingActor(
-                            fallback
-                        )))
-                    ),
-                }
+                assert_eq!(result, Err(ProgramError::UnsupportedWeaponRejection(selection)));
+                assert_eq!(runtime.spawns.last_spawn, None);
                 assert_eq!(objects, expected);
                 assert_eq!(inputs.caller_weapon_inputs, Some(caller));
                 assert_eq!(*inputs.random, before_random);

@@ -123,11 +123,19 @@ class PathWeaponStaticTests(unittest.TestCase):
             "a53af00bb921000901992100ee691dee6b1db931000950993100"
             "b93100091099310060")
 
-    def test_path_fire_resets_inputs_and_substitutes_reserved_actor_only_on_returning_rejection(self):
+    def test_path_fire_resets_inputs_and_substitutes_reserved_actor_only_for_null_selection(self):
         self.assert_source(0x7F88C4,
             "a55e29e7855e8f3a3000a9008db014a9008db214a9008db414a9008db714"
             "a9008db6149cb8149cb914b52f229ca803c00000d003acd6148c71d760")
         self.assert_source(0x7F885E, "20c488b9310009109931004ce8ca")
+
+    def test_path_dispatch_selects_owner_but_weapon_dispatch_truncates_before_rejection(self):
+        self.assert_source(0x7F7E9C,
+            '9bad1119c22029ff000a0aaabfe87e7f48e220bb60')
+        self.assert_source(0x06A9E6, '085ab42bb9036c7ac908100328386b28186b')
+        self.assert_source(0x0DE0CE, '6b')
+        self.assert_source(0x03A89C,
+            '863ae230855f0a18655faabfc3a80348c220bfc1a8033a48e220c210a63a6b')
 
 
 if __name__ == "__main__":

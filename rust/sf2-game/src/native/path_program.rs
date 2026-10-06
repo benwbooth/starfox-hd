@@ -1230,7 +1230,10 @@ pub enum ProgramError {
     Spawn(super::path_spawn::SpawnError),
     MissingSpawnDefaults,
     MissingWeaponState,
-    MissingWeaponFallback,
+    /// A returning rapid rejection leaves a truncated caller selection or
+    /// an auxiliary selection, not a newly created actor. Its arbitrary
+    /// source-memory publication is not a valid native object operation.
+    UnsupportedWeaponRejection(u8),
     UnsupportedWeaponSelection(u8),
     WeaponLaunch(super::weapon_dispatch::LaunchError),
     Relationship(super::path_relationships::RelationshipError),
@@ -2363,7 +2366,12 @@ impl PathRuntime {
                     hostile_counts: Some(&mut state.hostile_counts),
                     random: world.random,
                 }).map_err(ProgramError::WeaponLaunch)?;
-                let result = created.or(state.fallback).ok_or(ProgramError::MissingWeaponFallback)?;
+                // $03:A89E narrows the caller selection before the basic
+                // count gate; alternate replaces it with an auxiliary
+                // selection. Neither is a native actor. Until a reachable
+                // authored context supplies a domain interpretation, stop
+                // instead of modifying the caller or reserved aim proxy.
+                let result = created.ok_or(ProgramError::UnsupportedWeaponRejection(selection))?;
                 let actor = objects.get_mut(result).ok_or(PathRuntimeError::MissingActor(result))?;
                 actor.base.contacts.exclusion_groups = actor.base.contacts.exclusion_groups
                     .union(super::collision_pass::ExclusionGroups::PATH_SPAWN);

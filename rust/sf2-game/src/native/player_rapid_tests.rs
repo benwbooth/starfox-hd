@@ -91,6 +91,7 @@ impl Scene {
                 PlayerPathRecords {
                     contact: Some(Default::default()),
                     charge: Some(PlayerCharge::default()),
+                    rapid_rejection_consumes_queue: Some(true),
                     auxiliary: Some(SelectedAuxiliaryState {
                         mode: 0x10,
                         action_flags: 1,
@@ -221,11 +222,18 @@ fn full_pool_distinguishes_no_weapon_levels_and_preserves_unreached_muzzle_store
             target: Some(Vector3::default()),
         };
         let no_weapon = level == 0 || level >= 129;
-        assert_eq!(scene.visit(false), if no_weapon { Ok(()) } else {
-            Err(SceneError::Rapid(RapidError::Launch(LaunchError::Creation(
-                crate::weapon_creation::CreationError::ObjectPoolExhausted,
-            ))))
-        });
+        assert_eq!(
+            scene.visit(false),
+            if no_weapon {
+                Ok(())
+            } else {
+                Err(SceneError::Rapid(RapidError::Launch(
+                    LaunchError::Creation(
+                        crate::weapon_creation::CreationError::ObjectPoolExhausted,
+                    ),
+                )))
+            }
+        );
         assert_eq!(scene.execution.is_faulted(), !no_weapon);
         assert_eq!(
             scene.charge().rapid_control,
@@ -465,6 +473,45 @@ fn alternate_branch_uses_pressed_edge_action_gate_level_mask_and_published_pitch
     scene.world.action_gate = Some(ActionGate { code: 7 });
     scene.visit(true).unwrap();
     assert!(!scene.execution.is_faulted());
+}
+
+#[test]
+fn rejected_flight_reads_allocation_policy_only_without_fixed_view_or_new_shot() {
+    for policy in [None, Some(false), Some(true)] {
+        for linked in [false, true] {
+            let mut scene = Scene::new();
+            scene.record().rapid_rejection_consumes_queue = policy;
+            scene.charge().rapid_control = 0x20;
+            scene.charge().linked_mode = linked;
+            scene.world.fixed_players[0] = Some(scene.proxy);
+            scene
+                .world
+                .bind_shots(&scene.objects, scene.owner, ActiveShots::from_count(8))
+                .unwrap();
+            let result = scene.visit(false);
+            if linked || policy.is_some() {
+                result.unwrap();
+                assert_eq!(
+                    scene.charge().rapid_control,
+                    if linked || policy == Some(true) {
+                        0x11
+                    } else {
+                        0x20
+                    }
+                );
+            } else {
+                assert_eq!(
+                    result,
+                    Err(SceneError::Rapid(RapidError::MissingRejectionPolicy(
+                        scene.owner
+                    )))
+                );
+                assert_eq!(scene.visit(false), Err(SceneError::Faulted));
+                assert_eq!(scene.charge().rapid_control, 0x20);
+            }
+            assert_eq!(scene.objects.len(), 2);
+        }
+    }
 }
 
 #[test]

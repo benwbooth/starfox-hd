@@ -50,9 +50,11 @@ class PlayerRapidStaticTests(unittest.TestCase):
         for address, selection in [(0x07DA4C, 6), (0x07DA6E, 8), (0x07DA8F, 10)]:
             self.assert_source(address, f"A9 00 8D B0 14 A9 00 8D B2 14 AD BC 1D 8D B4 14 A9 {selection:02X} 22 9C A8 03 C0 00 00")
 
-    def test_shot_count_rejection_preserves_non_null_player_view_selection_and_consumes_queue(self):
-        # The count gate restores its incoming selection. Its rejected
-        # launcher returns directly; no zero destination is manufactured.
+    def test_shot_count_rejection_preserves_selection_after_dispatcher_narrowing(self):
+        # A page-aligned player allocation becomes null after narrowing.
+        # The fixed linked view retains its nonzero low byte. No-weapon
+        # levels bypass this dispatcher and keep the full auxiliary value.
+        self.assert_source(0x03A89C, "86 3A E2 30")
         self.assert_source(0x06A9E6,
             "08 5A B4 2B B9 03 6C 7A C9 08 10 03 28 38 6B 28 18 6B")
         self.assert_source(0x0DE0CE, "6B")
