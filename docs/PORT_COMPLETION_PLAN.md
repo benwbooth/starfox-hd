@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Connected native opening-controller requests and button skips to a typed
+  cinematic exit owner. Input holds, the delayed button-request transition,
+  all three skip policies, one-shot audio requests, optional destination
+  selection and fade-completion handoff now follow the original outer loop.
+  The shared fade preserves its signed, wrapping word countdown and waits for
+  independently serviced display intensity; it never advances the display
+  itself. Exit visits do not advance actors, RNG, artwork or frame buffers.
+  Original-code differential tests cover all eleven authored policy settings,
+  every word delay, active/audio-latched combinations, input and signal branches,
+  cue-ring wraparound, untouched state and complete signal clearing. A reset-to-
+  exit check verifies the ten-visit input hold, the controller request at entry
+  age 441 (its 442nd visit), and completion after four observed display fades.
+  **Display visit timing is still supplied by the original in that check;
+  actor-state parity is not asserted there.** The audio transition is an
+  explicit request, not implemented PCM playback; alternate destination routing,
+  full scene setup/postload, autonomous refresh timing and `Game::tick` adoption
+  remain open. All 1,203 native unit tests and two architecture tests pass in
+  debug/release; all 1,248 compatibility-enabled tests pass in debug. The six
+  scoped exit/display original-code tests pass in both profiles. The four
+  enabled opening actor/palette integration tests also pass in release; the
+  known autonomous refresh-timing gate remains ignored. The architecture audit
+  and all three app-binary builds pass.
+
 - Connected deferred artwork requests to the native opening's ordinary-frame
   barrier. Draw and upload buffers have separate typed ownership, accept
   either completion order, reject duplicate completions, and retain their

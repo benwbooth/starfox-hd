@@ -7,6 +7,7 @@
 pub mod actor_auxiliary;
 pub mod attachments;
 pub mod authored_paths;
+pub mod cinematic_exit;
 pub mod collision_boxes;
 pub mod collision_contacts;
 pub mod collision_math;

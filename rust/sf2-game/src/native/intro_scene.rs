@@ -5,6 +5,9 @@
 //! inserted directly after their spawner and can therefore run later in the
 //! current traversal.  Cleanup remains a separate, deferred pass.
 
+use super::cinematic_exit::{
+    CinematicExit, CinematicExitPolicy, CinematicExitVisit, CinematicSignals, OPENING_INPUT_HOLD,
+};
 use super::intro_attached_craft::{
     opening_burst, OpeningAttachedCraft, OpeningBurstAudio, OpeningBurstParticle,
     OpeningCraftFlare, OpeningDepartingCraft,
@@ -353,6 +356,7 @@ pub struct OpeningScene {
     controller_actor: ObjectId,
     inactive_player: ObjectId,
     controller: OpeningSceneController,
+    exit: CinematicExit,
     palette: OpeningScenePalette,
     artwork: SceneArtwork,
     artwork_load: Option<OpeningArtworkLoad>,
@@ -417,6 +421,7 @@ impl OpeningScene {
             controller_actor,
             inactive_player,
             controller: OpeningSceneController::default(),
+            exit: CinematicExit::new(OPENING_INPUT_HOLD),
             palette,
             artwork: SceneArtwork::default(),
             artwork_load: None,
@@ -441,6 +446,35 @@ impl OpeningScene {
 
     pub fn root(&self) -> ObjectId {
         self.root
+    }
+
+    pub fn exit(&self) -> &CinematicExit {
+        &self.exit
+    }
+
+    /// Outer scene-loop visit after the ordinary frame, not an actor or
+    /// display update. The display owner must supply actual fade visits;
+    /// this method does not infer them from elapsed actor updates.
+    pub fn visit_exit(
+        &mut self,
+        pressed: super::Buttons,
+        display: &mut super::scene_display::SceneDisplay,
+        audio: &mut super::AudioState,
+    ) -> CinematicExitVisit {
+        let mut signals = CinematicSignals {
+            exit_requested: self.controller.transition_requested,
+            skip_ready: false,
+        };
+        let event = self.exit.visit(
+            CinematicExitPolicy::OPENING,
+            &mut signals,
+            pressed,
+            false,
+            display,
+            audio,
+        );
+        self.controller.transition_requested = signals.exit_requested;
+        event
     }
     pub fn controller_actor(&self) -> ObjectId {
         self.controller_actor
@@ -1546,6 +1580,53 @@ impl OpeningScene {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outer_exit_owns_skipping_without_advancing_any_actor_or_frame_work() {
+        use super::super::scene_display::{DisplayBand, FadeRequest, Intensity, SceneDisplay};
+        use super::super::{AudioState, Button, Buttons};
+        let mut scene = OpeningScene::default();
+        scene.tick().unwrap();
+        let before = scene.clone();
+        let mut display = SceneDisplay {
+            request: FadeRequest::Idle,
+            progress: Intensity::FULL,
+            bands: [DisplayBand::BLANK_FULL; 3],
+            blank_hold: 255,
+            interval_remaining: 0,
+            interval_reload: 0,
+        };
+        let mut audio = AudioState::default();
+        let pressed = Buttons::from_bits(Button::B as u16);
+        for _ in 0..OPENING_INPUT_HOLD {
+            assert_eq!(
+                scene.visit_exit(pressed, &mut display, &mut audio),
+                CinematicExitVisit::default()
+            );
+            assert!(!scene.controller.transition_requested);
+        }
+        scene.visit_exit(pressed, &mut display, &mut audio);
+        assert!(scene.controller.transition_requested);
+        assert_eq!(audio.take_events().iter().flatten().count(), 1);
+        let start = scene.visit_exit(Buttons::default(), &mut display, &mut audio);
+        assert!(start.request_audio_exit);
+        assert!(!start.completed);
+        for _ in 0..4 {
+            display.visit_scene_fade(false);
+        }
+        assert!(
+            scene
+                .visit_exit(Buttons::default(), &mut display, &mut audio)
+                .completed
+        );
+        assert!(!scene.controller.transition_requested);
+        assert!(scene.exit().completed());
+        // Only the outer exit and its shared request can change here. Actor
+        // age, pool membership, RNG, artwork and buffer ownership are intact.
+        scene.exit = before.exit;
+        scene.controller.transition_requested = before.controller.transition_requested;
+        assert_eq!(scene, before);
+    }
 
     fn sample_artwork(value: u8) -> std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork> {
         std::sync::Arc::new(
