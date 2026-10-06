@@ -28,6 +28,7 @@ pub use native::player_consumable;
 pub use native::player_visit;
 pub use native::player_recovery;
 pub use native::player_storage;
+pub use native::player_scene_reset;
 pub use native::player_target_lock;
 pub use native::player_reticle;
 pub use native::player_input;

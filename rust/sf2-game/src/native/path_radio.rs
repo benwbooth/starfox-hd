@@ -62,7 +62,8 @@ pub enum RadioEventCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RadioLayout {
-    /// The live nonzero compact-layout flag read by the source radio service.
+    /// Nonzero boss-bar maximum ($D775), read by the radio request service.
+    /// Scene bindings resample the health-display owner when it is present.
     pub compact_panel: bool,
     /// Smoothed projected tracking-marker coordinate from `$07:A439..A502`.
     /// It is not the selected actor's world-space height.

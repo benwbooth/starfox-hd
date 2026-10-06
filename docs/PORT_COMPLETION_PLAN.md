@@ -113,6 +113,31 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Added the shared player-entry reset for already-native SF2 scene services
+  (`$06:958C..9691`): processed input, published shield, aiming pitch, surface
+  and action gates, handoff flags, recovery/protection, horizontal reticle,
+  camera tracking/focus, published motion and the environmental plane. The
+  reset preserves player storage, handoff coordinates, the other reticle axis,
+  homing target, view/options and pending audio. Missing retained owners keep
+  completed writes and fault the scene against retry. Original execution
+  matches every shield/capacity byte pair and 512 partial-write prefixes;
+  write tracing confirms controller selection before clearing and the repeated
+  horizontal-only reticle store. The outer initializer is still incomplete:
+  movement-mode, script-selector, terrain-render and continuous-audio state,
+  death registration and next-strategy ownership are not supplied by this
+  deliberately bounded service.
+  Also connected radio placement to the live reticle's vertical coordinate
+  and boss-bar maximum instead of stale entry observations. Authored maximum
+  changes are resampled within an immediate path visit. A continuous original
+  reset/hidden-reticle/radio sequence covers 1,024 configurations, including
+  contradictory initial observations. All 1,289 native tests and both
+  architecture integration checks pass in debug/release; the oracle-enabled
+  suite passes 1,297 unit tests and 35 runtime tests. All 26 player-storage,
+  input, reset and reticle original-code comparisons pass in both profiles.
+  All 634 SF2 source checks, the architecture guard and all three application
+  builds pass. These are service-boundary checks, not shipping gameplay
+  integration or whole-game certification.
+
 - Replaced the shipping SF1 intro exit's approximate window-intensity fade
   with the source-verified display fade. ENDSEQ writes retained brightness 11
   after the accepting transfer; the following six transfers publish

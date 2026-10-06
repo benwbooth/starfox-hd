@@ -204,6 +204,8 @@ pub struct ScenePathWorld {
     shots: [Option<BoundShots>; OBJECT_CAPACITY],
     pub audio: AudioState,
     pub audio_routing: Option<AudioRouting>,
+    /// Layout values are initializer observations only. Radio uses the live
+    /// reticle coordinate and boss-bar maximum once their owners are bound.
     pub radio: Option<(RadioRequest, RadioLayout)>,
     pub contacts: ContactStore,
     pub proxies: SceneProxyStore,
@@ -472,6 +474,8 @@ impl InvocationWorld for ScenePathWorld {
         actor: ObjectId,
         selected: PlayerTarget,
     ) -> Result<PathWorld<'_>, Self::Error> {
+        let tracked_screen_y = self.target_reticle.vertical;
+        let compact_radio_panel = self.health_display.map(|display| display.maximum != 0);
         let caller_weapon_inputs = self.caller_weapon_inputs(objects, actor);
         let reflection = self.reflection_rules(objects, actor);
         let protection_rules = super::path_protection::ProtectionRules {
@@ -548,7 +552,10 @@ impl InvocationWorld for ScenePathWorld {
             }),
             radio: self.radio.as_mut().map(|(request, layout)| PathRadio {
                 request,
-                layout: *layout,
+                layout: RadioLayout {
+                    tracked_screen_y: tracked_screen_y.unwrap_or(layout.tracked_screen_y),
+                    compact_panel: compact_radio_panel.unwrap_or(layout.compact_panel),
+                },
             }),
             contacts: Some(&self.contacts),
             surface_mode: self.surface_mode,

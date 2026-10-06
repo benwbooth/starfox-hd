@@ -91,6 +91,7 @@ pub mod player_consumable;
 pub mod player_visit;
 pub mod player_recovery;
 pub mod player_storage;
+pub mod player_scene_reset;
 pub mod player_target_lock;
 pub mod player_reticle;
 pub mod player_input;

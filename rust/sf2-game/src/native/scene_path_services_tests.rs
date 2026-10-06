@@ -10,6 +10,7 @@ use crate::path_commands::ControlCommand;
 use crate::path_fields::{ByteField, BytePart, WordField};
 use crate::path_invocation::{InvocationEntry, InvocationError, PathInvocation};
 use crate::path_program::{PathCatalog, ProgramError, Statement};
+use crate::path_radio::{RadioLayout, RadioRequest};
 use crate::path_target::{PublishedHomingTarget, TargetingUpgradeState};
 use crate::player_action::PlayerServiceFlags;
 use crate::player_input::PlayerInputSettings;
@@ -62,6 +63,112 @@ fn uninitialized_services_remain_absent_instead_of_fabricating_cleared_state() {
     let protection = input.protection.unwrap();
     assert_eq!(protection.rules, Default::default());
     assert!(protection.linked.is_none());
+}
+
+#[test]
+fn radio_uses_the_live_reticle_axis_after_its_first_publication() {
+    let mut objects = ObjectStore::new();
+    let owner = actor(&mut objects, None);
+    let mut world = ScenePathWorld::new(RandomState::default());
+    world.radio = Some((
+        RadioRequest::default(),
+        RadioLayout {
+            compact_panel: false,
+            tracked_screen_y: 200,
+        },
+    ));
+    // Explicit entry observations remain usable before display publishes.
+    world
+        .path_world(&objects, owner, PlayerTarget::Primary)
+        .unwrap()
+        .radio
+        .unwrap()
+        .request_message(3);
+    assert!(world.radio.as_ref().unwrap().0.top_placement);
+    for compact_panel in [false, true] {
+        world.radio.as_mut().unwrap().1.compact_panel = compact_panel;
+        for vertical in 0..=u8::MAX {
+            world.target_reticle.vertical = Some(vertical);
+            // Horizontal is deliberately on the opposite side of the panel
+            // threshold; it must not feed the message-placement consumer.
+            world.target_reticle.horizontal = Some(vertical.wrapping_add(128));
+            world
+                .path_world(&objects, owner, PlayerTarget::Primary)
+                .unwrap()
+                .radio
+                .unwrap()
+                .request_message(vertical);
+            let request = world.radio.as_ref().unwrap().0;
+            let top = !(18..146).contains(&vertical);
+            assert_eq!(request.top_placement, top);
+            assert_eq!(
+                request.panel_y,
+                if top {
+                    35
+                } else if compact_panel {
+                    139
+                } else {
+                    151
+                }
+            );
+            assert_eq!(world.radio.as_ref().unwrap().1.tracked_screen_y, 200);
+        }
+    }
+}
+
+#[test]
+fn radio_resamples_boss_bar_maximum_after_each_authored_store_in_the_same_visit() {
+    use crate::path_fields::ByteOperand;
+    use crate::path_radio::MessageIndex;
+    use crate::path_scene_state::{
+        CoordinationCommand, EncounterHealthDisplay, HealthDisplayField,
+    };
+
+    let mut objects = ObjectStore::new();
+    let owner = actor(&mut objects, Some(cursor(0, 0)));
+    let mut world = ScenePathWorld::new(RandomState::default());
+    world.health_display = Some(EncounterHealthDisplay {
+        current: 19,
+        maximum: 0,
+        label: None,
+    });
+    world.target_reticle.vertical = Some(100);
+    world.radio = Some((
+        RadioRequest::default(),
+        RadioLayout {
+            compact_panel: false,
+            tracked_screen_y: 200,
+        },
+    ));
+    for maximum in 0..=u8::MAX {
+        world.health_display.as_mut().unwrap().maximum = maximum.wrapping_add(1);
+        objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::HealthDisplay {
+                field: HealthDisplayField::Maximum,
+                command: CoordinationCommand::Assign(ByteOperand::Literal(maximum)),
+                next: cursor(0, 1),
+            },
+            Statement::Message {
+                number: ByteOperand::Literal(7),
+                next: cursor(0, 2),
+            },
+            Statement::Control(ControlCommand::End),
+        ]])
+        .unwrap();
+        visit(
+            &mut PathInvocation::default(),
+            &catalog,
+            &mut objects,
+            &mut world,
+            owner,
+        );
+        let request = world.radio.as_ref().unwrap().0;
+        assert_eq!(request.message, MessageIndex::from_authored_number(7));
+        assert_eq!(request.panel_y, if maximum == 0 { 151 } else { 139 });
+        assert!(!request.top_placement);
+        assert_eq!(world.health_display.unwrap().current, 19);
+    }
 }
 
 #[test]

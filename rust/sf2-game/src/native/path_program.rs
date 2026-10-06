@@ -2593,7 +2593,11 @@ impl PathRuntime {
             }
             Statement::Message { number, next } => {
                 let number = number.read(actor);
+                let compact = world.health_display.as_deref().map(|display| display.maximum != 0);
                 let radio = world.radio.as_mut().ok_or(ProgramError::MissingRadio)?;
+                if let Some(compact) = compact {
+                    radio.layout.compact_panel = compact;
+                }
                 radio.request_message(number);
                 objects
                     .get_mut(owner)

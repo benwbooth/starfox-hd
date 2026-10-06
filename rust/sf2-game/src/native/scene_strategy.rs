@@ -121,6 +121,7 @@ pub enum SceneError<E> {
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerStorage(super::player_storage::PlayerStorageError),
+    PlayerSceneReset(super::player_scene_reset::PlayerSceneResetError),
     TargetLock(super::player_target_lock::TargetLockError),
     ReticlePosition(super::player_target_lock::ReticlePositionError),
     Reticle(super::player_reticle::ReticleError),
@@ -153,6 +154,20 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Reset the scene publications owned by the currently ported player
+    /// services. Remaining enclosing initialization is explicitly separate.
+    pub fn reset_player_services(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_scene_reset::reset_services(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerSceneReset);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Full shared storage/formatter entry. This does not run the enclosing
     /// player strategy's global reset or first movement-mode visit.
     pub fn initialize_player_storage(
