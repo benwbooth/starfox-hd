@@ -4177,3 +4177,34 @@ All 1,043 native unit tests and two integration tests pass in debug and release;
 207 lowerer tests, 447 path-static tests, exact regeneration, architecture
 guard, static audit and app build pass. Complete gameplay and shipping-world
 scheduler integration remain unestablished.
+
+### Pulse-pair spawning and target-gated attacker — 2026-10-05
+
+The target-gated attacker (`$44:6550`) and invisible periodic pulse-pair
+emitter (`$44:82A5`) now lower their complete 546/84-command source graphs.
+The pulse-pair shape classifications are constrained to reviewed child paths,
+not a mesh-wide default. The catalog contains **149 actor roots, eight helpers,
+5,962 source commands and 5,903 typed statements**.
+
+Native tests cover all 256 initial wait bytes over three emitter cycles,
+including wraparound and the yielding jump before respawn, actor-state
+preservation, independent-child ownership, and unchanged random state. The
+attacker tests exercise all sixteen objective-bit selectors, completed-objective
+skip, source initialization and the retained transition wait. Existing tests
+cover the complete lifetimes of both pulse actors and immediate position chase.
+
+All 1,045 native unit tests and two integration tests pass in debug and release;
+208 lowerer tests, 447 path-static tests, exact generation, architecture checks,
+static audit and app build pass. These results do not establish production
+scheduler integration or complete gameplay.
+
+`python3 tools/sf2/path_backlog.py` now reports each independently discovered
+root, its exact first lowering blocker, source digest, and overlap with already
+registered graphs. At this checkpoint 64 of 106 discovered roots are registered;
+42 are blocked and none are lowerable but unregistered. The other 85 registered
+entries are separately installed roots, not additional progress against the
+106-root denominator. Three report tests verify this distinction and retained
+failure reporting. `--check` fails while any discovered root remains open.
+The report is not a whole-ROM inventory or a shipping-integration certificate.
+
+The active two-game execution plan is `PORT_COMPLETION_PLAN.md`.

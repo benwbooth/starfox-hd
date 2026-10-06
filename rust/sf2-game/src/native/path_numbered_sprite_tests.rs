@@ -159,6 +159,60 @@ fn numbered_sprite_constructor_zero_count_is_not_empty_and_missing_argument_is_n
 }
 
 #[test]
+fn pulse_attacker_uses_authored_health_for_completion_and_initializes_only_when_open() {
+    let catalog = authored_paths::catalog();
+    for health in 0..16 {
+        for complete in [false, true] {
+            let (mut runtime, mut objects, owner, mut random) = setup();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.base.path = Some(authored_paths::TARGET_GATED_PULSE_ATTACKER);
+            actor.base.hit_points = health;
+            actor.base.attack_power = 173;
+            actor.base.position.y = 32760;
+            let before = actor.clone();
+            let before_random = random;
+            let mut completion = ObjectiveCompletion {
+                bits: if complete { 1 << health } else { 0 },
+            };
+            let mut coordination = EncounterCoordination::default();
+            let mut inputs = world(&mut random);
+            inputs.objective_completion = Some(&mut completion);
+            inputs.coordination = Some(&mut coordination);
+            inputs.scene.height_offset = Some(20);
+            inputs.scene.entry_heading = Some(37);
+            for _ in 0..3 {
+                let result = runtime
+                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 128)
+                    .unwrap();
+                let actor = objects.get(owner).unwrap();
+                assert_eq!(result.actor, owner);
+                if complete {
+                    assert_eq!(result.step, ControlStep::Ended);
+                    let mut expected = before.clone();
+                    expected.base.path = actor.base.path;
+                    expected.base.flags.remove_after_tick = true;
+                    expected.extension.path_state.script_parameter = health + 1;
+                    expected.extension.path_state.script_value = 100;
+                    expected.extension.path_state.stack = actor.extension.path_state.stack.clone();
+                    assert_eq!(actor, &expected);
+                    break;
+                }
+                assert_eq!(result.step, ControlStep::Movement);
+                assert_eq!((actor.base.hit_points, actor.base.attack_power), (100, 4));
+                assert_eq!(actor.base.position.y, 32760i16.wrapping_add(20));
+                assert_eq!(actor.base.yaw.units(), 37);
+                assert_eq!(actor.extension.path_state.weapon_selection, 30);
+                assert_eq!(actor.extension.texture_scroll_x, 3);
+                assert_eq!(actor.extension.texture_scroll_y, 2);
+                assert_eq!(objects.len(), 1);
+                assert_eq!(runtime.spawns.last_spawn, None);
+            }
+            assert_eq!(random, before_random);
+        }
+    }
+}
+
+#[test]
 fn numbered_sprite_encounters_decode_the_attack_weapon_overlap_before_completion_skip() {
     let catalog = authored_paths::catalog();
     for entry in [

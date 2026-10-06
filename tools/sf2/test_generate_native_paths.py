@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 147;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 149;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 8;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5782;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5962;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -57,6 +57,30 @@ class NativePathGenerationTests(unittest.TestCase):
                                       'Statement::Control(ControlCommand::Return)'])
         self.assertIn('Statement::ConsiderPrimaryTarget {', self.lower_record('c7')[0])
         self.assertIn('Statement::ConsiderPrimaryTargetAndMarkSceneProxy {', self.lower_record('c6')[0])
+
+    def test_pulse_attacker_and_periodic_pair_emitter_have_complete_bound_graphs(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, lowered, digest in [
+            (0x6550, 546, 540, '3ee4b74130c90a2bbe128d8f6f078f62b13b4607a362978ada3e9273d090a987'),
+            (0x82A5, 84, 84, 'dfcdeec06eec542abeccf8e8d87f58dee5ff37900d939bd14e4556668328601f'),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
+            self.assertEqual(len(lower_graph(extractor, PathAddress(root), 0)[1]), lowered)
+        self.assertIn(PathAddress(0x6550), extractor.discover_roots())
+        spawn = extractor.decode_command(PathAddress(0x25C8))
+        self.assertIn(spawn, graph(extractor, PathAddress(0x2651)))
+        self.assertEqual(spawn.raw_hex, 'f59cbca582640000000000000001')
+        self.assertEqual(child_spawn_parameters(spawn).path, PathAddress(0x82A5))
+        for shape, root, index in [(0xBC9C, 0x82A5, 0), (0xBD7C, 0x82C3, 8), (0xBD7C, 0x82D9, 8)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(root)), (index, 'ObjectKind::Effect'))
+            with self.assertRaisesRegex(UnsupportedPath, 'unreviewed native spawn kind'):
+                spawn_shape(shape, PathAddress(root + 1))
+        changed = bytearray(self.rom)
+        changed[0x425CB:0x425CD] = (0x82A6).to_bytes(2, 'little')
+        with self.assertRaisesRegex(UnsupportedPath, 'no verified child installer'):
+            generate(bytes(changed), (("EMITTER", PathAddress(0x82A5)),))
 
     def test_protection_override_has_its_own_non_ifnot_branch_statement(self):
         self.assertEqual(self.lower_record('30 36 f5')[0],

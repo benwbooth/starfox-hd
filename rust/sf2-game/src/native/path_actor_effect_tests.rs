@@ -38,7 +38,9 @@ fn finish_fade(
             .needs_path_initialization
     );
     runtime.initialize_path_strategy(objects, child).unwrap();
-    let mut auxiliary = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
+    let mut auxiliary = SelectedAuxiliaryState {
+        stored_rotation: Default::default(),
+        stored_world_position: Default::default(),
         mode: 0x20,
         action_flags: 0,
     };
@@ -79,8 +81,16 @@ fn four_pulse_emitter_restores_caller_each_visit_and_dies_after_final_spawn() {
         let (mut runtime, mut objects, owner, mut random) = setup();
         let actor = objects.get_mut(owner).unwrap();
         actor.base.path = Some(paths::FOUR_PULSE_DEATH_EMITTER);
-        actor.base.position = Vector3 { x: 32760, y: -1234, z: -32760 };
-        actor.base.velocity = Vector3 { x: 17, y: -21, z: 29 };
+        actor.base.position = Vector3 {
+            x: 32760,
+            y: -1234,
+            z: -32760,
+        };
+        actor.base.velocity = Vector3 {
+            x: 17,
+            y: -21,
+            z: 29,
+        };
         actor.base.hit_points = 93;
         actor.extension.path_state.part = part;
         let mut expected_position = actor.base.position;
@@ -88,14 +98,26 @@ fn four_pulse_emitter_restores_caller_each_visit_and_dies_after_final_spawn() {
         inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
         for visit in 0..4 {
             let death = visit == 3;
-            assert_eq!(run(&mut runtime, &catalog, &mut objects, owner, &mut inputs),
-                if death { ControlStep::MovementTail } else { ControlStep::Movement });
+            assert_eq!(
+                run(&mut runtime, &catalog, &mut objects, owner, &mut inputs),
+                if death {
+                    ControlStep::MovementTail
+                } else {
+                    ControlStep::Movement
+                }
+            );
             let child = runtime.spawns.last_spawn.unwrap();
             let spawned = objects.get(child).unwrap();
-            assert_eq!(spawned.base.path, Some(paths::RANDOM_SIZE_MOTION_FADE_SPRITE));
+            assert_eq!(
+                spawned.base.path,
+                Some(paths::RANDOM_SIZE_MOTION_FADE_SPRITE)
+            );
             assert_eq!(spawned.base.shape.catalog_index(), 14);
             assert_eq!(spawned.base.position, expected_position);
-            assert_eq!((spawned.base.hit_points, spawned.base.attack_power), (100, 50));
+            assert_eq!(
+                (spawned.base.hit_points, spawned.base.attack_power),
+                (100, 50)
+            );
             assert_eq!(spawned.extension.path_state.part, 6);
             assert!(spawned.base.contacts.run_when_paused);
             assert_eq!(spawned.base.attachment, None);
@@ -108,10 +130,21 @@ fn four_pulse_emitter_restores_caller_each_visit_and_dies_after_final_spawn() {
             assert!(!actor.base.flags.remove_after_tick);
             finish_fade(&mut runtime, &catalog, &mut objects, child, &mut inputs);
             assert_eq!(objects.len(), 1);
-            let pending = if death { runtime.begin_movement_tail(&objects, owner).unwrap() }
-                else { runtime.begin_movement(&mut objects, owner, super::super::path_motion::PlayerDisplacement::default()).unwrap() };
+            let pending = if death {
+                runtime.begin_movement_tail(&objects, owner).unwrap()
+            } else {
+                runtime
+                    .begin_movement(
+                        &mut objects,
+                        owner,
+                        super::super::path_motion::PlayerDisplacement::default(),
+                    )
+                    .unwrap()
+            };
             assert!(!pending);
-            runtime.finish_movement(&mut objects, &mut [None, None]).unwrap();
+            runtime
+                .finish_movement(&mut objects, &mut [None, None])
+                .unwrap();
             if !death {
                 expected_position.x = expected_position.x.wrapping_add(17);
                 expected_position.y = expected_position.y.wrapping_sub(21);
@@ -239,6 +272,72 @@ fn periodic_emitters_keep_caller_context_and_run_spawned_fades_through_retiremen
             }
             runtime.release_actor_programs(&mut objects, owner).unwrap();
         }
+    }
+}
+
+#[test]
+fn periodic_pair_emitter_preserves_every_initial_wait_and_yields_before_respawn() {
+    let catalog = paths::catalog();
+    for initial_wait in 0..=u8::MAX {
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        let actor = objects.get_mut(owner).unwrap();
+        actor.base.path = Some(paths::PERIODIC_PULSE_PAIR_EMITTER);
+        actor.base.wait_timer = initial_wait;
+        actor.base.position = Vector3 {
+            x: i16::MIN,
+            y: i16::MAX,
+            z: -77,
+        };
+        actor.base.hit_points = 100;
+        actor.base.attack_power = 0;
+        let before = actor.clone();
+        let before_random = random;
+        let mut inputs = world(&mut random);
+        inputs.spawn_defaults = Some(ObjectSpawnDefaults {
+            run_when_paused: false,
+            group: 17,
+        });
+        for cycle in 0..3 {
+            let initial = if cycle == 0 { initial_wait } else { 0 };
+            let waits = usize::from(15u8.wrapping_sub(initial));
+            let mut child = None;
+            for visit in 0..=waits {
+                assert_eq!(
+                    run(&mut runtime, &catalog, &mut objects, owner, &mut inputs),
+                    ControlStep::Movement
+                );
+                if visit == 0 {
+                    child = runtime.spawns.last_spawn;
+                }
+                assert_eq!(runtime.spawns.last_spawn, child);
+                assert_eq!(objects.len(), cycle + 2);
+                let actor = objects.get(owner).unwrap();
+                let mut expected = before.clone();
+                expected.base.flags.visible = false;
+                expected.base.flags.collision_disabled = true; // source INVISIBLE, not the spawn kind
+                expected.base.contacts.run_when_paused = true;
+                expected.base.path = actor.base.path;
+                expected.base.next = actor.base.next;
+                expected.base.wait_timer = if visit == waits {
+                    0
+                } else {
+                    initial.wrapping_add(visit as u8).wrapping_add(1)
+                };
+                assert_eq!(actor, &expected);
+                let spawned = objects.get(child.unwrap()).unwrap();
+                assert_eq!(spawned.base.path, Some(paths::PULSE_PAIR));
+                assert_eq!(spawned.base.shape, ShapeId::from_catalog_index(8));
+                assert_eq!(spawned.base.position, before.base.position);
+                assert_eq!(
+                    (spawned.base.hit_points, spawned.base.attack_power),
+                    (100, 0)
+                );
+                assert!(spawned.base.contacts.run_when_paused);
+                assert_eq!(spawned.extension.parent, None);
+                assert_eq!(spawned.base.attachment, None);
+            }
+        }
+        assert_eq!(random, before_random);
     }
 }
 

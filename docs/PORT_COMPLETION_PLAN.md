@@ -1,0 +1,131 @@
+# SF1 and SF2 completion plan
+
+Updated 2026-10-05. Status: implementation in progress; neither game is certified.
+
+This is the execution plan for the user's request to finish both Rust ports.
+It supersedes the sequencing restriction in `RETAIL_PARITY_PLAN.md` that deferred
+all SF2 work until SF1 certification. It does not relax that document's accuracy
+standard. Follow `NATIVE_PORT_ARCHITECTURE.md`. The current implementation stage
+is source-first: read ASM/disassembled source and port its behavior, not recorded
+gameplay. No new gameplay recordings are required to implement this stage.
+
+## Completion contract
+
+A subsystem is complete only after its reachable source behavior is mapped to
+Rust, all branches and side effects are implemented, it is connected to the
+shipping game, and its tests cover both normal and exceptional outcomes.
+Record these as separate states: source inventoried, implemented, source reviewed,
+unit verified, shipping integrated, integration verified, user playtested.
+Never equate a generated graph, a green build, or a forced-progression soak with
+a working game. Missing data and unsupported behavior must remain visible.
+
+The final deliverable is two runnable Rust games with normal controller-driven
+progression, not just tests or generated catalogs. No emulated game logic,
+recording-driven gameplay, no-op implementations, assumed-success services,
+native-generated expected fixtures, or unreviewed compatibility fallbacks may
+be used to close a gap. Keep HD presentation separate from simulation state.
+
+## Work queue and exit conditions
+
+| Order | Work item | Required evidence before closing |
+| --- | --- | --- |
+| 1 | Establish the current baseline and executable gap inventory | Full workspace test results, release/app build, architecture audit, exact generated catalogs; every failure retained and assigned |
+| 2 | SF1 source/dispatch and route closure | Every map/path/strategy entry resolves to its intended Rust behavior; audit old boss/proxy claims against current code; source tests for missing entries and incorrect callbacks |
+| 3 | SF1 shared contracts and timing | Source-derived scheduling, arithmetic, RNG order, object lifetime, collision, child ownership, camera and control locks; remove neutral-recording timing from production |
+| 4 | SF2 source-graph closure | Enumerate all discovered roots and their exact first unsupported operation, then indexed/dynamic installers and external phase writers; complete graphs with source-bound tests |
+| 5 | SF2 production frame ownership | Connect native scheduler, authored paths, object creation/retirement, contact dispatch, motion, sounds and scene services to `Game::tick`; preserve callback/yield and random order |
+| 6 | SF2 general campaign and live control | Replace prescribed encounter order, recorded spawn/retire/actions and neutral/live split with source state machines; arbitrary mission selection, all difficulties, pilots, Walker/flight and weapons |
+| 7 | Whole-game progression and presentation | Controller-driven routes/campaigns, bosses, alternate outcomes, death/restart/continue, endings, save/load where supported, UI, assets and music/SFX; test short and long lifetimes and off-nominal input |
+| 8 | Release handoff | Full debug/release regression and real-app smoke checks, usable launch commands for each game, no unexplained failures, accurate known-limitations report, intended commits pushed and remote SHA verified |
+
+Orders 2–6 may interleave when one source contract unlocks another. Each
+implementation batch must make progress on an actual blocker. Do not spend the
+whole effort accumulating isolated leaf routines while leaving the production
+frame owner disconnected. Integrate coherent source-complete slices; do not
+switch a whole scene onto an incomplete backend or fabricate missing inputs.
+
+## Starting evidence
+
+- SF2 currently has 149 complete lowered actor roots and eight helpers, covering
+  5,962 source commands and 5,903 typed statements. This includes child roots:
+  it is not 149 out of the 106 independently discovered roots.
+- The native authored path runtime is not yet the production `Game::tick` owner.
+  `SF2_GAMEPLAY_COVERAGE.md` identifies recorded action schedules, fixed campaign
+  progression, and a neutral/live control split that still need replacement.
+- SF1 production `gameplay_timing.rs` still contains neutral-input timing arrays.
+  `FINISHING_AUDIT.md` records unresolved verification and integration issues;
+  those older results require a fresh baseline before use as current evidence.
+- `UNPORTED_BOSSES_PLAN.md` is historical, not a trustworthy current task list.
+  For example, current `level1_4.rs` already references the real bossH port.
+- The checkout has substantial pre-existing SF1/app/render/audio changes. Preserve
+  them. Review overlapping hunks before editing; stage only the current batch.
+
+## Repeatable execution loop
+
+1. Inspect current status, this plan, the specific source and the latest test
+   outcome. Resume active verification instead of launching duplicate builds.
+2. Select a bounded blocker and trace its caller, state owner, consumers and
+   lifecycle. Document the intended source contract beside implementation/tests.
+3. Implement real typed Rust behavior and production wiring when the slice's
+   dependencies are closed. Test arithmetic boundaries, missing-input ordering,
+   shared-state preservation, resource exhaustion and all authored branches.
+4. Run focused checks, then the relevant full suite and release build. Do not
+   bless a fixture merely because native output changed. Record failures even
+   when unrelated; they remain release blockers.
+5. Update the ledger with implemented versus integrated versus verified status.
+   Commit intended paths, push, and verify the remote ref. Continue with the next
+   blocker without asking the user to say continue.
+
+## Verification commands
+
+From the repository root:
+
+```sh
+nix develop --command bash -c 'cd rust && cargo test --workspace --no-fail-fast'
+nix develop --command bash -c 'cd rust && cargo test -p sf2-game --no-default-features --release && cargo build -p sf-app'
+python3 tools/check_native_architecture.py
+python3 tools/sf2/generate_native_paths.py --check
+python3 tools/sf2/audit_gameplay_static.py
+python3 tools/sf2/path_backlog.py
+python3 -m unittest discover -s tools/sf2 -p test_path_backlog.py
+python3 -m unittest discover -s tools/sf2 -p test_generate_native_paths.py
+python3 -m unittest discover -s tools/sf2/disasm -p 'test_*.py'
+```
+
+The historical retail-parity gate is a later independent validation tool, not
+the source of gameplay implementation. Existing oracle-test failures must not
+be hidden, but new recordings are not a prerequisite for the source-first work.
+Whole-game accuracy cannot be inferred from either test family alone.
+
+## Unattended operation and handoff
+
+Use this same task for scheduled continuation while the user is away. Continue
+implementation, not just status polling. Keep the user-owned assets and unrelated
+changes intact. Stop for a real permission boundary or missing essential input;
+otherwise work through another unblocked item. Notify only on a meaningful
+milestone, a failure requiring intervention, completion, or required user action.
+Disable the continuation schedule once the completion contract is satisfied.
+
+The hourly same-task continuation `finish-sf1-and-sf2-rust-ports` was activated
+on 2026-10-05. Local continuation requires the computer and desktop app to remain
+running; scheduled work is not a guarantee of a completion date.
+
+### Current execution checkpoint — 2026-10-05
+
+- Completed two additional SF2 source graphs: target-gated pulse attacker and
+  periodic pulse-pair emitter. All 1,045 native tests and two integration tests
+  pass in debug/release; app build succeeds.
+- Added `tools/sf2/path_backlog.py` with exact blockers and source hashes. It
+  identifies 64 registered discovered roots and 42 blocked roots. Three tests
+  protect the inventory's distinction between discovered and child roots.
+- All 208 lowerer tests pass. The broader 537-test source suite initially caught
+  an outdated semantic count: carry-off was added with its source proof but not
+  listed among reviewed, currently unused handlers. Corrected that exact set;
+  all 537 tests now pass. No reachable-handler check was weakened.
+- A fresh full-workspace run is in progress. The SF1 native semantic checkpoint
+  test has failed; preserve it as a release blocker pending the final report and
+  source diagnosis. Do not replace its expected hash with current native output.
+
+Leave a final handoff listing exact tested revisions, launcher commands, tests
+actually run, and any unresolved limitations. Never label unfinished work fully
+working merely because the user is due back.

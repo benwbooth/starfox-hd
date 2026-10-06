@@ -25,6 +25,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("TARGET_GATED_PULSE_ATTACKER", PathAddress(0x6550)),
+    ("PERIODIC_PULSE_PAIR_EMITTER", PathAddress(0x82A5)),
     ("NUMBERED_SPRITE_PURSUER", PathAddress(0x23D4)),
     ("NUMBERED_SPRITE_BANKING_ATTACKER", PathAddress(0x6003)),
     ("ORIENTED_PROGRESS_GATED_EXIT", PathAddress(0x0AE7)),
@@ -190,6 +192,7 @@ SUBROUTINES = (
 # Independently scheduled child roots with a reviewed, reachable parent spawn.
 # This proves installation only; it does not claim the parent graph is lowered.
 CHILD_INSTALLERS = {
+    PathAddress(0x82A5): (PathAddress(0x2651), PathAddress(0x25C8)),
     PathAddress(0x78D2): (PathAddress(0x8D82), PathAddress(0x857B)),
     PathAddress(0x7B8F): (PathAddress(0x8D82), PathAddress(0x8570)),
     PathAddress(0x888E): (PathAddress(0x22AA), PathAddress(0x8886)),
@@ -689,7 +692,14 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
         return index, "ObjectKind::Effect"
     if (index, path) == (239, PathAddress(0x7F78)):
         return index, "ObjectKind::Scenery"
-    if index == 8 and path in (PathAddress(0x82E3), PathAddress(0x8285), PathAddress(0x8458)):
+    # Both pulse-pair entries reach the collision-disabled animated sprite;
+    # the player-position variant first chases its sampled target without a
+    # movement yield. The empty-shape emitter is an invisible timed service;
+    # this classification does not implicitly disable its authored contacts.
+    if (index, path) == (0, PathAddress(0x82A5)):
+        return index, "ObjectKind::Effect"
+    if index == 8 and path in (PathAddress(0x82E3), PathAddress(0x8285), PathAddress(0x8458),
+                              PathAddress(0x82C3), PathAddress(0x82D9)):
         return index, "ObjectKind::Effect"
     if ((index == 22 and path in (PathAddress(0x8394), PathAddress(0x838F)))
             or (index, path) in ((40, PathAddress(0x83C2)), (36, PathAddress(0x832E)))):
