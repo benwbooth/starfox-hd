@@ -53,18 +53,21 @@ use super::scene_artwork::{
     SceneArtwork,
 };
 use super::scene_frame::NormalFrameBuffers;
+use super::scene_video::{SceneLayerPolicy, SceneModePublication, SceneModeSetup, SceneVideo};
 use super::state::RandomState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpeningArtworkRequestError {
     AlreadyLoading,
     NotStarted,
+    MissingLayerPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DeferredOpeningArtwork {
     artwork: std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork>,
     skip_background_palette: bool,
+    include_mode_setup: bool,
 }
 
 /// One independently scheduled member of the opening's shared actor pool.
@@ -334,6 +337,7 @@ pub struct OpeningSceneFrameEvents {
     /// Artwork published at the joined normal-frame boundary. This preserves
     /// loader order but does not assign display times to those publications.
     pub artwork_publications: Vec<ArtworkPublication>,
+    pub scene_mode_publication: Option<SceneModePublication>,
     pub root_events: Vec<OpeningRootEvent>,
     pub second_flyby_events: Vec<OpeningSecondFlybyEvent>,
     pub spawned: Vec<ObjectId>,
@@ -360,6 +364,8 @@ pub struct OpeningScene {
     exit: CinematicExit,
     palette: OpeningScenePalette,
     lighting: SceneLighting,
+    video: SceneVideo,
+    layer_policy: Option<SceneLayerPolicy>,
     artwork: SceneArtwork,
     artwork_load: Option<OpeningArtworkLoad>,
     deferred_artwork: Option<DeferredOpeningArtwork>,
@@ -426,6 +432,8 @@ impl OpeningScene {
             exit: CinematicExit::new(OPENING_INPUT_HOLD),
             palette,
             lighting: SceneLighting::default(),
+            video: SceneVideo::default(),
+            layer_policy: None,
             artwork: SceneArtwork::default(),
             artwork_load: None,
             deferred_artwork: None,
@@ -497,6 +505,18 @@ impl OpeningScene {
     pub fn lighting(&self) -> SceneLighting {
         self.lighting
     }
+    pub fn video(&self) -> &SceneVideo {
+        &self.video
+    }
+    pub fn publish_display_output(&mut self, band: super::scene_display::DisplayBand) {
+        self.video.publish_display(band);
+    }
+    /// Bind the scene's real inherited layer policy. This does not publish
+    /// a layout or blank the display. Request preparation and the later
+    /// display service sample different parts of this live policy.
+    pub fn set_scene_layer_policy(&mut self, policy: SceneLayerPolicy) {
+        self.layer_policy = Some(policy);
+    }
     pub fn artwork_load_phase(&self) -> Option<ArtworkLoadPhase> {
         self.artwork_load.as_ref().map(OpeningArtworkLoad::phase)
     }
@@ -531,7 +551,23 @@ impl OpeningScene {
         self.deferred_artwork = Some(DeferredOpeningArtwork {
             artwork,
             skip_background_palette,
+            include_mode_setup: false,
         });
+        Ok(())
+    }
+    /// Queue the opening's mode/layout setup together with its artwork.
+    /// Layer policy must be bound explicitly; there is no guessed boot layout.
+    /// This does not include unrelated scene-reset or postload services.
+    pub fn queue_scene_presentation(
+        &mut self,
+        artwork: std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork>,
+        skip_background_palette: bool,
+    ) -> Result<(), OpeningArtworkRequestError> {
+        if self.layer_policy.is_none() {
+            return Err(OpeningArtworkRequestError::MissingLayerPolicy);
+        }
+        self.queue_artwork_load(artwork, skip_background_palette)?;
+        self.deferred_artwork.as_mut().unwrap().include_mode_setup = true;
         Ok(())
     }
     /// Called by the scene host when the source's standard artwork request is
@@ -553,6 +589,22 @@ impl OpeningScene {
         self.artwork_load = Some(OpeningArtworkLoad::new(artwork));
         Ok(())
     }
+    /// Accept the standard loader at its real scene barrier. Large-character
+    /// choice is captured now; layer/map policy is read again on publication.
+    pub fn begin_scene_presentation(
+        &mut self,
+        artwork: std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork>,
+        skip_background_palette: bool,
+    ) -> Result<(), OpeningArtworkRequestError> {
+        let policy = self
+            .layer_policy
+            .ok_or(OpeningArtworkRequestError::MissingLayerPolicy)?;
+        self.begin_artwork_load(artwork, skip_background_palette)?;
+        self.video
+            .request_setup(SceneModeSetup::OffsetTallMap, policy.artwork_plane)
+            .expect("mode setup cannot outlive its active artwork load");
+        Ok(())
+    }
     pub fn resume_artwork_load(
         &mut self,
         foreground: ForegroundSelection,
@@ -569,14 +621,20 @@ impl OpeningScene {
         Ok(result)
     }
     /// The host calls this only at an artwork service boundary. This does not
-    /// advance actors, palette effects or clocks. The setup service also
-    /// selects normal depth thresholds; other scene-mode resets remain open.
+    /// advance actors, palette effects or clocks. Standard artwork services
+    /// force blanking; an accepted mode request publishes its layout with the
+    /// setup palette and normal depth thresholds. Other resets remain open.
     pub fn publish_artwork(&mut self) -> Option<ArtworkPublication> {
         let publication = self
             .artwork_load
             .as_mut()?
             .publish(&mut self.artwork, &mut self.palette)?;
+        self.video.publish_transfer_blank();
         if publication == ArtworkPublication::PolygonPalette {
+            if self.video.setup_pending() {
+                self.video
+                    .publish_setup(self.layer_policy.expect("accepted scene layer policy"));
+            }
             self.lighting.setup_scene();
         }
         Some(publication)
@@ -594,15 +652,22 @@ impl OpeningScene {
         let Some(request) = self.deferred_artwork.take() else {
             return;
         };
-        self.begin_artwork_load(request.artwork, request.skip_background_palette)
-            .expect("a queued request cannot overlap an active loader");
+        let include_mode = request.include_mode_setup;
+        if include_mode {
+            self.begin_scene_presentation(request.artwork, request.skip_background_palette)
+        } else {
+            self.begin_artwork_load(request.artwork, request.skip_background_palette)
+        }
+        .expect("a queued request cannot overlap an active loader or lose its layer policy");
         loop {
             match self.artwork_load_phase().expect("accepted artwork request") {
                 ArtworkLoadPhase::Complete => break,
                 ArtworkLoadPhase::Pending(_) => {
-                    events
-                        .artwork_publications
-                        .push(self.publish_artwork().expect("pending artwork publication"));
+                    let publication = self.publish_artwork().expect("pending artwork publication");
+                    if include_mode && publication == ArtworkPublication::PolygonPalette {
+                        events.scene_mode_publication = self.video.last_setup();
+                    }
+                    events.artwork_publications.push(publication);
                 }
                 ArtworkLoadPhase::RequestBackground
                 | ArtworkLoadPhase::SelectForeground
@@ -1600,6 +1665,107 @@ impl OpeningScene {
 mod tests {
     use super::*;
 
+    fn layer_policy(plane: super::super::scene_video::ArtworkPlane) -> SceneLayerPolicy {
+        use super::super::scene_video::{SceneLayerMask, TileMapGrid};
+        SceneLayerPolicy {
+            artwork_plane: plane,
+            visible_layers: SceneLayerMask::OPENING,
+            layered_large_characters: [true; 4],
+            layered_foreground_priority: true,
+            third_map_grid: TileMapGrid::LargeSquare,
+        }
+    }
+
+    #[test]
+    fn scene_presentation_requires_real_layer_policy_without_mutating_requests() {
+        let mut scene = OpeningScene::default();
+        let before = scene.clone();
+        assert_eq!(
+            scene.begin_scene_presentation(sample_artwork(17), false),
+            Err(OpeningArtworkRequestError::MissingLayerPolicy)
+        );
+        assert_eq!(
+            scene.queue_scene_presentation(sample_artwork(17), false),
+            Err(OpeningArtworkRequestError::MissingLayerPolicy)
+        );
+        assert_eq!(scene, before);
+    }
+
+    #[test]
+    fn scene_layout_and_artwork_publish_without_advancing_fades_or_actors() {
+        use super::super::scene_display::{DisplayBand, Intensity};
+        use super::super::scene_video::{ArtworkPlane, SceneTileMode, TileMapGrid};
+        let mut scene = OpeningScene::default();
+        scene.set_scene_layer_policy(layer_policy(ArtworkPlane::First));
+        scene
+            .begin_scene_presentation(sample_artwork(17), false)
+            .unwrap();
+        let actors = scene.snapshots().collect::<Vec<_>>();
+        let random = scene.random();
+        assert!(scene.video().setup_pending());
+        assert_eq!(scene.video().last_setup(), None);
+        assert_eq!(scene.video().output(), None);
+        scene.set_scene_layer_policy(layer_policy(ArtworkPlane::Second));
+        let visible = DisplayBand {
+            blanked: false,
+            intensity: Intensity::new(7),
+        };
+        scene.publish_display_output(visible);
+        scene.publish_artwork().unwrap();
+        let layout = scene.video().last_setup().unwrap();
+        assert_eq!(layout.mode, SceneTileMode::ColumnOffsets);
+        assert_eq!(layout.large_characters, [true, false, false, false]);
+        assert!(!layout.foreground_priority);
+        assert_eq!(layout.artwork_plane, ArtworkPlane::Second);
+        assert_eq!(layout.artwork_map_grid, TileMapGrid::Tall);
+        assert_eq!(layout.third_map_grid, TileMapGrid::LargeSquare);
+        assert_eq!(scene.video().output(), Some(DisplayBand::BLANK_FULL));
+        for _ in 0..4 {
+            scene
+                .resume_artwork_load(ForegroundSelection::STANDARD)
+                .unwrap();
+            scene.publish_display_output(visible);
+            scene.publish_artwork().unwrap();
+            assert_eq!(scene.video().output(), Some(DisplayBand::BLANK_FULL));
+            assert_eq!(scene.video().last_setup(), Some(layout));
+        }
+        // The main-loop handoff is not a display service and must not blank
+        // an independently published output again.
+        scene.publish_display_output(visible);
+        scene
+            .resume_artwork_load(ForegroundSelection::STANDARD)
+            .unwrap();
+        assert_eq!(scene.video().output(), Some(visible));
+        assert_eq!(scene.artwork_load_phase(), Some(ArtworkLoadPhase::Complete));
+        assert_eq!(scene.snapshots().collect::<Vec<_>>(), actors);
+        assert_eq!(scene.random(), random);
+        assert_eq!(scene.global_clock(), 0);
+        assert_eq!(scene.controller().elapsed_updates(), 0);
+    }
+
+    #[test]
+    fn queued_presentation_samples_mode_at_the_frame_barrier_and_publishes_once() {
+        use super::super::scene_video::ArtworkPlane;
+        let mut scene = OpeningScene::default();
+        scene.set_scene_layer_policy(layer_policy(ArtworkPlane::First));
+        scene
+            .queue_scene_presentation(sample_artwork(17), false)
+            .unwrap();
+        scene.set_scene_layer_policy(layer_policy(ArtworkPlane::Second));
+        let waiting = scene.tick().unwrap();
+        assert_eq!(waiting.scene_mode_publication, None);
+        assert_eq!(scene.video().last_setup(), None);
+        assert!(!scene.video().setup_pending());
+        let loaded = scene.tick().unwrap();
+        let layout = loaded.scene_mode_publication.unwrap();
+        assert_eq!(layout.large_characters, [false, true, false, false]);
+        assert_eq!(layout.artwork_plane, ArtworkPlane::Second);
+        assert_eq!(scene.video().last_setup(), Some(layout));
+        assert_eq!(loaded.artwork_publications.len(), 5);
+        assert_eq!(scene.artwork_load_phase(), Some(ArtworkLoadPhase::Complete));
+        assert_eq!(scene.tick().unwrap().scene_mode_publication, None);
+    }
+
     #[test]
     fn outer_exit_owns_skipping_without_advancing_any_actor_or_frame_work() {
         use super::super::scene_display::{DisplayBand, FadeRequest, Intensity, SceneDisplay};
@@ -1914,7 +2080,10 @@ mod tests {
             OpeningScenePalette::new([IntroColor::default(); INTRO_PALETTE_COLORS]),
         );
         let mut setup_events = OpeningSceneFrameEvents::default();
-        scene.queue_artwork_load(sample_artwork(17), false).unwrap();
+        scene.set_scene_layer_policy(layer_policy(super::super::scene_video::ArtworkPlane::First));
+        scene
+            .queue_scene_presentation(sample_artwork(17), false)
+            .unwrap();
         while scene.available_slots() > 0 {
             scene
                 .allocate(

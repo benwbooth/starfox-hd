@@ -16,6 +16,7 @@ pub use native::scene_path_world;
 pub use native::scene_map;
 pub use native::scene_display;
 pub use native::scene_artwork;
+pub use native::scene_video;
 pub use native::scene_frame;
 pub use native::scene_contact;
 pub use native::player_charge;

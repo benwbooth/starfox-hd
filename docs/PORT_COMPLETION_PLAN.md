@@ -113,6 +113,27 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Added native scene-mode/layout ownership around the opening artwork loader.
+  The four setup requests retain their distinct colour modes and map grids;
+  large-character selection is captured at request acceptance while the display
+  service reads the current artwork plane, visibility and extra layer policy.
+  Every standard artwork service publishes forced blanking without advancing
+  actors, palette effects or fades. The final main-loop handoff does not blank
+  again. The joined-frame request carries this layout work, retains the real
+  buffer barrier and rolls back with failed actor traversal. Missing inherited
+  layer policy is an explicit error, not an assumed boot constant. Unmodified
+  source checks cover all 262,144 setup flag combinations and 8,192 publication
+  combinations; the reset-to-loader test also verifies each actual publication.
+  Those isolated service checks start after the horizontal-blank wait and stop
+  before audio/IRQ continuation, so they do not certify display timing. All
+  18 data tests, 1,211 native game tests and two architecture tests pass in both
+  profiles, along with 1,256 compatibility-enabled tests in debug. The eleven
+  scoped original-code checks pass in both profiles; the previously ignored
+  autonomous-refresh gate remains open. Source/extraction checks, exact
+  generation, architecture audit and the three app builds pass. Parent policy
+  production, native asset bindings, raster offsets, remaining reset/postload
+  effects and shipping frame-owner adoption still require implementation.
+
 - Connected opening lighting selections to the native scene loader. Setup
   publishes the normal depth thresholds while retaining the inherited colour
   family; the opening thresholds and standard colour family are installed by

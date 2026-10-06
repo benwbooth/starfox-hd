@@ -1,8 +1,8 @@
 //! Native opening-artwork publications compared at original loader/service
 //! boundaries. The source runs from reset with its original IRQ and DMA code.
-//! This verifies publication order and content, not native IRQ timing, scene
-//! mode setup or palette effects. Lighting publication is checked separately
-//! at setup completion and at the final main-loop handoff.
+//! This verifies publication order/content, tile layout and display blanking,
+//! not native IRQ timing, raster offsets or all scene-reset effects. Lighting
+//! is checked at setup completion and the final main-loop handoff.
 
 use std::sync::Arc;
 
@@ -12,6 +12,10 @@ use sf2_game::intro_material::{DepthColorFamily, DepthThresholdTable};
 use sf2_game::intro_scene::OpeningScene;
 use sf2_game::scene_artwork::{
     ArtworkLoadPhase, ArtworkPublication, ArtworkResume, ForegroundSelection,
+};
+use sf2_game::scene_display::DisplayBand;
+use sf2_game::scene_video::{
+    ArtworkPlane, SceneLayerMask, SceneLayerPolicy, SceneTileMode, TileMapGrid,
 };
 use sf_oracle::{call, Entry, RetailMachine, SnesBus};
 
@@ -51,6 +55,20 @@ fn compare_palette(source: &RetailMachine, scene: &OpeningScene) {
     }
 }
 
+fn map_grid(bits: u8) -> TileMapGrid {
+    match bits & 3 {
+        0 => TileMapGrid::Square,
+        1 => TileMapGrid::Wide,
+        2 => TileMapGrid::Tall,
+        _ => TileMapGrid::LargeSquare,
+    }
+}
+
+fn compare_blank(source: &RetailMachine, scene: &OpeningScene) {
+    assert_eq!(source.ppu_frame().registers[0], 0x8F);
+    assert_eq!(scene.video().output(), Some(DisplayBand::BLANK_FULL));
+}
+
 #[test]
 fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
     let rom = rom();
@@ -71,10 +89,25 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
     });
     let mut native = OpeningScene::new(sf2_game::RandomState::default(), palette);
     reach(&mut source, 0x03C80B);
+    let inherited = SceneLayerPolicy {
+        artwork_plane: if source.peek8(0x7E1AA7) & 8 != 0 {
+            ArtworkPlane::First
+        } else {
+            ArtworkPlane::Second
+        },
+        visible_layers: SceneLayerMask::from_bits(source.peek8(0x7E1C52)),
+        layered_large_characters: std::array::from_fn(|index| {
+            source.peek8(0x7E1A89) & (0x10 << index) != 0
+        }),
+        layered_foreground_priority: source.peek8(0x7E1A89) & 8 != 0,
+        third_map_grid: map_grid(source.peek8(0x7E1C56) | source.peek8(0x7E1A8A)),
+    };
+    native.set_scene_layer_policy(inherited);
     native
-        .begin_artwork_load(artwork.clone(), source.peek16(0x7E1B9C) & 0x0040 != 0)
+        .begin_scene_presentation(artwork.clone(), source.peek16(0x7E1B9C) & 0x0040 != 0)
         .unwrap();
     compare_palette(&source, &native);
+    assert_eq!(native.video().last_setup(), None);
 
     reach(&mut source, 0x7F0C24); // Setup's palette and threshold publications completed.
     assert_eq!(
@@ -82,6 +115,26 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
         Some(ArtworkPublication::PolygonPalette)
     );
     compare_palette(&source, &native);
+    compare_blank(&source, &native);
+    let layout = native.video().last_setup().unwrap();
+    let video = source.ppu_frame();
+    assert_eq!(layout.mode, SceneTileMode::ColumnOffsets);
+    assert_eq!(video.registers[5] & 7, 2);
+    assert_eq!(
+        layout.large_characters,
+        std::array::from_fn(|index| video.registers[5] & (0x10 << index) != 0)
+    );
+    assert_eq!(layout.foreground_priority, video.registers[5] & 8 != 0);
+    assert_eq!(layout.visible_layers.bits(), video.registers[0x2C]);
+    assert_eq!(layout.visible_layers.bits(), source.peek8(0x7E1C51));
+    let target = if layout.artwork_plane == ArtworkPlane::First {
+        7
+    } else {
+        8
+    };
+    assert_eq!(layout.artwork_map_grid, map_grid(video.registers[target]));
+    assert_eq!(layout.third_map_grid, map_grid(video.registers[9]));
+    assert_eq!(layout.second_layer_vertical_scroll, video.bg_vofs[1]);
     assert_eq!(
         native.lighting().thresholds,
         Some(DepthThresholdTable::NORMAL)
@@ -109,6 +162,7 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
     );
     compare_palette(&source, &native);
     assert!(!native.artwork().skip_next_background_palette);
+    compare_blank(&source, &native);
     assert_eq!(source.peek16(0x7E1B9C) & 0x0040, 0);
     assert!(native.artwork().map.is_none());
     // Re-encode native pixels and compare the actual emulator video-memory
@@ -146,6 +200,7 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
     );
     compare_palette(&source, &native);
     let map_start = usize::from(source.peek16(0x7E17E8)) * 2;
+    compare_blank(&source, &native);
     let video = source.ppu_frame();
     for (index, cell) in native.artwork().map.as_ref().unwrap().iter().enumerate() {
         let word = cell.tile
@@ -178,6 +233,7 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
         Some(ArtworkPublication::ForegroundPalette(selection.palette()))
     );
     compare_palette(&source, &native);
+    compare_blank(&source, &native);
     assert_eq!(
         native.resume_artwork_load(selection).unwrap(),
         ArtworkResume::Queued(ArtworkPublication::SpritePalette)
@@ -188,6 +244,7 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
         Some(ArtworkPublication::SpritePalette)
     );
     compare_palette(&source, &native);
+    compare_blank(&source, &native);
     for (index, color) in native.artwork().sprite_colors.iter().enumerate() {
         assert_eq!(
             color.bgr555(),
