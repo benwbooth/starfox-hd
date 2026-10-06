@@ -25,6 +25,9 @@ mod repair_chain;
 #[path = "support/special_pickup.rs"]
 mod special_pickup;
 
+#[path = "support/body_pickup.rs"]
+mod body_pickup;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,
@@ -49,6 +52,7 @@ fn seed_pickup_player(source: &Source, bus: &mut SnesBus, game: &Game) {
     }
     source.byte(bus, 0, "PSHIPFLAGS", game.vars.pshipflags);
     source.byte(bus, 0, "PSHIPFLAGS2", game.vars.pshipflags2);
+    source.byte(bus, 0, "PSHIPFLAGS3", game.vars.pshipflags3);
     source.word(bus, 0, "MINPMOVEY", game.vars.minpmove_y);
     source.word(bus, 0, "GAMEFRAME", game.vars.gameframe as i16);
     source.word(bus, 0, "ALFREELST", 0);
@@ -82,6 +86,16 @@ fn compare_pickup_state(source: &Source, bus: &mut SnesBus, game: &Game, id: u16
         bus.read8(WRAM | source.symbol("PSHIPFLAGS")),
         "{context}: ship flags"
     );
+    for (field, actual) in [
+        ("PSHIPFLAGS2", game.vars.pshipflags2),
+        ("PSHIPFLAGS3", game.vars.pshipflags3),
+    ] {
+        assert_eq!(
+            actual,
+            bus.read8(WRAM | source.symbol(field)),
+            "{context}: {field}"
+        );
+    }
 }
 
 fn compare_pickup(source: &Source, bus: &mut SnesBus, game: &Game, id: u16, context: &str) {

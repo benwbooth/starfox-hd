@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Completed SF1's body-health pickup and the two laser-drop callers. Health
+  now targets the collision system's live body, enters movement/collection on
+  its initializer visit, preserves signed wrapping range and health arithmetic,
+  and continues after releasing linked fire on player death. Enemy laser drops
+  inherit position before one deferred child visit, retain their real shape,
+  and honor the configured no-drop branch for intact, beam-upgraded ships;
+  the source disables the previously invented helper-ball alternative.
+  Original-code tests cover every health byte, death/cockpit order, wrapped
+  ranges, all ship-flag bytes, upgrade branches and allocation failure. Native
+  production tests verify one health/laser award and subsequent flash visits.
+  All 1,541 game/path/strategy tests and 20 weapon/pickup original-code tests
+  pass in debug/release; the source contracts, architecture audit and all three
+  app builds pass. No gameplay fixtures changed. Wire-shield selection and its
+  HUD consumer remain under review; existing whole-game release gates remain
+  open.
+
 - Completed the adjacent SF1 special-weapon pickup and bomber-drop caller.
   Collection now selects the exposed player, preserves the source's wrapped
   range checks and signed word inventory cap, continues after a death marker,

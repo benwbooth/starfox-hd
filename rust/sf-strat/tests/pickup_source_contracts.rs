@@ -9,6 +9,7 @@ use sf_game::{
     vars::PSF2_PLAYERHP0,
     Game,
 };
+use sf_strat::enemies_ground::{item3_istrat, winglazermandie_istrat, wldie_istrat};
 use sf_strat::enemy_a::{
     bomwingdie_istrat, flashplayer_istrat, item4_istrat, item4_strat, item7a_istrat, ripair_istrat,
     ripair_strat, strat_item5_init, strat_item7_init, PSF_BRKLWING, PSF_BRKRWING, PSF_LWINGCOLL,
@@ -489,4 +490,95 @@ fn production_pass_enters_the_special_drop_once_before_its_next_flash_visit() {
     assert_eq!(game.objs.aliens[flash as usize].count, 18);
     assert_eq!(game.vars.strategy.special_weapon_count, 5);
     assert_eq!(*sounds.0.borrow(), [0x18]);
+}
+
+#[test]
+fn body_pickup_heals_live_collision_body_once_in_the_production_pass() {
+    let (mut game, _, pickup, sounds) = scene();
+    let body = game.objs.alloc().unwrap();
+    game.coldet.pcbox.body = Some(body);
+    game.objs.aliens[body as usize].hp = 37;
+    game.objs.aliens[0].hp = 17;
+    game.vars.strategy.player_collision_objects[0] = 0;
+    let entry = game.world.register_strategy(item3_istrat);
+    game.objs.aliens[pickup as usize].stratptr = Some(entry);
+    game.run_strategies();
+    assert_eq!(game.objs.aliens[body as usize].hp, 40);
+    assert_eq!(game.objs.aliens[0].hp, 17);
+    assert_eq!(game.objs.aliens[pickup as usize].count, 19);
+    assert_eq!(*sounds.0.borrow(), [0x10]);
+    game.objs.aliens[body as usize].hp = 31;
+    game.run_strategies();
+    assert_eq!(game.objs.aliens[body as usize].hp, 31);
+    assert_eq!(game.objs.aliens[pickup as usize].count, 18);
+    assert_eq!(*sounds.0.borrow(), [0x10]);
+}
+
+#[test]
+fn dead_body_pickup_releases_fire_and_still_heals_before_inline_flash_removal() {
+    let (mut game, _, pickup, sounds) = scene();
+    let body = game.objs.alloc().unwrap();
+    game.coldet.pcbox.body = Some(body);
+    game.objs.aliens[body as usize].hp = 9;
+    let fire = game.objs.alloc().unwrap();
+    game.objs.aliens[pickup as usize].flags = AFONFIRE | 0x10;
+    game.objs.aliens[pickup as usize].fireobjptr = fire + 1;
+    game.vars.pshipflags2 = PSF2_PLAYERHP0;
+    game.objs.aldead = 254;
+    item3_istrat(&mut game, pickup);
+    assert_eq!(game.objs.aliens[body as usize].hp, 14);
+    assert!(!game.objs.aliens[fire as usize].active);
+    assert_eq!(game.objs.aliens[pickup as usize].fireobjptr, 0);
+    assert_eq!(game.objs.aliens[pickup as usize].flags, 0x10);
+    assert_eq!(game.objs.aldead, 0);
+    assert_eq!(*sounds.0.borrow(), [0x10]);
+}
+
+#[test]
+fn laser_drops_inherit_position_before_collection_and_visit_once_in_production() {
+    for entry in [wldie_istrat as fn(&mut Game, u16), winglazermandie_istrat] {
+        for production in [false, true] {
+            let (mut game, player, parent, sounds) = scene();
+            let ship = game.objs.aliens[player as usize];
+            let al = &mut game.objs.aliens[parent as usize];
+            [al.worldx, al.worldy, al.worldz] = [ship.worldx, ship.worldy, ship.worldz];
+            al.sflags = 0;
+            al.sflags2 = 0;
+            let child;
+            if production {
+                let strategy = game.world.register_strategy(entry);
+                game.objs.aliens[parent as usize].stratptr = Some(strategy);
+                game.run_strategies();
+                assert!(!game.objs.aliens[parent as usize].active);
+                child = game
+                    .objs
+                    .active_indices()
+                    .into_iter()
+                    .find(|&id| game.objs.aliens[id as usize].count == 19)
+                    .unwrap();
+            } else {
+                entry(&mut game, parent);
+                assert_eq!(game.vars.pshipflags2, 0);
+                assert!(sounds.0.borrow().is_empty());
+                let active = game.objs.active_indices();
+                child = active[active.iter().position(|&id| id == parent).unwrap() + 1];
+                let drop = game.objs.aliens[child as usize];
+                assert_eq!(drop.shape, 160);
+                assert_eq!(
+                    [drop.worldx, drop.worldy, drop.worldz],
+                    [ship.worldx, ship.worldy, ship.worldz]
+                );
+                assert_eq!(drop.sflags2 & ASF2_COLLDISABLE, 0);
+                game.objs.aldead = 0;
+                game.call_strat(drop.stratptr.unwrap(), child);
+            }
+            assert_ne!(game.vars.pshipflags2 & sf_strat::enemy_a::PSF2_DOUBLASER, 0);
+            assert_eq!(game.objs.aliens[child as usize].count, 19);
+            assert_eq!(*sounds.0.borrow(), [0x15]);
+            let next = game.objs.aliens[child as usize].stratptr.unwrap();
+            game.call_strat(next, child);
+            assert_eq!(game.objs.aliens[child as usize].count, 18);
+            assert_eq!(*sounds.0.borrow(), [0x15]);
+        }
+    }
 }

@@ -9531,7 +9531,7 @@ fn restore_player_wing_actors(g: &mut Game) {
     }
 }
 
-fn pickup_outside_z(pickup: &Alien, player: &Alien, threshold: i16) -> bool {
+pub(crate) fn pickup_outside_z(pickup: &Alien, player: &Alien, threshold: i16) -> bool {
     player
         .worldz
         .wrapping_sub(pickup.worldz)
@@ -9540,7 +9540,7 @@ fn pickup_outside_z(pickup: &Alien, player: &Alien, threshold: i16) -> bool {
         >= 0
 }
 
-fn pickup_outside_xy(pickup: &Alien, player: &Alien, threshold: i16) -> bool {
+pub(crate) fn pickup_outside_xy(pickup: &Alien, player: &Alien, threshold: i16) -> bool {
     player
         .worldx
         .wrapping_sub(pickup.worldx)
@@ -9734,7 +9734,7 @@ const PICKUP_FLASH_COLORS: u8 = 4;
 
 /// Source `sr_remove_objx` retires a linked fire immediately, then marks the
 /// current actor. Repeated marks do not prevent the rest of this visit.
-fn mark_pickup_removal(g: &mut Game, idx: u16) {
+pub(crate) fn mark_pickup_removal(g: &mut Game, idx: u16) {
     remove_attached_fire(g, idx);
     g.objs.aldead = g.objs.aldead.wrapping_add(1);
 }

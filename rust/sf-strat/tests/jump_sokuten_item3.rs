@@ -4,12 +4,12 @@ use sf_game::alien::{ASF2_COLLDISABLE, ASF_HITFLASH, ASF_NOHITAFFECT};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
-    item3_istrat, item3_strat, item6_istrat, item6_strat, jump0_istrat, jump0_strat, jump0a_strat,
-    jump1_istrat, mine1_istrat, rightwall_istrat, sokuten_istrat, sokuten_strat,
+    item3_istrat, item6_istrat, item6_strat, jump0_istrat, jump0_strat, jump0a_strat, jump1_istrat,
+    mine1_istrat, rightwall_istrat, sokuten_istrat, sokuten_strat,
 };
 use sf_strat::enemy_a::{
     core0_istrat, core0_strat, core1_istrat, core1_strat, core1col_istrat, fog_strat, gasflags,
-    set_gasflags, wm, COLLTYPE_ENEMY1, DEG180, DEG90,
+    set_gasflags, COLLTYPE_ENEMY1, DEG180, DEG90,
 };
 
 fn spawn_player(g: &mut Game, z: i16) {
@@ -111,14 +111,13 @@ fn item3_heals_body_item6_wireship() {
     let box_idx = g.objs.alloc().expect("pcbox");
     g.objs.aliens[box_idx as usize].active = true;
     g.objs.aliens[box_idx as usize].hp = 10;
-    g.vars.write_ext16(wm::PCBOXOBJ_B, box_idx);
+    g.coldet.pcbox.body = Some(box_idx);
 
     let idx = spawn_obj(&mut g);
     g.objs.aliens[idx as usize].worldz = 50;
     g.objs.aliens[idx as usize].worldx = 0;
     g.objs.aliens[idx as usize].worldy = -40;
     item3_istrat(&mut g, idx);
-    item3_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[box_idx as usize].hp, 15);
     // The flash initializer falls through into its first lifetime visit.
     assert_eq!(g.objs.aliens[idx as usize].count, 19);

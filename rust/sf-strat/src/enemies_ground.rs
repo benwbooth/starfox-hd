@@ -1644,9 +1644,9 @@ pub fn winglazermango_strat(g: &mut Game, idx: u16) {
     winglazerman_cont(g, idx);
 }
 
-/// `winglazermandie_Istrat` (GASTRATS.ASM:2885-2903): drops `item_7` (laser
-/// upgrade) or `item_3`/`item7a` depending on the ship's wing/beam flags,
-/// then explodes.
+/// `winglazermandie_Istrat`: the configured game drops a laser/repair pickup
+/// only while a wing is broken or the beam upgrade is absent. CONFIG/GAME.INC
+/// disables the alternative helper-ball drop (`wnglzrman_helpball=0`).
 pub fn winglazermandie_istrat(g: &mut Game, idx: u16) {
     winglazermandie_strat(g, idx);
 }
@@ -1655,24 +1655,8 @@ fn winglazermandie_strat(g: &mut Game, idx: u16) {
     use crate::enemy_a::{PSF3_BEAMBALL, PSF_BRKLWING, PSF_BRKRWING};
     let brk = g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING);
     let beam = g.vars.pshipflags3 & PSF3_BEAMBALL;
-    // ROM: if wings broken OR not beamball → item7; else → item7a helperball.
-    let drop_help = brk == 0 && beam != 0;
-    if let Some(drop) = make_obj(g, 0) {
-        let (px, py, pz) = {
-            let me = &g.objs.aliens[idx as usize];
-            (me.worldx, me.worldy, me.worldz)
-        };
-        {
-            let al = &mut g.objs.aliens[drop as usize];
-            al.worldx = px;
-            al.worldy = py;
-            al.worldz = pz;
-        }
-        if drop_help {
-            crate::enemy_a::item7a_istrat(g, drop);
-        } else {
-            crate::enemy_a::strat_item7_init(g, drop);
-        }
+    if brk != 0 || beam == 0 {
+        install_laser_drop(g, idx);
     }
     strat_explode(g, idx);
 }
@@ -4994,15 +4978,19 @@ pub fn wl_strat(_g: &mut Game, _idx: u16) {}
 
 /// `wldie_Istrat` (GASTRATS.ASM:2639-2645): drop `item_7` at death pos, explode.
 pub fn wldie_istrat(g: &mut Game, idx: u16) {
-    if let Some(drop) = make_obj(g, SH_ITEM_7) {
-        crate::enemy_a::strat_item7_init(g, drop);
-        let me = g.objs.aliens[idx as usize];
-        let al = &mut g.objs.aliens[drop as usize];
-        al.worldx = me.worldx;
-        al.worldy = me.worldy;
-        al.worldz = me.worldz;
-    }
+    install_laser_drop(g, idx);
     strat_explode(g, idx);
+}
+
+/// Source `s_make_obj` inserts after the current actor. `s_set_strat` installs
+/// the initializer without running it; collection starts on the child's visit.
+fn install_laser_drop(g: &mut Game, idx: u16) {
+    if let Some(drop) = make_obj(g, SH_ITEM_7) {
+        g.objs.active_move_after(drop, idx);
+        let entry = sid(g, crate::enemy_a::strat_item7_init);
+        g.objs.aliens[drop as usize].stratptr = Some(entry);
+        copy_pos(g, drop, idx);
+    }
 }
 
 /// `spacetest_Istrat` (GASTRATS.ASM:255-261): face 180° / roll -90°, hardHP/AP1,
@@ -5331,7 +5319,12 @@ const JUMP0_AP: u8 = 4;
 const JUMP1_AP: u8 = 8;
 const SOKUTEN_HP: u8 = 16;
 const SOKUTEN_AP: u8 = 16;
-const PLAYER_B_HP: u8 = 40; // STRATEQU.INC:325 playerB_HP
+const BODY_PICKUP_HEALTH: u8 = 5;
+const BODY_PICKUP_SPIN: u8 = 4;
+const BODY_PICKUP_DRIFT: i16 = 20;
+const BODY_PICKUP_Z_RANGE: i16 = 120;
+const BODY_PICKUP_XY_RANGE: i16 = 60;
+const SE_BODY_PICKUP: u8 = 0x10;
 
 /// `jump1_Istrat` (GASTRATS.ASM:1633-1640): hard/static scenery facing 180°.
 pub fn jump1_istrat(g: &mut Game, idx: u16) {
@@ -5451,42 +5444,44 @@ pub fn item3_istrat(g: &mut Game, idx: u16) {
     al.stratptr = Some(tick);
     al.collstratptr = None;
     al.expstratptr = None;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
+    item3_strat(g, idx);
 }
 
 pub fn item3_strat(g: &mut Game, idx: u16) {
-    if player(g).is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
-        g.objs.aldead = 1;
-        return;
+    use crate::enemy_a::{mark_pickup_removal, pickup_outside_xy, pickup_outside_z};
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        mark_pickup_removal(g, idx);
     }
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.roty = al.roty.wrapping_add(4);
-        al.rotz = al.rotz.wrapping_add(4);
-        al.worldz = al.worldz.wrapping_add(20);
+        al.roty = al.roty.wrapping_add(BODY_PICKUP_SPIN);
+        al.rotz = al.rotz.wrapping_add(BODY_PICKUP_SPIN);
+        al.worldz = al.worldz.wrapping_add(BODY_PICKUP_DRIFT);
     }
-    let Some(pl) = player(g) else {
+    let Some(player) = g.player_object() else {
         return;
     };
+    let pl = g.objs.aliens[player as usize];
     let me = g.objs.aliens[idx as usize];
-    if (me.worldz as i32 - pl.worldz as i32).abs() >= 120 {
+    if pickup_outside_z(&me, &pl, BODY_PICKUP_Z_RANGE)
+        || pickup_outside_xy(&me, &pl, BODY_PICKUP_XY_RANGE)
+    {
         return;
     }
-    let xydist =
-        (me.worldx as i32 - pl.worldx as i32).abs() + (me.worldy as i32 - pl.worldy as i32).abs();
-    if xydist >= 60 {
-        return;
+    // Use the collision system's live body, not the legacy imported-operand
+    // mirror. The source adds a byte, then branches on zero/negative after
+    // subtracting the maximum; high invalid HP bytes still wrap as authored.
+    if let Some(body) = g.coldet.pcbox.body {
+        let hp = g.objs.aliens[body as usize].hp.wrapping_add(BODY_PICKUP_HEALTH);
+        let maximum = sf_game::coldet::PCBOX_BODY_HP;
+        g.objs.aliens[body as usize].hp = if (hp.wrapping_sub(maximum) as i8) <= 0 {
+            hp
+        } else {
+            maximum
+        };
     }
-    // Heal body pcbox (pcboxobj_B) by +5, clamp to playerB_HP.
-    let box_idx = g.vars.strategy.player_collision_objects[0];
-    if box_idx >= 0 && (box_idx as usize) < NUMBER_AL {
-        let b = box_idx as usize;
-        if g.objs.aliens[b].active {
-            let hp = g.objs.aliens[b].hp.saturating_add(5);
-            g.objs.aliens[b].hp = hp.min(PLAYER_B_HP);
-        }
-    }
-    g.hooks.play_se(0x10);
+    g.hooks.play_se(SE_BODY_PICKUP);
     crate::enemy_a::flashplayer_istrat(g, idx); // s_set_strat flashplayer; s_jmpto_strat
 }
 

@@ -5,6 +5,40 @@ from test_strategy_source_contracts import instructions, source
 
 
 class PickupSourceTests(unittest.TestCase):
+    def test_body_pickup_falls_through_and_heals_the_live_body_with_byte_arithmetic(self):
+        body = source("STRAT/GASTRATS.ASM").split("\nitem3_Istrat", 1)[1].split(";********", 1)[0]
+        self.assertEqual(instructions(body), [
+            "s_set_alptrs x,item3_strat,0,0", "s_set_alsflag x,colldisable", "item3_strat",
+            "s_start_strat", "s_remove_ifplayerdead x", "s_add_alvar B,x,al_roty,#4",
+            "s_add_alvar B,x,al_rotz,#4", "s_add_alvar W,x,al_worldz,#20", "s_set_objtobeplayer y",
+            "s_jmp_Zdistmore x,y,#60*2,.nitem", "s_jmp_XYdistmore x,y,#30*2,.nitem",
+            "s_set_objtobevar y,pcboxobj_B", "s_add_alvar.w B,y,al_hp,#5",
+            "s_jmp_alvarlesseq.w B,y,al_hp,#playerB_HP,.max", "s_set_alvar.w B,y,al_hp,#playerB_HP",
+            ".max TRIGSE $10", "s_set_strat x,flashplayer_Istrat", "s_jmpto_strat x", ".nitem s_end_strat",
+        ])
+        compare = source("INC/STRATMAC.INC").split("\ns_jmp_alvarlesseq\t", 1)[1].split("\tENDM", 1)[0]
+        self.assertEqual(instructions(compare)[-6:], [
+            "lda.\\0 \\3,\\2", "cmp \\4", "CHG_MODEBACK \\1", "rlbeq \\5", "rlbmi \\5", "stratmac_end"])
+
+    def test_laser_drop_entries_preserve_configured_no_helper_branch_and_defer_collection(self):
+        gast = source("STRAT/GASTRATS.ASM")
+        body = gast.split("\nwldie_Istrat", 1)[1].split(";********", 1)[0]
+        self.assertEqual(instructions(body), [
+            "s_start_strat", "s_make_obj #item_7,.badobj", "s_set_strat y,item7_Istrat",
+            "s_copy_pos y,x", ".badobj", "s_jmp explode_Istrat",
+        ])
+        body = gast.split("\nwinglazermandie_Istrat", 1)[1].split(";********", 1)[0]
+        self.assertEqual(instructions(body), [
+            "s_start_strat", "s_jmp_varAND B,pshipflags,#psf_brkLwing!psf_brkRwing,.dlaser",
+            "s_jmpNOT_varAND B,pshipflags3,#psf3_beamball,.dlaser", "IFNE wnglzrman_helpball",
+            "s_jmp_varAND B,pshipflags3,#psf3_beamball,.helperball", ".dlaser",
+            "s_make_obj #item_7,.badobj", "s_set_strat y,item7_istrat", "s_copy_pos y,x", "bra .badobj",
+            ".helperball", "s_make_obj #item_3,.badobj", "s_set_strat y,item7a_istrat", "s_copy_pos y,x",
+            ".badobj", "ELSEIF", "s_brl .badobj", ".dlaser s_make_obj #item_7,.badobj",
+            "s_set_strat y,item7_istrat", "s_copy_pos y,x", ".badobj", "ENDC", "s_jmp explode_Istrat",
+        ])
+        self.assertIn("wnglzrman_helpball equ 0", instructions(source("CONFIG/GAME.INC")))
+
     def test_special_weapon_pickup_caps_inventory_but_always_enters_flash(self):
         body = source("STRAT/GASTRATS.ASM").split("\nitem5_Istrat", 1)[1].split(";********", 1)[0]
         self.assertEqual(instructions(body), [
