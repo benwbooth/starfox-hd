@@ -110,7 +110,11 @@ class StrategySourceContractTests(unittest.TestCase):
         for name, original_hash in ORIGINAL_HASHES.items():
             with self.subTest(fixture=name):
                 original = []
-                for line in (FIXTURES / f"{name}.txt").read_text().splitlines(keepends=True):
+                fixture = (FIXTURES / f"{name}.txt").read_text()
+                if name == "ea_houdai":
+                    from test_weapon_entry_source import undo_houdai_birth_visit
+                    fixture = undo_houdai_birth_visit(fixture)
+                for line in fixture.splitlines(keepends=True):
                     if re.match(r"(?:O \d+ |T\d+ A\d+ )", line):
                         fields = dict(re.findall(r"(\w+)=(\S+)", line))
                         prefix = "s" if name.startswith("bo_") else "sf"

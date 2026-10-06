@@ -213,6 +213,22 @@ running; scheduled work is not a guarantee of a completion date.
   This must be corrected and verified from source, including birth-frame
   movement/lifetime, before treating the weapon family as complete. Retained
   legacy traces may encode that old delay and are not authority for preserving it.
+- Closed the two flat-missile initializer gaps, including camera-facing angles
+  for the non-relative variant. A new source-built ROM differential test covers
+  30 combinations of initial count, signed speed, aim and wrapping coordinates;
+  both entry points now agree in debug and release. Seven firing constructors
+  defer initialization until the object's own same-pass strategy visit, and
+  list insertion is after the firer. This also makes post-construction aim and
+  randomized speed effective before vector generation. A production scheduler
+  test verifies exactly one birth visit and one subsequent visit for all seven.
+  The Houdai fixture was advanced by the source's constant movement/lifetime
+  rules, not regenerated from native output. Its inverse restores all original
+  records (including four terminal records) and the prior complete-file hash.
+  All 1,272 strategy tests pass in debug/release; all 243 game/path tests,
+  33 SF1 Python tests, the architecture check and app build pass in the current
+  checkout. These are subsystem results, not a new whole-workspace certificate.
+  `helpballhome_Istrat` and source missile-boundary comparisons remain next;
+  the two earlier oracle release blockers and SF2 production wiring remain open.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

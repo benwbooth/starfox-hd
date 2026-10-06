@@ -75,11 +75,15 @@ fn relflatmiss_scrolls_and_kills_on_life() {
     }
     relflatmiss_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].snd2, 6);
-    relflatmiss_strat(&mut g, idx);
-    // scrolled +5 then killed
+    // The initializer falls through: the first visit moves and marks death.
     assert_eq!(g.objs.aliens[idx as usize].hp, 0);
     assert_eq!(g.objs.aliens[idx as usize].count, 0);
-    assert!(g.objs.aliens[idx as usize].worldz >= 105);
+    // The source's two fixed-point cosine multiplies turn speed 80 into 78.
+    assert_eq!(g.objs.aliens[idx as usize].worldz, 183);
+
+    // A direct second visit wraps the byte; retirement belongs to the owner.
+    relflatmiss_strat(&mut g, idx);
+    assert_eq!(g.objs.aliens[idx as usize].count, 255);
 }
 
 #[test]
@@ -92,8 +96,6 @@ fn flatmiss_records_the_zero_lifetime_before_killing() {
         al.sflags2 |= ASF2_SFLAG1;
     }
     flatmiss_istrat(&mut g, idx);
-
-    flatmiss_strat(&mut g, idx);
 
     assert_eq!(g.objs.aliens[idx as usize].count, 0);
     assert_eq!(g.objs.aliens[idx as usize].hp, 0);
@@ -112,6 +114,8 @@ fn flatmiss_does_not_add_player_z() {
         al.sflags2 |= ASF2_SFLAG1;
     }
     flatmiss_istrat(&mut g, idx);
+    assert_eq!(g.objs.aliens[idx as usize].worldz, 268);
+    assert_eq!(g.objs.aliens[idx as usize].count, 4);
     let z0 = g.objs.aliens[idx as usize].worldz;
     flatmiss_strat(&mut g, idx);
     // Only velocity applied — no +pviewvelz
@@ -119,7 +123,67 @@ fn flatmiss_does_not_add_player_z() {
         g.objs.aliens[idx as usize].worldz,
         z0.wrapping_add(g.objs.aliens[idx as usize].vz)
     );
-    assert_eq!(g.objs.aliens[idx as usize].count, 4);
+    assert_eq!(g.objs.aliens[idx as usize].count, 3);
+}
+
+#[test]
+fn flat_weapons_wait_for_their_own_same_pass_visit_and_use_final_caller_aim() {
+    use sf_strat::enemy_a::{
+        fire_ovalbeam, fire_relovalbeam, fire_relringlaser, fire_ringlaser, fire_shortplasma,
+    };
+    type Fire = fn(&mut Game, u16) -> Option<u16>;
+    const FIRES: [(Fire, u8); 7] = [
+        (fire_plasma, 100),
+        (fire_beamball, 100),
+        (fire_relovalbeam, 100),
+        (fire_relringlaser, 100),
+        (fire_ovalbeam, 100),
+        (fire_ringlaser, 100),
+        (fire_shortplasma, 30),
+    ];
+    fn firer_visit(g: &mut Game, firer: u16) {
+        let (fire, life) = FIRES[g.objs.aliens[firer as usize].sbyte1 as usize];
+        let shot = fire(g, firer).unwrap();
+        assert_eq!(g.objs.aliens[firer as usize].next, Some(shot));
+        let object = &mut g.objs.aliens[shot as usize];
+        assert_eq!(
+            object.count, life,
+            "constructor must not run the first visit"
+        );
+        assert_eq!([object.vx, object.vy, object.vz], [0, 0, 0]);
+        assert_eq!(object.snd2, 0);
+        // As with source s_fire_weapon callers, finish changing aim and speed
+        // after construction. The deferred initializer consumes these values.
+        object.rotx = 0;
+        object.roty = 64;
+        object.vel = 90;
+        g.objs.aliens[firer as usize].ptr = shot + 1;
+        g.objs.aliens[firer as usize].stratptr = None;
+    }
+    for (which, (_, life)) in FIRES.into_iter().enumerate() {
+        let mut g = Game::new();
+        let firer = g.objs.alloc().unwrap();
+        let strat = g.world.register_strategy(firer_visit);
+        let al = &mut g.objs.aliens[firer as usize];
+        al.hp = 20;
+        al.sbyte1 = which as u8;
+        al.worldx = 100;
+        al.worldz = 1000;
+        al.stratptr = Some(strat);
+
+        g.run_strategies();
+
+        let shot = g.objs.aliens[firer as usize].ptr - 1;
+        let al = g.objs.aliens[shot as usize];
+        assert_eq!(al.count, life - 1, "exactly one same-pass visit");
+        assert_eq!(al.snd2, 6);
+        assert_eq!([al.sbyte1, al.sbyte2], [64, 0]);
+        assert_eq!([al.vx, al.vy, al.vz], [-88, 0, 0]);
+        assert_eq!(al.worldx, 12);
+        g.run_strategies();
+        assert_eq!(g.objs.aliens[shot as usize].count, life - 2);
+        assert_eq!(g.objs.aliens[shot as usize].worldx, -76);
+    }
 }
 
 #[test]

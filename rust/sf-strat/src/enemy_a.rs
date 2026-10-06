@@ -4730,6 +4730,7 @@ pub fn relflatmiss_istrat(g: &mut Game, idx: u16) {
         crate::common::strat_gen_vecs_3d(al);
         al.snd2 = 6;
     }
+    relflatmiss_strat(g, idx);
 }
 
 /// ROM `relflatmiss_strat` (GSTRATS.ASM:1780).
@@ -4761,11 +4762,15 @@ pub fn flatmiss_istrat(g: &mut Game, idx: u16) {
         crate::common::strat_gen_vecs_3d(al);
         al.snd2 = 6;
     }
+    flatmiss_strat(g, idx);
 }
 
 /// ROM `flatmiss_strat` (GSTRATS.ASM:1797).
 pub fn flatmiss_strat(g: &mut Game, idx: u16) {
-    // s_rots_flat — cosmetic billboard; HD leaves orientation.
+    let [pitch, yaw] = crate::common::flat_billboard_rotation(&g.vars);
+    let al = &mut g.objs.aliens[idx as usize];
+    al.rotx = pitch;
+    al.roty = yaw;
     apply_velocity(&mut g.objs.aliens[idx as usize]);
     {
         let al = &mut g.objs.aliens[idx as usize];
@@ -4880,7 +4885,10 @@ pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
     }
-    relflatmiss_istrat(g, shot);
+    // Source installs the initializer; the new object gets its first visit
+    // after the firer has finished assigning its aim and target.
+    let init = sid(g, relflatmiss_istrat);
+    g.objs.aliens[shot as usize].stratptr = Some(init);
     // ROM `jsl enemybattrysound_l` (GSTRATS.ASM:2417).
     let (fx, fz) = {
         let f = &g.objs.aliens[firer as usize];
@@ -4893,6 +4901,7 @@ pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
 /// ROM `fire_beamball` (GSTRATS.ASM:2422) — flatmiss (no playerZ scroll).
 pub fn fire_beamball(g: &mut Game, firer: u16) -> Option<u16> {
     let shot = make_obj(g, SH_BOUNCYBALL)?;
+    g.objs.active_move_after(shot, firer);
     const WEAPON_SCALE: i16 = 2;
     let mz = 80i16 >> WEAPON_SCALE;
     place_weapon_at_firer(g, shot, firer, mz);
@@ -4914,7 +4923,8 @@ pub fn fire_beamball(g: &mut Game, firer: u16) -> Option<u16> {
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
     }
-    flatmiss_istrat(g, shot);
+    let init = sid(g, flatmiss_istrat);
+    g.objs.aliens[shot as usize].stratptr = Some(init);
     // ROM `jsl enemybattrysound_l` (GSTRATS.ASM:2433).
     let (fx, fz) = {
         let f = &g.objs.aliens[firer as usize];
@@ -4936,6 +4946,7 @@ fn fire_flat_beam(
     family: PosSndFamilyId,
 ) -> Option<u16> {
     let shot = make_obj(g, shape)?;
+    g.objs.active_move_after(shot, firer);
     const WEAPON_SCALE: i16 = 2;
     let mz = 80i16 >> WEAPON_SCALE;
     place_weapon_at_firer(g, shot, firer, mz);
@@ -4957,11 +4968,12 @@ fn fire_flat_beam(
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
     }
-    if relative {
-        relflatmiss_istrat(g, shot);
+    let init = if relative {
+        sid(g, relflatmiss_istrat)
     } else {
-        flatmiss_istrat(g, shot);
-    }
+        sid(g, flatmiss_istrat)
+    };
+    g.objs.aliens[shot as usize].stratptr = Some(init);
     let (fx, fz) = {
         let f = &g.objs.aliens[firer as usize];
         (f.worldx, f.worldz)
@@ -4982,9 +4994,6 @@ fn fire_relovalbeam_aimed(g: &mut Game, firer: u16, pitch: u8, yaw: u8) -> Optio
         let al = &mut g.objs.aliens[shot as usize];
         al.rotx = pitch;
         al.roty = yaw;
-        al.sbyte1 = pitch;
-        al.sbyte2 = yaw;
-        crate::common::strat_gen_vecs_3d(al);
         // s_add_rnd2alvar y,al_vel,#31
         al.vel = al.vel.wrapping_add((sf_random(&mut g.vars) as u8) & 31);
     }

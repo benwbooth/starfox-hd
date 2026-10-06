@@ -38,6 +38,10 @@
 //! corrections have a reversible complete-file audit and source assertions in
 //! tools/sf1/test_strategy_source_contracts.py. Native-output blessing is
 //! disabled; future fixture changes require independent source evidence.
+//! The Houdai projectile rows additionally restore insert-after-firer ordering
+//! and their first-visit movement. `test_weapon_entry_source.py` reconstructs
+//! the entire previous fixture by reversing only that source-proven change;
+//! `sf-oracle/tests/weapon_strategy_entry.rs` executes the original initializer.
 
 mod support;
 
