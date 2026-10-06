@@ -143,10 +143,59 @@ fn mode_bits(layout: SceneModePublication) -> u8 {
 fn policy(artwork_plane: ArtworkPlane) -> SceneLayerPolicy {
     SceneLayerPolicy {
         artwork_plane,
-        visible_layers: SceneLayerMask::OPENING,
+        visible_layers: SceneLayerMask::STANDARD_SCENE,
         layered_large_characters: [false; 4],
         layered_foreground_priority: false,
         third_map_grid: TileMapGrid::Square,
+    }
+}
+
+fn source_policy(source: &Source) -> SceneLayerPolicy {
+    let extras = source.bus.read8(0x1A89);
+    SceneLayerPolicy {
+        artwork_plane: plane(source.bus.read8(0x1AA7)),
+        visible_layers: SceneLayerMask::from_bits(source.bus.read8(0x1C52)),
+        layered_large_characters: std::array::from_fn(|index| extras & (0x10 << index) != 0),
+        layered_foreground_priority: extras & 8 != 0,
+        third_map_grid: match (source.bus.read8(0x1C56) | source.bus.read8(0x1A8A)) & 3 {
+            0 => TileMapGrid::Square,
+            1 => TileMapGrid::Wide,
+            2 => TileMapGrid::Tall,
+            _ => TileMapGrid::LargeSquare,
+        },
+    }
+}
+
+#[test]
+fn layer_policy_producers_change_only_their_owned_choices() {
+    let mut source = Source::new();
+    for plane_flags in [0xD0, 0xD8] {
+        for extras in 0..32u8 {
+            for grid in 0..4 {
+                for visible in [0, 1, 3, 8, 0x13, 0x17, 0x80, 0xFF] {
+                    source.bus.write8(0x1AA7, plane_flags);
+                    source.bus.write8(0x1A89, extras << 3);
+                    source.bus.write8(0x1A8A, grid | 0xA0);
+                    source.bus.write8(0x1C52, visible);
+                    source.bus.write8(0x1C56, 0x2C);
+                    let mut native = source_policy(&source);
+
+                    source.run_to(0x03B40B, 0x03B6E5);
+                    native.select_opening_artwork_plane();
+                    assert_eq!(native, source_policy(&source));
+
+                    source.run_to(0x03AE33, 0x03AE4E);
+                    native.initialize_video_layers();
+                    assert_eq!(native, source_policy(&source));
+                    assert_eq!(native.visible_layers.bits(), visible);
+                    assert_eq!(source.bus.read8(0x1A8A), grid | 0xA0);
+
+                    source.run_to(0x039D5B, 0x039D62);
+                    native.begin_load_sequence();
+                    assert_eq!(native, source_policy(&source));
+                }
+            }
+        }
     }
 }
 

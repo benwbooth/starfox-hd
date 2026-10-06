@@ -69,6 +69,23 @@ fn compare_blank(source: &RetailMachine, scene: &OpeningScene) {
     assert_eq!(scene.video().output(), Some(DisplayBand::BLANK_FULL));
 }
 
+fn compare_layer_policy(source: &RetailMachine, native: SceneLayerPolicy) {
+    assert_eq!(
+        native.artwork_plane == ArtworkPlane::First,
+        source.peek8(0x7E1AA7) & 8 != 0
+    );
+    assert_eq!(native.visible_layers.bits(), source.peek8(0x7E1C52));
+    assert_eq!(
+        native.layered_large_characters,
+        std::array::from_fn(|index| source.peek8(0x7E1A89) & (0x10 << index) != 0)
+    );
+    assert_eq!(
+        native.layered_foreground_priority,
+        source.peek8(0x7E1A89) & 8 != 0
+    );
+    assert_eq!(native.third_map_grid, map_grid(source.peek8(0x7E1A8A)));
+}
+
 #[test]
 fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
     let rom = rom();
@@ -79,6 +96,17 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
         OpeningArtwork::decode(&rom[..0xB3FB8], &rom[..0xB44E4], &rom[..0xC2F24]).unwrap(),
     );
     let mut source = RetailMachine::new(rom);
+    // Reproduce the actual policy producers instead of importing their output
+    // from the reference machine at loader entry.
+    let mut policy = SceneLayerPolicy::cold_boot();
+    reach(&mut source, 0x03B40B);
+    compare_layer_policy(&source, policy);
+    policy.select_opening_artwork_plane();
+    reach(&mut source, 0x03B6E5);
+    compare_layer_policy(&source, policy);
+    policy.initialize_video_layers();
+    reach(&mut source, 0x03AE38);
+    compare_layer_policy(&source, policy);
     reach(&mut source, 0x0DBCCF);
     assert_eq!(source.peek16(0x46), 0xA000, "boot opening upload buffer");
     let mut palette = OpeningScenePalette::new(std::array::from_fn(|index| {
@@ -88,24 +116,14 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
         IntroColor::from_bgr555(source.peek16(0x7EF2E5 + index as u32 * 2))
     });
     let mut native = OpeningScene::new(sf2_game::RandomState::default(), palette);
-    reach(&mut source, 0x03C80B);
-    let inherited = SceneLayerPolicy {
-        artwork_plane: if source.peek8(0x7E1AA7) & 8 != 0 {
-            ArtworkPlane::First
-        } else {
-            ArtworkPlane::Second
-        },
-        visible_layers: SceneLayerMask::from_bits(source.peek8(0x7E1C52)),
-        layered_large_characters: std::array::from_fn(|index| {
-            source.peek8(0x7E1A89) & (0x10 << index) != 0
-        }),
-        layered_foreground_priority: source.peek8(0x7E1A89) & 8 != 0,
-        third_map_grid: map_grid(source.peek8(0x7E1C56) | source.peek8(0x7E1A8A)),
-    };
-    native.set_scene_layer_policy(inherited);
+    native.set_scene_layer_policy(policy);
+    reach(&mut source, 0x039D5B);
+    compare_layer_policy(&source, native.scene_layer_policy().unwrap());
     native
-        .begin_scene_presentation(artwork.clone(), source.peek16(0x7E1B9C) & 0x0040 != 0)
+        .begin_scene_load_sequence(artwork.clone(), source.peek16(0x7E1B9C) & 0x0040 != 0)
         .unwrap();
+    reach(&mut source, 0x03C80B);
+    compare_layer_policy(&source, native.scene_layer_policy().unwrap());
     compare_palette(&source, &native);
     assert_eq!(native.video().last_setup(), None);
 
@@ -125,6 +143,7 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
         std::array::from_fn(|index| video.registers[5] & (0x10 << index) != 0)
     );
     assert_eq!(layout.foreground_priority, video.registers[5] & 8 != 0);
+    assert_eq!(layout.visible_layers, SceneLayerMask::STANDARD_SCENE);
     assert_eq!(layout.visible_layers.bits(), video.registers[0x2C]);
     assert_eq!(layout.visible_layers.bits(), source.peek8(0x7E1C51));
     let target = if layout.artwork_plane == ArtworkPlane::First {

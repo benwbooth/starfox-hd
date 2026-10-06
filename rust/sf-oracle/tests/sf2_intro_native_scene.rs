@@ -14,6 +14,7 @@ use sf2_game::object::{
     object_address, object_index, ACTIVE_LIST, FIELD_PATH, FIELD_SHAPE, PLAYER_ONE,
 };
 use sf2_game::scene_artwork::{ArtworkPublication, ArtworkResume, ForegroundSelection};
+use sf2_game::scene_video::{ArtworkPlane, SceneLayerPolicy, SceneTileMode, TileMapGrid};
 use sf2_game::{RandomState, Vector3};
 use sf_oracle::RetailMachine;
 
@@ -104,7 +105,7 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         0x7F357D,
         ENTROPY_REFRESH,
         0x03C80B, // Begin standard scene artwork.
-        0x7F0BBF, // Setup's polygon palette copied.
+        0x7F0C24, // Setup palette, lighting and layout published.
         0x03C813, // Main loader resumes after setup.
         0x7F0CB2, // Character publication completed.
         0x7F0D08, // Map publication completed.
@@ -131,8 +132,14 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         IntroColor::from_bgr555(machine.peek16(WRAM + 0xEFE5 + i as u32 * 2))
     });
     let mut native = OpeningScene::new(random, OpeningScenePalette::new(colors));
+    let mut layers = SceneLayerPolicy::cold_boot();
+    layers.select_opening_artwork_plane();
+    layers.initialize_video_layers();
+    native.set_scene_layer_policy(layers);
     if check_palette && !observe_artwork {
-        native.queue_artwork_load(artwork.clone(), false).unwrap();
+        native
+            .queue_scene_presentation(artwork.clone(), false)
+            .unwrap();
     }
     machine.take_cpu_execution_watch_hits();
     let mut observed_splits = std::collections::BTreeSet::new();
@@ -163,7 +170,7 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
             let expected_publications: Vec<_> = dispatches
                 .iter()
                 .filter_map(|pc| match pc {
-                    0x7F0BBF => Some(ArtworkPublication::PolygonPalette),
+                    0x7F0C24 => Some(ArtworkPublication::PolygonPalette),
                     0x7F0CB2 => Some(ArtworkPublication::BackgroundCharacters),
                     0x7F0D08 => Some(ArtworkPublication::BackgroundMap),
                     0x03D509 => Some(ArtworkPublication::ForegroundPalette(
@@ -177,6 +184,11 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
                 native_events.artwork_publications, expected_publications,
                 "artwork publications update={completed_updates}"
             );
+            assert_eq!(
+                native_events.scene_mode_publication.is_some(),
+                dispatches.contains(&0x7F0C24),
+                "scene layout publication update={completed_updates}"
+            );
         }
         if observe_artwork {
             // The controller is the first actor and the only actor writing
@@ -188,10 +200,12 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
                     0x03C80B => {
                         // The boot request does not inherit a palette-skip flag.
                         assert_eq!(machine.peek16(WRAM + 0x1B9C) & 0x0040, 0);
-                        native.begin_artwork_load(artwork.clone(), false).unwrap();
+                        native
+                            .begin_scene_load_sequence(artwork.clone(), false)
+                            .unwrap();
                         None
                     }
-                    0x7F0BBF => Some(ArtworkPublication::PolygonPalette),
+                    0x7F0C24 => Some(ArtworkPublication::PolygonPalette),
                     0x03C813 => {
                         assert_eq!(
                             native
@@ -252,6 +266,38 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         );
         assert_eq!(native.controller().elapsed_updates(), completed_updates);
         if check_palette {
+            let policy = native.scene_layer_policy().unwrap();
+            assert_eq!(
+                policy.artwork_plane == ArtworkPlane::First,
+                machine.peek8(WRAM + 0x1AA7) & 8 != 0
+            );
+            assert_eq!(policy.visible_layers.bits(), machine.peek8(WRAM + 0x1C52));
+            assert_eq!(
+                policy.layered_large_characters,
+                std::array::from_fn(|index| machine.peek8(WRAM + 0x1A89) & (0x10 << index) != 0)
+            );
+            assert_eq!(
+                policy.layered_foreground_priority,
+                machine.peek8(WRAM + 0x1A89) & 8 != 0
+            );
+            assert_eq!(policy.third_map_grid, TileMapGrid::Square);
+            assert_eq!(machine.peek8(WRAM + 0x1A8A) & 3, 0);
+            if let Some(layout) = native.video().last_setup() {
+                let display = machine.ppu_frame();
+                assert_eq!(layout.mode, SceneTileMode::ColumnOffsets);
+                assert_eq!(display.registers[5] & 7, 2);
+                assert_eq!(
+                    layout.large_characters,
+                    std::array::from_fn(|index| display.registers[5] & (0x10 << index) != 0)
+                );
+                assert_eq!(layout.foreground_priority, display.registers[5] & 8 != 0);
+                assert_eq!(layout.visible_layers.bits(), machine.peek8(WRAM + 0x1C51));
+                assert_eq!(layout.artwork_plane, ArtworkPlane::First);
+                assert_eq!(layout.artwork_map_grid, TileMapGrid::Tall);
+                assert_eq!(display.registers[7] & 3, 2);
+                assert_eq!(layout.third_map_grid, TileMapGrid::Square);
+                assert_eq!(display.registers[9] & 3, 0);
+            }
             let lighting = native.lighting();
             let source_word = |field| {
                 u16::from(machine.peek_gsu_ram(field))

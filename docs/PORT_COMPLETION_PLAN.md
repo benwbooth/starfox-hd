@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the opening's inherited layer-policy producers and common load-table
+  visibility reset. Cold boot starts with no visible layers; selecting the
+  opening view changes the artwork plane, video initialization clears extra
+  character/priority choices while retaining the foreground grid, and accepted
+  load dispatch restores standard visibility. Queueing or rejecting a request
+  does not change that policy. Original-code checks cover 2,048 inherited-policy
+  combinations at all three producer boundaries, and a reset-to-loader check
+  no longer borrows layer settings from the reference machine. Both 440-visit
+  opening integrations now include layout and lighting alongside artwork,
+  palettes and actors; only the documented actor-refresh partition remains
+  reference-supplied in the native-frame-barrier variant. All 18 data tests,
+  1,213 native tests and two architecture tests pass in debug/release; all 1,258
+  compatibility-enabled tests pass in debug. Nine scoped original-code tests
+  pass in both profiles, with the pre-existing autonomous-refresh gate still
+  ignored. The source suite, generation/architecture checks and all three app
+  builds pass. This closes the opening layer-policy prerequisite, not the other
+  view-initialization effects, display timing or shipping `Game::tick` adoption.
+
 - Added native scene-mode/layout ownership around the opening artwork loader.
   The four setup requests retain their distinct colour modes and map grids;
   large-character selection is captured at request acceptance while the display

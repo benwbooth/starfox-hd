@@ -517,6 +517,9 @@ impl OpeningScene {
     pub fn set_scene_layer_policy(&mut self, policy: SceneLayerPolicy) {
         self.layer_policy = Some(policy);
     }
+    pub fn scene_layer_policy(&self) -> Option<SceneLayerPolicy> {
+        self.layer_policy
+    }
     pub fn artwork_load_phase(&self) -> Option<ArtworkLoadPhase> {
         self.artwork_load.as_ref().map(OpeningArtworkLoad::phase)
     }
@@ -555,7 +558,8 @@ impl OpeningScene {
         });
         Ok(())
     }
-    /// Queue the opening's mode/layout setup together with its artwork.
+    /// Queue common scene-load dispatch and the opening's mode/layout setup
+    /// together with its artwork. Visibility changes only at acceptance.
     /// Layer policy must be bound explicitly; there is no guessed boot layout.
     /// This does not include unrelated scene-reset or postload services.
     pub fn queue_scene_presentation(
@@ -603,6 +607,24 @@ impl OpeningScene {
         self.video
             .request_setup(SceneModeSetup::OffsetTallMap, policy.artwork_plane)
             .expect("mode setup cannot outlive its active artwork load");
+        Ok(())
+    }
+    /// Accept the opening through common load-table dispatch, which restores
+    /// standard layer visibility before its selected loader runs. An invalid
+    /// or overlapping request must not change the inherited layer policy.
+    pub fn begin_scene_load_sequence(
+        &mut self,
+        artwork: std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork>,
+        skip_background_palette: bool,
+    ) -> Result<(), OpeningArtworkRequestError> {
+        // Acceptance captures only the artwork plane, not visibility, and
+        // cannot publish a service synchronously. Validate before changing
+        // policy so a rejected request is fully non-mutating.
+        self.begin_scene_presentation(artwork, skip_background_palette)?;
+        self.layer_policy
+            .as_mut()
+            .expect("accepted scene layer policy")
+            .begin_load_sequence();
         Ok(())
     }
     pub fn resume_artwork_load(
@@ -654,7 +676,7 @@ impl OpeningScene {
         };
         let include_mode = request.include_mode_setup;
         if include_mode {
-            self.begin_scene_presentation(request.artwork, request.skip_background_palette)
+            self.begin_scene_load_sequence(request.artwork, request.skip_background_palette)
         } else {
             self.begin_artwork_load(request.artwork, request.skip_background_palette)
         }
@@ -1669,7 +1691,7 @@ mod tests {
         use super::super::scene_video::{SceneLayerMask, TileMapGrid};
         SceneLayerPolicy {
             artwork_plane: plane,
-            visible_layers: SceneLayerMask::OPENING,
+            visible_layers: SceneLayerMask::STANDARD_SCENE,
             layered_large_characters: [true; 4],
             layered_foreground_priority: true,
             third_map_grid: TileMapGrid::LargeSquare,
@@ -1745,25 +1767,67 @@ mod tests {
 
     #[test]
     fn queued_presentation_samples_mode_at_the_frame_barrier_and_publishes_once() {
-        use super::super::scene_video::ArtworkPlane;
+        use super::super::scene_video::{ArtworkPlane, SceneLayerMask};
         let mut scene = OpeningScene::default();
         scene.set_scene_layer_policy(layer_policy(ArtworkPlane::First));
         scene
             .queue_scene_presentation(sample_artwork(17), false)
             .unwrap();
-        scene.set_scene_layer_policy(layer_policy(ArtworkPlane::Second));
+        let inherited = SceneLayerPolicy {
+            visible_layers: SceneLayerMask::THIRD,
+            ..layer_policy(ArtworkPlane::Second)
+        };
+        scene.set_scene_layer_policy(inherited);
         let waiting = scene.tick().unwrap();
         assert_eq!(waiting.scene_mode_publication, None);
         assert_eq!(scene.video().last_setup(), None);
         assert!(!scene.video().setup_pending());
+        assert_eq!(scene.scene_layer_policy(), Some(inherited));
         let loaded = scene.tick().unwrap();
         let layout = loaded.scene_mode_publication.unwrap();
         assert_eq!(layout.large_characters, [false, true, false, false]);
         assert_eq!(layout.artwork_plane, ArtworkPlane::Second);
+        assert_eq!(layout.visible_layers, SceneLayerMask::STANDARD_SCENE);
         assert_eq!(scene.video().last_setup(), Some(layout));
         assert_eq!(loaded.artwork_publications.len(), 5);
         assert_eq!(scene.artwork_load_phase(), Some(ArtworkLoadPhase::Complete));
         assert_eq!(scene.tick().unwrap().scene_mode_publication, None);
+    }
+
+    #[test]
+    fn rejected_load_dispatch_preserves_layer_policy_and_pending_work() {
+        use super::super::scene_video::{ArtworkPlane, SceneLayerMask};
+        let mut scene = OpeningScene::default();
+        let before = scene.clone();
+        assert_eq!(
+            scene.begin_scene_load_sequence(sample_artwork(17), true),
+            Err(OpeningArtworkRequestError::MissingLayerPolicy)
+        );
+        assert_eq!(scene, before);
+        scene.set_scene_layer_policy(SceneLayerPolicy {
+            visible_layers: SceneLayerMask::THIRD,
+            ..layer_policy(ArtworkPlane::Second)
+        });
+        scene
+            .queue_scene_presentation(sample_artwork(18), false)
+            .unwrap();
+        let queued = scene.clone();
+        assert_eq!(
+            scene.begin_scene_load_sequence(sample_artwork(19), true),
+            Err(OpeningArtworkRequestError::AlreadyLoading)
+        );
+        assert_eq!(scene, queued);
+        scene.tick().unwrap();
+        scene.tick().unwrap();
+        scene
+            .begin_scene_presentation(sample_artwork(20), false)
+            .unwrap();
+        let active = scene.clone();
+        assert_eq!(
+            scene.begin_scene_load_sequence(sample_artwork(21), true),
+            Err(OpeningArtworkRequestError::AlreadyLoading)
+        );
+        assert_eq!(scene, active);
     }
 
     #[test]

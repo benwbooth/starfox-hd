@@ -57,7 +57,7 @@ impl SceneLayerMask {
     pub const THIRD: Self = Self(1 << 2);
     pub const FOURTH: Self = Self(1 << 3);
     pub const SPRITES: Self = Self(1 << 4);
-    pub const OPENING: Self = Self(Self::FIRST.0 | Self::SECOND.0 | Self::SPRITES.0);
+    pub const STANDARD_SCENE: Self = Self(Self::FIRST.0 | Self::SECOND.0 | Self::SPRITES.0);
 
     pub const fn from_bits(bits: u8) -> Self {
         Self(bits)
@@ -99,6 +99,39 @@ pub struct SceneLayerPolicy {
     pub layered_large_characters: [bool; 4],
     pub layered_foreground_priority: bool,
     pub third_map_grid: TileMapGrid,
+}
+
+impl SceneLayerPolicy {
+    /// Policy at machine reset, before selecting a view or dispatching a
+    /// scene-load sequence. This is not a default for an entered scene.
+    pub const fn cold_boot() -> Self {
+        Self {
+            artwork_plane: ArtworkPlane::Second,
+            visible_layers: SceneLayerMask::from_bits(0),
+            layered_large_characters: [false; 4],
+            layered_foreground_priority: false,
+            third_map_grid: TileMapGrid::Square,
+        }
+    }
+
+    /// Layer choice of the opening view preset (03:B40B..B497). Other view
+    /// geometry, resource bindings and scene flags belong to their owners.
+    pub fn select_opening_artwork_plane(&mut self) {
+        self.artwork_plane = ArtworkPlane::First;
+    }
+
+    /// The video initialization at 03:AE33 clears only these extra mode
+    /// choices. The foreground grid extension and visibility are retained.
+    pub fn initialize_video_layers(&mut self) {
+        self.layered_large_characters = [false; 4];
+        self.layered_foreground_priority = false;
+    }
+
+    /// Common load-table dispatch (03:9D5B), before any selected loader runs.
+    /// Individual loaders can subsequently replace this visibility policy.
+    pub fn begin_load_sequence(&mut self) {
+        self.visible_layers = SceneLayerMask::STANDARD_SCENE;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,11 +262,34 @@ mod tests {
     fn policy() -> SceneLayerPolicy {
         SceneLayerPolicy {
             artwork_plane: ArtworkPlane::First,
-            visible_layers: SceneLayerMask::OPENING,
+            visible_layers: SceneLayerMask::STANDARD_SCENE,
             layered_large_characters: [false, false, true, true],
             layered_foreground_priority: true,
             third_map_grid: TileMapGrid::LargeSquare,
         }
+    }
+
+    #[test]
+    fn boot_view_and_load_dispatch_remain_distinct_policy_transitions() {
+        let mut policy = SceneLayerPolicy::cold_boot();
+        assert_eq!(policy.artwork_plane, ArtworkPlane::Second);
+        assert_eq!(policy.visible_layers.bits(), 0);
+        policy.select_opening_artwork_plane();
+        assert_eq!(policy.artwork_plane, ArtworkPlane::First);
+        assert_eq!(policy.visible_layers.bits(), 0);
+        policy.layered_large_characters = [true; 4];
+        policy.layered_foreground_priority = true;
+        policy.third_map_grid = TileMapGrid::Tall;
+        policy.visible_layers = SceneLayerMask::THIRD;
+        policy.initialize_video_layers();
+        assert_eq!(policy.layered_large_characters, [false; 4]);
+        assert!(!policy.layered_foreground_priority);
+        assert_eq!(policy.third_map_grid, TileMapGrid::Tall);
+        assert_eq!(policy.visible_layers, SceneLayerMask::THIRD);
+        policy.begin_load_sequence();
+        assert_eq!(policy.visible_layers, SceneLayerMask::STANDARD_SCENE);
+        assert_eq!(policy.artwork_plane, ArtworkPlane::First);
+        assert_eq!(policy.third_map_grid, TileMapGrid::Tall);
     }
 
     #[test]
