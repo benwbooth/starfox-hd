@@ -113,6 +113,31 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete boost/brake selector, transitions and both cancellation
+  entries, including the real numbered boost and paired brake effect
+  installers. State is owned by the player allocation; processed input,
+  activity, pilot, linked mode, action flags, sound routing and object pool
+  remain canonical. Native scene tests run both authored effect families
+  through the scheduler and verify cancellation, retirement and resource
+  release. Original-code comparisons cover 262,144 transition cases,
+  16,384 input/activity cases, all 256 pilot codes across linked modes and
+  pool pressures, repeated installers and 2,048 continuous visits.
+  The full strategy allocator revealed a previously missed source contract:
+  an empty free list enters the non-returning `$00:8032` fatal display.
+  Its apparent carry-clear return is unreachable. Throttle now reports and
+  latches `ObjectPoolExhausted`, preserving partial child allocation and
+  control writes; the oracle compares the real fatal-entry boundary without
+  patching code. Other callers of `$7F:2925/$7F:2A17`, including earlier
+  charged/consumable effects and weapon launchers, still need a capacity-failure
+  audit: their existing graceful-drop tests are not proof of this contract.
+  This closes another dependency of the native flight visit, not its
+  production frame integration; ambient motion, surface response, speed,
+  movement and camera remain open. All 1,331 native tests and two architecture
+  checks pass in debug/release; the oracle-enabled suite passes 1,339 unit
+  tests and 35 runtime tests. All 52 original player-service comparisons pass
+  in both profiles, alongside 666 source checks, 209 lowerer tests, exact
+  catalog/architecture checks and builds of all three application binaries.
+
 - Ported both SF2 pitch-input routines, the complete soft/hard terrain
   controllers, retained full-word input history and the map parameter-copy
   service. State lives on the existing player allocation; pose, fine pitch,

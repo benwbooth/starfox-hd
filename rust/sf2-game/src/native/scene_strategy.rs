@@ -130,6 +130,7 @@ pub enum SceneError<E> {
     PlayerPose(super::player_pose::PoseError),
     PlayerSteering(super::player_steering::SteeringError),
     PlayerVertical(super::player_vertical::VerticalError),
+    PlayerThrottle(super::player_throttle::ThrottleError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -158,6 +159,22 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Boost/brake service after roll/ambient and before surface/speed work.
+    pub fn advance_player_throttle(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_throttle::advance(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerThrottle);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Map configuration targets the actual primary player ($06:9A2F).
     pub fn configure_player_vertical(
         &mut self,
