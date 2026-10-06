@@ -78,16 +78,29 @@ pub fn select_strategy(input: StrategyInputs, paused: bool) -> StrategyDecision 
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StrategyCompletion {
-    Keep,
+pub struct StrategyCompletion {
+    /// The actual actor returned by the strategy. Temporary path ownership
+    /// can change it; source $3650..367F does not restore the entry identity.
+    pub actor: ObjectId,
     /// Separate from the deferred remove-after-tick flag. The pass saves the
     /// actor's successor after its strategy, then calls the retirement owner.
-    RetireNow,
+    pub retire_now: bool,
+}
+
+impl StrategyCompletion {
+    pub const fn keep(actor: ObjectId) -> Self {
+        Self { actor, retire_now: false }
+    }
+
+    pub const fn retire(actor: ObjectId) -> Self {
+        Self { actor, retire_now: true }
+    }
 }
 
 /// Native world services needed by the pass. Retirement must perform the
 /// complete object lifecycle, including attachment/contact cleanup. Strategy
-/// code must request RetireNow instead of freeing its own identity early.
+/// code must return its final actor and request retirement instead of freeing
+/// that identity early. Post-strategy positional sound also uses that actor.
 pub trait StrategyHost {
     type Error;
 
@@ -191,19 +204,20 @@ impl StrategySchedule {
             .flags
             .strategy_suspended;
         let completion = if authored_suspension || host.strategy_suspended(actor) {
-            StrategyCompletion::Keep
+            StrategyCompletion::keep(actor)
         } else {
             host.run_strategy(actor, self.clock)
                 .map_err(ScheduleError::Host)?
         };
+        let returned = completion.actor;
         let next = host
             .objects()
-            .get(actor)
-            .ok_or(ScheduleError::MissingActor(actor))?
+            .get(returned)
+            .ok_or(ScheduleError::MissingActor(returned))?
             .base
             .next;
-        if completion == StrategyCompletion::RetireNow {
-            host.retire_object(actor).map_err(ScheduleError::Host)?;
+        if completion.retire_now {
+            host.retire_object(returned).map_err(ScheduleError::Host)?;
         }
         self.next = next;
         Ok(())
@@ -321,6 +335,9 @@ mod tests {
         retire: Option<ObjectId>,
         suspended: Option<ObjectId>,
         suspend_during_visit: Option<ObjectId>,
+        returned_actor: Option<(ObjectId, ObjectId)>,
+        retired: Vec<ObjectId>,
+        visit_limit: Option<usize>,
     }
 
     fn actor() -> Object {
@@ -340,6 +357,9 @@ mod tests {
             object: ObjectId,
             clock: u16,
         ) -> Result<StrategyCompletion, Self::Error> {
+            if self.visit_limit.is_some_and(|limit| self.visits.len() >= limit) {
+                return Err("test traversal exceeded its bounded fixture");
+            }
             self.visits.push((object, clock));
             if self.suspend_during_visit == Some(object) {
                 self.objects
@@ -357,17 +377,51 @@ mod tests {
                         .ok_or("pool full")?,
                 );
             }
+            let returned = self.returned_actor.filter(|(entry, _)| *entry == object)
+                .map_or(object, |(_, returned)| returned);
             Ok(if self.retire == Some(object) {
-                StrategyCompletion::RetireNow
+                StrategyCompletion::retire(returned)
             } else {
-                StrategyCompletion::Keep
+                StrategyCompletion::keep(returned)
             })
         }
         fn retire_object(&mut self, object: ObjectId) -> Result<(), Self::Error> {
+            self.retired.push(object);
             self.objects
                 .remove(object)
                 .ok_or("missing retiring actor")?;
             Ok(())
+        }
+    }
+
+    #[test]
+    fn borrowed_strategy_exit_owns_the_successor_and_immediate_retirement_in_both_passes() {
+        for overlapping_visits in 0..=3 {
+            for retire in [false, true] {
+                let mut world = TestWorld::default();
+                let entry = world.objects.allocate(actor()).unwrap();
+                let skipped = world.objects.allocate_after(Some(entry), actor()).unwrap();
+                let returned = world.objects.allocate_after(Some(skipped), actor()).unwrap();
+                let tail = world.objects.allocate_after(Some(returned), actor()).unwrap();
+                assert_eq!(world.objects.active_ids(), &[entry, skipped, returned, tail]);
+                world.returned_actor = Some((entry, returned));
+                world.retire = retire.then_some(entry);
+                world.visit_limit = Some(4);
+                let mut schedule = StrategySchedule::default();
+                schedule.begin::<&'static str>(&world.objects).unwrap();
+                let mut checks = 0;
+                schedule.run_overlapping(&mut world, || {
+                    checks += 1;
+                    checks <= overlapping_visits
+                }).unwrap();
+                schedule.run_remainder(&mut world).unwrap();
+                assert_eq!(world.visits, [(entry, 1), (tail, 1)]);
+                assert!(world.objects.get(entry).is_some());
+                assert!(world.objects.get(skipped).is_some());
+                assert_eq!(world.objects.get(returned).is_none(), retire);
+                assert_eq!(world.retired, if retire { vec![returned] } else { vec![] });
+                assert_eq!(schedule.clock(), 1);
+            }
         }
     }
 

@@ -14,6 +14,10 @@ use super::path_runtime::{PathRuntime, PathRuntimeError};
 use super::{Object, ObjectId, ObjectStore, PathCursor, RandomState};
 
 #[cfg(test)]
+#[path = "path_invocation_tests.rs"]
+mod invocation_tests;
+
+#[cfg(test)]
 #[path = "path_pickup_tests.rs"]
 mod pickup_tests;
 
@@ -1260,1444 +1264,1468 @@ impl PathRuntime {
             if executed == budget {
                 return Err(ProgramError::BudgetExceeded { cursor, executed });
             }
-            let statement = catalog.statement(cursor)?;
-            let outcome = match statement {
-                Statement::SelectActivePilotCraft { appearances, next } => {
-                    let pilot = world.scene.active_pilot.ok_or(ProgramError::MissingSceneByte(SceneByte::ActivePilot))?;
-                    let actor = objects.get_mut(owner).expect("validated launch actor");
-                    super::path_launch::select_appearance(actor, pilot, appearances);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+            let exit = self.step_program(catalog, objects, owner, world)?;
+            owner = exit.actor;
+            if exit.step != ControlStep::Continue {
+                return Ok(exit);
+            }
+        }
+        unreachable!("inclusive budget iteration always returns")
+    }
+
+    /// Execute exactly one immediate statement. The frame coordinator rebuilds
+    /// selected-player borrows before each statement, including after an
+    /// immediate NEXT re-enters the path with a borrowed actor's saved side.
+    /// This does not perform movement, visit callbacks, or advance any clock.
+    pub fn step_program(
+        &mut self,
+        catalog: &PathCatalog,
+        objects: &mut ObjectStore,
+        mut owner: ObjectId,
+        world: &mut PathWorld<'_>,
+    ) -> Result<ProgramExit, ProgramError> {
+        self.check_execution_owner(owner)?;
+        self.program_actor = Some(owner);
+        let actor = objects
+            .get(owner)
+            .ok_or(PathRuntimeError::MissingActor(owner))?;
+        let cursor = actor.base.path.ok_or(PathRuntimeError::MissingPath(owner))?;
+        let statement = catalog.statement(cursor)?;
+        let outcome = match statement {
+            Statement::SelectActivePilotCraft { appearances, next } => {
+                let pilot = world.scene.active_pilot.ok_or(ProgramError::MissingSceneByte(SceneByte::ActivePilot))?;
+                let actor = objects.get_mut(owner).expect("validated launch actor");
+                super::path_launch::select_appearance(actor, pilot, appearances);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::AlignCameraHeading { next } => {
+                let heading = world.camera_heading.ok_or(ProgramError::MissingCameraHeading)?;
+                let actor = objects.get_mut(owner).expect("validated camera-aligned actor");
+                super::path_launch::align_camera_heading(actor, heading);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::PublishCameraTrackingTarget { next } => {
+                world.camera_tracking.as_deref_mut().ok_or(ProgramError::MissingCameraTrackingTarget)?.actor = Some(owner);
+                objects.get_mut(owner).expect("validated camera tracking actor").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::UpdateLowShieldVisual { next } => {
+                let shield = world.scene.active_shield.ok_or(ProgramError::MissingSceneByte(SceneByte::ActiveShield))?;
+                let actor = objects.get_mut(owner).expect("validated shield visual actor");
+                super::path_launch::update_low_shield_visual(actor, shield, world.animation_clock);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ReflectContactShots { next } => {
+                let defaults = world.spawn_defaults();
+                super::weapon_reflection::reflect_contacts(objects, &mut self.resources, owner, &mut super::weapon_reflection::ReflectionWorld {
+                    contacts: world.contacts, rules: world.reflection, weapons: world.weapons.as_deref_mut(),
+                    defaults, primary: world.primary_player, secondary: world.secondary_player,
+                    random: world.random,
+                }).map_err(ProgramError::Reflection)?;
+                objects.get_mut(owner).expect("validated reflecting actor").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SpawnOffset { kind, parameters, next } => {
+                let defaults = world.spawn_defaults().ok_or(ProgramError::MissingSpawnDefaults)?;
+                if let Some(path) = parameters.actor.path { catalog.statement(path)?; }
+                self.spawns.offset(objects, owner, kind, parameters, defaults).map_err(ProgramError::Spawn)?;
+                objects.get_mut(owner).expect("validated offset spawn caller").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::PublishEncounterCameraFocus { next } => {
+                world.camera_focus.as_deref_mut().ok_or(ProgramError::MissingEncounterCameraFocus)?.position = actor.base.position;
+                objects.get_mut(owner).expect("validated camera focus publisher").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ChooseGunnerRoute { routes, next } => {
+                let origin = usize::from(world.random.next_byte() & 3);
+                let branch = usize::from(world.random.next_byte() & 1);
+                let index = origin * 2 + branch;
+                let route = routes[index];
+                let actor = objects.get_mut(owner).expect("validated gunner owner");
+                actor.base.position.x = route.origin.0;
+                actor.base.position.z = route.origin.1;
+                actor.extension.relative_position.x = route.destination.0;
+                actor.extension.relative_position.z = route.destination.1;
+                actor.base.yaw = super::Angle::from_units(route.heading);
+                actor.extension.relative_rotation.yaw = actor.base.yaw;
+                if let Some(heading) = route.entry_heading {
+                    actor.extension.relative_rotation.pitch = super::Angle::from_units(heading);
                 }
-                Statement::AlignCameraHeading { next } => {
-                    let heading = world.camera_heading.ok_or(ProgramError::MissingCameraHeading)?;
-                    let actor = objects.get_mut(owner).expect("validated camera-aligned actor");
-                    super::path_launch::align_camera_heading(actor, heading);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                actor.extension.path_state.motion_phase = u16::from(index as u8)
+                    | (u16::from(route.destination_index) << 8);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::HealthDisplay { field, command, next } => {
+                let display = world.health_display.as_deref_mut().ok_or(ProgramError::MissingHealthDisplay)?;
+                let actor = objects.get_mut(owner).expect("validated display publisher");
+                display.apply(actor, field, command);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SetHealthDisplayLabel { label, next } => {
+                world.health_display.as_deref_mut().ok_or(ProgramError::MissingHealthDisplay)?.label = Some(label);
+                objects.get_mut(owner).expect("validated display label publisher").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RequestPrimaryEncounterFeedback { next } => {
+                let primary = world.primary_player.ok_or(ProgramError::MissingPrimaryPlayer)?;
+                objects.get(primary).ok_or(PathRuntimeError::MissingActor(primary))?;
+                let mode = world.primary_control.as_ref().ok_or(ProgramError::MissingPrimaryControl)?.target.mode;
+                if mode == super::player_hit_control::ENCOUNTER_FEEDBACK_TARGET_MODE {
+                    let feedback = world.primary_feedback.as_mut().ok_or(ProgramError::MissingPrimaryFeedback)?;
+                    feedback.hit.request_encounter_feedback(mode, feedback.state);
                 }
-                Statement::PublishCameraTrackingTarget { next } => {
-                    world.camera_tracking.as_deref_mut().ok_or(ProgramError::MissingCameraTrackingTarget)?.actor = Some(owner);
-                    objects.get_mut(owner).expect("validated camera tracking actor").base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                objects.get_mut(owner).expect("validated feedback requester").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ChoosePatrolDestination { offsets, next } => {
+                // The authored block masks one draw to eight choices.
+                // Preserve its low-byte selector, final lookup word and
+                // both saved coordinates; none are disposable scratch.
+                let choice = usize::from(world.random.next_byte()) % offsets.len();
+                let (x, z) = offsets[choice];
+                let actor = objects.get_mut(owner).expect("validated patrol owner");
+                super::path_fields::ByteField::WordPart {
+                    field: super::path_fields::WordField::MotionPhase,
+                    part: super::path_fields::BytePart::Low,
+                }.write(actor, choice as u8);
+                actor.extension.path_state.script_value = z as u16;
+                actor.extension.path_state.platform_carry.saved_position.x =
+                    actor.extension.relative_position.x.wrapping_add(x);
+                actor.extension.path_state.platform_carry.saved_position.z =
+                    actor.extension.relative_position.z.wrapping_add(z);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::AttachPublishedHomingTarget { next } => {
+                let target = world.published_homing_target.ok_or(ProgramError::MissingPublishedHomingTarget)?;
+                let actor = objects.get_mut(owner).expect("validated projectile attachment");
+                actor.base.attachment = target.object;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::InstallImpactBurst => {
+                self.validate_terminal_command()?;
+                let actor = objects.get_mut(owner).expect("validated strategy handoff");
+                actor.base.behavior = super::Behavior::ImpactBurst(super::path_effect::ImpactBurstPhase::Initialize);
+                actor.extension.render_parameter = 0;
+                actor.base.path = None;
+                Ok(ControlStep::Movement)
+            }
+            Statement::MarkForDeath => {
+                self.validate_terminal_command()?;
+                super::path_death::mark_for_death(objects, owner, world.friend_health.as_deref_mut())
+                    .map_err(ProgramError::Death)?;
+                Ok(ControlStep::MovementTail)
+            }
+            Statement::SetActionGate { value, next } => {
+                world.action_gate.as_deref_mut().ok_or(ProgramError::MissingActionGate)?.code = value;
+                objects.get_mut(owner).expect("validated action-gate writer").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Coordination { field, command, next } => {
+                let coordination = world.coordination.as_deref_mut()
+                    .ok_or(ProgramError::MissingCoordination)?;
+                let actor = objects.get_mut(owner).expect("validated coordination actor");
+                coordination.apply(actor, field, command);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::CountCompletion { kind, next } => {
+                let counts = world.objective_counts.as_deref_mut()
+                    .ok_or(ProgramError::MissingObjectiveCounts)?;
+                counts.record_completion(kind);
+                objects.get_mut(owner).expect("validated completion counter actor").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ObjectiveCounts { field, command, next } => {
+                let counts = world.objective_counts.as_deref_mut()
+                    .ok_or(ProgramError::MissingObjectiveCounts)?;
+                let actor = objects.get_mut(owner).expect("validated objective count actor");
+                counts.apply(actor, field, command);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ClearPathLatches { mask, next } => {
+                let mask = mask.read(actor);
+                world.path_latches.as_deref_mut().ok_or(ProgramError::MissingPathLatches)?.raised &= !mask;
+                objects.get_mut(owner).expect("validated path latch writer").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RequestSoundBank { selection, next } => {
+                let selection = selection.read(actor);
+                world.sound_bank_request.as_deref_mut()
+                    .ok_or(ProgramError::MissingSoundBankRequest)?.selection = selection;
+                objects.get_mut(owner).expect("validated sound bank requester").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::DeferredMessage { command, next } => {
+                use super::path_radio::DeferredMessageCommand;
+                let deferred = world.deferred_message.as_deref_mut()
+                    .ok_or(ProgramError::MissingDeferredMessage)?;
+                let actor = objects.get_mut(owner).expect("validated deferred message actor");
+                match command {
+                    DeferredMessageCommand::CopyTo(field) => field.write(actor, deferred.number),
+                    DeferredMessageCommand::Assign(value) => deferred.number = value.read(actor),
                 }
-                Statement::UpdateLowShieldVisual { next } => {
-                    let shield = world.scene.active_shield.ok_or(ProgramError::MissingSceneByte(SceneByte::ActiveShield))?;
-                    let actor = objects.get_mut(owner).expect("validated shield visual actor");
-                    super::path_launch::update_low_shield_visual(actor, shield, world.animation_clock);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RadioEvent { command, next } => {
+                use super::path_radio::RadioEventCommand;
+                let event = world.radio_event.as_deref_mut().ok_or(ProgramError::MissingRadioEvent)?;
+                let actor = objects.get_mut(owner).expect("validated radio event actor");
+                match command {
+                    RadioEventCommand::CopyTo(field) => field.write(actor, event.number as u8),
+                    RadioEventCommand::Assign(value) => event.number = (event.number & 0xFF00) | u16::from(value.read(actor)),
                 }
-                Statement::ReflectContactShots { next } => {
-                    let defaults = world.spawn_defaults();
-                    super::weapon_reflection::reflect_contacts(objects, &mut self.resources, owner, &mut super::weapon_reflection::ReflectionWorld {
-                        contacts: world.contacts, rules: world.reflection, weapons: world.weapons.as_deref_mut(),
-                        defaults, primary: world.primary_player, secondary: world.secondary_player,
-                        random: world.random,
-                    }).map_err(ProgramError::Reflection)?;
-                    objects.get_mut(owner).expect("validated reflecting actor").base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::EncounterHandoff { command, next } => {
+                let handoff = world.handoff.as_deref_mut().ok_or(ProgramError::MissingEncounterHandoff)?;
+                let actor = objects.get_mut(owner).expect("validated handoff publisher");
+                handoff.apply(actor, command);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SpawnParameter { argument, command, next } => {
+                use super::path_spawn::SpawnParameterCommand;
+                let actor = objects.get_mut(owner).expect("validated spawn parameter actor");
+                let parameter = self.spawns.argument_mut(argument);
+                match command {
+                    SpawnParameterCommand::CopyTo(field) => field.write(actor,
+                        parameter.ok_or(ProgramError::MissingSpawnParameter(argument))?),
+                    SpawnParameterCommand::Assign(value) => *parameter = Some(value.read(actor)),
+                    SpawnParameterCommand::Increment => *parameter = Some(
+                        parameter.ok_or(ProgramError::MissingSpawnParameter(argument))?.wrapping_add(1)),
                 }
-                Statement::SpawnOffset { kind, parameters, next } => {
-                    let defaults = world.spawn_defaults().ok_or(ProgramError::MissingSpawnDefaults)?;
-                    if let Some(path) = parameters.actor.path { catalog.statement(path)?; }
-                    self.spawns.offset(objects, owner, kind, parameters, defaults).map_err(ProgramError::Spawn)?;
-                    objects.get_mut(owner).expect("validated offset spawn caller").base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SetSceneryPlacementHeight { height, next } => {
+                self.placement.primary = Some(height);
+                objects.get_mut(owner).expect("validated placement writer").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::CaptureWorldPosition { next } => {
+                let actor = objects.get_mut(owner).expect("validated position publisher");
+                self.captured_world_position = Some(actor.base.position);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RestoreWorldPosition { next } => {
+                let position = self.captured_world_position.ok_or(ProgramError::MissingCapturedWorldPosition)?;
+                let actor = objects.get_mut(owner).expect("validated position observer");
+                actor.base.position = position;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::IncludeSelectedParticleFlags { mask, next } => {
+                world.selected_particle_effects.as_deref_mut().ok_or(ProgramError::MissingSelectedParticleEffects)?.flags |= mask;
+                objects.get_mut(owner).expect("validated particle request").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportSceneryPlacementHeight { next } => {
+                let height = self.placement.primary.ok_or(ProgramError::MissingSceneryPlacementHeight)?;
+                let actor = objects.get_mut(owner).expect("validated placement reader");
+                actor.base.position.y = height;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Placement { command, next } => {
+                let actor = objects.get_mut(owner).expect("validated placement-coordinate owner");
+                self.placement.apply(actor, command).map_err(ProgramError::MissingPlacementCoordinate)?;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::LinkLastSpawnToSelf { next } => {
+                objects.get(owner).ok_or(PathRuntimeError::MissingActor(owner))?;
+                let target = self.spawns.last_spawn.ok_or(ProgramError::ActorContext(
+                    super::path_actor_context::ActorContextError::MissingLastSpawn,
+                ))?;
+                let spawned = objects.get_mut(target).ok_or(PathRuntimeError::MissingActor(target))?;
+                // The source writes only the retained spawn's auxiliary
+                // link. Child-chain membership and relative parent stay put.
+                spawned.base.linked_object = Some(owner);
+                objects.get_mut(owner).expect("validated link publisher").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::AttachLastSpawn { next } => {
+                if let Some(target) = self.spawns.last_spawn {
+                    objects.get(target).ok_or(PathRuntimeError::MissingActor(target))?;
                 }
-                Statement::PublishEncounterCameraFocus { next } => {
-                    world.camera_focus.as_deref_mut().ok_or(ProgramError::MissingEncounterCameraFocus)?.position = actor.base.position;
-                    objects.get_mut(owner).expect("validated camera focus publisher").base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                let actor = objects.get_mut(owner).expect("validated last-spawn observer");
+                actor.base.attachment = self.spawns.last_spawn;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::QuerySurfaceHeight { destination, next } => {
+                let search = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?.search();
+                let result = super::collision_surface::query_object_surface(objects, owner, world.animation_clock, search)
+                    .map_err(ProgramError::SurfaceQuery)?;
+                let actor = objects.get_mut(owner).expect("validated surface-height observer");
+                // Unlike the surface branch, this direct query publishes
+                // ALL actor contact outputs, including the group byte.
+                actor.extension.surface_contact = result.contact;
+                destination.write(actor, result.height as u16);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::MarkRemoval { next } => {
+                let actor = objects.get_mut(owner).expect("validated deferred removal");
+                // This inline action is not END: it neither yields nor
+                // clears motion latches, callbacks, or the path stack.
+                actor.base.flags.remove_after_tick = true;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ActionGateBranch { condition, taken, next } => {
+                let actual = world.action_gate.as_deref().ok_or(ProgramError::MissingActionGate)?.code;
+                let matches = match condition {
+                    ActionGateCondition::Equal(expected) => actual == expected,
+                    ActionGateCondition::NotEqual(expected) => actual != expected,
+                };
+                objects.get_mut(owner).expect("validated action-gate observer").base.path =
+                    Some(if matches { taken } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::EncounterSignal { command, next } => {
+                let signals = world.encounter_signals.as_deref_mut()
+                    .ok_or(ProgramError::MissingEncounterSignals)?;
+                match command {
+                    EncounterSignalCommand::Raise(mask) => signals.raised |= mask,
+                    EncounterSignalCommand::Clear(mask) => signals.raised &= !mask,
+                    EncounterSignalCommand::Reset => signals.raised = 0,
                 }
-                Statement::ChooseGunnerRoute { routes, next } => {
-                    let origin = usize::from(world.random.next_byte() & 3);
-                    let branch = usize::from(world.random.next_byte() & 1);
-                    let index = origin * 2 + branch;
-                    let route = routes[index];
-                    let actor = objects.get_mut(owner).expect("validated gunner owner");
-                    actor.base.position.x = route.origin.0;
-                    actor.base.position.z = route.origin.1;
-                    actor.extension.relative_position.x = route.destination.0;
-                    actor.extension.relative_position.z = route.destination.1;
-                    actor.base.yaw = super::Angle::from_units(route.heading);
-                    actor.extension.relative_rotation.yaw = actor.base.yaw;
-                    if let Some(heading) = route.entry_heading {
-                        actor.extension.relative_rotation.pitch = super::Angle::from_units(heading);
+                objects.get_mut(owner).expect("validated encounter signal writer").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::EncounterSignalBranch { condition, taken, next } => {
+                let signals = world.encounter_signals.as_deref()
+                    .ok_or(ProgramError::MissingEncounterSignals)?;
+                let matches = match condition {
+                    EncounterSignalCondition::AnyRaised(mask) => signals.raised & mask != 0,
+                    EncounterSignalCondition::AllClear(mask) => signals.raised & mask == 0,
+                };
+                objects.get_mut(owner).expect("validated encounter signal reader").base.path =
+                    Some(if matches { taken } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::SelectActor { selection, next } => {
+                owner = self.actor_context
+                    .select(objects, owner, self.spawns.last_spawn, selection, next)
+                    .map_err(ProgramError::ActorContext)?;
+                self.program_actor = Some(owner);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SelectChild { number, missing, next } => {
+                let number = number.read(actor);
+                owner = self.actor_context.select(objects, owner, self.spawns.last_spawn,
+                    ActorSelection::ChildOrBranch { number, missing }, next)
+                    .map_err(ProgramError::ActorContext)?;
+                self.program_actor = Some(owner);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RestoreActor { next } => {
+                owner = self.actor_context.restore(objects, owner, next)
+                    .map_err(ProgramError::ActorContext)?;
+                self.program_actor = Some(owner);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ActiveWeaponLevelEquals { expected, taken, next } => {
+                let actual = world.scene.active_weapon_level
+                    .ok_or(ProgramError::MissingSceneByte(SceneByte::ActiveWeaponLevel))?;
+                objects.get_mut(owner).expect("validated weapon-level observer").base.path =
+                    Some(if actual == expected { taken } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::AttachmentAbsent { taken, next } => {
+                let destination = if actor.base.attachment.is_none() { taken } else { next };
+                objects.get_mut(owner).expect("validated attachment observer").base.path = Some(destination);
+                Ok(ControlStep::Continue)
+            }
+            Statement::TargetingUpgradeOwned { taken, next } => {
+                let upgrade = world.targeting_upgrade.as_deref()
+                    .ok_or(ProgramError::MissingTargetingUpgrade)?;
+                // $7F:C488 branches directly, without consuming IFNOT.
+                objects.get_mut(owner).expect("validated upgrade observer").base.path =
+                    Some(if upgrade.active_pilot_has_upgrade() { taken } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::AcquireTargetingUpgrade { next } => {
+                world.targeting_upgrade.as_deref_mut()
+                    .ok_or(ProgramError::MissingTargetingUpgrade)?
+                    .acquire_for_active_pilot();
+                objects.get_mut(owner).expect("validated upgrade collector").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ClockBitsSet { mask, taken, next } => {
+                // $7F:BD06 takes direct branches: IFNOT is untouched.
+                objects
+                    .get_mut(owner)
+                    .expect("validated clock-gate owner")
+                    .base
+                    .path = Some(if world.animation_clock & mask != 0 {
+                    taken
+                } else {
+                    next
+                });
+                Ok(ControlStep::Continue)
+            }
+            Statement::AccumulateShieldRecovery { amount, next } => {
+                let amount = amount.read(actor);
+                let request = world.shield_recovery.as_deref_mut()
+                    .ok_or(ProgramError::MissingShieldRecovery)?;
+                request.amount = request.amount.wrapping_add(amount);
+                objects.get_mut(owner).expect("validated recovery owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RequestShieldRecovery { amount, next } => {
+                let request = world
+                    .shield_recovery
+                    .as_mut()
+                    .ok_or(ProgramError::MissingShieldRecovery)?;
+                request.amount = amount.read(actor);
+                objects
+                    .get_mut(owner)
+                    .expect("validated recovery requester")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportActionGate { destination, next } => {
+                let value = world.action_gate.as_deref().ok_or(ProgramError::MissingActionGate)?.code;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated action-gate reader");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::AddSceneHeightOffset { destination, next } => {
+                let offset = world.scene.height_offset.ok_or(ProgramError::MissingSceneHeightOffset)?;
+                let actor = objects.get_mut(owner).expect("validated scene-height actor");
+                destination.write(actor, destination.read(actor).wrapping_add(offset as u16));
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportSceneByte { source, destination, next } => {
+                let value = source.read(world.scene).ok_or(ProgramError::MissingSceneByte(source))?;
+                let actor = objects.get_mut(owner).expect("validated scene-selector reader");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SceneryDistance { command, next } => {
+                let scenery = world.scenery_distance.as_deref_mut()
+                    .ok_or(ProgramError::MissingSceneryDistance)?;
+                let actor = objects.get_mut(owner).expect("validated scenery owner");
+                match command {
+                    SceneryDistanceCommand::CopyTo(field) => field.write(actor, scenery.near_mask),
+                    SceneryDistanceCommand::Assign(value) => scenery.near_mask = value.read(actor),
+                }
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportEnvironmentPlaneHeight { destination, next } => {
+                let value = world
+                    .environment_plane_height
+                    .ok_or(ProgramError::MissingEnvironmentPlaneHeight)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated environmental-plane reader");
+                destination.write(actor, value as u16);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ProjectileTrigger { command, next } => {
+                let trigger = world
+                    .projectile_trigger
+                    .as_mut()
+                    .ok_or(ProgramError::MissingProjectileTrigger)?;
+                let actor = objects.get_mut(owner).expect("validated projectile owner");
+                match command {
+                    ProjectileTriggerCommand::CopyTo(field) => {
+                        field.write(actor, trigger.activation)
                     }
-                    actor.extension.path_state.motion_phase = u16::from(index as u8)
-                        | (u16::from(route.destination_index) << 8);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::HealthDisplay { field, command, next } => {
-                    let display = world.health_display.as_deref_mut().ok_or(ProgramError::MissingHealthDisplay)?;
-                    let actor = objects.get_mut(owner).expect("validated display publisher");
-                    display.apply(actor, field, command);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SetHealthDisplayLabel { label, next } => {
-                    world.health_display.as_deref_mut().ok_or(ProgramError::MissingHealthDisplay)?.label = Some(label);
-                    objects.get_mut(owner).expect("validated display label publisher").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::RequestPrimaryEncounterFeedback { next } => {
-                    let primary = world.primary_player.ok_or(ProgramError::MissingPrimaryPlayer)?;
-                    objects.get(primary).ok_or(PathRuntimeError::MissingActor(primary))?;
-                    let mode = world.primary_control.as_ref().ok_or(ProgramError::MissingPrimaryControl)?.target.mode;
-                    if mode == super::player_hit_control::ENCOUNTER_FEEDBACK_TARGET_MODE {
-                        let feedback = world.primary_feedback.as_mut().ok_or(ProgramError::MissingPrimaryFeedback)?;
-                        feedback.hit.request_encounter_feedback(mode, feedback.state);
+                    ProjectileTriggerCommand::Assign(value) => {
+                        trigger.activation = value.read(actor)
                     }
-                    objects.get_mut(owner).expect("validated feedback requester").base.path = Some(next);
-                    Ok(ControlStep::Continue)
                 }
-                Statement::ChoosePatrolDestination { offsets, next } => {
-                    // The authored block masks one draw to eight choices.
-                    // Preserve its low-byte selector, final lookup word and
-                    // both saved coordinates; none are disposable scratch.
-                    let choice = usize::from(world.random.next_byte()) % offsets.len();
-                    let (x, z) = offsets[choice];
-                    let actor = objects.get_mut(owner).expect("validated patrol owner");
-                    super::path_fields::ByteField::WordPart {
-                        field: super::path_fields::WordField::MotionPhase,
-                        part: super::path_fields::BytePart::Low,
-                    }.write(actor, choice as u8);
-                    actor.extension.path_state.script_value = z as u16;
-                    actor.extension.path_state.platform_carry.saved_position.x =
-                        actor.extension.relative_position.x.wrapping_add(x);
-                    actor.extension.path_state.platform_carry.saved_position.z =
-                        actor.extension.relative_position.z.wrapping_add(z);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::InitializePrimaryPitchRecoil { amount, next } => {
+                let primary = world
+                    .primary_player
+                    .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                objects
+                    .get(primary)
+                    .ok_or(PathRuntimeError::MissingActor(primary))?;
+                world
+                    .primary_pitch_recoil
+                    .as_mut()
+                    .ok_or(ProgramError::MissingPrimaryPitchRecoil)?
+                    .initialize_if_idle(amount);
+                objects
+                    .get_mut(owner)
+                    .expect("validated recoil owner")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::LinkPrimaryCollisionExclusion { next } => {
+                let primary = world
+                    .primary_player
+                    .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                objects
+                    .get(primary)
+                    .ok_or(PathRuntimeError::MissingActor(primary))?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated collision-link owner");
+                actor.base.linked_object = Some(primary);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::LinkedEffectActivity { command, next } => {
+                let activity = world
+                    .linked_effect_activity
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingLinkedEffectActivity)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated effect-activity owner");
+                activity.apply(actor, command);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ViewTransition { enabled, next } =>
+                Ok(self.execute_view_transition(catalog, objects, owner, world, enabled, next)?),
+            Statement::MoveFixedView { snap, next } =>
+                Ok(self.execute_fixed_view_motion(objects, owner, world, snap, next)?),
+            Statement::CopySelectedStoredPosition { next } => {
+                let position = world.selected_auxiliary.as_deref()
+                    .ok_or(ProgramError::MissingSelectedAuxiliary)?.stored_world_position;
+                let actor = objects.get_mut(owner).expect("validated stored-position owner");
+                actor.base.position = position;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::CopySelectedStoredRotation { next } => {
+                let rotation = world.selected_auxiliary.as_deref()
+                    .ok_or(ProgramError::MissingSelectedAuxiliary)?.stored_rotation;
+                let actor = objects.get_mut(owner).expect("validated stored-rotation owner");
+                actor.base.pitch = rotation.pitch;
+                actor.base.yaw = rotation.yaw;
+                actor.base.roll = rotation.roll;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::IfProtectionOverride { taken, next } => {
+                let enabled = world.protection.as_ref()
+                    .ok_or(ProgramError::MissingProtection)?.rules.minimum_override;
+                objects.get_mut(owner).expect("validated protection-override branch").base.path =
+                    Some(if enabled { taken } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::UpdateProtectionEffect {
+                ordinary_return,
+                flicker,
+            } => {
+                let input = world
+                    .protection
+                    .as_mut()
+                    .ok_or(ProgramError::MissingProtection)?;
+                let ordinary = super::path_protection::update_effect(
+                    objects,
+                    owner,
+                    input,
+                    world.surface_mode,
+                )
+                .map_err(ProgramError::Protection)?;
+                objects
+                    .get_mut(owner)
+                    .expect("validated protection effect")
+                    .base
+                    .path = Some(if ordinary { ordinary_return } else { flicker });
+                Ok(ControlStep::Continue)
+            }
+            Statement::StackValue { command, next } => {
+                self.execute_stack_value(objects, owner, command, next)
+            }
+            Statement::Appearance { command, next } => {
+                let actor = objects.get_mut(owner).expect("validated appearance owner");
+                command.apply(actor);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RunWhenPaused { enabled, next } => {
+                let actor = objects.get_mut(owner).expect("validated pause-mode owner");
+                actor.base.contacts.run_when_paused = enabled;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::LatchPrimaryViewFilter { next } => {
+                let primary = world
+                    .primary_player
+                    .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                let filtered = objects
+                    .get(primary)
+                    .ok_or(PathRuntimeError::MissingActor(primary))?
+                    .base
+                    .flags
+                    .view_side_filter;
+                let actor = objects.get_mut(owner).expect("validated phase-latch owner");
+                if filtered {
+                    let phase = &mut actor.extension.path_state.motion_phase;
+                    *phase = (*phase & 0xFF00) | 1;
                 }
-                Statement::AttachPublishedHomingTarget { next } => {
-                    let target = world.published_homing_target.ok_or(ProgramError::MissingPublishedHomingTarget)?;
-                    let actor = objects.get_mut(owner).expect("validated projectile attachment");
-                    actor.base.attachment = target.object;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::PreserveSceneContinuation { next } => {
+                // Retain THIS instruction, not its successor: a later scene
+                // recreation must execute preservation before the terminal path.
+                if let Some(id) = actor.extension.scene_proxy {
+                    world.scene_proxies.as_mut()
+                        .ok_or(ProgramError::MissingSceneProxies)?
+                        .get_mut(id).ok_or(ProgramError::MissingSceneProxy(id))?
+                        .continuation = cursor;
+                } else {
+                    objects.get_mut(owner).expect("validated scene continuation owner")
+                        .extension.auxiliary.set(&mut self.resources, owner,
+                            super::actor_auxiliary::AuxiliaryRecord::SceneContinuation(cursor))
+                        .map_err(ProgramError::Auxiliary)?;
                 }
-                Statement::InstallImpactBurst => {
-                    self.validate_terminal_command()?;
-                    let actor = objects.get_mut(owner).expect("validated strategy handoff");
-                    actor.base.behavior = super::Behavior::ImpactBurst(super::path_effect::ImpactBurstPhase::Initialize);
-                    actor.extension.render_parameter = 0;
-                    actor.base.path = None;
-                    Ok(ControlStep::Movement)
+                objects.get_mut(owner).expect("validated scene continuation owner")
+                    .base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ConsiderPrimaryTarget { next }
+            | Statement::ConsiderPrimaryTargetAndMarkSceneProxy { next } => {
+                let mark_proxy = matches!(statement, Statement::ConsiderPrimaryTargetAndMarkSceneProxy { .. });
+                let proxy = if mark_proxy { actor.extension.scene_proxy } else { None };
+                // Validate the optional scene-owned record before mutating target
+                // selection: a missing service can then be supplied and retried.
+                if let Some(id) = proxy {
+                    world.scene_proxies.as_ref()
+                        .ok_or(ProgramError::MissingSceneProxies)?
+                        .get(id).ok_or(ProgramError::MissingSceneProxy(id))?;
                 }
-                Statement::MarkForDeath => {
-                    self.validate_terminal_command()?;
-                    super::path_death::mark_for_death(objects, owner, world.friend_health.as_deref_mut())
-                        .map_err(ProgramError::Death)?;
-                    Ok(ControlStep::MovementTail)
+                let primary = world
+                    .primary_player
+                    .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                objects
+                    .get(primary)
+                    .ok_or(PathRuntimeError::MissingActor(primary))?;
+                let input = world
+                    .primary_target
+                    .as_mut()
+                    .ok_or(ProgramError::MissingPrimaryTarget)?;
+                if mark_proxy {
+                    super::path_target::consider_with_request(
+                        input.selection, owner, actor.base.position, input.anchor,
+                        super::path_target::PathTargetRequest::Preserve,
+                    );
+                } else {
+                    super::path_target::consider(input.selection, owner, actor.base.position, input.anchor);
                 }
-                Statement::SetActionGate { value, next } => {
-                    world.action_gate.as_deref_mut().ok_or(ProgramError::MissingActionGate)?.code = value;
-                    objects.get_mut(owner).expect("validated action-gate writer").base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                if let Some(id) = proxy {
+                    world.scene_proxies.as_mut().expect("validated scene store")
+                        .get_mut(id).expect("validated target scene proxy")
+                        .flags.mark_target_considered();
                 }
-                Statement::Coordination { field, command, next } => {
-                    let coordination = world.coordination.as_deref_mut()
-                        .ok_or(ProgramError::MissingCoordination)?;
-                    let actor = objects.get_mut(owner).expect("validated coordination actor");
-                    coordination.apply(actor, field, command);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                objects
+                    .get_mut(owner)
+                    .expect("validated target candidate")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::CopySelectedTransform { command, next } => {
+                super::path_relationships::copy_selected_transform(
+                    objects,
+                    owner,
+                    world.selected,
+                    command,
+                )
+                .map_err(ProgramError::Relationship)?;
+                objects
+                    .get_mut(owner)
+                    .expect("validated transform-copy owner")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::InheritPrimaryHorizontalMotion { next } => {
+                let primary = world
+                    .primary_player
+                    .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                let input = world
+                    .primary_motion
+                    .ok_or(ProgramError::MissingPrimaryMotion)?;
+                let velocity = objects
+                    .get(primary)
+                    .ok_or(PathRuntimeError::MissingActor(primary))?
+                    .base
+                    .velocity;
+                let actor = objects.get_mut(owner).expect("validated inheritance owner");
+                super::path_motion::inherit_horizontal_motion(
+                    actor,
+                    velocity,
+                    input.displacement,
+                    input.auxiliary_mode,
+                );
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportPlayerPosition { axis, destination, next } => {
+                use super::path_fields::Axis;
+                let position = world.published_motion
+                    .ok_or(ProgramError::MissingPublishedMotion)?.position;
+                let value = match axis {
+                    Axis::X => position.x,
+                    Axis::Y => position.y,
+                    Axis::Z => position.z,
+                };
+                let actor = objects.get_mut(owner).expect("validated position-import owner");
+                destination.write(actor, value as u16);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportPlayerMotion {
+                axis,
+                destination,
+                next,
+            } => {
+                use super::path_fields::Axis;
+                let delta = world
+                    .published_motion
+                    .ok_or(ProgramError::MissingPublishedMotion)?
+                    .delta;
+                let value = match axis {
+                    Axis::X => delta.x,
+                    Axis::Y => delta.y,
+                    Axis::Z => delta.z,
+                };
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated motion-import owner");
+                destination.write(actor, value as u16);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportPlayerMotionByte { axis, part, destination, next } => {
+                use super::path_fields::{Axis, BytePart};
+                let delta = world.published_motion
+                    .ok_or(ProgramError::MissingPublishedMotion)?.delta;
+                let word = match axis {
+                    Axis::X => delta.x,
+                    Axis::Y => delta.y,
+                    Axis::Z => delta.z,
+                } as u16;
+                let value = match part {
+                    BytePart::Low => word as u8,
+                    BytePart::High => (word >> u8::BITS) as u8,
+                };
+                let actor = objects.get_mut(owner).expect("validated motion-byte import owner");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportChargeThreshold { destination, next } => {
+                let value = world
+                    .active_charge_threshold
+                    .ok_or(ProgramError::MissingChargeThreshold)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated charge-import owner");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportActiveNodeFlags { destination, next } => {
+                let value = world
+                    .active_node_flags
+                    .as_deref()
+                    .ok_or(ProgramError::MissingActiveNodeFlags)?
+                    .bits;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated node-flags import owner");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ExportActiveNodeFlags { source, next } => {
+                let flags = world
+                    .active_node_flags
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingActiveNodeFlags)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated node-flags export owner");
+                flags.bits = source.read(actor);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportObjectiveCompletion { destination, next } => {
+                let value = world.objective_completion.as_deref()
+                    .ok_or(ProgramError::MissingObjectiveCompletion)?.bits;
+                let actor = objects.get_mut(owner)
+                    .expect("validated objective-completion import owner");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ExportObjectiveCompletion { source, next } => {
+                let completion = world.objective_completion.as_deref_mut()
+                    .ok_or(ProgramError::MissingObjectiveCompletion)?;
+                let actor = objects.get_mut(owner)
+                    .expect("validated objective-completion export owner");
+                completion.bits = source.read(actor);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SceneEvent { command, next } => {
+                use super::path_scene_state::SceneEventCommand;
+                let events = world.scene_events.as_deref_mut()
+                    .ok_or(ProgramError::MissingSceneEvents)?;
+                let actor = objects.get_mut(owner).expect("validated scene-event owner");
+                match command {
+                    SceneEventCommand::CopyTo(field) => field.write(actor, events.bits),
+                    SceneEventCommand::Assign(value) => events.bits = value.read(actor),
                 }
-                Statement::CountCompletion { kind, next } => {
-                    let counts = world.objective_counts.as_deref_mut()
-                        .ok_or(ProgramError::MissingObjectiveCounts)?;
-                    counts.record_completion(kind);
-                    objects.get_mut(owner).expect("validated completion counter actor").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ObjectiveCounts { field, command, next } => {
-                    let counts = world.objective_counts.as_deref_mut()
-                        .ok_or(ProgramError::MissingObjectiveCounts)?;
-                    let actor = objects.get_mut(owner).expect("validated objective count actor");
-                    counts.apply(actor, field, command);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ClearPathLatches { mask, next } => {
-                    let mask = mask.read(actor);
-                    world.path_latches.as_deref_mut().ok_or(ProgramError::MissingPathLatches)?.raised &= !mask;
-                    objects.get_mut(owner).expect("validated path latch writer").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::RequestSoundBank { selection, next } => {
-                    let selection = selection.read(actor);
-                    world.sound_bank_request.as_deref_mut()
-                        .ok_or(ProgramError::MissingSoundBankRequest)?.selection = selection;
-                    objects.get_mut(owner).expect("validated sound bank requester").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::DeferredMessage { command, next } => {
-                    use super::path_radio::DeferredMessageCommand;
-                    let deferred = world.deferred_message.as_deref_mut()
-                        .ok_or(ProgramError::MissingDeferredMessage)?;
-                    let actor = objects.get_mut(owner).expect("validated deferred message actor");
-                    match command {
-                        DeferredMessageCommand::CopyTo(field) => field.write(actor, deferred.number),
-                        DeferredMessageCommand::Assign(value) => deferred.number = value.read(actor),
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RefreshSelectedChargeAttachment { next } => {
+                use super::path_relationships::RelationshipError;
+                let selected = world.selected.ok_or(ProgramError::Relationship(
+                    RelationshipError::MissingSelected,
+                ))?;
+                objects.get(selected).ok_or(ProgramError::Relationship(
+                    RelationshipError::MissingActor(selected),
+                ))?;
+                let input = world
+                    .selected_charge
+                    .ok_or(ProgramError::MissingSelectedCharge)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated charge-callback owner");
+                super::path_charge::refresh_attachment(actor, selected, input);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::PlayerControl { command, next } => {
+                use super::path_player_control::{primary_position, PlayerControlCommand};
+                let primary = world
+                    .primary_player
+                    .ok_or(ProgramError::MissingPrimaryPlayer)?;
+                let player = objects
+                    .get(primary)
+                    .ok_or(PathRuntimeError::MissingActor(primary))?;
+                let pose = (player.base.position, player.base.pitch, player.base.yaw);
+                let input = world
+                    .primary_control
+                    .as_mut()
+                    .ok_or(ProgramError::MissingPrimaryControl)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated player-control owner");
+                match command {
+                    PlayerControlCommand::LockToProjectile => {
+                        input.target.lock_to_projectile(owner, actor.base.position)
                     }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::RadioEvent { command, next } => {
-                    use super::path_radio::RadioEventCommand;
-                    let event = world.radio_event.as_deref_mut().ok_or(ProgramError::MissingRadioEvent)?;
-                    let actor = objects.get_mut(owner).expect("validated radio event actor");
-                    match command {
-                        RadioEventCommand::CopyTo(field) => field.write(actor, event.number as u8),
-                        RadioEventCommand::Assign(value) => event.number = (event.number & 0xFF00) | u16::from(value.read(actor)),
+                    PlayerControlCommand::Configure(range) => {
+                        input.target.configure(owner, actor.base.position, range)
                     }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::EncounterHandoff { command, next } => {
-                    let handoff = world.handoff.as_deref_mut().ok_or(ProgramError::MissingEncounterHandoff)?;
-                    let actor = objects.get_mut(owner).expect("validated handoff publisher");
-                    handoff.apply(actor, command);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SpawnParameter { argument, command, next } => {
-                    use super::path_spawn::SpawnParameterCommand;
-                    let actor = objects.get_mut(owner).expect("validated spawn parameter actor");
-                    let parameter = self.spawns.argument_mut(argument);
-                    match command {
-                        SpawnParameterCommand::CopyTo(field) => field.write(actor,
-                            parameter.ok_or(ProgramError::MissingSpawnParameter(argument))?),
-                        SpawnParameterCommand::Assign(value) => *parameter = Some(value.read(actor)),
-                        SpawnParameterCommand::Increment => *parameter = Some(
-                            parameter.ok_or(ProgramError::MissingSpawnParameter(argument))?.wrapping_add(1)),
+                    PlayerControlCommand::ConfigureDoubledLowByte(range) => input
+                        .target
+                        .configure_doubled_low_byte(owner, actor.base.position, range),
+                    PlayerControlCommand::ConfigureAlternateAxes(range) => input
+                        .target
+                        .configure_alternate_axes(owner, actor.base.position, range),
+                    PlayerControlCommand::LockForLinkedMode => {
+                        input.target.lock_for_linked_mode(input.linked_mode)
                     }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SetSceneryPlacementHeight { height, next } => {
-                    self.placement.primary = Some(height);
-                    objects.get_mut(owner).expect("validated placement writer").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::CaptureWorldPosition { next } => {
-                    let actor = objects.get_mut(owner).expect("validated position publisher");
-                    self.captured_world_position = Some(actor.base.position);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::RestoreWorldPosition { next } => {
-                    let position = self.captured_world_position.ok_or(ProgramError::MissingCapturedWorldPosition)?;
-                    let actor = objects.get_mut(owner).expect("validated position observer");
-                    actor.base.position = position;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::IncludeSelectedParticleFlags { mask, next } => {
-                    world.selected_particle_effects.as_deref_mut().ok_or(ProgramError::MissingSelectedParticleEffects)?.flags |= mask;
-                    objects.get_mut(owner).expect("validated particle request").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportSceneryPlacementHeight { next } => {
-                    let height = self.placement.primary.ok_or(ProgramError::MissingSceneryPlacementHeight)?;
-                    let actor = objects.get_mut(owner).expect("validated placement reader");
-                    actor.base.position.y = height;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Placement { command, next } => {
-                    let actor = objects.get_mut(owner).expect("validated placement-coordinate owner");
-                    self.placement.apply(actor, command).map_err(ProgramError::MissingPlacementCoordinate)?;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::LinkLastSpawnToSelf { next } => {
-                    objects.get(owner).ok_or(PathRuntimeError::MissingActor(owner))?;
-                    let target = self.spawns.last_spawn.ok_or(ProgramError::ActorContext(
-                        super::path_actor_context::ActorContextError::MissingLastSpawn,
-                    ))?;
-                    let spawned = objects.get_mut(target).ok_or(PathRuntimeError::MissingActor(target))?;
-                    // The source writes only the retained spawn's auxiliary
-                    // link. Child-chain membership and relative parent stay put.
-                    spawned.base.linked_object = Some(owner);
-                    objects.get_mut(owner).expect("validated link publisher").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::AttachLastSpawn { next } => {
-                    if let Some(target) = self.spawns.last_spawn {
-                        objects.get(target).ok_or(PathRuntimeError::MissingActor(target))?;
+                    PlayerControlCommand::FollowPrimaryPosition => {
+                        actor.base.position =
+                            primary_position(pose.0, pose.1, pose.2, input.linked_mode)
                     }
-                    let actor = objects.get_mut(owner).expect("validated last-spawn observer");
-                    actor.base.attachment = self.spawns.last_spawn;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                    PlayerControlCommand::RefreshOwnedOrigin => input
+                        .target
+                        .refresh_owned_origin(owner, actor.base.position),
                 }
-                Statement::QuerySurfaceHeight { destination, next } => {
-                    let search = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?.search();
-                    let result = super::collision_surface::query_object_surface(objects, owner, world.animation_clock, search)
-                        .map_err(ProgramError::SurfaceQuery)?;
-                    let actor = objects.get_mut(owner).expect("validated surface-height observer");
-                    // Unlike the surface branch, this direct query publishes
-                    // ALL actor contact outputs, including the group byte.
-                    actor.extension.surface_contact = result.contact;
-                    destination.write(actor, result.height as u16);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Sound { cue, next } => {
+                world
+                    .audio
+                    .as_mut()
+                    .ok_or(ProgramError::MissingAudio)?
+                    .queue(cue, self.selected_player());
+                objects
+                    .get_mut(owner)
+                    .expect("validated sound owner")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SpatialLoop { sound, next } => {
+                let actor = objects.get_mut(owner).expect("validated sound owner");
+                actor.extension.spatial_loop = sound;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Countdown { command, next } => {
+                let countdown = world
+                    .countdown
+                    .as_mut()
+                    .ok_or(ProgramError::MissingCountdown)?;
+                let actor = objects.get_mut(owner).expect("validated countdown owner");
+                countdown.apply(actor, command);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::MarkerSound { id, mode, next } => {
+                let source = objects
+                    .get(owner)
+                    .expect("validated sound owner")
+                    .base
+                    .position;
+                world
+                    .audio
+                    .as_mut()
+                    .ok_or(ProgramError::MissingAudio)?
+                    .queue_marker(id, mode, source, self.selected_player())
+                    .map_err(|_| ProgramError::MissingSoundMarkers)?;
+                objects
+                    .get_mut(owner)
+                    .expect("validated sound owner")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SpawnChild {
+                kind,
+                parameters,
+                next,
+            } => {
+                let defaults = world
+                    .spawn_defaults()
+                    .ok_or(ProgramError::MissingSpawnDefaults)?;
+                // Validate the independent child's native entry before
+                // allocating; absent catalog coverage is never a no-op.
+                if let Some(path) = parameters.path {
+                    catalog.statement(path)?;
                 }
-                Statement::MarkRemoval { next } => {
-                    let actor = objects.get_mut(owner).expect("validated deferred removal");
-                    // This inline action is not END: it neither yields nor
-                    // clears motion latches, callbacks, or the path stack.
-                    actor.base.flags.remove_after_tick = true;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
+                self.spawns
+                    .child(objects, owner, kind, parameters, defaults)
+                    .map_err(ProgramError::Spawn)?;
+                objects
+                    .get_mut(owner)
+                    .expect("validated spawn caller")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SpawnIndependent {
+                kind,
+                parameters,
+                next,
+            } => {
+                let defaults = world
+                    .spawn_defaults()
+                    .ok_or(ProgramError::MissingSpawnDefaults)?;
+                if let Some(path) = parameters.path {
+                    catalog.statement(path)?;
                 }
-                Statement::ActionGateBranch { condition, taken, next } => {
-                    let actual = world.action_gate.as_deref().ok_or(ProgramError::MissingActionGate)?.code;
-                    let matches = match condition {
-                        ActionGateCondition::Equal(expected) => actual == expected,
-                        ActionGateCondition::NotEqual(expected) => actual != expected,
-                    };
-                    objects.get_mut(owner).expect("validated action-gate observer").base.path =
-                        Some(if matches { taken } else { next });
-                    Ok(ControlStep::Continue)
+                self.spawns
+                    .independent(objects, owner, kind, parameters, defaults)
+                    .map_err(ProgramError::Spawn)?;
+                objects
+                    .get_mut(owner)
+                    .expect("validated independent spawn caller")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::FireWeapon { next } => {
+                use super::weapon_dispatch::{self, LaunchRequest, LaunchWorld, PathWeapon};
+                let selection = objects.get(owner).expect("validated firing actor")
+                    .extension.path_state.weapon_selection;
+                let weapon = PathWeapon::from_selection(selection)
+                    .ok_or(ProgramError::UnsupportedWeaponSelection(selection))?;
+                for &path in weapon.paths() {
+                    catalog.statement(path)?;
                 }
-                Statement::EncounterSignal { command, next } => {
-                    let signals = world.encounter_signals.as_deref_mut()
-                        .ok_or(ProgramError::MissingEncounterSignals)?;
-                    match command {
-                        EncounterSignalCommand::Raise(mask) => signals.raised |= mask,
-                        EncounterSignalCommand::Clear(mask) => signals.raised &= !mask,
-                        EncounterSignalCommand::Reset => signals.raised = 0,
-                    }
-                    objects.get_mut(owner).expect("validated encounter signal writer").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::EncounterSignalBranch { condition, taken, next } => {
-                    let signals = world.encounter_signals.as_deref()
-                        .ok_or(ProgramError::MissingEncounterSignals)?;
-                    let matches = match condition {
-                        EncounterSignalCondition::AnyRaised(mask) => signals.raised & mask != 0,
-                        EncounterSignalCondition::AllClear(mask) => signals.raised & mask == 0,
-                    };
-                    objects.get_mut(owner).expect("validated encounter signal reader").base.path =
-                        Some(if matches { taken } else { next });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SelectActor { selection, next } => {
-                    owner = self.actor_context
-                        .select(objects, owner, self.spawns.last_spawn, selection, next)
-                        .map_err(ProgramError::ActorContext)?;
-                    self.program_actor = Some(owner);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SelectChild { number, missing, next } => {
-                    let number = number.read(actor);
-                    owner = self.actor_context.select(objects, owner, self.spawns.last_spawn,
-                        ActorSelection::ChildOrBranch { number, missing }, next)
-                        .map_err(ProgramError::ActorContext)?;
-                    self.program_actor = Some(owner);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::RestoreActor { next } => {
-                    owner = self.actor_context.restore(objects, owner, next)
-                        .map_err(ProgramError::ActorContext)?;
-                    self.program_actor = Some(owner);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ActiveWeaponLevelEquals { expected, taken, next } => {
-                    let actual = world.scene.active_weapon_level
-                        .ok_or(ProgramError::MissingSceneByte(SceneByte::ActiveWeaponLevel))?;
-                    objects.get_mut(owner).expect("validated weapon-level observer").base.path =
-                        Some(if actual == expected { taken } else { next });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::AttachmentAbsent { taken, next } => {
-                    let destination = if actor.base.attachment.is_none() { taken } else { next };
-                    objects.get_mut(owner).expect("validated attachment observer").base.path = Some(destination);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::TargetingUpgradeOwned { taken, next } => {
-                    let upgrade = world.targeting_upgrade.as_deref()
-                        .ok_or(ProgramError::MissingTargetingUpgrade)?;
-                    // $7F:C488 branches directly, without consuming IFNOT.
-                    objects.get_mut(owner).expect("validated upgrade observer").base.path =
-                        Some(if upgrade.active_pilot_has_upgrade() { taken } else { next });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::AcquireTargetingUpgrade { next } => {
-                    world.targeting_upgrade.as_deref_mut()
-                        .ok_or(ProgramError::MissingTargetingUpgrade)?
-                        .acquire_for_active_pilot();
-                    objects.get_mut(owner).expect("validated upgrade collector").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ClockBitsSet { mask, taken, next } => {
-                    // $7F:BD06 takes direct branches: IFNOT is untouched.
-                    objects
-                        .get_mut(owner)
-                        .expect("validated clock-gate owner")
-                        .base
-                        .path = Some(if world.animation_clock & mask != 0 {
+                let defaults = world.spawn_defaults().ok_or(ProgramError::MissingSpawnDefaults)?;
+                let state = world.weapons.as_deref_mut().ok_or(ProgramError::MissingWeaponState)?;
+                // Admission or allocation can fail normally. The wrapper
+                // substitutes the reserved scene actor, then still applies
+                // the authored exclusion class and publishes last-spawn.
+                let fallback = if objects.len() == super::OBJECT_CAPACITY {
+                    let id = state.fallback.ok_or(ProgramError::MissingWeaponFallback)?;
+                    objects.get(id).ok_or(PathRuntimeError::MissingActor(id))?;
+                    Some(id)
+                } else { None };
+                // $7F:88C4 resets every retained muzzle/aim input. Source
+                // graphics-bank switching here has no native equivalent.
+                state.parameters = super::weapon_launch::LaunchParameters::default();
+                let created = weapon_dispatch::launch(objects, &mut self.resources, owner, LaunchRequest {
+                    weapon, parameters: state.parameters, defaults,
+                }, &mut LaunchWorld {
+                    caller_inputs: world.caller_weapon_inputs,
+                    fallback: state.fallback,
+                    published_pitch: state.published_pitch,
+                    primary: world.primary_player,
+                    secondary: world.secondary_player,
+                    primary_auxiliary_mode: world.primary_motion.map(|motion| motion.auxiliary_mode),
+                    hostile_counts: Some(&mut state.hostile_counts),
+                    random: world.random,
+                }).map_err(ProgramError::WeaponLaunch)?;
+                let result = created.or(fallback).or(state.fallback).ok_or(ProgramError::MissingWeaponFallback)?;
+                let actor = objects.get_mut(result).ok_or(PathRuntimeError::MissingActor(result))?;
+                actor.base.contacts.exclusion_groups = actor.base.contacts.exclusion_groups
+                    .union(super::collision_pass::ExclusionGroups::PATH_SPAWN);
+                self.spawns.last_spawn = Some(result);
+                objects.get_mut(owner).expect("validated firing actor").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Relationship { command, next } => {
+                super::path_relationships::apply(objects, owner, command)
+                    .map_err(ProgramError::Relationship)?;
+                objects
+                    .get_mut(owner)
+                    .expect("validated relationship owner")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ChildMissing {
+                number,
+                taken,
+                next,
+            } => {
+                let missing = super::path_relationships::child_missing(objects, owner, number)
+                    .map_err(ProgramError::Relationship)?;
+                // This source branch bypasses the IFNOT machinery.
+                objects
+                    .get_mut(owner)
+                    .expect("validated child-search owner")
+                    .base
+                    .path = Some(if missing { taken } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::SelectedAuxiliaryBranch {
+                condition,
+                taken,
+                next,
+            } => {
+                let input = world
+                    .selected_auxiliary
+                    .as_deref()
+                    .ok_or(ProgramError::MissingSelectedAuxiliary)?;
+                self.execute_branch(
+                    objects,
+                    owner,
+                    BranchCommand::Test {
+                        predicate: condition.sample(*input),
+                        taken,
+                        next,
+                    },
+                )
+            }
+            Statement::FaceSelectedOffset { offset, next } => {
+                self.execute_facing_offset(objects, owner, world.selected, offset, next)
+            }
+            Statement::PositionRelativeToLinked { distance, next } => {
+                let distance = distance.read(actor) as i8;
+                super::path_steering::position_relative_to_linked(objects, owner, distance, &mut self.steering)
+                    .map_err(PathRuntimeError::Steering)?;
+                objects.get_mut(owner).expect("validated linked segment").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::OccupiedCell { taken, next } => {
+                let exempt = world
+                    .selected_occupancy_exempt
+                    .ok_or(ProgramError::MissingOccupancyExemption)?;
+                // The source exemption returns before the map lookup.
+                // Neither edge enters or consumes the IFNOT machinery.
+                let occupied = !exempt
+                    && world
+                        .occupancy
+                        .ok_or(ProgramError::MissingOccupancy)?
+                        .contains(actor.base.position);
+                objects
+                    .get_mut(owner)
+                    .expect("validated occupancy owner")
+                    .base
+                    .path = Some(if occupied { taken } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::AtOrAboveSurface { taken, next } => {
+                let search = world
+                    .surface_mode
+                    .ok_or(ProgramError::MissingSurfaceMode)?
+                    .search();
+                let result = super::collision_surface::query_object_surface(
+                    objects,
+                    owner,
+                    world.animation_clock,
+                    search,
+                )
+                .map_err(ProgramError::SurfaceQuery)?;
+                let actor = objects.get_mut(owner).expect("validated surface owner");
+                // $7F:BF86 restores the old group byte, but retains both
+                // the supporting-object link and contact flags, even
+                // when no surface was found. Both edges bypass IFNOT.
+                let group = actor.extension.surface_contact.group;
+                actor.extension.surface_contact = result.contact;
+                actor.extension.surface_contact.group = group;
+                actor.base.path =
+                    Some(if actor.base.position.y.wrapping_sub(result.height) >= 0 {
                         taken
                     } else {
                         next
                     });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::AccumulateShieldRecovery { amount, next } => {
-                    let amount = amount.read(actor);
-                    let request = world.shield_recovery.as_deref_mut()
-                        .ok_or(ProgramError::MissingShieldRecovery)?;
-                    request.amount = request.amount.wrapping_add(amount);
-                    objects.get_mut(owner).expect("validated recovery owner").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::RequestShieldRecovery { amount, next } => {
-                    let request = world
-                        .shield_recovery
-                        .as_mut()
-                        .ok_or(ProgramError::MissingShieldRecovery)?;
-                    request.amount = amount.read(actor);
-                    objects
-                        .get_mut(owner)
-                        .expect("validated recovery requester")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportActionGate { destination, next } => {
-                    let value = world.action_gate.as_deref().ok_or(ProgramError::MissingActionGate)?.code;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated action-gate reader");
-                    destination.write(actor, value);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::AddSceneHeightOffset { destination, next } => {
-                    let offset = world.scene.height_offset.ok_or(ProgramError::MissingSceneHeightOffset)?;
-                    let actor = objects.get_mut(owner).expect("validated scene-height actor");
-                    destination.write(actor, destination.read(actor).wrapping_add(offset as u16));
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportSceneByte { source, destination, next } => {
-                    let value = source.read(world.scene).ok_or(ProgramError::MissingSceneByte(source))?;
-                    let actor = objects.get_mut(owner).expect("validated scene-selector reader");
-                    destination.write(actor, value);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SceneryDistance { command, next } => {
-                    let scenery = world.scenery_distance.as_deref_mut()
-                        .ok_or(ProgramError::MissingSceneryDistance)?;
-                    let actor = objects.get_mut(owner).expect("validated scenery owner");
-                    match command {
-                        SceneryDistanceCommand::CopyTo(field) => field.write(actor, scenery.near_mask),
-                        SceneryDistanceCommand::Assign(value) => scenery.near_mask = value.read(actor),
-                    }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportEnvironmentPlaneHeight { destination, next } => {
-                    let value = world
-                        .environment_plane_height
-                        .ok_or(ProgramError::MissingEnvironmentPlaneHeight)?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated environmental-plane reader");
-                    destination.write(actor, value as u16);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ProjectileTrigger { command, next } => {
-                    let trigger = world
-                        .projectile_trigger
-                        .as_mut()
-                        .ok_or(ProgramError::MissingProjectileTrigger)?;
-                    let actor = objects.get_mut(owner).expect("validated projectile owner");
-                    match command {
-                        ProjectileTriggerCommand::CopyTo(field) => {
-                            field.write(actor, trigger.activation)
-                        }
-                        ProjectileTriggerCommand::Assign(value) => {
-                            trigger.activation = value.read(actor)
-                        }
-                    }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::InitializePrimaryPitchRecoil { amount, next } => {
-                    let primary = world
-                        .primary_player
-                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
-                    objects
-                        .get(primary)
-                        .ok_or(PathRuntimeError::MissingActor(primary))?;
-                    world
-                        .primary_pitch_recoil
-                        .as_mut()
-                        .ok_or(ProgramError::MissingPrimaryPitchRecoil)?
-                        .initialize_if_idle(amount);
-                    objects
-                        .get_mut(owner)
-                        .expect("validated recoil owner")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::LinkPrimaryCollisionExclusion { next } => {
-                    let primary = world
-                        .primary_player
-                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
-                    objects
-                        .get(primary)
-                        .ok_or(PathRuntimeError::MissingActor(primary))?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated collision-link owner");
-                    actor.base.linked_object = Some(primary);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::LinkedEffectActivity { command, next } => {
-                    let activity = world
-                        .linked_effect_activity
-                        .as_deref_mut()
-                        .ok_or(ProgramError::MissingLinkedEffectActivity)?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated effect-activity owner");
-                    activity.apply(actor, command);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ViewTransition { enabled, next } =>
-                    Ok(self.execute_view_transition(catalog, objects, owner, world, enabled, next)?),
-                Statement::MoveFixedView { snap, next } =>
-                    Ok(self.execute_fixed_view_motion(objects, owner, world, snap, next)?),
-                Statement::CopySelectedStoredPosition { next } => {
-                    let position = world.selected_auxiliary.as_deref()
-                        .ok_or(ProgramError::MissingSelectedAuxiliary)?.stored_world_position;
-                    let actor = objects.get_mut(owner).expect("validated stored-position owner");
-                    actor.base.position = position;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::CopySelectedStoredRotation { next } => {
-                    let rotation = world.selected_auxiliary.as_deref()
-                        .ok_or(ProgramError::MissingSelectedAuxiliary)?.stored_rotation;
-                    let actor = objects.get_mut(owner).expect("validated stored-rotation owner");
-                    actor.base.pitch = rotation.pitch;
-                    actor.base.yaw = rotation.yaw;
-                    actor.base.roll = rotation.roll;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::IfProtectionOverride { taken, next } => {
-                    let enabled = world.protection.as_ref()
-                        .ok_or(ProgramError::MissingProtection)?.rules.minimum_override;
-                    objects.get_mut(owner).expect("validated protection-override branch").base.path =
-                        Some(if enabled { taken } else { next });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::UpdateProtectionEffect {
-                    ordinary_return,
-                    flicker,
-                } => {
-                    let input = world
-                        .protection
-                        .as_mut()
-                        .ok_or(ProgramError::MissingProtection)?;
-                    let ordinary = super::path_protection::update_effect(
-                        objects,
-                        owner,
-                        input,
-                        world.surface_mode,
-                    )
-                    .map_err(ProgramError::Protection)?;
-                    objects
-                        .get_mut(owner)
-                        .expect("validated protection effect")
-                        .base
-                        .path = Some(if ordinary { ordinary_return } else { flicker });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::StackValue { command, next } => {
-                    self.execute_stack_value(objects, owner, command, next)
-                }
-                Statement::Appearance { command, next } => {
-                    let actor = objects.get_mut(owner).expect("validated appearance owner");
-                    command.apply(actor);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::RunWhenPaused { enabled, next } => {
-                    let actor = objects.get_mut(owner).expect("validated pause-mode owner");
-                    actor.base.contacts.run_when_paused = enabled;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::LatchPrimaryViewFilter { next } => {
-                    let primary = world
-                        .primary_player
-                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
-                    let filtered = objects
-                        .get(primary)
-                        .ok_or(PathRuntimeError::MissingActor(primary))?
-                        .base
-                        .flags
-                        .view_side_filter;
-                    let actor = objects.get_mut(owner).expect("validated phase-latch owner");
-                    if filtered {
-                        let phase = &mut actor.extension.path_state.motion_phase;
-                        *phase = (*phase & 0xFF00) | 1;
-                    }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::PreserveSceneContinuation { next } => {
-                    // Retain THIS instruction, not its successor: a later scene
-                    // recreation must execute preservation before the terminal path.
-                    if let Some(id) = actor.extension.scene_proxy {
-                        world.scene_proxies.as_mut()
-                            .ok_or(ProgramError::MissingSceneProxies)?
-                            .get_mut(id).ok_or(ProgramError::MissingSceneProxy(id))?
-                            .continuation = cursor;
-                    } else {
-                        objects.get_mut(owner).expect("validated scene continuation owner")
-                            .extension.auxiliary.set(&mut self.resources, owner,
-                                super::actor_auxiliary::AuxiliaryRecord::SceneContinuation(cursor))
-                            .map_err(ProgramError::Auxiliary)?;
-                    }
-                    objects.get_mut(owner).expect("validated scene continuation owner")
-                        .base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ConsiderPrimaryTarget { next }
-                | Statement::ConsiderPrimaryTargetAndMarkSceneProxy { next } => {
-                    let mark_proxy = matches!(statement, Statement::ConsiderPrimaryTargetAndMarkSceneProxy { .. });
-                    let proxy = if mark_proxy { actor.extension.scene_proxy } else { None };
-                    // Validate the optional scene-owned record before mutating target
-                    // selection: a missing service can then be supplied and retried.
-                    if let Some(id) = proxy {
-                        world.scene_proxies.as_ref()
-                            .ok_or(ProgramError::MissingSceneProxies)?
-                            .get(id).ok_or(ProgramError::MissingSceneProxy(id))?;
-                    }
-                    let primary = world
-                        .primary_player
-                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
-                    objects
-                        .get(primary)
-                        .ok_or(PathRuntimeError::MissingActor(primary))?;
-                    let input = world
-                        .primary_target
-                        .as_mut()
-                        .ok_or(ProgramError::MissingPrimaryTarget)?;
-                    if mark_proxy {
-                        super::path_target::consider_with_request(
-                            input.selection, owner, actor.base.position, input.anchor,
-                            super::path_target::PathTargetRequest::Preserve,
-                        );
-                    } else {
-                        super::path_target::consider(input.selection, owner, actor.base.position, input.anchor);
-                    }
-                    if let Some(id) = proxy {
-                        world.scene_proxies.as_mut().expect("validated scene store")
-                            .get_mut(id).expect("validated target scene proxy")
-                            .flags.mark_target_considered();
-                    }
-                    objects
-                        .get_mut(owner)
-                        .expect("validated target candidate")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::CopySelectedTransform { command, next } => {
-                    super::path_relationships::copy_selected_transform(
-                        objects,
-                        owner,
-                        world.selected,
-                        command,
-                    )
-                    .map_err(ProgramError::Relationship)?;
-                    objects
-                        .get_mut(owner)
-                        .expect("validated transform-copy owner")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::InheritPrimaryHorizontalMotion { next } => {
-                    let primary = world
-                        .primary_player
-                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
-                    let input = world
-                        .primary_motion
-                        .ok_or(ProgramError::MissingPrimaryMotion)?;
-                    let velocity = objects
-                        .get(primary)
-                        .ok_or(PathRuntimeError::MissingActor(primary))?
-                        .base
-                        .velocity;
-                    let actor = objects.get_mut(owner).expect("validated inheritance owner");
-                    super::path_motion::inherit_horizontal_motion(
-                        actor,
-                        velocity,
-                        input.displacement,
-                        input.auxiliary_mode,
-                    );
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportPlayerPosition { axis, destination, next } => {
-                    use super::path_fields::Axis;
-                    let position = world.published_motion
-                        .ok_or(ProgramError::MissingPublishedMotion)?.position;
-                    let value = match axis {
-                        Axis::X => position.x,
-                        Axis::Y => position.y,
-                        Axis::Z => position.z,
-                    };
-                    let actor = objects.get_mut(owner).expect("validated position-import owner");
-                    destination.write(actor, value as u16);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportPlayerMotion {
-                    axis,
-                    destination,
-                    next,
-                } => {
-                    use super::path_fields::Axis;
-                    let delta = world
-                        .published_motion
-                        .ok_or(ProgramError::MissingPublishedMotion)?
-                        .delta;
-                    let value = match axis {
-                        Axis::X => delta.x,
-                        Axis::Y => delta.y,
-                        Axis::Z => delta.z,
-                    };
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated motion-import owner");
-                    destination.write(actor, value as u16);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportPlayerMotionByte { axis, part, destination, next } => {
-                    use super::path_fields::{Axis, BytePart};
-                    let delta = world.published_motion
-                        .ok_or(ProgramError::MissingPublishedMotion)?.delta;
-                    let word = match axis {
-                        Axis::X => delta.x,
-                        Axis::Y => delta.y,
-                        Axis::Z => delta.z,
-                    } as u16;
-                    let value = match part {
-                        BytePart::Low => word as u8,
-                        BytePart::High => (word >> u8::BITS) as u8,
-                    };
-                    let actor = objects.get_mut(owner).expect("validated motion-byte import owner");
-                    destination.write(actor, value);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportChargeThreshold { destination, next } => {
-                    let value = world
-                        .active_charge_threshold
-                        .ok_or(ProgramError::MissingChargeThreshold)?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated charge-import owner");
-                    destination.write(actor, value);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportActiveNodeFlags { destination, next } => {
-                    let value = world
-                        .active_node_flags
-                        .as_deref()
-                        .ok_or(ProgramError::MissingActiveNodeFlags)?
-                        .bits;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated node-flags import owner");
-                    destination.write(actor, value);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ExportActiveNodeFlags { source, next } => {
-                    let flags = world
-                        .active_node_flags
-                        .as_deref_mut()
-                        .ok_or(ProgramError::MissingActiveNodeFlags)?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated node-flags export owner");
-                    flags.bits = source.read(actor);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportObjectiveCompletion { destination, next } => {
-                    let value = world.objective_completion.as_deref()
-                        .ok_or(ProgramError::MissingObjectiveCompletion)?.bits;
-                    let actor = objects.get_mut(owner)
-                        .expect("validated objective-completion import owner");
-                    destination.write(actor, value);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ExportObjectiveCompletion { source, next } => {
-                    let completion = world.objective_completion.as_deref_mut()
-                        .ok_or(ProgramError::MissingObjectiveCompletion)?;
-                    let actor = objects.get_mut(owner)
-                        .expect("validated objective-completion export owner");
-                    completion.bits = source.read(actor);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SceneEvent { command, next } => {
-                    use super::path_scene_state::SceneEventCommand;
-                    let events = world.scene_events.as_deref_mut()
-                        .ok_or(ProgramError::MissingSceneEvents)?;
-                    let actor = objects.get_mut(owner).expect("validated scene-event owner");
-                    match command {
-                        SceneEventCommand::CopyTo(field) => field.write(actor, events.bits),
-                        SceneEventCommand::Assign(value) => events.bits = value.read(actor),
-                    }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::RefreshSelectedChargeAttachment { next } => {
-                    use super::path_relationships::RelationshipError;
-                    let selected = world.selected.ok_or(ProgramError::Relationship(
-                        RelationshipError::MissingSelected,
-                    ))?;
-                    objects.get(selected).ok_or(ProgramError::Relationship(
-                        RelationshipError::MissingActor(selected),
-                    ))?;
-                    let input = world
-                        .selected_charge
-                        .ok_or(ProgramError::MissingSelectedCharge)?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated charge-callback owner");
-                    super::path_charge::refresh_attachment(actor, selected, input);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::PlayerControl { command, next } => {
-                    use super::path_player_control::{primary_position, PlayerControlCommand};
-                    let primary = world
-                        .primary_player
-                        .ok_or(ProgramError::MissingPrimaryPlayer)?;
-                    let player = objects
-                        .get(primary)
-                        .ok_or(PathRuntimeError::MissingActor(primary))?;
-                    let pose = (player.base.position, player.base.pitch, player.base.yaw);
-                    let input = world
-                        .primary_control
-                        .as_mut()
-                        .ok_or(ProgramError::MissingPrimaryControl)?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated player-control owner");
-                    match command {
-                        PlayerControlCommand::LockToProjectile => {
-                            input.target.lock_to_projectile(owner, actor.base.position)
-                        }
-                        PlayerControlCommand::Configure(range) => {
-                            input.target.configure(owner, actor.base.position, range)
-                        }
-                        PlayerControlCommand::ConfigureDoubledLowByte(range) => input
-                            .target
-                            .configure_doubled_low_byte(owner, actor.base.position, range),
-                        PlayerControlCommand::ConfigureAlternateAxes(range) => input
-                            .target
-                            .configure_alternate_axes(owner, actor.base.position, range),
-                        PlayerControlCommand::LockForLinkedMode => {
-                            input.target.lock_for_linked_mode(input.linked_mode)
-                        }
-                        PlayerControlCommand::FollowPrimaryPosition => {
-                            actor.base.position =
-                                primary_position(pose.0, pose.1, pose.2, input.linked_mode)
-                        }
-                        PlayerControlCommand::RefreshOwnedOrigin => input
-                            .target
-                            .refresh_owned_origin(owner, actor.base.position),
-                    }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Sound { cue, next } => {
-                    world
-                        .audio
-                        .as_mut()
-                        .ok_or(ProgramError::MissingAudio)?
-                        .queue(cue, self.selected_player());
-                    objects
-                        .get_mut(owner)
-                        .expect("validated sound owner")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SpatialLoop { sound, next } => {
-                    let actor = objects.get_mut(owner).expect("validated sound owner");
-                    actor.extension.spatial_loop = sound;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Countdown { command, next } => {
-                    let countdown = world
-                        .countdown
-                        .as_mut()
-                        .ok_or(ProgramError::MissingCountdown)?;
-                    let actor = objects.get_mut(owner).expect("validated countdown owner");
-                    countdown.apply(actor, command);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::MarkerSound { id, mode, next } => {
-                    let source = objects
-                        .get(owner)
-                        .expect("validated sound owner")
-                        .base
-                        .position;
-                    world
-                        .audio
-                        .as_mut()
-                        .ok_or(ProgramError::MissingAudio)?
-                        .queue_marker(id, mode, source, self.selected_player())
-                        .map_err(|_| ProgramError::MissingSoundMarkers)?;
-                    objects
-                        .get_mut(owner)
-                        .expect("validated sound owner")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SpawnChild {
-                    kind,
-                    parameters,
-                    next,
-                } => {
-                    let defaults = world
-                        .spawn_defaults()
-                        .ok_or(ProgramError::MissingSpawnDefaults)?;
-                    // Validate the independent child's native entry before
-                    // allocating; absent catalog coverage is never a no-op.
-                    if let Some(path) = parameters.path {
-                        catalog.statement(path)?;
-                    }
-                    self.spawns
-                        .child(objects, owner, kind, parameters, defaults)
-                        .map_err(ProgramError::Spawn)?;
-                    objects
-                        .get_mut(owner)
-                        .expect("validated spawn caller")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SpawnIndependent {
-                    kind,
-                    parameters,
-                    next,
-                } => {
-                    let defaults = world
-                        .spawn_defaults()
-                        .ok_or(ProgramError::MissingSpawnDefaults)?;
-                    if let Some(path) = parameters.path {
-                        catalog.statement(path)?;
-                    }
-                    self.spawns
-                        .independent(objects, owner, kind, parameters, defaults)
-                        .map_err(ProgramError::Spawn)?;
-                    objects
-                        .get_mut(owner)
-                        .expect("validated independent spawn caller")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::FireWeapon { next } => {
-                    use super::weapon_dispatch::{self, LaunchRequest, LaunchWorld, PathWeapon};
-                    let selection = objects.get(owner).expect("validated firing actor")
-                        .extension.path_state.weapon_selection;
-                    let weapon = PathWeapon::from_selection(selection)
-                        .ok_or(ProgramError::UnsupportedWeaponSelection(selection))?;
-                    for &path in weapon.paths() {
-                        catalog.statement(path)?;
-                    }
-                    let defaults = world.spawn_defaults().ok_or(ProgramError::MissingSpawnDefaults)?;
-                    let state = world.weapons.as_deref_mut().ok_or(ProgramError::MissingWeaponState)?;
-                    // Admission or allocation can fail normally. The wrapper
-                    // substitutes the reserved scene actor, then still applies
-                    // the authored exclusion class and publishes last-spawn.
-                    let fallback = if objects.len() == super::OBJECT_CAPACITY {
-                        let id = state.fallback.ok_or(ProgramError::MissingWeaponFallback)?;
-                        objects.get(id).ok_or(PathRuntimeError::MissingActor(id))?;
-                        Some(id)
-                    } else { None };
-                    // $7F:88C4 resets every retained muzzle/aim input. Source
-                    // graphics-bank switching here has no native equivalent.
-                    state.parameters = super::weapon_launch::LaunchParameters::default();
-                    let created = weapon_dispatch::launch(objects, &mut self.resources, owner, LaunchRequest {
-                        weapon, parameters: state.parameters, defaults,
-                    }, &mut LaunchWorld {
-                        caller_inputs: world.caller_weapon_inputs,
-                        fallback: state.fallback,
-                        published_pitch: state.published_pitch,
-                        primary: world.primary_player,
-                        secondary: world.secondary_player,
-                        primary_auxiliary_mode: world.primary_motion.map(|motion| motion.auxiliary_mode),
-                        hostile_counts: Some(&mut state.hostile_counts),
-                        random: world.random,
-                    }).map_err(ProgramError::WeaponLaunch)?;
-                    let result = created.or(fallback).or(state.fallback).ok_or(ProgramError::MissingWeaponFallback)?;
-                    let actor = objects.get_mut(result).ok_or(PathRuntimeError::MissingActor(result))?;
-                    actor.base.contacts.exclusion_groups = actor.base.contacts.exclusion_groups
-                        .union(super::collision_pass::ExclusionGroups::PATH_SPAWN);
-                    self.spawns.last_spawn = Some(result);
-                    objects.get_mut(owner).expect("validated firing actor").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Relationship { command, next } => {
-                    super::path_relationships::apply(objects, owner, command)
-                        .map_err(ProgramError::Relationship)?;
-                    objects
-                        .get_mut(owner)
-                        .expect("validated relationship owner")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ChildMissing {
-                    number,
-                    taken,
-                    next,
-                } => {
-                    let missing = super::path_relationships::child_missing(objects, owner, number)
-                        .map_err(ProgramError::Relationship)?;
-                    // This source branch bypasses the IFNOT machinery.
-                    objects
-                        .get_mut(owner)
-                        .expect("validated child-search owner")
-                        .base
-                        .path = Some(if missing { taken } else { next });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SelectedAuxiliaryBranch {
-                    condition,
-                    taken,
-                    next,
-                } => {
-                    let input = world
-                        .selected_auxiliary
-                        .as_deref()
-                        .ok_or(ProgramError::MissingSelectedAuxiliary)?;
-                    self.execute_branch(
-                        objects,
-                        owner,
-                        BranchCommand::Test {
-                            predicate: condition.sample(*input),
-                            taken,
-                            next,
-                        },
-                    )
-                }
-                Statement::FaceSelectedOffset { offset, next } => {
-                    self.execute_facing_offset(objects, owner, world.selected, offset, next)
-                }
-                Statement::PositionRelativeToLinked { distance, next } => {
-                    let distance = distance.read(actor) as i8;
-                    super::path_steering::position_relative_to_linked(objects, owner, distance, &mut self.steering)
-                        .map_err(PathRuntimeError::Steering)?;
-                    objects.get_mut(owner).expect("validated linked segment").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::OccupiedCell { taken, next } => {
-                    let exempt = world
-                        .selected_occupancy_exempt
-                        .ok_or(ProgramError::MissingOccupancyExemption)?;
-                    // The source exemption returns before the map lookup.
-                    // Neither edge enters or consumes the IFNOT machinery.
-                    let occupied = !exempt
-                        && world
-                            .occupancy
-                            .ok_or(ProgramError::MissingOccupancy)?
-                            .contains(actor.base.position);
-                    objects
-                        .get_mut(owner)
-                        .expect("validated occupancy owner")
-                        .base
-                        .path = Some(if occupied { taken } else { next });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::AtOrAboveSurface { taken, next } => {
-                    let search = world
-                        .surface_mode
-                        .ok_or(ProgramError::MissingSurfaceMode)?
-                        .search();
-                    let result = super::collision_surface::query_object_surface(
-                        objects,
-                        owner,
-                        world.animation_clock,
-                        search,
-                    )
-                    .map_err(ProgramError::SurfaceQuery)?;
-                    let actor = objects.get_mut(owner).expect("validated surface owner");
-                    // $7F:BF86 restores the old group byte, but retains both
-                    // the supporting-object link and contact flags, even
-                    // when no surface was found. Both edges bypass IFNOT.
-                    let group = actor.extension.surface_contact.group;
-                    actor.extension.surface_contact = result.contact;
-                    actor.extension.surface_contact.group = group;
-                    actor.base.path =
-                        Some(if actor.base.position.y.wrapping_sub(result.height) >= 0 {
-                            taken
-                        } else {
-                            next
-                        });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImpactBranch { first, second, third, next } => {
-                    let state = world.impact.as_deref_mut().ok_or(ProgramError::MissingImpactState)?;
-                    let result = super::path_impact::classify(
-                        objects, &self.resources, world.contacts, owner,
-                        [world.primary_player, world.secondary_player],
-                        world.surface_mode, world.animation_clock, state,
-                    ).map_err(ProgramError::Impact)?;
-                    use super::path_impact::ImpactBranch;
-                    objects.get_mut(owner).expect("validated impact owner").base.path = Some(match result {
-                        None => next,
-                        Some(ImpactBranch::First) => first,
-                        Some(ImpactBranch::Second) => second,
-                        Some(ImpactBranch::Third) => third,
-                    });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportImpactMaterial { destination, next } => {
-                    let material = world.impact.as_deref().ok_or(ProgramError::MissingImpactState)?.material;
-                    let actor = objects.get_mut(owner).expect("validated impact material owner");
-                    destination.write(actor, material);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportPairSuppression { destination, next } => {
-                    let value = u8::from(world.impact.as_deref().ok_or(ProgramError::MissingImpactState)?.pair_suppressed);
-                    let actor = objects.get_mut(owner).expect("validated pair suppression owner");
-                    destination.write(actor, value);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::LinkedShotCount { command, next } => {
-                    let linked = world.linked_shot_count.as_mut().ok_or(ProgramError::MissingLinkedShotCount)?;
-                    super::path_shots::apply_linked(objects, owner, linked, command).map_err(ProgramError::ShotCount)?;
-                    objects.get_mut(owner).expect("validated shot counter owner").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ProjectileFlightOverride { command, next } => {
-                    let state = world.projectile_flight_override.as_deref_mut().ok_or(ProgramError::MissingProjectileFlightOverride)?;
-                    let actor = objects.get_mut(owner).expect("validated projectile flight override owner");
-                    state.apply(actor, command);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SelectShape { selector, shapes, next } => {
-                    let actor = objects.get_mut(owner).expect("validated shape selector owner");
-                    let index = selector.read(actor);
-                    let shape = shapes.get(usize::from(index)).ok_or(ProgramError::ShapeSelectionOutOfBounds { index, count: shapes.len() })?;
-                    actor.base.shape = *shape;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SelectRelativeCoordinate { selector, axis, values, next } => {
-                    let index = selector.read(actor);
-                    let value = values.get(usize::from(index)).ok_or(ProgramError::CoordinateSelectionOutOfBounds { index, count: values.len() })?;
-                    let actor = objects.get_mut(owner).expect("validated coordinate selector owner");
-                    super::path_fields::WordField::RelativePosition(axis).write(actor, *value as u16);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportSurfaceMode { destination, next } => {
-                    let mode = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated surface mode owner");
-                    destination.write(actor, mode.flags);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Guidance { command, next } => {
-                    let history = world
-                        .guidance
-                        .as_deref_mut()
-                        .ok_or(ProgramError::MissingGuidance)?;
-                    let actor = objects.get_mut(owner).expect("validated guidance owner");
-                    match command {
-                        GuidanceCommand::CopyTo(field) => field.write(actor, history.flags),
-                        GuidanceCommand::Assign(value) => history.flags = value.read(actor),
-                    }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::PickupHistory { command, next } => {
-                    let history = world.pickup_history.as_deref_mut()
-                        .ok_or(ProgramError::MissingPickupHistory)?;
-                    let actor = objects.get_mut(owner).expect("validated pickup-history owner");
-                    match command {
-                        PickupHistoryCommand::CopyTo(field) => field.write(actor, history.collected_mask),
-                        PickupHistoryCommand::Assign(value) => history.collected_mask = value.read(actor),
-                    }
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportControlStyle { destination, next } => {
-                    let style = world
-                        .control_style
-                        .ok_or(ProgramError::MissingControlStyle)?;
-                    let value = match style {
-                        super::FlightControlStyle::TypeA => 0,
-                        super::FlightControlStyle::TypeB => 1,
-                    };
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated control style owner");
-                    destination.write(actor, value);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::ImportCampaignByte {
-                    source,
-                    destination,
-                    next,
-                } => {
-                    let input = world.campaign.ok_or(ProgramError::MissingCampaign)?;
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated campaign import owner");
-                    destination.write(actor, source.read(input));
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Message { number, next } => {
-                    let number = number.read(actor);
-                    let radio = world.radio.as_mut().ok_or(ProgramError::MissingRadio)?;
-                    radio.request_message(number);
-                    objects
-                        .get_mut(owner)
-                        .expect("validated radio owner")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::CollectSelectedConsumables { amount, already_full, next } => {
-                    let kind = (actor.extension.path_state.motion_phase >> 8) as u8;
-                    let state = world.selected_equipment.as_deref_mut()
-                        .ok_or(ProgramError::MissingSelectedEquipment)?;
-                    let full = state.collect_consumables(amount, kind);
-                    // This branch bypasses IFNOT and does not reset WAIT.
-                    objects.get_mut(owner).expect("validated equipment owner").base.path =
-                        Some(if full { already_full } else { next });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::AwardSelectedScore { points, next } => {
-                    let score = world.selected_score.as_deref_mut()
-                        .ok_or(ProgramError::MissingSelectedScore)?;
-                    score.award_path_points(points);
-                    objects.get_mut(owner).expect("validated score owner").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::UpgradeSelectedWeapon { next } => {
-                    let state = world.selected_equipment.as_deref_mut()
-                        .ok_or(ProgramError::MissingSelectedEquipment)?;
-                    state.upgrade_weapon();
-                    objects.get_mut(owner).expect("validated equipment owner").base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::SelectedAuxiliary { command, next } => {
-                    let state = world
-                        .selected_auxiliary
-                        .as_deref_mut()
-                        .ok_or(ProgramError::MissingSelectedAuxiliary)?;
-                    command.apply(state);
-                    objects
-                        .get_mut(owner)
-                        .expect("validated auxiliary owner")
-                        .base
-                        .path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Random { mutation, next } => {
-                    self.execute_random(objects, owner, world.random, mutation, next)
-                }
-                Statement::YawOrbit {
-                    center,
-                    angle,
-                    next,
-                } => {
-                    use super::path_steering::{SteeringError, YawOrbitTarget};
-                    let angle = super::Angle::from_units(angle.read(actor));
-                    let target =
-                        match center {
-                            OrbitCenter::Selected => YawOrbitTarget::Object(world.selected.ok_or(
-                                PathRuntimeError::Steering(SteeringError::MissingSelected),
-                            )?),
-                            OrbitCenter::LocalOrigin => YawOrbitTarget::LocalOrigin,
-                        };
-                    self.execute_yaw_orbit(objects, owner, target, angle, next)
-                }
-                Statement::Radius { command, next } => {
-                    self.execute_radius(objects, owner, command, world.selected, next)
-                }
-                Statement::RandomBranch { taken, next } => {
-                    let take = super::path_random::take_branch(world.random);
-                    objects
-                        .get_mut(owner)
-                        .expect("validated random branch owner")
-                        .base
-                        .path = Some(if take { taken } else { next });
-                    Ok(ControlStep::Continue)
-                }
-                Statement::DisableCollision { next } => {
-                    self.execute_disable_collision(objects, owner, next)
-                }
-                Statement::Animation { command, next } => {
-                    self.execute_animation(objects, owner, command, next)
-                }
-                Statement::Sprite { color, size, next } => {
-                    self.execute_sprite(objects, owner, color, size, next)
-                }
-                Statement::Control(command) => self.execute_control(objects, owner, command),
-                Statement::Branch(command) => self.execute_branch(objects, owner, command),
-                Statement::Motion { command, next } => {
-                    self.execute_motion(objects, owner, command, next)
-                }
-                Statement::Contact { command, next } => {
-                    let actor = objects.get_mut(owner).expect("validated contact owner");
-                    command.apply(actor, &mut self.resources, owner).map_err(ProgramError::Auxiliary)?;
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Facing { command, next } => self.execute_facing(
-                    objects,
-                    owner,
-                    command,
-                    super::path_steering::FacingTargets {
-                        selected: world.selected,
-                        primary: world.primary_player,
-                        fixed_players: world.fixed_players,
-                    },
-                    next,
-                ),
-                Statement::Mutate { mutation, next } => {
-                    self.execute_mutation(objects, owner, mutation, next)
-                }
-                Statement::AttachedEffectMotion { command, next } => {
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated attached effect owner");
-                    command.apply(actor);
-                    actor.base.path = Some(next);
-                    Ok(ControlStep::Continue)
-                }
-                Statement::Wait { duration, next } => {
-                    let duration = duration.read(actor);
-                    self.execute_control(objects, owner, ControlCommand::Wait { duration, next })
-                }
-                Statement::WaitChase {
-                    field,
-                    target,
-                    next,
-                } => {
-                    let current = field.read(actor);
-                    let target = target.read(actor);
-                    let actor = objects
-                        .get_mut(owner)
-                        .expect("validated waiting chase owner");
-                    field.write(actor, super::path_fields::chase_byte(current, target));
-                    if current == target {
-                        actor.base.path = Some(next);
-                        Ok(ControlStep::Continue)
-                    } else {
-                        Ok(ControlStep::Movement)
-                    }
-                }
-                Statement::Repeat {
-                    count,
-                    target,
-                    next,
-                } => {
-                    let count = count.read(actor);
-                    self.execute_control(
-                        objects,
-                        owner,
-                        ControlCommand::Repeat {
-                            count,
-                            target,
-                            next,
-                        },
-                    )
-                }
-                Statement::BeginLoop { iterations, next } => {
-                    let iterations = iterations.read(actor);
-                    self.execute_control(
-                        objects,
-                        owner,
-                        ControlCommand::BeginLoop { iterations, next },
-                    )
-                }
-                Statement::Compare {
-                    condition,
-                    taken,
-                    next,
-                } => {
-                    let predicate = condition.sample(actor);
-                    self.execute_branch(
-                        objects,
-                        owner,
-                        BranchCommand::Test {
-                            predicate,
-                            taken,
-                            next,
-                        },
-                    )
-                }
-                Statement::Spatial {
-                    condition,
-                    taken,
-                    next,
-                } => self.execute_spatial_branch(
-                    objects,
-                    owner,
-                    world.selected,
-                    condition,
-                    taken,
-                    next,
-                ),
-            }?;
-            if outcome != ControlStep::Continue {
-                super::path_appearance::publish_animation(
-                    objects.get_mut(owner).expect("executed actor remains live"),
-                    world.animation_clock,
-                );
-                return Ok(ProgramExit {
-                    actor: self.program_actor.expect("executed program actor"),
-                    step: outcome,
-                });
+                Ok(ControlStep::Continue)
             }
+            Statement::ImpactBranch { first, second, third, next } => {
+                let state = world.impact.as_deref_mut().ok_or(ProgramError::MissingImpactState)?;
+                let result = super::path_impact::classify(
+                    objects, &self.resources, world.contacts, owner,
+                    [world.primary_player, world.secondary_player],
+                    world.surface_mode, world.animation_clock, state,
+                ).map_err(ProgramError::Impact)?;
+                use super::path_impact::ImpactBranch;
+                objects.get_mut(owner).expect("validated impact owner").base.path = Some(match result {
+                    None => next,
+                    Some(ImpactBranch::First) => first,
+                    Some(ImpactBranch::Second) => second,
+                    Some(ImpactBranch::Third) => third,
+                });
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportImpactMaterial { destination, next } => {
+                let material = world.impact.as_deref().ok_or(ProgramError::MissingImpactState)?.material;
+                let actor = objects.get_mut(owner).expect("validated impact material owner");
+                destination.write(actor, material);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportPairSuppression { destination, next } => {
+                let value = u8::from(world.impact.as_deref().ok_or(ProgramError::MissingImpactState)?.pair_suppressed);
+                let actor = objects.get_mut(owner).expect("validated pair suppression owner");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::LinkedShotCount { command, next } => {
+                let linked = world.linked_shot_count.as_mut().ok_or(ProgramError::MissingLinkedShotCount)?;
+                super::path_shots::apply_linked(objects, owner, linked, command).map_err(ProgramError::ShotCount)?;
+                objects.get_mut(owner).expect("validated shot counter owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ProjectileFlightOverride { command, next } => {
+                let state = world.projectile_flight_override.as_deref_mut().ok_or(ProgramError::MissingProjectileFlightOverride)?;
+                let actor = objects.get_mut(owner).expect("validated projectile flight override owner");
+                state.apply(actor, command);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SelectShape { selector, shapes, next } => {
+                let actor = objects.get_mut(owner).expect("validated shape selector owner");
+                let index = selector.read(actor);
+                let shape = shapes.get(usize::from(index)).ok_or(ProgramError::ShapeSelectionOutOfBounds { index, count: shapes.len() })?;
+                actor.base.shape = *shape;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SelectRelativeCoordinate { selector, axis, values, next } => {
+                let index = selector.read(actor);
+                let value = values.get(usize::from(index)).ok_or(ProgramError::CoordinateSelectionOutOfBounds { index, count: values.len() })?;
+                let actor = objects.get_mut(owner).expect("validated coordinate selector owner");
+                super::path_fields::WordField::RelativePosition(axis).write(actor, *value as u16);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportSurfaceMode { destination, next } => {
+                let mode = world.surface_mode.ok_or(ProgramError::MissingSurfaceMode)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated surface mode owner");
+                destination.write(actor, mode.flags);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Guidance { command, next } => {
+                let history = world
+                    .guidance
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingGuidance)?;
+                let actor = objects.get_mut(owner).expect("validated guidance owner");
+                match command {
+                    GuidanceCommand::CopyTo(field) => field.write(actor, history.flags),
+                    GuidanceCommand::Assign(value) => history.flags = value.read(actor),
+                }
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::PickupHistory { command, next } => {
+                let history = world.pickup_history.as_deref_mut()
+                    .ok_or(ProgramError::MissingPickupHistory)?;
+                let actor = objects.get_mut(owner).expect("validated pickup-history owner");
+                match command {
+                    PickupHistoryCommand::CopyTo(field) => field.write(actor, history.collected_mask),
+                    PickupHistoryCommand::Assign(value) => history.collected_mask = value.read(actor),
+                }
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportControlStyle { destination, next } => {
+                let style = world
+                    .control_style
+                    .ok_or(ProgramError::MissingControlStyle)?;
+                let value = match style {
+                    super::FlightControlStyle::TypeA => 0,
+                    super::FlightControlStyle::TypeB => 1,
+                };
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated control style owner");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportCampaignByte {
+                source,
+                destination,
+                next,
+            } => {
+                let input = world.campaign.ok_or(ProgramError::MissingCampaign)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated campaign import owner");
+                destination.write(actor, source.read(input));
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Message { number, next } => {
+                let number = number.read(actor);
+                let radio = world.radio.as_mut().ok_or(ProgramError::MissingRadio)?;
+                radio.request_message(number);
+                objects
+                    .get_mut(owner)
+                    .expect("validated radio owner")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::CollectSelectedConsumables { amount, already_full, next } => {
+                let kind = (actor.extension.path_state.motion_phase >> 8) as u8;
+                let state = world.selected_equipment.as_deref_mut()
+                    .ok_or(ProgramError::MissingSelectedEquipment)?;
+                let full = state.collect_consumables(amount, kind);
+                // This branch bypasses IFNOT and does not reset WAIT.
+                objects.get_mut(owner).expect("validated equipment owner").base.path =
+                    Some(if full { already_full } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::AwardSelectedScore { points, next } => {
+                let score = world.selected_score.as_deref_mut()
+                    .ok_or(ProgramError::MissingSelectedScore)?;
+                score.award_path_points(points);
+                objects.get_mut(owner).expect("validated score owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::UpgradeSelectedWeapon { next } => {
+                let state = world.selected_equipment.as_deref_mut()
+                    .ok_or(ProgramError::MissingSelectedEquipment)?;
+                state.upgrade_weapon();
+                objects.get_mut(owner).expect("validated equipment owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SelectedAuxiliary { command, next } => {
+                let state = world
+                    .selected_auxiliary
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingSelectedAuxiliary)?;
+                command.apply(state);
+                objects
+                    .get_mut(owner)
+                    .expect("validated auxiliary owner")
+                    .base
+                    .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Random { mutation, next } => {
+                self.execute_random(objects, owner, world.random, mutation, next)
+            }
+            Statement::YawOrbit {
+                center,
+                angle,
+                next,
+            } => {
+                use super::path_steering::{SteeringError, YawOrbitTarget};
+                let angle = super::Angle::from_units(angle.read(actor));
+                let target =
+                    match center {
+                        OrbitCenter::Selected => YawOrbitTarget::Object(world.selected.ok_or(
+                            PathRuntimeError::Steering(SteeringError::MissingSelected),
+                        )?),
+                        OrbitCenter::LocalOrigin => YawOrbitTarget::LocalOrigin,
+                    };
+                self.execute_yaw_orbit(objects, owner, target, angle, next)
+            }
+            Statement::Radius { command, next } => {
+                self.execute_radius(objects, owner, command, world.selected, next)
+            }
+            Statement::RandomBranch { taken, next } => {
+                let take = super::path_random::take_branch(world.random);
+                objects
+                    .get_mut(owner)
+                    .expect("validated random branch owner")
+                    .base
+                    .path = Some(if take { taken } else { next });
+                Ok(ControlStep::Continue)
+            }
+            Statement::DisableCollision { next } => {
+                self.execute_disable_collision(objects, owner, next)
+            }
+            Statement::Animation { command, next } => {
+                self.execute_animation(objects, owner, command, next)
+            }
+            Statement::Sprite { color, size, next } => {
+                self.execute_sprite(objects, owner, color, size, next)
+            }
+            Statement::Control(command) => self.execute_control(objects, owner, command),
+            Statement::Branch(command) => self.execute_branch(objects, owner, command),
+            Statement::Motion { command, next } => {
+                self.execute_motion(objects, owner, command, next)
+            }
+            Statement::Contact { command, next } => {
+                let actor = objects.get_mut(owner).expect("validated contact owner");
+                command.apply(actor, &mut self.resources, owner).map_err(ProgramError::Auxiliary)?;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Facing { command, next } => self.execute_facing(
+                objects,
+                owner,
+                command,
+                super::path_steering::FacingTargets {
+                    selected: world.selected,
+                    primary: world.primary_player,
+                    fixed_players: world.fixed_players,
+                },
+                next,
+            ),
+            Statement::Mutate { mutation, next } => {
+                self.execute_mutation(objects, owner, mutation, next)
+            }
+            Statement::AttachedEffectMotion { command, next } => {
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated attached effect owner");
+                command.apply(actor);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::Wait { duration, next } => {
+                let duration = duration.read(actor);
+                self.execute_control(objects, owner, ControlCommand::Wait { duration, next })
+            }
+            Statement::WaitChase {
+                field,
+                target,
+                next,
+            } => {
+                let current = field.read(actor);
+                let target = target.read(actor);
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated waiting chase owner");
+                field.write(actor, super::path_fields::chase_byte(current, target));
+                if current == target {
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                } else {
+                    Ok(ControlStep::Movement)
+                }
+            }
+            Statement::Repeat {
+                count,
+                target,
+                next,
+            } => {
+                let count = count.read(actor);
+                self.execute_control(
+                    objects,
+                    owner,
+                    ControlCommand::Repeat {
+                        count,
+                        target,
+                        next,
+                    },
+                )
+            }
+            Statement::BeginLoop { iterations, next } => {
+                let iterations = iterations.read(actor);
+                self.execute_control(
+                    objects,
+                    owner,
+                    ControlCommand::BeginLoop { iterations, next },
+                )
+            }
+            Statement::Compare {
+                condition,
+                taken,
+                next,
+            } => {
+                let predicate = condition.sample(actor);
+                self.execute_branch(
+                    objects,
+                    owner,
+                    BranchCommand::Test {
+                        predicate,
+                        taken,
+                        next,
+                    },
+                )
+            }
+            Statement::Spatial {
+                condition,
+                taken,
+                next,
+            } => self.execute_spatial_branch(
+                objects,
+                owner,
+                world.selected,
+                condition,
+                taken,
+                next,
+            ),
+        }?;
+        if outcome != ControlStep::Continue {
+            super::path_appearance::publish_animation(
+                objects.get_mut(owner).expect("executed actor remains live"),
+                world.animation_clock,
+            );
         }
-        unreachable!("inclusive budget iteration always returns")
+        Ok(ProgramExit {
+            actor: self.program_actor.expect("executed program actor"),
+            step: outcome,
+        })
     }
 }
 

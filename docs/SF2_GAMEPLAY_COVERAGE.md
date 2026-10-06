@@ -4235,3 +4235,36 @@ All 1,049 native unit tests and two integration tests pass in debug and release;
 regeneration, architecture checks, static audit and the app build pass.
 The production world/scheduler connection is still open; these counts do not
 establish playable campaign completion.
+
+### Complete path-invocation coordination — 2026-10-05
+
+`native/path_invocation.rs` now owns one complete path-strategy invocation:
+common entry, immediate statements, ordinary or death-tail movement, mutable
+callback traversal, and attachment/carry completion. Its world interface borrows
+selected-player state afresh for every statement, including after immediate
+NEXT re-enters with a borrowed actor's saved side. Held movement bypasses common
+entry and retains the shared selection. The caller still owns clocks, strategy
+routing, collision services, scene state, sound and retirement.
+
+Diagnostic budget cuts and missing inputs retain the precise execution phase;
+resuming cannot repeat ordinary motion or already-completed world writes.
+Invalid nested callback movement and invalid runtime storage latch explicit
+errors. END requests deferred removal but never recycles an actor directly.
+Tests exercise every budget chunk from one through 25, changes in selection
+and health between callbacks, movement versus death-tail entry, authoritative
+carry writes, missing-service recovery, temporary ownership, and a complete
+authored exhaust lifetime.
+
+Source review also corrected `StrategySchedule`: both successor traversal and
+immediate retirement use the actor actually returned by the strategy, not
+necessarily its initial caller. Both source passes and the positional-sound
+footer are byte-bound; split-pass tests cover preservation and retirement of
+the returned actor without executing skipped actors or incrementing the clock
+again.
+
+All 1,059 native unit tests and two integration tests pass in debug and release;
+543 source/disassembly tests, exact regeneration, architecture/static checks and
+the app build pass. The catalog remains 150 roots and nine helpers. This is an
+execution-layer prerequisite: **`Game::tick` still does not own these services,
+and shipping encounter migration remains open.** No missing production service
+was replaced with a neutral input or an assumed-success fallback.

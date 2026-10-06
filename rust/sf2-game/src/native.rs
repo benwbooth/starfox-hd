@@ -50,6 +50,7 @@ pub mod path_commands;
 pub mod path_conditions;
 pub mod path_contact;
 pub mod path_impact;
+pub mod path_invocation;
 pub mod path_effect;
 pub mod path_control;
 pub mod path_death;
