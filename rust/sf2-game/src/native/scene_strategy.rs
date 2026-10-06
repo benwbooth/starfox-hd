@@ -128,6 +128,7 @@ pub enum SceneError<E> {
     PlayerInput(super::player_input::PlayerInputError),
     PlayerRoll(super::player_roll::RollError),
     PlayerPose(super::player_pose::PoseError),
+    PlayerSteering(super::player_steering::SteeringError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -156,6 +157,29 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Horizontal control runs between shoulder selection and roll/pose.
+    pub fn advance_player_steering(
+        &mut self,
+        owner: ObjectId,
+        context: super::player_steering::SteeringContext,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_steering::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+            context,
+        )
+        .map_err(SceneError::PlayerSteering);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Compose the live player orientation after steering, roll and speed.
     /// This is not the enclosing mode: motion and camera follow separately.
     pub fn compose_player_pose(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {

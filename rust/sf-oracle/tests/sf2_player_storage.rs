@@ -29,6 +29,9 @@ mod roll_tests;
 #[path = "support/sf2_player_pose.rs"]
 mod pose_tests;
 
+#[path = "support/sf2_player_steering.rs"]
+mod steering_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};

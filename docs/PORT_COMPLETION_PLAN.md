@@ -113,6 +113,32 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete SF2 horizontal controller (`$06:E4B1..E7C8`) and
+  turning-lean producer (`$06:E8F5..E9E9`), using the existing canonical
+  player allocation, pose, input, contact and shoulder owners. Includes
+  pilot-specific response and yaw tables, left-first direction arbitration,
+  asymmetric held-age updates, neutral lean retention, signed shoulder
+  banking, locked-heading recovery and the original signed-sine lateral
+  offset. The turn adjustment is explicitly a camera-bank target, verified
+  through its view-roll consumer; it is not player speed. The two special
+  branches that inherit a response target require an explicit caller input
+  instead of assuming zero. Their upstream producer and the complete
+  pitch/terrain/speed/motion visit remain open; the full controller is
+  scene-hosted, not yet the production frame owner. Unchanged original code
+  matches 196,608 word-width cases, 16,384 pilot/input/contact combinations,
+  16,384 mode/edge combinations, 1,024 missing-dependency prefixes and 1,920
+  continuous shoulder/steering/roll/pose visits. The scene wrapper latches
+  partial failures against re-execution. Fixed both shipping flight
+  controllers' separate left+right-as-neutral bug: a real `Game::tick`
+  regression first reproduced the mismatch and now confirms left-priority
+  pose, speed and movement in both controllers. This isolated fix does not
+  certify the existing approximate flight controllers. All 1,315 native
+  tests and both architecture integration checks pass in debug/release;
+  the oracle-enabled suite passes 1,323 unit tests and 35 runtime tests.
+  All 41 original player-service comparisons pass in both profiles, along
+  with 653 source checks, 209 lowerer tests, catalog/architecture checks
+  and builds of all three application binaries.
+
 - Ported the full SF2 flight-pose composer (`$06:ECB0..EE09`) using the
   canonical fine-angle/bank allocation, shared steering publications,
   linked-mode/retained-pitch owner, roll impulse and contact gate. Includes

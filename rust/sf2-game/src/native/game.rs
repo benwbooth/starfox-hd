@@ -16477,7 +16477,8 @@ impl Game {
         );
         flight.pitch_lean =
             approach_i8(flight.pitch_lean, pitch_lean_target, PLAYER_PITCH_LEAN_RATE);
-        if left != right {
+        // $06:E4EF tests left first: holding both directions still turns left.
+        if left || right {
             flight.yaw_accumulator = flight.yaw_accumulator.wrapping_add(if left {
                 PLAYER_YAW_ACCUMULATOR_STEP
             } else {
@@ -16493,7 +16494,7 @@ impl Game {
         let visual_pitch = visible_pitch_from_lean(flight.pitch_lean);
 
         let player = self.state.objects.get_mut(primary_id)?;
-        if left != right {
+        if left || right {
             flight.bank_recovery = 0;
             let bank_target = if left {
                 PLAYER_LEFT_BANK
@@ -16515,7 +16516,7 @@ impl Game {
                     .wrapping_add(damage_bank_impulse) as u8,
             );
         }
-        let target_speed = if left != right {
+        let target_speed = if left || right {
             PLAYER_TURN_SPEED
         } else {
             neutral_target_speed
@@ -18766,7 +18767,8 @@ impl Game {
         );
         flight.pitch_lean =
             approach_i8(flight.pitch_lean, pitch_lean_target, PLAYER_PITCH_LEAN_RATE);
-        if left != right {
+        // Keep the same left-first arbitration as the shared flight controller.
+        if left || right {
             flight.yaw_accumulator = flight.yaw_accumulator.wrapping_add(if left {
                 PLAYER_YAW_ACCUMULATOR_STEP
             } else {
@@ -18783,7 +18785,7 @@ impl Game {
             let Some(player) = self.state.objects.get_mut(primary_id) else {
                 return Ok(());
             };
-            let bank_target = if left != right {
+            let bank_target = if left || right {
                 if left {
                     PLAYER_LEFT_BANK
                 } else {
@@ -18798,7 +18800,7 @@ impl Game {
                 .wrapping_add(previously_applied_damage_bank.wrapping_neg());
             player.base.roll = approach_angle(steering_bank, bank_target, PLAYER_BANK_RATE)
                 .wrapping_add(damage_bank_impulse);
-            let target_speed = if left != right {
+            let target_speed = if left || right {
                 PLAYER_TURN_SPEED
             } else {
                 PLAYER_CRUISE_SPEED
@@ -34186,6 +34188,59 @@ mod tests {
                     ambient.wrapping_add(expected) as u8);
             }
             assert_eq!(expected, 0, "initial={initial}");
+        }
+    }
+
+    #[test]
+    fn both_horizontal_buttons_take_left_branch_in_both_shipping_flight_controllers() {
+        for pressure in [false, true] {
+            let mut games = [Game::new(), Game::new(), Game::new()];
+            for game in &mut games {
+                game.begin_opening_sortie().unwrap();
+                if pressure {
+                    game.begin_pressure_fighter_encounter().unwrap();
+                }
+                let first_frame = if pressure {
+                    pressure_fighters::LIVE_FIRST_RETAIL_FRAME
+                } else {
+                    MISSION_PLAYER_INPUT_START_RETAIL_FRAME
+                };
+                game.state.mode_frame = u32::from(first_frame)
+                    / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+                game.state.mission.phase = MissionPhase::Active;
+                game.state.mission.departed_certified_neutral_path = true;
+            }
+            let controls = [
+                Button::Left as u16,
+                Button::Left as u16 | Button::Right as u16,
+                0,
+            ];
+            for visit in 0..16 {
+                for (game, controls) in games.iter_mut().zip(controls) {
+                    game.tick(controls).unwrap();
+                }
+                let poses: Vec<_> = games.iter().map(|game| {
+                    let player = game.state.objects
+                        .get(game.state.mission.primary_player.unwrap()).unwrap();
+                    (
+                        player.base.position,
+                        player.base.velocity,
+                        player.base.pitch,
+                        player.base.yaw,
+                        player.base.roll,
+                        player.base.speed,
+                    )
+                }).collect();
+                assert_eq!(poses[0], poses[1], "pressure={pressure} visit={visit}");
+                assert_eq!(
+                    games[0].state.mission.player_flight,
+                    games[1].state.mission.player_flight,
+                );
+            }
+            assert_ne!(
+                games[0].state.mission.player_flight.yaw_accumulator,
+                games[2].state.mission.player_flight.yaw_accumulator,
+            );
         }
     }
 
