@@ -161,6 +161,16 @@ running; scheduled work is not a guarantee of a completion date.
   retirement and live contact ownership. Then migrate a source-complete live
   encounter and its spawns. Do not fill absent world inputs with guessed values
   or pretend synchronous rendering implements the original split-frame owner.
+- Implemented the shared death service and pooled explosion strategies from
+  source: override-before-default dispatch, map-count/continuation ordering,
+  distance sounds, global-head allocations, direct-child death marking, scene
+  proxy release, animation and trailing delay. Twelve tests compose these with
+  the live strategy scheduler and full contact/program retirement, including
+  zero/one-slot failures and the huge explosion's zero-health companion.
+  All 1,071 native unit tests and two integration tests pass in debug/release;
+  549 source tests, exact regeneration, architecture checks and app build pass.
+  Production scene adapters, native override/map registrations and the overall
+  `Game::tick` connection remain open; this is not a migrated encounter yet.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

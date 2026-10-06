@@ -58,7 +58,7 @@ impl IntroExplosionSize {
         }
     }
 
-    const fn updates(self) -> u8 {
+    pub(crate) const fn updates(self) -> u8 {
         match self {
             Self::Small => SMALL_UPDATES,
             Self::Medium => MEDIUM_UPDATES,

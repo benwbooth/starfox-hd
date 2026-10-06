@@ -4268,3 +4268,30 @@ the app build pass. The catalog remains 150 roots and nine helpers. This is an
 execution-layer prerequisite: **`Game::tick` still does not own these services,
 and shipping encounter migration remains open.** No missing production service
 was replaced with a neutral input or an assumed-success fallback.
+
+### Shared death service and pooled effects — 2026-10-05
+
+`native/common_destruction.rs` ports the common death routine and both effect
+strategies. Native override dispatch precedes all default work; tracked map
+actors update the low bytes of the full retained counters before their map
+continuations run. The continuation can change the effect gate. Both fixed
+view markers produce primary-route distance cues, secondary marker first.
+These are not generic score awards or pickup spawns.
+
+Effects use real object slots and insert after the global list head. Capacity
+diagnostics retain source-ordered prior side effects. Huge effects allocate a
+separate zero-health companion: its newborn exemption allows one animation
+visit before common death creates a small sprite on the next epoch. The full
+trailing strategy is also implemented for an actor whose health is changed.
+Animation preserves signed-byte comparisons, packed color controls and primary
+auxiliary-mode-dependent scroll. Death detaches direct children, kills only
+owned child lifetimes and releases the current scene proxy; it does not free
+contacts, path resources, incoming links or the actor slot before retirement.
+
+Twelve Rust tests cover this service and its composition with split strategy
+passes and full retirement, and six byte-bound source tests cover branch and
+allocation order. All 1,071 native unit tests and two integration tests pass in
+debug/release; all 549 source/disassembly tests, exact regeneration, native
+architecture and app build pass. The scene-owned adapters, actual native
+override/map callbacks and `Game::tick` integration remain required. This does
+not certify the existing production explosion countdown as source-equivalent.

@@ -429,6 +429,8 @@ pub enum Behavior {
     /// Source PATHHOLD installs the movement service without path dispatch.
     PathMovement,
     ImpactBurst(super::path_effect::ImpactBurstPhase),
+    /// Common death sprite/companion strategy ($03:A279/$03:A30B).
+    Destruction(super::common_destruction::EffectPhase),
     EnemyFlight,
     Projectile,
     Effect,
@@ -967,6 +969,9 @@ pub struct ObjectFlags {
     /// Source 25 bit 02 bypasses ordinary death effects at `$03:A08B`,
     /// while retaining the common detach/contact cleanup at `$03:A26A`.
     pub suppress_death_effects: bool,
+    /// Source 25 bit 40: update map actor counts and resume its registered
+    /// map continuation on common death, independently of effect suppression.
+    pub tracked_map_actor: bool,
     /// Source transient-effect flag: retire this object when the final free
     /// slot is consumed, provided the pressure traversal reaches it.
     pub reclaim_on_pool_pressure: bool,
