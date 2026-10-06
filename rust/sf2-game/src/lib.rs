@@ -13,6 +13,7 @@ pub use native::path_shots;
 pub use native::positional_audio;
 pub use native::scene_path_world;
 pub use native::scene_map;
+pub use native::scene_display;
 pub use native::scene_contact;
 pub use native::player_charge;
 pub use native::player_rapid;

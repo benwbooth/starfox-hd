@@ -112,6 +112,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Implemented native scene-display ownership for the two distinct source fade
+  services, the separate frame-owned blank hold, entry fade initialization,
+  all-band publication and the map's exact readiness predicate. Preserved the
+  third band during blank holds, one-visit fade-in completion delay, wrapping
+  paced interval, strategy-clock parity, and full-screen requests which remain
+  active at either endpoint. Completing a banded fade-out publishes a different
+  blank intensity from the map's ready state; no fabricated completion signal
+  was added. Seven unit tests and three original-code tests cover the service
+  contracts, including 211,712 source calls over all valid intensities, request
+  kinds, counter/reload byte pairs and all blank-hold bytes. All 1,191 native
+  unit tests and two architecture integration tests pass in debug/release;
+  all 1,236 compatibility-enabled tests and ten map/display oracle tests pass
+  in debug. The three display oracle tests also pass in release, as do the
+  architecture audit and all app builds. These are native services for the
+  forthcoming scene host, not yet the shipping frame owner.
+
 - Added the typed native scene-map owner: validated dense-index graphs,
   source-selected branches, retrying display/load waits, retained yield markers,
   current-actor effects, explicit external phase releases and latched service
