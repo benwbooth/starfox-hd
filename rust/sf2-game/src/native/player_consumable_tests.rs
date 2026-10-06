@@ -155,6 +155,10 @@ impl Scene {
         let owner = self.owner;
         self.host().use_player_consumable(owner)
     }
+    fn recover(&mut self) -> Result<bool, SceneError<&'static str>> {
+        let owner = self.owner;
+        self.host().consume_player_recovery(owner)
+    }
     fn records(&mut self) -> &mut PlayerPathRecords {
         self.world.player_mut(&self.objects, self.owner).unwrap()
     }
@@ -184,6 +188,180 @@ impl Scene {
         schedule.run_remainder(&mut self.host()).unwrap();
         self.host().clean_epoch().unwrap();
     }
+}
+
+#[test]
+fn recovery_request_consumer_wraps_before_clamping_and_does_not_change_published_shield() {
+    let mut scene = Scene::new(0);
+    // One existing feedback child avoids repeated allocations; every request
+    // still performs the real shield write and original direct-child lookup.
+    scene.world.shield_recovery.as_mut().unwrap().amount = 1;
+    assert!(scene.recover().unwrap());
+    let feedback = scene.newest();
+    assert_eq!(scene.objects.get(feedback).unwrap().base.child_number, 24);
+    let feedback_before = scene.objects.get(feedback).unwrap().clone();
+    for shield in 0..=u8::MAX {
+        for capacity in 0..=u8::MAX {
+            for amount in [0u8, 1, 40, 255] {
+                scene.records().contact.as_mut().unwrap().hit.reserve_shield = shield;
+                scene.world.active_shield_capacity = Some(capacity);
+                scene.world.shield_recovery.as_mut().unwrap().amount = amount;
+                assert_eq!(scene.recover().unwrap(), amount != 0);
+                let sum = (u16::from(shield) + u16::from(amount)) % 256;
+                let expected = if amount == 0 { shield } else { sum.min(u16::from(capacity)) as u8 };
+                assert_eq!(scene.records().contact.unwrap().hit.reserve_shield, expected);
+                assert_eq!(scene.world.shield_recovery.unwrap().amount, 0);
+                assert_eq!(scene.world.scene.active_shield, Some(42));
+            }
+        }
+    }
+    assert_eq!(scene.objects.get(feedback).unwrap(), &feedback_before);
+    assert_eq!(scene.objects.len(), 3);
+}
+
+#[test]
+fn recovery_feedback_installer_uses_global_head_then_attachment_and_real_path_without_self_relative_frame() {
+    let mut scene = Scene::new(0);
+    scene.world.shield_recovery.as_mut().unwrap().amount = 40;
+    assert!(scene.recover().unwrap());
+    let feedback = scene.newest();
+    assert_eq!(scene.objects.active_ids(), &[scene.head, feedback, scene.owner]);
+    let actor = scene.objects.get(feedback).unwrap();
+    let owner = scene.objects.get(scene.owner).unwrap();
+    assert_eq!(actor.base.attachment, Some(scene.owner));
+    assert_eq!(actor.base.child_number, 24);
+    assert_eq!(actor.base.path, Some(authored_paths::PRIMARY_TARGET_FOLLOWER));
+    assert_eq!(actor.extension.parent, None);
+    assert_eq!(actor.base.position, owner.base.position);
+    assert_eq!((actor.base.pitch, actor.base.yaw, actor.base.roll), (owner.base.pitch, owner.base.yaw, owner.base.roll));
+    assert_eq!((actor.base.hit_points, actor.base.attack_power, actor.extension.spawn_group), (1, 1, 255));
+    assert!(actor.base.contacts.run_when_paused);
+    assert!(actor.base.flags.collision_disabled);
+    assert!(actor.extension.path_state.needs_path_initialization);
+    assert_eq!(scene.records().contact.unwrap().hit.reserve_shield, 82);
+
+    let actor = scene.objects.get_mut(feedback).unwrap();
+    actor.base.flags.remove_after_tick = true;
+    actor.base.position.x = -999;
+    actor.base.path = None;
+    let unchanged = actor.clone();
+    scene.world.spawn_defaults = None;
+    scene.world.shield_recovery.as_mut().unwrap().amount = 17;
+    assert!(scene.recover().unwrap());
+    assert_eq!(scene.objects.get(feedback).unwrap(), &unchanged);
+    assert_eq!(scene.records().contact.unwrap().hit.reserve_shield, 99);
+}
+
+#[test]
+fn recovery_full_pool_keeps_shield_change_and_zero_request_needs_no_player_inputs() {
+    let mut scene = Scene::new(0);
+    scene.fill_pool();
+    scene.world.spawn_defaults = None;
+    scene.world.shield_recovery.as_mut().unwrap().amount = 255;
+    assert!(scene.recover().unwrap());
+    assert_eq!(scene.records().contact.unwrap().hit.reserve_shield, 41);
+    assert_eq!(scene.objects.len(), OBJECT_CAPACITY);
+    assert_eq!(path_relationships::find_direct_child(&scene.objects, scene.owner, 24).unwrap(), None);
+    assert_eq!(scene.world.shield_recovery.unwrap().amount, 0);
+
+    let mut scene = Scene::new(0);
+    scene.objects.remove(scene.owner).unwrap();
+    scene.world.active_shield_capacity = None;
+    scene.world.spawn_defaults = None;
+    assert!(!scene.recover().unwrap());
+}
+
+#[test]
+fn recovery_faults_clear_request_first_and_late_fault_does_not_repeat_healing() {
+    use crate::player_recovery::RecoveryError;
+    for missing in 0..3 {
+        let mut scene = Scene::new(0);
+        scene.world.shield_recovery.as_mut().unwrap().amount = 40;
+        let expected = match missing {
+            0 => { scene.records().contact = None;
+                RecoveryError::World(WorldInputError::MissingPlayerContact(scene.owner)) }
+            1 => { scene.world.active_shield_capacity = None; RecoveryError::MissingShieldCapacity }
+            _ => { scene.world.spawn_defaults = None; RecoveryError::MissingSpawnDefaults }
+        };
+        assert_eq!(scene.recover(), Err(SceneError::Recovery(expected)));
+        assert_eq!(scene.world.shield_recovery.unwrap().amount, 0);
+        assert_eq!(scene.objects.len(), 2);
+        if let Some(contact) = scene.records().contact {
+            assert_eq!(contact.hit.reserve_shield, if missing == 2 { 82 } else { 42 });
+        }
+        scene.world.shield_recovery.as_mut().unwrap().amount = 7;
+        assert_eq!(scene.recover(), Err(SceneError::Faulted));
+        assert_eq!(scene.world.shield_recovery.unwrap().amount, 7);
+    }
+}
+
+#[test]
+fn recovery_heals_actual_caller_but_feedback_path_targets_primary_and_retires() {
+    let mut scene = Scene::new(0);
+    let primary = scene.head;
+    let caller = scene.owner;
+    scene.world.primary_player = Some(primary);
+    scene.world.bind_player(&scene.objects, primary, PlayerPathRecords {
+        charge: Some(crate::player_charge::PlayerCharge::default()),
+        target_control: Some(PlayerTargetControl::default()),
+        contact: Some(crate::scene_contact::PlayerContactControl::default()),
+        ..Default::default()
+    }).unwrap();
+    scene.world.shield_recovery.as_mut().unwrap().amount = 40;
+    assert!(scene.recover().unwrap());
+    assert_eq!(scene.records().contact.unwrap().hit.reserve_shield, 82);
+    assert_eq!(scene.world.player(&scene.objects, primary).unwrap().contact.unwrap().hit.reserve_shield, 0);
+    let feedback = scene.newest();
+    let mut schedule = StrategySchedule::default();
+    let mut steps = 0;
+    for time in 0..20 {
+        let position = Vector3 { x: time * 127, y: time * -191, z: time * 251 };
+        scene.objects.get_mut(primary).unwrap().base.position = position;
+        steps += 1;
+        scene.epoch(&mut schedule);
+        let target = scene.world.player(&scene.objects, primary).unwrap().target_control.unwrap();
+        assert_eq!(target.owner, Some(feedback));
+        // The eighth NEXT reaches END in this same visit. Its final follow
+        // still updates target origin before cleanup removes the actor.
+        assert_eq!(target.origin, position);
+        if let Some(effect) = scene.objects.get(feedback) {
+            assert_eq!(effect.base.position, position);
+            assert_eq!(effect.base.attachment, Some(caller));
+        } else { break }
+    }
+    assert_eq!(steps, 8);
+    assert_eq!(scene.objects.len(), 2);
+    assert_eq!(path_relationships::find_direct_child(&scene.objects, caller, 24).unwrap(), None);
+    assert_eq!(scene.execution.paths.runtime.resources.available_capacity(), crate::program_resources::PROGRAM_CAPACITY);
+    assert_eq!(scene.world.audio.take_events().into_iter().flatten().collect::<Vec<_>>(),
+        [SoundEvent::Authored(AuthoredCue::new(50, 0, PlayerTarget::Primary))]);
+}
+
+#[test]
+fn healing_emitter_and_consumer_compose_all_three_pulses_with_real_feedback_lifetimes() {
+    let mut scene = Scene::new(0);
+    scene.records().suppress_horizontal_follow = Some(false);
+    scene.records().charge = Some(crate::player_charge::PlayerCharge::default());
+    scene.world.published_motion = Some(Default::default());
+    assert!(scene.use_item().unwrap());
+    let mut schedule = StrategySchedule::default();
+    let mut shields = Vec::new();
+    let mut maximum = 0;
+    for _ in 0..140 {
+        scene.epoch(&mut schedule);
+        if scene.recover().unwrap() {
+            shields.push(scene.records().contact.unwrap().hit.reserve_shield);
+        }
+        maximum = maximum.max(scene.objects.len());
+        if scene.objects.len() == 2 { break }
+    }
+    assert_eq!(shields, [82, 100, 100]);
+    assert_eq!(scene.world.scene.active_shield, Some(42));
+    assert_eq!(scene.objects.len(), 2);
+    assert!(maximum >= 6);
+    assert_eq!(scene.execution.paths.runtime.resources.available_capacity(), crate::program_resources::PROGRAM_CAPACITY);
+    let cues = scene.world.audio.take_events().into_iter().flatten().collect::<Vec<_>>();
+    assert_eq!(cues.iter().filter(|&&cue| cue == SoundEvent::Authored(AuthoredCue::new(50, 0, PlayerTarget::Primary))).count(), 3);
 }
 
 #[test]

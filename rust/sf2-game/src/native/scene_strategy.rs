@@ -118,6 +118,7 @@ pub enum SceneError<E> {
     PlayerAction(super::player_action::PlayerActionError),
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
+    Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
     World(WorldInputError),
@@ -145,6 +146,19 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Consume the actual shared recovery request and install visual feedback.
+    /// The surrounding player mode owns this service's position in the visit.
+    pub fn consume_player_recovery(&mut self, owner: ObjectId) -> Result<bool, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_recovery::consume(self.objects, self.world, owner)
+            .map_err(SceneError::Recovery);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Complete ordered prefix before the source player-mode dispatcher.
     /// This does not substitute for that mode's movement/weapon strategy.
     pub fn begin_player_visit(

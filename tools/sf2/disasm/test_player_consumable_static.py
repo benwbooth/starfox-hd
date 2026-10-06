@@ -49,6 +49,21 @@ class PlayerConsumableStaticTests(unittest.TestCase):
         self.assert_source(0x06AAC6, "C2 20 B9 3B 6B C9 00 00 E2 20 F0 04 5C E0 AA 06 C2 20 A9 80 00 99 3B 6B E2 20")
         self.assert_source(0x7FB1EF, "5A B4 2B C2 20 B9 3B 6B C9 00 00 E2 20 F0 04 5C 0B B2 7F C2 20 A5 02 99 3B 6B E2 20")
 
+    def test_recovery_feedback_installer_preserves_existing_child_and_succeeds_on_full_pool(self):
+        # Number 24 is distinct from the healing emitter's number 22. A found
+        # child returns immediately; failed allocation leaves no child. Both
+        # exits return success and neither undoes the preceding shield write.
+        self.assert_source(0x07D0C6,
+            "5A 08 E2 20 C2 10 A9 18 22 7B 2A 7F C0 00 00 F0 04 5C 19 D1 07 C2 20 A9 9C BC "
+            "85 5F E2 20 22 17 2A 7F B0 04 5C 07 D1 07 A9 18 22 3D 2A 7F DA BB 7A C2 20 "
+            "A9 1E 7E 95 19 E2 20 A9 7F 95 1B DA BB 7A C0 00 00 F0 0D C2 20 A9 8A F3 "
+            "99 2B 00 E2 20 20 F5 BE 28 7A 38 6B")
+
+    def test_recovery_feedback_path_locks_and_follows_primary_for_eight_updates(self):
+        self.assert_source(0x09F38A,
+            "5C 00 04 32 FE F8 FF 89 22 EC F5 07 C2 20 A9 9C F3 6B 61 08 "
+            "89 22 34 F6 07 C2 20 A9 A9 F3 6B 00 56 44 0F")
+
 
 if __name__ == "__main__":
     unittest.main()

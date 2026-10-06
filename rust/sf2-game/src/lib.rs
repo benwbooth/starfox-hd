@@ -19,6 +19,7 @@ pub use native::player_weapon_aim;
 pub use native::player_action;
 pub use native::player_consumable;
 pub use native::player_visit;
+pub use native::player_recovery;
 pub use native::target_search;
 pub use native::scene_strategy;
 pub use native::view_transition;

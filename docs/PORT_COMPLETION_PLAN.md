@@ -391,6 +391,17 @@ running; scheduled work is not a guarantee of a completion date.
   architecture and all three app launcher builds pass. **The following
   player-mode dispatcher and `Game::tick` adoption are still open.** This
   ordered prefix must not stand in for an unported movement strategy.
+- Connected shared recovery requests to the real caller's shield and the
+  source's numbered primary-following feedback actor. Requests clear before
+  reads, addition wraps before capacity clamping, and exhausted effect slots
+  do not undo healing. Existing feedback is neither restarted nor reformatted.
+  Six tests cover shield/capacity boundaries, zero/missing-input order, full
+  allocation pools, caller-versus-primary ownership, the final same-visit
+  follow/retirement, and all three healing-emitter pulses through actual
+  feedback lifetimes. All 1,171 native tests and two integration tests pass
+  in debug/release; 607 source checks, exact regeneration, architecture and
+  the app build pass. The enclosing post-movement player service still needs
+  its remaining branches before these services can replace shipping control.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
