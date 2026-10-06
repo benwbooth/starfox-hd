@@ -1,6 +1,6 @@
 # SF1 and SF2 completion plan
 
-Updated 2026-10-05. Status: implementation in progress; neither game is certified.
+Updated 2026-10-06. Status: implementation in progress; neither game is certified.
 
 This is the execution plan for the user's request to finish both Rust ports.
 It supersedes the sequencing restriction in `RETAIL_PARITY_PLAN.md` that deferred
@@ -110,7 +110,27 @@ The hourly same-task continuation `finish-sf1-and-sf2-rust-ports` was activated
 on 2026-10-05. Local continuation requires the computer and desktop app to remain
 running; scheduled work is not a guarantee of a completion date.
 
-### Current execution checkpoint — 2026-10-05
+### Current execution checkpoint — 2026-10-06
+
+- Recovered SF2's frame-to-map dispatch contract before replacing its staging
+  controller: the nonzero delay operand is a retained yield marker, not a
+  countdown. The original main loop dispatches again on the next visit; its
+  alternate-view branch suppresses map dispatch only when both flags 01 and
+  20 are set. Corrected the oracle-only compatibility driver and zero-delay
+  marker preservation; no shipping scene has been switched to that driver.
+  Four original-code tests perform 170,192 completed calls: all 237 authored
+  hold loops, all 134 mode/external-flag branches, every 16-bit delay operand,
+  and all 256 frame-flag combinations with four preceding marker values.
+  For the frame-owner test only unrelated scene/render/audio services are
+  bounded at their call entries; frame and map code remain unchanged. Synthetic
+  data operands and STOP successors test boundaries without replacing handlers.
+  Native map unit coverage also exhausts all delay operands, and two host
+  regressions cover repeated dispatch and the combined suppression gate.
+  The full compatibility-enabled game suite (1,216 tests) passes in debug;
+  all 11 map tests and four new oracle tests pass in debug/release, and the
+  architecture audit and all three app-binary builds pass. The necessary next
+  slice is a typed native map owner with
+  source-owned scene installers, not generic byte-addressed host reuse.
 
 - Corrected SF1's live body/wing collision contracts: broken-wing wall damage
   uses the body's cooldown and an explicit four-point power; wall entries skip

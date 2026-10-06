@@ -21,6 +21,7 @@ sf-audio.workspace = true
 sf2-game = { workspace = true, features = ["oracle-bridge"] }
 sf2-data = { workspace = true, features = ["oracle-data"] }
 sf2-path.workspace = true
+sf2-map.workspace = true
 sf-difftest.workspace = true
 sha2 = "0.10"
 

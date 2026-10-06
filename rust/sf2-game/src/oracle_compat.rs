@@ -517,13 +517,15 @@ impl Game {
     }
 
     fn tick_map(&mut self) -> Result<(), Error> {
-        let counter = self.map_vm.counter();
-        if counter != 0 {
-            self.map_vm.set_counter(counter - 1);
-            self.sync_map_state();
+        // The ordinary frame path dispatches even with bit 20 set. Only the
+        // alternate-view branch combines it with bit 01 to suppress the map.
+        if self.memory.read_byte(0x1AA6) & 0x21 == 0x21 {
             return Ok(());
         }
-
+        // The source frame owner ($03:8069/$03:812E) dispatches the current
+        // map each visit, without consuming or gating on $1655. The common
+        // `delay 5000; jump delay` pair yields once on every visit; 5000 is
+        // retained command state, not a 5000-frame sleep.
         let placeholder = MapVm::new(self.map_vm.cursor());
         let mut vm = std::mem::replace(&mut self.map_vm, placeholder);
         let result = vm.run(self, 512);
@@ -776,4 +778,43 @@ impl Game {
 #[inline]
 fn retail_map_pointer(address: MapAddress) -> u16 {
     address.address.wrapping_sub(0x8000)
+}
+
+#[cfg(test)]
+mod map_dispatch_tests {
+    use super::*;
+    use sf2_data::map::EXTERNAL_PHASE_GATES;
+
+    #[test]
+    fn host_revisits_phase_loop_instead_of_sleeping_for_five_thousand_frames() {
+        let mut game = Game::new(Vec::new()).unwrap();
+        let gate = EXTERNAL_PHASE_GATES[0];
+        game.map_vm = MapVm::new(gate.hold);
+        for _ in 0..8 {
+            game.tick_map().unwrap();
+            assert_eq!(game.map_vm.cursor(), gate.parked);
+            assert_eq!(game.map_counter(), 5000);
+            assert_eq!(game.memory.read_word(0x1655), 5000);
+        }
+    }
+
+    #[test]
+    fn frame_map_gate_preserves_cursor_and_marker_only_for_the_combined_flags() {
+        let mut game = Game::new(Vec::new()).unwrap();
+        let gate = EXTERNAL_PHASE_GATES[0];
+        for flags in 0..=u8::MAX {
+            game.map_vm = MapVm::new(gate.hold);
+            game.map_vm.set_counter(0xCAFE);
+            game.sync_map_state();
+            game.memory.write_byte(0x1AA6, flags);
+            game.tick_map().unwrap();
+            let skipped = flags & 0x21 == 0x21;
+            assert_eq!(
+                game.map_vm.cursor(),
+                if skipped { gate.hold } else { gate.parked }
+            );
+            assert_eq!(game.map_counter(), if skipped { 0xCAFE } else { 5000 });
+            assert_eq!(game.memory.read_word(0x1655), game.map_counter());
+        }
+    }
 }

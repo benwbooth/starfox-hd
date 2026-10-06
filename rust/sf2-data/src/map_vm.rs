@@ -12,8 +12,9 @@ pub enum ReachableMapOp {
     /// Save the current stream pointer and return, so this record remains the
     /// permanent end/hold point.
     Stop,
-    /// Install a nonzero delay and resume after this record when it expires.
-    /// A zero value falls through immediately.
+    /// A nonzero operand stores a yield marker and returns after this record.
+    /// The frame owner dispatches again next frame without counting it down.
+    /// Zero falls through immediately, preserving the previous marker.
     Delay { ticks: u16 },
     /// Schedule the three-byte routine-table entry at this byte offset.
     RequestStageLoad { table_offset: u16 },

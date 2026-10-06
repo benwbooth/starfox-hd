@@ -883,6 +883,7 @@ dependencies = [
  "sf-strat",
  "sf2-data",
  "sf2-game",
+ "sf2-map",
  "sf2-path",
  "sha2",
  "w65c816",

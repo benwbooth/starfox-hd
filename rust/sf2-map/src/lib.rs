@@ -60,7 +60,8 @@ pub trait Sf2MapHost {
 pub enum RunStop {
     /// The persistent stop opcode left the stream pointer on itself.
     Stopped,
-    /// A delay or spawn installed a nonzero `$1655` value and returned.
+    /// A delay or spawn installed a nonzero `$1655` yield marker and returned.
+    /// This is not a number of frames to wait before the next dispatch.
     CounterSet(u16),
     /// Display state was not ready; the same opcode must be retried.
     WaitingForDisplay,
@@ -89,8 +90,8 @@ pub enum MapVmError<E> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MapVm {
     cursor: MapAddress,
-    /// Exact last value written to retail `$1655`.  Counter consumption is an
-    /// upstream engine concern and is deliberately not guessed here.
+    /// Exact last value written to retail `$1655`. The frame owner calls the
+    /// dispatcher again regardless of this marker; it is not a countdown.
     counter: u16,
 }
 
@@ -117,9 +118,8 @@ impl MapVm {
         self.counter
     }
 
-    /// Supply the counter value produced by the surrounding retail movement
-    /// system.  The map dispatcher itself only writes this value; it does not
-    /// own the decrement rule.
+    /// Seed the retained yield marker for an oracle comparison. There is no
+    /// inferred per-frame consumption rule.
     pub fn set_counter(&mut self, value: u16) {
         self.counter = value;
     }
@@ -164,9 +164,7 @@ impl MapVm {
                     });
                 }
                 ReachableMapOp::Delay { ticks } => {
-                    self.counter = ticks;
-                    self.advance(command.size);
-                    if ticks != 0 {
+                    if self.delay(ticks, command.size) {
                         return Ok(RunReport {
                             commands_executed: executed,
                             stop: RunStop::CounterSet(ticks),
@@ -318,6 +316,37 @@ impl MapVm {
 
     fn advance(&mut self, size: u8) {
         self.cursor.address = self.cursor.address.wrapping_add(size as u16);
+    }
+
+    fn delay(&mut self, value: u16, size: u8) -> bool {
+        self.advance(size);
+        if value == 0 {
+            // `$03:A019` skips the store as well as the return for zero.
+            // An earlier yield marker remains intact.
+            return false;
+        }
+        self.counter = value;
+        true
+    }
+}
+
+#[cfg(test)]
+mod delay_tests {
+    use super::*;
+
+    #[test]
+    fn every_delay_operand_preserves_or_replaces_the_marker_without_a_countdown() {
+        let start = MapAddress {
+            bank: 5,
+            address: 0x8068,
+        };
+        for value in 0..=u16::MAX {
+            let mut vm = MapVm::new(start);
+            vm.set_counter(0xCAFE);
+            assert_eq!(vm.delay(value, 3), value != 0);
+            assert_eq!(vm.cursor().address, start.address + 3);
+            assert_eq!(vm.counter(), if value == 0 { 0xCAFE } else { value });
+        }
     }
 }
 
