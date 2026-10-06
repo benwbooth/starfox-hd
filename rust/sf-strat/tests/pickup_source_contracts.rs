@@ -9,7 +9,10 @@ use sf_game::{
     vars::PSF2_PLAYERHP0,
     Game,
 };
-use sf_strat::enemy_a::{flashplayer_istrat, item7a_istrat, SH_HELPBALL};
+use sf_strat::enemy_a::{
+    flashplayer_istrat, item4_istrat, item4_strat, item7a_istrat, ripair_istrat, ripair_strat,
+    strat_item7_init, PSF_BRKLWING, PSF_BRKRWING, PSF_LWINGCOLL, PSF_RWINGCOLL, SH_HELPBALL,
+};
 
 #[derive(Clone, Default)]
 struct Sounds(Rc<RefCell<Vec<u8>>>);
@@ -223,4 +226,166 @@ fn production_pass_consumes_the_pickup_once_then_retires_its_flash_after_twenty_
     assert!(!game.objs.aliens[pickup as usize].active);
     assert!(game.objs.aliens[balls[0] as usize].active);
     assert_eq!(*sounds.0.borrow(), [0x10]);
+}
+
+#[test]
+fn repair_pickup_keeps_moving_after_failed_allocation_and_collects_when_a_slot_is_freed() {
+    let (mut game, player, pickup, sounds) = scene();
+    game.objs.aliens[player as usize].worldz = 0;
+    game.objs.aliens[pickup as usize].worldz = -20;
+    let before = game.objs.aliens[pickup as usize];
+    item4_istrat(&mut game, pickup);
+    let initialized = game.objs.aliens[pickup as usize];
+    assert_eq!(initialized.worldz, before.worldz, "entry does not move");
+    assert_eq!(initialized.sflags, before.sflags);
+    assert_eq!(initialized.sflags2, before.sflags2 | ASF2_COLLDISABLE);
+    let slot = game.objs.alloc().unwrap();
+    while game.objs.alloc().is_some() {}
+    item4_strat(&mut game, pickup);
+    assert_eq!(
+        game.objs.aldead, 0,
+        "failed allocation does not consume pickup"
+    );
+    assert_eq!(game.objs.aliens[pickup as usize].worldz, 0);
+    assert_eq!(
+        game.objs.aliens[pickup as usize].rotx,
+        before.rotx.wrapping_add(4)
+    );
+    assert!(sounds.0.borrow().is_empty());
+    game.objs.free(slot);
+    item4_strat(&mut game, pickup);
+    assert_eq!(game.objs.aldead, 1);
+    assert_eq!(game.objs.aliens[slot as usize].shape, 401);
+    assert_eq!(game.objs.aliens[slot as usize].sbyte1, 0);
+    assert!(sounds.0.borrow().is_empty(), "new ship has not visited yet");
+}
+
+#[test]
+fn repair_catch_restores_wing_actors_then_clears_only_the_four_wing_flags() {
+    let (mut game, player, pod, sounds) = scene();
+    let ids = sf_strat::player::install(&mut game);
+    let left = game.objs.alloc().unwrap();
+    let right = game.objs.alloc().unwrap();
+    game.coldet.pcbox.lwing = Some(left);
+    game.coldet.pcbox.rwing = Some(right);
+    for wing in [left, right] {
+        let al = &mut game.objs.aliens[wing as usize];
+        al.hp = 0;
+        al.ap = 1;
+        al.type_ = 0xFF;
+        al.sflags = 0xA4;
+        al.sflags2 = 0xB0;
+        al.endcollstratptr = Some(ids.player_coll);
+    }
+    let pl = game.objs.aliens[player as usize];
+    [
+        game.vars.player_posx,
+        game.vars.player_posy,
+        game.vars.player_posz,
+    ] = [pl.worldx, pl.worldy, pl.worldz];
+    ripair_istrat(&mut game, pod);
+    game.vars.pshipflags = 0xFF;
+    // The repair routine does not return early on player-death flags.
+    game.vars.pshipflags2 = PSF2_PLAYERHP0;
+    let al = &mut game.objs.aliens[pod as usize];
+    [al.worldx, al.worldy, al.worldz] = [pl.worldx, pl.worldy, pl.worldz.wrapping_sub(30)];
+    al.sbyte1 = 1;
+    let count = al.count;
+    ripair_strat(&mut game, pod);
+    for wing in [left, right] {
+        let al = &game.objs.aliens[wing as usize];
+        assert_eq!((al.hp, al.ap), (PCBOX_WING_HP, PCBOX_WING_AP));
+        assert_eq!(al.type_, 0xFF & !ATZREMOVE);
+        assert_eq!(al.sflags, 0xA4);
+        assert_eq!(al.sflags2, 0xB0 | ASF2_COLLDISABLE);
+        assert_eq!(al.stratptr, Some(ids.pcbox_wing));
+        assert_eq!(al.collstratptr, Some(ids.pcbox_coll));
+        assert_eq!(al.expstratptr, Some(ids.pcbox_coll));
+        assert_eq!(al.endcollstratptr, Some(ids.player_coll));
+    }
+    assert_eq!(
+        game.vars.pshipflags,
+        !(PSF_BRKLWING | PSF_BRKRWING | PSF_LWINGCOLL | PSF_RWINGCOLL)
+    );
+    assert_eq!(game.objs.aliens[pod as usize].count, count);
+    assert_eq!(*sounds.0.borrow(), [0x8B, 0x17]);
+}
+
+#[test]
+fn intact_laser_pickup_restores_wings_without_clearing_collision_flags() {
+    let (mut game, _, pickup, sounds) = scene();
+    let left = game.objs.alloc().unwrap();
+    let right = game.objs.alloc().unwrap();
+    game.coldet.pcbox.lwing = Some(left);
+    game.coldet.pcbox.rwing = Some(right);
+    game.objs.aliens[left as usize].hp = 0;
+    game.objs.aliens[right as usize].hp = 0;
+    let flags = 0xFF & !(PSF_BRKLWING | PSF_BRKRWING);
+    game.vars.pshipflags = flags;
+    game.vars.shared.player_score = u16::MAX - 49;
+    strat_item7_init(&mut game, pickup);
+    assert_eq!(game.vars.pshipflags, flags);
+    assert_eq!(game.objs.aliens[left as usize].hp, PCBOX_WING_HP);
+    assert_eq!(game.objs.aliens[right as usize].hp, PCBOX_WING_HP);
+    assert_eq!(game.vars.shared.player_score, u16::MAX - 49);
+    assert_eq!(*sounds.0.borrow(), [0x15]);
+}
+
+#[test]
+fn production_pass_initializes_repair_ship_once_after_removing_its_pickup() {
+    let (mut game, player, pickup, sounds) = scene();
+    let pl = game.objs.aliens[player as usize];
+    [
+        game.vars.player_posx,
+        game.vars.player_posy,
+        game.vars.player_posz,
+    ] = [pl.worldx, pl.worldy, pl.worldz];
+    let init = game.world.register_strategy(item4_istrat);
+    game.objs.aliens[pickup as usize].stratptr = Some(init);
+    game.run_strategies();
+    assert!(game.objs.aliens[pickup as usize].active);
+    assert!(sounds.0.borrow().is_empty());
+    game.run_strategies();
+    assert!(!game.objs.aliens[pickup as usize].active);
+    let ships: Vec<_> = game
+        .objs
+        .active_indices()
+        .into_iter()
+        .filter(|&id| game.objs.aliens[id as usize].shape == 401)
+        .collect();
+    assert_eq!(ships.len(), 1);
+    let ship = game.objs.aliens[ships[0] as usize];
+    // The frame owner publishes internal-player coordinates separately from
+    // the exposed actor used by pickup collision, just as the source does.
+    assert_eq!(
+        [ship.worldx, ship.worldy, ship.worldz],
+        [
+            game.vars.player_posx.wrapping_add(500),
+            game.vars.player_posy,
+            game.vars.player_posz.wrapping_sub(200)
+        ]
+    );
+    assert_eq!(ship.sbyte1, 30, "entry does not enter the motion body");
+    assert_eq!(*sounds.0.borrow(), [0x8B]);
+    game.run_strategies();
+    assert_eq!(game.objs.aliens[ships[0] as usize].sbyte1, 29);
+    assert_eq!(*sounds.0.borrow(), [0x8B]);
+}
+
+#[test]
+fn repair_pickup_death_marker_releases_fire_then_still_allocates_and_marks_again() {
+    let (mut game, _, pickup, sounds) = scene();
+    let fire = game.objs.alloc().unwrap();
+    game.objs.aliens[pickup as usize].flags = AFONFIRE | 0x10;
+    game.objs.aliens[pickup as usize].fireobjptr = fire + 1;
+    game.vars.pshipflags2 = PSF2_PLAYERHP0;
+    game.objs.aldead = 254;
+    while game.objs.alloc().is_some() {}
+    item4_strat(&mut game, pickup);
+    assert_eq!(game.objs.aldead, 0, "both source markers wrap the byte");
+    assert_eq!(game.objs.aliens[pickup as usize].flags, 0x10);
+    assert_eq!(game.objs.aliens[pickup as usize].fireobjptr, 0);
+    assert_eq!(game.objs.aliens[fire as usize].shape, 401);
+    assert_eq!(game.objs.aliens[fire as usize].sbyte1, 0);
+    assert!(sounds.0.borrow().is_empty());
 }

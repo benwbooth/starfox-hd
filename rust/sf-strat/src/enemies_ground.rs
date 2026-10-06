@@ -4478,7 +4478,6 @@ pub fn missgo_istrat(_g: &mut Game, _idx: u16) {}
 
 const RIPMAN_HP: u8 = 4; // STRATEQU.INC:175
 const RIPMAN_AP: u8 = 16; // STRATEQU.INC:176
-const SH_RIPAIR_W: u16 = 401;
 
 /// ROM `ripman_Istrat` — shadow + enemyweap, falls until y>=-30.
 pub fn ripman_istrat(g: &mut Game, idx: u16) {
@@ -4493,12 +4492,18 @@ pub fn ripman_istrat(g: &mut Game, idx: u16) {
     al.ap = RIPMAN_AP;
     al.sflags |= ASF_SHADOW;
     al.collflags |= COLLTYPE_ENEMYWEAP;
+    ripman_strat(g, idx);
 }
 
 /// ROM `ripman_strat` — tumble + drift while airborne (`worldy < -30`).
 pub fn ripman_strat(g: &mut Game, idx: u16) {
     // s_jmp_lower x,#-30,.gnd — skip motion when worldy >= -30.
-    if worldy_ge(g, idx, -30) {
+    const GROUND_HEIGHT: i16 = -30;
+    if g.objs.aliens[idx as usize]
+        .worldy
+        .wrapping_sub(GROUND_HEIGHT)
+        >= 0
+    {
         return;
     }
     let al = &mut g.objs.aliens[idx as usize];
@@ -4511,9 +4516,7 @@ pub fn ripman_strat(g: &mut Game, idx: u16) {
 /// ROM `ripmanexp_Istrat` — spawn ripair repair ship, then explode.
 pub fn ripmanexp_istrat(g: &mut Game, idx: u16) {
     g.hooks.play_se(0x0a);
-    if let Some(pod) = make_obj(g, SH_RIPAIR_W) {
-        crate::enemy_a::ripair_istrat(g, pod);
-    }
+    crate::enemy_a::install_repair_ship(g, idx);
     strat_explode(g, idx);
 }
 

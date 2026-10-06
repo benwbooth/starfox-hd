@@ -1,6 +1,6 @@
 //! ROM ripman / item4 / ripair + woodsgo / woodsexp / missgo.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_SHADOW, ATZREMOVE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_SHADOW, ATZREMOVE};
 use sf_game::Game;
 use sf_strat::enemies_ground::{
     missgo_istrat, ripman_istrat, ripman_strat, ripmanexp_istrat, woodsexp_istrat, woodsgo_init,
@@ -45,11 +45,15 @@ fn ripman_falls_until_ground_then_stops() {
         0
     );
 
-    ripman_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].roty, 16);
     assert_eq!(g.objs.aliens[idx as usize].worldy, -97);
     assert_eq!(g.objs.aliens[idx as usize].worldx, 4);
     assert_eq!(g.objs.aliens[idx as usize].worldz, 35);
+    ripman_strat(&mut g, idx);
+    assert_eq!(g.objs.aliens[idx as usize].roty, 32);
+    assert_eq!(g.objs.aliens[idx as usize].worldy, -94);
+    assert_eq!(g.objs.aliens[idx as usize].worldx, 8);
+    assert_eq!(g.objs.aliens[idx as usize].worldz, 70);
 
     g.objs.aliens[idx as usize].worldy = -30;
     let (x0, z0, r0) = (
@@ -76,14 +80,17 @@ fn ripmanexp_spawns_ripair_then_explodes() {
         g.objs.active_indices().len() + 1 > before,
         "ripair child spawned"
     );
-    // Find the ripair child: colldisable + shadow + sbyte1=30.
+    // The explosion installs the repair ship; its own visit initializes it.
     let child = g
         .objs
         .active_indices()
         .into_iter()
-        .find(|&i| i != 0 && g.objs.aliens[i as usize].sbyte1 == 30)
+        .find(|&i| i != 0 && g.objs.aliens[i as usize].shape == 401)
         .expect("ripair");
-    assert_ne!(g.objs.aliens[child as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[child as usize].sbyte1, 0);
+    let init = g.objs.aliens[child as usize].stratptr.unwrap();
+    g.call_strat(init, child);
+    assert_ne!(g.objs.aliens[child as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[child as usize].rotz, DEG90);
     assert_eq!(g.objs.aliens[child as usize].vz, 30);
 }
@@ -134,7 +141,7 @@ fn item4_spawns_ripair_on_pickup() {
         al.worldz = 10;
     }
     item4_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     let before = g.objs.active_indices().len();
     item4_strat(&mut g, idx);
     assert_eq!(g.objs.aldead, 1);

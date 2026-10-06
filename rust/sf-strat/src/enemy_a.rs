@@ -919,7 +919,6 @@ const SH_MYSHIP_4: u16 = 2;
 const SH_UP1_MAN_PROXY: u16 = 355;
 const ITEM7_PICKUP_Z: i16 = 120;
 const ITEM7_PICKUP_XY: i16 = 60;
-const ITEM7_SCORE: u16 = 100;
 const HF2_MASK: u8 = 0x02;
 const CLSHIP_FLAG1: u8 = 0x10;
 const CLSHIP_FLAG2: u8 = 0x20;
@@ -9518,9 +9517,43 @@ fn itemtorange_srou(g: &mut Game, idx: u16) {
     }
 }
 
-/// C `item_repair_player_wings` (strat_enemy.c:4035).
-fn item_repair_player_wings(g: &mut Game) {
-    g.vars.pshipflags &= !(PSF_BRKLWING | PSF_LWINGCOLL | PSF_BRKRWING | PSF_RWINGCOLL);
+/// PSTRATS' two wing entries restore the actors, without clearing ship flags.
+fn restore_player_wing_actors(g: &mut Game) {
+    // The left entry also snapshots the display-transfer phase into unused
+    // strategy scratch; no reachable wing routine consumes that snapshot.
+    let ids = crate::player::install(g);
+    for wing in [g.coldet.pcbox.lwing, g.coldet.pcbox.rwing]
+        .into_iter()
+        .flatten()
+    {
+        let al = &mut g.objs.aliens[wing as usize];
+        al.type_ &= !ATZREMOVE;
+        al.stratptr = Some(ids.pcbox_wing);
+        al.collstratptr = Some(ids.pcbox_coll);
+        al.expstratptr = Some(ids.pcbox_coll);
+        al.hp = PCBOX_WING_HP;
+        al.ap = PCBOX_WING_AP;
+        al.sflags2 |= ASF2_COLLDISABLE;
+    }
+}
+
+fn pickup_outside_z(pickup: &Alien, player: &Alien, threshold: i16) -> bool {
+    player
+        .worldz
+        .wrapping_sub(pickup.worldz)
+        .wrapping_abs()
+        .wrapping_sub(threshold)
+        >= 0
+}
+
+fn pickup_outside_xy(pickup: &Alien, player: &Alien, threshold: i16) -> bool {
+    player
+        .worldx
+        .wrapping_sub(pickup.worldx)
+        .wrapping_abs()
+        .wrapping_add(player.worldy.wrapping_sub(pickup.worldy).wrapping_abs())
+        .wrapping_sub(threshold)
+        >= 0
 }
 
 /// C `Strat_Item7_Init` / ROM `item7_Istrat` (GASTRATS.ASM:2915-2917).
@@ -9532,7 +9565,7 @@ pub fn strat_item7_init(g: &mut Game, idx: u16) {
         al.stratptr = Some(s);
         al.collstratptr = None;
         al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
     }
     item7_strat(g, idx);
 }
@@ -9546,6 +9579,26 @@ const ITEM4_PICKUP_Z: i16 = 120; // 60*2
 const ITEM4_PICKUP_XY: i16 = 100; // 50*2
 const RIPAIR_CATCH_XY: i16 = 20;
 const RIPAIR_CATCH_Z: i16 = 30;
+const RIPAIR_ALIGN_Z: i16 = 500;
+const RIPAIR_ENTRY_X: i16 = 500;
+const RIPAIR_ENTRY_Z: i16 = -200;
+const RIPAIR_APPROACH_SPEED: i16 = 30;
+const RIPAIR_CATCH_SPEED: i16 = -40;
+const RIPAIR_APPROACH_VISITS: u8 = 30;
+const RIPAIR_SOFT_CHASE_SHIFT: u32 = 3;
+const RIPAIR_FINAL_CHASE_SHIFT: u32 = 1;
+const SE_REPAIR_APPROACH: u8 = 0x8B;
+const SE_REPAIR_CATCH: u8 = 0x17;
+
+/// GASTRATS callers install the initializer after themselves in the active
+/// list. The new actor's own visit owns its position, countdown and sound.
+pub(crate) fn install_repair_ship(g: &mut Game, parent: u16) -> Option<u16> {
+    let ship = make_obj(g, SH_RIPAIR_W)?;
+    g.objs.active_move_after(ship, parent);
+    let init = sid(g, ripair_istrat);
+    g.objs.aliens[ship as usize].stratptr = Some(init);
+    Some(ship)
+}
 
 /// ROM `item4_Istrat` — spinning repair pod that spawns `ripair` on pickup.
 pub fn item4_istrat(g: &mut Game, idx: u16) {
@@ -9554,39 +9607,39 @@ pub fn item4_istrat(g: &mut Game, idx: u16) {
     al.stratptr = Some(s);
     al.collstratptr = None;
     al.expstratptr = None;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// ROM `item4_strat` — spin, float to range, spawn ripair when player close.
 pub fn item4_strat(g: &mut Game, idx: u16) {
-    let pl = player(g);
-    if pl.is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
-        g.objs.aldead = 1;
-        return;
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        mark_pickup_removal(g, idx);
     }
-    let pl = pl.unwrap();
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.roty = al.roty.wrapping_add(4);
-        al.rotx = al.rotx.wrapping_add(4);
+        al.roty = al.roty.wrapping_add(PICKUP_SPIN_STEP);
+        al.rotx = al.rotx.wrapping_add(PICKUP_SPIN_STEP);
     }
     itemtorange_srou(g, idx);
-    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize].worldz.wrapping_add(20);
+    g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
+        .worldz
+        .wrapping_add(PICKUP_FORWARD_STEP);
 
+    let Some(player) = g.player_object() else {
+        g.objs.aldead = 1;
+        return;
+    };
+    let pl = g.objs.aliens[player as usize];
     let me = g.objs.aliens[idx as usize];
-    let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
-    if zdist >= ITEM4_PICKUP_Z {
+    if pickup_outside_z(&me, &pl, ITEM4_PICKUP_Z) {
         return;
     }
-    let mut xydist = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
-    xydist = xydist.wrapping_add((me.worldy as i32 - pl.worldy as i32).abs() as i16);
-    if xydist >= ITEM4_PICKUP_XY {
+    if pickup_outside_xy(&me, &pl, ITEM4_PICKUP_XY) {
         return;
     }
-    if let Some(pod) = make_obj(g, SH_RIPAIR_W) {
-        ripair_istrat(g, pod);
+    if install_repair_ship(g, idx).is_some() {
+        mark_pickup_removal(g, idx);
     }
-    g.objs.aldead = 1;
 }
 
 /// ROM `ripair_Istrat` — repair ship approaches from the player's right.
@@ -9598,32 +9651,34 @@ pub fn ripair_istrat(g: &mut Game, idx: u16) {
         al.stratptr = Some(s);
         al.collstratptr = None;
         al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
-        al.worldz = pz.wrapping_add(-200);
-        al.worldx = px.wrapping_add(500);
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.sflags |= ASF_SHADOW;
+        al.worldz = pz.wrapping_add(RIPAIR_ENTRY_Z);
+        al.worldx = px.wrapping_add(RIPAIR_ENTRY_X);
         al.worldy = py;
         al.type_ &= !ATZREMOVE; // s_setnoremove_behind
         al.vx = 0;
         al.vy = 0;
-        al.vz = 30;
+        al.vz = RIPAIR_APPROACH_SPEED;
         al.rotz = DEG90;
-        al.sbyte1 = 30;
+        al.sbyte1 = RIPAIR_APPROACH_VISITS;
     }
-    g.hooks.play_se(0x8b);
+    g.hooks.play_se(SE_REPAIR_APPROACH);
 }
 
 /// ROM `ripair_strat` — chase player, then repair wings on catch.
 pub fn ripair_strat(g: &mut Game, idx: u16) {
-    let Some(pl) = player(g) else {
+    let Some(player) = g.player_object() else {
         return;
     };
+    let pl = g.objs.aliens[player as usize];
     add_player_z(g, idx);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldz = al.worldz.wrapping_add(al.vz);
         // Soft approach chase always runs.
-        al.worldx = chase_proportional(al.worldx, g.vars.player_posx, 3);
-        al.worldy = chase_proportional(al.worldy, g.vars.player_posy, 3);
+        al.worldx = chase_proportional(al.worldx, g.vars.player_posx, RIPAIR_SOFT_CHASE_SHIFT);
+        al.worldy = chase_proportional(al.worldy, g.vars.player_posy, RIPAIR_SOFT_CHASE_SHIFT);
     }
 
     // s_decbne_alvar sbyte1,.nreccoll — while countdown remains, skip catch.
@@ -9636,16 +9691,15 @@ pub fn ripair_strat(g: &mut Game, idx: u16) {
 
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.worldx = chase_proportional(al.worldx, g.vars.player_posx, 1);
-        al.worldy = chase_proportional(al.worldy, g.vars.player_posy, 1);
+        al.worldx = chase_proportional(al.worldx, g.vars.player_posx, RIPAIR_FINAL_CHASE_SHIFT);
+        al.worldy = chase_proportional(al.worldy, g.vars.player_posy, RIPAIR_FINAL_CHASE_SHIFT);
     }
     {
         let mut rotz = g.objs.aliens[idx as usize].rotz;
-        achase_angle(&mut rotz, pl.rotz, 1);
+        achase_angle(&mut rotz, pl.rotz, RIPAIR_FINAL_CHASE_SHIFT);
         g.objs.aliens[idx as usize].rotz = rotz;
     }
-    let zdist = (g.objs.aliens[idx as usize].worldz as i32 - pl.worldz as i32).abs() as i16;
-    if zdist < 500 {
+    if !pickup_outside_z(&g.objs.aliens[idx as usize], &pl, RIPAIR_ALIGN_Z) {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldx = g.vars.player_posx;
         al.worldy = g.vars.player_posy;
@@ -9653,30 +9707,28 @@ pub fn ripair_strat(g: &mut Game, idx: u16) {
     }
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.vz = -40;
+        al.vz = RIPAIR_CATCH_SPEED;
         al.type_ |= ATZREMOVE; // s_setremove_behind
     }
 
     // Catch: XY close AND (player ahead OR Z close).
     let me = g.objs.aliens[idx as usize];
-    let mut xydist = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
-    xydist = xydist.wrapping_add((me.worldy as i32 - pl.worldy as i32).abs() as i16);
-    if xydist >= RIPAIR_CATCH_XY {
+    if pickup_outside_xy(&me, &pl, RIPAIR_CATCH_XY) {
         return;
     }
-    let player_ahead = pl.worldz >= me.worldz;
-    let zclose = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
-    if !player_ahead && zclose >= RIPAIR_CATCH_Z {
+    let player_ahead = pl.worldz.wrapping_sub(me.worldz) >= 0;
+    if !player_ahead && pickup_outside_z(&me, &pl, RIPAIR_CATCH_Z) {
         return;
     }
-    item_repair_player_wings(g);
+    restore_player_wing_actors(g);
+    g.vars.pshipflags &= !(PSF_BRKLWING | PSF_LWINGCOLL | PSF_BRKRWING | PSF_RWINGCOLL);
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.worldx = pl.worldx;
         al.worldy = pl.worldy;
         al.worldz = pl.worldz;
     }
-    g.hooks.play_se(0x17);
+    g.hooks.play_se(SE_REPAIR_CATCH);
     // Unlike collected pickups, the repair ship only installs the flash
     // initializer here; GASTRATS returns before its first flash visit.
     let flash = sid(g, flashplayer_istrat);
@@ -9757,49 +9809,45 @@ fn flashplayer_strat(g: &mut Game, idx: u16) {
 /// Broken-wing pickup spawns `ripair_Istrat` (does not repair inline); intact
 /// wings take the double-laser / beamball upgrade path.
 fn item7_strat(g: &mut Game, idx: u16) {
-    let pl = player(g);
-    if pl.is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
-        g.objs.aldead = 1;
-        return;
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        mark_pickup_removal(g, idx);
     }
-    let pl = pl.unwrap();
     if g.objs.aliens[idx as usize].sbyte1 == 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.worldz = al.worldz.wrapping_add(20);
+        al.worldz = al.worldz.wrapping_add(PICKUP_FORWARD_STEP);
     }
     itemtorange_srou(g, idx);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.roty = al.roty.wrapping_add(4);
-        al.rotz = al.rotz.wrapping_add(4);
+        al.roty = al.roty.wrapping_add(PICKUP_SPIN_STEP);
+        al.rotz = al.rotz.wrapping_add(PICKUP_SPIN_STEP);
     }
+    let Some(player) = g.player_object() else {
+        g.objs.aldead = 1;
+        return;
+    };
+    let pl = g.objs.aliens[player as usize];
     let me = g.objs.aliens[idx as usize];
     // ASM item7 (GASTRATS.ASM) `s_jmp_Zdistmore`/`s_jmp_XYdistmore` skip on
     // |dz|>=120 / |dx|+|dy|>=60 — pickup strictly less. (Audit A Minor 3)
-    let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
-    if zdist >= ITEM7_PICKUP_Z {
+    if pickup_outside_z(&me, &pl, ITEM7_PICKUP_Z) {
         return;
     }
-    let mut xydist = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
-    xydist = xydist.wrapping_add((me.worldy as i32 - pl.worldy as i32).abs() as i16);
-    if xydist >= ITEM7_PICKUP_XY {
+    if pickup_outside_xy(&me, &pl, ITEM7_PICKUP_XY) {
         return;
     }
     let needs_repair = g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING) != 0;
     if needs_repair {
         // GASTRATS.ASM:2934-2937: s_make_obj #ripair_w → ripair_Istrat; .cont flash.
         // Repair + $17 happen later when ripair catches (ripair_strat .catch).
-        if let Some(pod) = make_obj(g, SH_RIPAIR_W) {
-            ripair_istrat(g, pod);
-        }
+        install_repair_ship(g, idx);
         flashplayer_istrat(g, idx);
         return;
     }
-    // .dlaser: TRIGSE $15, score, re-init wings, doublaser/beamball upgrade.
+    // .dlaser: sound, wing entries, then doublaser/beamball upgrade.
+    // STRATLIB's s_score macro has no body: it does not award points.
     g.hooks.play_se(0x15);
-    let score = g.vars.shared.player_score;
-    g.vars.shared.player_score = score.wrapping_add(ITEM7_SCORE);
-    item_repair_player_wings(g); // jsl pLWing_Istrat / pRWing_Istrat
+    restore_player_wing_actors(g); // jsl pLWing_Istrat / pRWing_Istrat
     if g.vars.pshipflags2 & PSF2_DOUBLASER == 0 {
         g.vars.pshipflags2 |= PSF2_DOUBLASER;
     } else {
@@ -9814,8 +9862,8 @@ fn item7_strat(g: &mut Game, idx: u16) {
 
 const ITEM7A_PICKUP_Z: i16 = 120; // 60*2
 const ITEM7A_PICKUP_XY: i16 = 60; // 30*2
-const ITEM7A_FORWARD_STEP: i16 = 20;
-const ITEM7A_SPIN_STEP: u8 = 4;
+const PICKUP_FORWARD_STEP: i16 = 20;
+const PICKUP_SPIN_STEP: u8 = 4;
 const SE_HELPBALL_PICKUP: u8 = 0x10;
 
 /// ROM `item7a_Istrat` — spinning pickup that spawns a helpball + repairs wings.
@@ -9839,14 +9887,14 @@ pub fn item7a_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         if al.sbyte1 == 0 {
-            al.worldz = al.worldz.wrapping_add(ITEM7A_FORWARD_STEP);
+            al.worldz = al.worldz.wrapping_add(PICKUP_FORWARD_STEP);
         }
     }
     itemtorange_srou(g, idx);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.roty = al.roty.wrapping_add(ITEM7A_SPIN_STEP);
-        al.rotz = al.rotz.wrapping_add(ITEM7A_SPIN_STEP);
+        al.roty = al.roty.wrapping_add(PICKUP_SPIN_STEP);
+        al.rotz = al.rotz.wrapping_add(PICKUP_SPIN_STEP);
     }
     let Some(player) = g.player_object() else {
         g.objs.aldead = 1;
@@ -9873,26 +9921,7 @@ pub fn item7a_strat(g: &mut Game, idx: u16) {
         let init = sid(g, helpball_istrat);
         g.objs.aliens[ball as usize].stratptr = Some(init);
         g.hooks.play_se(SE_HELPBALL_PICKUP);
-        // PSTRATS' wing entries restore gameplay data and handlers. Their
-        // ship-flag clears are commented out in the original; unlike the
-        // later repair-pod catch this pickup must not clear those flags.
-        // The left entry also copies the display-transfer phase to unused
-        // strategy scratch. No reachable wing strategy reads that scratch;
-        // the native gameplay model does not carry this hardware snapshot.
-        let ids = crate::player::install(g);
-        for wing in [g.coldet.pcbox.lwing, g.coldet.pcbox.rwing]
-            .into_iter()
-            .flatten()
-        {
-            let al = &mut g.objs.aliens[wing as usize];
-            al.type_ &= !ATZREMOVE;
-            al.stratptr = Some(ids.pcbox_wing);
-            al.collstratptr = Some(ids.pcbox_coll);
-            al.expstratptr = Some(ids.pcbox_coll);
-            al.hp = PCBOX_WING_HP;
-            al.ap = PCBOX_WING_AP;
-            al.sflags2 |= ASF2_COLLDISABLE;
-        }
+        restore_player_wing_actors(g);
     }
     flashplayer_istrat(g, idx);
 }

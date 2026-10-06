@@ -113,6 +113,30 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Completed the source-level SF1 repair pickup/ship chain in the shipping
+  strategy dispatcher. A failed repair-ship allocation leaves its pickup
+  available; all three callers install the child after themselves and defer
+  initialization to its own visit. Pickup death markers release linked fire
+  and continue the visit, collision-disable uses the correct flag byte, and
+  collision/catch tests preserve signed wrapping arithmetic and exposed-player
+  selection. The approach still uses separately published player coordinates.
+  Catching restores both wing actors' health, attack and handlers before
+  clearing only the four wing flags, then defers the flash initializer.
+  The laser and helper pickups restore wing actors without clearing those
+  flags. The repair-carrying enemy now performs its first falling step on entry.
+  Original execution also exposed the laser pickup's invented 100-point award:
+  the source `s_score` macro is empty, so that award was removed. Five new
+  original-code differential tests cover entries, exhaustion, successful
+  allocation, wrapped distance/approach boundaries, countdowns, sounds, wing
+  state, upgrade flags and unchanged score. Production-pass tests verify the
+  repair child's one deferred birth visit and subsequent countdown. All 1,535
+  game/path/strategy tests and all 14 weapon/pickup original-code tests pass
+  in debug/release; all 44 SF1 source tests, the architecture audit and all
+  three app-binary builds pass. No trace fixtures were regenerated. This does
+  not close the retained SF1 semantic/timing or route gates, nor SF2's pending
+  native frame/scene integration. The adjacent special-weapon pickup still
+  has the same score/flag/death-order discrepancies and is queued next.
+
 - Connected native opening-controller requests and button skips to a typed
   cinematic exit owner. Input holds, the delayed button-request transition,
   all three skip policies, one-shot audio requests, optional destination

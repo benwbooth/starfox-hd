@@ -1,11 +1,9 @@
 //! Tick 203: item7 broken-wing path spawns ripair (GASTRATS.ASM:2934-2956).
 //! Closes AUDIT_ENEMY_A Medium #25 ACCEPTED simplification.
 
-use sf_game::alien::ASF_COLLDISABLE;
 use sf_game::game::{Game, Hooks};
 use sf_strat::enemy_a::{
-    ripair_istrat, ripair_strat, strat_item7_init, wm, PSF2_DOUBLASER, PSF3_BEAMBALL, PSF_BRKLWING,
-    PSF_BRKRWING,
+    ripair_strat, strat_item7_init, wm, PSF2_DOUBLASER, PSF3_BEAMBALL, PSF_BRKLWING, PSF_BRKRWING,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -47,7 +45,7 @@ fn spawn_item7(g: &mut Game, z: i16) -> u16 {
     idx
 }
 
-/// Broken wings: spawn ripair (SE $8b), keep break flags, no $17/$15/score yet.
+/// Broken wings: install ripair, keep break flags, no sound or score yet.
 #[test]
 fn item7_broken_wings_spawns_ripair_not_inline_repair() {
     let log = Rc::new(RefCell::new(Vec::new()));
@@ -77,15 +75,14 @@ fn item7_broken_wings_spawns_ripair_not_inline_repair() {
         "no $15/$17 on spawn; got {:?}",
         log.borrow()
     );
-    assert!(
-        log.borrow().iter().any(|e| matches!(e, Se(0x8b))),
-        "ripair_Istrat trigse $8b; got {:?}",
-        log.borrow()
+    assert!(log.borrow().is_empty(), "repair entry is deferred");
+    assert_eq!(
+        g.objs.aliens[idx as usize].count, 19,
+        "immediate flash visit"
     );
-    assert_eq!(g.objs.aliens[idx as usize].count, 19, "immediate flash visit");
 }
 
-/// Intact wings: $15 + score + doublaser, no ripair.
+/// Intact wings: $15 + doublaser, no ripair or score award (s_score is empty).
 #[test]
 fn item7_intact_wings_upgrades_doublaser() {
     let log = Rc::new(RefCell::new(Vec::new()));
@@ -104,7 +101,7 @@ fn item7_intact_wings_upgrades_doublaser() {
         before,
         "no ripair child on .dlaser path"
     );
-    assert_eq!(g.vars.read_ext16(wm::PLAYERSCORE), 110);
+    assert_eq!(g.vars.read_ext16(wm::PLAYERSCORE), 10);
     assert_ne!(g.vars.pshipflags2 & PSF2_DOUBLASER, 0);
     assert!(
         log.borrow().iter().any(|e| matches!(e, Se(0x15))),
@@ -140,15 +137,13 @@ fn item7_ripair_chain_repairs_on_catch() {
         .aliens
         .iter()
         .enumerate()
-        .find(|(i, a)| {
-            *i as u16 != idx
-                && *i != 0
-                && a.active
-                && a.sflags & ASF_COLLDISABLE != 0
-                && a.sbyte1 == 30
-        })
+        .find(|(i, a)| *i as u16 != idx && *i != 0 && a.active && a.shape == 401)
         .map(|(i, _)| i as u16)
         .expect("ripair child");
+    let init = g.objs.aliens[pod as usize].stratptr.unwrap();
+    assert_eq!(g.objs.aliens[pod as usize].sbyte1, 0);
+    g.call_strat(init, pod);
+    assert_eq!(*log.borrow(), [Se(0x8B)]);
 
     // Burn approach countdown with XY far (same as ripman_woodsgo).
     for _ in 0..30 {
@@ -170,5 +165,4 @@ fn item7_ripair_chain_repairs_on_catch() {
         "TRIGSE $17 on catch; got {:?}",
         log.borrow()
     );
-    let _ = ripair_istrat; // silence if unused in some cfgs
 }

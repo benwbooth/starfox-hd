@@ -19,6 +19,9 @@ const TARGET: u32 = 0x0500;
 const MOTHER: u32 = 0x0600;
 const WRAM: u32 = 0x7E_0000;
 
+#[path = "support/repair_chain.rs"]
+mod repair_chain;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,
@@ -48,7 +51,7 @@ fn seed_pickup_player(source: &Source, bus: &mut SnesBus, game: &Game) {
     source.word(bus, 0, "ALFREELST", 0);
 }
 
-fn compare_pickup(source: &Source, bus: &mut SnesBus, game: &Game, id: u16, context: &str) {
+fn compare_pickup_state(source: &Source, bus: &mut SnesBus, game: &Game, id: u16, context: &str) {
     let mut translated = game.objs.aliens[id as usize];
     // Catalog IDs are decoded native shape handles, not source addresses.
     if let Some(address) = match translated.shape {
@@ -76,6 +79,10 @@ fn compare_pickup(source: &Source, bus: &mut SnesBus, game: &Game, id: u16, cont
         bus.read8(WRAM | source.symbol("PSHIPFLAGS")),
         "{context}: ship flags"
     );
+}
+
+fn compare_pickup(source: &Source, bus: &mut SnesBus, game: &Game, id: u16, context: &str) {
+    compare_pickup_state(source, bus, game, id, context);
     assert_eq!(
         bus.read8(WRAM | source.symbol("SDSPT3")),
         0,
