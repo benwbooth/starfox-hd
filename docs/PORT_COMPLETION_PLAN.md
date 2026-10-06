@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- SF2 player storage now owns the actual targeting record, and scene paths
+  borrow that record from the primary player independently of path selection.
+  The separate player target initializer preserves retained range, forced
+  owner, angles and display fields while clearing only its documented fields.
+  Fixed-view fine angles are read directly from the existing base-field
+  aliases, shared with scripted camera motion and view save/restore; the old
+  independent warning-heading publication is removed. Six integration/unit
+  tests cover primary-player switching, live view changes, snap/chase/restore,
+  missing-input resume and failure latching; storage release also invalidates
+  targeting before actor reuse. Unmodified source verifies all 65,536 pairs
+  of initial control/shared-mode bytes and 10,240 target-selection cases
+  across both entry points, including fine-angle and coordinate boundaries.
+  All 1,223 native tests pass in debug and release; compatibility tests, four
+  original-instruction tests in both profiles, 616 disassembler checks,
+  architecture checks and all three application builds pass. This closes a
+  missing scene-path consumer and the target initializer dependency, not the
+  enclosing player initializer, display-epoch target reset or mode dispatch.
+
 - SF2 now has the real player auxiliary allocation/clear/publication prefix,
   connected to `SceneActors` and its existing player services. It replaces the
   actor's prior owned resource chain, charges the original 472-byte payload,

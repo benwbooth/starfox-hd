@@ -51,6 +51,8 @@ pub struct PlayerPathRecords {
     pub action: Option<super::player_action::PlayerActionState>,
     pub consumable: Option<super::player_consumable::PlayerConsumableControl>,
     pub target_control: Option<super::path_player_control::PlayerTargetControl>,
+    /// Candidate/marker selection, distinct from the scripted follow target.
+    pub target_selection: Option<super::path_target::TargetSelection>,
     pub visit: Option<super::player_visit::PlayerVisitControl>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
@@ -128,6 +130,8 @@ pub enum WorldInputError {
     MissingActionGate,
     MissingPlayerConfiguration,
     MissingPlayerCharge(ObjectId),
+    MissingTargetSelection(ObjectId),
+    MissingReflectionMode,
     MissingEquipment(ObjectId),
 }
 
@@ -152,9 +156,6 @@ pub struct ScenePathWorld {
     pub active_shield_capacity: Option<u8>,
     /// Shared equipment publications (1DD2/3), separate from live equipment.
     pub active_consumables: Option<super::player_visit::PublishedConsumables>,
-    /// High byte of the fixed primary view's fine yaw (base 15). Ordinary
-    /// actor yaw is a different byte; scene view control publishes this.
-    pub primary_view_heading: Option<Angle>,
     pub shield_recovery: Option<super::player_hit_control::ShieldRecoveryRequest>,
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
     pub impact: Option<super::path_impact::ImpactState>,
@@ -218,7 +219,6 @@ impl ScenePathWorld {
             player_service_flags: None,
             active_shield_capacity: None,
             active_consumables: None,
-            primary_view_heading: None,
             shield_recovery: None,
             surface_mode: None,
             impact: None,
@@ -373,6 +373,9 @@ impl InvocationWorld for ScenePathWorld {
             .get(actor)
             .ok_or(WorldInputError::MissingActor(actor))?;
         let selected = self.selected(selected);
+        let target_anchor = self.fixed_players[0]
+            .and_then(|id| objects.get(id))
+            .map(super::path_target::TargetAnchor::from_view);
         let primary_motion = self
             .primary_player
             .and_then(|id| self.players[id.index()])
@@ -416,6 +419,14 @@ impl InvocationWorld for ScenePathWorld {
                 world.selected_particle_effects = records.particles.as_mut();
             }
             if self.primary_player == Some(owner) {
+                world.primary_target = records
+                    .target_selection
+                    .as_mut()
+                    .zip(target_anchor)
+                    .map(|(selection, anchor)| super::path_target::PrimaryTarget {
+                        anchor,
+                        selection,
+                    });
                 world.primary_control = records.target_control.as_mut().map(|target| {
                     super::path_player_control::PrimaryControl {
                         target,

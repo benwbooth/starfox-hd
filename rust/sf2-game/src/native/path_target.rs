@@ -1,12 +1,18 @@
 //! Primary-player target selection and marker projection (`$07:B1EA..B3AE`).
 //! The fixed view marker has fine angles, unlike ordinary byte-angle actors.
 
+#[cfg(test)]
+#[path = "scene_target_tests.rs"]
+mod scene_tests;
+
 use super::{ObjectId, Vector3};
 use sf_core::aim_angle::{sf2_atan16, sf2_xz_angle_distance};
 
 const LOCKED: u8 = 0x10;
 const PATH_REQUESTED: u8 = 0x08;
 const DISPLAY_HIGH: u8 = 0x80;
+const INITIAL_CONTROL: u8 = 0x40;
+const SINGLE_CONTACT_CONTROL: u8 = 0x80;
 const ANGLE_FRACTION_BITS: u32 = 8;
 const HALF_SAMPLE: u16 = 0x0080;
 const CURVE_MASK: u8 = 0x1F;
@@ -97,6 +103,19 @@ pub struct TargetAnchor {
     pub yaw: u16,
 }
 
+impl TargetAnchor {
+    /// Resample the actual fixed view, including scripted camera motion and
+    /// restored base records, rather than a second angle publication.
+    pub fn from_view(view: &super::Object) -> Self {
+        let angles = super::view_transition::FixedViewAngles::capture(view);
+        Self {
+            position: view.base.position,
+            pitch: angles.pitch,
+            yaw: angles.yaw,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct TargetSelection {
     pub display_status: u8,
@@ -114,6 +133,56 @@ pub struct TargetSelection {
     pub yaw: u16,
     pub screen: [u8; 2],
     pub clipped_yaw: u8,
+}
+
+impl TargetSelection {
+    /// Player initializer `$07:B0CE..B116`. This is not the per-display
+    /// candidate reset: it preserves the nearest-distance word, retained
+    /// forced owner, angles, screen point and existing control bits.
+    pub fn initialize(&mut self, reflect_all_contacts: bool) {
+        self.clear_initial_candidate();
+        self.initialize_control(reflect_all_contacts);
+    }
+
+    fn clear_initial_candidate(&mut self) {
+        self.candidate = None;
+        self.position = Vector3::default();
+        self.auxiliary_distance = u16::MAX;
+    }
+
+    fn initialize_control(&mut self, reflect_all_contacts: bool) {
+        if !reflect_all_contacts {
+            self.control_flags |= SINGLE_CONTACT_CONTROL;
+        }
+        self.control_flags |= INITIAL_CONTROL;
+    }
+}
+
+/// Reset the caller's actual player record, independently of the current
+/// primary/path selection. Earlier candidate clearing survives a missing
+/// shared control input; SceneActors latches that diagnostic against replay.
+pub fn initialize_player(
+    objects: &super::ObjectStore,
+    world: &mut super::scene_path_world::ScenePathWorld,
+    owner: ObjectId,
+) -> Result<(), super::scene_path_world::WorldInputError> {
+    use super::scene_path_world::WorldInputError;
+    world
+        .player_mut(objects, owner)?
+        .target_selection
+        .as_mut()
+        .ok_or(WorldInputError::MissingTargetSelection(owner))?
+        .clear_initial_candidate();
+    let reflect_all_contacts = world
+        .reflect_all_contacts
+        .ok_or(WorldInputError::MissingReflectionMode)?;
+    world
+        .player_mut(objects, owner)?
+        .target_selection
+        .as_mut()
+        .expect("validated target record")
+        .initialize_control(reflect_all_contacts);
+    Ok(())
 }
 
 pub struct PrimaryTarget<'a> {

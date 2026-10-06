@@ -2,7 +2,7 @@
 //! view is independent of both the live player pointer and path selection.
 
 use super::super::actor_auxiliary::AuxiliaryKind;
-use super::super::view_transition::{disable_projectiles, restore_view, save_view};
+use super::super::view_transition::{disable_projectiles, restore_view, save_view, FixedViewAngles};
 use super::*;
 
 const BEGIN_CUE: u8 = 248;
@@ -11,27 +11,12 @@ const END_CUE: u8 = 247;
 /// The view's three word angles share their high bytes with ordinary actor
 /// fields. Keep these named aliases live, not a second orientation snapshot.
 fn view_angles(view: &Object) -> [u16; 3] {
-    [
-        u16::from_le_bytes([view.base.pitch.units(), view.base.child_number]),
-        u16::from_le_bytes([
-            view.base.yaw.units(),
-            view.extension.path_state.repeat_counter,
-        ]),
-        u16::from_le_bytes([view.base.roll.units(), view.base.wait_timer]),
-    ]
+    let angles = FixedViewAngles::capture(view);
+    [angles.pitch, angles.yaw, angles.roll]
 }
 
 fn set_view_angles(view: &mut Object, angles: [u16; 3]) {
-    use super::super::Angle;
-    let [pitch, child_number] = angles[0].to_le_bytes();
-    let [yaw, repeat_counter] = angles[1].to_le_bytes();
-    let [roll, wait_timer] = angles[2].to_le_bytes();
-    view.base.pitch = Angle::from_units(pitch);
-    view.base.child_number = child_number;
-    view.base.yaw = Angle::from_units(yaw);
-    view.extension.path_state.repeat_counter = repeat_counter;
-    view.base.roll = Angle::from_units(roll);
-    view.base.wait_timer = wait_timer;
+    FixedViewAngles { pitch: angles[0], yaw: angles[1], roll: angles[2] }.write_to(view);
 }
 
 impl PathRuntime {

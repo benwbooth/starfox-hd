@@ -116,10 +116,9 @@ pub fn begin(
         };
         let view = world.fixed_players[0]
             .and_then(|id| objects.get(id))
-            .zip(world.primary_view_heading)
-            .map(|(actor, bearing)| WarningView {
+            .map(|actor| WarningView {
                 position: actor.base.position,
-                bearing,
+                bearing: super::view_transition::FixedViewAngles::capture(actor).heading(),
             });
         proximity_warning::update_with_view(
             objects,

@@ -7,7 +7,7 @@ use crate::scene_contact::PlayerContactControl;
 use crate::scene_path_world::PlayerPathRecords;
 use crate::scene_strategy::{SceneActors, SceneCallbacks, SceneError, SceneExecution};
 use crate::strategy_schedule::{StrategyCompletion, StrategyHost};
-use crate::{Angle, Behavior, Object, ObjectKind, ObjectSpawnDefaults, RandomState, ShapeId};
+use crate::{Behavior, Object, ObjectKind, ObjectSpawnDefaults, RandomState, ShapeId};
 
 struct Callbacks;
 impl SceneCallbacks for Callbacks {
@@ -327,7 +327,6 @@ fn obstacle_cue_precedes_low_shield_and_action_fault_preserves_only_earlier_writ
         ))
         .unwrap();
     scene.world.fixed_players[0] = Some(view);
-    scene.world.primary_view_heading = Some(Angle::ZERO);
     let mut obstacle = Object::new(
         ObjectKind::Enemy,
         ShapeId::TITLE_CRAFT,

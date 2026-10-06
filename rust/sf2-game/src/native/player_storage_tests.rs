@@ -121,6 +121,7 @@ fn replacement_initializes_every_supported_player_record_without_initializing_th
             && records.carried.is_some()
     );
     assert_eq!(records.equipment, Some(Default::default()));
+    assert_eq!(records.target_selection, Some(Default::default()));
     assert_eq!(records.yaw_motion, Some(0));
     assert_eq!(
         world.shots(&objects, primary),
@@ -149,6 +150,12 @@ fn released_storage_cannot_be_read_through_any_scene_path_borrow_before_slot_reu
     let mut world = ScenePathWorld::new(RandomState::default());
     let mut runtime = PathRuntime::default();
     replace(&mut objects, &mut world, &mut runtime, primary, inputs(3)).unwrap();
+    world.fixed_players[0] = Some(borrower);
+    assert!(world
+        .path_world(&objects, borrower, PlayerTarget::Primary)
+        .unwrap()
+        .primary_target
+        .is_some());
     let lifetime = objects.lifetime_id(primary);
     let prior_storage = objects.get(primary).unwrap().base.player_storage;
     runtime
@@ -180,6 +187,7 @@ fn released_storage_cannot_be_read_through_any_scene_path_borrow_before_slot_reu
             && path.primary_feedback.is_none()
     );
     assert!(path.linked_shot_count.is_none());
+    assert!(path.primary_target.is_none());
     drop(path);
     replace(&mut objects, &mut world, &mut runtime, primary, inputs(1)).unwrap();
     assert_ne!(

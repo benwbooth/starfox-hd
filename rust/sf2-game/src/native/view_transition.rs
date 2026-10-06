@@ -17,6 +17,46 @@ const HOSTILE_PROJECTILE_CLASSES: ExclusionGroups = ExclusionGroups::from_author
 const VIEW_BASE_COST: u16 = 63;
 const SCRIPTED_VIEW_MODE: u16 = 0x0002;
 
+/// Full fixed-view angles share base storage with ordinary actor fields.
+/// Read and write those aliases directly so camera motion, view save/restore,
+/// target projection and warning bearings always observe the same state.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct FixedViewAngles {
+    pub pitch: u16,
+    pub yaw: u16,
+    pub roll: u16,
+}
+
+impl FixedViewAngles {
+    pub fn capture(view: &Object) -> Self {
+        Self {
+            pitch: u16::from_le_bytes([view.base.pitch.units(), view.base.child_number]),
+            yaw: u16::from_le_bytes([
+                view.base.yaw.units(),
+                view.extension.path_state.repeat_counter,
+            ]),
+            roll: u16::from_le_bytes([view.base.roll.units(), view.base.wait_timer]),
+        }
+    }
+
+    pub fn write_to(self, view: &mut Object) {
+        let [pitch, child_number] = self.pitch.to_le_bytes();
+        let [yaw, repeat_counter] = self.yaw.to_le_bytes();
+        let [roll, wait_timer] = self.roll.to_le_bytes();
+        view.base.pitch = super::Angle::from_units(pitch);
+        view.base.child_number = child_number;
+        view.base.yaw = super::Angle::from_units(yaw);
+        view.extension.path_state.repeat_counter = repeat_counter;
+        view.base.roll = super::Angle::from_units(roll);
+        view.base.wait_timer = wait_timer;
+    }
+
+    pub fn heading(self) -> super::Angle {
+        const FINE_ANGLE_FRACTION_BITS: u32 = 8;
+        super::Angle::from_units((self.yaw >> FINE_ANGLE_FRACTION_BITS) as u8)
+    }
+}
+
 /// Shared execution-mode word ($1B84). Only the scripted-view bit is changed
 /// by C2/C3; the other mode bits and companion byte remain live. This mode
 /// determines fresh actors' pause exemption and suppresses nearby warnings.

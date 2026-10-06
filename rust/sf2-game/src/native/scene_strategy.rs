@@ -147,6 +147,23 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Target reset after the enclosing initializer's shared-state reset.
+    /// Its source order is deliberately separate from storage replacement.
+    pub fn initialize_player_target(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::path_target::initialize_player(self.objects, self.world, owner)
+            .map_err(SceneError::World);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Real player-record allocation and publication prefix. The enclosing
     /// scene initializer still owns view selection, formatting and globals.
     pub fn replace_player_storage(

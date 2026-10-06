@@ -1,12 +1,17 @@
-//! Unmodified player auxiliary allocation/clear/publication prefix. This
-//! deliberately stops at the distinct view-selection tail ($06:82B7).
+//! Unmodified player auxiliary allocation/clear/publication prefix and target
+//! initialization/selection. Storage deliberately stops before the distinct
+//! view-selection tail ($06:82B7); targeting runs its separate full routines.
 
 use sf2_game::path_runtime::PathRuntime;
+use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};
 use sf2_game::program_resources::AllocationFailure;
 use sf2_game::program_state::ProgramData;
 use sf2_game::scene_path_world::ScenePathWorld;
-use sf2_game::{Angle, Behavior, Object, ObjectId, ObjectKind, ObjectStore, RandomState, ShapeId};
+use sf2_game::view_transition::FixedViewAngles;
+use sf2_game::{
+    Angle, Behavior, Object, ObjectId, ObjectKind, ObjectStore, RandomState, ShapeId, Vector3,
+};
 use sf_oracle::SnesBus;
 use w65c816::{AddressType, Signals, System, CPU};
 
@@ -202,6 +207,17 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                     .unwrap();
                 let slot = u32::from(source.bus.read16(WRAM + u32::from(OWNER) + 0x2B));
                 assert_ne!(slot, 0);
+                assert_source_target(
+                    &source,
+                    slot,
+                    world
+                        .player(&objects, owner)
+                        .unwrap()
+                        .target_selection
+                        .unwrap(),
+                    |_| panic!("new player target must not retain an actor"),
+                    "storage replacement",
+                );
                 assert_eq!(source.bus.read16(WRAM + 0x12C3), OWNER);
                 assert_eq!(source.bus.read16(WRAM + 0x1E24), slot as u16);
                 assert_eq!(world.primary_player, Some(owner));
@@ -322,6 +338,14 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                     .as_mut()
                     .unwrap()
                     .weapon_level = 99;
+                world.player_mut(&objects, owner).unwrap().target_selection =
+                    Some(TargetSelection {
+                        candidate: Some(other),
+                        forced_owner: Some(other),
+                        distance: u16::MAX,
+                        control_flags: u8::MAX,
+                        ..Default::default()
+                    });
             }
         }
     }
@@ -394,4 +418,356 @@ fn unavailable_storage_diagnoses_the_original_allocator_boundary_before_invalid_
         assert_eq!(world.primary_player, Some(other));
         assert!(world.player(&objects, owner).is_err());
     }
+}
+
+fn source_target(
+    source: &mut Source,
+    slot: u32,
+    value: TargetSelection,
+    pointer: impl Fn(ObjectId) -> u16,
+) {
+    for (field, value) in [
+        (0x6BB8, value.candidate.map(&pointer).unwrap_or(0)),
+        (0x6BBA, value.auxiliary_distance),
+        (0x6BBC, value.distance),
+        (0x6BBE, value.yaw),
+        (0x6BC0, value.pitch),
+        (0x6BCA, value.forced_owner.map(pointer).unwrap_or(0)),
+        (0x6BCC, value.position.x as u16),
+        (0x6BCE, value.position.y as u16),
+        (0x6BD0, value.position.z as u16),
+    ] {
+        source.bus.write16(WRAM + slot + field, value);
+    }
+    for (field, value) in [
+        (0x6BB6, value.display_status),
+        (0x6BC2, value.control_flags),
+        (0x6BC5, value.clipped_yaw),
+        (0x6BAD, value.screen[0]),
+        (0x6BAF, value.screen[1]),
+    ] {
+        source.bus.write8(WRAM + slot + field, value);
+    }
+}
+
+fn assert_source_target(
+    source: &Source,
+    slot: u32,
+    value: TargetSelection,
+    pointer: impl Fn(ObjectId) -> u16,
+    case: &str,
+) {
+    for (field, native) in [
+        (0x6BB8, value.candidate.map(&pointer).unwrap_or(0)),
+        (0x6BBA, value.auxiliary_distance),
+        (0x6BBC, value.distance),
+        (0x6BBE, value.yaw),
+        (0x6BC0, value.pitch),
+        (0x6BCA, value.forced_owner.map(pointer).unwrap_or(0)),
+        (0x6BCC, value.position.x as u16),
+        (0x6BCE, value.position.y as u16),
+        (0x6BD0, value.position.z as u16),
+    ] {
+        assert_eq!(
+            native,
+            source.bus.read16(WRAM + slot + field),
+            "{case}: {field:04X}"
+        );
+    }
+    for (field, native) in [
+        (0x6BB6, value.display_status),
+        (0x6BC2, value.control_flags),
+        (0x6BC5, value.clipped_yaw),
+        (0x6BAD, value.screen[0]),
+        (0x6BAF, value.screen[1]),
+    ] {
+        assert_eq!(
+            native,
+            source.bus.read8(WRAM + slot + field),
+            "{case}: {field:04X}"
+        );
+    }
+}
+
+#[test]
+fn target_initializer_matches_original_for_every_existing_control_and_shared_mode_byte() {
+    let mut source = Source::new(&rom(), 0xA7);
+    source.run(0x7F1737, None, 0, OWNER, true);
+    source.run(0x068260, Some(0x0682B7), 0, OWNER, true);
+    let slot = u32::from(source.bus.read16(WRAM + u32::from(OWNER) + 0x2B));
+    let mut objects = ObjectStore::new();
+    let owner = actor(&mut objects);
+    let other = actor(&mut objects);
+    let mut world = ScenePathWorld::new(RandomState::default());
+    let mut runtime = PathRuntime::default();
+    player_storage::replace(
+        &mut objects,
+        &mut world,
+        &mut runtime,
+        owner,
+        PlayerStorageInputs {
+            pilot_code: 0,
+            reserve_shield: 0,
+            score: PlayerScore::default(),
+        },
+    )
+    .unwrap();
+    // The reset is caller-owned, not implicitly the currently selected primary.
+    world.primary_player = Some(other);
+    source.bus.write16(WRAM + 0x12C3, OTHER);
+    for flags in 0..=u8::MAX {
+        for mode in 0..=u8::MAX {
+            let initial = TargetSelection {
+                display_status: !flags,
+                control_flags: flags,
+                forced_owner: Some(other),
+                candidate: Some(other),
+                distance: u16::from(mode) * 257,
+                auxiliary_distance: 47131,
+                position: Vector3 {
+                    x: -30201,
+                    y: 1779,
+                    z: 28131,
+                },
+                pitch: 41709,
+                yaw: 49159,
+                screen: [213, 179],
+                clipped_yaw: flags ^ mode,
+            };
+            source_target(&mut source, slot, initial, |_| OTHER);
+            source.bus.write8(WRAM + 0x1AA6, mode);
+            world.reflect_all_contacts = Some(mode & 2 != 0);
+            world.player_mut(&objects, owner).unwrap().target_selection = Some(initial);
+            source.run(0x07B0CE, None, 0, OWNER, true);
+            sf2_game::path_target::initialize_player(&objects, &mut world, owner).unwrap();
+            let result = world
+                .player(&objects, owner)
+                .unwrap()
+                .target_selection
+                .unwrap();
+            assert_source_target(
+                &source,
+                slot,
+                result,
+                |_| OTHER,
+                &format!("flags={flags} mode={mode}"),
+            );
+            assert_eq!(source.bus.read16(WRAM + 0x12C3), OTHER);
+            assert_eq!(world.primary_player, Some(other));
+        }
+    }
+}
+
+#[test]
+fn scene_primary_target_selection_matches_both_original_entries_with_live_view_and_player_switches()
+{
+    use sf2_game::path_commands::{ControlCommand, ControlStep};
+    use sf2_game::path_control::PlayerTarget;
+    use sf2_game::path_invocation::InvocationWorld;
+    use sf2_game::path_program::{PathCatalog, Statement};
+    use sf2_game::{PathCursor, PathId};
+    const CANDIDATE: u16 = 0x0700;
+    const VIEW: u32 = 0x033F;
+    let mut source = Source::new(&rom(), 0xA7);
+    source.run(0x7F1737, None, 0, OWNER, true);
+    let mut slots = [0; 2];
+    for (index, owner) in [OWNER, OTHER].into_iter().enumerate() {
+        source.run(0x068260, Some(0x0682B7), 0, owner, true);
+        slots[index] = u32::from(source.bus.read16(WRAM + u32::from(owner) + 0x2B));
+    }
+    let mut objects = ObjectStore::new();
+    let players = [actor(&mut objects), actor(&mut objects)];
+    let owner = actor(&mut objects);
+    let view = actor(&mut objects);
+    let mut world = ScenePathWorld::new(RandomState::new([1, 9, 17, 81]));
+    let mut runtime = PathRuntime::default();
+    for player in players {
+        player_storage::replace(
+            &mut objects,
+            &mut world,
+            &mut runtime,
+            player,
+            PlayerStorageInputs {
+                pilot_code: 0,
+                reserve_shield: 0,
+                score: PlayerScore::default(),
+            },
+        )
+        .unwrap();
+    }
+    world.fixed_players[0] = Some(view);
+    let cursor = |path, command_index| PathCursor {
+        path: PathId::from_catalog_index(path),
+        command_index,
+    };
+    let catalog = PathCatalog::new(vec![
+        vec![
+            Statement::ConsiderPrimaryTarget { next: cursor(0, 1) },
+            Statement::Control(ControlCommand::Hold),
+        ],
+        vec![
+            Statement::ConsiderPrimaryTargetAndMarkSceneProxy { next: cursor(1, 1) },
+            Statement::Control(ControlCommand::Hold),
+        ],
+    ])
+    .unwrap();
+    let pointer = |id| {
+        if id == owner {
+            CANDIDATE
+        } else if id == players[0] {
+            OWNER
+        } else if id == players[1] {
+            OTHER
+        } else {
+            panic!("unexpected target identity")
+        }
+    };
+    for seed in 0..=u8::MAX {
+        let selected_index = usize::from(seed & 1);
+        let primary = players[selected_index];
+        let secondary = players[1 - selected_index];
+        let slot = slots[selected_index];
+        world.primary_player = Some(primary);
+        world.secondary_player = Some(secondary);
+        source.bus.write16(WRAM + 0x12C3, pointer(primary));
+        for (index, (anchor_position, candidate_position)) in [
+            (Vector3::default(), Vector3 { x: 0, y: 0, z: 100 }),
+            (
+                Vector3 {
+                    x: 100,
+                    y: -101,
+                    z: -999,
+                },
+                Vector3 {
+                    x: -777,
+                    y: 205,
+                    z: 539,
+                },
+            ),
+            (
+                Vector3 {
+                    x: -32768,
+                    y: 32767,
+                    z: 0,
+                },
+                Vector3 {
+                    x: 32767,
+                    y: -32768,
+                    z: -32768,
+                },
+            ),
+            (
+                Vector3 {
+                    x: -301,
+                    y: -203,
+                    z: -107,
+                },
+                Vector3 {
+                    x: -300,
+                    y: -202,
+                    z: -106,
+                },
+            ),
+            (
+                Vector3 {
+                    x: 31979,
+                    y: 12917,
+                    z: -25713,
+                },
+                Vector3 {
+                    x: -27101,
+                    y: -5371,
+                    z: 17533,
+                },
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let angles = FixedViewAngles {
+                pitch: u16::from(seed).wrapping_mul(157),
+                yaw: u16::from(seed).wrapping_mul(353),
+                roll: 0,
+            };
+            angles.write_to(objects.get_mut(view).unwrap());
+            objects.get_mut(view).unwrap().base.position = anchor_position;
+            objects.get_mut(owner).unwrap().base.position = candidate_position;
+            for (field, value) in [
+                (0x0C, anchor_position.x as u16),
+                (0x0E, anchor_position.y as u16),
+                (0x10, anchor_position.z as u16),
+                (0x12, angles.pitch),
+                (0x14, angles.yaw),
+            ] {
+                source.bus.write16(WRAM + VIEW + field, value);
+            }
+            for (field, value) in [
+                (0x0C, candidate_position.x),
+                (0x0E, candidate_position.y),
+                (0x10, candidate_position.z),
+            ] {
+                source
+                    .bus
+                    .write16(WRAM + u32::from(CANDIDATE) + field, value as u16);
+            }
+            for distance in [0, 56, 32768, 65535] {
+                for (path, entry) in [(0, 0x07B1EA), (1, 0x07B1FD)] {
+                    let initial = TargetSelection {
+                        display_status: seed.rotate_left(3),
+                        control_flags: seed,
+                        forced_owner: match seed % 3 {
+                            0 => Some(owner),
+                            1 => Some(secondary),
+                            _ => None,
+                        },
+                        candidate: Some(secondary),
+                        distance,
+                        auxiliary_distance: 49631,
+                        position: Vector3 {
+                            x: -17003,
+                            y: 737,
+                            z: -9701,
+                        },
+                        pitch: 61071,
+                        yaw: 40839,
+                        screen: [173, 237],
+                        clipped_yaw: !seed,
+                    };
+                    source_target(&mut source, slot, initial, pointer);
+                    world
+                        .player_mut(&objects, primary)
+                        .unwrap()
+                        .target_selection = Some(initial);
+                    let secondary_before = *world.player(&objects, secondary).unwrap();
+                    objects.get_mut(owner).unwrap().base.path = Some(cursor(path, 0));
+                    source.run(entry, None, 0, CANDIDATE, true);
+                    let mut input = world
+                        .path_world(&objects, owner, PlayerTarget::Secondary)
+                        .unwrap();
+                    let result = runtime
+                        .step_program(&catalog, &mut objects, owner, &mut input)
+                        .unwrap();
+                    assert_eq!(result.step, ControlStep::Continue);
+                    drop(input);
+                    let result = world
+                        .player(&objects, primary)
+                        .unwrap()
+                        .target_selection
+                        .unwrap();
+                    assert_source_target(
+                        &source,
+                        slot,
+                        result,
+                        pointer,
+                        &format!("seed={seed} geometry={index} distance={distance} path={path}"),
+                    );
+                    assert_eq!(
+                        world.player(&objects, secondary).unwrap(),
+                        &secondary_before
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(world.random.bytes(), [1, 9, 17, 81]);
 }
