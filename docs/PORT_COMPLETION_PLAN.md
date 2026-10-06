@@ -113,6 +113,30 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Connected deferred artwork requests to the native opening's ordinary-frame
+  barrier. Draw and upload buffers have separate typed ownership, accept
+  either completion order, reject duplicate completions, and retain their
+  roles across requests. The load gate tests the next upload source after
+  both jobs join; it does not test controller age or a prescribed update.
+  The latest unstarted artwork request replaces its predecessor without
+  changing published assets. Active service sequences cannot be replaced;
+  allocation failure rolls back pending artwork and frame ownership too.
+  The original boot's full 440-update opening verifies both owners against
+  unchanged source execution. It also demonstrates zero, one and two upload
+  completions between controller visits, so controller parity is explicitly
+  not treated as instantaneous upload state. Native artwork scheduling now
+  passes the previously ignored 440-update live/saved-palette check, with
+  source service events used only for assertions, not scheduling input.
+  **This is joined-frame artwork integration, not native display timing or
+  complete scene loading.** Actor-refresh boundaries are still supplied by
+  the original in that check; the independent autonomous timing gate remains
+  ignored. Rendering, the other scene-setup/reset/postload effects and
+  `Game::tick` adoption remain open. All 1,198 native unit tests and two
+  architecture integration tests pass in debug/release; all 1,243
+  compatibility-enabled tests pass in debug. The seven scoped original-code
+  tests pass in debug/release with that one known timing gate still ignored.
+  The architecture audit and all three app builds pass.
+
 - Connected the standard loader's native artwork publications to `OpeningScene`:
   typed background tiles/map cells, separate live/sprite palette ownership, and
   an ordered publication queue which distinguishes main-loop requests from
@@ -133,9 +157,10 @@ running; scheduled work is not a guarantee of a completion date.
   integration tests pass in debug/release; all 1,239 compatibility-enabled
   game tests pass in debug, 11 scoped oracle tests pass in release, and all
   three app binaries build. The architecture audit also passes.
-  **Autonomous artwork scheduling, other scene-setup side effects, display
-  timing, render-state handoff and `Game::tick` adoption remain open.** Both
-  existing ignored autonomous gates are retained; this batch does not change
+  At this checkpoint, autonomous artwork scheduling, other scene-setup side
+  effects, display timing, render-state handoff and `Game::tick` adoption were
+  still open, and both existing ignored autonomous gates were retained.
+  This batch did not change
   the shipping intro's recorded presentation controller or certify SF2.
 
 - Separated historical SF1 checkpoint hashing from the expanded live trace

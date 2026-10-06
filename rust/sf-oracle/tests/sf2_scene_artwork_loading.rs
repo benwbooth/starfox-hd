@@ -60,6 +60,7 @@ fn opening_artwork_publications_match_original_boot_at_each_service_boundary() {
     );
     let mut source = RetailMachine::new(rom);
     reach(&mut source, 0x0DBCCF);
+    assert_eq!(source.peek16(0x46), 0xA000, "boot opening upload buffer");
     let mut palette = OpeningScenePalette::new(std::array::from_fn(|index| {
         IntroColor::from_bgr555(source.peek16(0x7EEFE5 + index as u32 * 2))
     }));

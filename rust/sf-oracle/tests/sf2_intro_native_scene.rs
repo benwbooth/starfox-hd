@@ -2,9 +2,9 @@
 //! partitioning as scheduler input, but never supplies actor poses, allocations
 //! or RNG corrections. The separate ignored autonomous gate remains failing
 //! until the timer/PPU refresh timing can be derived natively.
-//! Artwork integration additionally supplies observed publication boundaries,
-//! never palette contents. The separate actor-partition-only palette gate stays
-//! ignored until a native frame owner schedules those publications itself.
+//! Artwork is also checked with native frame-barrier scheduling; that test
+//! supplies only the initial decoded request, never publication boundaries or
+//! palette corrections. A separate check retains individual source services.
 
 use sf2_data::opening_artwork::{ForegroundPaletteId, OpeningArtwork};
 use sf2_game::intro_camera::OpeningCameraCue;
@@ -75,7 +75,6 @@ fn opening_view_initialization_matches_native_default() {
 }
 
 #[test]
-#[ignore = "native frame host does not yet schedule artwork publications autonomously"]
 fn native_palette_integration_with_observed_source_pass_partition() {
     check_opening_with_observed_source_pass_partition(true, false);
 }
@@ -110,7 +109,8 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         0x7F0CB2, // Character publication completed.
         0x7F0D08, // Map publication completed.
         0x03C893, // Main loader selected the standard foreground row.
-        0x03C879, 0x03C85F, // Alternate rows must not be silently treated as standard.
+        0x03C879,
+        0x03C85F, // Alternate rows must not be silently treated as standard.
         0x03D509, // Foreground publication completed.
         0x03D520, // Main loader requests sprites.
         0x03D52C, // Sprite publication completed.
@@ -130,6 +130,9 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         IntroColor::from_bgr555(machine.peek16(WRAM + 0xEFE5 + i as u32 * 2))
     });
     let mut native = OpeningScene::new(random, OpeningScenePalette::new(colors));
+    if check_palette && !observe_artwork {
+        native.queue_artwork_load(artwork.clone(), false).unwrap();
+    }
     machine.take_cpu_execution_watch_hits();
     let mut observed_splits = std::collections::BTreeSet::new();
     let mut draw_failures = std::collections::BTreeMap::new();
@@ -149,9 +152,31 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
             }
         }
         observed_splits.insert(budget.clone());
-        native
+        let native_events = native
             .tick_with_refresh_boundaries(&budget)
             .expect("native shared pool exhaustion");
+        if check_palette && !observe_artwork {
+            // These source events are assertions only. The native owner got
+            // no service-boundary input: it retained the frame-buffer roles,
+            // joined this frame and applied its pending artwork request.
+            let expected_publications: Vec<_> = dispatches
+                .iter()
+                .filter_map(|pc| match pc {
+                    0x7F0BBF => Some(ArtworkPublication::PolygonPalette),
+                    0x7F0CB2 => Some(ArtworkPublication::BackgroundCharacters),
+                    0x7F0D08 => Some(ArtworkPublication::BackgroundMap),
+                    0x03D509 => Some(ArtworkPublication::ForegroundPalette(
+                        ForegroundPaletteId::Standard,
+                    )),
+                    0x03D52C => Some(ArtworkPublication::SpritePalette),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                native_events.artwork_publications, expected_publications,
+                "artwork publications update={completed_updates}"
+            );
+        }
         if observe_artwork {
             // The controller is the first actor and the only actor writing
             // this palette. These events follow its just-completed visit and
@@ -168,7 +193,9 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
                     0x7F0BBF => Some(ArtworkPublication::PolygonPalette),
                     0x03C813 => {
                         assert_eq!(
-                            native.resume_artwork_load(ForegroundSelection::STANDARD).unwrap(),
+                            native
+                                .resume_artwork_load(ForegroundSelection::STANDARD)
+                                .unwrap(),
                             ArtworkResume::Queued(ArtworkPublication::BackgroundCharacters)
                         );
                         None
@@ -177,20 +204,26 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
                     0x7F0D08 => Some(ArtworkPublication::BackgroundMap),
                     0x03C893 => {
                         assert_eq!(
-                            native.resume_artwork_load(ForegroundSelection::STANDARD).unwrap(),
+                            native
+                                .resume_artwork_load(ForegroundSelection::STANDARD)
+                                .unwrap(),
                             ArtworkResume::Queued(ArtworkPublication::ForegroundPalette(
                                 ForegroundPaletteId::Standard
                             ))
                         );
                         None
                     }
-                    0x03C879 | 0x03C85F => panic!("unexpected alternate foreground in neutral boot"),
+                    0x03C879 | 0x03C85F => {
+                        panic!("unexpected alternate foreground in neutral boot")
+                    }
                     0x03D509 => Some(ArtworkPublication::ForegroundPalette(
                         ForegroundPaletteId::Standard,
                     )),
                     0x03D520 => {
                         assert_eq!(
-                            native.resume_artwork_load(ForegroundSelection::STANDARD).unwrap(),
+                            native
+                                .resume_artwork_load(ForegroundSelection::STANDARD)
+                                .unwrap(),
                             ArtworkResume::Queued(ArtworkPublication::SpritePalette)
                         );
                         None

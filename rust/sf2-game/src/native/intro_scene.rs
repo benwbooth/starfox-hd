@@ -48,12 +48,19 @@ use super::scene_artwork::{
     ArtworkLoadPhase, ArtworkPublication, ArtworkResume, ForegroundSelection, OpeningArtworkLoad,
     SceneArtwork,
 };
+use super::scene_frame::NormalFrameBuffers;
 use super::state::RandomState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpeningArtworkRequestError {
     AlreadyLoading,
     NotStarted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DeferredOpeningArtwork {
+    artwork: std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork>,
+    skip_background_palette: bool,
 }
 
 /// One independently scheduled member of the opening's shared actor pool.
@@ -320,6 +327,9 @@ pub struct OpeningActorSnapshot {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpeningSceneFrameEvents {
+    /// Artwork published at the joined normal-frame boundary. This preserves
+    /// loader order but does not assign display times to those publications.
+    pub artwork_publications: Vec<ArtworkPublication>,
     pub root_events: Vec<OpeningRootEvent>,
     pub second_flyby_events: Vec<OpeningSecondFlybyEvent>,
     pub spawned: Vec<ObjectId>,
@@ -346,6 +356,9 @@ pub struct OpeningScene {
     palette: OpeningScenePalette,
     artwork: SceneArtwork,
     artwork_load: Option<OpeningArtworkLoad>,
+    deferred_artwork: Option<DeferredOpeningArtwork>,
+    foreground_selection: ForegroundSelection,
+    frame_buffers: NormalFrameBuffers,
     random: RandomState,
     camera: IntroCameraView,
     camera_target: Option<ObjectId>,
@@ -407,6 +420,9 @@ impl OpeningScene {
             palette,
             artwork: SceneArtwork::default(),
             artwork_load: None,
+            deferred_artwork: None,
+            foreground_selection: ForegroundSelection::STANDARD,
+            frame_buffers: NormalFrameBuffers::default(),
             random,
             camera: IntroCameraView::default(),
             camera_target: None,
@@ -444,6 +460,40 @@ impl OpeningScene {
     pub fn artwork_load_phase(&self) -> Option<ArtworkLoadPhase> {
         self.artwork_load.as_ref().map(OpeningArtworkLoad::phase)
     }
+    pub fn artwork_request_pending(&self) -> bool {
+        self.deferred_artwork.is_some()
+    }
+    /// Logical frame-barrier roles, not a sample of the asynchronous display
+    /// at controller entry. An upload can finish before that controller runs.
+    pub fn frame_buffers(&self) -> &NormalFrameBuffers {
+        &self.frame_buffers
+    }
+    pub fn set_foreground_selection(&mut self, selection: ForegroundSelection) {
+        self.foreground_selection = selection;
+    }
+    /// Queue artwork for the ordinary scene's source-owned load barrier.
+    /// The latest not-yet-started request replaces the previous request, as
+    /// the source map's selected loader does. It cannot replace an active
+    /// service sequence. Published assets and palette policy stay unchanged
+    /// until the request is accepted; scene-mode/reset/postload work is not
+    /// implied by this artwork-only request.
+    pub fn queue_artwork_load(
+        &mut self,
+        artwork: std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork>,
+        skip_background_palette: bool,
+    ) -> Result<(), OpeningArtworkRequestError> {
+        if self
+            .artwork_load_phase()
+            .is_some_and(|phase| phase != ArtworkLoadPhase::Complete)
+        {
+            return Err(OpeningArtworkRequestError::AlreadyLoading);
+        }
+        self.deferred_artwork = Some(DeferredOpeningArtwork {
+            artwork,
+            skip_background_palette,
+        });
+        Ok(())
+    }
     /// Called by the scene host when the source's standard artwork request is
     /// accepted, not by the actor controller at a prescribed update number.
     /// Existing assets remain published until their individual service events.
@@ -452,9 +502,10 @@ impl OpeningScene {
         artwork: std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork>,
         skip_background_palette: bool,
     ) -> Result<(), OpeningArtworkRequestError> {
-        if self
-            .artwork_load_phase()
-            .is_some_and(|phase| phase != ArtworkLoadPhase::Complete)
+        if self.deferred_artwork.is_some()
+            || self
+                .artwork_load_phase()
+                .is_some_and(|phase| phase != ArtworkLoadPhase::Complete)
         {
             return Err(OpeningArtworkRequestError::AlreadyLoading);
         }
@@ -477,6 +528,38 @@ impl OpeningScene {
         self.artwork_load
             .as_mut()?
             .publish(&mut self.artwork, &mut self.palette)
+    }
+
+    /// Project the artwork portion of the main loop's blocking load onto its
+    /// joined frame boundary. The original does not run another actor while
+    /// waiting for these publications. Keep the fine-grained service API for
+    /// a future display owner; this does not simulate its interrupt timings,
+    /// fades, palette effects or the loader's other scene-setup side effects.
+    fn publish_frame_artwork(&mut self, events: &mut OpeningSceneFrameEvents) {
+        if !self.frame_buffers.ready_for_scene_load() {
+            return;
+        }
+        let Some(request) = self.deferred_artwork.take() else {
+            return;
+        };
+        self.begin_artwork_load(request.artwork, request.skip_background_palette)
+            .expect("a queued request cannot overlap an active loader");
+        loop {
+            match self.artwork_load_phase().expect("accepted artwork request") {
+                ArtworkLoadPhase::Complete => break,
+                ArtworkLoadPhase::Pending(_) => {
+                    events
+                        .artwork_publications
+                        .push(self.publish_artwork().expect("pending artwork publication"));
+                }
+                ArtworkLoadPhase::RequestBackground
+                | ArtworkLoadPhase::SelectForeground
+                | ArtworkLoadPhase::RequestSprites => {
+                    self.resume_artwork_load(self.foreground_selection)
+                        .expect("accepted artwork request");
+                }
+            }
+        }
     }
     pub fn random(&self) -> RandomState {
         self.random
@@ -1344,15 +1427,16 @@ impl OpeningScene {
         Ok(())
     }
 
-    /// Advance one complete actor traversal with the generic RNG refresh after
-    /// the active-list tail.
+    /// Advance one complete actor traversal and its ordinary-frame artwork
+    /// barrier, with the generic RNG refresh after the active-list tail.
     ///
     /// Retail's timer/PPU update can perform that refresh before the actor
     /// traversal reaches its tail.  Callers which supply that observed or
     /// independently derived visit boundary must use
     /// [`Self::tick_with_first_pass_budget`] instead.  Capacity failure rolls
     /// back the controller, palette, pool, RNG, camera and auxiliary state
-    /// together.
+    /// together. Frame work is joined at this coarse boundary; this API does
+    /// not model upload deadlines or perform the scene's rendering itself.
     pub fn tick(&mut self) -> Result<OpeningSceneFrameEvents, IntroDestructionCapacityError> {
         self.tick_with_refresh_boundaries(&[usize::MAX])
     }
@@ -1404,6 +1488,9 @@ impl OpeningScene {
         refresh_after_visits: &[usize],
     ) -> Result<OpeningSceneFrameEvents, IntroDestructionCapacityError> {
         let mut events = OpeningSceneFrameEvents::default();
+        self.frame_buffers
+            .begin_frame()
+            .expect("previous opening frame has joined its work");
         self.global_clock = self.global_clock.wrapping_add(1);
         let mut visits = 0usize;
         let mut next_refresh = 0usize;
@@ -1441,6 +1528,17 @@ impl OpeningScene {
                 events.retired.push(id);
             }
         }
+        // Both ordinary-frame jobs have joined before the source examines a
+        // pending load. Their relative completion time is deliberately not
+        // inferred from actor visits. Each owner advances once for this frame,
+        // even if the next source upload later completes before its controller.
+        self.frame_buffers
+            .finish_draw()
+            .expect("opening frame draw queued");
+        self.frame_buffers
+            .finish_upload()
+            .expect("opening frame upload queued");
+        self.publish_frame_artwork(&mut events);
         Ok(events)
     }
 }
@@ -1448,6 +1546,128 @@ impl OpeningScene {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_artwork(value: u8) -> std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork> {
+        std::sync::Arc::new(
+            sf2_data::opening_artwork::OpeningArtwork::from_decoded(
+                &vec![value; 8224],
+                &vec![value; 4096],
+                &vec![value; 9408],
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn queued_artwork_uses_retained_buffer_roles_not_scene_age_or_refresh_count() {
+        use super::super::scene_frame::BitmapBuffer;
+        use sf2_data::opening_artwork::ForegroundPaletteId;
+        for preceding_frames in 0..5 {
+            for refreshes in [&[][..], &[0, 0, usize::MAX][..]] {
+                let mut scene = OpeningScene::default();
+                for _ in 0..preceding_frames {
+                    scene.tick_with_refresh_boundaries(refreshes).unwrap();
+                }
+                let work = scene.frame_buffers().next_work();
+                let asset = sample_artwork(17);
+                scene.queue_artwork_load(asset.clone(), false).unwrap();
+                // Choice is sampled when loading, not when requesting.
+                scene.set_foreground_selection(ForegroundSelection {
+                    use_catalog: true,
+                    entry: 1,
+                });
+                let mut events = scene.tick_with_refresh_boundaries(refreshes).unwrap();
+                if work.upload_source == BitmapBuffer::Second {
+                    assert!(events.artwork_publications.is_empty());
+                    assert!(scene.artwork_request_pending());
+                    assert!(scene.artwork().characters.is_none());
+                    assert_eq!(scene.artwork_load_phase(), None);
+                    events = scene.tick_with_refresh_boundaries(refreshes).unwrap();
+                }
+                assert_eq!(
+                    events.artwork_publications,
+                    [
+                        ArtworkPublication::PolygonPalette,
+                        ArtworkPublication::BackgroundCharacters,
+                        ArtworkPublication::BackgroundMap,
+                        ArtworkPublication::ForegroundPalette(ForegroundPaletteId::CatalogOne),
+                        ArtworkPublication::SpritePalette,
+                    ]
+                );
+                assert!(!scene.artwork_request_pending());
+                assert_eq!(scene.artwork_load_phase(), Some(ArtworkLoadPhase::Complete));
+                assert!(std::sync::Arc::ptr_eq(
+                    scene.artwork().characters.as_ref().unwrap(),
+                    &asset.characters
+                ));
+                assert!(std::sync::Arc::ptr_eq(
+                    scene.artwork().map.as_ref().unwrap(),
+                    &asset.map
+                ));
+                assert!(scene.tick().unwrap().artwork_publications.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn replacing_a_deferred_request_preserves_frame_and_published_artwork() {
+        let mut scene = OpeningScene::default();
+        let first = sample_artwork(17);
+        scene.queue_artwork_load(first, false).unwrap();
+        let pending = scene.clone();
+        let latest = sample_artwork(85);
+        scene.queue_artwork_load(latest.clone(), true).unwrap();
+        assert_eq!(scene.frame_buffers, pending.frame_buffers);
+        assert_eq!(scene.artwork, pending.artwork);
+        assert_eq!(scene.palette, pending.palette);
+        assert!(scene.tick().unwrap().artwork_publications.is_empty());
+        let before = scene.clone();
+        assert_eq!(
+            scene.begin_artwork_load(sample_artwork(34), false),
+            Err(OpeningArtworkRequestError::AlreadyLoading)
+        );
+        assert_eq!(scene, before);
+        let mut without_load = scene.clone();
+        without_load.deferred_artwork = None;
+        without_load.tick().unwrap();
+        assert_eq!(scene.tick().unwrap().artwork_publications.len(), 5);
+        assert!(std::sync::Arc::ptr_eq(
+            scene.artwork().characters.as_ref().unwrap(),
+            &latest.characters
+        ));
+        assert!(!scene.artwork().skip_next_background_palette);
+        assert_eq!(
+            scene.palette().colors[..64],
+            without_load.palette().colors[..64]
+        );
+        assert_eq!(scene.random(), without_load.random());
+        assert_eq!(scene.controller(), without_load.controller());
+        assert_eq!(
+            scene.snapshots().collect::<Vec<_>>(),
+            without_load.snapshots().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn deferred_requests_cannot_replace_an_active_manual_service_sequence() {
+        let mut scene = OpeningScene::default();
+        scene.begin_artwork_load(sample_artwork(17), false).unwrap();
+        let before = scene.clone();
+        assert_eq!(
+            scene.queue_artwork_load(sample_artwork(85), true),
+            Err(OpeningArtworkRequestError::AlreadyLoading)
+        );
+        assert_eq!(scene, before);
+        // Advancing actors does not finish a sequence owned by the separate
+        // fine-grained display API or invent a missing service publication.
+        assert!(scene.tick().unwrap().artwork_publications.is_empty());
+        assert_eq!(
+            scene.artwork_load_phase(),
+            Some(ArtworkLoadPhase::Pending(
+                ArtworkPublication::PolygonPalette
+            ))
+        );
+    }
 
     #[test]
     fn boot_slots_and_root_insertion_match_the_source_pool() {
@@ -1594,6 +1814,7 @@ mod tests {
             OpeningScenePalette::new([IntroColor::default(); INTRO_PALETTE_COLORS]),
         );
         let mut setup_events = OpeningSceneFrameEvents::default();
+        scene.queue_artwork_load(sample_artwork(17), false).unwrap();
         while scene.available_slots() > 0 {
             scene
                 .allocate(

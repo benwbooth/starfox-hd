@@ -101,6 +101,7 @@ pub mod scene_path_world;
 pub mod scene_map;
 pub mod scene_display;
 pub mod scene_artwork;
+pub mod scene_frame;
 pub mod scene_contact;
 pub mod scene_strategy;
 pub mod scene_proxy;
