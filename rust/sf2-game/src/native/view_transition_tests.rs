@@ -184,7 +184,7 @@ fn snapshot_restores_base_fields_but_preserves_live_extensions_and_allocations()
         z: 777,
     };
     live.extension.path_state.script_value = 0xBACA;
-    live.extension.path_state.part = 231;
+    live.extension.surface_contact.group = 231;
     live.extension.path_state.animation = AnimationChannels {
         shape: AnimationControl::from_packed(0xFA),
         color: AnimationControl::from_packed(0x43),

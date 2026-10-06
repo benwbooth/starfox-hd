@@ -79,6 +79,8 @@ pub struct SurfaceContact {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ActorSurfaceContact {
     pub supporting_object: Option<ObjectId>,
+    /// Source extension 1CEA. Authored paths use this SAME byte as their
+    /// part/counter operand; a surface publication must not create a shadow.
     pub group: u8,
     pub flags: u8,
 }

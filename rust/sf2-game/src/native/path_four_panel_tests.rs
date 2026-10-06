@@ -216,7 +216,7 @@ fn emitter_consumes_one_signal_and_reads_live_full_byte_fighter_count() {
             phase.wrapping_add(u8::from(spawned))
         );
         let actor = objects.get(owner).unwrap();
-        assert_eq!(actor.extension.path_state.part, 224);
+        assert_eq!(actor.extension.surface_contact.group, 224);
         assert_eq!(
             actor.extension.path_state.motion_phase,
             256 | u16::from(phase)
@@ -236,7 +236,7 @@ fn emitter_consumes_one_signal_and_reads_live_full_byte_fighter_count() {
             );
             assert_eq!(fighter.base.attachment, None);
             assert_eq!((fighter.base.hit_points, fighter.base.attack_power), (1, 4));
-            assert_eq!(fighter.extension.path_state.part, 32);
+            assert_eq!(fighter.extension.surface_contact.group, 32);
         }
         assert_eq!(*inputs.random, before_random);
     }

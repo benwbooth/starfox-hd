@@ -259,6 +259,20 @@ running; scheduled work is not a guarantee of a completion date.
   and the 33 SF1 Python tests, architecture audit and app build pass. The source
   boundary proof does not certify absent-player scene states or unrelated bomb
   logic. Continue with the two remaining SF1 oracle blockers and SF2 scene wiring.
+- Added a concrete scene-owned path-world adapter with generation-checked
+  player auxiliary and linked-shot records, fresh per-statement relationships,
+  real shared queues/stores, and explicit faults for unpublished services.
+  Callback traversal now expires entries before reading predicate inputs and
+  retains a prepared candidate across missing-input retries, without advancing
+  its timer twice. Carry and part-target binding use live surface relationships
+  and preserve the source's early exits before reading auxiliary records.
+  The integration review exposed a duplicate representation of source 1CEA:
+  authored part/counter operands now share the surface group's actual byte.
+  Nine new tests cover these boundaries and a complete charge-orb invocation
+  sequence; all 1,082 native tests and two integration tests pass in both
+  profiles, along with 551 source tests, exact regeneration, architecture and
+  the app build. **The scene adapter is not yet wired into `Game::tick`;**
+  this remains a service-integration milestone, not a migrated encounter.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

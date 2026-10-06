@@ -278,7 +278,7 @@ fn contact_speed_updates_keep_signed_byte_thresholds_and_retained_half_steps() {
                 let actor = objects.get_mut(owner).unwrap();
                 actor.base.hit_points = health;
                 actor.base.contacts.new_contact_latched = true;
-                actor.extension.path_state.part = threshold;
+                actor.extension.surface_contact.group = threshold;
                 actor.extension.path_state.motion_phase = 0xFF00;
                 actor.extension.path_state.motion_delta = Vector3 {
                     x: 71,
@@ -299,7 +299,7 @@ fn contact_speed_updates_keep_signed_byte_thresholds_and_retained_half_steps() {
                 );
                 let faster = threshold.wrapping_sub(health) & 128 == 0;
                 assert_eq!(
-                    actor.extension.path_state.part,
+                    actor.extension.surface_contact.group,
                     if faster {
                         threshold.wrapping_sub(5)
                     } else {
@@ -387,7 +387,7 @@ fn death_halves_the_active_axis_then_signals_unlinks_scores_and_retires_identity
                 actor.base.hit_points = 70;
                 actor.base.contacts.new_contact_latched = true;
                 actor.extension.relative_rotation.pitch = Angle::from_units(axis);
-                actor.extension.path_state.part = 0;
+                actor.extension.surface_contact.group = 0;
                 actor.extension.path_state.platform_carry.saved_position = Vector3 {
                     x: -101,
                     y: 517,
@@ -495,7 +495,7 @@ fn attachment_fires_on_thirty_visit_cooldown_with_authored_spawn_metadata() {
         );
         assert_eq!(objects.get(child).unwrap().base.yaw.units(), 254);
         assert_eq!(
-            objects.get(child).unwrap().extension.path_state.part,
+            objects.get(child).unwrap().extension.surface_contact.group,
             30 - (visit - 1) % 30
         );
         assert_eq!(objects.len(), 3 + 2 * usize::from(1 + (visit - 1) / 30));
@@ -559,7 +559,7 @@ fn signaled_attachment_consumes_event_and_runs_eighteen_wrapping_curve_steps() {
                 .step,
             ControlStep::Movement
         );
-        objects.get_mut(child).unwrap().extension.path_state.part = 5;
+        objects.get_mut(child).unwrap().extension.surface_contact.group = 5;
         path_relationships::apply(
             &mut objects,
             owner,

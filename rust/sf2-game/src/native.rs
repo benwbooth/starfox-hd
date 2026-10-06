@@ -4,8 +4,8 @@
 //! Source-machine encodings are decoded at data boundaries and game systems
 //! operate on the domain structs exported from this module.
 
-pub mod attachments;
 pub mod actor_auxiliary;
+pub mod attachments;
 pub mod authored_paths;
 pub mod collision_boxes;
 pub mod collision_contacts;
@@ -47,32 +47,32 @@ mod object;
 pub mod path_actor_context;
 pub mod path_appearance;
 pub mod path_calls;
+pub mod path_charge;
 pub mod path_commands;
 pub mod path_conditions;
 pub mod path_contact;
-pub mod path_impact;
-pub mod path_invocation;
-pub mod path_effect;
 pub mod path_control;
+pub mod path_countdown;
 pub mod path_death;
+pub mod path_effect;
 pub mod path_equipment;
 pub mod path_fields;
+pub mod path_impact;
+pub mod path_invocation;
+pub mod path_launch;
 pub mod path_math;
 pub mod path_motion;
 pub mod path_player_control;
-pub mod path_protection;
-pub mod path_shots;
-pub mod path_countdown;
-pub mod path_scene_state;
-pub mod path_launch;
-pub mod path_radio;
-pub mod path_charge;
 pub mod path_program;
+pub mod path_protection;
+pub mod path_radio;
 pub mod path_random;
 pub mod path_relationships;
 pub mod path_runtime;
-pub mod path_sound;
+pub mod path_scene_state;
 pub mod path_score;
+pub mod path_shots;
+pub mod path_sound;
 pub mod path_spawn;
 pub mod path_steering;
 pub mod path_target;
@@ -84,19 +84,20 @@ pub mod player_hit_control;
 pub mod program_resources;
 pub mod program_state;
 pub mod proximity_warning;
-pub mod view_transition;
 pub mod radar;
 mod render;
 mod results;
 pub mod retirement;
+pub mod scene_path_world;
 pub mod scene_proxy;
 mod state;
 pub mod strategy_schedule;
-pub mod weapon_launch;
+pub mod view_transition;
 pub mod weapon_creation;
 pub mod weapon_dispatch;
-pub mod weapon_reflection;
+pub mod weapon_launch;
 pub mod weapon_rapid;
+pub mod weapon_reflection;
 pub mod world_occupancy;
 
 mod astropolis_assault;
@@ -110,8 +111,8 @@ pub use game::{Error, Game};
 pub use input::{Button, Buttons, InputState};
 pub use object::{
     Angle, Behavior, CollisionClass, Object, ObjectFlags, ObjectId, ObjectKind, ObjectLifetimeId,
-    ObjectSpawnDefaults, ObjectStore, PathCursor, PathId, ShapeId, SpatialDistance, SpatialLoop, SpatialSound,
-    StereoPosition, Vector3, WeaponKind, OBJECT_CAPACITY,
+    ObjectSpawnDefaults, ObjectStore, PathCursor, PathId, ShapeId, SpatialDistance, SpatialLoop,
+    SpatialSound, StereoPosition, Vector3, WeaponKind, OBJECT_CAPACITY,
 };
 pub use render::{AnimationState, Camera, MaterialSetId, RenderFlags, RenderObject, Rotation};
 pub use state::{

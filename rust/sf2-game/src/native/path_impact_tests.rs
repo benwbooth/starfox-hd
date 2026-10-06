@@ -202,7 +202,7 @@ fn impact_handoff_runs_movement_and_registered_callbacks_with_stopped_or_forced_
         let actor = objects.get_mut(owner).unwrap();
         actor.base.velocity = Vector3 { x: 3, y: -4, z: 5 };
         actor.extension.render_parameter = 222;
-        actor.extension.path_state.part = 255;
+        actor.extension.surface_contact.group = 255;
         actor.extension.path_state.clear_on_path_exit_latch = true;
         actor.base.wait_timer = 93;
         actor.extension.path_state.repeat_counter = 81;
@@ -274,7 +274,7 @@ fn impact_handoff_runs_movement_and_registered_callbacks_with_stopped_or_forced_
             actor.base.wait_timer = 0;
             actor.extension.path_state.repeat_counter = 0;
         } else {
-            actor.extension.path_state.part = 0;
+            actor.extension.surface_contact.group = 0;
         }
         assert_eq!(objects, expected);
         assert_eq!(runtime.resources, before_resources);
@@ -316,13 +316,13 @@ fn material_commands_replace_only_their_optional_record_and_import_preserves_oth
                     },
                 );
                 actor.base.wait_timer = 79;
-                actor.extension.path_state.part = !value;
+                actor.extension.surface_contact.group = !value;
                 let mut expected = objects.clone();
                 let mut expected_resources = runtime.resources.clone();
                 let actor = expected.get_mut(owner).unwrap();
                 actor.base.path = Some(at(1));
                 if importing {
-                    actor.extension.path_state.part = value;
+                    actor.extension.surface_contact.group = value;
                 } else if suppressed {
                     actor
                         .extension

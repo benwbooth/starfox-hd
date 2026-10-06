@@ -480,7 +480,7 @@ fn tal_kong_death_separates_boss_score_from_camera_effect_and_final_progress() {
                         (ShapeId::from_catalog_index(13), 100, 31)
                     );
                     assert!(burst.base.contacts.run_when_paused);
-                    assert_eq!(burst.extension.path_state.part, 1);
+                    assert_eq!(burst.extension.surface_contact.group, 1);
                 }
             }
             assert_eq!(burst_count, 8);

@@ -966,6 +966,10 @@ pub struct ObjectFlags {
     /// Set for the one native simulation tick in which contact occurred.
     pub collided: bool,
     pub collision_disabled: bool,
+    /// Source 24 bit 02 admits the current surface relationship to authored
+    /// part-target triggers and platform carrying. Contact existence alone
+    /// does not enable either consumer.
+    pub standing_on_surface: bool,
     /// Source 25 bit 02 bypasses ordinary death effects at `$03:A08B`,
     /// while retaining the common detach/contact cleanup at `$03:A26A`.
     pub suppress_death_effects: bool,

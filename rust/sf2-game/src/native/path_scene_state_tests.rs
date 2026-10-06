@@ -336,7 +336,7 @@ fn sound_bank_request_is_a_retained_byte_not_an_immediate_audio_cue() {
     assert_eq!(objects, initial);
     for value in 0..=u8::MAX {
         objects = initial.clone();
-        objects.get_mut(owner).unwrap().extension.path_state.part = value;
+        objects.get_mut(owner).unwrap().extension.surface_contact.group = value;
         let mut expected = objects.clone();
         expected.get_mut(owner).unwrap().base.path = Some(at(1));
         let mut request = SoundBankRequest {
@@ -393,7 +393,7 @@ fn clear_global_path_latches_uses_all_selector_bytes_without_touching_encounter_
     for selector in 0..=u8::MAX {
         for value in [0, 0xFFFF, 0xA55A, 1, 0x8000] {
             objects = initial.clone();
-            objects.get_mut(owner).unwrap().extension.path_state.part = selector;
+            objects.get_mut(owner).unwrap().extension.surface_contact.group = selector;
             let mut expected = objects.clone();
             expected.get_mut(owner).unwrap().base.path = Some(at(1));
             let mut latches = PathLatches { raised: value };

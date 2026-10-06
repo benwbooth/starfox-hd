@@ -40,7 +40,7 @@ mod tests {
         for value in 0..=u8::MAX {
             let mut actor = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::FollowPath);
             actor.base.wait_timer = 91;
-            actor.extension.path_state.part = value ^ 0xA5;
+            actor.extension.surface_contact.group = value ^ 0xA5;
             for (command, remaining, part) in [
                 (CountdownCommand::CopyTo(ByteField::Part), value, value),
                 (
@@ -66,7 +66,7 @@ mod tests {
             ] {
                 let mut actual = actor.clone();
                 let mut expected = actor.clone();
-                expected.extension.path_state.part = part;
+                expected.extension.surface_contact.group = part;
                 let mut countdown = PathCountdown { remaining: value };
                 countdown.apply(&mut actual, command);
                 assert_eq!(actual, expected);

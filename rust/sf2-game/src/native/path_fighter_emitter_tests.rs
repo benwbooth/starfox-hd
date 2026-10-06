@@ -408,7 +408,7 @@ fn guided_fighter_new_contact_awards_saturating_score_and_emits_four_fades_befor
                 assert_eq!(fade.base.hit_points, 100);
                 assert_eq!(fade.base.attack_power, 50);
                 assert!(fade.base.contacts.run_when_paused);
-                assert_eq!(fade.extension.path_state.part, 6);
+                assert_eq!(fade.extension.surface_contact.group, 6);
                 assert_eq!(inputs.random, &previous_random);
             }
             assert_eq!(objects.get(fighter).unwrap().base.hit_points, 0);

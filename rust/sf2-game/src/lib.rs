@@ -6,22 +6,26 @@
 
 mod native;
 
-pub use native::{authored_paths, path_appearance, path_program, path_random, path_relationships, path_spawn};
-pub use native::{path_effect, path_impact, path_radio, path_scene_state};
-pub use native::path_shots;
-pub use native::weapon_rapid;
-pub use native::view_transition;
 pub use native::actor_auxiliary;
-pub use native::path_invocation;
 pub use native::common_destruction;
+pub use native::path_invocation;
+pub use native::path_shots;
+pub use native::scene_path_world;
+pub use native::view_transition;
+pub use native::weapon_rapid;
 pub use native::{
     attachments, collision_boxes, collision_contacts, collision_math, collision_pass,
     collision_surface, hit_response, hostile_laser_control, path_calls, path_commands,
     path_conditions, path_control, path_fields, path_math, path_motion, path_runtime, path_sound,
     path_steering, path_trigger_conditions, path_triggers, platform_carry, player_contact,
-    player_hit_control, program_resources, program_state, proximity_warning, radar, retirement, scene_proxy,
-    strategy_schedule, weapon_creation, weapon_dispatch, weapon_launch, world_occupancy,
+    player_hit_control, program_resources, program_state, proximity_warning, radar, retirement,
+    scene_proxy, strategy_schedule, weapon_creation, weapon_dispatch, weapon_launch,
+    world_occupancy,
 };
+pub use native::{
+    authored_paths, path_appearance, path_program, path_random, path_relationships, path_spawn,
+};
+pub use native::{path_effect, path_impact, path_radio, path_scene_state};
 
 pub use native::{
     intro_attached_craft, intro_bsp_work, intro_camera, intro_chain, intro_controller,
@@ -46,9 +50,9 @@ pub use native::{
     MaterialSetId, MeteorCoreStatus, MeteorMissionState, MeteorPhase, MeteorSwitchStatus,
     MissionMessage, MissionMessageIrisFrame, MissionMessagePhase, MissionMessageState,
     MissionPhase, MissionState, MissionVisit, Object, ObjectFlags, ObjectId, ObjectKind,
-    ObjectLifetimeId, ObjectSpawnDefaults, ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass, PilotCraftProfile,
-    PilotSelectionCursor, PilotSelectionPhase, PilotSelectionState, PlanetObjectiveStatus,
-    PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
+    ObjectLifetimeId, ObjectSpawnDefaults, ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass,
+    PilotCraftProfile, PilotSelectionCursor, PilotSelectionPhase, PilotSelectionState,
+    PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
     PlayerCraftTransformationDirection, PlayerDamageState, PlayerWalkerState, RandomState,
     RecurringAttacker, RecurringAttackerStatus, RecurringAttackersState, RenderFlags, RenderObject,
     ResultsChoice, ResultsPhase, ResultsState, Roster, Rotation, ShapeId, SoundEvent,

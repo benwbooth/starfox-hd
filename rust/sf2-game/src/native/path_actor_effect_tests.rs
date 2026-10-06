@@ -92,7 +92,7 @@ fn four_pulse_emitter_restores_caller_each_visit_and_dies_after_final_spawn() {
             z: 29,
         };
         actor.base.hit_points = 93;
-        actor.extension.path_state.part = part;
+        actor.extension.surface_contact.group = part;
         let mut expected_position = actor.base.position;
         let mut inputs = world(&mut random);
         inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
@@ -118,12 +118,12 @@ fn four_pulse_emitter_restores_caller_each_visit_and_dies_after_final_spawn() {
                 (spawned.base.hit_points, spawned.base.attack_power),
                 (100, 50)
             );
-            assert_eq!(spawned.extension.path_state.part, 6);
+            assert_eq!(spawned.extension.surface_contact.group, 6);
             assert!(spawned.base.contacts.run_when_paused);
             assert_eq!(spawned.base.attachment, None);
             let actor = objects.get(owner).unwrap();
             assert_eq!(actor.base.position, expected_position);
-            assert_eq!(actor.extension.path_state.part, part);
+            assert_eq!(actor.extension.surface_contact.group, part);
             assert_eq!(actor.base.hit_points, if death { 0 } else { 93 });
             assert_eq!(actor.base.flags.collision_disabled, death);
             assert!(!actor.base.flags.suppress_death_effects);
@@ -176,7 +176,7 @@ fn periodic_emitters_keep_caller_context_and_run_spawned_fades_through_retiremen
             actor.base.hit_points = if timed { 10 } else { 100 };
             actor.base.attack_power = if timed { 10 } else { 0 };
             actor.base.wait_timer = initial_wait;
-            actor.extension.path_state.part = 231;
+            actor.extension.surface_contact.group = 231;
             let original = actor.clone();
             let lifetime = if timed {
                 usize::from(34u8.wrapping_sub(initial_wait))
@@ -201,7 +201,7 @@ fn periodic_emitters_keep_caller_context_and_run_spawned_fades_through_retiremen
                 let source = objects.get(owner).unwrap();
                 assert!(!source.base.flags.visible);
                 assert_eq!(source.base.position, original.base.position);
-                assert_eq!(source.extension.path_state.part, 231);
+                assert_eq!(source.extension.surface_contact.group, 231);
                 if end {
                     break;
                 }
@@ -253,7 +253,7 @@ fn periodic_emitters_keep_caller_context_and_run_spawned_fades_through_retiremen
                         (spawned.base.hit_points, spawned.base.attack_power),
                         (100, if timed { 0 } else { 100 })
                     );
-                    assert_eq!(spawned.extension.path_state.part, if timed { 0 } else { 6 });
+                    assert_eq!(spawned.extension.surface_contact.group, if timed { 0 } else { 6 });
                     assert_eq!(spawned.extension.texture_scroll_x, 0);
                     assert!(spawned.base.contacts.run_when_paused);
                     assert_eq!(objects.get(owner).unwrap(), &saved);
@@ -641,7 +641,7 @@ fn exhausted_emitter_spawns_borrow_retained_last_actor_or_report_missing_selecti
                 };
                 previous.base.hit_points = 37;
                 previous.base.wait_timer = 103;
-                previous.extension.path_state.part = part;
+                previous.extension.surface_contact.group = part;
                 previous.extension.path_state.needs_path_initialization = true;
                 let previous = objects.allocate(previous).unwrap();
                 for _ in objects.len()..OBJECT_CAPACITY {
@@ -692,7 +692,7 @@ fn exhausted_emitter_spawns_borrow_retained_last_actor_or_report_missing_selecti
                     if timed {
                         expected.base.position.y = 0;
                     } else {
-                        expected.extension.path_state.part = part.wrapping_add(6);
+                        expected.extension.surface_contact.group = part.wrapping_add(6);
                     }
                 }
                 assert_eq!(objects.get(previous).unwrap(), &expected);

@@ -197,7 +197,7 @@ fn damage_routes_keep_variant_specific_scores_retirement_and_progression() {
                             }
                         );
                         let fade = objects.get(runtime.spawns.last_spawn.unwrap()).unwrap();
-                        assert_eq!(fade.extension.path_state.part, 2);
+                        assert_eq!(fade.extension.surface_contact.group, 2);
                         assert_eq!(fade.base.position.y, original_y.wrapping_sub(120));
                         assert_eq!((fade.base.hit_points, fade.base.attack_power), (100, 32));
                         assert!(fade.base.contacts.run_when_paused);

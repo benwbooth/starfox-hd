@@ -21,7 +21,10 @@ pub struct PlatformCarryState {
 /// distinct from the player's published object transform.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct CarriedPlayer {
+    /// Invocation observation of the player's live surface-enable flag.
     pub enabled: bool,
+    /// Invocation observation of the same supporting-object relationship
+    /// used by surface probes and authored part-target triggers.
     pub carrier: Option<ObjectId>,
     pub origin: Vector3,
     pub fine_yaw: u16,

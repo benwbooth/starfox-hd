@@ -107,7 +107,6 @@ impl ViewBaseSnapshot {
             triggers: _,
             conditions,
             repeat_counter,
-            part: _,
         } = &view.extension.path_state;
         Self {
             base: view.base.clone(),

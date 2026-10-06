@@ -57,14 +57,13 @@ pub struct ActorPathState {
     /// Byte-counted LOOP counter, cleared by forced-path redirection (15).
     /// Separate from word-counted DO/NEXT entries on the shared path stack.
     pub repeat_counter: u8,
-    /// Authored actor part identifier (parallel actor field EA).
-    pub part: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ActiveCallbacks {
     owner: ObjectId,
     executing: bool,
+    candidate: Option<Trigger>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +95,13 @@ pub enum CallbackStep {
     Skipped,
     /// Execute the live object's path until its callback-root return.
     Run(PathCursor),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallbackPreparation {
+    Complete,
+    Expired,
+    Candidate(super::path_triggers::TriggerKind),
 }
 
 /// Observations supplied afresh by the world for each candidate. Actor-local
@@ -259,15 +265,25 @@ impl PathRuntime {
         objects: &mut ObjectStore,
         players: &mut [Option<super::platform_carry::CarriedPlayer>; 2],
     ) -> Result<(), PathRuntimeError> {
-        let owner = self.movement.ok_or(PathRuntimeError::NoMovementActive)?;
-        if self.active.is_some() {
-            return Err(PathRuntimeError::CallbacksStillActive);
-        }
         let selected = match self.selected {
             PlayerTarget::Primary => 0,
             PlayerTarget::Secondary => 1,
         };
-        super::path_motion::after_callbacks(objects, owner, players[selected].as_mut())
+        self.finish_movement_for_selected(objects, players[selected].as_mut())
+    }
+
+    /// Scene adapters resolve the selected actor's canonical auxiliary record
+    /// after callbacks, including pilot exchange and object-slot reuse.
+    pub fn finish_movement_for_selected(
+        &mut self,
+        objects: &mut ObjectStore,
+        player: Option<&mut super::platform_carry::CarriedPlayer>,
+    ) -> Result<(), PathRuntimeError> {
+        let owner = self.movement.ok_or(PathRuntimeError::NoMovementActive)?;
+        if self.active.is_some() {
+            return Err(PathRuntimeError::CallbacksStillActive);
+        }
+        super::path_motion::after_callbacks(objects, owner, player)
             .map_err(PathRuntimeError::Attachments)?;
         self.movement = None;
         Ok(())
@@ -365,6 +381,7 @@ impl PathRuntime {
         self.active = Some(ActiveCallbacks {
             owner,
             executing: false,
+            candidate: None,
         });
         Ok(true)
     }
@@ -378,6 +395,23 @@ impl PathRuntime {
         owner: ObjectId,
         world: TriggerWorldInputs,
     ) -> Result<CallbackStep, PathRuntimeError> {
+        match self.prepare_callback(objects, owner)? {
+            CallbackPreparation::Complete => return Ok(CallbackStep::Complete),
+            CallbackPreparation::Expired => return Ok(CallbackStep::Expired),
+            CallbackPreparation::Candidate(_) => {}
+        }
+        self.evaluate_callback(objects, owner, world)
+    }
+
+    /// Advance the callback timer/list before asking the world for predicate
+    /// inputs. Expired entries and the end-of-list branch do not read player
+    /// state. A prepared candidate survives a missing-input resume without a
+    /// second timer decrement or a second advance of the mutable list.
+    pub fn prepare_callback(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+    ) -> Result<CallbackPreparation, PathRuntimeError> {
         let active = self
             .active
             .ok_or(PathRuntimeError::Calls(CallError::NoCallbackBatch))?;
@@ -387,10 +421,50 @@ impl PathRuntime {
         if active.executing {
             return Err(PathRuntimeError::CallbackStillExecuting);
         }
+        if let Some(trigger) = active.candidate {
+            return Ok(CallbackPreparation::Candidate(trigger.kind));
+        }
         let actor = actor_mut(objects, active.owner)?;
+        let state = &mut actor.extension.path_state;
+        match self
+            .runner
+            .step(&mut state.triggers, &mut self.resources)
+            .map_err(PathRuntimeError::Triggers)?
+        {
+            TriggerStep::Complete => {
+                actor.base.path = self
+                    .calls
+                    .finish_callbacks(&mut state.stack, &mut self.resources)
+                    .map_err(PathRuntimeError::Calls)?;
+                self.active = None;
+                Ok(CallbackPreparation::Complete)
+            }
+            TriggerStep::Expired => Ok(CallbackPreparation::Expired),
+            TriggerStep::Candidate(trigger) => {
+                self.active
+                    .as_mut()
+                    .expect("active callback pass")
+                    .candidate = Some(trigger);
+                Ok(CallbackPreparation::Candidate(trigger.kind))
+            }
+        }
+    }
+
+    fn evaluate_callback(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        world: TriggerWorldInputs,
+    ) -> Result<CallbackStep, PathRuntimeError> {
+        let active = self.active.as_mut().expect("prepared callback pass");
+        let trigger = active
+            .candidate
+            .take()
+            .expect("prepared callback candidate");
+        let actor = actor_mut(objects, owner)?;
         let inputs = TriggerInputs {
             owner,
-            part: actor.extension.path_state.part,
+            part: actor.extension.surface_contact.group,
             health: actor.base.hit_points,
             attached: actor.base.attachment.is_some(),
             new_contact: actor.base.contacts.new_contact_latched,
@@ -404,43 +478,26 @@ impl PathRuntime {
             controlled_aux: world.controlled_aux,
         };
         let state = &mut actor.extension.path_state;
-        match self
-            .runner
-            .step(&mut state.triggers, &mut self.resources)
-            .map_err(PathRuntimeError::Triggers)?
-        {
-            TriggerStep::Complete => {
-                actor.base.path =
-                    self.calls
-                        .finish_callbacks(&mut state.stack, &mut self.resources)
-                        .map_err(PathRuntimeError::Calls)?;
-                self.active = None;
-                Ok(CallbackStep::Complete)
-            }
-            TriggerStep::Expired => Ok(CallbackStep::Expired),
-            TriggerStep::Candidate(trigger) => {
-                match path_trigger_conditions::evaluate(
-                    trigger.kind,
-                    &inputs,
-                    &mut state.conditions,
-                    &self.runner,
-                ) {
-                    TriggerDecision::Skip => return Ok(CallbackStep::Skipped),
-                    TriggerDecision::Run | TriggerDecision::SelectAndRun(_) => {}
-                }
-                self.calls
-                    .enter_callback()
-                    .map_err(PathRuntimeError::Calls)?;
-                actor.base.path = Some(trigger.path);
-                self.selected = state.conditions.selected_player;
-                self.program_actor = Some(owner);
-                self.active
-                    .as_mut()
-                    .expect("active callback pass")
-                    .executing = true;
-                Ok(CallbackStep::Run(trigger.path))
-            }
+        match path_trigger_conditions::evaluate(
+            trigger.kind,
+            &inputs,
+            &mut state.conditions,
+            &self.runner,
+        ) {
+            TriggerDecision::Skip => return Ok(CallbackStep::Skipped),
+            TriggerDecision::Run | TriggerDecision::SelectAndRun(_) => {}
         }
+        self.calls
+            .enter_callback()
+            .map_err(PathRuntimeError::Calls)?;
+        actor.base.path = Some(trigger.path);
+        self.selected = state.conditions.selected_player;
+        self.program_actor = Some(owner);
+        self.active
+            .as_mut()
+            .expect("active callback pass")
+            .executing = true;
+        Ok(CallbackStep::Run(trigger.path))
     }
 
     pub fn call(
@@ -539,7 +596,10 @@ impl PathRuntime {
     ) -> Result<(), PathRuntimeError> {
         let actor = actor_mut(objects, owner)?;
         self.resources.release_owner(owner);
-        actor.extension.auxiliary.clear_after_owner_release(&self.resources, owner)
+        actor
+            .extension
+            .auxiliary
+            .clear_after_owner_release(&self.resources, owner)
             .map_err(PathRuntimeError::Auxiliary)?;
         let state = &mut actor.extension.path_state;
         state

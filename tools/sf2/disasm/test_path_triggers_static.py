@@ -99,9 +99,19 @@ class PathTriggersStaticTests(unittest.TestCase):
         self.assert_source(0x7F9D38, "FA DA B5 22 29 02 D0 04 5C 88 9D 7F 80 22")
 
     def test_part_target_keeps_source_secondary_mismatch_and_primary_selection(self):
+        # Resolve each player's auxiliary mode before its shared surface
+        # relationship. The primary successful branch never reads secondary.
+        self.assert_source(0x7F9B82, "AC C3 12 F0 39 DA BB 7A 5A B4 2B B9 A0 6A 7A DA BB 7A")
         self.assert_source(0x7F9B94, "29 F0 C9 20 D0 04 5C A0 9B 7F 80 20")
         self.assert_source(0x7F9BA0, "C2 20 8A D9 E8 1C E2 20 D0 16 BD EA 1C D9 EA 1C F0 03 82 0B 00 B9 24 00 29 02 F0 04 5C BA 9C 7F")
         self.assert_source(0x7F9BDE, "C2 20 8A D9 E8 1C E2 20 D0 16 BD EA 1C D9 EA 1C F0 03 82 E8 00 B9 24 00 29 02 F0 04 5C BA 9C 7F")
+        # The surface producer writes the very same part/group byte that
+        # both sides of the predicate compare, not a parallel path counter.
+        self.assert_source(0x0DB26A, "E2 20 AD 61 19 9F EA 1C 7E AF 8D 1A 00 9F EB 1C 7E")
+
+    def test_primary_crossing_returns_before_the_secondary_transform_read(self):
+        self.assert_source(0x7F9C52, "AC C3 12 F0 1F 22 51 B7 0D 89 80 F0 0D B5 24 29 10 F0 04 5C 76 9C 7F 4C A9 9C")
+        self.assert_source(0x7F9C6C, "B5 24 29 10 F0 04 5C A9 9C 7F AC C5 12")
 
     def test_selection_updates_global_target_and_actor_side(self):
         self.assert_source(0x7F9CBA, "AC C3 12 8C 1F CF B5 24 29 7F 95 24 7A 82 9E 00")

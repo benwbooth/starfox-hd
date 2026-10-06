@@ -9,7 +9,10 @@ use super::path_commands::ControlStep;
 use super::path_control::PlayerTarget;
 use super::path_motion::PlayerDisplacement;
 use super::path_program::{PathCatalog, PathWorld, ProgramError};
-use super::path_runtime::{CallbackStep, PathRuntime, PathRuntimeError, TriggerWorldInputs};
+use super::path_runtime::{
+    CallbackPreparation, CallbackStep, PathRuntime, PathRuntimeError, TriggerWorldInputs,
+};
+use super::path_triggers::TriggerKind;
 use super::platform_carry::CarriedPlayer;
 use super::{ObjectId, ObjectStore};
 
@@ -28,7 +31,11 @@ pub trait InvocationWorld {
         selected: PlayerTarget,
     ) -> Result<PathWorld<'_>, Self::Error>;
 
-    fn displacement(&mut self, selected: PlayerTarget) -> Result<PlayerDisplacement, Self::Error>;
+    fn displacement(
+        &mut self,
+        objects: &ObjectStore,
+        selected: PlayerTarget,
+    ) -> Result<PlayerDisplacement, Self::Error>;
 
     /// Called anew for every callback candidate, after all earlier callbacks.
     /// Derive projections from these live objects, not an epoch-entry snapshot.
@@ -37,10 +44,16 @@ pub trait InvocationWorld {
         objects: &ObjectStore,
         owner: ObjectId,
         selected: PlayerTarget,
+        kind: TriggerKind,
     ) -> Result<TriggerWorldInputs, Self::Error>;
 
     /// The authoritative auxiliary records, not copies of player transforms.
-    fn carried_players(&mut self) -> Result<&mut [Option<CarriedPlayer>; 2], Self::Error>;
+    fn carried_player(
+        &mut self,
+        objects: &ObjectStore,
+        carrier: ObjectId,
+        selected: PlayerTarget,
+    ) -> Result<Option<&mut CarriedPlayer>, Self::Error>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,7 +230,7 @@ impl PathInvocation {
                             .follow_player_displacement;
                         let displacement = if follows {
                             world
-                                .displacement(self.runtime.selected_player())
+                                .displacement(objects, self.runtime.selected_player())
                                 .map_err(InvocationError::World)?
                         } else {
                             // Source gate bypasses this service entirely; these
@@ -234,8 +247,17 @@ impl PathInvocation {
                     });
                 }
                 Phase::Callbacks(actor) => {
+                    let result = self.runtime.prepare_callback(objects, actor);
+                    let kind = match self.check_runtime(result)? {
+                        CallbackPreparation::Complete => {
+                            self.phase = Some(Phase::Finish(actor));
+                            continue;
+                        }
+                        CallbackPreparation::Expired => continue,
+                        CallbackPreparation::Candidate(kind) => kind,
+                    };
                     let inputs = world
-                        .trigger_inputs(objects, actor, self.runtime.selected_player())
+                        .trigger_inputs(objects, actor, self.runtime.selected_player(), kind)
                         .map_err(InvocationError::World)?;
                     let result = self.runtime.step_callbacks(objects, actor, inputs);
                     self.phase = Some(match self.check_runtime(result)? {
@@ -258,11 +280,13 @@ impl PathInvocation {
                         .motion
                         .carry_selected_player;
                     let result = if carries {
-                        let players = world.carried_players().map_err(InvocationError::World)?;
-                        self.runtime.finish_movement(objects, players)
+                        let player = world
+                            .carried_player(objects, actor, self.runtime.selected_player())
+                            .map_err(InvocationError::World)?;
+                        self.runtime.finish_movement_for_selected(objects, player)
                     } else {
                         // The carry gate is disabled; no player record is read.
-                        self.runtime.finish_movement(objects, &mut [None; 2])
+                        self.runtime.finish_movement_for_selected(objects, None)
                     };
                     self.check_runtime(result)?;
                     self.phase = None;

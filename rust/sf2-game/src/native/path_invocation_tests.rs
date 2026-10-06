@@ -42,6 +42,7 @@ struct Services {
     fail_secondary: bool,
     fail_displacement: bool,
     fail_carry: bool,
+    fail_trigger: bool,
 }
 
 impl Default for Services {
@@ -73,6 +74,7 @@ impl Default for Services {
             fail_secondary: false,
             fail_displacement: false,
             fail_carry: false,
+            fail_trigger: false,
         }
     }
 }
@@ -97,15 +99,21 @@ impl InvocationWorld for Services {
         inputs.scene_events = self.events.as_mut();
         inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
         if let Some(linked) = objects.get(actor).and_then(|actor| actor.base.attachment) {
-            inputs.linked_shot_count = self.attached_shots.iter_mut()
+            inputs.linked_shot_count = self
+                .attached_shots
+                .iter_mut()
                 .find(|(owner, _)| *owner == linked)
-                .map(|(owner, state)| super::super::path_shots::LinkedShotCount { owner: *owner, state });
+                .map(|(owner, state)| super::super::path_shots::LinkedShotCount {
+                    owner: *owner,
+                    state,
+                });
         }
         Ok(inputs)
     }
 
     fn displacement(
         &mut self,
+        _: &ObjectStore,
         selected: super::super::path_control::PlayerTarget,
     ) -> Result<PlayerDisplacement, Self::Error> {
         if self.fail_displacement {
@@ -128,18 +136,27 @@ impl InvocationWorld for Services {
         objects: &ObjectStore,
         owner: ObjectId,
         _: super::super::path_control::PlayerTarget,
+        _: TriggerKind,
     ) -> Result<TriggerWorldInputs, Self::Error> {
+        if self.fail_trigger {
+            return Err("predicate input not supplied");
+        }
         self.callback_poses
             .push(objects.get(owner).unwrap().base.position);
         Ok(TriggerWorldInputs::default())
     }
 
-    fn carried_players(&mut self) -> Result<&mut [Option<CarriedPlayer>; 2], Self::Error> {
+    fn carried_player(
+        &mut self,
+        _: &ObjectStore,
+        _: ObjectId,
+        selected: super::super::path_control::PlayerTarget,
+    ) -> Result<Option<&mut CarriedPlayer>, Self::Error> {
         if self.fail_carry {
             return Err("carry not supplied");
         }
         self.carry_visits += 1;
-        Ok(&mut self.carried)
+        Ok(self.carried[slot(selected)].as_mut())
     }
 }
 
@@ -273,6 +290,82 @@ fn complete_invocation_uses_entry_motion_then_live_callbacks_then_selected_carry
     assert!(services.callback_poses.iter().all(|pose| pose.x == 16));
     assert_eq!(services.statement_selections, [0, 1, 1, 1, 1, 1, 1]);
     assert_eq!(services.statement_actors, [owner; 7]);
+}
+
+#[test]
+fn trigger_expiration_precedes_world_reads_and_missing_predicates_do_not_tick_twice() {
+    let catalog = PathCatalog::new(vec![vec![Statement::Control(ControlCommand::WaitOne {
+        next: cursor(0, 0),
+    })]])
+    .unwrap();
+    for timer in [0, 1, 2, 255] {
+        let mut objects = ObjectStore::new();
+        let owner = objects.allocate(actor(cursor(0, 0))).unwrap();
+        let mut invocation = PathInvocation::default();
+        invocation
+            .runtime
+            .add_trigger(
+                &mut objects,
+                owner,
+                Trigger {
+                    path: cursor(0, 0),
+                    kind: TriggerKind::ControlledAuxFlagHigh,
+                    timer,
+                },
+            )
+            .unwrap();
+        let mut services = Services {
+            fail_trigger: true,
+            ..Services::default()
+        };
+        invocation.begin(owner, InvocationEntry::Program).unwrap();
+        let result = invocation.resume(&catalog, &mut objects, &mut services, 32);
+        if timer == 1 {
+            assert_eq!(result, Ok(owner));
+            assert!(services.callback_poses.is_empty());
+            assert!(objects
+                .get(owner)
+                .unwrap()
+                .extension
+                .path_state
+                .triggers
+                .entries(&invocation.runtime.resources, owner)
+                .unwrap()
+                .is_empty());
+            continue;
+        }
+        assert_eq!(
+            result,
+            Err(InvocationError::World("predicate input not supplied"))
+        );
+        let before = (objects.clone(), invocation.clone());
+        for _ in 0..3 {
+            assert_eq!(
+                invocation.resume(&catalog, &mut objects, &mut services, 32),
+                Err(InvocationError::World("predicate input not supplied"))
+            );
+            assert_eq!((&objects, &invocation), (&before.0, &before.1));
+        }
+        services.fail_trigger = false;
+        assert_eq!(
+            invocation.resume(&catalog, &mut objects, &mut services, 32),
+            Ok(owner)
+        );
+        assert_eq!(
+            services.callback_poses.len(),
+            1,
+            "end of list reads no predicate world"
+        );
+        let entries = objects
+            .get(owner)
+            .unwrap()
+            .extension
+            .path_state
+            .triggers
+            .entries(&invocation.runtime.resources, owner)
+            .unwrap();
+        assert_eq!(entries[0].timer, if timer == 0 { 0 } else { timer - 1 });
+    }
 }
 
 #[test]
@@ -413,7 +506,10 @@ fn borrowed_actor_immediate_next_refreshes_world_selection_before_the_next_state
         (0xA1, 0xB1)
     );
     assert_eq!(services.statement_selections, [0, 0, 0, 0, 1, 1, 1]);
-    assert_eq!(services.statement_actors, [owner, borrowed, borrowed, borrowed, borrowed, borrowed, borrowed]);
+    assert_eq!(
+        services.statement_actors,
+        [owner, borrowed, borrowed, borrowed, borrowed, borrowed, borrowed]
+    );
     assert_eq!(objects.get(owner).unwrap().base.position.x, 0);
     assert_eq!(objects.get(borrowed).unwrap().base.position.x, 7);
     assert_eq!(objects.get(borrowed).unwrap().base.path, Some(cursor(0, 5)));
@@ -429,24 +525,50 @@ fn world_resolves_borrowed_actors_attachment_on_each_statement_and_missing_input
     objects.get_mut(owner).unwrap().base.attachment = Some(borrowed);
     objects.get_mut(borrowed).unwrap().base.attachment = Some(attached_player);
     let catalog = PathCatalog::new(vec![vec![
-        Statement::SelectActor { selection: ActorSelection::Linked, next: cursor(0, 1) },
-        Statement::LinkedShotCount { command: ShotCountCommand::Increment, next: cursor(0, 2) },
+        Statement::SelectActor {
+            selection: ActorSelection::Linked,
+            next: cursor(0, 1),
+        },
+        Statement::LinkedShotCount {
+            command: ShotCountCommand::Increment,
+            next: cursor(0, 2),
+        },
         Statement::Control(ControlCommand::End),
-    ]]).unwrap();
+    ]])
+    .unwrap();
     let mut invocation = PathInvocation::default();
     let mut services = Services::default();
-    services.attached_shots.push((borrowed, ActiveShots::from_count(41)));
+    services
+        .attached_shots
+        .push((borrowed, ActiveShots::from_count(41)));
     invocation.begin(owner, InvocationEntry::Program).unwrap();
-    assert_eq!(invocation.resume(&catalog, &mut objects, &mut services, 100),
-        Err(InvocationError::Program(ProgramError::MissingLinkedShotCount)));
+    assert_eq!(
+        invocation.resume(&catalog, &mut objects, &mut services, 100),
+        Err(InvocationError::Program(
+            ProgramError::MissingLinkedShotCount
+        ))
+    );
     assert_eq!(services.statement_actors, [owner, borrowed]);
     assert_eq!(services.attached_shots[0].1, ActiveShots::from_count(41));
-    services.attached_shots.push((attached_player, ActiveShots::from_count(7)));
-    assert_eq!(invocation.resume(&catalog, &mut objects, &mut services, 100), Ok(borrowed));
-    assert_eq!(services.statement_actors, [owner, borrowed, borrowed, borrowed]);
+    services
+        .attached_shots
+        .push((attached_player, ActiveShots::from_count(7)));
+    assert_eq!(
+        invocation.resume(&catalog, &mut objects, &mut services, 100),
+        Ok(borrowed)
+    );
+    assert_eq!(
+        services.statement_actors,
+        [owner, borrowed, borrowed, borrowed]
+    );
     assert_eq!(services.statement_selections, [0; 4]);
-    assert_eq!(services.attached_shots,
-        [(borrowed, ActiveShots::from_count(41)), (attached_player, ActiveShots::from_count(8))]);
+    assert_eq!(
+        services.attached_shots,
+        [
+            (borrowed, ActiveShots::from_count(41)),
+            (attached_player, ActiveShots::from_count(8))
+        ]
+    );
     assert!(!objects.get(owner).unwrap().base.flags.remove_after_tick);
     assert!(objects.get(borrowed).unwrap().base.flags.remove_after_tick);
 }

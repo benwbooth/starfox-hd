@@ -269,6 +269,80 @@ pub struct PathWorld<'a> {
 }
 
 impl PathWorld<'_> {
+    /// Begin a scene borrow with no published external observations. This is
+    /// not a default game world: a command that reads an unbound service still
+    /// returns its specific missing-input error. Scene adapters then bind the
+    /// records they actually own, resolving actor/player relationships afresh
+    /// for each statement.
+    pub fn unbound(random: &mut RandomState, animation_clock: u8) -> PathWorld<'_> {
+        PathWorld {
+            scene: ScenePathInputs::default(),
+            view_transition_mode: None,
+            handoff: None,
+            camera_focus: None,
+            camera_tracking: None,
+            camera_heading: None,
+            reflection: None,
+            health_display: None,
+            primary_feedback: None,
+            coordination: None,
+            objective_counts: None,
+            objective_completion: None,
+            scene_events: None,
+            path_latches: None,
+            sound_bank_request: None,
+            friend_health: None,
+            encounter_signals: None,
+            scenery_distance: None,
+            targeting_upgrade: None,
+            shield_recovery: None,
+            action_gate: None,
+            environment_plane_height: None,
+            projectile_trigger: None,
+            primary_pitch_recoil: None,
+            linked_effect_activity: None,
+            protection: None,
+            linked_shot_count: None,
+            projectile_flight_override: None,
+            audio: None,
+            radio: None,
+            deferred_message: None,
+            radio_event: None,
+            campaign: None,
+            guidance: None,
+            pickup_history: None,
+            control_style: None,
+            selected_occupancy_exempt: None,
+            occupancy: None,
+            surface_mode: None,
+            impact: None,
+            contacts: None,
+            primary_player: None,
+            secondary_player: None,
+            selected: None,
+            fixed_players: [None; 2],
+            primary_motion: None,
+            published_motion: None,
+            active_charge_threshold: None,
+            selected_charge: None,
+            primary_control: None,
+            primary_target: None,
+            scene_proxies: None,
+            published_homing_target: None,
+            active_node_flags: None,
+            countdown: None,
+            selected_auxiliary: None,
+            selected_particle_effects: None,
+            selected_equipment: None,
+            selected_score: None,
+            spawn_defaults: None,
+            weapons: None,
+            caller_weapon_inputs: None,
+            random,
+            animation_clock,
+        }
+    }
+
     /// A transition may change the mode during this same invocation. Keep
     /// allocation group observations, but read pause exemption live whenever
     /// the shared mode is present rather than reusing its entry snapshot.
@@ -5559,7 +5633,7 @@ mod tests {
         ] {
             let (mut runtime, mut objects, owner, mut random) = setup();
             runtime.branch.invert_next = true;
-            objects.get_mut(owner).unwrap().extension.path_state.part = 211;
+            objects.get_mut(owner).unwrap().extension.surface_contact.group = 211;
             let before = objects.get(owner).unwrap().clone();
             let original_random = random.clone();
             let catalog = PathCatalog::new(vec![vec![Statement::Countdown {
@@ -5578,7 +5652,7 @@ mod tests {
             let mut expected = before;
             let expected_value = match command {
                 CountdownCommand::CopyTo(_) => {
-                    expected.extension.path_state.part = 143;
+                    expected.extension.surface_contact.group = 143;
                     143
                 }
                 CountdownCommand::Assign(_) => 211,
@@ -5635,7 +5709,7 @@ mod tests {
             let mut countdown = PathCountdown { remaining: initial };
             for visit in 0..(u16::from(initial) + 3) {
                 let before = countdown.remaining;
-                expected.extension.path_state.part = before;
+                expected.extension.surface_contact.group = before;
                 let mut inputs = world(&mut random);
                 inputs.countdown = Some(&mut countdown);
                 assert_eq!(
@@ -6907,7 +6981,7 @@ mod tests {
                                 actor.base.wait_timer = initial;
                                 actor.base.flags.casts_shadow = true;
                                 actor.extension.depth_offset = 0xABCD;
-                                actor.extension.path_state.part = 2;
+                                actor.extension.surface_contact.group = 2;
                                 actor.extension.path_state.motion_phase = u16::from_be_bytes([initial_high, initial]);
                                 let shape_animation = actor.extension.path_state.animation.shape;
                                 runtime.branch.invert_next = inverted;
@@ -6955,7 +7029,7 @@ mod tests {
                                     let actor = objects.get(owner).unwrap();
                                     assert_eq!(actor.base.position, position);
                                     assert_eq!(actor.extension.path_state.motion_phase, u16::from_be_bytes([high, low]));
-                                    assert_eq!(actor.extension.path_state.part, if skip_jitter { 2 } else { 3 });
+                                    assert_eq!(actor.extension.surface_contact.group, if skip_jitter { 2 } else { 3 });
                                     assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(visit));
                                     assert_eq!(actor.extension.path_state.animation.shape, shape_animation);
                                     assert_eq!(actor.extension.texture_scroll_x, size);
@@ -7870,7 +7944,7 @@ mod tests {
                     actor.base.wait_timer = part;
                     actor.extension.depth_offset = 0xABCD;
                     actor.extension.path_state.motion_phase = 0xAB00 | u16::from(initial_low);
-                    actor.extension.path_state.part = part;
+                    actor.extension.surface_contact.group = part;
                     runtime.branch.invert_next = true;
                     let initial_random = random;
                     let iterations = if health == 0 { 65_536 } else { usize::from(health) };
@@ -7901,7 +7975,7 @@ mod tests {
                         let actor = objects.get(owner).unwrap();
                         assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some((visit % 2) as u8));
                         assert_eq!(actor.extension.path_state.motion_phase, 0xAB00 | u16::from(low));
-                        assert_eq!(actor.extension.path_state.part, effective_part);
+                        assert_eq!(actor.extension.surface_contact.group, effective_part);
                         assert_eq!(actor.extension.texture_scroll_x, 8u8.wrapping_add(initial_low));
                         assert_eq!(actor.extension.depth_offset, 0xAB00);
                         assert_eq!((actor.base.hit_points, actor.base.attack_power, actor.base.wait_timer), (health, initial_low, part));
@@ -7996,7 +8070,7 @@ mod tests {
                     actor.base.hit_points = 100;
                     actor.base.wait_timer = part;
                     actor.extension.depth_offset = 0xABCD;
-                    actor.extension.path_state.part = part;
+                    actor.extension.surface_contact.group = part;
                     actor.extension.path_state.motion_phase = u16::from_be_bytes([high, 173]);
                     runtime.branch.invert_next = invert;
                     // Small slices prove that immediate loops resume without
@@ -8020,7 +8094,7 @@ mod tests {
                         }
                         let actor = objects.get(owner).unwrap();
                         assert_eq!(actor.base.position, expected_position, "part={part} high={high} invert={invert}");
-                        assert_eq!(actor.extension.path_state.part, expected_part);
+                        assert_eq!(actor.extension.surface_contact.group, expected_part);
                         assert_eq!(actor.extension.path_state.motion_phase, u16::from_be_bytes([high, low]));
                         assert_eq!(actor.extension.path_state.animation.color.fixed_frame(), Some(visit));
                         assert_eq!(actor.extension.texture_scroll_x, 8 + power);
@@ -8053,7 +8127,7 @@ mod tests {
                 actor.base.attack_power = retained;
                 actor.extension.texture_scroll_x = retained;
                 actor.extension.depth_offset = 0xABCD;
-                actor.extension.path_state.part = retained;
+                actor.extension.surface_contact.group = retained;
                 actor.extension.path_state.motion_phase = 0xFEDC;
                 runtime.branch.invert_next = true;
                 let initial_random = random;
@@ -8067,7 +8141,7 @@ mod tests {
                     assert_eq!(actor.base.attack_power, retained);
                     assert_eq!(actor.extension.texture_scroll_x, retained);
                     assert_eq!(actor.extension.depth_offset, 0xABCD);
-                    assert_eq!(actor.extension.path_state.part, retained);
+                    assert_eq!(actor.extension.surface_contact.group, retained);
                     assert_eq!(actor.extension.path_state.motion_phase, 0xFEDC);
                     assert_eq!(actor.base.flags.scaled_sprite, sprite);
                     assert!(actor.base.flags.collision_disabled);
@@ -10972,7 +11046,7 @@ mod tests {
                     [1, 1, 1, 1, 2, 2, 3, 3][usize::from(pitch_index)]
                 );
                 assert_eq!(actor.extension.relative_rotation.yaw.units(), local_yaw);
-                assert_eq!(actor.extension.path_state.part, part);
+                assert_eq!(actor.extension.surface_contact.group, part);
                 assert_eq!(
                     actor.extension.path_state.motion_phase,
                     u16::from(phase_high) << 8

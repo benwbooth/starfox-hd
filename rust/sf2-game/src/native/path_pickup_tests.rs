@@ -362,7 +362,7 @@ fn authored_consumable_full_retry_reinstalls_collection_and_only_success_signals
                     actor.base.hit_points = 100;
                     actor.base.yaw = Angle::from_units(3);
                     actor.base.attachment = Some(parent);
-                    actor.extension.path_state.part = part;
+                    actor.extension.surface_contact.group = part;
                     actor.extension.path_state.conditions.hit_event_pending = true;
                     actor.extension.path_state.conditions.selected_player = PlayerTarget::Secondary;
                     let mut history = PickupHistory {
@@ -609,7 +609,7 @@ fn authored_pickup_proximity_uses_strict_depth_and_xy_sum_with_three_authored_li
                 let actor = objects.get_mut(owner).unwrap();
                 actor.base.path = Some(authored_paths::CONSUMABLE_PICKUP_TYPE_ONE);
                 actor.base.hit_points = 100;
-                actor.extension.path_state.part = part;
+                actor.extension.surface_contact.group = part;
                 actor.extension.path_state.conditions.hit_event_pending = true;
                 let mut inputs = world(&mut random);
                 inputs.scene.encounter_location = Some(0);
@@ -744,7 +744,7 @@ fn authored_pickup_part_gate_preserves_saved_position_and_uses_published_height_
                 let actor = objects.get_mut(owner).unwrap();
                 actor.base.path = Some(authored_paths::CONSUMABLE_PICKUP_TYPE_THREE);
                 actor.base.hit_points = 100;
-                actor.extension.path_state.part = part;
+                actor.extension.surface_contact.group = part;
                 actor.extension.clipping_plane = ClippingPlaneSelection::from_selector_byte(0xA8);
                 let saved = Vector3 {
                     x: -23456,

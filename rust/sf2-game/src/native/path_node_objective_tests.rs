@@ -176,7 +176,7 @@ fn direct_node_entry_preserves_all_part_bytes_and_needs_no_visibility_snapshot()
                 actor.base.path = Some(authored_paths::DIRECT_NODE_OBJECTIVE);
                 actor.base.hit_points = count;
                 actor.base.attack_power = part.wrapping_mul(29);
-                actor.extension.path_state.part = part;
+                actor.extension.surface_contact.group = part;
                 actor.base.flags.visible = part & 1 != 0;
                 let mut flags = ActiveNodeFlags { bits };
                 let mut inputs = world(&mut random);
@@ -194,7 +194,7 @@ fn direct_node_entry_preserves_all_part_bytes_and_needs_no_visibility_snapshot()
                     owner
                 );
                 let actor = objects.get(owner).unwrap();
-                assert_eq!(actor.extension.path_state.part, part);
+                assert_eq!(actor.extension.surface_contact.group, part);
                 assert_eq!(actor.extension.path_state.script_parameter, count);
                 assert_eq!(actor.base.hit_points, 100);
                 assert_eq!(actor.base.attack_power, 4);

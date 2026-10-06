@@ -33,11 +33,11 @@ fn radio_event_byte_transfers_preserve_the_word_high_byte_and_every_other_actor_
         for number in 0..=u16::MAX {
             *objects.get_mut(owner).unwrap() = before.clone();
             let source = (number as u8) ^ 0xFF;
-            objects.get_mut(owner).unwrap().extension.path_state.part = source;
+            objects.get_mut(owner).unwrap().extension.surface_contact.group = source;
             let mut expected = objects.get(owner).unwrap().clone();
             expected.base.path = Some(at(1));
             if importing {
-                expected.extension.path_state.part = number as u8;
+                expected.extension.surface_contact.group = number as u8;
             }
             let mut event = RadioEvent { number };
             let mut inputs = world(&mut random);
@@ -101,12 +101,12 @@ fn spawn_parameter_is_a_shared_mailbox_not_a_child_or_allocation_field() {
             }
             for value in 0..=u8::MAX {
                 objects = before.clone();
-                objects.get_mut(owner).unwrap().extension.path_state.part = value ^ 0xFF;
+                objects.get_mut(owner).unwrap().extension.surface_contact.group = value ^ 0xFF;
                 let mut expected = objects.clone();
                 let actor = expected.get_mut(owner).unwrap();
                 actor.base.path = Some(at(1));
                 if importing {
-                    actor.extension.path_state.part = value;
+                    actor.extension.surface_contact.group = value;
                 }
                 runtime.spawns.parameter = Some(value.wrapping_add(7));
                 runtime.spawns.companion_parameter = Some(value.wrapping_add(11));

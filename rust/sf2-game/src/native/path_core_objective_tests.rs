@@ -712,7 +712,7 @@ fn core_death_awards_once_decrements_both_bytes_and_retains_its_authored_afterma
             {
                 assert_ne!(id, clone);
                 assert!(effect.base.contacts.run_when_paused);
-                assert_eq!(effect.extension.path_state.part, 1);
+                assert_eq!(effect.extension.surface_contact.group, 1);
             }
         }
     }
