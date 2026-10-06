@@ -133,11 +133,13 @@ fn markexplode_spawns_ground_mark_then_explodes() {
 
     let idx2 = g.objs.alloc().expect("2");
     g.objs.aliens[idx2 as usize].sflags2 |= ASF2_NOEXPSND;
+    g.objs.aldead = 0; // TRANS.dostrats resets the marker for each actor.
     mmarkexplode_istrat(&mut g, idx2);
     assert_eq!(g.objs.aldead, 1);
 
     let idx3 = g.objs.alloc().expect("3");
     g.objs.aliens[idx3 as usize].sflags2 |= ASF2_NOEXPSND;
+    g.objs.aldead = 0;
     lmarkexplode_istrat(&mut g, idx3);
     assert_eq!(g.objs.aldead, 1);
 }

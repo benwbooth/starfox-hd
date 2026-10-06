@@ -28,9 +28,9 @@ use sf_core::sf1_shape_metrics::sf1_shape_metrics;
 use sf_game::alien::{
     Alien, ExplosionSize, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3,
     ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF2_COLLDISABLE,
-    ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_SFLAG8,
-    ASF_COLLIDE, ASF_HITFLASH, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL, ASF_SSPRITE,
-    ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
+    ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_SFLAG8, ASF_COLLIDE,
+    ASF_HITFLASH, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL, ASF_SSPRITE, ATGND, ATLASER, ATMISSILE,
+    ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::{PCBOX_WING_AP, PCBOX_WING_HP};
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -225,8 +225,8 @@ pub fn ea_random(g: &mut Game) -> u16 {
 /// `Strat_ProjectileOnCollide`); same slot ids as the common lane's.
 pub(crate) use crate::common::strat_projectile_on_collide as projectile_on_collide_strat;
 pub(crate) use crate::common::{
-    apply_velocity, chase_proportional, count_down, damage_smoke_srou, dist_xz, gen_vecs_3d,
-    make_obj, sf_random, spawn_projectile, speed_to, strat_gen_vecs_nvecs, SmokeCadence, StratRam,
+    apply_velocity, chase_proportional, damage_smoke_srou, dist_xz, gen_vecs_3d, make_obj,
+    sf_random, spawn_projectile, speed_to, strat_gen_vecs_nvecs, SmokeCadence, StratRam,
 };
 
 /// ROM `Yanglexy_l` / `anglexy_l`: 0-255 yaw from src→dst (i16 wrapping deltas).
@@ -1359,6 +1359,13 @@ fn remove_attached_fire(g: &mut Game, idx: u16) {
     object.flags &= !AFONFIRE;
 }
 
+/// `s_remove_obj x`: release linked fire, then increment the current removal
+/// marker. The strategy loop owns the parent's actual unlink after return.
+fn remove_explosion_object(g: &mut Game, idx: u16) {
+    remove_attached_fire(g, idx);
+    g.objs.aldead = g.objs.aldead.wrapping_add(1);
+}
+
 /// ROM `explode_Icont` — special score, exact size-selected mesh/sprite
 /// handoff, sound, and the two independently timed explosion lifecycles.
 fn explode_icont(g: &mut Game, idx: u16) {
@@ -1380,37 +1387,43 @@ fn explode_icont(g: &mut Game, idx: u16) {
     // (no destruct SE / no AFEXP visual). (Audit A Minor 14)
     use sf_game::draw::AF_INVIEW_PL;
     if g.objs.aliens[idx as usize].flags & AF_INVIEW_PL == 0 {
-        g.objs.aldead = 1;
+        remove_explosion_object(g, idx);
         return;
     }
+    {
+        let object = &mut g.objs.aliens[idx as usize];
+        object.flags |= AFEXP;
+        object.hp = 0;
+        object.sflags &= !ASF_SSPRITE;
+        object.sflags2 |= ASF2_COLLDISABLE;
+    }
+    // EXPSTRAT releases this slot before requesting the sprite, so a full
+    // pool can still reuse its fire attachment. The writes above also survive
+    // an allocation failure and precede the sprite's inherited flag copy.
+    remove_attached_fire(g, idx);
     let source = g.objs.aliens[idx as usize];
     let Some(presentation) = explosion_presentation(source) else {
         // Every retail visual shape has a generated profile. A non-catalog
         // native id has no ShapeHdr behavior to reproduce and cannot safely
         // enter a guessed size class.
-        g.objs.aldead = 1;
+        remove_explosion_object(g, idx);
         return;
     };
     let Some(sprite) = make_obj(g, 0) else {
-        g.objs.aldead = 1;
+        remove_explosion_object(g, idx);
         return;
     };
     // `s_make_obj` uses the source list's insert-after-current operation, so
     // the sprite runs its newly installed explosion strategy later in this
     // same object pass.
     g.objs.active_move_after(sprite, idx);
-    remove_attached_fire(g, idx);
 
     let explode_tick = sid(g, explode_strat);
     let large_explode_tick = sid(g, lexplode_strat);
     let sprite_rotation = crate::common::flat_billboard_rotation(&g.vars);
     {
         let object = &mut g.objs.aliens[idx as usize];
-        object.flags |= AFEXP;
-        object.hp = 0;
         object.visual_kind = ObjectVisualKind::Mesh;
-        object.sflags &= !ASF_SSPRITE;
-        object.sflags2 |= ASF2_COLLDISABLE;
         object.shape = presentation.polygon_shape;
         object.expstratptr = Some(if presentation.half_rate_polygons {
             large_explode_tick
@@ -1467,7 +1480,7 @@ fn explode_icont(g: &mut Game, idx: u16) {
         );
     }
     if g.objs.aliens[idx as usize].sflags3 & ASF3_NOPOLYEXP != 0 {
-        g.objs.aldead = 1;
+        remove_explosion_object(g, idx);
     }
 }
 
@@ -16720,25 +16733,31 @@ pub(crate) fn copy_pos(g: &mut Game, dst: u16, src: u16) {
     al.worldz = s.worldz;
 }
 
-/// C `make_exp_obj` (strat_enemy.c:6866, makeexpobj_srou).
+/// `makeexpobj_srou`: schedule an envelope, or return the source fallback
+/// follower without reinitializing it. The caller still applies its shape,
+/// jitter and lifetime on allocation failure; those writes and random draws
+/// are observable to later objects in the same strategy pass.
 pub(crate) fn make_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
-    let child = make_obj(g, 0)?;
+    let Some(child) = make_obj(g, 0) else {
+        let dummy = u16::try_from(g.vars.dummyobj).ok()?;
+        return (dummy != 0
+            && g.objs
+                .aliens
+                .get(usize::from(dummy))
+                .is_some_and(|al| al.active))
+        .then_some(dummy);
+    };
     // `s_make_obj` links the new object immediately after the current source
     // object. Explosion helpers make `parent` current before calling the
     // source subroutine, so preserve that observable same-pass ordering.
     g.objs.active_move_after(child, parent);
-    let s_tick = sid(g, delayexplode_strat);
-    let s_exp = sid(g, strat_explode);
+    let init = sid(g, delayexplode_init);
     {
         let al = &mut g.objs.aliens[child as usize];
         al.sflags3 &= !ASF3_REALOBJ;
         al.sflags2 |= ASF2_COLLDISABLE | ASF2_NOEXPSND;
         al.sflags4 |= ASF4_RELEXPLODE;
-        al.hp = HARD_HP;
-        al.ap = HARD_AP;
-        al.stratptr = Some(s_tick);
-        al.collstratptr = None;
-        al.expstratptr = Some(s_exp);
+        al.stratptr = Some(init);
     }
     copy_pos(g, child, parent);
     Some(child)
@@ -16792,7 +16811,26 @@ pub(crate) fn boss_dying(g: &mut Game) {
     }
 }
 
-/// C `delayexplode_strat` (EXPSTRAT.ASM:259-268).
+/// `s_decbpl_lifecnt`: the stored byte wraps, and its signed result chooses
+/// expiry. Entry values 1..=128 survive; zero and 129..=255 expire.
+fn explosion_delay_expired(al: &mut Alien) -> bool {
+    al.count = al.count.wrapping_sub(1);
+    (al.count as i8) < 0
+}
+
+/// `delayexplode_Istrat` enters the first countdown visit immediately.
+pub fn delayexplode_init(g: &mut Game, idx: u16) {
+    let tick = sid(g, delayexplode_strat);
+    let explode = sid(g, strat_explode);
+    let al = &mut g.objs.aliens[idx as usize];
+    set_hard_vars(al);
+    al.stratptr = Some(tick);
+    al.collstratptr = None;
+    al.expstratptr = Some(explode);
+    delayexplode_strat(g, idx);
+}
+
+/// `delayexplode_strat` (EXPSTRAT.ASM:259-268).
 pub fn delayexplode_strat(g: &mut Game, idx: u16) {
     // ASM EXPSTRAT.ASM:262 `s_decbpl_lifecnt x,.nd` dies when the decrement goes
     // NEGATIVE (entry count 0), surviving count+1 ticks. The old inline
@@ -16800,7 +16838,7 @@ pub fn delayexplode_strat(g: &mut Game, idx: u16) {
     let expired = {
         let al = &mut g.objs.aliens[idx as usize];
         al.sflags |= ASF_HITFLASH;
-        count_down(al)
+        explosion_delay_expired(al)
     };
     if expired {
         // ASM `s_kill_obj x` (STRATMAC.INC:2643) is colldisable + HP:=0 — a
@@ -16820,17 +16858,35 @@ pub fn delayexplode_strat(g: &mut Game, idx: u16) {
     }
 }
 
-/// C `delayremove_strat` (GSTRATS.ASM:1188-1193).
-pub(crate) fn delayremove_strat(g: &mut Game, idx: u16) {
-    {
-        let al = &mut g.objs.aliens[idx as usize];
-        if al.count > 0 {
-            al.count -= 1;
-        }
-    }
+fn initialize_delayed_removal(g: &mut Game, idx: u16) {
+    let tick = sid(g, delayremove_strat);
+    let al = &mut g.objs.aliens[idx as usize];
+    set_hard_vars(al);
+    al.stratptr = Some(tick);
+    al.collstratptr = None;
+    al.expstratptr = None;
+    al.sflags2 |= ASF2_COLLDISABLE;
+    delayremove_strat(g, idx);
+}
+
+/// GSTRATS `delayremove_Istrat`: absolute countdown, including its entry visit.
+pub fn delayremove_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags4 &= !ASF4_RELEXPLODE;
+    initialize_delayed_removal(g, idx);
+}
+
+/// GSTRATS `delayremoverel_Istrat`: scroll-relative entry and countdown.
+pub fn delayremoverel_istrat(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_RELEXPLODE;
+    initialize_delayed_removal(g, idx);
+}
+
+/// `delayremove_strat` (GSTRATS.ASM): remove on wrapped zero, then keep scrolling.
+pub fn delayremove_strat(g: &mut Game, idx: u16) {
+    let al = &mut g.objs.aliens[idx as usize];
+    al.count = al.count.wrapping_sub(1);
     if g.objs.aliens[idx as usize].count == 0 {
-        g.objs.aldead = 1;
-        return;
+        remove_explosion_object(g, idx);
     }
     if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
         add_player_z(g, idx);
@@ -16879,9 +16935,7 @@ pub(crate) fn start_boss_explosion_circle(g: &mut Game, idx: u16) -> Option<u16>
 
 /// `circdelayexplode_strat` (EXPSTRAT.ASM): signed, wrapping byte countdown.
 pub fn circdelayexplode_strat(g: &mut Game, idx: u16) {
-    let object = &mut g.objs.aliens[idx as usize];
-    object.count = object.count.wrapping_sub(1);
-    if (object.count as i8) < 0 {
+    if explosion_delay_expired(&mut g.objs.aliens[idx as usize]) {
         let _ = start_boss_explosion_circle(g, idx);
         if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
             if let Some(big) = make_obj(g, 0) {
@@ -16893,8 +16947,7 @@ pub fn circdelayexplode_strat(g: &mut Game, idx: u16) {
                 al.stratptr = Some(s);
             }
         }
-        remove_attached_fire(g, idx);
-        g.objs.aldead = g.objs.aldead.wrapping_add(1);
+        remove_explosion_object(g, idx);
     }
     // The source falls through here even after marking the parent for removal.
     // Both children inherit its position before this final scroll adjustment.
@@ -16902,16 +16955,16 @@ pub fn circdelayexplode_strat(g: &mut Game, idx: u16) {
 }
 
 /// C `bossdelayexplode_strat` (EXPSTRAT.ASM:46-65 tick half).
-pub(crate) fn bossdelayexplode_strat(g: &mut Game, idx: u16) {
+pub fn bossdelayexplode_strat(g: &mut Game, idx: u16) {
     // ASM EXPSTRAT.ASM:53 `s_decbpl_lifecnt x,.nd` dies when the decrement goes
     // NEGATIVE (entry count 0). Old inline fired one frame early. (Audit A #35)
     let expired = {
         let al = &mut g.objs.aliens[idx as usize];
         al.sflags |= ASF_HITFLASH;
-        count_down(al)
+        explosion_delay_expired(al)
     };
     if expired {
-        g.objs.aldead = 1;
+        crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
         let _ = make_fol_exp_obj(g, idx);
         g.vars.gameflags |= GF_BOSSDEAD;
         if let Some(exp) = g.objs.aliens[idx as usize].expstratptr {
@@ -16934,7 +16987,8 @@ pub fn strat_boss_delay_explode_init(g: &mut Game, idx: u16) {
     al.stratptr = Some(s);
     al.collstratptr = None;
     al.expstratptr = Some(s_exp);
-    // Caller is responsible for setting `count` (lifecnt) — C comment.
+    // The caller supplies the lifetime; the source label falls through.
+    bossdelayexplode_strat(g, idx);
 }
 
 /// C `Strat_QBossExplode_Init` (Qbossexplode_Istrat, EXPSTRAT.ASM:68-74).

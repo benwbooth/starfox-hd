@@ -113,6 +113,30 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Explosion countdowns now store wrapped timer bytes, enter their first visit
+  from initialization, and distinguish a kill signal from object removal.
+  Factories schedule the original initializer and use the real player follower
+  on pool exhaustion, preserving caller writes and random draws. Outward
+  vectors use the shared source-exact 3D arithmetic and clear depth velocity.
+  Generic explosions release attached fire before sprite allocation; ordinary
+  removal retains source marker increments and its required final scrolling.
+  The Nucleus boss now shares these services instead of maintaining divergent
+  factory/countdown/large-explosion copies. Three original-instruction gates
+  cover 8,032 timer, fallback and attachment cases. A fourth runs unmodified
+  `TRANS.dostrats` against `Game::run_strategies` for 38,400 frames across four
+  explosion entries, six capacity limits, two shape classes and five seeds,
+  comparing tracked actor fields, active/free-list order and random state.
+  This is an integrated effect-lifecycle check, not a whole-boss certification.
+  The old boss1 trace used the bee shape and encoded a missing first visit and
+  prematurely removed corpse: its pre-death regression remains, its obsolete
+  death suffix is retained as historical data, and the original-code lifecycle
+  gate plus a native corpse-lifetime test replace those invalid expectations.
+  All 1,588 scoped native tests and 39 original-code tests pass in both debug
+  and release, as do 15 source/audit checks and the architecture gate. All
+  three app binaries build in both profiles. These are 3,254 Rust test passes
+  across 502 test executables; no whole-game runtime claim follows from them.
+  Whole-game SF1 timing and SF2 production scene ownership remain open.
+
 - Boss-circle handoff now schedules the actual large particle emitter, retains
   insert-after-parent ordering, executes the circle initializer's first tick,
   and preserves the final scroll after removal. Outward-explosion constructors

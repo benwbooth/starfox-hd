@@ -45,7 +45,13 @@
 //! The boss-circle records additionally retain source insert-after-parent
 //! ordering, initializer fallthrough and the real particle payload/lifetime.
 //! `test_boss_circle_source.py` reverses only that correction and its forced
-//! slot-reuse permutation. The separate boss-delay entry is not yet certified.
+//! slot-reuse permutation. The boss fixture's death suffix is now historical:
+//! its missing initializer visit and premature corpse removal contradict the
+//! original code. Its first 70, pre-death frames remain a regression gate.
+//! Death and effect lifetime coverage is replaced by the stronger
+//! `sf-oracle/tests/support/boss_explosion_lifecycle.rs` gate: complete original
+//! TRANS.dostrats passes versus the shipping scheduler, including every active
+//! actor, allocation order and random byte, through the final emitter's death.
 
 mod support;
 
@@ -187,9 +193,13 @@ fn base_game() -> Game {
     g
 }
 
-fn run_scenario(mut g: Game, events: impl Fn(&mut Game, i32), fixture: &str) {
+fn run_scenario(g: Game, events: impl Fn(&mut Game, i32), fixture: &str) {
+    run_scenario_frames(g, events, fixture, 120);
+}
+
+fn run_scenario_frames(mut g: Game, events: impl Fn(&mut Game, i32), fixture: &str, frames: i32) {
     let mut out = String::new();
-    for t in 0..120 {
+    for t in 0..frames {
         script_player(&mut g, t);
         events(&mut g, t);
         g.run_strategies();
@@ -197,6 +207,10 @@ fn run_scenario(mut g: Game, events: impl Fn(&mut Game, i32), fixture: &str) {
     }
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), fixture);
     let expected = std::fs::read_to_string(&path).expect("fixture");
+    let boundary = format!("T {frames} ");
+    let expected = expected
+        .split_once(&boundary)
+        .map_or(expected.as_str(), |(prefix, _)| prefix);
     for (i, (got, want)) in out.lines().zip(expected.lines()).enumerate() {
         assert_eq!(got, want, "{} line {} mismatch", fixture, i + 1);
     }
@@ -293,18 +307,10 @@ fn parity_rader0() {
 }
 
 #[test]
-fn parity_boss1() {
+fn boss1_predeath_legacy_regression() {
     let mut g = base_game();
     g.vars.write_ext8(wm::CURRENTLEVEL, 2);
     let e1 = spawn(&mut g, 0, 150, 3000, 16);
     assign_istrat(&mut g, e1, enemy_a::strat_boss1_init);
-    run_scenario(
-        g,
-        move |g, t| {
-            if t == 70 && g.objs.aliens[e1 as usize].active {
-                g.objs.aliens[e1 as usize].hp = 0;
-            }
-        },
-        "ea_boss1.txt",
-    );
+    run_scenario_frames(g, |_, _| {}, "ea_boss1.txt", 70);
 }

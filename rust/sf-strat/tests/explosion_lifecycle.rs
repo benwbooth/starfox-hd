@@ -53,7 +53,8 @@ fn player_sized_explosion_keeps_polygon_debris_and_a_scaled_sprite_alive() {
     strat_explode(&mut game, destroyed);
 
     assert_eq!(*sounds.borrow(), vec![NEAR_DESTRUCTION_SOUND]);
-    assert!(!game.objs.aliens[fire as usize].active);
+    assert_eq!(game.objs.aliens[destroyed as usize].fireobjptr, 0);
+    assert_eq!(game.objs.aliens[destroyed as usize].flags & AFONFIRE, 0);
     let polygon = game.objs.aliens[destroyed as usize];
     assert_ne!(polygon.flags & AFEXP, 0);
     assert_eq!(polygon.shape, MEDIUM_EXPLOSION_POLYGON_SHAPE);
@@ -71,6 +72,10 @@ fn player_sized_explosion_keeps_polygon_debris_and_a_scaled_sprite_alive() {
         .find(|slot| *slot != player && *slot != destroyed)
         .expect("explosion sprite");
     let sprite_object = game.objs.aliens[sprite as usize];
+    assert_eq!(
+        sprite, fire,
+        "fire is released before allocating the sprite"
+    );
     assert_eq!(sprite_object.visual_kind, ObjectVisualKind::ScaledSprite);
     assert_eq!(sprite_object.shape, MEDIUM_EXPLOSION_SPRITE_SHAPE);
     assert_eq!(sprite_object.tx, PLAYER_SPRITE_SCALE_ADJUSTMENT);

@@ -59,7 +59,7 @@ fn boss1_death_plays_dying_se_and_bgm() {
 }
 
 #[test]
-fn boss1_death_spawns_barrage_lifecnt38_and_spin() {
+fn boss1_death_spawns_barrage_then_enters_the_countdown_and_spin() {
     let mut g = Game::new();
     // Player slot so release/explode paths that touch playpt stay safe.
     let p = spawn(&mut g);
@@ -83,7 +83,10 @@ fn boss1_death_spawns_barrage_lifecnt38_and_spin() {
         after, 17,
         "player+boss+14 exp+circdelay; got {after} (children freed then barrage)"
     );
-    assert_eq!(g.objs.aliens[boss as usize].count, 38, "lifecnt #58-20");
+    assert_eq!(
+        g.objs.aliens[boss as usize].count, 37,
+        "lifecnt #58-20, then initializer fallthrough"
+    );
     assert!(
         g.objs.aliens[boss as usize].tempstratptr.is_some(),
         "boss1exp_Istrat spin armed in tempstrat"
@@ -103,4 +106,45 @@ fn boss1_death_spawns_barrage_lifecnt38_and_spin() {
         rot0.wrapping_add(64 / 32),
         "boss1exp spin deg90/32"
     );
+}
+
+#[test]
+fn boss_delay_death_keeps_the_polygon_corpse_until_its_source_lifetime() {
+    let mut game = Game::new();
+    let player = game.objs.alloc().unwrap();
+    game.objs.aliens[player as usize].hp = 40;
+    game.objs.aliens[player as usize].worldz = 5000;
+    let boss = game.objs.alloc().unwrap();
+    let death = game.world.register_strategy(boss1exp_init);
+    let actor = &mut game.objs.aliens[boss as usize];
+    actor.shape = 16; // medium ShapeHdr used by the retained boss regression
+    actor.flags = sf_game::draw::AF_INVIEW_PL;
+    actor.hp = 0;
+    actor.worldz = 7215;
+    actor.rotz = 120;
+    actor.expstratptr = Some(death);
+    game.vars.pviewvelz = 65;
+
+    for visit in 0..=50 {
+        game.run_strategies();
+        let actor = &game.objs.aliens[boss as usize];
+        if visit < 38 {
+            assert!(actor.active);
+            assert_eq!(actor.count, 37 - visit);
+            assert_eq!(actor.rotz, 120 + 2 * (visit + 1));
+            assert_eq!(actor.worldz, 7215 + 65 * i16::from(visit + 1));
+        } else if visit < 50 {
+            assert!(
+                actor.active,
+                "kill_obj signals death; it does not release this slot"
+            );
+            assert_eq!(actor.hp, 0);
+            assert_eq!(actor.shape, 466); // source medium polygon explosion
+            assert_eq!(actor.count, visit - 38);
+            assert_eq!(actor.count1, 12);
+            assert_eq!(actor.worldz, 9685); // no scroll-relative flag on the parent
+        } else {
+            assert!(!actor.active, "twelfth polygon visit retires the corpse");
+        }
+    }
 }

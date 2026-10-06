@@ -31,7 +31,10 @@ fn bossbigoutexplode_sets_bossdead_and_delayremove() {
     let before = g.objs.active_indices().len();
     bossbigoutexplode_istrat(&mut g, idx);
     assert_ne!(g.vars.gameflags & GF_BOSSDEAD, 0);
-    assert_eq!(g.objs.aliens[idx as usize].count, 11);
+    assert_eq!(
+        g.objs.aliens[idx as usize].count, 10,
+        "delay-removal entry performs its first decrement"
+    );
     assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE, 0);
     assert!(
         g.objs.active_indices().len() > before,

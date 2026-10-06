@@ -10,9 +10,7 @@ use sf_game::alien::{
 };
 use sf_game::Game;
 use sf_strat::bosses::{b8_make_exp_obj, boss8_bigexplode, boss8_delayexplode_strat};
-use sf_strat::enemy_a::{
-    delayexplode_strat, make_large_exp_obj, make_medium_exp_obj, make_small_exp_obj,
-};
+use sf_strat::enemy_a::{make_large_exp_obj, make_medium_exp_obj, make_small_exp_obj};
 
 fn spawn(g: &mut Game) -> u16 {
     let idx = g.objs.alloc().expect("obj");
@@ -38,7 +36,8 @@ fn makeexpobj_default_count_zero_explodes_first_tick() {
     assert_eq!(g.objs.aliens[med as usize].shape, 0);
 
     g.objs.aldead = 0;
-    delayexplode_strat(&mut g, med);
+    let init = g.objs.aliens[med as usize].stratptr.unwrap();
+    g.call_strat(init, med);
     // Expiry applies s_kill_obj (STRATMAC.INC:2643) then runs the explosion
     // inline. Without nopolyexp the corpse MORPHS into its polygon mesh and
     // survives as a live object — removal would cut that mesh off one tick
@@ -81,8 +80,10 @@ fn b8_make_exp_obj_default_count_zero_explodes_first_tick() {
     let e = b8_make_exp_obj(&mut g, parent, ExplosionSize::Medium).expect("exp");
     assert_eq!(g.objs.aliens[e as usize].count, 0);
     g.objs.aldead = 0;
-    boss8_delayexplode_strat(&mut g, e);
-    assert_eq!(g.objs.aldead, 1);
+    let init = g.objs.aliens[e as usize].stratptr.unwrap();
+    g.call_strat(init, e);
+    assert_eq!(g.objs.aldead, 0, "polygon corpse remains live");
+    assert_eq!(g.objs.aliens[e as usize].shape, 466);
     assert_ne!(g.objs.aliens[e as usize].sflags & ASF_HITFLASH, 0);
 }
 
@@ -93,10 +94,12 @@ fn delayexplode_lifecnt_survives_count_plus_one() {
     let parent = spawn(&mut g);
     let e = b8_make_exp_obj(&mut g, parent, ExplosionSize::Large).expect("exp");
     g.objs.aliens[e as usize].count = 3; // like bigexplode i+1 for i=2
+    g.objs.aliens[e as usize].sflags3 |= sf_game::alien::ASF3_NOPOLYEXP;
 
     for tick in 1..=3 {
         g.objs.aldead = 0;
-        boss8_delayexplode_strat(&mut g, e);
+        let current = g.objs.aliens[e as usize].stratptr.unwrap();
+        g.call_strat(current, e);
         assert_eq!(g.objs.aldead, 0, "tick {tick}: still alive (count was >0)");
         assert_eq!(g.objs.aliens[e as usize].count, 3 - tick);
     }
@@ -113,8 +116,10 @@ fn delayexplode_lifecnt_one_survives_first_tick() {
     let parent = spawn(&mut g);
     let e = b8_make_exp_obj(&mut g, parent, ExplosionSize::Large).expect("exp");
     g.objs.aliens[e as usize].count = 1; // bigexplode first child
+    g.objs.aliens[e as usize].sflags3 |= sf_game::alien::ASF3_NOPOLYEXP;
     g.objs.aldead = 0;
-    boss8_delayexplode_strat(&mut g, e);
+    let init = g.objs.aliens[e as usize].stratptr.unwrap();
+    g.call_strat(init, e);
     assert_eq!(g.objs.aldead, 0, "count 1→0: survive");
     assert_eq!(g.objs.aliens[e as usize].count, 0);
     boss8_delayexplode_strat(&mut g, e);
@@ -132,14 +137,17 @@ fn boss8_bigexplode_expires_through_the_ordinary_explosion() {
 
     let al = g.objs.aliens[boss as usize];
     assert_ne!(al.stratptr, al.expstratptr);
-    assert_eq!(al.count, 4);
+    assert_eq!(al.count, 3, "initializer enters the first countdown visit");
 
-    for tick in 1..=4 {
+    for tick in 1..=3 {
         g.objs.aldead = 0;
         boss8_delayexplode_strat(&mut g, boss);
         assert_eq!(g.objs.aldead, 0, "tick {tick}: boss still delaying");
     }
     g.objs.aldead = 0;
     boss8_delayexplode_strat(&mut g, boss);
-    assert_eq!(g.objs.aldead, 1, "tick 5: ordinary explosion removes boss");
+    assert_eq!(
+        g.objs.aldead, 1,
+        "fourth later tick: ordinary explosion removes the out-of-view boss"
+    );
 }

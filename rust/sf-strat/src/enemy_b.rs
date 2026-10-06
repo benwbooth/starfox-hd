@@ -61,11 +61,11 @@ pub const STRAT_ADDR_BOSSF: u32 = sf_map::consts::is::BOSSF;
 pub(crate) mod eb_compat {
     pub use sf_game::alien::{
         Alien, ExplosionSize, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
-        ACF_COLLTYPE5, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_NOPOLYEXP,
-        ASF3_REALOBJ, ASF4_CHILDOBJ, ASF4_CSPECIAL, ASF4_DONESND, ASF4_INVISIBLE, ASF4_MOTHEROBJ,
-        ASF4_PLAYEROBJ, ASF4_RELEXPLODE, ASF4_SFLAG8, ASF2_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-        ASF2_LCOLLIDE, ASF3_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED,
-        ATZREMOVE, NUMBER_AL,
+        ACF_COLLTYPE5, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF2_COLLDISABLE,
+        ASF2_LCOLLIDE, ASF3_NOHITAFFECT, ASF3_NOPOLYEXP, ASF3_REALOBJ, ASF4_CHILDOBJ,
+        ASF4_CSPECIAL, ASF4_DONESND, ASF4_INVISIBLE, ASF4_MOTHEROBJ, ASF4_PLAYEROBJ,
+        ASF4_RELEXPLODE, ASF4_SFLAG8, ASF_COLLIDE, ASF_HITFLASH, ASF_PARTOBJ, ASF_SHADOW, ATGND,
+        ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
     };
     pub use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
     pub use sf_game::vars::{
@@ -572,7 +572,7 @@ fn adiv2n(v: i16, n: u32) -> i16 {
 /// Reached from the boss7fall bounce chain and the bossA L/R exp pieces
 /// while `hp == 0`; the `s_hardvars` in `delayexplode_Istrat` revives hp
 /// so the delayexplode tick runs on the normal strat path.
-fn bigexplode_istrat(g: &mut Game, idx: u16) {
+pub(crate) fn bigexplode_istrat(g: &mut Game, idx: u16) {
     for i in 1u8..=5 {
         let Some(e) = make_large_exp_obj(g, idx) else {
             continue;
@@ -585,31 +585,24 @@ fn bigexplode_istrat(g: &mut Game, idx: u16) {
             al.sflags2 &= !ASF2_NOEXPSND;
         }
     }
-    let s_tick = sid(g, delayexplode_strat);
-    let s_exp = sid(g, strat_explode);
     let al = &mut g.objs.aliens[idx as usize];
     al.count = 4;
     al.sflags4 |= ASF4_RELEXPLODE;
-    // s_jmp delayexplode_Istrat: s_hardvars + alptrs delayexplode/0/explode.
-    al.hp = HARD_HP;
-    al.ap = HARD_AP;
-    al.stratptr = Some(s_tick);
-    al.collstratptr = None;
-    al.expstratptr = Some(s_exp);
+    crate::enemy_a::delayexplode_init(g, idx);
 }
 
 /// `setoutexp_srou` (EXPSTRAT.ASM:218-228): random outward XY vector +
 /// random short lifetime + positional jitter for one explosion sprite.
 fn setoutexp_srou(g: &mut Game, e: u16) {
-    use crate::snes_trig::{mulslog, COSTAB, SINTAB};
     let angle = (sfrtl_random(g) & 0xFF) as u8;
-    let dist = ((sfrtl_random(g) & 63) + 50) as i32;
+    let dist = ((sfrtl_random(g) & 63) + 50) as u8;
     let life = (sfrtl_random(g) & 15) as u8;
     {
         let al = &mut g.objs.aliens[e as usize];
-        // s_make_xyvec y,angle,dist (sr_make_xyvec).
-        al.vx = mulslog(dist, SINTAB[angle as usize] as i32) as i16;
-        al.vy = mulslog(dist, COSTAB[angle as usize] as i32) as i16;
+        // sr_make_xyvec uses pitch=angle, yaw=90 through n3dvecs_l,
+        // including its signed-byte product rounding, then clears depth.
+        [al.vx, al.vy, _] = crate::common::strat_velocity_3d(angle, DEG90, dist);
+        al.vz = 0;
         al.sflags3 |= ASF3_NOPOLYEXP;
         al.count = life;
     }
@@ -707,16 +700,8 @@ pub fn bossbigoutexplode_icont(g: &mut Game, idx: u16, offx: i16, offy: i16, off
     }
 
     // s_set_lifecnt x,#11 + s_jmp delayremoverel_Istrat
-    let s_tick = sid(g, delayremove_strat);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.count = 11;
-    al.sflags4 |= ASF4_RELEXPLODE;
-    al.sflags2 |= ASF2_COLLDISABLE;
-    al.hp = HARD_HP;
-    al.ap = HARD_AP;
-    al.stratptr = Some(s_tick);
-    al.collstratptr = None;
-    al.expstratptr = None;
+    g.objs.aliens[idx as usize].count = 11;
+    crate::enemy_a::delayremoverel_istrat(g, idx);
 }
 
 fn addsvars2pos(g: &mut Game, idx: u16, ox: i16, oy: i16, oz: i16) {

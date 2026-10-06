@@ -23,8 +23,8 @@ use sf_game::alien::{
     Alien, ExplosionSize, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3,
     ACF_COLLTYPE4, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF2_COLLDISABLE,
     ASF3_NOHITAFFECT, ASF3_NOPOLYEXP, ASF3_REALOBJ, ASF3_SAMESHAPECOLLIDE, ASF4_INVISIBLE,
-    ASF4_RELEXPLODE, ASF4_SFLAG8, ASF_COLLIDE, ASF_HITFLASH,
-    ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATZREMOVE, NUMBER_AL,
+    ASF4_RELEXPLODE, ASF4_SFLAG8, ASF_COLLIDE, ASF_HITFLASH, ASF_SHADOW, ATGND, ATLASER, ATMISSILE,
+    ATZREMOVE, NUMBER_AL,
 };
 use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
 use sf_game::vars::{
@@ -2880,22 +2880,7 @@ fn b8_spawn_child(
 
 /// Public for AUDIT_BOSS_TICKS2 expobj-lifecnt tests (makeexpobj leaves count=0).
 pub fn b8_make_exp_obj(g: &mut Game, parent: u16, size: ExplosionSize) -> Option<u16> {
-    let child = make_obj(g, 0)?;
-    let s_tick = sid(g, boss8_delayexplode_strat);
-    let s_exp = sid(g, strat_explode);
-    {
-        let al = &mut g.objs.aliens[child as usize];
-        al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags2 |= ASF2_COLLDISABLE;
-        al.sflags2 |= ASF2_NOEXPSND;
-        al.sflags4 |= ASF4_RELEXPLODE;
-        al.hp = HARD_HP;
-        al.ap = HARD_AP;
-        al.stratptr = Some(s_tick);
-        al.collstratptr = None;
-        al.expstratptr = Some(s_exp);
-    }
-    copy_pos(g, child, parent);
+    let child = crate::enemy_a::make_exp_obj(g, parent)?;
     set_explosion_envelope(&mut g.objs.aliens[child as usize], size);
     Some(child)
 }
@@ -2930,27 +2915,10 @@ pub fn b8_add_rnd_xyz(g: &mut Game, idx: u16) {
     al.worldz = al.worldz.wrapping_add(rz);
 }
 
-/// delayexplode_strat (EXPSTRAT.ASM:259-268 / strat_boss8.c:382).
-/// ROM `s_decbpl_lifecnt x,.nd` (STRATMAC.INC:5997): `dec` then branch if
-/// result ≥0 — dies when entry count was 0 (post-dec negative). Survives
-/// `count+1` ticks. Matches `enemy_a::delayexplode_strat` / Audit A #35.
-/// Public for AUDIT_BOSS_TICKS2 expobj-lifecnt tests.
+/// Nucleus effects use the same source countdown, kill signal and explosion
+/// callback as every other `delayexplode_strat` caller.
 pub fn boss8_delayexplode_strat(g: &mut Game, idx: u16) {
-    let expired = {
-        let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_HITFLASH;
-        count_down(al)
-    };
-    if expired {
-        g.objs.aldead = 1;
-        if let Some(exp) = g.objs.aliens[idx as usize].expstratptr {
-            g.call_strat(exp, idx);
-        }
-        return;
-    }
-    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
-        b8_add_player_z(g, idx);
-    }
+    crate::enemy_a::delayexplode_strat(g, idx);
 }
 
 // ---- wallrot (strat_boss8.c:419-438) ----
@@ -3464,24 +3432,7 @@ pub fn boss8die_strat(g: &mut Game, idx: u16) {
 /// `delayexplode_strat, 0, explode_Istrat`; its exp pointer must never point
 /// back to the delay handler itself.
 pub fn boss8_bigexplode(g: &mut Game, idx: u16) {
-    for i in 0..5u8 {
-        if let Some(e) = b8_make_exp_obj(g, idx, ExplosionSize::Large) {
-            g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
-            b8_add_rnd_xy(g, e);
-            g.objs.aliens[e as usize].count = i + 1;
-            if i == 1 || i == 3 {
-                g.objs.aliens[e as usize].sflags2 &= !ASF2_NOEXPSND;
-            }
-        }
-    }
-    let s = sid(g, boss8_delayexplode_strat);
-    let s_exp = sid(g, strat_explode);
-    let al = &mut g.objs.aliens[idx as usize];
-    al.count = 4;
-    al.sflags4 |= ASF4_RELEXPLODE;
-    al.expstratptr = Some(s_exp);
-    al.stratptr = Some(s);
-    al.collstratptr = None;
+    crate::enemy_b::bigexplode_istrat(g, idx);
 }
 
 // ---- boss8cov (strat_boss8.c:1032) ----

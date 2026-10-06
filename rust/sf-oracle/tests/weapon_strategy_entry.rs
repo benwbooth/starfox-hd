@@ -46,6 +46,12 @@ mod strategy_flags;
 #[path = "support/boss_explosion_children.rs"]
 mod boss_explosion_children;
 
+#[path = "support/explosion_delays.rs"]
+mod explosion_delays;
+
+#[path = "support/boss_explosion_lifecycle.rs"]
+mod boss_explosion_lifecycle;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,
