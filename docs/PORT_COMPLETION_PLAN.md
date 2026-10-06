@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Connected scripted view transitions to the scene's canonical execution-mode
+  word. Authored save/move/restore, fresh allocation defaults, player warning/
+  action/fire gates and each actor's strategy admission now observe the same
+  live bit, including changes made earlier in the current actor pass. Explicit
+  entry observations remain available before the full word is supplied; no
+  missing mode or allocation group is fabricated. Seven new tests exhaust all
+  mode words and contradictory snapshots, exercise one complete authored view
+  transition with allocations and hostile-shot death marking, test scheduler
+  admission changes, and retain read/fault ordering for player services.
+  All 1,230 native tests pass in debug/release, plus compatibility tests,
+  four original player-storage/target tests in both profiles, 616 source checks,
+  architecture checks and all three application builds. This closes shared
+  scene-mode wiring, not the remaining player-entry/movement implementations
+  or the production frame-owner migration. The processed-input producer is
+  the next shared dependency for the enclosing player modes.
+
 - SF2 player storage now owns the actual targeting record, and scene paths
   borrow that record from the primary player independently of path selection.
   The separate player target initializer preserves retained range, forced

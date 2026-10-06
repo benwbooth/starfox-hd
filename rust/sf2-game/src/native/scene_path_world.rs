@@ -171,6 +171,11 @@ pub struct ScenePathWorld {
     pub proxies: SceneProxyStore,
     pub campaign: Option<CampaignPathInputs>,
     pub camera_heading: Option<Angle>,
+    /// Live shared execution-mode word. When bound, its scripted-view bit
+    /// supersedes the initializer observation in spawn_defaults everywhere.
+    pub view_transition_mode: Option<super::view_transition::ViewTransitionMode>,
+    /// Published allocation group and initializer observation. Consumers use
+    /// spawn_defaults() to resample the live mode after scripted-view changes.
     pub spawn_defaults: Option<ObjectSpawnDefaults>,
     pub published_motion: Option<PublishedPlayerMotion>,
     pub active_charge_threshold: Option<u8>,
@@ -197,6 +202,24 @@ pub struct ScenePathWorld {
 }
 
 impl ScenePathWorld {
+    /// Preserve the published allocation group while taking pause exemption
+    /// from the same live mode word that authored view transitions modify.
+    pub fn spawn_defaults(&self) -> Option<ObjectSpawnDefaults> {
+        self.spawn_defaults.map(|defaults| {
+            self.view_transition_mode
+                .map_or(defaults, |mode| mode.spawn_defaults(defaults))
+        })
+    }
+
+    /// Mode-only consumers do not require the unrelated allocation group.
+    /// An explicit initializer observation remains usable before a scene
+    /// supplies the full mode word; an absent observation is never false.
+    pub fn scripted_view_active(&self) -> Option<bool> {
+        self.view_transition_mode
+            .map(|mode| mode.active())
+            .or_else(|| self.spawn_defaults.map(|defaults| defaults.run_when_paused))
+    }
+
     /// After releasing an actor's program chain, discard player and shot
     /// bindings without changing shared player-selection publications.
     pub(crate) fn release_player_bindings(&mut self, owner: ObjectId) {
@@ -232,6 +255,7 @@ impl ScenePathWorld {
             proxies: SceneProxyStore::default(),
             campaign: None,
             camera_heading: None,
+            view_transition_mode: None,
             spawn_defaults: None,
             published_motion: None,
             active_charge_threshold: None,
@@ -462,6 +486,7 @@ impl InvocationWorld for ScenePathWorld {
         world.campaign = self.campaign;
         world.camera_heading = self.camera_heading;
         world.spawn_defaults = self.spawn_defaults;
+        world.view_transition_mode = self.view_transition_mode.as_mut();
         world.handoff = self.handoff.as_mut();
         world.camera_focus = self.camera_focus.as_mut();
         world.camera_tracking = self.camera_tracking.as_mut();

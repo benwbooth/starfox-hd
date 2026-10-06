@@ -267,6 +267,21 @@ fn delay_and_initializer_pause_gates_preserve_read_order_and_shared_publication(
 }
 
 #[test]
+fn live_scripted_mode_stops_rapid_fire_before_missing_allocator_or_weapon_inputs() {
+    let mut scene = Scene::new();
+    scene.charge().rapid_control = 0x30;
+    scene.record().equipment.as_mut().unwrap().weapon_level = 219;
+    scene.world.spawn_defaults = None;
+    scene.world.weapons = None;
+    scene.world.view_transition_mode =
+        Some(crate::view_transition::ViewTransitionMode { flags: 2 });
+    scene.visit(false).unwrap();
+    assert_eq!(scene.charge().rapid_control, 0x30);
+    assert_eq!(scene.world.scene.active_weapon_level, Some(219));
+    assert!(!scene.execution.is_faulted());
+}
+
+#[test]
 fn linked_muzzle_uses_fixed_view_xz_restores_player_and_honors_override_bit() {
     for (level, disabled) in [(1, false), (2, false), (3, false), (4, false), (1, true)] {
         let mut scene = Scene::new();

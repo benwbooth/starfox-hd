@@ -2,6 +2,10 @@
 //! cleanup (`$03:A6A5`). The saved source record ends at base field 3E;
 //! separately indexed extension state is deliberately not rolled back.
 
+#[cfg(test)]
+#[path = "scene_view_tests.rs"]
+mod scene_tests;
+
 use super::actor_auxiliary::{ActorAuxiliary, AuxiliaryError, AuxiliaryKind, AuxiliaryRecord};
 use super::collision_pass::ExclusionGroups;
 use super::object::ObjectBase;

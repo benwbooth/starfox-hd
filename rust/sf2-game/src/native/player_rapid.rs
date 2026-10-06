@@ -58,7 +58,7 @@ fn control<'a>(
 }
 
 fn defaults(world: &ScenePathWorld) -> Result<ObjectSpawnDefaults, RapidError> {
-    world.spawn_defaults.ok_or(RapidError::MissingSpawnDefaults)
+    world.spawn_defaults().ok_or(RapidError::MissingSpawnDefaults)
 }
 
 fn dispatch(
@@ -149,11 +149,11 @@ fn launch_flight(
         .ok_or(RapidError::World(WorldInputError::MissingEquipment(owner)))?
         .weapon_level;
     world.scene.active_weapon_level = Some(level);
-    let defaults = defaults(world)?;
     // Shared initializer mode 1B84 bit 02, not strategy pause or 1D72.
-    if defaults.run_when_paused {
+    if world.scripted_view_active().ok_or(RapidError::MissingSpawnDefaults)? {
         return Ok(false);
     }
+    let defaults = defaults(world)?;
     let charge = world
         .player(objects, owner)
         .map_err(RapidError::World)?
@@ -216,10 +216,10 @@ pub fn advance(
         {
             return Ok(());
         }
-        let defaults = defaults(world)?;
-        if defaults.run_when_paused {
+        if world.scripted_view_active().ok_or(RapidError::MissingSpawnDefaults)? {
             return Ok(());
         }
+        let defaults = defaults(world)?;
         world
             .weapons
             .as_mut()

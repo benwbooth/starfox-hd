@@ -44,7 +44,7 @@ fn install_feedback(
         return Ok(());
     }
     let defaults = world
-        .spawn_defaults
+        .spawn_defaults()
         .ok_or(RecoveryError::MissingSpawnDefaults)?;
     let effect = Object::new_authored(
         ObjectKind::Effect,

@@ -175,9 +175,8 @@ pub fn advance(
     input: InputState,
 ) -> Result<(), PlayerActionError> {
     if world
-        .spawn_defaults
+        .scripted_view_active()
         .ok_or(PlayerActionError::MissingSpawnDefaults)?
-        .run_when_paused
     {
         return Ok(());
     }

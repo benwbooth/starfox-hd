@@ -75,6 +75,8 @@ pub trait SceneCallbacks: Sized {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SceneStrategyControls {
+    /// Entry observation used until the full shared mode word is bound.
+    /// Authored transitions then override this snapshot for each actor visit.
     pub paused: bool,
     pub excluded_actor: Option<ObjectId>,
     pub positional_suppressed: bool,
@@ -463,7 +465,9 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                 run_when_paused: actor.base.contacts.run_when_paused,
                 has_assigned_strategy: actor.base.behavior != Behavior::Unassigned,
             },
-            self.execution.controls.paused,
+            self.world
+                .view_transition_mode
+                .map_or(self.execution.controls.paused, |mode| mode.active()),
         );
         if decision.clear_first_visit {
             self.objects

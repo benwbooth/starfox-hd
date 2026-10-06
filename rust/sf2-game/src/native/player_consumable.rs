@@ -125,7 +125,7 @@ fn allocate_effect(
         return Ok(None);
     }
     let defaults = world
-        .spawn_defaults
+        .spawn_defaults()
         .ok_or(ConsumableError::MissingSpawnDefaults)?;
     let effect = Object::new_authored(kind, ShapeId::EMPTY, Behavior::FollowPath, defaults);
     let head = objects.active_ids().first().copied();
@@ -192,9 +192,8 @@ pub fn use_item(
     owner: ObjectId,
 ) -> Result<bool, ConsumableError> {
     if world
-        .spawn_defaults
+        .scripted_view_active()
         .ok_or(ConsumableError::MissingSpawnDefaults)?
-        .run_when_paused
     {
         return Ok(false);
     }

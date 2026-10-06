@@ -98,9 +98,8 @@ pub fn begin(
     }
 
     let paused = world
-        .spawn_defaults
-        .ok_or(PlayerVisitError::MissingSpawnDefaults)?
-        .run_when_paused;
+        .scripted_view_active()
+        .ok_or(PlayerVisitError::MissingSpawnDefaults)?;
     if !paused {
         let mode = world
             .player(objects, owner)?

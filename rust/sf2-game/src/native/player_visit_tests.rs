@@ -575,6 +575,72 @@ fn following_and_explosion_scrolling_read_publication_but_inheritance_reads_live
 }
 
 #[test]
+fn live_scripted_mode_gates_warnings_without_requiring_allocation_observations() {
+    let mut scene = Scene::new();
+    scene.world.spawn_defaults = None;
+    scene.world.view_transition_mode =
+        Some(crate::view_transition::ViewTransitionMode { flags: 2 });
+    scene.records().auxiliary.as_mut().unwrap().mode = 16;
+    let mut obstacle = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::Unassigned);
+    obstacle.base.flags.proximity_warning_source = true;
+    scene.objects.allocate(obstacle).unwrap();
+    scene
+        .world
+        .bind_shots(&scene.objects, scene.owner, ActiveShots::from_count(83))
+        .unwrap();
+    scene.visit().unwrap();
+    assert_eq!(
+        scene
+            .world
+            .shots(&scene.objects, scene.owner)
+            .unwrap()
+            .count(),
+        0
+    );
+    assert_eq!(scene.world.scene.active_weapon_level, Some(7));
+    assert_eq!(
+        scene
+            .objects
+            .get(scene.owner)
+            .unwrap()
+            .extension
+            .path_state
+            .script_value,
+        1
+    );
+    assert!(scene.cues().is_empty());
+
+    // The canonical word, not the stale initializer, re-enables the warning.
+    scene.world.spawn_defaults = Some(ObjectSpawnDefaults {
+        group: 219,
+        run_when_paused: true,
+    });
+    scene
+        .world
+        .view_transition_mode
+        .as_mut()
+        .unwrap()
+        .set_active(false);
+    assert_eq!(
+        scene.visit(),
+        Err(SceneError::PlayerVisit(PlayerVisitError::Warning(
+            WarningError::MissingView
+        )))
+    );
+    assert!(scene.execution.is_faulted());
+    assert_eq!(
+        scene
+            .objects
+            .get(scene.owner)
+            .unwrap()
+            .extension
+            .path_state
+            .script_value,
+        1
+    );
+}
+
+#[test]
 fn missing_warning_view_is_lazy_and_limits_precede_all_later_faults() {
     let mut scene = Scene::new();
     scene.records().auxiliary.as_mut().unwrap().mode = 16;

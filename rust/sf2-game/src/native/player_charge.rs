@@ -144,7 +144,7 @@ fn ensure_effect(
         return Ok(());
     }
     let defaults = world
-        .spawn_defaults
+        .spawn_defaults()
         .ok_or(ChargeError::MissingSpawnDefaults)?;
     let fresh = Object::new_authored(
         ObjectKind::Effect,
@@ -176,14 +176,13 @@ fn launch(
     resources: &mut ProgramResources<ProgramData>,
     owner: ObjectId,
 ) -> Result<(), ChargeError> {
+    let defaults = world.spawn_defaults();
     let weapons = world.weapons.as_mut().ok_or(ChargeError::MissingWeapons)?;
     weapons.parameters = Default::default();
     if objects.len() == OBJECT_CAPACITY {
         return Ok(());
     }
-    let defaults = world
-        .spawn_defaults
-        .ok_or(ChargeError::MissingSpawnDefaults)?;
+    let defaults = defaults.ok_or(ChargeError::MissingSpawnDefaults)?;
     weapon_dispatch::launch(
         objects,
         resources,

@@ -303,6 +303,26 @@ fn pause_and_inactive_early_exits_do_not_resolve_unreached_inputs() {
 }
 
 #[test]
+fn live_scripted_mode_gates_actions_without_requiring_allocation_observations() {
+    let mut scene = Scene::new();
+    scene.world.spawn_defaults = None;
+    scene.world.view_transition_mode =
+        Some(crate::view_transition::ViewTransitionMode { flags: 2 });
+    let before = *scene.action();
+    scene.visit(false).unwrap();
+    assert_eq!(*scene.action(), before);
+    scene
+        .world
+        .view_transition_mode
+        .as_mut()
+        .unwrap()
+        .set_active(false);
+    scene.visit(false).unwrap();
+    assert_eq!(scene.action().elapsed, before.elapsed + 1);
+    assert_eq!(scene.action().total_updates, before.total_updates + 1);
+}
+
+#[test]
 fn absent_services_fault_only_at_their_authored_times_without_incrementing_or_replaying() {
     for (time, expected) in [
         (0, PlayerActionError::MissingConfiguration),

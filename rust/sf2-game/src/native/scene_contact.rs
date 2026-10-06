@@ -305,6 +305,7 @@ impl<C: SceneCallbacks> PlayerContactHost for SceneActors<'_, C> {
                 player_scatter: scatter,
                 owner,
             });
+        let defaults = self.world.spawn_defaults();
         weapon_reflection::reflect_contacts(
             self.objects,
             &mut self.execution.paths.runtime.resources,
@@ -313,7 +314,7 @@ impl<C: SceneCallbacks> PlayerContactHost for SceneActors<'_, C> {
                 contacts: Some(&self.world.contacts),
                 rules,
                 weapons: self.world.weapons.as_mut(),
-                defaults: self.world.spawn_defaults,
+                defaults,
                 primary: self.world.primary_player,
                 secondary: self.world.secondary_player,
                 random: &mut self.world.random,
