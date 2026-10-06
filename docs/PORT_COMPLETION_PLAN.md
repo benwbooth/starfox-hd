@@ -113,6 +113,31 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Implemented SF1's 300-slot, object-owned particle pool and connected it to
+  completed gameplay/presentation scenes and both render modes. Allocation,
+  seeded randomness, retained recycled fields, gravity, fading, clipping,
+  transparent colors, owner retirement and painter ordering now follow the
+  original routines. Scene initialization reseeds without clearing the pool;
+  disabled scenes retain it and extra display frames cannot advance it.
+  Original-code gates cover every generator/count combination, all random
+  seeds and life/flag pairs, signed-boundary pixel output, a 96-scene sorted
+  multi-owner lifecycle, boot reseeding and all seven emitter initializers
+  across every inherited flag byte. Movement initialization enables particles
+  and game-over initialization disables them. GPU checks cover previous-frame
+  retention, transparent pixels, particle dispatch and near/far mesh occlusion.
+  The fire initializer's source-verified collision-byte correction required
+  changing exactly 100 fields in the retained boss2 trace; a reversible hash
+  audit proves that every other fixture byte is unchanged. All 1,797 scoped
+  native debug tests and 1,547 core/game/strategy release tests pass, along
+  with the release GPU gate, 35 original-code tests in both profiles, nine
+  source-contract audits, particle generation and architecture checks. Oracle
+  examples and all three application binaries build in debug/release.
+  This is not whole-game certification: other legacy collision-disable
+  producers still alias the first-byte particle flag, and hit-immunity/last-
+  collision aliases also need a shared flag-byte audit. Those are the next
+  integration blocker before declaring the particle path production-complete;
+  scene-work accounting does not yet replace the neutral-input timing arrays.
+
 - Restored the shared SF1 movement initializer's missing gameplay resets:
   invulnerable player-body data and shadow/cull flags, accumulated rotation,
   slime, roll/shake state, hit/laser counts, special delay, movement speeds and

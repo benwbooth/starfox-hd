@@ -46,7 +46,7 @@ fn spawn_gameover_letter(g: &mut Game, shape: u16, world_x: i16) -> Option<u16> 
 /// ROM `gameoverinit_l` (GSTRATS.ASM:3255):
 /// - point map at waitmap (HD: leave mapptr; shell owns map load)
 /// - `initgame_l` → HD [`initgame_strats_l`] + [`player_start_init`] + [`set_player_cred`]
-/// - clear `gf_playerdying`, disable particles (HD: no particle flag)
+/// - clear `gf_playerdying`, disable the retained particle pool
 /// - spawn gamesh/oversh path objects
 /// - black out pal0 rows 0..6 then load gameoverpal (HD: dotsflag = -1)
 pub fn gameover_init_l(g: &mut Game, player_idx: u16) -> (Option<u16>, Option<u16>) {
@@ -58,6 +58,7 @@ pub fn gameover_init_l(g: &mut Game, player_idx: u16) -> (Option<u16>, Option<u1
         set_player_cred(g, player_idx);
     }
     g.vars.gameflags &= !GF_PLAYERDYING;
+    g.vars.particles_enabled = false;
     g.vars.dotsflag = -1;
 
     let game = spawn_gameover_letter(g, SH_GAMESH, GAME_WORLD_X);

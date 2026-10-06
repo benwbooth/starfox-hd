@@ -563,6 +563,7 @@ pub fn render_entry(entry: &sf_core::DrawListEntry) -> RenderDrawListEntry {
         tscroll_y: entry.tscroll_y,
         obj_id: entry.obj_id,
         interpolation_id: entry.interpolation_id,
+        particles: entry.particles,
     }
 }
 
@@ -730,6 +731,7 @@ pub fn frame_inputs(frame: &FrameSnapshot, game_state: RenderGameState) -> Frame
         scene_style: frame.scene_style,
         point_pixels: &frame.point_pixels,
         cockpit_hud: frame.cockpit_hud,
+        particle_frame: Some(&frame.particle_frame),
         pal_target: frame.pal_target,
         palfade_num: frame.palfade_num,
         windowmode: frame.windowmode,

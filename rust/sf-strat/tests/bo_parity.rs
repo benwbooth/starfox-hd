@@ -32,6 +32,10 @@
 //! audit and source assertions in tools/sf1/test_strategy_source_contracts.py.
 //! Native-output blessing is disabled; future fixture changes require their
 //! own independent source evidence.
+//! The particlefiredown records additionally carry the source's byte-two
+//! collision-disable bit, verified for every inherited flag byte by the
+//! original-code particle initializer gate; the same reversible audit covers
+//! all 100 corrected records without changing their other fields.
 
 mod support;
 

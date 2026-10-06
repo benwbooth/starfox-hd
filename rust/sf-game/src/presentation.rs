@@ -173,6 +173,7 @@ pub fn compose_source_presentation(
     aligned.scene_style.game_palette = presentation_palette;
     aligned.point_pixels.clone_from(&scene.point_pixels);
     aligned.cockpit_hud = scene.cockpit_hud;
+    aligned.particle_frame.clone_from(&scene.particle_frame);
     aligned.meters = scene.meters;
     aligned.stayblack = scene.stayblack;
     aligned.gameflags = scene.gameflags;
@@ -236,12 +237,14 @@ mod tests {
             right_wing_broken: false,
         };
         let presentation = frame(11, 3, false);
+        scene.particle_frame.work.particles_visited = 17;
 
         let composed = compose_source_presentation(&scene, &presentation);
 
         assert_eq!(composed.gameframe, scene.gameframe);
         assert_eq!(composed.screen_wipe, scene.screen_wipe);
         assert_eq!(composed.cockpit_hud, scene.cockpit_hud);
+        assert_eq!(composed.particle_frame, scene.particle_frame);
         assert_eq!(composed.display_brightness, presentation.display_brightness);
         assert_eq!(
             composed.display_forced_blank,

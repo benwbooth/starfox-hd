@@ -177,7 +177,7 @@ pub struct Alien {
 pub const ASF_SPECIAL: u8 = 0x01;
 pub const ASF_HITFLASH: u8 = 0x02;
 pub const ASF_SHADOW: u8 = 0x08;
-pub const ASF_PARTOBJ: u8 = 0x10;
+pub const ASF_PARTOBJ: u8 = sf_core::particles::PARTICLE_OBJECT_FLAG;
 pub const ASF_SSPRITE: u8 = 0x20;
 pub const ASF_TEXTOBJ: u8 = 0x40;
 pub const ASF_COLLDISABLE: u8 = 0x10;

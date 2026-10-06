@@ -1,5 +1,5 @@
 //! Shared movement-reset state compared with the original initializer.
-//! This gate covers gameplay/object state, not the pending particle and red
+//! This gate covers gameplay/object state and particle activation, not the red
 //! palette lifecycle or the source's separately allocated camera object.
 use super::{Source, OBJECT, WRAM};
 use sf_core::{player_view::PlayerViewMode, shape::resolve_shape_word};
@@ -137,6 +137,10 @@ fn movement_init_resets_source_owned_fields_and_preserves_neighboring_state() {
             al.sflags4 = value;
             let mut bus = SnesBus::new(source.rom.clone());
             source.seed(&mut bus, &game.objs.aliens[player as usize], &game);
+            game.vars.particles_enabled = value & 1 != 0;
+            let particles_enabled = source.symbol("M_PARTICLESON");
+            bus.write8(particles_enabled, value);
+            bus.write8(particles_enabled + 1, value ^ 0xA5);
             for (name, value) in words(&game) {
                 source.word(&mut bus, 0, name, value);
             }
@@ -159,6 +163,11 @@ fn movement_init_resets_source_owned_fields_and_preserves_neighboring_state() {
             }
             source.run(&mut bus, "PLAYERMOVE_INIT_L");
             player_move_init(&mut game, player);
+            assert!(game.vars.particles_enabled);
+            assert_eq!(
+                [bus.read8(particles_enabled), bus.read8(particles_enabled + 1)],
+                [1, 1]
+            );
             let context = format!("mode={mode:?} inherited={value}");
             for (name, actual) in words(&game) {
                 let address = WRAM | source.symbol(name);

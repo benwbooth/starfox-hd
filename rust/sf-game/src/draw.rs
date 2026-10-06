@@ -217,6 +217,13 @@ pub fn build_list(
                 entry.shad_y = i as i16; // alien index as unique ID
                 entry.shad_x = al.sbyte1 as i16; // particle amount
                 entry.shad_z = al.sbyte3 as i16; // sbyte2 = life, sbyte3 = type
+                entry.particles = Some(sf_core::particles::ParticleEmitter {
+                    owner: sf_core::particles::ParticleOwner::new(i + 1)
+                        .expect("one-based particle owner"),
+                    kind: sf_core::particles::ParticleKind::from_source(al.sbyte3),
+                    amount: al.sbyte1,
+                    life: al.sbyte2,
+                });
             }
         } else {
             entry.explosion_cnt = 0;
@@ -411,6 +418,7 @@ mod tests {
             tscroll_y: 4,
             obj_id: 1,
             interpolation_id: 1,
+            particles: None,
         };
         assert_eq!(e, &expect);
 
@@ -435,6 +443,7 @@ mod tests {
             al.visual_kind = ObjectVisualKind::ScaledSprite;
             al.count = 12;
             al.sbyte1 = 34; // particle amount
+            al.sbyte2 = 79; // particle life must survive the draw handoff
             al.sbyte3 = 56; // type
         }
         objs.aliens[a as usize].shape = 0; // retained source null-shape command
@@ -457,6 +466,15 @@ mod tests {
         assert_eq!(out[0].shad_x, 34);
         assert_eq!(out[0].shad_z, 56);
         assert_eq!(out[0].obj_id, 2);
+        assert_eq!(
+            out[0].particles,
+            Some(sf_core::particles::ParticleEmitter {
+                owner: sf_core::particles::ParticleOwner::new(2).unwrap(),
+                kind: None, // low three source bits: continuation only
+                amount: 34,
+                life: 79,
+            })
+        );
 
         // ASF3_NOPOLYEXP suppresses the face-explosion count.
         objs.aliens[b as usize].sflags3 = ASF3_NOPOLYEXP;

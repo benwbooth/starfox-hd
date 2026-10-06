@@ -165,37 +165,8 @@ pub(crate) fn project_world_origin(
     project_model_origin(transform.projection(), transform.view(), &model).map(|(x, y, _)| (x, y))
 }
 
-/// Draw list entry — the bridge between game logic and renderer
-/// (STRUCTS.INC `dl_` structure; wider types like the C port).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DrawListEntry {
-    /// World position (fixed-point 16.16).
-    pub x: i32,
-    pub y: i32,
-    pub z: i32,
-    /// Rotation angles (SNES 0-255 units, stored as i16).
-    pub rx: i16,
-    pub ry: i16,
-    pub rz: i16,
-    pub shape_id: u16,
-    pub color_table: u16,
-    pub sort_z: i16,
-    pub sflags: u8,
-    pub explosion_cnt: u8,
-    pub anim_frame: u8,
-    pub col_frame: u8,
-    pub depth_offset: u8,
-    pub flags: u8,
-    pub shad_x: i16,
-    pub shad_y: i16,
-    pub shad_z: i16,
-    pub tscroll_x: u8,
-    pub tscroll_y: u8,
-    /// Stable source-object id (alien index + 1); 0 = no identity.
-    pub obj_id: u16,
-    /// Allocation-lifetime token paired with `obj_id` for interpolation.
-    pub interpolation_id: u64,
-}
+/// The scene owner and renderer share the same typed draw command.
+pub use sf_core::DrawListEntry;
 
 fn can_interpolate(previous: &DrawListEntry, current: &DrawListEntry) -> bool {
     current.obj_id != 0
@@ -245,45 +216,12 @@ fn presentation_entries<'a>(
     )
 }
 
-fn source_sort_depth(entry: &DrawListEntry, camera: SourceSceneCamera) -> i16 {
-    let view_matrix = sf_core::snes_trig::zxy_matrix_q15_fine(
-        camera.rotation[0],
-        camera.rotation[1],
-        camera.rotation[2],
-    );
-    let world_position = [
-        (entry.x >> 16) as i16,
-        (entry.y >> 16) as i16,
-        (entry.z >> 16) as i16,
-    ];
-    let camera_position = camera.position.map(|coordinate| (coordinate >> 16) as i16);
-    let relative = [
-        world_position[0].wrapping_sub(camera_position[0]),
-        world_position[1].wrapping_sub(camera_position[1]),
-        world_position[2].wrapping_sub(camera_position[2]),
-    ];
-    let view_position =
-        sf_core::snes_trig::matrix_rotate_q15(view_matrix, relative[0], relative[1], relative[2]);
-    let shape_sort_depth = sf_core::sf1_shape_metrics::sf1_shape_metrics(entry.shape_id)
-        .map_or(0, |metrics| metrics.sort_depth);
-    view_position
-        .2
-        .wrapping_add(entry.sort_z)
-        .wrapping_add(shape_sort_depth)
-}
-
 fn source_painter_order(entries: &[DrawListEntry], camera: SourceSceneCamera) -> Vec<usize> {
-    let mut order: Vec<_> = (0..entries.len()).collect();
-    // MDRAWLIS.MC `mallrotzsort` links the farthest object first. Its compare
-    // decrements the existing depth before testing, so a later entry with the
-    // same depth is inserted before the earlier entry.
-    order.sort_by_key(|index| {
-        (
-            std::cmp::Reverse(source_sort_depth(&entries[*index], camera)),
-            std::cmp::Reverse(*index),
-        )
-    });
-    order
+    sf_core::draw_order::source_painter_order(
+        entries,
+        camera.position.map(|coordinate| (coordinate >> 16) as i16),
+        camera.rotation,
+    )
 }
 
 fn launch_corridor_depth_layers(entries: &[DrawListEntry]) -> [u8; MAX_DRAW_LIST] {
@@ -641,11 +579,13 @@ impl DrawListRenderer {
         shadow_height: f32,
         shape_palette: &crate::shapes::ShapePaletteRgb,
         font: &mut Font,
+        ui: &mut crate::ui::Ui,
         source_presentation_offset: Option<[i16; 2]>,
         source_bitmap_clear: Option<SourceBitmapRect>,
         source_scene_camera: Option<SourceSceneCamera>,
         source_point_pixels: &[PointPixel],
         source_cockpit_hud: sf_core::cockpit_hud::CockpitHudState,
+        particle_frame: Option<&sf_core::particles::ParticleFrame>,
         source_gameplay_meter_palette: Option<&crate::shapes::ShapePaletteRgb>,
         shadow_style: ShadowStyle,
     ) {
@@ -681,6 +621,9 @@ impl DrawListRenderer {
             crate::shapes::PalettePairStyle::Smooth
         };
         let mut source_raster = SourceRaster::with_palette_pair_style(palette_pair_style);
+        if let Some(frame) = particle_frame {
+            source_raster.set_particle_work(frame.work);
+        }
         if source_presentation_offset.is_some() {
             source_raster.draw_point_field(source_point_pixels, shape_palette);
         }
@@ -709,7 +652,18 @@ impl DrawListRenderer {
                 }
             })
         });
-        let presented_order = source_camera.map_or_else(
+        // Particles are painted at their owner's place among ordinary meshes.
+        // The HD depth buffer does not order these screen-space pixels for us.
+        let painter_camera = source_camera.or_else(|| {
+            particle_frame.filter(|frame| !frame.draws.is_empty()).map(|_| {
+                let (camera, rotation) = camera_endpoints[usize::from(!presenting_previous)];
+                SourceSceneCamera {
+                    position: [camera.x, camera.y, camera.z],
+                    rotation,
+                }
+            })
+        });
+        let presented_order = painter_camera.map_or_else(
             || (0..presented.len()).collect(),
             |camera| source_painter_order(presented, camera),
         );
@@ -767,6 +721,32 @@ impl DrawListRenderer {
         for entry_index in presented_order {
             let entry = &presented[entry_index];
             if entry.flags & DL_FLAG_VISIBLE == 0 {
+                continue;
+            }
+            // Source particles bypass shape lookup, including scaled/text
+            // flags. Their simulation already ran once with this snapshot.
+            if entry.sflags & sf_core::particles::PARTICLE_OBJECT_FLAG != 0 {
+                if let Some(draw) = particle_frame.and_then(|frame| {
+                    frame
+                        .draws
+                        .iter()
+                        .find(|draw| draw.owner.object_id() == entry.obj_id)
+                }) {
+                    if source_presentation_offset.is_some() {
+                        source_raster.draw_particles(draw, shape_palette);
+                    } else {
+                        let pixels = draw.pixels();
+                        let points = crate::point_field::interpolate_points(None, &pixels, 1.0);
+                        let (width, height) = gpu.size();
+                        ui.render_point_field(
+                            gpu,
+                            &points,
+                            shape_palette,
+                            width as i32,
+                            height as i32,
+                        );
+                    }
+                }
                 continue;
             }
 

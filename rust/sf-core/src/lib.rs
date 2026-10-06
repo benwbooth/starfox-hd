@@ -10,6 +10,9 @@
 
 pub mod aim_angle;
 pub mod cockpit_hud;
+pub mod draw_order;
+mod particle_tables;
+pub mod particles;
 pub mod player_view;
 pub mod point_field;
 pub mod scene;
@@ -98,6 +101,8 @@ pub struct DrawListEntry {
     /// matching this token prevents interpolation between unrelated objects
     /// that happened to occupy the same slot with the same shape.
     pub interpolation_id: u64,
+    /// Typed particle command; no lifetime is hidden in a shadow coordinate.
+    pub particles: Option<particles::ParticleEmitter>,
 }
 
 pub mod dl_flags {

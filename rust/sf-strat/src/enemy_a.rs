@@ -1694,7 +1694,7 @@ pub fn particlefire_icont(g: &mut Game, idx: u16) {
     let s = sid(g, particlefire_strat);
     let al = &mut g.objs.aliens[idx as usize];
     al.expstratptr = Some(s);
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.flags |= AFEXP;
 }
 

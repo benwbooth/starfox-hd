@@ -123,6 +123,7 @@ fn to_render_entry(e: &CoreEntry) -> RenderEntry {
         tscroll_y: e.tscroll_y,
         obj_id: e.obj_id,
         interpolation_id: e.interpolation_id,
+        particles: e.particles,
     }
 }
 
@@ -175,6 +176,7 @@ fn to_sf2_render_entry(object: &sf2_game::RenderObject) -> RenderEntry {
         tscroll_y: object.texture_scroll_y,
         obj_id: object.object.stable_render_id(),
         interpolation_id: object.lifetime.render_id(),
+        particles: None,
     }
 }
 
@@ -1249,6 +1251,9 @@ fn main() {
                         .point_pixels
                         .clone_from(&presented_frame.point_pixels);
                     previous_presented_frame.cockpit_hud = presented_frame.cockpit_hud;
+                    previous_presented_frame
+                        .particle_frame
+                        .clone_from(&presented_frame.particle_frame);
                 }
             }
 
@@ -1314,6 +1319,8 @@ fn main() {
                 previous_point_pixels: Some(&previous_presented_frame.point_pixels),
                 cockpit_hud: frame.cockpit_hud,
                 previous_cockpit_hud: Some(previous_presented_frame.cockpit_hud),
+                particle_frame: Some(&frame.particle_frame),
+                previous_particle_frame: Some(&previous_presented_frame.particle_frame),
                 pal_target: frame.pal_target,
                 palfade_num: frame.palfade_num,
                 windowmode: frame.windowmode,

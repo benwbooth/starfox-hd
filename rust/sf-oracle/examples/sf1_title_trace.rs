@@ -434,6 +434,7 @@ fn to_render_entry(entry: &sf_core::DrawListEntry) -> RenderDrawListEntry {
         tscroll_y: entry.tscroll_y,
         obj_id: entry.obj_id,
         interpolation_id: entry.interpolation_id,
+        particles: entry.particles,
     }
 }
 
@@ -466,6 +467,7 @@ fn native_video_hash(
         scene_style: frame.scene_style,
         point_pixels: &frame.point_pixels,
         cockpit_hud: frame.cockpit_hud,
+        particle_frame: Some(&frame.particle_frame),
         previous_point_pixels: Some(previous_point_pixels),
         pal_target: frame.pal_target,
         palfade_num: frame.palfade_num,

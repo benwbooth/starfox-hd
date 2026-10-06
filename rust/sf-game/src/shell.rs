@@ -24,6 +24,7 @@ use std::rc::Rc;
 use sf_core::{
     cockpit_hud::CockpitHudState,
     pad,
+    particles::{ParticleField, ParticleFrame},
     player_view::{PlayerViewMode, PlayerViewOptions},
     point_field::PointPixel,
     scene::{
@@ -1062,6 +1063,8 @@ pub struct FrameSnapshot {
     pub point_pixels: Vec<PointPixel>,
     /// Reticle state belonging to this completed polygon bitmap.
     pub cockpit_hud: CockpitHudState,
+    /// Particle draws and work captured once with the completed scene.
+    pub particle_frame: ParticleFrame,
     /// Background palette-row source selected by FADETOSEA/FADETOGROUND.
     pub pal_target: Option<PaletteFadeTarget>,
     /// ROM `palnum` remaining counter. Starts at 30 and steps by two while
@@ -1434,6 +1437,10 @@ pub struct Shell {
     /// framebuffer, one presentation update behind the working point state.
     presented_point_pixels: Vec<PointPixel>,
     presented_cockpit_hud: CockpitHudState,
+    /// Source initmario3d rebuilds dust, but does not erase the particle pool.
+    /// Keep this state across scene loads; only a new shell is a cold reset.
+    particle_field: ParticleField,
+    presented_particle_frame: ParticleFrame,
     /// Completed source HUD state. This stays separate from the live message
     /// counters used by strategies and semantic conformance checks.
     radio_presentation: RadioPresentation,
@@ -1513,6 +1520,8 @@ impl Shell {
             point_field: PointField::new(),
             presented_point_pixels: Vec::new(),
             presented_cockpit_hud: CockpitHudState::default(),
+            particle_field: ParticleField::default(),
+            presented_particle_frame: ParticleFrame::default(),
             radio_presentation: RadioPresentation::default(),
             draw_list: Vec::new(),
             cam_snapshot: CameraSnapshot::default(),
@@ -1990,6 +1999,7 @@ impl Shell {
             scene_style: v.scene_style,
             point_pixels: self.presented_point_pixels.clone(),
             cockpit_hud: self.presented_cockpit_hud,
+            particle_frame: self.presented_particle_frame.clone(),
             pal_target: v.palfade_target,
             palfade_num: v.palfade_num,
             windowmode: st.windows.windowmode,
@@ -2094,6 +2104,7 @@ impl Shell {
         self.radio_presentation = RadioPresentation::default();
         self.presented_cockpit_hud = CockpitHudState::default();
         self.game.world = World::init();
+        self.presented_particle_frame = ParticleFrame::default();
         self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:123-127): the sf-path literal
         // catalog is a static singleton consumed via
@@ -2736,6 +2747,7 @@ impl Shell {
     }
 
     fn load_presentation_map(&mut self, map_id: u32, spawn_player: bool) {
+        self.particle_field.initialize_scene();
         self.game.objs = Objects::init();
         self.camera.init(&mut self.game.vars);
         // The source rebuilds its point-field storage in initmario3d_l for
@@ -2746,6 +2758,7 @@ impl Shell {
         self.radio_presentation = RadioPresentation::default();
         self.presented_cockpit_hud = CockpitHudState::default();
         self.game.world = World::init();
+        self.presented_particle_frame = ParticleFrame::default();
         self.reregister_strats();
         {
             let mut state = self.state.borrow_mut();
@@ -2830,12 +2843,26 @@ impl Shell {
             &|shape| self.game.hooks.shape_extents(shape),
             &mut self.draw_list,
         );
+        self.capture_particles();
         // BGS `pstrat` runs after the first scene's strategy pass. It changes
         // the player's typed view declaration and queues the map initializer;
         // that initializer is first executed by the following strategy pass.
         if let Some((map_id, player)) = self.pending_presentation_player.take() {
             self.initialize_player_for_map(map_id, player);
         }
+    }
+
+    fn capture_particles(&mut self) {
+        self.presented_particle_frame = self.particle_field.capture_scene(
+            self.game.vars.particles_enabled,
+            &self.draw_list,
+            [
+                self.camera.vars.viewposx,
+                self.camera.vars.viewposy,
+                self.camera.vars.viewposz,
+            ],
+            self.camera.vars.view_rotation,
+        );
     }
 
     fn capture_cockpit_hud(&mut self) {
@@ -3014,6 +3041,8 @@ impl Shell {
         self.death_ticks = 0;
 
         // Gameplay subsystem re-init, preserving route/stage (boot.c:76-86).
+        self.particle_field.initialize_scene();
+        self.presented_particle_frame = ParticleFrame::default();
         self.game.objs = Objects::init();
         self.camera.init(&mut self.game.vars);
         self.point_field = PointField::new();
@@ -3232,6 +3261,7 @@ impl Shell {
             &|shape| self.game.hooks.shape_extents(shape),
             &mut self.draw_list,
         );
+        self.capture_particles();
         if std::env::var_os("SF_DEBUG_DRAW").is_some() && self.game.vars.gameframe % 10 == 0 {
             let n = self.draw_list.len();
             let ships: Vec<String> = self
@@ -3361,6 +3391,7 @@ impl Shell {
     /// object pool, resets the vanilla 3D random seed, and resumes the map VM
     /// from its saved cursor.
     fn restart_gameplay_from_checkpoint(&mut self) {
+        self.particle_field.initialize_scene();
         let game_frame = self.game.vars.gameframe;
         let lives = self.game.vars.strategy.lives;
         let (restart_background, _restart_palette_fade) =
@@ -3411,6 +3442,7 @@ impl Shell {
         self.radio_presentation = RadioPresentation::default();
         self.presented_cockpit_hud = CockpitHudState::default();
         self.game.world.lastplayz = 0;
+        self.presented_particle_frame = ParticleFrame::default();
         self.game.world.lastzchange = 0;
         self.game.world.last_obj = None;
         self.game.world.lastmapobj = 0;
@@ -3759,6 +3791,9 @@ impl Shell {
     /// captured at each retail marker while the route ran; the ending consumes
     /// that typed ordered list rather than reconstructing it from a route id.
     fn begin_ending_replay(&mut self) {
+        // ENDSEQ calls initgame3d once on entry, not once per replay boss.
+        self.particle_field.initialize_scene();
+        self.presented_particle_frame = ParticleFrame::default();
         self.ending = EndingState {
             phase: EndingPhase::BossReplay,
             ..EndingState::default()
@@ -4911,6 +4946,52 @@ mod tests {
             GameplayEntryPhase::ActiveLevel,
             "level initialization did not reach its measured completion boundary"
         );
+    }
+
+    #[test]
+    fn particles_advance_once_per_completed_scene_and_survive_scene_reinitialization() {
+        use sf_core::particles::{Particle, PARTICLE_CAPACITY, PARTICLE_SCENE_RANDOM_SEED};
+        use crate::alien::{AFEXP, ASF_PARTOBJ};
+        let mut shell = Shell::new();
+        shell.game.objs = Objects::init();
+        shell.game.vars.freezestrats = 1;
+        shell.game.vars.particles_enabled = true;
+        shell.particle_field = ParticleField::from_state([Particle::default(); PARTICLE_CAPACITY], 17);
+        let owner = shell.game.objs.alloc().unwrap();
+        let object = &mut shell.game.objs.aliens[usize::from(owner)];
+        object.worldz = 1024;
+        object.flags = AFEXP;
+        object.sflags = ASF_PARTOBJ;
+        object.sbyte1 = 2;
+        object.sbyte2 = 5;
+        object.sbyte3 = 3;
+        shell.nmi_game_tick();
+        let captured = shell.frame().particle_frame;
+        assert_eq!(captured.work.particles_allocated, 2);
+        assert_eq!(captured.work.particles_visited, 2);
+        assert_eq!(shell.particle_field.particles()[0].life, 4);
+        let first_pool = *shell.particle_field.particles();
+        for _ in 0..10 {
+            assert_eq!(shell.frame().particle_frame, captured);
+            assert_eq!(shell.particle_field.particles(), &first_pool);
+        }
+        shell.game.objs.aliens[usize::from(owner)].sbyte3 = 0;
+        shell.nmi_game_tick();
+        assert_eq!(shell.frame().particle_frame.work.particles_allocated, 0);
+        assert_eq!(shell.frame().particle_frame.work.particles_visited, 2);
+        assert_eq!(shell.particle_field.particles()[0].life, 3);
+        let second_pool = *shell.particle_field.particles();
+        let random = shell.particle_field.random_state();
+        shell.game.vars.particles_enabled = false;
+        shell.nmi_game_tick();
+        assert_eq!(shell.frame().particle_frame, ParticleFrame::default());
+        assert_eq!(shell.particle_field.particles(), &second_pool);
+        assert_eq!(shell.particle_field.random_state(), random);
+        shell.presented_particle_frame = captured;
+        shell.load_presentation_map(sf_map::catalog::map_id::TITLE, true);
+        assert_eq!(shell.frame().particle_frame, ParticleFrame::default());
+        assert_eq!(shell.particle_field.particles(), &second_pool);
+        assert_eq!(shell.particle_field.random_state(), PARTICLE_SCENE_RANDOM_SEED);
     }
 
     #[test]

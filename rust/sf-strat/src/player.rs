@@ -3231,6 +3231,8 @@ pub fn strat_spawn_player(g: &mut Game) -> Option<u16> {
     }
 
     let v = &mut g.vars;
+    // The shared source player initializer enables its scene-owned particles.
+    v.particles_enabled = true;
     v.set_sv_i16(sv::PLROTX, 0);
     v.set_sv_i16(sv::PLROTY, 0);
     v.set_sv_i16(sv::PLROTZ, 0);
@@ -7354,12 +7356,13 @@ pub fn player_start_init(g: &mut Game) {
 
 /// Source `playermove_init_l`: restore the movement, weapon-count and camera
 /// state without resetting the run's shield, wing damage or weapon inventory.
-/// Particle activation and the one-shot red-palette latch still belong to the
-/// pending source presentation lifecycle; this routine does not replace it.
+/// The one-shot red-palette latch and separate source camera-object role still
+/// belong to the pending presentation lifecycle; this does not replace it.
 pub fn player_move_init(g: &mut Game, idx: u16) {
     const INITIAL_SPECIAL_DELAY: u8 = 1;
     const INITIAL_BOOST_DEPTH_OFFSET: i8 = -30;
     let vars = &mut g.vars;
+    vars.particles_enabled = true;
     vars.strategy.view_kind = VIEWTYPE_NORM;
     vars.strategy.view_target_object = idx as i16;
     vars.internal_playpt = idx as i16;

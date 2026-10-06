@@ -53,6 +53,7 @@ fn gameoverinit_spawns_letters_and_clears_dying() {
     g.vars.internal_playpt = p as i16;
     g.vars.gameflags = GF_PLAYERDYING | 0x80;
     g.vars.dotsflag = 1;
+    g.vars.particles_enabled = true;
 
     let (game, over) = gameover_init_l(&mut g, p);
     let game = game.expect("games");
@@ -61,6 +62,7 @@ fn gameoverinit_spawns_letters_and_clears_dying() {
     // set_player_cred zeros player pos before letter spawn.
     assert_eq!(g.vars.gameflags & GF_PLAYERDYING, 0);
     assert_eq!(g.vars.dotsflag, -1);
+    assert!(!g.vars.particles_enabled);
     assert_ne!(g.objs.aliens[p as usize].sflags4 & ASF4_INVISIBLE, 0);
     assert_eq!(g.objs.aliens[p as usize].worldx, 0);
     assert_eq!(g.objs.aliens[p as usize].worldy, 0);

@@ -581,6 +581,8 @@ pub struct GameVars {
     /// ROM `playersndflag` (KALCS.INC) — engine pitch bits written at the
     /// start of `viewmove_srou` (4 cruise, 8 boost, 12 brake).
     pub player_snd_flag: u8,
+    /// Source particle-pool activation, independent of strategy freezing.
+    pub particles_enabled: bool,
 
     // --- Player state mirrors (written by init_strats_l, GSTRATS.ASM) ---
     /// C `g_player_posx/y/z`.
@@ -761,6 +763,7 @@ impl Default for GameVars {
             player_view_options: PlayerViewOptions::Unconfigured,
             in_a_tunnel: 0,
             player_snd_flag: 0,
+            particles_enabled: false,
             player_posx: 0,
             player_posy: 0,
             player_posz: 0,

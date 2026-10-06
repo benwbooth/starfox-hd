@@ -99,6 +99,18 @@ class StrategySourceContractTests(unittest.TestCase):
         macro = source("INC/STRATMAC.INC").split("\ns_copy_sflags\t", 1)[1].split("ENDM", 1)[0]
         self.assertIn("s_sta.w al_sflags4,\\1", instructions(macro))
 
+    def test_particle_fire_uses_its_source_payload_and_collision_flag(self):
+        explode = source("STRAT/EXPSTRAT.ASM")
+        downward = explode.split("\nparticlefiredown_Istrat\n", 1)[1].split(";********", 1)[0]
+        self.assertEqual(instructions(downward), [
+            "s_start_strat", "s_particle_data x,3,4,9", "s_jmp particlefire_Icont",
+        ])
+        shared = explode.split("\nparticlefire_Icont\n", 1)[1].split("\nparticlefire_strat\n", 1)[0]
+        self.assertEqual(instructions(shared), [
+            "s_set_expstrat x,particlefire_strat", "s_set_alsflag x,colldisable",
+            "s_set_alflag x,exp", "s_end_strat",
+        ])
+
     def test_reviewed_regression_tests_cannot_bless_native_output(self):
         for relative in ["sf-strat/tests/ea_parity.rs", "sf-strat/tests/eb_parity.rs",
                          "sf-strat/tests/bo_parity.rs", "sf-path/tests/interp_trace.rs"]:
@@ -110,6 +122,7 @@ class StrategySourceContractTests(unittest.TestCase):
         for name, original_hash in ORIGINAL_HASHES.items():
             with self.subTest(fixture=name):
                 original = []
+                corrected_particle_records = 0
                 fixture = (FIXTURES / f"{name}.txt").read_text()
                 if name == "ea_houdai":
                     from test_weapon_entry_source import undo_houdai_birth_visit
@@ -118,6 +131,16 @@ class StrategySourceContractTests(unittest.TestCase):
                     if re.match(r"(?:O \d+ |T\d+ A\d+ )", line):
                         fields = dict(re.findall(r"(\w+)=(\S+)", line))
                         prefix = "s" if name.startswith("bo_") else "sf"
+                        # The original particlefiredown initializer always
+                        # sets second-byte colldisable. These source-identified
+                        # fire records previously aliased it to first-byte
+                        # partobj; the unchanged original-code gate independently
+                        # verifies all inherited flags in this initializer.
+                        if (name == "bo_boss2" and fields["sh"] == "0"
+                                and tuple(fields[key] for key in ("b1", "b2", "b3")) == ("4", "9", "3")):
+                            self.assertEqual((fields["sf"], fields["s2"]), ("16", "1"))
+                            line = replace_field(line, "s2", lambda _: 0)
+                            corrected_particle_records += 1
                         # All legacy bit-4 byte-2 uses in these seven fixtures
                         # are relative weapons/effects, not macro facing latches.
                         if int(fields[f"{prefix}4"]) & 4:
@@ -135,6 +158,7 @@ class StrategySourceContractTests(unittest.TestCase):
                         if name == "ea_rader0" and fields["sh"] == "15":
                             line = replace_field(line, "ry", lambda value: (value - 8) & 255)
                     original.append(line)
+                self.assertEqual(corrected_particle_records, 100 if name == "bo_boss2" else 0)
                 self.assertEqual(hashlib.sha256("".join(original).encode()).hexdigest(), original_hash)
 
 

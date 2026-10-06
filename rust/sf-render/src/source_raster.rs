@@ -47,6 +47,7 @@ pub const NO_FACE: u16 = u16::MAX;
 /// hardware implementation to the shipping port.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SourceFrameWorkload {
+    pub particles: sf_core::particles::ParticleWork,
     pub object_passes: u32,
     pub face_selections: u32,
     pub point_samples: u32,
@@ -398,7 +399,55 @@ impl SourceRaster {
         }
     }
 
-    /// `mdrawhud` follows object/shadow drawing and precedes particles. It
+    pub fn set_particle_work(&mut self, work: sf_core::particles::ParticleWork) {
+        self.workload.particles = work;
+    }
+
+    /// Particle pixels occupy their owner's position in the painter walk.
+    pub fn draw_particles(
+        &mut self,
+        draw: &sf_core::particles::ParticleDraw,
+        palette: &[[f32; 3]; 16],
+    ) {
+        self.workload.object_passes += 1;
+        for primitive in &draw.primitives {
+            let line = matches!(
+                primitive,
+                sf_core::particles::ParticlePrimitive::Line { .. }
+            );
+            if line {
+                self.workload.line_candidates += 1;
+                self.workload.lines_drawn += 1;
+            }
+            primitive.visit_pixels(|sample| {
+                if line {
+                    self.workload.line_samples += 1;
+                } else {
+                    self.workload.point_samples += 1;
+                }
+                if sample.palette_index == SOURCE_CLEAR_INDEX {
+                    return;
+                }
+                let pixel = (usize::from(sample.y) + PLAYFIELD_TOP as usize) * WIDTH
+                    + usize::from(sample.x)
+                    + PLAYFIELD_LEFT as usize;
+                let [r, g, b] = palette[usize::from(sample.palette_index)];
+                self.rgba[pixel * CHANNELS..(pixel + 1) * CHANNELS]
+                    .copy_from_slice(&rgba8([r, g, b, 1.0]));
+                self.indices[pixel] = sample.palette_index;
+                self.owners[pixel] = draw.owner.object_id();
+                self.faces[pixel] = NO_FACE;
+                self.has_pixels = true;
+                if line {
+                    self.workload.line_writes += 1;
+                } else {
+                    self.workload.point_writes += 1;
+                }
+            });
+        }
+    }
+
+    /// `mdrawhud` follows object/shadow drawing and precedes particle aging. It
     /// uses opaque indexed line color, independent of HD material smoothing.
     pub fn draw_cockpit_hud(
         &mut self,

@@ -427,6 +427,9 @@ pub struct FrameInputs<'a> {
     pub cockpit_hud: CockpitHudState,
     /// Discrete reticle state retained throughout the open presentation interval.
     pub previous_cockpit_hud: Option<CockpitHudState>,
+    /// Scene-owned particle draws; rendering must not advance the live pool.
+    pub particle_frame: Option<&'a sf_core::particles::ParticleFrame>,
+    pub previous_particle_frame: Option<&'a sf_core::particles::ParticleFrame>,
 
     // Background palette-row fade (map-VM FADETOSEA/FADETOGROUND,
     // WORLD.ASM:371-394; consumer fadepalto_l MAIN.ASM:2762).
@@ -555,6 +558,8 @@ impl<'a> Default for FrameInputs<'a> {
             previous_point_pixels: None,
             cockpit_hud: CockpitHudState::default(),
             previous_cockpit_hud: None,
+            particle_frame: None,
+            previous_particle_frame: None,
             pal_target: None,
             palfade_num: 0,
             windowmode: 0,
@@ -886,6 +891,11 @@ impl Renderer {
         } else {
             inputs.cockpit_hud
         };
+        let presented_particle_frame = if alpha < 1.0 {
+            inputs.previous_particle_frame.or(inputs.particle_frame)
+        } else {
+            inputs.particle_frame
+        };
         if !inputs.source_resolution {
             let points = crate::point_field::interpolate_points(
                 inputs.previous_point_pixels,
@@ -929,6 +939,7 @@ impl Renderer {
             f32::from(inputs.scene_style.shadow_height),
             &shape_palette,
             &mut self.font,
+            &mut self.ui,
             inputs
                 .source_resolution
                 .then_some(if inputs.game_state == GameState::Playing {
@@ -943,6 +954,7 @@ impl Renderer {
             inputs.source_scene_camera,
             presented_point_pixels,
             presented_cockpit_hud,
+            presented_particle_frame,
             source_gameplay_meter_palette.as_ref(),
             self.shadow_style,
         );

@@ -37,6 +37,9 @@ mod cockpit_hud;
 #[path = "support/player_movement_init.rs"]
 mod player_movement_init;
 
+#[path = "support/particle_emitters.rs"]
+mod particle_emitters;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,
