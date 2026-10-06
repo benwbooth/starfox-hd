@@ -119,6 +119,8 @@ def migrate_flag_layout(name, fixture, *, undo=False):
 
 
 def undo_flag_layout(name, fixture):
+    from test_boss_circle_source import undo_circle
+    fixture = undo_circle(name, fixture)
     return migrate_flag_layout(name, fixture, undo=True)
 
 
@@ -129,7 +131,8 @@ class StrategyFlagLayoutTests(unittest.TestCase):
                 current = (FIXTURES / f"{name}.txt").read_text()
                 previous = undo_flag_layout(name, current)
                 self.assertEqual(hashlib.sha256(previous.encode()).hexdigest(), expected)
-                self.assertEqual(migrate_flag_layout(name, previous), current)
+                from test_boss_circle_source import undo_circle
+                self.assertEqual(migrate_flag_layout(name, previous), undo_circle(name, current))
 
     def test_reviewed_flag_writers_remain_in_the_original_routines(self):
         def instructions(text):

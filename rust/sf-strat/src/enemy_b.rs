@@ -638,36 +638,46 @@ pub fn bossbigoutexplode_icont(g: &mut Game, idx: u16, offx: i16, offy: i16, off
     g.vars.gameflags |= GF_BOSSDEAD;
 
     // Circle-flash object (nullshape + circdelayexplode, lifecnt 1).
-    let me_sflags = g.objs.aliens[idx as usize].sflags;
+    let me = g.objs.aliens[idx as usize];
     if let Some(c) = strat_make_obj(g, 0) {
+        g.objs.active_move_after(c, idx);
+        let init = sid(g, circdelayexplode_init);
         copy_pos(g, c, idx);
         {
             let al = &mut g.objs.aliens[c as usize];
             al.worldx = al.worldx.wrapping_add(offx);
             al.worldy = al.worldy.wrapping_add(offy);
             al.worldz = al.worldz.wrapping_add(offz);
-            al.sflags = me_sflags;
+            al.sflags = me.sflags;
+            al.sflags2 = me.sflags2;
+            al.sflags3 = me.sflags3;
+            al.sflags4 = me.sflags4;
             al.sflags2 |= ASF2_COLLDISABLE;
             al.sflags3 &= !ASF3_REALOBJ;
             al.sflags2 |= ASF2_NOEXPSND;
             al.sflags2 &= !ASF2_SFLAG1; // s_clr_alsflag y,sflag1
             al.count = 1;
+            al.stratptr = Some(init);
         }
-        circdelayexplode_init(g, c);
     }
 
     // BIGparticleexplode companion (EXPSTRAT.ASM:184-189).
     if let Some(p) = strat_make_obj(g, 0) {
+        g.objs.active_move_after(p, idx);
+        let init = sid(g, crate::enemy_a::bigparticleexplode_istrat);
         copy_pos(g, p, idx);
         {
             let al = &mut g.objs.aliens[p as usize];
             al.worldx = al.worldx.wrapping_add(offx);
             al.worldy = al.worldy.wrapping_add(offy);
             al.worldz = al.worldz.wrapping_add(offz);
-            al.sflags = me_sflags;
+            al.sflags = me.sflags;
+            al.sflags2 = me.sflags2;
+            al.sflags3 = me.sflags3;
+            al.sflags4 = me.sflags4;
             al.sflags4 |= ASF4_RELEXPLODE;
+            al.stratptr = Some(init);
         }
-        crate::enemy_a::bigparticleexplode_istrat(g, p);
     }
 
     // 10 x (Lexp, FOLexp, Lexp(+8), FOLexp(+8)) outward sprites.

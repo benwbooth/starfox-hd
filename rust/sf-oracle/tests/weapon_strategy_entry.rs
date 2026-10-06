@@ -43,6 +43,9 @@ mod particle_emitters;
 #[path = "support/strategy_flags.rs"]
 mod strategy_flags;
 
+#[path = "support/boss_explosion_children.rs"]
+mod boss_explosion_children;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,

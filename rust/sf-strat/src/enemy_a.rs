@@ -16837,8 +16837,8 @@ pub(crate) fn delayremove_strat(g: &mut Game, idx: u16) {
     }
 }
 
-/// C `circdelayexplode_init` (EXPSTRAT.ASM:273-294 init half).
-pub(crate) fn circdelayexplode_init(g: &mut Game, idx: u16) {
+/// `circdelayexplode_Istrat` (EXPSTRAT.ASM): initialize and enter the delay.
+pub fn circdelayexplode_init(g: &mut Game, idx: u16) {
     let s = sid(g, circdelayexplode_strat);
     let al = &mut g.objs.aliens[idx as usize];
     al.hp = HARD_HP;
@@ -16847,6 +16847,7 @@ pub(crate) fn circdelayexplode_init(g: &mut Game, idx: u16) {
     al.stratptr = Some(s);
     al.collstratptr = None;
     al.expstratptr = None;
+    circdelayexplode_strat(g, idx);
 }
 
 const BOSS_CIRCLE_EXPLOSION_SOUND: u8 = 29;
@@ -16859,6 +16860,7 @@ pub(crate) fn start_boss_explosion_circle(g: &mut Game, idx: u16) -> Option<u16>
     g.vars.strategy.circle_object = 0;
 
     let center = if let Some(anchor) = make_obj(g, 0) {
+        g.objs.active_move_after(anchor, idx);
         copy_pos(g, anchor, idx);
         crate::ground::strat_stayrel_init(g, anchor);
         let object_id = anchor + 1;
@@ -16875,29 +16877,27 @@ pub(crate) fn start_boss_explosion_circle(g: &mut Game, idx: u16) -> Option<u16>
     }
 }
 
-/// C `circdelayexplode_strat` (EXPSTRAT.ASM:273-294 tick half).
-pub(crate) fn circdelayexplode_strat(g: &mut Game, idx: u16) {
-    // ASM EXPSTRAT.ASM:280 `s_decbpl_lifecnt x,.nd` dies when the decrement goes
-    // NEGATIVE (entry count 0). Old inline fired one frame early. (Audit A #35)
-    if count_down(&mut g.objs.aliens[idx as usize]) {
+/// `circdelayexplode_strat` (EXPSTRAT.ASM): signed, wrapping byte countdown.
+pub fn circdelayexplode_strat(g: &mut Game, idx: u16) {
+    let object = &mut g.objs.aliens[idx as usize];
+    object.count = object.count.wrapping_sub(1);
+    if (object.count as i8) < 0 {
         let _ = start_boss_explosion_circle(g, idx);
         if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 != 0 {
             if let Some(big) = make_obj(g, 0) {
+                g.objs.active_move_after(big, idx);
                 copy_pos(g, big, idx);
-                let s = sid(g, delayremove_strat);
+                let s = sid(g, bigparticleexplode_istrat);
                 let al = &mut g.objs.aliens[big as usize];
-                al.sflags2 |= ASF2_COLLDISABLE;
                 al.sflags4 |= ASF4_RELEXPLODE;
-                al.flags |= AFEXP;
-                al.count = 110;
                 al.stratptr = Some(s);
-                al.collstratptr = None;
-                al.expstratptr = None;
             }
         }
-        g.objs.aldead = 1;
-        return;
+        remove_attached_fire(g, idx);
+        g.objs.aldead = g.objs.aldead.wrapping_add(1);
     }
+    // The source falls through here even after marking the parent for removal.
+    // Both children inherit its position before this final scroll adjustment.
     add_player_z(g, idx);
 }
 
@@ -17019,6 +17019,8 @@ pub fn strat_boss_explode_init(g: &mut Game, idx: u16) {
 
     // circdelayexplode proxy (s_make_obj #nullshape ...).
     if let Some(proxy) = make_obj(g, 0) {
+        g.objs.active_move_after(proxy, idx);
+        let init = sid(g, circdelayexplode_init);
         let me = g.objs.aliens[idx as usize];
         {
             let al = &mut g.objs.aliens[proxy as usize];
@@ -17034,7 +17036,7 @@ pub fn strat_boss_explode_init(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[proxy as usize];
         al.count = 15;
         al.sflags2 |= ASF2_SFLAG1;
-        circdelayexplode_init(g, proxy);
+        al.stratptr = Some(init);
     }
 
     g.objs.aliens[idx as usize].count = 38;

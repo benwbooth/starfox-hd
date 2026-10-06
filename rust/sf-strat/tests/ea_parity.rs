@@ -42,6 +42,10 @@
 //! and their first-visit movement. `test_weapon_entry_source.py` reconstructs
 //! the entire previous fixture by reversing only that source-proven change;
 //! `sf-oracle/tests/weapon_strategy_entry.rs` executes the original initializer.
+//! The boss-circle records additionally retain source insert-after-parent
+//! ordering, initializer fallthrough and the real particle payload/lifetime.
+//! `test_boss_circle_source.py` reverses only that correction and its forced
+//! slot-reuse permutation. The separate boss-delay entry is not yet certified.
 
 mod support;
 

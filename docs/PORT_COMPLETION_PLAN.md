@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Boss-circle handoff now schedules the actual large particle emitter, retains
+  insert-after-parent ordering, executes the circle initializer's first tick,
+  and preserves the final scroll after removal. Outward-explosion constructors
+  copy all four flag bytes and defer both child initializers to their own
+  same-pass visits. Attached fire is released only after allocation attempts.
+  Four original-instruction gates cover 5,644 entry cases and 65,792 subsequent
+  particle visits, including signed timer wrap, exhausted pools, inherited
+  flags, wrapped offsets and deferred callbacks. Two integration gates run
+  the real scheduler, draw-list builder and particle pool: 255 particles are
+  emitted once at birth and the emitter retires at its source lifetime.
+  A reversible source-scoped correction updates the old boss1 circle records
+  and forced slot-reuse permutation without changing other state. All 1,587
+  scoped native tests and 35 original-code tests pass in debug/release, as do
+  15 source/audit checks, architecture and all three app builds in both
+  profiles. Separate boss-delay entry/kill semantics and failed outward-sprite
+  allocation RNG remain open; the constructor tests do not certify those
+  neighboring paths. Whole-game timing and SF2 frame ownership remain open.
+
 - Removed the shared legacy collision-disable, hit-immunity and last-collision
   aliases and migrated their strategy producers and consumers to the source
   flag bytes. Collision-disabled meshes no longer alias particle emitters,
@@ -130,11 +148,10 @@ running; scheduled work is not a guarantee of a completion date.
   architecture gate pass, and all three application binaries build in both
   profiles. Nine cartridge-side boss checks also pass, with the boss2 gate
   strengthened to compare exact flag/collision bytes from equal entry states.
-  This closes the shared flag-alias integration blocker, not the emitter
-  callsite audit: `circdelayexplode_strat` still substitutes a delayed object
-  for the source's newly scheduled `BIGparticleexplode_Istrat`, and its entry
-  fallthrough needs correction. That source-proven producer/lifecycle gap is
-  next, followed by the still-open production timing/frame-ownership work.
+  This closed the shared flag-alias integration blocker. The subsequently
+  discovered delayed-circle placeholder and initializer fallthrough are now
+  corrected and verified in the checkpoint above; the broader emitter
+  callsite audit and production timing/frame-ownership work remain open.
 
 - Implemented SF1's 300-slot, object-owned particle pool and connected it to
   completed gameplay/presentation scenes and both render modes. Allocation,
