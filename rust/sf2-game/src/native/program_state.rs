@@ -34,6 +34,10 @@ pub struct PathEntries {
 /// Additional program record families belong in this sum type as ported.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramData {
+    /// Player orientation and retained shield, charged at the complete
+    /// authored player-record cost. Other player service fields live in the
+    /// scene's binding to this same resource, not an independent allocation.
+    PlayerStorage(super::player_storage::PlayerStorage),
     PathStack(PathEntries),
     PathTriggers(super::path_triggers::TriggerRecords),
     ActorAuxiliary(super::actor_auxiliary::AuxiliaryRecords),

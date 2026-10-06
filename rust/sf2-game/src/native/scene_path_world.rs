@@ -70,13 +70,39 @@ pub struct PlayerPathRecords {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BoundPlayer {
     lifetime: ObjectLifetimeId,
+    storage: Option<super::program_resources::ProgramResourceId>,
     records: PlayerPathRecords,
+}
+
+impl BoundPlayer {
+    fn is_live(&self, objects: &ObjectStore) -> bool {
+        binding_is_live(objects, self.lifetime, self.storage)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct BoundShots {
     lifetime: ObjectLifetimeId,
+    storage: Option<super::program_resources::ProgramResourceId>,
     count: ActiveShots,
+}
+
+impl BoundShots {
+    fn is_live(&self, objects: &ObjectStore) -> bool {
+        binding_is_live(objects, self.lifetime, self.storage)
+    }
+}
+
+fn binding_is_live(
+    objects: &ObjectStore,
+    lifetime: ObjectLifetimeId,
+    storage: Option<super::program_resources::ProgramResourceId>,
+) -> bool {
+    let owner = lifetime.slot();
+    Some(lifetime) == objects.lifetime_id(owner)
+        && objects
+            .get(owner)
+            .is_some_and(|actor| actor.base.player_storage == storage)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +196,13 @@ pub struct ScenePathWorld {
 }
 
 impl ScenePathWorld {
+    /// After releasing an actor's program chain, discard player and shot
+    /// bindings without changing shared player-selection publications.
+    pub(crate) fn release_player_bindings(&mut self, owner: ObjectId) {
+        self.players[owner.index()] = None;
+        self.shots[owner.index()] = None;
+    }
+
     pub fn new(random: RandomState) -> Self {
         Self {
             random,
@@ -234,7 +267,16 @@ impl ScenePathWorld {
         let lifetime = objects
             .lifetime_id(owner)
             .ok_or(WorldInputError::MissingActor(owner))?;
-        self.players[owner.index()] = Some(BoundPlayer { lifetime, records });
+        let storage = objects
+            .get(owner)
+            .expect("validated actor")
+            .base
+            .player_storage;
+        self.players[owner.index()] = Some(BoundPlayer {
+            lifetime,
+            storage,
+            records,
+        });
         Ok(())
     }
 
@@ -245,7 +287,7 @@ impl ScenePathWorld {
     ) -> Result<&mut PlayerPathRecords, WorldInputError> {
         let binding = self.players[owner.index()]
             .as_mut()
-            .filter(|binding| Some(binding.lifetime) == objects.lifetime_id(owner))
+            .filter(|binding| binding.is_live(objects))
             .ok_or(WorldInputError::StalePlayerRecord(owner))?;
         Ok(&mut binding.records)
     }
@@ -257,7 +299,7 @@ impl ScenePathWorld {
     ) -> Result<&PlayerPathRecords, WorldInputError> {
         let binding = self.players[owner.index()]
             .as_ref()
-            .filter(|binding| Some(binding.lifetime) == objects.lifetime_id(owner))
+            .filter(|binding| binding.is_live(objects))
             .ok_or(WorldInputError::StalePlayerRecord(owner))?;
         Ok(&binding.records)
     }
@@ -271,13 +313,22 @@ impl ScenePathWorld {
         let lifetime = objects
             .lifetime_id(owner)
             .ok_or(WorldInputError::MissingActor(owner))?;
-        self.shots[owner.index()] = Some(BoundShots { lifetime, count });
+        let storage = objects
+            .get(owner)
+            .expect("validated actor")
+            .base
+            .player_storage;
+        self.shots[owner.index()] = Some(BoundShots {
+            lifetime,
+            storage,
+            count,
+        });
         Ok(())
     }
 
     pub fn shots(&self, objects: &ObjectStore, owner: ObjectId) -> Option<ActiveShots> {
         self.shots[owner.index()]
-            .filter(|binding| Some(binding.lifetime) == objects.lifetime_id(owner))
+            .filter(|binding| binding.is_live(objects))
             .map(|binding| binding.count)
     }
 
@@ -289,7 +340,7 @@ impl ScenePathWorld {
         owner: ObjectId,
     ) -> Option<super::weapon_rapid::CallerWeaponInputs> {
         let records = &self.players[owner.index()]
-            .filter(|binding| Some(binding.lifetime) == objects.lifetime_id(owner))?
+            .filter(|binding| binding.is_live(objects))?
             .records;
         Some(super::weapon_rapid::CallerWeaponInputs {
             owner,
@@ -325,9 +376,7 @@ impl InvocationWorld for ScenePathWorld {
         let primary_motion = self
             .primary_player
             .and_then(|id| self.players[id.index()])
-            .filter(|binding| {
-                Some(binding.lifetime) == objects.lifetime_id(binding.lifetime.slot())
-            })
+            .filter(|binding| binding.is_live(objects))
             .and_then(|binding| {
                 Some(PrimaryMotionInput {
                     auxiliary_mode: binding.records.auxiliary?.mode,
@@ -339,9 +388,7 @@ impl InvocationWorld for ScenePathWorld {
             .base
             .attachment
             .and_then(|id| self.shots[id.index()].as_mut())
-            .filter(|binding| {
-                Some(binding.lifetime) == objects.lifetime_id(binding.lifetime.slot())
-            });
+            .filter(|binding| binding.is_live(objects));
         let mut world = PathWorld::unbound(&mut self.random, self.strategy_clock as u8);
         world.scene = self.scene;
         world.primary_player = self.primary_player;
@@ -356,7 +403,7 @@ impl InvocationWorld for ScenePathWorld {
         // primary identify the same player. No cloned hit-state copyback.
         for player in self.players.iter_mut().flatten() {
             let owner = player.lifetime.slot();
-            if Some(player.lifetime) != objects.lifetime_id(owner) {
+            if !player.is_live(objects) {
                 continue;
             }
             let records = &mut player.records;

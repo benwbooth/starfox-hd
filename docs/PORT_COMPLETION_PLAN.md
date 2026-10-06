@@ -113,6 +113,27 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- SF2 now has the real player auxiliary allocation/clear/publication prefix,
+  connected to `SceneActors` and its existing player services. It replaces the
+  actor's prior owned resource chain, charges the original 472-byte payload,
+  initializes every currently ported per-player record, retains the copied
+  shield/score and fine orientation, and publishes the selected player only
+  after successful allocation. Player and linked-shot borrows validate both
+  actor lifetime and allocation identity; releasing programs invalidates them
+  before an object slot is recycled. Unmodified original instructions verify
+  3,072 replacements across all pilot bytes and four allocation layouts, plus
+  three exhausted/fragmented cases stopped at the allocator boundary. Native
+  scene tests feed the initialized records into the existing ordered player
+  prefix and verify failure latching, full replacement and stale-borrow
+  rejection. All 1,217 native tests pass in debug and release; the compatibility
+  suite, both source-comparison tests in debug and release, 616 disassembler
+  tests, architecture checks and all three application builds pass.
+  This closes the resource-backed record producer, not the enclosing player's
+  initialization: view selection/formatting at `06:82B7`, shared reset, first
+  entry and mode dispatch remain required before production `Game::tick`
+  migration. The opening likewise retains its unresolved autonomous display
+  scheduling gate; neither incomplete backend has been enabled in shipping.
+
 - Explosion countdowns now store wrapped timer bytes, enter their first visit
   from initialization, and distinguish a kill signal from object removal.
   Factories schedule the original initializer and use the real player follower

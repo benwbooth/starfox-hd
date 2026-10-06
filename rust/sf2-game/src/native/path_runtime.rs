@@ -596,6 +596,7 @@ impl PathRuntime {
     ) -> Result<(), PathRuntimeError> {
         let actor = actor_mut(objects, owner)?;
         self.resources.release_owner(owner);
+        actor.base.player_storage = None;
         actor
             .extension
             .auxiliary

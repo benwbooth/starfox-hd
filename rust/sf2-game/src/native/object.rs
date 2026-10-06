@@ -1024,6 +1024,9 @@ pub struct ObjectBase {
     pub behavior_phase: u8,
     pub behavior_parameter: i16,
     pub path: Option<PathCursor>,
+    /// Player use of the source path field. Player initialization replaces
+    /// an imported path with this allocation; base-view snapshots retain it.
+    pub player_storage: Option<super::program_resources::ProgramResourceId>,
     pub hit_points: u8,
     pub attack_power: u8,
     pub weapon: WeaponKind,
@@ -1136,6 +1139,7 @@ impl Object {
                 behavior_phase: 0,
                 behavior_parameter: 0,
                 path: None,
+                player_storage: None,
                 hit_points: 0,
                 attack_power: 0,
                 weapon: WeaponKind::None,

@@ -118,6 +118,7 @@ pub enum SceneError<E> {
     PlayerAction(super::player_action::PlayerActionError),
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
+    PlayerStorage(super::player_storage::PlayerStorageError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -146,6 +147,33 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Real player-record allocation and publication prefix. The enclosing
+    /// scene initializer still owns view selection, formatting and globals.
+    pub fn replace_player_storage(
+        &mut self,
+        owner: ObjectId,
+        inputs: super::player_storage::PlayerStorageInputs,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        if self.execution.paths.is_active() {
+            self.execution.faulted = true;
+            return Err(SceneError::NestedPathInvocation);
+        }
+        let result = super::player_storage::replace(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime,
+            owner,
+            inputs,
+        )
+        .map_err(SceneError::PlayerStorage);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Consume the actual shared recovery request and install visual feedback.
     /// The surrounding player mode owns this service's position in the visit.
     pub fn consume_player_recovery(&mut self, owner: ObjectId) -> Result<bool, SceneError<C::Error>> {
@@ -594,7 +622,9 @@ impl<C: SceneCallbacks> RetirementHost for SceneActors<'_, C> {
             .paths
             .runtime
             .release_actor_programs(self.objects, owner)
-            .map_err(SceneError::Runtime)
+            .map_err(SceneError::Runtime)?;
+        self.world.release_player_bindings(owner);
+        Ok(())
     }
 }
 
