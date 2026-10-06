@@ -137,7 +137,9 @@ pub trait HitResponseHost: ContactHost {
     ) -> Result<(), Self::Error>;
     fn strategies_paused(&self) -> bool;
     /// Resolve the actor's CURRENT assigned strategy, after hit callbacks.
-    fn run_assigned_strategy(&mut self, owner: ObjectId) -> Result<(), Self::Error>;
+    /// Return the actual actor from its tail dispatch; path ownership can
+    /// change it. With no assigned handler return the unchanged owner.
+    fn run_assigned_strategy(&mut self, owner: ObjectId) -> Result<ObjectId, Self::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,7 +169,7 @@ pub fn respond<H: HitResponseHost>(
     host: &mut H,
     owner: ObjectId,
     context: &mut HitContext,
-) -> Result<(), HitError<H::Error>> {
+) -> Result<ObjectId, HitError<H::Error>> {
     let mut cursor = if actor(host, owner)?.skip_contacts {
         None
     } else {
@@ -238,9 +240,9 @@ pub fn respond<H: HitResponseHost>(
             .next();
     }
     if actor(host, owner)?.run_when_paused || !host.strategies_paused() {
-        host.run_assigned_strategy(owner).map_err(HitError::Host)?;
+        return host.run_assigned_strategy(owner).map_err(HitError::Host);
     }
-    Ok(())
+    Ok(owner)
 }
 
 #[cfg(test)]
@@ -261,6 +263,7 @@ mod tests {
         replace_damage: Option<u8>,
         replace_health: Option<u8>,
         insert_contact: Option<ObjectId>,
+        assigned_returns: Option<ObjectId>,
     }
 
     impl World {
@@ -296,6 +299,7 @@ mod tests {
                 replace_damage: None,
                 replace_health: None,
                 insert_contact: None,
+                assigned_returns: None,
             }
         }
 
@@ -366,9 +370,31 @@ mod tests {
         fn strategies_paused(&self) -> bool {
             self.paused
         }
-        fn run_assigned_strategy(&mut self, _: ObjectId) -> Result<(), Self::Error> {
+        fn run_assigned_strategy(&mut self, owner: ObjectId) -> Result<ObjectId, Self::Error> {
             self.assigned += 1;
-            Ok(())
+            Ok(self.assigned_returns.unwrap_or(owner))
+        }
+    }
+
+    #[test]
+    fn assigned_tail_preserves_returned_actor_and_paused_exit_retains_owner() {
+        for paused in [false, true] {
+            for exemption in [false, true] {
+                for skip_contacts in [false, true] {
+                    let mut world = World::new();
+                    world.paused = paused;
+                    world.assigned_returns = Some(world.ids[2]);
+                    world.actors[0].run_when_paused = exemption;
+                    world.actors[0].skip_contacts = skip_contacts;
+                    world.pair(1);
+                    let owner = world.ids[0];
+                    let runs = !paused || exemption;
+                    let result = respond(&mut world, owner, &mut HitContext::default()).unwrap();
+                    assert_eq!(result, if runs { world.ids[2] } else { owner });
+                    assert_eq!(world.assigned, usize::from(runs));
+                    assert_eq!(world.actors[0].health, if skip_contacts { 100 } else { 97 });
+                }
+            }
         }
     }
 

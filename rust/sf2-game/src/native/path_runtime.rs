@@ -1087,7 +1087,7 @@ mod tests {
         fn strategies_paused(&self) -> bool {
             false
         }
-        fn run_assigned_strategy(&mut self, owner: ObjectId) -> Result<(), Self::Error> {
+        fn run_assigned_strategy(&mut self, owner: ObjectId) -> Result<ObjectId, Self::Error> {
             self.paths
                 .begin_callbacks(&self.objects, owner)
                 .map_err(|e| format!("{e:?}"))?;
@@ -1103,7 +1103,7 @@ mod tests {
                             .return_from(&mut self.objects, owner)
                             .map_err(|e| format!("{e:?}"))?;
                     }
-                    CallbackStep::Complete => return Ok(()),
+                    CallbackStep::Complete => return Ok(owner),
                     CallbackStep::Skipped | CallbackStep::Expired => {}
                 }
             }

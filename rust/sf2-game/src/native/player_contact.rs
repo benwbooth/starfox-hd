@@ -366,9 +366,9 @@ mod tests {
         fn strategies_paused(&self) -> bool {
             false
         }
-        fn run_assigned_strategy(&mut self, owner: ObjectId) -> Result<(), Self::Error> {
+        fn run_assigned_strategy(&mut self, owner: ObjectId) -> Result<ObjectId, Self::Error> {
             self.events.push(Event::Strategy(owner));
-            Ok(())
+            Ok(owner)
         }
     }
 

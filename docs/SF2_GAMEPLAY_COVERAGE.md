@@ -4295,3 +4295,14 @@ debug/release; all 549 source/disassembly tests, exact regeneration, native
 architecture and app build pass. The scene-owned adapters, actual native
 override/map callbacks and `Game::tick` integration remain required. This does
 not certify the existing production explosion countdown as source-equivalent.
+
+The subsequent world-adapter audit closed two actor-identity gaps. Hit response
+tail-dispatches the current assigned strategy and now preserves its returned
+actor through the pause exemption/skip-contact branches. The path-invocation
+world interface now receives the actual program actor for each statement, not
+only the selected player. Borrowing another actor can therefore resolve that
+actor's own attachment and firing auxiliary state. A linked-shot regression
+proves both identities remain distinct across borrowing and missing-input
+resume. All 1,073 native tests and two integration tests pass in debug/release;
+550 source tests, architecture, exact regeneration and app build pass. No
+production scene has been switched to the generic frame owner by this change.

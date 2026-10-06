@@ -34,6 +34,8 @@ struct Services {
     carried: [Option<CarriedPlayer>; 2],
     events: Option<SceneEventFlags>,
     statement_selections: Vec<usize>,
+    statement_actors: Vec<ObjectId>,
+    attached_shots: Vec<(ObjectId, super::super::path_shots::ActiveShots)>,
     displacement_selections: Vec<usize>,
     callback_poses: Vec<Vector3>,
     carry_visits: usize,
@@ -63,6 +65,8 @@ impl Default for Services {
             carried: [None; 2],
             events: None,
             statement_selections: Vec::new(),
+            statement_actors: Vec::new(),
+            attached_shots: Vec::new(),
             displacement_selections: Vec::new(),
             callback_poses: Vec::new(),
             carry_visits: 0,
@@ -78,7 +82,8 @@ impl InvocationWorld for Services {
 
     fn path_world(
         &mut self,
-        _: &ObjectStore,
+        objects: &ObjectStore,
+        actor: ObjectId,
         selected: super::super::path_control::PlayerTarget,
     ) -> Result<PathWorld<'_>, Self::Error> {
         let slot = slot(selected);
@@ -86,10 +91,16 @@ impl InvocationWorld for Services {
             return Err("secondary not supplied");
         }
         self.statement_selections.push(slot);
+        self.statement_actors.push(actor);
         let mut inputs = world(&mut self.random);
         inputs.selected_auxiliary = Some(&mut self.auxiliary[slot]);
         inputs.scene_events = self.events.as_mut();
         inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
+        if let Some(linked) = objects.get(actor).and_then(|actor| actor.base.attachment) {
+            inputs.linked_shot_count = self.attached_shots.iter_mut()
+                .find(|(owner, _)| *owner == linked)
+                .map(|(owner, state)| super::super::path_shots::LinkedShotCount { owner: *owner, state });
+        }
         Ok(inputs)
     }
 
@@ -261,6 +272,7 @@ fn complete_invocation_uses_entry_motion_then_live_callbacks_then_selected_carry
     assert_eq!(services.carry_visits, 1);
     assert!(services.callback_poses.iter().all(|pose| pose.x == 16));
     assert_eq!(services.statement_selections, [0, 1, 1, 1, 1, 1, 1]);
+    assert_eq!(services.statement_actors, [owner; 7]);
 }
 
 #[test]
@@ -401,9 +413,42 @@ fn borrowed_actor_immediate_next_refreshes_world_selection_before_the_next_state
         (0xA1, 0xB1)
     );
     assert_eq!(services.statement_selections, [0, 0, 0, 0, 1, 1, 1]);
+    assert_eq!(services.statement_actors, [owner, borrowed, borrowed, borrowed, borrowed, borrowed, borrowed]);
     assert_eq!(objects.get(owner).unwrap().base.position.x, 0);
     assert_eq!(objects.get(borrowed).unwrap().base.position.x, 7);
     assert_eq!(objects.get(borrowed).unwrap().base.path, Some(cursor(0, 5)));
+}
+
+#[test]
+fn world_resolves_borrowed_actors_attachment_on_each_statement_and_missing_input_resume() {
+    use super::super::path_shots::{ActiveShots, ShotCountCommand};
+    let mut objects = ObjectStore::new();
+    let owner = objects.allocate(actor(cursor(0, 0))).unwrap();
+    let borrowed = objects.allocate(actor(cursor(1, 0))).unwrap();
+    let attached_player = objects.allocate(actor(cursor(2, 0))).unwrap();
+    objects.get_mut(owner).unwrap().base.attachment = Some(borrowed);
+    objects.get_mut(borrowed).unwrap().base.attachment = Some(attached_player);
+    let catalog = PathCatalog::new(vec![vec![
+        Statement::SelectActor { selection: ActorSelection::Linked, next: cursor(0, 1) },
+        Statement::LinkedShotCount { command: ShotCountCommand::Increment, next: cursor(0, 2) },
+        Statement::Control(ControlCommand::End),
+    ]]).unwrap();
+    let mut invocation = PathInvocation::default();
+    let mut services = Services::default();
+    services.attached_shots.push((borrowed, ActiveShots::from_count(41)));
+    invocation.begin(owner, InvocationEntry::Program).unwrap();
+    assert_eq!(invocation.resume(&catalog, &mut objects, &mut services, 100),
+        Err(InvocationError::Program(ProgramError::MissingLinkedShotCount)));
+    assert_eq!(services.statement_actors, [owner, borrowed]);
+    assert_eq!(services.attached_shots[0].1, ActiveShots::from_count(41));
+    services.attached_shots.push((attached_player, ActiveShots::from_count(7)));
+    assert_eq!(invocation.resume(&catalog, &mut objects, &mut services, 100), Ok(borrowed));
+    assert_eq!(services.statement_actors, [owner, borrowed, borrowed, borrowed]);
+    assert_eq!(services.statement_selections, [0; 4]);
+    assert_eq!(services.attached_shots,
+        [(borrowed, ActiveShots::from_count(41)), (attached_player, ActiveShots::from_count(8))]);
+    assert!(!objects.get(owner).unwrap().base.flags.remove_after_tick);
+    assert!(objects.get(borrowed).unwrap().base.flags.remove_after_tick);
 }
 
 #[test]

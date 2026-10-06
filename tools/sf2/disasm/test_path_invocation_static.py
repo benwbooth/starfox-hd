@@ -42,6 +42,14 @@ class PathInvocationStaticTests(unittest.TestCase):
         ]:
             self.assert_source(address, expected)
 
+    def test_hit_response_tail_does_not_replace_the_assigned_strategys_returned_actor(self):
+        self.assert_source(0x03A44C,
+            "B5 26 29 08 F0 04 5C 66 A4 03 C2 20 AD 84 1B 89 02 00 E2 20 "
+            "D0 03 4C 66 A4 6B 5C 8F 2B 7F")
+        self.assert_source(0x7F2B8F,
+            "B5 1B 48 C2 20 D0 09 B5 19 F0 0C 3A 48 E2 20 6B "
+            "B5 19 3A 48 E2 20 6B")
+
 
 if __name__ == "__main__":
     unittest.main()

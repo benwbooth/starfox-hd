@@ -19,9 +19,12 @@ use super::{ObjectId, ObjectStore};
 pub trait InvocationWorld {
     type Error;
 
+    /// Resolve actor-linked and firing inputs using the actual current
+    /// program actor, not the original invoker or the selected player.
     fn path_world(
         &mut self,
         objects: &ObjectStore,
+        actor: ObjectId,
         selected: PlayerTarget,
     ) -> Result<PathWorld<'_>, Self::Error>;
 
@@ -157,7 +160,7 @@ impl PathInvocation {
                     callback_owner,
                 } => {
                     let mut inputs = world
-                        .path_world(objects, self.runtime.selected_player())
+                        .path_world(objects, actor, self.runtime.selected_player())
                         .map_err(InvocationError::World)?;
                     let result = self
                         .runtime

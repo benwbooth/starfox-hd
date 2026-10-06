@@ -171,6 +171,13 @@ running; scheduled work is not a guarantee of a completion date.
   549 source tests, exact regeneration, architecture checks and app build pass.
   Production scene adapters, native override/map registrations and the overall
   `Game::tick` connection remain open; this is not a migrated encounter yet.
+- Closed two additional actor-identity handoff gaps before scene wiring:
+  hit response now returns the assigned strategy's actual actor, and every
+  path-world borrow receives the current program actor as well as its selected
+  player. Borrowed actors resolve their own attachment/weapon records, including
+  on missing-input resume. All 1,073 native tests and two integration tests pass
+  in debug/release; all 550 source tests, architecture, exact regeneration and
+  the app build pass. Production integration status is unchanged.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
