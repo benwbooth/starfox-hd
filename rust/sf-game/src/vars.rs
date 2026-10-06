@@ -17,6 +17,7 @@ use sf_core::scene::{
     SceneStyle, BG2_HORIZONTAL_OFFSET_ROWS, BG2_VERTICAL_OFFSET_COLUMNS,
 };
 use sf_core::screen_fill_circle::ScreenFillCircleState;
+use sf_core::screen_wipe::ScreenWipeKind;
 
 // ============================================================
 // Flag constants (C `src/variables.h`)
@@ -707,6 +708,8 @@ pub struct GameVars {
     pub meters: u16,
     /// C `g_circleanim`.
     pub circleanim: i16,
+    /// Newly authored aperture request, consumed by the transfer owner.
+    pub pending_screen_wipe: Option<ScreenWipeKind>,
     /// Live semantic replacement for the source fixed-colour circle cursor.
     pub screen_fill_circle: ScreenFillCircleState,
     /// C `g_oncewipe`.
@@ -811,6 +814,7 @@ impl Default for GameVars {
             wireendflash: 0,
             meters: 0,
             circleanim: 0,
+            pending_screen_wipe: None,
             screen_fill_circle: ScreenFillCircleState::inactive(),
             oncewipe: 0,
             game_mode: 0,
@@ -828,6 +832,11 @@ impl Default for GameVars {
 }
 
 impl GameVars {
+    pub fn set_circle_animation(&mut self, animation: i16) {
+        self.circleanim = animation;
+        self.pending_screen_wipe = ScreenWipeKind::from_map_request(animation);
+    }
+
     /// Advance the source game's four-byte runtime random stream once.
     ///
     /// The state is ordinary flat game data. Each byte is replaced in the
@@ -1200,7 +1209,7 @@ impl GameVars {
             0x0311 => self.map.trigger = value,
             0x0312 => self.numendok = value,
             0x0313 => self.strategy.player_laser_count = value,
-            0x0317 => self.circleanim = i16::from(value),
+            0x0317 => self.set_circle_animation(i16::from(value)),
             0x0318 => self.scramble_count = value,
             0x0320 => self.map.variable1 = (self.map.variable1 & 0xFFFF_FF00) | u32::from(value),
             0x0321 => {
@@ -1278,7 +1287,7 @@ impl GameVars {
         match encoded {
             0x030E => self.map.player_position_x = value as i16,
             0x0316 => self.bossmaxhp = value,
-            0x0317 => self.circleanim = value as i16,
+            0x0317 => self.set_circle_animation(value as i16),
             0x0320 => self.map.variable1 = (self.map.variable1 & 0xFFFF_0000) | u32::from(value),
             0x0510 => self.strategy.player_turn_rotation = value as i16,
             0x0524 => self.strategy.view_center_y = value as i16,

@@ -30,9 +30,40 @@ const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
 const FIRST_APERTURE_ANCHOR: u16 = 7;
 const POST_APERTURE_ANCHOR: u16 = 20;
 const WARNING_LAYER_ANCHOR: u16 = 21;
-const COMPOSED_ANCHORS: [u16; 2] = [FIRST_APERTURE_ANCHOR, POST_APERTURE_ANCHOR];
-const CAPTURE_ANCHORS: [u16; 3] = [
+const COMPOSED_ANCHORS: [u16; 16] = [
+    5,
+    6,
     FIRST_APERTURE_ANCHOR,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    POST_APERTURE_ANCHOR,
+];
+const CAPTURE_ANCHORS: [u16; 17] = [
+    5,
+    6,
+    FIRST_APERTURE_ANCHOR,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
     POST_APERTURE_ANCHOR,
     WARNING_LAYER_ANCHOR,
 ];
@@ -103,10 +134,13 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
         let game_frame = native.game.vars.gameframe;
         if std::env::var_os("SF1_LAUNCH_DIAGNOSTIC").is_some() {
             eprintln!(
-                "launch_hud scene={game_frame} original_count={} native_count={} wipe={:?}",
+                "launch_hud scene={game_frame} original_count={} native_count={} wipe={:?} brightness={} black={} stayblack={}",
                 retail.peek8(WORK_RAM | RETAIL_SCRAMBLE_COUNT),
                 native.game.vars.scramble_count,
-                native.frame().screen_wipe
+                native.frame().screen_wipe,
+                native.frame().display_brightness,
+                native.frame().display_black_subtraction,
+                native.frame().stayblack
             );
         }
         assert_eq!(
@@ -248,9 +282,17 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
                 &native_rgb,
             )
             .expect("compare launch anchor video");
-            if difference.is_some() && std::env::var_os("SF1_LAUNCH_DIAGNOSTIC").is_some() {
-                write_source_rgb_ppm("/tmp/sf1-launch-boundary-retail.ppm", &retail_rgb).unwrap();
-                write_source_rgb_ppm("/tmp/sf1-launch-boundary-native.ppm", &native_rgb).unwrap();
+            if std::env::var_os("SF1_LAUNCH_DIAGNOSTIC").is_some() {
+                write_source_rgb_ppm(
+                    format!("/tmp/sf1-launch-scene-{scene}-retail.ppm"),
+                    &retail_rgb,
+                )
+                .unwrap();
+                write_source_rgb_ppm(
+                    format!("/tmp/sf1-launch-scene-{scene}-native.ppm"),
+                    &native_rgb,
+                )
+                .unwrap();
             }
             if first_video_divergence.is_none() {
                 first_video_divergence = difference;

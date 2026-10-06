@@ -178,14 +178,14 @@ pub fn compose_source_presentation(
     aligned.stayblack = scene.stayblack;
     aligned.gameflags = scene.gameflags;
     aligned.gameframe = scene.gameframe;
-    aligned.display_black_subtraction = scene.display_black_subtraction;
-    aligned.screen_wipe = scene.screen_wipe;
     aligned.boostcnt = scene.boostcnt;
     aligned.arrows = scene.arrows;
     aligned.player_view_mode = scene.player_view_mode;
     aligned.stage = scene.stage;
     aligned.stage_banner = scene.stage_banner;
-    aligned.scramble_banner = scene.scramble_banner;
+    // The aperture and the SCRAMBLE sprite list belong to the live transfer,
+    // not to the older polygon bitmap being scanned out. Both retain their
+    // own completed state and must not be reconstructed from scene counters.
     aligned.shield_cur = scene.shield_cur;
     aligned.shield_max = scene.shield_max;
     aligned.boss_hp_cur = scene.boss_hp_cur;
@@ -236,19 +236,47 @@ mod tests {
             left_wing_broken: true,
             right_wing_broken: false,
         };
-        let presentation = frame(11, 3, false);
+        scene.display_black_subtraction = 5;
+        let mut presentation = frame(11, 3, false);
+        presentation.display_black_subtraction = 7;
         scene.particle_frame.work.particles_visited = 17;
 
         let composed = compose_source_presentation(&scene, &presentation);
 
         assert_eq!(composed.gameframe, scene.gameframe);
-        assert_eq!(composed.screen_wipe, scene.screen_wipe);
+        assert_eq!(composed.screen_wipe, presentation.screen_wipe);
         assert_eq!(composed.cockpit_hud, scene.cockpit_hud);
         assert_eq!(composed.particle_frame, scene.particle_frame);
         assert_eq!(composed.display_brightness, presentation.display_brightness);
         assert_eq!(
+            composed.display_black_subtraction,
+            presentation.display_black_subtraction
+        );
+        assert_eq!(
             composed.display_forced_blank,
             presentation.display_forced_blank
+        );
+    }
+
+    #[test]
+    fn launch_warning_is_the_live_prepared_sprite_list_not_the_bitmap_scene() {
+        use sf_core::stage_banner::ScrambleBannerState;
+        let mut scene = frame(20, 15, false);
+        scene.scramble_banner = None;
+        let mut presentation = frame(21, 15, false);
+        presentation.scramble_banner = Some(ScrambleBannerState {
+            ticks_remaining: 50,
+            game_frame: 21,
+        });
+        let composed = compose_source_presentation(&scene, &presentation);
+        assert_eq!(composed.gameframe, 20);
+        assert_eq!(composed.scramble_banner, presentation.scramble_banner);
+
+        scene.scramble_banner = presentation.scramble_banner;
+        presentation.scramble_banner = None;
+        assert_eq!(
+            compose_source_presentation(&scene, &presentation).scramble_banner,
+            None
         );
     }
 

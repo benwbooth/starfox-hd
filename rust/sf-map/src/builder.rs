@@ -11,6 +11,7 @@
 //! or compatibility encodings from typed native Rust strategies.
 
 use crate::consts::*;
+use sf_core::screen_wipe::ScreenWipeKind;
 
 const QUANTIZED_COORDINATE_LIMIT: i32 = 512;
 const QUANTIZED_DISTANCE_LIMIT: i32 = 256;
@@ -351,6 +352,23 @@ impl MapBuilder {
     /// Start the flight-stage announcement countdown.
     pub fn setstage(&mut self) {
         self.emit8(op::SETSTAGE);
+    }
+
+    pub fn request_screen_wipe(&mut self, kind: ScreenWipeKind) {
+        self.setvarw(wm::CIRCULAR_WIPE, i32::from(kind.map_request()));
+    }
+
+    /// Remainder of `initlevel bg,nofadenostage,mstarwipe_circle` after its
+    /// opening `mapwait 300`. The transfer-bound setup has entered that wait;
+    /// the map, not the shell's display timer, owns the following request.
+    /// This macro variant exits before the ordinary two waits and `setstage`.
+    pub fn finish_launch_initialization(&mut self) {
+        const RELEASE_BLACK_HOLD: i32 = -1;
+        const LAUNCH_BLACK_HOLD: i32 = 2;
+        self.request_screen_wipe(ScreenWipeKind::StarReveal);
+        self.setvarb(wm::STAYBLACK, RELEASE_BLACK_HOLD);
+        self.mapcodejsl_builtin(cb::INITBLACK_L);
+        self.setvarb(wm::STAYBLACK, LAUNCH_BLACK_HOLD);
     }
 
     pub fn qfadeup(&mut self) {

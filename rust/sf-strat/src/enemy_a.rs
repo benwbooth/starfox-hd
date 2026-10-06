@@ -7048,7 +7048,7 @@ pub fn nukeexp_istrat(g: &mut Game, idx: u16) {
     // s_set_vartobeobj circleobj,x — store index+1
     g.vars
         .set_sv_u16(sv::CIRCLEOBJ, (idx as u16).wrapping_add(1));
-    g.vars.circleanim = SMARTBOMB_CIRCLE;
+    g.vars.set_circle_animation(SMARTBOMB_CIRCLE);
     g.vars
         .screen_fill_circle
         .begin_smart_bomb(ScreenFillCircleCenter::Object(idx + 1));

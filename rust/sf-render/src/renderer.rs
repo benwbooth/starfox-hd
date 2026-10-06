@@ -819,9 +819,16 @@ impl Renderer {
         self.gpu.set_display_presentation(
             inputs.display_brightness,
             inputs.display_forced_blank,
-            inputs
-                .display_black_subtraction
-                .min(FIXED_COLOR_COMPONENT_MAX),
+            // TRANS.find_window_pri gives the aperture precedence over the
+            // black color window. IRQ.setwindowpri's wipe branch disables
+            // the color window instead of applying its retained subtraction.
+            if inputs.screen_wipe.active {
+                0
+            } else {
+                inputs
+                    .display_black_subtraction
+                    .min(FIXED_COLOR_COMPONENT_MAX)
+            },
         );
         // Rebuild the interpolated view matrix first: the BG layer derives
         // the painted-horizon scroll from the render-frame camera, so it

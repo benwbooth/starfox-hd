@@ -10,6 +10,7 @@
 
 pub mod aim_angle;
 pub mod cockpit_hud;
+pub mod display_fade;
 pub mod draw_order;
 mod particle_tables;
 pub mod particles;

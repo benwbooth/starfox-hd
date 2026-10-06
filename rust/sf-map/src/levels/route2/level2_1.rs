@@ -14,11 +14,11 @@ use crate::consts::{cb, op, wm, SCRAMBLE_WIPE_DISTANCE};
 /// C `build_level2_1_wrapper_slice()`.
 pub fn build() -> Route2Level {
     const SCRAMBLE_BLACK_HOLD: i32 = 30;
-    const SCRAMBLE_CIRCULAR_WIPE: i32 = 1;
     const RELEASE_BLACK_HOLD: i32 = -1;
 
     let mut b = MapBuilder::new();
 
+    b.label("launch.body");
     b.mapwait(100);
     b.setvarb(wm::SCRAMBLE_COUNT, 50);
     b.mapjsr("map1_1a");
@@ -34,7 +34,8 @@ pub fn build() -> Route2Level {
     b.mapcodejsl_builtin(MAP_CB_INITBLACK_L);
     b.setvarb(wm::STAYBLACK, SCRAMBLE_BLACK_HOLD);
     b.mapwait(SCRAMBLE_WIPE_DISTANCE);
-    b.setvarw(wm::CIRCULAR_WIPE, SCRAMBLE_CIRCULAR_WIPE);
+    b.label("launch.outdoor_wipe");
+    b.request_screen_wipe(sf_core::screen_wipe::ScreenWipeKind::HorizontalReveal);
     b.setvarb(wm::STAYBLACK, RELEASE_BLACK_HOLD);
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
@@ -334,6 +335,10 @@ pub fn build() -> Route2Level {
 
     submaps::append_cl_earth_submap(&mut b);
     submaps::append_map1_1a_submap(&mut b);
+
+    b.label("launch.initialization_resume");
+    b.finish_launch_initialization();
+    b.mapgoto("launch.body");
 
     b.resolve();
 

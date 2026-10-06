@@ -825,7 +825,9 @@ impl Game {
             }
             NativeCb::Level(NativeCallback::ClGroundWipeout) => {
                 // C level1_1_cl_ground_wipeout (levels.c:1850).
-                self.vars.circleanim = 1;
+                self.vars.set_circle_animation(
+                    sf_core::screen_wipe::ScreenWipeKind::StarReveal.map_request(),
+                );
                 self.vars.oncewipe = 0;
                 self.vars.pshipflags3 &= !PSF3_ENGINESND;
                 true

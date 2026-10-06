@@ -483,8 +483,14 @@ pub fn get_map_data(id: u32) -> Option<&'static BuiltLevel> {
 /// TITLE.ASM stores the title, controller, and inert wait programs in one
 /// contiguous blob. `Levels_GetMapData` returns the same allocation for all
 /// three while selecting a different label address as the initial map cursor.
+/// Launch gameplay resumes the common initializer's pending distance wait;
+/// its body is a separate entry retained for map-only regression harnesses.
 pub fn map_entry_offset(id: u32) -> u16 {
     match id {
+        map_id::M1_1 | map_id::M2_1 | map_id::M3_1 => get_map_data(id)
+            .expect("launch map")
+            .label_offset("launch.initialization_resume")
+            .expect("launch initialization continuation"),
         map_id::CONTINUE => title()
             .label_offset("title.contmap")
             .expect("controller map entry label"),

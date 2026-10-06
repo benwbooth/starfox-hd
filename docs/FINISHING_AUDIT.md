@@ -282,6 +282,65 @@ current working tree, retaining its unrelated pre-existing changes. This
 closes the Training velocity failure, not the front-end timing, controller
 route or remaining whole-game gates.
 
+## Corneria map-owned wipe and display publication (2026-10-06)
+
+Corneria no longer substitutes `initblack_l` call counts for the map's actual
+aperture request. Its three map builders retain the unfinished
+`nofadenostage` initializer tail, and the outdoor handoff requests the distinct
+horizontal reveal. The native transfer sequence separates request selection,
+record rendering, end-marker cleanup and sprite-lock release. SCRAMBLE uses
+the pre-decrement count and keeps its prepared sprite list between transfers,
+including its final visible count-one update. The aperture has priority over
+the black color window; the latter publishes its newly prepared color rather
+than a one-update-old value.
+
+The display fader is a separate typed level/brightness/blank state. Original
+`IRQ.setinidisp` execution checks 65,536 combinations of direction byte, legal
+level, game-frame parity/wrap and prior visible display. The source-bound
+80-update replay additionally checks every launch aperture record and cleanup,
+black-window lifetime/intensity after the initializer resumes, once-only flag,
+sprite lock, warning countdown/publication and display brightness/direction.
+The video test checks all 57,344 pixels in each of sixteen scenes, 5 through 20,
+using original-bitmap-to-original-scanout association; it never selects a
+reference by looking at native pixels. The independent warning-layer check
+still covers 1,671 opaque pixels.
+
+The reference PPU's old RGB8 `(brightness + 1) / 16` operation was incorrect.
+It now applies the independently documented Mesen five-bit
+`component * brightness / 15` operation before expansion. See
+[Mesen's pinned implementation](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/SNES/SnesPpu.cpp#L1382).
+`tools/sf1/mesen_launch_display_oracle.lua` captures a separate reset/input run
+without state writes. It confirms the inspected reveal colors, including
+RGB `(140,189,198)` at brightness 12, but does **not** certify the full raster:
+the inspected scene-five crop differs on 53 pixels, scene six on 36 and scene
+nineteen on 30. The Mesen output is 256-by-239, with the matching scene rows
+offset by six; this diagnostic alignment is not an accepted golden fixture.
+Window/scanout boundaries and the reference's missing general color-math
+implementation need their own independent verification.
+
+Scope limits remain explicit: the first two launch updates still omit the
+pre-resume source black-window hold; only the three Corneria initializers use
+this new transfer fade owner. Other initializer schedules, restart details,
+production source timing, full-screen independent comparison and complete
+campaign coverage are not established. Map fixtures were updated only for the
+source-reviewed horizontal operand and appended 24-byte continuation; the
+500-tick native regression changed only its retained horizontal command value.
+These fixtures are regression checks, not original-game evidence.
+
+Verification on the current working tree: the original fade, warning, launch
+video and 80-update wipe gates pass in debug and release, as do the core/game/
+render library suites, map suites, renderer integration checks and both
+500-tick native traces. The unchanged release Training gate still passes
+1,758 semantic/draw/audio updates and 1,752 bitmap comparisons. All 62 SF1
+source checks, the architecture audit and all three application builds in
+both profiles pass. The complete release workspace run reports 3,898 passing
+tests, three failing tests and one ignored test; its two failing executable
+examples bring the failed-target count to four: `semantic_trace`,
+`sf1_corneria_route`, `sf1_title_trace` and `sf1_weapon_trace`. The title still
+enters two sampled ticks late; the weapon trace fails at the gameplay-entry
+boundary. These existing failures are not waived. This run includes unrelated
+pre-existing working-tree changes; it is not a clean-revision certification.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from

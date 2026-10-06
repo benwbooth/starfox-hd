@@ -33,11 +33,102 @@ pub enum ScreenWipeKind {
 }
 
 impl ScreenWipeKind {
+    /// Compact native map operands, not source `circletab` addresses. Two is
+    /// reserved for the independently modeled smart-bomb color circle.
+    pub const fn map_request(self) -> i16 {
+        match self {
+            Self::StarReveal => 1,
+            Self::HorizontalReveal => 3,
+        }
+    }
+
+    pub const fn from_map_request(value: i16) -> Option<Self> {
+        match value {
+            1 => Some(Self::StarReveal),
+            3 => Some(Self::HorizontalReveal),
+            _ => None,
+        }
+    }
+
     pub const fn frame_count(self) -> u8 {
         match self {
             Self::StarReveal => STAR_FRAME_COUNT,
             Self::HorizontalReveal => HORIZONTAL_FRAME_COUNT,
         }
+    }
+}
+
+/// Source `do_circle_explosion` command state, distinct from the record
+/// already rendered and from the `doingwipe` sprite/pause lock.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum ScreenWipeCommand {
+    #[default]
+    Idle,
+    Record(ScreenWipeState),
+    End,
+}
+
+/// Transfer-owned aperture lifecycle. A map request made during strategies
+/// cannot replace the record selected before those strategies. Rendering the
+/// final record, removing the aperture and releasing the sprite lock are
+/// likewise three distinct source operations.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ScreenWipeSequence {
+    command: ScreenWipeCommand,
+    requested_kind: Option<ScreenWipeKind>,
+    prepared_record: Option<ScreenWipeState>,
+    blocks_sprites: bool,
+}
+
+impl ScreenWipeSequence {
+    pub fn request(&mut self, kind: ScreenWipeKind) {
+        self.requested_kind = Some(kind);
+    }
+
+    pub const fn blocks_sprites(self) -> bool {
+        self.blocks_sprites
+    }
+
+    /// `do_circle_explosion`, before the following strategy visit. Return
+    /// true only when `wipeend_do` clears the animation request. That routine
+    /// does not clear `doingwipe`; the next idle visit owns that write.
+    pub fn prepare_transfer(&mut self) -> bool {
+        if let Some(kind) = self.requested_kind.take() {
+            let mut record = ScreenWipeState::inactive();
+            record.begin(kind);
+            self.command = ScreenWipeCommand::Record(record);
+        }
+        self.prepared_record = None;
+        match self.command {
+            ScreenWipeCommand::Idle => {
+                self.blocks_sprites = false;
+                false
+            }
+            ScreenWipeCommand::Record(record) => {
+                self.prepared_record = Some(record);
+                false
+            }
+            ScreenWipeCommand::End => {
+                self.command = ScreenWipeCommand::Idle;
+                true
+            }
+        }
+    }
+
+    /// `do_window_wipe`, after drawing the current scene. Only the prepared
+    /// record is consumed; a request alone does not yet produce an aperture.
+    pub fn complete_scene(&mut self) -> ScreenWipeState {
+        let Some(record) = self.prepared_record.take() else {
+            return ScreenWipeState::inactive();
+        };
+        self.blocks_sprites = true;
+        let mut next = record;
+        self.command = if next.advance() {
+            ScreenWipeCommand::Record(next)
+        } else {
+            ScreenWipeCommand::End
+        };
+        record
     }
 }
 
@@ -221,6 +312,68 @@ fn draw_source_line(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requests_rendering_and_lock_cleanup_have_separate_source_boundaries() {
+        for kind in [ScreenWipeKind::StarReveal, ScreenWipeKind::HorizontalReveal] {
+            let mut sequence = ScreenWipeSequence::default();
+            sequence.prepare_transfer();
+            sequence.request(kind);
+            assert!(
+                !sequence.complete_scene().active,
+                "map request cannot render immediately"
+            );
+            assert!(!sequence.blocks_sprites());
+            for frame in 0..kind.frame_count() {
+                assert!(!sequence.prepare_transfer());
+                assert_eq!(sequence.blocks_sprites(), frame != 0);
+                assert_eq!(
+                    sequence.complete_scene(),
+                    ScreenWipeState {
+                        kind,
+                        frame,
+                        active: true
+                    }
+                );
+                assert!(sequence.blocks_sprites());
+            }
+            assert!(sequence.prepare_transfer(), "wipeend clears the animation");
+            assert!(sequence.blocks_sprites(), "wipeend retains the sprite lock");
+            assert!(!sequence.complete_scene().active);
+            assert!(!sequence.prepare_transfer());
+            assert!(
+                !sequence.blocks_sprites(),
+                "the idle command releases sprites"
+            );
+            assert!(!sequence.complete_scene().active);
+        }
+    }
+
+    #[test]
+    fn a_new_request_rearms_only_at_the_next_transfer() {
+        let mut sequence = ScreenWipeSequence::default();
+        sequence.request(ScreenWipeKind::StarReveal);
+        sequence.prepare_transfer();
+        sequence.request(ScreenWipeKind::HorizontalReveal);
+        assert_eq!(
+            sequence.complete_scene(),
+            ScreenWipeState {
+                kind: ScreenWipeKind::StarReveal,
+                frame: 0,
+                active: true,
+            }
+        );
+        sequence.prepare_transfer();
+        assert_eq!(
+            sequence.complete_scene(),
+            ScreenWipeState {
+                kind: ScreenWipeKind::HorizontalReveal,
+                frame: 0,
+                active: true,
+            }
+        );
+        assert!(sequence.blocks_sprites());
+    }
 
     #[test]
     fn star_records_begin_closed_and_end_at_source_authored_points() {

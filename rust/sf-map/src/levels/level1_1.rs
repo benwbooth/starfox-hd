@@ -18,7 +18,6 @@ use crate::consts::*;
 /// C `build_level1_1_opening_slice()` + `register_level1_1_inline_callbacks()`.
 pub fn build() -> BuiltLevel {
     const SCRAMBLE_BLACK_HOLD: i32 = 30;
-    const SCRAMBLE_CIRCULAR_WIPE: i32 = 1;
     const RELEASE_BLACK_HOLD: i32 = -1;
 
     let mut b = MapBuilder::new();
@@ -27,6 +26,7 @@ pub fn build() -> BuiltLevel {
     // attack-carrier boss handoff. Opens with the scramble/launch intro:
     // `initlevel 1_1i` runs `pstrat playeropening` (started from boot),
     // then the wrapper jsrs into the shared MAP1_1A submap (appended below).
+    b.label("launch.body");
     b.mapwait(100);
     b.setvarb(wm::SCRAMBLE_COUNT, 50);
     b.mapjsr("map1_1a");
@@ -43,7 +43,8 @@ pub fn build() -> BuiltLevel {
     b.mapcodejsl_builtin(cb::INITBLACK_L);
     b.setvarb(wm::STAYBLACK, SCRAMBLE_BLACK_HOLD);
     b.mapwait(SCRAMBLE_WIPE_DISTANCE);
-    b.setvarw(wm::CIRCULAR_WIPE, SCRAMBLE_CIRCULAR_WIPE);
+    b.label("launch.outdoor_wipe");
+    b.request_screen_wipe(sf_core::screen_wipe::ScreenWipeKind::HorizontalReveal);
     b.setvarb(wm::STAYBLACK, RELEASE_BLACK_HOLD);
     b.mapwait(MEDPSPEED * 2);
     b.qfadeup();
@@ -395,6 +396,10 @@ pub fn build() -> BuiltLevel {
     b.maprts();
 
     append_map1_1a_submap(&mut b);
+
+    b.label("launch.initialization_resume");
+    b.finish_launch_initialization();
+    b.mapgoto("launch.body");
 
     b.resolve();
 

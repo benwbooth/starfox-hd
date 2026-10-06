@@ -9,6 +9,7 @@
 //! [`Windows::update`] borrows them from the caller.
 
 use crate::shell::WindowSlot;
+use sf_core::display_fade::DisplayFade;
 
 /// C `WINDOWARRAY_SIZE` (src/game/game_vars.h:255).
 pub const WINDOWARRAY_SIZE: usize = 8;
@@ -103,6 +104,7 @@ pub struct Windows {
     display_black_subtraction: u8,
     next_black_subtraction: u8,
     map_fade_timing: MapFadeTiming,
+    source_display_fade: Option<DisplayFade>,
 }
 
 impl Default for Windows {
@@ -116,6 +118,7 @@ impl Default for Windows {
             display_black_subtraction: 0,
             next_black_subtraction: 0,
             map_fade_timing: MapFadeTiming::PerSimulationTick,
+            source_display_fade: None,
         }
     }
 }
@@ -126,11 +129,28 @@ impl Windows {
     }
 
     pub fn display_brightness(&self) -> u8 {
-        self.display_brightness
+        self.source_display_fade
+            .map_or(self.display_brightness, |fade| fade.brightness)
     }
 
     pub fn display_forced_blank(&self) -> bool {
-        self.display_forced_blank
+        self.source_display_fade
+            .map_or(self.display_forced_blank, |fade| fade.forced_blank)
+    }
+
+    pub fn uses_source_display_fade(&self) -> bool {
+        self.source_display_fade.is_some()
+    }
+
+    pub(crate) fn init_for_source_transfer(&mut self) {
+        self.init();
+        self.source_display_fade = Some(DisplayFade::forced_black());
+    }
+
+    pub(crate) fn advance_source_display(&mut self, game_frame: u16) {
+        if let Some(fade) = &mut self.source_display_fade {
+            fade.advance(&mut self.fadedir, game_frame);
+        }
     }
 
     pub fn display_black_subtraction(&self) -> u8 {
@@ -322,6 +342,7 @@ impl Windows {
 
     /// C `Windows_Init()` (src/game/windows.c:118).
     pub fn init(&mut self) {
+        self.source_display_fade = None;
         self.windowmode = 0;
         self.fadedir = 0;
         self.display_brightness = DISPLAY_BRIGHTNESS_MAX;
@@ -378,10 +399,19 @@ impl Windows {
                 _ => {}
             }
         }
+        if self.source_display_fade.is_some() {
+            // WINDOWS prepares this transfer's fixed-color value after the
+            // scene; IRQ selects it when that transfer becomes visible.
+            self.display_black_subtraction = self.next_black_subtraction;
+        }
     }
 
     /// C `Windows_StartMapFade()` (src/game/windows.c:147).
     pub fn start_map_fade(&mut self, mut fadedir: i8) {
+        if self.source_display_fade.is_some() {
+            self.fadedir = fadedir;
+            return;
+        }
         self.map_fade_timing = MapFadeTiming::PerSimulationTick;
         if fadedir == 0 {
             self.fadedir = 0;
@@ -496,6 +526,9 @@ impl Windows {
     /// The source-global `stayblack` countdown remains in `GameVars`; this
     /// method owns only the allocated color-window state.
     pub fn init_black(&mut self) {
+        if let Some(fade) = &mut self.source_display_fade {
+            fade.reset_level();
+        }
         let Some(slot) = self.get_or_alloc(WINDOW_MODE_BLACK) else {
             return;
         };
@@ -833,6 +866,42 @@ mod tests {
 
         w.update(&mut stay_black, &mut oncewipe, &mut circleanim);
         assert_eq!(w.display_black_subtraction(), BLACK_FADE_MAX);
+    }
+
+    #[test]
+    fn source_transfer_publishes_prepared_black_color_and_clears_its_final_slot() {
+        let mut w = Windows::new();
+        w.init_for_source_transfer();
+        w.init_black();
+        let (mut stay_black, mut oncewipe, mut circleanim) = (0, 1, 0);
+        for intensity in (0..=BLACK_FADE_MAX).rev().step_by(2) {
+            w.update(&mut stay_black, &mut oncewipe, &mut circleanim);
+            assert_eq!(w.display_black_subtraction(), intensity);
+            assert_eq!(w.slots[0].wm_val, intensity.saturating_sub(2));
+            assert_ne!(w.windowmode, 0);
+        }
+        assert_eq!(stay_black, -1);
+        w.update(&mut stay_black, &mut oncewipe, &mut circleanim);
+        assert_eq!(w.windowmode, 0);
+        assert_eq!(w.display_black_subtraction(), 0);
+        assert_eq!(circleanim, 0);
+    }
+
+    #[test]
+    fn source_black_initializer_retains_direction_and_published_brightness() {
+        let mut w = Windows::new();
+        w.init_for_source_transfer();
+        w.fade_from_black(2);
+        for _ in 0..3 {
+            w.advance_source_display(0);
+        }
+        assert_eq!(w.display_brightness(), 9);
+        w.init_black();
+        assert_eq!(w.display_brightness(), 9);
+        assert_eq!(w.fadedir, 2);
+        w.advance_source_display(0);
+        assert_eq!(w.display_brightness(), 3);
+        assert!(!w.display_forced_blank());
     }
 
     /// White fade caps at 31, and white2norm walks back down and deallocs.

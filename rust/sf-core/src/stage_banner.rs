@@ -36,8 +36,8 @@ impl StageBannerState {
     }
 }
 
-/// Source presentation frames remaining and gameplay blink phase for the
-/// launch `SCRAMBLE` warning.
+/// Countdown observed before `prt_scramble` decrements it, and the gameplay
+/// blink phase used to prepare the retained launch-warning sprite list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScrambleBannerState {
     pub ticks_remaining: u8,
@@ -49,12 +49,14 @@ impl ScrambleBannerState {
         self.is_visible_at_phase(0)
     }
 
-    pub const fn is_visible_at_phase(self, presentation_phase: u8) -> bool {
+    pub const fn is_visible_at_phase(self, _presentation_phase: u8) -> bool {
         // Retail Rev 2 `prt_scramble` returns on both equality and unsigned
         // less-than after comparing the low three frame bits with three.
         // Its visible half-cycle is 4..=7, unlike the modified disassembly's
         // spelling of this branch.
-        self.ticks_remaining > presentation_phase && self.game_frame & 7 > 3
+        // OAM is retained between strategy visits. Extra video refreshes do
+        // not consume countdowns or erase the last prepared warning.
+        self.ticks_remaining != 0 && self.game_frame & 7 > 3
     }
 }
 
@@ -139,6 +141,6 @@ mod tests {
         };
         assert!(ending.is_visible_at_phase(0));
         assert!(ending.is_visible_at_phase(1));
-        assert!(!ending.is_visible_at_phase(2));
+        assert!(ending.is_visible_at_phase(2));
     }
 }

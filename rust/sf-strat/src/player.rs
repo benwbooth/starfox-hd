@@ -7970,6 +7970,7 @@ pub fn strat_player_opening_init(g: &mut Game, idx: u16) {
 
     // Select fade direction 2.
     g.vars.set_sv_i8(sv::FADEDIR, 2);
+    g.hooks.fade_from_black(2);
 
     // s_set_var W,outvx,#-deg11*256
     g.vars.set_sv_i16(sv::OUTVX, -(DEG11 as i16 * 256));

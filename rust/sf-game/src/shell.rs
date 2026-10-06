@@ -31,7 +31,7 @@ use sf_core::{
         PaletteFadeTarget, SceneStyle, BG2_HORIZONTAL_OFFSET_ROWS, BG2_VERTICAL_OFFSET_COLUMNS,
     },
     screen_fill_circle::{ScreenFillCircleCenter, ScreenFillCircleState},
-    screen_wipe::{ScreenWipeKind, ScreenWipeState},
+    screen_wipe::{ScreenWipeKind, ScreenWipeSequence, ScreenWipeState},
     sf1_controls::{BriefingChoice, BriefingPhase, ControlType},
     sf1_planets::{
         briefing_text, planet_heading, planet_zoom_step, post_tally_travel_retail_frames,
@@ -91,10 +91,6 @@ pub const DEATH_RESPAWN_TICKS: i32 =
 /// remains closed for the completed scene; the first aperture step is the
 /// sixth following update.
 pub const OPENING_WIPE_BLACK_HOLD_TICKS: u8 = 6;
-/// The launch player's 115-unit depth step crosses `mapwait 300` in three
-/// updates. `do_circle_explosion` observes the authored wipe on the following
-/// update, so the typed aperture keeps frame zero for the same three ticks.
-const SCRAMBLE_WIPE_BLACK_HOLD_TICKS: u8 = 3;
 /// Reduced-speed dust depth carried from the completed attract intro into the
 /// title map (68 source updates at `MEDPSPEED / 4`).
 const TITLE_SPACE_DUST_ENTRY_DEPTH: i16 = 1_088;
@@ -1168,13 +1164,12 @@ struct ShellState {
     windows: Windows,
     /// Native replacement for the source `circletab` opening-wipe cursor.
     screen_wipe: ScreenWipeState,
+    /// Launch maps retain the authored map request and transfer lifecycle.
+    /// Other initializers still use the separately tracked legacy schedule.
+    map_screen_wipe: Option<ScreenWipeSequence>,
+    presented_scramble_banner: Option<ScrambleBannerState>,
     /// Remaining fully-closed presentation ticks before the aperture advances.
     screen_wipe_hold: u8,
-    /// The Corneria launch maps request a second reveal at their explicit
-    /// `initblack_l` handoff after the scramble corridor.
-    pending_init_black_wipe: Option<ScreenWipeKind>,
-    /// Number of earlier black-screen markers before the authored `wipein`.
-    pending_init_black_calls: u8,
     /// A catalog-managed opening owns the first common-wrapper `initblack_l`;
     /// suppress that duplicate black window if the builder retained it.
     suppress_next_init_black: bool,
@@ -1197,9 +1192,9 @@ impl ShellState {
         ShellState {
             windows: Windows::new(),
             screen_wipe: ScreenWipeState::inactive(),
+            map_screen_wipe: None,
+            presented_scramble_banner: None,
             screen_wipe_hold: 0,
-            pending_init_black_wipe: None,
-            pending_init_black_calls: 0,
             suppress_next_init_black: false,
             strings: Strings::new(),
             sound: Vec::new(),
@@ -1216,24 +1211,19 @@ impl ShellState {
 
     fn configure_opening_wipe(&mut self, plan: sf_map::catalog::OpeningWipePlan) {
         self.screen_wipe = ScreenWipeState::inactive();
+        self.map_screen_wipe = None;
+        self.presented_scramble_banner = None;
         self.screen_wipe_hold = 0;
-        self.pending_init_black_wipe = plan.on_init_black;
-        self.pending_init_black_calls = plan.init_black_calls_before_reveal;
         self.suppress_next_init_black = false;
 
+        if plan.on_init_black.is_some() {
+            self.map_screen_wipe = Some(ScreenWipeSequence::default());
+            self.windows.init_for_source_transfer();
+            return;
+        }
         if let Some(kind) = plan.initial {
-            let is_launch_sequence = plan.on_init_black.is_some();
-            self.begin_screen_wipe(
-                kind,
-                if is_launch_sequence {
-                    // The retail HDMA aperture holds its first record across
-                    // three logical wipe updates before the star reveal moves.
-                    SCRAMBLE_WIPE_BLACK_HOLD_TICKS
-                } else {
-                    OPENING_WIPE_BLACK_HOLD_TICKS
-                },
-            );
-            self.suppress_next_init_black = !is_launch_sequence;
+            self.begin_screen_wipe(kind, OPENING_WIPE_BLACK_HOLD_TICKS);
+            self.suppress_next_init_black = true;
         }
     }
 
@@ -1311,7 +1301,7 @@ impl Hooks for ShellHooks {
 
     fn fade_to_black(&mut self, speed: i32) {
         let mut state = self.state.borrow_mut();
-        if speed >= 2 {
+        if speed >= 2 || state.windows.uses_source_display_fade() {
             state.windows.fade_to_black(speed);
         } else {
             state
@@ -1330,15 +1320,6 @@ impl Hooks for ShellHooks {
 
     fn init_black(&mut self) {
         let mut state = self.state.borrow_mut();
-        if let Some(kind) = state.pending_init_black_wipe {
-            if state.pending_init_black_calls > 0 {
-                state.pending_init_black_calls -= 1;
-                return;
-            }
-            state.pending_init_black_wipe = None;
-            state.begin_screen_wipe(kind, SCRAMBLE_WIPE_BLACK_HOLD_TICKS);
-            return;
-        }
         if state.suppress_next_init_black {
             state.suppress_next_init_black = false;
             return;
@@ -1686,12 +1667,15 @@ impl Shell {
         // The frame assembled after this update presents the newly selected
         // record. Advancing before simulation lets a wipe started by this
         // tick's map code retain its authored frame zero for one full frame.
+        let map_owns_wipe = self.state.borrow().map_screen_wipe.is_some();
         let hold_level_opening_wipe = self.game_state == GameState::Playing
             && self.gameplay_entry_phase == GameplayEntryPhase::LevelInitialization;
         let (wipe_was_active, wipe_active) = {
             let mut state = self.state.borrow_mut();
             let was_active = state.screen_wipe.active;
-            let active = if hold_level_opening_wipe {
+            let active = if let Some(sequence) = state.map_screen_wipe {
+                sequence.blocks_sprites()
+            } else if hold_level_opening_wipe {
                 was_active
             } else {
                 state.step_screen_wipe()
@@ -1699,10 +1683,10 @@ impl Shell {
             (was_active, active)
         };
         self.game.vars.strategy.wipe_active = u8::from(wipe_active);
-        if wipe_was_active && !wipe_active && self.game.vars.circleanim == 1 {
+        if !map_owns_wipe && wipe_was_active && !wipe_active && self.game.vars.circleanim == 1 {
             self.game.vars.circleanim = 0;
         }
-        if self.game_state == GameState::Playing {
+        if self.game_state == GameState::Playing && !map_owns_wipe {
             self.consume_hud_presentation_interval(wipe_was_active);
         }
 
@@ -1817,11 +1801,19 @@ impl Shell {
             let st = &mut *st;
             let vars = &mut self.game.vars;
             let mut radio_presentation = RadioPresentation::capture(&st.strings);
+            let once_wipe_before = vars.oncewipe;
             st.windows.update(
                 &mut vars.strategy.stay_black,
                 &mut vars.oncewipe,
                 &mut vars.circleanim,
             );
+            if once_wipe_before == 0 && vars.oncewipe != 0 {
+                vars.pending_screen_wipe = ScreenWipeKind::from_map_request(vars.circleanim);
+            }
+            st.windows.advance_source_display(vars.gameframe);
+            if st.windows.uses_source_display_fade() {
+                vars.strategy.fade_direction = st.windows.fadedir;
+            }
             st.strings.update(&mut self.game.vars, &mut st.sound);
             // The source face selector is the result of this draw, while its
             // visibility gates use the counters observed on entry.
@@ -1847,7 +1839,20 @@ impl Shell {
         // to request the default star wipe. Promote that request into typed
         // presentation state; smart-bomb value 2 is a separate color/radius
         // effect and is deliberately not mistaken for an opening aperture.
-        if self.game.vars.circleanim == 1 {
+        if map_owns_wipe {
+            // The source's next transfer prepares the aperture before its
+            // next strategy visit. Keep the completed scene's record intact.
+            let mut state = self.state.borrow_mut();
+            if let Some(sequence) = &mut state.map_screen_wipe {
+                if let Some(kind) = self.game.vars.pending_screen_wipe.take() {
+                    sequence.request(kind);
+                }
+                if sequence.prepare_transfer() {
+                    self.game.vars.circleanim = 0;
+                }
+                self.game.vars.strategy.wipe_active = u8::from(sequence.blocks_sprites());
+            }
+        } else if self.game.vars.circleanim == 1 {
             let mut state = self.state.borrow_mut();
             if !state.screen_wipe.active {
                 state.begin_screen_wipe(ScreenWipeKind::StarReveal, 0);
@@ -1875,6 +1880,12 @@ impl Shell {
     /// update. The assembled OAM is retained across the intervening video
     /// refreshes; `do_stage` and `prt_scramble` therefore each decrement once.
     fn consume_hud_presentation_interval(&mut self, wipe_was_active: bool) {
+        self.state.borrow_mut().presented_scramble_banner = (!wipe_was_active
+            && self.game.vars.scramble_count != 0)
+            .then_some(ScrambleBannerState {
+                ticks_remaining: self.game.vars.scramble_count,
+                game_frame: self.game.vars.gameframe,
+            });
         self.game.vars.stagecnt = self.game.vars.stagecnt.saturating_sub(1).max(0);
         if !wipe_was_active {
             self.game.vars.scramble_count = self.game.vars.scramble_count.saturating_sub(1);
@@ -1980,10 +1991,14 @@ impl Shell {
                 },
                 ticks_remaining,
             });
-        let scramble_banner = (v.scramble_count != 0).then_some(ScrambleBannerState {
-            ticks_remaining: v.scramble_count,
-            game_frame: v.gameframe,
-        });
+        let scramble_banner = if st.map_screen_wipe.is_some() {
+            st.presented_scramble_banner
+        } else {
+            (v.scramble_count != 0).then_some(ScrambleBannerState {
+                ticks_remaining: v.scramble_count,
+                game_frame: v.gameframe,
+            })
+        };
 
         FrameSnapshot {
             game_state_code: self.game_state.code(),
@@ -2171,8 +2186,11 @@ impl Shell {
 
         let opening_wipe = sf_map::catalog::opening_wipe_plan(map_id);
         self.state.borrow_mut().configure_opening_wipe(opening_wipe);
-        self.game.vars.circleanim = if opening_wipe.initial.is_some() { 1 } else { 0 };
-        self.game.vars.strategy.wipe_active = u8::from(opening_wipe.initial.is_some());
+        let initial_is_prepared =
+            opening_wipe.initial.is_some() && opening_wipe.on_init_black.is_none();
+        self.game.vars.circleanim = i16::from(initial_is_prepared);
+        self.game.vars.pending_screen_wipe = None;
+        self.game.vars.strategy.wipe_active = u8::from(initial_is_prepared);
 
         if let Some(background) = sf_map::catalog::opening_background(map_id) {
             self.game.vars.currentbg = background;
@@ -3033,7 +3051,7 @@ impl Shell {
         v.player_death_fade_delay = 0;
         v.training_player_startup = crate::vars::TrainingPlayerStartupPhase::Inactive;
         v.screen_fill_circle.clear();
-        v.oncewipe = 0;
+        // MAIN.initgame_l retains CONT/ENDSEQ's once-only black-window flag.
         v.strategy.wipe_active = 0;
         self.state.borrow_mut().windows.init(); // Windows_Init (boot.c:70)
 
@@ -3262,6 +3280,16 @@ impl Shell {
             &mut self.draw_list,
         );
         self.capture_particles();
+        if self.state.borrow().map_screen_wipe.is_some() {
+            // SPRITES sees the previous completed wipe lock, not the new
+            // record produced after this scene's drawing.
+            self.consume_hud_presentation_interval(self.game.vars.strategy.wipe_active != 0);
+            let mut state = self.state.borrow_mut();
+            let sequence = state.map_screen_wipe.as_mut().expect("map-owned wipe");
+            let rendered = sequence.complete_scene();
+            self.game.vars.strategy.wipe_active = u8::from(sequence.blocks_sprites());
+            state.screen_wipe = rendered;
+        }
         if std::env::var_os("SF_DEBUG_DRAW").is_some() && self.game.vars.gameframe % 10 == 0 {
             let n = self.draw_list.len();
             let ships: Vec<String> = self
@@ -3418,6 +3446,7 @@ impl Shell {
             vars.map.trigger = 0;
             vars.mapcnt = 0;
             vars.circleanim = 0;
+            vars.pending_screen_wipe = None;
             vars.training_player_startup = crate::vars::TrainingPlayerStartupPhase::Inactive;
             vars.oncewipe = 0;
             vars.strategy.wipe_active = 0;
@@ -3453,11 +3482,14 @@ impl Shell {
         {
             let mut state = self.state.borrow_mut();
             state.windows.init_for_forced_black_map_load();
+            if state.map_screen_wipe.is_some() {
+                state.windows.init_for_source_transfer();
+            }
             state.windows.fade_from_black(1);
             state.screen_wipe = ScreenWipeState::inactive();
             state.screen_wipe_hold = 0;
-            state.pending_init_black_wipe = None;
-            state.pending_init_black_calls = 0;
+            state.map_screen_wipe = state.map_screen_wipe.map(|_| ScreenWipeSequence::default());
+            state.presented_scramble_banner = None;
             state.suppress_next_init_black = false;
         }
 
@@ -4379,36 +4411,35 @@ mod tests {
     }
 
     #[test]
-    fn corneria_init_black_handoff_selects_horizontal_reveal() {
-        let mut shell = Shell::new();
-        shell.load_map(map_id::M1_1);
-        assert_eq!(shell.frame().screen_wipe.kind, StarReveal);
+    fn corneria_wipe_is_requested_by_the_map_not_init_black() {
+        for map in [map_id::M1_1, map_id::M2_1, map_id::M3_1] {
+            let mut shell = Shell::new();
+            shell.load_map(map);
+            assert!(!shell.frame().screen_wipe.active);
+            assert_eq!(shell.game.vars.circleanim, 0);
+            shell.game.hooks.init_black();
+            assert_ne!(shell.state.borrow().windows.windowmode, 0);
+            assert_eq!(shell.game.vars.pending_screen_wipe, None);
+            assert!(!shell.frame().screen_wipe.active);
 
-        for _ in 0..SCRAMBLE_WIPE_BLACK_HOLD_TICKS {
-            assert!(shell.state.borrow_mut().step_screen_wipe());
-            assert_eq!(shell.frame().screen_wipe.frame, 0);
+            shell.game.map_exec();
+            assert_eq!(shell.game.vars.pending_screen_wipe, Some(StarReveal));
+            assert_eq!(shell.game.vars.strategy.stay_black, 2);
+            assert_eq!(
+                shell.game.vars.mapcnt, 96,
+                "mapwait 100 is encoded in 16-unit steps"
+            );
+            assert!(!shell.frame().screen_wipe.active);
+
+            shell.game.vars.mapptr = sf_map::catalog::get_map_data(map)
+                .unwrap()
+                .label_offset("launch.outdoor_wipe")
+                .unwrap();
+            shell.game.map_exec();
+            assert_eq!(shell.game.vars.pending_screen_wipe, Some(HorizontalReveal));
+            assert_eq!(shell.game.vars.strategy.stay_black, STAY_BLACK_INACTIVE);
+            assert_eq!(shell.game.vars.mapcnt, 128, "mapwait medpspeed*2 encoding");
         }
-        assert!(shell.state.borrow_mut().step_screen_wipe());
-        assert_eq!(shell.frame().screen_wipe.frame, 1);
-
-        // LEVEL1_1's first marker is the post-fade blackout. The following
-        // `wipein mscramwipe_circle` marker owns the typed reveal.
-        shell.game.hooks.init_black();
-        assert_eq!(shell.frame().screen_wipe.kind, StarReveal);
-        assert_eq!(shell.state.borrow().windows.windowmode, 0);
-
-        shell.game.hooks.init_black();
-        let frame = shell.frame();
-        assert_eq!(frame.screen_wipe.kind, HorizontalReveal);
-        assert_eq!(frame.screen_wipe.frame, 0);
-        assert_eq!(shell.state.borrow().windows.windowmode, 0);
-
-        for _ in 0..SCRAMBLE_WIPE_BLACK_HOLD_TICKS {
-            assert!(shell.state.borrow_mut().step_screen_wipe());
-            assert_eq!(shell.frame().screen_wipe.frame, 0);
-        }
-        assert!(shell.state.borrow_mut().step_screen_wipe());
-        assert_eq!(shell.frame().screen_wipe.frame, 1);
     }
 
     #[test]
@@ -4821,6 +4852,15 @@ mod tests {
     #[test]
     fn terminal_death_waits_twenty_ticks_then_completes_the_black_fade() {
         let mut sh = into_gameplay();
+        // This shell-only test has no player strategy installed to perform
+        // the opening reveal. Start with a completed, visible transfer.
+        {
+            let mut state = sh.state.borrow_mut();
+            state.windows.fade_from_black(2);
+            for _ in 0..5 {
+                state.windows.advance_source_display(0);
+            }
+        }
         sh.planets.lives = 0;
         sh.game.vars.strategy.lives = 0;
         sh.planets.credits = 1;
@@ -4840,9 +4880,9 @@ mod tests {
         sh.tick(0);
         let fade_start = sh.frame();
         assert_eq!(sh.game.vars.player_death_fade_delay, 0);
-        assert!(fade_start.windows.iter().any(|window| {
-            window.mode == crate::windows::WINDOW_MODE_MAPFADE && window.wm_val == 1
-        }));
+        assert_eq!(fade_start.display_brightness, DISPLAY_BRIGHTNESS_MAX - 1);
+        assert!(!fade_start.display_forced_blank);
+        assert_eq!(sh.game.vars.strategy.fade_direction, -1);
 
         for _ in 1..DISPLAY_BRIGHTNESS_MAX {
             sh.tick(0);

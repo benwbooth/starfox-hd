@@ -71,6 +71,6 @@ pub fn gameover_init_l(g: &mut Game, player_idx: u16) -> (Option<u16>, Option<u1
 
 /// ROM `fadetonorm_l` (GSTRATS.ASM:1021) — clear circle wipe, arm white→norm.
 pub fn fade_to_norm_l(g: &mut Game) {
-    g.vars.circleanim = 0;
+    g.vars.set_circle_animation(0);
     g.hooks.init_fade_white2norm();
 }

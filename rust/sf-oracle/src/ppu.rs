@@ -395,19 +395,17 @@ impl Ppu {
     fn color(&self, index: usize) -> [u8; 4] {
         let offset = (index & 0xFF) * 2;
         let raw = u16::from_le_bytes([self.cgram[offset], self.cgram[offset + 1]]);
+        // Match the independent Mesen SNES scanout: brightness quantizes
+        // five-bit components before expanding them to RGB8. Scaling RGB8
+        // by (level + 1) / 16 wrongly leaves level zero visible and invents
+        // intermediate colors absent from the source palette.
+        // Mesen2 b9fa69dd, Core/SNES/SnesPpu.cpp::ApplyBrightness.
+        let brightness = u16::from(self.last_visible_inidisp.unwrap_or(self.registers[0]) & 0x0F);
         let expand = |component: u16| -> u8 {
-            let five = component & 31;
+            let five = (component & 31) * brightness / 15;
             ((five << 3) | (five >> 2)) as u8
         };
-        let brightness =
-            u16::from(self.last_visible_inidisp.unwrap_or(self.registers[0]) & 0x0F) + 1;
-        let scale = |component: u8| ((u16::from(component) * brightness) / 16) as u8;
-        [
-            scale(expand(raw)),
-            scale(expand(raw >> 5)),
-            scale(expand(raw >> 10)),
-            255,
-        ]
+        [expand(raw), expand(raw >> 5), expand(raw >> 10), 255]
     }
 
     fn bg_bpp(mode: u8, bg: usize) -> Option<usize> {
@@ -897,6 +895,23 @@ impl Ppu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_brightness_quantizes_before_rgb_expansion() {
+        let mut ppu = Ppu::new();
+        // Mesen SnesPpu::ApplyBrightness followed by Convert5BitTo8Bit,
+        // including true black at level zero and non-endpoint channel values.
+        for component in 0u16..32 {
+            let raw = component | (component << 5) | (component << 10);
+            ppu.cgram[..2].copy_from_slice(&raw.to_le_bytes());
+            for level in 0u16..16 {
+                ppu.write(0x2100, level as u8);
+                let scaled = component * level / 15;
+                let expected = ((scaled << 3) | (scaled >> 2)) as u8;
+                assert_eq!(ppu.color(0), [expected, expected, expected, 255]);
+            }
+        }
+    }
 
     #[test]
     fn star_fox_wipe_window_masks_only_outside_the_active_aperture() {

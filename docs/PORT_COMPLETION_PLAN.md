@@ -1007,6 +1007,31 @@ running; scheduled work is not a guarantee of a completion date.
   both profiles; the release Training replay, 58 SF1 source checks,
   architecture audit and all three app builds in both profiles also pass.
 
+- Replaced Corneria's initializer-count-based aperture trigger with the
+  source map request, prepared-record, rendered-record and cleanup lifecycle.
+  The three Corneria maps now retain the `nofadenostage` initializer tail and
+  distinguish the later horizontal reveal. The original 80-update launch
+  replay checks all sixteen star records, sprite locking, the last retained
+  warning, black-window state and display fade. A separate original-code fade
+  gate covers 65,536 input cases. The composed-video gate now compares sixteen
+  full-screen scenes (5 through 20), retaining its separate warning-layer
+  check. Corrected the verification PPU's brightness quantization from Mesen's
+  independently implemented five-bit arithmetic, and corrected native black
+  color publication to the current prepared transfer. The read-only Mesen
+  capture agrees on the inspected fade colors but still differs on aperture/
+  scanout boundary pixels; this is not independent whole-frame certification.
+  The pre-resume initializer black hold, non-Corneria legacy initialization,
+  production timing, reference color math and full campaign coverage remain
+  open. The three refreshed map regression blobs change only one wipe operand
+  and append the 24-byte initializer continuation; no original-code or pixel
+  expectations were blessed. Focused original-code/video gates and native
+  core/game/map/render regressions pass in both profiles; unchanged release
+  Training, 62 SF1 source checks, architecture and all application builds also
+  pass. The whole release workspace run still fails the four known semantic,
+  controller-route, title-setup and weapon-entry targets (3,898 passing tests,
+  three failing tests, one ignored test and two failing executable examples).
+  Testing includes the preserved pre-existing working-tree changes.
+
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
 working merely because the user is due back.

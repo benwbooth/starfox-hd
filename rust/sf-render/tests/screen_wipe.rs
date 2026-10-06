@@ -10,6 +10,10 @@ const VISIBLE_TEST_BACKGROUND: u16 = 4;
 const MASK_COLOR: [u8; 3] = [0, 0, 0];
 
 fn render(wipe: ScreenWipeState) -> Option<Vec<u8>> {
+    render_with_black(wipe, 0)
+}
+
+fn render_with_black(wipe: ScreenWipeState, display_black_subtraction: u8) -> Option<Vec<u8>> {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let config = config_from_repo_root(&root);
     let mut renderer = match Renderer::new_headless(WIDTH, HEIGHT, &config) {
@@ -24,6 +28,7 @@ fn render(wipe: ScreenWipeState) -> Option<Vec<u8>> {
         newmap: 1,
         currentbg: VISIBLE_TEST_BACKGROUND,
         screen_wipe: wipe,
+        display_black_subtraction,
         ..Default::default()
     };
     renderer.begin_frame();
@@ -32,6 +37,30 @@ fn render(wipe: ScreenWipeState) -> Option<Vec<u8>> {
     let pixels = renderer.read_pixels_rgb();
     renderer.shutdown();
     Some(pixels)
+}
+
+#[test]
+fn source_aperture_takes_priority_over_the_retained_black_window() {
+    const MAX_BLACK: u8 = 31;
+    let wipe = ScreenWipeState {
+        kind: ScreenWipeKind::StarReveal,
+        frame: 8,
+        active: true,
+    };
+    let Some(normal) = render(wipe) else {
+        return;
+    };
+    let with_black = render_with_black(wipe, MAX_BLACK).expect("same renderer");
+    assert!(normal.chunks_exact(3).any(|pixel| pixel != MASK_COLOR));
+    assert_eq!(
+        with_black, normal,
+        "an active aperture owns the source window priority"
+    );
+    let without_wipe =
+        render_with_black(ScreenWipeState::inactive(), MAX_BLACK).expect("same renderer");
+    assert!(without_wipe
+        .chunks_exact(3)
+        .all(|pixel| pixel == MASK_COLOR));
 }
 
 #[test]
