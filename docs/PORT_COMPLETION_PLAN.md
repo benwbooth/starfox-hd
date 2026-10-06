@@ -288,6 +288,21 @@ running; scheduled work is not a guarantee of a completion date.
   build pass. **The tested host uses explicit test callback providers; real
   scene/native registrations, render-work scheduling and `Game::tick` adoption
   remain open.** Do not represent the new host as a migrated live encounter.
+- Bound the native player handler to real new/continuing/separation auxiliary
+  registrations, using the same counted resource table as other actor data.
+  The scene host now uses these concrete contact services by default. Contact
+  feedback borrows the actual path particle byte and primary hit record;
+  activity, mode, protection, action gates, sound and reflection use live scene
+  owners. Missing inputs retain source read order, stale registration lookup
+  faults instead of falling back to default damage, and separation preserves
+  the shared damage/parameter values before releasing either contact.
+  Nine composed tests include partial registration allocation failure,
+  reflection/RNG, selected-versus-primary ownership and full retirement.
+  All 1,103 native tests and two integration tests pass in debug/release;
+  558 source tests, exact regeneration, architecture and app build pass.
+  **Native death registrations, map continuations and production frame-loop
+  adoption remain open.** Player-contact binding is not a complete player
+  initializer or a migrated live encounter.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

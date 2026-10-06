@@ -1129,8 +1129,8 @@ mod tests {
         fn hit_actor_mut(&mut self, id: ObjectId) -> Option<HitActorMut<'_>> {
             self.objects.get_mut(id).map(HitActorMut::from_object)
         }
-        fn has_hit_callback(&self, _: ObjectId, kind: HitCallback) -> bool {
-            kind == HitCallback::NewContact
+        fn has_hit_callback(&self, _: ObjectId, kind: HitCallback) -> Result<bool, Self::Error> {
+            Ok(kind == HitCallback::NewContact)
         }
         fn run_hit_callback(
             &mut self,

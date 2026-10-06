@@ -4,10 +4,10 @@
 
 use super::collision_contacts::ContactError;
 use super::hit_response::{HitContext, HitResponseHost, HitSide};
+use super::path_protection::DeflectionProtection;
 use super::player_hit_control::{self, ContactSound, ContactTurn, Impact, PlayerHitControl};
 use super::{ObjectId, ObjectStore};
 
-const DEFLECTION_COUNT_MASK: u8 = 0x1F;
 const PART_HIT_MASK: u8 = 0x07;
 // Authored box channels to player feedback channels. Do not assign left/right
 // anatomy from the bit ordering; shape-specific boxes own that interpretation.
@@ -47,12 +47,23 @@ pub struct ContactRules {
 pub trait PlayerContactHost: HitResponseHost {
     fn objects(&self) -> &ObjectStore;
     fn objects_mut(&mut self) -> &mut ObjectStore;
-    fn player_contact(&self, owner: ObjectId) -> Option<&PlayerContactState>;
-    fn player_contact_mut(&mut self, owner: ObjectId) -> Option<&mut PlayerContactState>;
-    fn contact_rules(&self) -> ContactRules;
+    // Read only when the source reaches each gate. The scene binds these to
+    // the same auxiliary/protection/particle owners used by authored paths.
+    fn player_hit(&self, owner: ObjectId) -> Result<&PlayerHitControl, Self::Error>;
+    fn player_hit_mut(&mut self, owner: ObjectId) -> Result<&mut PlayerHitControl, Self::Error>;
+    fn contact_active(&self, owner: ObjectId) -> Result<bool, Self::Error>;
+    fn ignores_contacts(&self, owner: ObjectId) -> Result<bool, Self::Error>;
+    fn protection(&self, owner: ObjectId) -> Result<DeflectionProtection, Self::Error>;
+    fn suppress_contact_turn(&self, owner: ObjectId) -> Result<bool, Self::Error>;
+    fn part_feedback(&mut self, owner: ObjectId) -> Result<&mut u8, Self::Error>;
+    fn contact_turn(&mut self, owner: ObjectId) -> Result<&mut Option<ContactTurn>, Self::Error>;
+    fn contacts_enabled(&self) -> Result<bool, Self::Error>;
+    fn contacts_blocked(&self) -> Result<bool, Self::Error>;
+    fn suppress_turn(&self) -> Result<bool, Self::Error>;
+    fn strategy_clock(&self) -> u8;
     fn primary_player(&self) -> Option<ObjectId>;
     /// Other actor flag 25 bit 80, independent of projectile class.
-    fn damages_player_parts(&self, other: ObjectId) -> bool;
+    fn damages_player_parts(&self, other: ObjectId) -> Result<bool, Self::Error>;
     fn reflect_contacts(&mut self, owner: ObjectId) -> Result<(), Self::Error>;
     fn queue_contact_sound(
         &mut self,
@@ -69,15 +80,6 @@ pub enum PlayerContactError<E> {
     MissingContact,
     Contacts(ContactError),
     Host(E),
-}
-
-fn player<H: PlayerContactHost>(
-    host: &H,
-    owner: ObjectId,
-) -> Result<PlayerContactState, PlayerContactError<H::Error>> {
-    host.player_contact(owner)
-        .copied()
-        .ok_or(PlayerContactError::MissingPlayer(owner))
 }
 
 fn sound<H: PlayerContactHost>(
@@ -107,9 +109,8 @@ fn finish<H: PlayerContactHost>(
             .ok_or(PlayerContactError::MissingActor(owner))?
             .hit_marked = false;
     }
-    host.player_contact_mut(owner)
-        .ok_or(PlayerContactError::MissingPlayer(owner))?
-        .hit
+    host.player_hit_mut(owner)
+        .map_err(PlayerContactError::Host)?
         .absorb_with_reserve(&mut context.damage);
     Ok(())
 }
@@ -119,8 +120,18 @@ pub fn respond<H: PlayerContactHost>(
     owner: ObjectId,
     context: &mut HitContext,
 ) -> Result<(), PlayerContactError<H::Error>> {
-    let state = player(host, owner)?;
-    if state.hit.recovery != 0 || !state.active || state.ignores_contacts {
+    if host
+        .player_hit(owner)
+        .map_err(PlayerContactError::Host)?
+        .recovery
+        != 0
+        || !host
+            .contact_active(owner)
+            .map_err(PlayerContactError::Host)?
+        || host
+            .ignores_contacts(owner)
+            .map_err(PlayerContactError::Host)?
+    {
         return finish(host, owner, context, true);
     }
 
@@ -136,30 +147,37 @@ pub fn respond<H: PlayerContactHost>(
             contact,
         )))?
         .other;
-    let rules = host.contact_rules();
-    if !rules.enabled || rules.blocked {
+    if !host.contacts_enabled().map_err(PlayerContactError::Host)?
+        || host.contacts_blocked().map_err(PlayerContactError::Host)?
+    {
         return finish(host, owner, context, true);
     }
 
-    let timed_deflection = state.deflection_count & DEFLECTION_COUNT_MASK != 0;
-    let projectile = !timed_deflection
+    let protection = host.protection(owner).map_err(PlayerContactError::Host)?;
+    let timed_deflection = protection.remaining() != 0;
+    // Do not inspect the other actor's class before the protection bit admits
+    // it. The turn service has its own later class test.
+    let deflect_projectile = !timed_deflection
+        && protection.projectile_deflection()
         && host
             .hit_actor(other_id)
             .ok_or(PlayerContactError::MissingActor(other_id))?
             .credits_hit_side; // The same source class bit 31:08.
-    if timed_deflection || (state.projectile_deflection && projectile) {
+    if timed_deflection || deflect_projectile {
         if timed_deflection {
-            host.player_contact_mut(owner)
-                .ok_or(PlayerContactError::MissingPlayer(owner))?
-                .hit
+            host.player_hit_mut(owner)
+                .map_err(PlayerContactError::Host)?
                 .request_deflection_feedback();
         }
-        if player(host, owner)?.hit.deflection_sound_due() {
+        if host
+            .player_hit(owner)
+            .map_err(PlayerContactError::Host)?
+            .deflection_sound_due()
+        {
             sound(host, owner, ContactSound::Deflection)?;
             let random = host.random_byte();
-            host.player_contact_mut(owner)
-                .ok_or(PlayerContactError::MissingPlayer(owner))?
-                .hit
+            host.player_hit_mut(owner)
+                .map_err(PlayerContactError::Host)?
                 .set_deflection_sound_cooldown(random);
         }
         host.reflect_contacts(owner)
@@ -174,11 +192,14 @@ pub fn respond<H: PlayerContactHost>(
     let hit_flags = actor.base.hit_flags;
     let position = actor.base.position;
     let yaw = actor.base.yaw;
-    if host.damages_player_parts(other_id) {
-        let feedback = &mut host
-            .player_contact_mut(owner)
-            .ok_or(PlayerContactError::MissingPlayer(owner))?
-            .part_feedback;
+    if host
+        .damages_player_parts(other_id)
+        .map_err(PlayerContactError::Host)?
+        && hit_flags & PART_HIT_MASK != 0
+    {
+        let feedback = host
+            .part_feedback(owner)
+            .map_err(PlayerContactError::Host)?;
         for (source, destination) in PART_FEEDBACK_REMAP {
             if hit_flags & source != 0 {
                 *feedback |= destination;
@@ -191,25 +212,29 @@ pub fn respond<H: PlayerContactHost>(
         .ok_or(PlayerContactError::MissingActor(owner))?
         .base
         .hit_flags &= !PART_HIT_MASK;
-    if !rules.suppress_turn && !state.suppress_contact_turn && !projectile {
+    if !host.suppress_turn().map_err(PlayerContactError::Host)?
+        && !host
+            .suppress_contact_turn(owner)
+            .map_err(PlayerContactError::Host)?
+        && !host
+            .hit_actor(other_id)
+            .ok_or(PlayerContactError::MissingActor(other_id))?
+            .credits_hit_side
+    {
         let other_position = host
             .objects()
             .get(other_id)
             .ok_or(PlayerContactError::MissingActor(other_id))?
             .base
             .position;
-        host.player_contact_mut(owner)
-            .ok_or(PlayerContactError::MissingPlayer(owner))?
-            .turn = Some(player_hit_control::turn_from_contact(
-            position,
-            yaw,
-            other_position,
-        ));
+        *host.contact_turn(owner).map_err(PlayerContactError::Host)? = Some(
+            player_hit_control::turn_from_contact(position, yaw, other_position),
+        );
     }
-    host.player_contact_mut(owner)
-        .ok_or(PlayerContactError::MissingPlayer(owner))?
-        .hit
-        .impact(Impact::Heavy, rules.strategy_clock);
+    let clock = host.strategy_clock();
+    host.player_hit_mut(owner)
+        .map_err(PlayerContactError::Host)?
+        .impact(Impact::Heavy, clock);
     // Cue selection sees original damage, before reserve absorption.
     sound(
         host,
@@ -351,8 +376,8 @@ mod tests {
         ) -> Option<super::super::hit_response::HitActorMut<'_>> {
             self.actors.get_mut(id.index()).map(HitActor::as_mut)
         }
-        fn has_hit_callback(&self, owner: ObjectId, _: HitCallback) -> bool {
-            owner == self.owner
+        fn has_hit_callback(&self, owner: ObjectId, _: HitCallback) -> Result<bool, Self::Error> {
+            Ok(owner == self.owner)
         }
         fn run_hit_callback(
             &mut self,
@@ -379,20 +404,61 @@ mod tests {
         fn objects_mut(&mut self) -> &mut ObjectStore {
             &mut self.objects
         }
-        fn player_contact(&self, owner: ObjectId) -> Option<&PlayerContactState> {
-            (owner == self.owner).then_some(&self.player)
+        fn player_hit(&self, owner: ObjectId) -> Result<&PlayerHitControl, Self::Error> {
+            (owner == self.owner)
+                .then_some(&self.player.hit)
+                .ok_or("missing player".into())
         }
-        fn player_contact_mut(&mut self, owner: ObjectId) -> Option<&mut PlayerContactState> {
-            (owner == self.owner).then_some(&mut self.player)
+        fn player_hit_mut(
+            &mut self,
+            owner: ObjectId,
+        ) -> Result<&mut PlayerHitControl, Self::Error> {
+            (owner == self.owner)
+                .then_some(&mut self.player.hit)
+                .ok_or("missing player".into())
         }
-        fn contact_rules(&self) -> ContactRules {
-            self.rules
+        fn contact_active(&self, _: ObjectId) -> Result<bool, Self::Error> {
+            Ok(self.player.active)
+        }
+        fn ignores_contacts(&self, _: ObjectId) -> Result<bool, Self::Error> {
+            Ok(self.player.ignores_contacts)
+        }
+        fn protection(&self, _: ObjectId) -> Result<DeflectionProtection, Self::Error> {
+            Ok(DeflectionProtection::from_control(
+                self.player.deflection_count & 0x1F
+                    | if self.player.projectile_deflection {
+                        0x40
+                    } else {
+                        0
+                    },
+            ))
+        }
+        fn suppress_contact_turn(&self, _: ObjectId) -> Result<bool, Self::Error> {
+            Ok(self.player.suppress_contact_turn)
+        }
+        fn part_feedback(&mut self, _: ObjectId) -> Result<&mut u8, Self::Error> {
+            Ok(&mut self.player.part_feedback)
+        }
+        fn contact_turn(&mut self, _: ObjectId) -> Result<&mut Option<ContactTurn>, Self::Error> {
+            Ok(&mut self.player.turn)
+        }
+        fn contacts_enabled(&self) -> Result<bool, Self::Error> {
+            Ok(self.rules.enabled)
+        }
+        fn contacts_blocked(&self) -> Result<bool, Self::Error> {
+            Ok(self.rules.blocked)
+        }
+        fn suppress_turn(&self) -> Result<bool, Self::Error> {
+            Ok(self.rules.suppress_turn)
+        }
+        fn strategy_clock(&self) -> u8 {
+            self.rules.strategy_clock
         }
         fn primary_player(&self) -> Option<ObjectId> {
             self.primary
         }
-        fn damages_player_parts(&self, other: ObjectId) -> bool {
-            other == self.other && self.parts
+        fn damages_player_parts(&self, other: ObjectId) -> Result<bool, Self::Error> {
+            Ok(other == self.other && self.parts)
         }
         fn reflect_contacts(&mut self, owner: ObjectId) -> Result<(), Self::Error> {
             self.events.push(Event::Reflect(owner));

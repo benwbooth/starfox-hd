@@ -57,6 +57,8 @@ pub struct ActorContacts {
     pub suppress_contacts_next_epoch: bool,
     /// Source 25 bit 10, read by contact response.
     pub skip_contacts: bool,
+    /// Incoming contacts can set player-part feedback (25 bit 80).
+    pub damages_player_parts: bool,
     /// Suppress the hit marker (24 bit 08), not collision detection.
     pub suppress_hit_marker: bool,
     /// Shared hit marker (20 bit 02), independent of pending_hit.

@@ -45,6 +45,18 @@ class PlayerContactStaticTests(unittest.TestCase):
         self.assert_source(0x06984E, "5A B4 2B B9 A0 6A 7A 29 F0 C9 20 D0 04 5C 9F 98 06")
         self.assert_source(0x06985F, "B9 31 00 29 08 C9 08 D0 04 5C 9F 98 06")
 
+    def test_initializer_registers_same_handler_in_new_continuing_and_separation_order(self):
+        for address, kind in [(0x068597, 6), (0x0685AC, 5), (0x0685C1, 7)]:
+            self.assert_source(address, f"A9 {kind:02X} 22 60 23 7F C2 20 A9 07 97 99 62 6A E2 20 A9 06 99 64 6A")
+
+    def test_separation_publishes_cursor_before_lookup_and_preserves_damage_parameter(self):
+        # Complete wrapper up to callback dispatch. In particular, there are
+        # no stores to CF2F/CF30 and no hit-response health subtraction.
+        self.assert_source(0x7F3F59, "08 5A 8C 2D CF B9 04 00 A8 E2 20 5A A9 07 22 3B 23 7F C0 00 00 D0 04 5C A3 3F 7F C2 20 B9 62 6A 8D CF 12 E2 20 B9 64 6A 8D D1 12 7A 5A A5 5E 48 A9 7F 48 F4 9B 3F A5 5E 29 EF 85 5E 8F 3A 30 00 DC CF 12")
+
+    def test_deflection_sound_uses_shared_side_queue_before_shared_rng(self):
+        self.assert_source(0x06AB05, "5A 08 B4 2B B9 E7 6B D0 1C C2 20 A9 18 00 EC C3 12 F0 03 09 00 80 22 09 6E 7F E2 20 22 D0 7B 7F 29 07 99 E7 6B 28 7A 6B")
+
 
 if __name__ == "__main__":
     unittest.main()

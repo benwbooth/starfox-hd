@@ -12,6 +12,7 @@ pub use native::path_invocation;
 pub use native::path_shots;
 pub use native::positional_audio;
 pub use native::scene_path_world;
+pub use native::scene_contact;
 pub use native::scene_strategy;
 pub use native::view_transition;
 pub use native::weapon_rapid;

@@ -29,9 +29,9 @@ use super::strategy_schedule::{
 };
 use super::{Behavior, ObjectId, ObjectStore, SoundEvent, Vector3};
 
-/// Concrete scene/native registrations supply these methods. There are no
-/// default success implementations: an unsupported callback must be an error,
-/// and an absent callback must be distinguished by its actual registration.
+/// Scene strategies/death/map services are required. Contact methods default
+/// to native auxiliary registrations and the real player handler; alternate
+/// providers must preserve the same registration and lifetime contracts.
 /// Callback code may mutate the live scene, but must not recycle a currently
 /// executing actor or either endpoint of the contact being separated.
 pub trait SceneCallbacks: Sized {
@@ -44,19 +44,29 @@ pub trait SceneCallbacks: Sized {
         host: &mut SceneActors<'_, Self>,
         owner: ObjectId,
     ) -> Result<Option<StrategyCompletion>, Self::Error>;
-    fn has_hit_callback(host: &SceneActors<'_, Self>, owner: ObjectId, kind: HitCallback) -> bool;
+    fn has_hit_callback(
+        host: &SceneActors<'_, Self>,
+        owner: ObjectId,
+        kind: HitCallback,
+    ) -> Result<bool, SceneError<Self::Error>> {
+        super::scene_contact::has_callback(host, owner, kind)
+    }
     fn hit_callback(
         host: &mut SceneActors<'_, Self>,
         owner: ObjectId,
-        other: ObjectId,
+        _other: ObjectId,
         kind: HitCallback,
         context: &mut HitContext,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<(), SceneError<Self::Error>> {
+        super::scene_contact::hit(host, owner, kind, context)
+    }
     fn separation(
         host: &mut SceneActors<'_, Self>,
         contact: ContactId,
         entry: Contact,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<(), SceneError<Self::Error>> {
+        super::scene_contact::separate(host, contact, entry)
+    }
     fn resume_map_on_death(
         host: &mut SceneActors<'_, Self>,
         owner: ObjectId,
@@ -99,6 +109,10 @@ pub enum SceneError<E> {
     MissingPrimaryPlayer,
     MissingDeathInputs,
     MissingMapCounts,
+    MissingContactCallback(ObjectId),
+    Auxiliary(super::actor_auxiliary::AuxiliaryError),
+    Reflection(super::weapon_reflection::ReflectionError),
+    PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
     World(WorldInputError),
     Path(InvocationError<WorldInputError>),
@@ -347,7 +361,7 @@ impl<C: SceneCallbacks> ContactHost for SceneActors<'_, C> {
         &mut self.world.contacts
     }
     fn on_separation(&mut self, id: ContactId, contact: Contact) -> Result<(), Self::Error> {
-        C::separation(self, id, contact).map_err(SceneError::Callbacks)
+        C::separation(self, id, contact)
     }
 }
 
@@ -358,7 +372,7 @@ impl<C: SceneCallbacks> HitResponseHost for SceneActors<'_, C> {
     fn hit_actor_mut(&mut self, owner: ObjectId) -> Option<HitActorMut<'_>> {
         self.objects.get_mut(owner).map(HitActorMut::from_object)
     }
-    fn has_hit_callback(&self, owner: ObjectId, kind: HitCallback) -> bool {
+    fn has_hit_callback(&self, owner: ObjectId, kind: HitCallback) -> Result<bool, Self::Error> {
         C::has_hit_callback(self, owner, kind)
     }
     fn run_hit_callback(
@@ -368,7 +382,7 @@ impl<C: SceneCallbacks> HitResponseHost for SceneActors<'_, C> {
         kind: HitCallback,
         context: &mut HitContext,
     ) -> Result<(), Self::Error> {
-        C::hit_callback(self, owner, other, kind, context).map_err(SceneError::Callbacks)
+        C::hit_callback(self, owner, other, kind, context)
     }
     fn strategies_paused(&self) -> bool {
         self.execution.controls.paused

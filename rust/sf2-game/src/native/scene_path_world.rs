@@ -44,6 +44,8 @@ use super::{
 /// by that player's services. None means not supplied, not a cleared byte.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerPathRecords {
+    pub contact: Option<super::scene_contact::PlayerContactControl>,
+    pub protection: Option<super::path_protection::DeflectionProtection>,
     pub auxiliary: Option<SelectedAuxiliaryState>,
     pub charge: Option<SelectedChargeInput>,
     pub equipment: Option<SelectedEquipment>,
@@ -81,6 +83,12 @@ pub enum WorldInputError {
     MissingControlledFlags(PlayerTarget),
     MissingAuxiliary(ObjectId),
     MissingCarryRecords,
+    MissingPlayerContact(ObjectId),
+    MissingPlayerProtection(ObjectId),
+    MissingPlayerParticles(ObjectId),
+    MissingContactEnable,
+    MissingActionGate,
+    MissingPlayerConfiguration,
 }
 
 /// Owning records shared by all actors in a native scene. Scene entry must
@@ -93,6 +101,11 @@ pub struct ScenePathWorld {
     pub primary_player: Option<ObjectId>,
     pub secondary_player: Option<ObjectId>,
     pub fixed_players: [Option<ObjectId>; 2],
+    /// Shared D7F4 enable, also consumed by the linked protection service.
+    pub contacts_enabled: Option<bool>,
+    /// Shared 1AA6 bit 02 for reflection-list traversal.
+    pub reflect_all_contacts: Option<bool>,
+    pub weapons: Option<super::weapon_dispatch::WeaponState>,
     players: [Option<BoundPlayer>; OBJECT_CAPACITY],
     // Separate borrows of selected equipment and linked shot counts can name
     // the same player. Both stores have one generation-checked owner.
@@ -138,6 +151,9 @@ impl ScenePathWorld {
             primary_player: None,
             secondary_player: None,
             fixed_players: [None; 2],
+            contacts_enabled: None,
+            reflect_all_contacts: None,
+            weapons: None,
             players: [None; OBJECT_CAPACITY],
             shots: [None; OBJECT_CAPACITY],
             audio: AudioState::default(),
@@ -198,6 +214,18 @@ impl ScenePathWorld {
         Ok(&mut binding.records)
     }
 
+    pub fn player(
+        &self,
+        objects: &ObjectStore,
+        owner: ObjectId,
+    ) -> Result<&PlayerPathRecords, WorldInputError> {
+        let binding = self.players[owner.index()]
+            .as_ref()
+            .filter(|binding| Some(binding.lifetime) == objects.lifetime_id(owner))
+            .ok_or(WorldInputError::StalePlayerRecord(owner))?;
+        Ok(&binding.records)
+    }
+
     pub fn bind_shots(
         &mut self,
         objects: &ObjectStore,
@@ -250,11 +278,6 @@ impl InvocationWorld for ScenePathWorld {
                     displacement: binding.records.displacement?.world_delta,
                 })
             });
-        let player = selected
-            .and_then(|id| self.players[id.index()].as_mut())
-            .filter(|binding| {
-                Some(binding.lifetime) == objects.lifetime_id(binding.lifetime.slot())
-            });
         let linked_shots = actor
             .base
             .attachment
@@ -271,13 +294,29 @@ impl InvocationWorld for ScenePathWorld {
         world.primary_motion = primary_motion;
         world.published_motion = self.published_motion;
         world.active_charge_threshold = self.active_charge_threshold;
-        if let Some(player) = player {
+        // One traversal can borrow disjoint fields even when selected and
+        // primary identify the same player. No cloned hit-state copyback.
+        for player in self.players.iter_mut().flatten() {
+            let owner = player.lifetime.slot();
+            if Some(player.lifetime) != objects.lifetime_id(owner) {
+                continue;
+            }
             let records = &mut player.records;
-            world.selected_auxiliary = records.auxiliary.as_mut();
-            world.selected_charge = records.charge;
-            world.selected_equipment = records.equipment.as_mut();
-            world.selected_score = records.score.as_mut();
-            world.selected_particle_effects = records.particles.as_mut();
+            if selected == Some(owner) {
+                world.selected_auxiliary = records.auxiliary.as_mut();
+                world.selected_charge = records.charge;
+                world.selected_equipment = records.equipment.as_mut();
+                world.selected_score = records.score.as_mut();
+                world.selected_particle_effects = records.particles.as_mut();
+            }
+            if self.primary_player == Some(owner) {
+                world.primary_feedback = records.contact.as_mut().map(|contact| {
+                    super::player_hit_control::PrimaryFeedback {
+                        state: contact.hit.reserve_shield,
+                        hit: &mut contact.hit,
+                    }
+                });
+            }
         }
         world.linked_shot_count = linked_shots.map(|binding| LinkedShotCount {
             owner: binding.lifetime.slot(),
@@ -317,6 +356,7 @@ impl InvocationWorld for ScenePathWorld {
         world.guidance = self.guidance.as_mut();
         world.pickup_history = self.pickup_history.as_mut();
         world.active_node_flags = self.active_node_flags.as_mut();
+        world.weapons = self.weapons.as_mut();
         Ok(world)
     }
 

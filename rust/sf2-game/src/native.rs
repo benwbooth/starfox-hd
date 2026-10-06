@@ -90,6 +90,7 @@ mod render;
 mod results;
 pub mod retirement;
 pub mod scene_path_world;
+pub mod scene_contact;
 pub mod scene_strategy;
 pub mod scene_proxy;
 mod state;

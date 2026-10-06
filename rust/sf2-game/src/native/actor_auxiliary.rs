@@ -14,17 +14,23 @@ const ENTRY_COST: u16 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuxiliaryKind {
     SceneContinuation,
+    ContinuingContact,
+    NewContact,
+    Separation,
     SavedView,
     OrdinaryImpactMaterial,
     SuppressedImpactMaterial,
     ReflectionShape,
 }
 
-/// Reviewed source types 3, 8, 10, 11 and 13. Extend with typed payloads as the other
+/// Reviewed source types 3, 5, 6, 7, 8, 10, 11 and 13. Extend with typed payloads as the other
 /// auxiliary producers migrate; unknown source kinds are not generic bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuxiliaryRecord {
     SceneContinuation(PathCursor),
+    ContinuingContact(super::scene_contact::ContactCallback),
+    NewContact(super::scene_contact::ContactCallback),
+    Separation(super::scene_contact::ContactCallback),
     SavedView(ProgramResourceId),
     OrdinaryImpactMaterial(u8),
     SuppressedImpactMaterial(u8),
@@ -35,6 +41,9 @@ impl AuxiliaryRecord {
     pub const fn kind(self) -> AuxiliaryKind {
         match self {
             Self::SceneContinuation(_) => AuxiliaryKind::SceneContinuation,
+            Self::ContinuingContact(_) => AuxiliaryKind::ContinuingContact,
+            Self::NewContact(_) => AuxiliaryKind::NewContact,
+            Self::Separation(_) => AuxiliaryKind::Separation,
             Self::SavedView(_) => AuxiliaryKind::SavedView,
             Self::OrdinaryImpactMaterial(_) => AuxiliaryKind::OrdinaryImpactMaterial,
             Self::SuppressedImpactMaterial(_) => AuxiliaryKind::SuppressedImpactMaterial,

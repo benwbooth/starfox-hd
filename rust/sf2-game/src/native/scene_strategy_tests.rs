@@ -49,8 +49,12 @@ impl SceneCallbacks for Callbacks {
         host.callbacks.events.push(Event::DeathOverride(owner));
         Ok(host.callbacks.death_override)
     }
-    fn has_hit_callback(host: &SceneActors<'_, Self>, owner: ObjectId, kind: HitCallback) -> bool {
-        host.callbacks.hit_registration == Some((owner, kind))
+    fn has_hit_callback(
+        host: &SceneActors<'_, Self>,
+        owner: ObjectId,
+        kind: HitCallback,
+    ) -> Result<bool, SceneError<Self::Error>> {
+        Ok(host.callbacks.hit_registration == Some((owner, kind)))
     }
     fn hit_callback(
         host: &mut SceneActors<'_, Self>,
@@ -58,7 +62,7 @@ impl SceneCallbacks for Callbacks {
         other: ObjectId,
         kind: HitCallback,
         context: &mut HitContext,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), SceneError<Self::Error>> {
         assert_eq!(host.callbacks.hit_registration, Some((owner, kind)));
         host.callbacks.events.push(Event::Hit(
             owner,
@@ -74,7 +78,7 @@ impl SceneCallbacks for Callbacks {
             host.objects.get_mut(owner).unwrap().base.hit_points = health;
         }
         if host.callbacks.fail_hit {
-            return Err("hit callback fault");
+            return Err(SceneError::Callbacks("hit callback fault"));
         }
         Ok(())
     }
@@ -82,7 +86,7 @@ impl SceneCallbacks for Callbacks {
         host: &mut SceneActors<'_, Self>,
         _: ContactId,
         entry: Contact,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), SceneError<Self::Error>> {
         assert!(host.objects.get(entry.owner).is_some());
         assert!(host.objects.get(entry.other).is_some());
         assert!(host.world.contacts.find(entry.owner, entry.other).is_some());

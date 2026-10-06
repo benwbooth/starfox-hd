@@ -127,7 +127,7 @@ pub struct HitContext {
 pub trait HitResponseHost: ContactHost {
     fn hit_actor(&self, id: ObjectId) -> Option<HitActor>;
     fn hit_actor_mut(&mut self, id: ObjectId) -> Option<HitActorMut<'_>>;
-    fn has_hit_callback(&self, owner: ObjectId, kind: HitCallback) -> bool;
+    fn has_hit_callback(&self, owner: ObjectId, kind: HitCallback) -> Result<bool, Self::Error>;
     fn run_hit_callback(
         &mut self,
         owner: ObjectId,
@@ -211,9 +211,16 @@ pub fn respond<H: HitResponseHost>(
                     .ok_or(HitError::MissingActor(owner))?
                     .new_contact_latched = true;
             }
-            let kind = if is_new && host.has_hit_callback(owner, HitCallback::NewContact) {
+            let kind = if is_new
+                && host
+                    .has_hit_callback(owner, HitCallback::NewContact)
+                    .map_err(HitError::Host)?
+            {
                 Some(HitCallback::NewContact)
-            } else if host.has_hit_callback(owner, HitCallback::ContinuingContact) {
+            } else if host
+                .has_hit_callback(owner, HitCallback::ContinuingContact)
+                .map_err(HitError::Host)?
+            {
                 Some(HitCallback::ContinuingContact)
             } else {
                 None
@@ -334,11 +341,11 @@ mod tests {
         fn hit_actor_mut(&mut self, id: ObjectId) -> Option<HitActorMut<'_>> {
             self.actors.get_mut(id.index()).map(HitActor::as_mut)
         }
-        fn has_hit_callback(&self, _: ObjectId, kind: HitCallback) -> bool {
-            match kind {
+        fn has_hit_callback(&self, _: ObjectId, kind: HitCallback) -> Result<bool, Self::Error> {
+            Ok(match kind {
                 HitCallback::NewContact => self.new_handler,
                 HitCallback::ContinuingContact => self.continuing_handler,
-            }
+            })
         }
         fn run_hit_callback(
             &mut self,
