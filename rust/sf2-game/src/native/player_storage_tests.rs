@@ -123,6 +123,7 @@ fn replacement_initializes_every_supported_player_record_without_initializing_th
     );
     assert_eq!(records.equipment, Some(Default::default()));
     assert_eq!(records.target_selection, Some(Default::default()));
+    assert_eq!(records.target_lock, Some(Default::default()));
     assert_eq!(records.yaw_motion, Some(0));
     assert_eq!(
         world.shots(&objects, primary),
@@ -140,6 +141,8 @@ fn replacement_initializes_every_supported_player_record_without_initializing_th
             && world.published_motion.is_none()
     );
     assert!(world.contacts_enabled.is_none() && world.palette.is_none());
+    assert_eq!(world.target_reticle, Default::default());
+    assert!(world.published_homing_target.is_none());
 }
 
 #[test]

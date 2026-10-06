@@ -152,6 +152,27 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The native target-lock retention producer now implements `$07:A50A..A66B`
+inside the original `$07:A326` display service. Source calls at `$03:8053` and
+`$03:810E`, plus the primary-player reload immediately before retention, keep
+this distinct from actor-strategy cadence and path-player selection. The
+player's generation-checked lock state and shared homing publication preserve
+the source's asymmetric cancellation, byte-wrapped acquisition clock, ten-visit
+grace renewal, marker-style nibble and literal primary sound cue. Forced
+ownership uses the same candidate-selection record, not a duplicated pointer.
+The next projectile statement copies the retained publication, not a fresh
+candidate. Eleven native tests cover lifecycle, lazy missing inputs, partial
+failure latching, timer/grace transitions and the shared sound ring. Independent
+execution of the unmodified source covers 150,528 complete cases, both missing
+reticle read boundaries and exact sound/publication write order. Reticle
+positioning, the remainder of the display service and shipping display/frame
+ownership remain separate unfinished work; this is not whole-service or
+`Game::tick` integration. Verification passes: all 1,267 native tests and all
+15 player original-instruction tests in debug/release, compatibility tests,
+209 lowerer tests, 622 source checks, catalog freshness, architecture checks
+and all three app builds. No SF1 route/timing release blocker is closed by this
+SF2-only change.
+
 The scene adapter now binds all current path inputs to their actual scene or
 generation-checked player owners. The nine previously omitted inputs cover
 reflection, friend health, targeting upgrades, environmental height, linked

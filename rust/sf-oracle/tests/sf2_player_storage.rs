@@ -11,6 +11,9 @@ mod format_tests;
 #[path = "support/sf2_player_protection.rs"]
 mod protection_tests;
 
+#[path = "support/sf2_player_target_lock.rs"]
+mod target_lock_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};
@@ -31,6 +34,7 @@ const OTHER: u16 = 0x0600;
 struct Source {
     bus: SnesBus,
     reset: bool,
+    writes: Option<Vec<(u32, u8)>>,
 }
 
 impl System for Source {
@@ -38,6 +42,9 @@ impl System for Source {
         self.bus.read(address, kind, signals)
     }
     fn write(&mut self, address: u32, value: u8, kind: AddressType, signals: &Signals) {
+        if let Some(writes) = &mut self.writes {
+            writes.push((address, value));
+        }
         self.bus.write(address, value, kind, signals);
     }
     fn res(&mut self) -> bool {
@@ -54,10 +61,29 @@ impl Source {
         for address in 0x6A61..0xB261 {
             bus.write8(WRAM + address, fill);
         }
-        Self { bus, reset: false }
+        Self {
+            bus,
+            reset: false,
+            writes: None,
+        }
     }
 
     fn run(&mut self, entry: u32, stop: Option<u32>, a: u16, owner: u16, byte_a: bool) -> u16 {
+        self.run_with_y(entry, stop, a, owner, byte_a, None)
+    }
+
+    fn run_with_y(
+        &mut self,
+        entry: u32,
+        stop: Option<u32>,
+        a: u16,
+        owner: u16,
+        byte_a: bool,
+        y: Option<u16>,
+    ) -> u16 {
+        if let Some(writes) = &mut self.writes {
+            writes.clear();
+        }
         // Only the bootstrap is synthetic. Original allocation, coalescing,
         // zeroing, input reads and publications all execute unchanged.
         let mut boot = vec![
@@ -82,6 +108,9 @@ impl Source {
         ];
         if byte_a {
             boot.extend_from_slice(&[0xE2, 0x20]);
+        }
+        if let Some(y) = y {
+            boot.extend_from_slice(&[0xA0, y as u8, (y >> 8) as u8]);
         }
         boot.extend_from_slice(&[
             0x22,
@@ -231,7 +260,19 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                 assert_eq!(source.bus.read16(WRAM + 0x1E24), slot as u16);
                 assert_eq!(world.primary_player, Some(owner));
                 let records = world.player(&objects, owner).unwrap();
-                assert_eq!(records.injected_input, Some(sf2_game::InputState::default()));
+                let lock = records.target_lock.unwrap();
+                assert_eq!(lock.previous_candidate, None);
+                assert_eq!(source.bus.read16(WRAM + slot + 0x6BC8), 0);
+                assert_eq!(
+                    lock.acquisition_clock,
+                    source.bus.read8(WRAM + slot + 0x6BC6)
+                );
+                assert_eq!(lock.grace_remaining, source.bus.read8(WRAM + slot + 0x6BC7));
+                assert_eq!(lock.marker_style, source.bus.read8(WRAM + slot + 0x6BB7));
+                assert_eq!(
+                    records.injected_input,
+                    Some(sf2_game::InputState::default())
+                );
                 assert_eq!(
                     records.visit.unwrap().pilot_code,
                     source.bus.read8(WRAM + slot + 0x6BFF)

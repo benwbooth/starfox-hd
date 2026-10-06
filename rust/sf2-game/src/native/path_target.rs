@@ -24,8 +24,8 @@ const QUARTER_SHIFT: u32 = 2;
 const LEFT_VERTICAL_GROUP: i16 = 5376;
 const RIGHT_VERTICAL_GROUP: i16 = -4608;
 
-/// Published by target-lock retention ($07:A5E3/A653), cleared by its
-/// cancellation routes. A projectile copies this snapshot once; it does not
+/// Published by target-lock retention ($07:A5E3/A653), cleared only by its
+/// explicit clear routes. A projectile copies this snapshot once; it does not
 /// substitute the fresh target candidate or path-selected player.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PublishedHomingTarget {

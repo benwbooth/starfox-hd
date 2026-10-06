@@ -57,6 +57,7 @@ pub struct PlayerPathRecords {
     pub target_control: Option<super::path_player_control::PlayerTargetControl>,
     /// Candidate/marker selection, distinct from the scripted follow target.
     pub target_selection: Option<super::path_target::TargetSelection>,
+    pub target_lock: Option<super::player_target_lock::TargetLock>,
     pub visit: Option<super::player_visit::PlayerVisitControl>,
     /// Scripted input words (6A88/6A8A), ORed after controller remapping and
     /// the activity mask, then cleared only by an admitted input visit.
@@ -186,6 +187,7 @@ pub struct ScenePathWorld {
     pub linked_effect_activity: Option<super::path_protection::LinkedEffectActivity>,
     /// Retained homing publication, independent of fresh target selection.
     pub published_homing_target: Option<super::path_target::PublishedHomingTarget>,
+    pub target_reticle: super::player_target_lock::TargetReticle,
     pub countdown: Option<super::path_countdown::PathCountdown>,
     pub impact: Option<super::path_impact::ImpactState>,
     pub occupancy: Option<super::world_occupancy::WorldOccupancy>,
@@ -310,6 +312,7 @@ impl ScenePathWorld {
             targeting_upgrade: None,
             linked_effect_activity: None,
             published_homing_target: None,
+            target_reticle: Default::default(),
             countdown: None,
             impact: None,
             occupancy: None,

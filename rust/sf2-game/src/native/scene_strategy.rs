@@ -121,6 +121,7 @@ pub enum SceneError<E> {
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerStorage(super::player_storage::PlayerStorageError),
+    TargetLock(super::player_target_lock::TargetLockError),
     PlayerInput(super::player_input::PlayerInputError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
@@ -207,6 +208,21 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         }
         let result = super::path_target::initialize_player(self.objects, self.world, owner)
             .map_err(SceneError::World);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Display-service boundary, after positioning the shared reticle and
+    /// before drawing its marker. Never invoked implicitly by actor strategy
+    /// traversal: the enclosing display owner decides when it runs.
+    pub fn retain_primary_target(&mut self) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_target_lock::update(self.objects, self.world)
+            .map_err(SceneError::TargetLock);
         if result.is_err() {
             self.execution.faulted = true;
         }

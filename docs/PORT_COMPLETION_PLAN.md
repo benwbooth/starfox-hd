@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Implemented the source display service's target-lock retention boundary
+  (`$07:A50A..A66B`) against the canonical primary-player selection and shared
+  homing publication. Retained candidate, acquisition clock, grace period and
+  marker style belong to the player's real storage and reset with it; forced
+  ownership remains shared with candidate scanning. Cancellation preserves or
+  clears the outgoing homing target according to the actual branch. Reticle
+  axes remain independently absent until published, and partial errors latch
+  in the scene host. Eleven new native tests cover lifecycle, skipped inputs,
+  byte wrap, grace expiry, sound-ring overflow and the actual projectile-copy
+  command. Unmodified source execution matches 150,528 complete cases, two
+  missing-reticle prefixes and exact acquisition/sound/publication write order.
+  All 1,267 native tests and all 15 player original-instruction tests pass in
+  debug/release; compatibility tests, 209 lowerer tests, 622 source checks,
+  generated-catalog freshness, architecture checks and all three app builds pass.
+  The original caller is the display service, not actor strategy traversal;
+  reticle positioning, the rest of that display service and its shipping frame
+  scheduling are still unclosed. No gameplay cadence was invented to wire it.
+
 - Closed the nine omitted scene-to-path bindings: caller reflection, retained
   friend health, targeting upgrades, environmental plane, linked-effect activity,
   attachment-owned protection, button layout, retained homing target and the
