@@ -94,9 +94,9 @@ const PLANET_DISMISS_CADENCE_TICKS: u32 = 2;
 const FRONT_END_TRANSITIONS: usize = 18;
 const PEPPER_CURSOR_CHECKPOINTS: [(u32, u8); 5] =
     [(654, 0), (656, 1), (657, 2), (761, 64), (839, 103)];
-/// Full semantic-frame anchors certified by the paired retail run. The native
-/// replay test reaches these in well under a second, providing a fast first
-/// gate while the direct cartridge trace remains the final authority.
+/// Anchors from the original paired retail run's field set. Added diagnostics
+/// are compared by the live paired test, not retroactively included in these
+/// historical hashes. No expected hash is regenerated from native output.
 const CORNERIA_SEMANTIC_CHECKPOINTS: [(u32, &str); 8] = [
     (
         892,
@@ -1462,11 +1462,83 @@ fn native_scenario_frame(
     identities.record_level(frame, &native_level_snapshot(native), native.game.vars.rng)
 }
 
+fn historical_corneria_checkpoint(frame: &SemanticFrame) -> SemanticFrame {
+    // These exact fields were added after CORNERIA_SEMANTIC_CHECKPOINTS were
+    // captured. Restrict only that historical hash to its original schema;
+    // the live first_divergence/compare_scenario paths retain every field.
+    // An unknown future field is deliberately NOT stripped automatically.
+    const ADDED_FRAME_FIELDS: [&str; 7] = [
+        "timing.motion_refreshes",
+        "player.rotation.x",
+        "player.rotation.y",
+        "player.rotation.z",
+        "player.depth_shake",
+        "player.depth_shake_velocity",
+        "player.depth_tilt",
+    ];
+    const ADDED_OBJECT_FIELDS: [&str; 2] = ["collision.current", "explosion.relative_to_player"];
+    let mut historical = frame.clone();
+    for name in ADDED_FRAME_FIELDS {
+        historical.fields.remove(name);
+    }
+    for object in &mut historical.objects {
+        for name in ADDED_OBJECT_FIELDS {
+            object.fields.remove(name);
+        }
+    }
+    historical
+}
+
 fn assert_semantic_checkpoint(producer: &str, tick: u32, frame: &SemanticFrame, expected: &str) {
-    let actual = semantic_frame_sha256(frame).expect("semantic checkpoint fingerprint");
+    let actual = semantic_frame_sha256(&historical_corneria_checkpoint(frame))
+        .expect("historical semantic checkpoint fingerprint");
     assert_eq!(
         actual, expected,
         "{producer} semantic checkpoint changed at tick {tick}"
+    );
+}
+
+#[test]
+fn historical_checkpoint_projection_does_not_weaken_live_comparison() {
+    let original = trace_frame(1, (1, 2, 3), (4, 5, 6));
+    let mut extended = original.clone();
+    for name in [
+        "timing.motion_refreshes",
+        "player.rotation.x",
+        "player.rotation.y",
+        "player.rotation.z",
+        "player.depth_shake",
+        "player.depth_shake_velocity",
+        "player.depth_tilt",
+    ] {
+        extended.fields.insert(name.into(), 7.into());
+    }
+    for name in ["collision.current", "explosion.relative_to_player"] {
+        extended.objects[0].fields.insert(name.into(), true.into());
+    }
+    assert_eq!(historical_corneria_checkpoint(&extended), original);
+    assert_ne!(
+        semantic_frame_sha256(&extended),
+        semantic_frame_sha256(&original)
+    );
+    assert!(first_divergence(
+        std::slice::from_ref(&original),
+        std::slice::from_ref(&extended)
+    )
+    .unwrap()
+    .is_some());
+    let before = extended.clone();
+    historical_corneria_checkpoint(&extended);
+    assert_eq!(extended, before, "projection must not mutate live evidence");
+    extended.objects[0]
+        .fields
+        .insert("position.x".into(), 99.into());
+    assert_ne!(historical_corneria_checkpoint(&extended), original);
+    let future = original.clone().with_field("future.diagnostic", 1);
+    assert_eq!(historical_corneria_checkpoint(&future), future);
+    assert_ne!(
+        semantic_frame_sha256(&future),
+        semantic_frame_sha256(&original)
     );
 }
 

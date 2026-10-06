@@ -113,6 +113,18 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Separated historical SF1 checkpoint hashing from the expanded live trace
+  schema. The nine fields added after those checkpoints remain in full live
+  retail/native comparisons; only the old fingerprint uses its original field
+  set. No expected hashes or timing comparisons changed. A regression test
+  verifies that projection does not mutate live evidence, hide an old-field
+  change or silently drop future fields. It passes in debug/release. The
+  native replay now reproduces its first three historical hashes and exposes
+  a later mismatch at scenario tick 1500, instead of failing on schema drift
+  at tick 892. The integrated oracle still disagrees on timing at tick 892
+  (four versus three refreshes). **Both SF1 semantic tests remain failing**;
+  this diagnostic correction does not certify the route or change gameplay.
+
 - Inventoried the scene-loading dependency of the native map/frame owner:
   all 31 authored map requests select 19 table entries and 17 distinct loader
   routines. A fail-closed control-flow extractor retains 840 instruction nodes,
