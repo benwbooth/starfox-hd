@@ -49,6 +49,8 @@ pub struct PlayerPathRecords {
     pub charge: Option<super::player_charge::PlayerCharge>,
     pub rapid_aim: Option<super::player_rapid::RapidAim>,
     pub action: Option<super::player_action::PlayerActionState>,
+    pub consumable: Option<super::player_consumable::PlayerConsumableControl>,
+    pub target_control: Option<super::path_player_control::PlayerTargetControl>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -116,6 +118,9 @@ pub struct ScenePathWorld {
     pub weapons: Option<super::weapon_dispatch::WeaponState>,
     pub palette: Option<super::player_action::ScenePalette>,
     pub player_service_flags: Option<super::player_action::PlayerServiceFlags>,
+    /// Published active shield capacity (1DD5), not current active shield.
+    pub active_shield_capacity: Option<u8>,
+    pub shield_recovery: Option<super::player_hit_control::ShieldRecoveryRequest>,
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
     pub impact: Option<super::path_impact::ImpactState>,
     pub occupancy: Option<super::world_occupancy::WorldOccupancy>,
@@ -169,6 +174,8 @@ impl ScenePathWorld {
             weapons: None,
             palette: None,
             player_service_flags: None,
+            active_shield_capacity: None,
+            shield_recovery: None,
             surface_mode: None,
             impact: None,
             occupancy: None,
@@ -350,6 +357,12 @@ impl InvocationWorld for ScenePathWorld {
                 world.selected_particle_effects = records.particles.as_mut();
             }
             if self.primary_player == Some(owner) {
+                world.primary_control = records.target_control.as_mut().map(|target| {
+                    super::path_player_control::PrimaryControl {
+                        target,
+                        linked_mode: records.charge.map(|charge| charge.linked_mode),
+                    }
+                });
                 world.primary_feedback = records.contact.as_mut().map(|contact| {
                     super::player_hit_control::PrimaryFeedback {
                         state: contact.hit.reserve_shield,
@@ -392,6 +405,7 @@ impl InvocationWorld for ScenePathWorld {
         world.encounter_signals = self.encounter_signals.as_mut();
         world.scenery_distance = self.scenery_distance.as_mut();
         world.action_gate = self.action_gate.as_mut();
+        world.shield_recovery = self.shield_recovery.as_mut();
         world.projectile_trigger = self.projectile_trigger.as_mut();
         world.projectile_flight_override = self.projectile_flight_override.as_mut();
         world.deferred_message = self.deferred_message.as_mut();

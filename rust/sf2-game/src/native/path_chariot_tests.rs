@@ -477,7 +477,7 @@ fn chariot_contact_threshold_keeps_signed_wrap_cooldown_and_complete_death_tail(
         inputs.selected = Some(primary);
         inputs.primary_control = Some(PrimaryControl {
             target: &mut control,
-            linked_mode: false,
+            linked_mode: Some(false),
         });
         inputs.selected_score = Some(&mut score);
         let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };

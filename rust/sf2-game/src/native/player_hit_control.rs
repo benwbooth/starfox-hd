@@ -13,6 +13,7 @@ const IMPACT_FEEDBACK_MASK: u8 = 0x70;
 const DEFLECTION_FEEDBACK_MASK: u8 = 0x08;
 const SOUND_RANDOM_MASK: u8 = 0x07;
 const BANK_IMPULSE: i8 = 30;
+const RECOIL_DECAY: i16 = 16;
 const TURN_AWAY: i8 = 64;
 const HEAVY_SOUND_THRESHOLD: u8 = 4;
 // Recovery count, feedback duration, and initial camera recoil respectively.
@@ -53,6 +54,7 @@ pub struct PlayerHitControl {
     pub feedback_duration: u8,
     /// Requests to the player feedback owner, not collision-box flags.
     pub feedback_flags: u8,
+    /// Fine-angle recoil (6B3B), shared by impact and authored path services.
     pub camera_pitch_recoil: i16,
     pub bank_impulse: i8,
     pub impact_latched: bool,
@@ -83,6 +85,26 @@ impl ShieldRecoveryRequest {
 }
 
 impl PlayerHitControl {
+    /// Shared fine-angle recoil (6B3B), written by contact and path services.
+    /// Path initialization must observe recoil already started by an impact.
+    pub fn initialize_pitch_recoil(&mut self, amount: i16) {
+        if self.camera_pitch_recoil == 0 {
+            self.camera_pitch_recoil = amount;
+        }
+    }
+
+    /// `$07:9AAB..9AEE`: negate with word wrapping before approaching zero.
+    /// Flight pose adds twice this word; this service only advances the recoil.
+    pub fn advance_pitch_recoil(&mut self) {
+        let reversed = self.camera_pitch_recoil.wrapping_neg();
+        self.camera_pitch_recoil = if reversed > 0 {
+            (reversed - RECOIL_DECAY).max(0)
+        } else if reversed < 0 {
+            (reversed + RECOIL_DECAY).min(0)
+        } else {
+            0
+        };
+    }
     /// Complete $07:B64B..B67C leaf. No changes outside target mode eight
     /// or while the primary player's state is zero. Other flags survive.
     pub fn request_encounter_feedback(&mut self, target_mode: u16, player_state: u8) {
@@ -138,9 +160,7 @@ impl PlayerHitControl {
         self.recovery = recovery;
         self.feedback_duration = feedback;
         self.feedback_flags |= IMPACT_FEEDBACK_MASK;
-        if self.camera_pitch_recoil == 0 {
-            self.camera_pitch_recoil = recoil;
-        }
+        self.initialize_pitch_recoil(recoil);
         self.impact_latched = true;
         self.impact_variant = false;
         self.bank_impulse = if strategy_clock & 1 == 0 {

@@ -35,8 +35,6 @@ const SHOT_DELAY: u8 = 5;
 const SHOT_SPEED_IMPULSE: i16 = 30;
 const FLIGHT_EFFECT_DISTANCE: u16 = 70;
 const OTHER_EFFECT_DISTANCE: u16 = 20;
-const EFFECT_HEALTH: u8 = 1;
-const EFFECT_ATTACK: u8 = 1;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerCharge {
@@ -165,29 +163,10 @@ fn ensure_effect(
     } else {
         OTHER_EFFECT_DISTANCE
     };
-    let player = objects.get(owner).ok_or(ChargeError::MissingActor(owner))?;
-    let (position, pitch, yaw, roll) = (
-        player.base.position,
-        player.base.pitch,
-        player.base.yaw,
-        player.base.roll,
-    );
-    let effect = objects.get_mut(effect).expect("allocated charge effect");
-    effect.base.path = Some(authored_paths::PLAYER_CHARGE_ORB);
-    effect.extension.path_state.needs_path_initialization = true;
-    effect.extension.path_state.script_value = distance;
-    effect.extension.spawn_group = u8::MAX;
-    effect.base.hit_points = EFFECT_HEALTH;
-    effect.base.attack_power = EFFECT_ATTACK;
-    effect.base.flags.general_search_eligible = true;
-    effect.base.position = position;
-    effect.base.pitch = pitch;
-    effect.base.yaw = yaw;
-    effect.base.roll = roll;
-    effect.base.contacts.run_when_paused = true;
-    // Fresh class flags already exclude the path-spawn membership cleared by
-    // the source's common player-effect formatter ($07:BF30).
-    effect.base.flags.collision_disabled = true;
+    let record = objects.get_mut(effect).expect("allocated charge effect");
+    record.base.path = Some(authored_paths::PLAYER_CHARGE_ORB);
+    record.extension.path_state.script_value = distance;
+    super::player_effect::format(objects, owner, effect).map_err(ChargeError::World)?;
     Ok(())
 }
 

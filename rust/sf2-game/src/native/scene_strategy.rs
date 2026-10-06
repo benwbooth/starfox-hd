@@ -116,6 +116,7 @@ pub enum SceneError<E> {
     Rapid(super::player_rapid::RapidError),
     WeaponAim(super::player_weapon_aim::WeaponAimError),
     PlayerAction(super::player_action::PlayerActionError),
+    Consumable(super::player_consumable::ConsumableError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
     World(WorldInputError),
@@ -143,6 +144,19 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Dispatch one admitted consumable request, after the outer caller has
+    /// handled input delay, child gates and placement.
+    pub fn use_player_consumable(&mut self, owner: ObjectId) -> Result<bool, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_consumable::use_item(self.objects, self.world, owner)
+            .map_err(SceneError::Consumable);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Parallel action stream, independently scheduled by player control.
     pub fn advance_player_action(
         &mut self,

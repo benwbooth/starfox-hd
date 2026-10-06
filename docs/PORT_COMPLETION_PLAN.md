@@ -365,6 +365,19 @@ running; scheduled work is not a guarantee of a completion date.
   590 source tests, exact regeneration, architecture and app build pass.
   The consumable-use caller and its concrete effect installers are next;
   the outer player strategy and production frame-loop migration remain open.
+- Implemented consumable dispatch and the actual healing/triggered installers,
+  including wrapped type aliases, full-pool asymmetry, caller shield versus
+  published capacity, numbered-child rejection and the shared effect formatter.
+  Bound healing requests and primary target control to live scene owners;
+  unified contact/path pitch recoil instead of retaining independent copies.
+  Twelve new tests include both complete effect families through scheduling
+  and resource retirement, same-update early detonation, every item/count,
+  shield/capacity and protection/control combination, and read/fault ordering.
+  All 1,157 native tests and two integration tests pass in debug/release;
+  599 source checks, exact regeneration, architecture and app build pass.
+  The outer input-delay/placement helper is not yet connected: its original
+  relative-auxiliary-index writes require ownership analysis, not an assumed
+  player-position update. Outer player/frame ownership remains open.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

@@ -19,36 +19,6 @@ const LINKED_FORWARD_OFFSET: i8 = 80;
 const PROJECTILE_TARGET_RATES: [u8; 3] = [3, 3, 2];
 const PROJECTILE_TARGET_LIMITS: [u8; 3] = [25, 25, 31];
 const PROJECTILE_TARGET_DELAY: u8 = 10;
-const RECOIL_DECAY: i16 = 16;
-
-/// Signed, fine-angle pitch recoil (auxiliary 6B3B). The flight pose adds
-/// twice this word to pitch; player service reverses and damps it each visit.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct PitchRecoil {
-    pub amount: i16,
-}
-
-impl PitchRecoil {
-    /// `$7F:B1DF`: an already active recoil is never restarted or replaced.
-    pub fn initialize_if_idle(&mut self, amount: i16) {
-        if self.amount == 0 {
-            self.amount = amount;
-        }
-    }
-
-    /// Complete `$07:9AAB..9AEE` leaf. Negation wraps BEFORE the signed
-    /// approach to zero, including the most-negative fine-angle word.
-    pub fn advance(&mut self) {
-        let reversed = self.amount.wrapping_neg();
-        self.amount = if reversed > 0 {
-            (reversed - RECOIL_DECAY).max(0)
-        } else if reversed < 0 {
-            (reversed + RECOIL_DECAY).min(0)
-        } else {
-            0
-        };
-    }
-}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerTargetControl {
@@ -75,7 +45,7 @@ pub struct PrimaryControl<'a> {
     pub target: &'a mut PlayerTargetControl,
     /// Fresh primary-player auxiliary link flag 80, independent of the
     /// target configuration lock and the path's selected-player context.
-    pub linked_mode: bool,
+    pub linked_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -260,27 +230,29 @@ mod tests {
 
     #[test]
     fn pitch_recoil_initialization_and_reversal_preserve_every_word() {
+        use crate::player_hit_control::PlayerHitControl;
         for encoded in 0..=u16::MAX {
-            let mut recoil = PitchRecoil {
-                amount: encoded as i16,
+            let mut recoil = PlayerHitControl {
+                camera_pitch_recoil: encoded as i16,
+                ..Default::default()
             };
-            recoil.initialize_if_idle(128);
+            recoil.initialize_pitch_recoil(128);
             assert_eq!(
-                recoil.amount,
+                recoil.camera_pitch_recoil,
                 if encoded == 0 { 128 } else { encoded as i16 }
             );
-            recoil.amount = 0;
-            recoil.initialize_if_idle(encoded as i16);
-            assert_eq!(recoil.amount, encoded as i16);
-            recoil.advance();
+            recoil.camera_pitch_recoil = 0;
+            recoil.initialize_pitch_recoil(encoded as i16);
+            assert_eq!(recoil.camera_pitch_recoil, encoded as i16);
+            recoil.advance_pitch_recoil();
             let reversed = (65536u32 - u32::from(encoded)) as u16 as i16 as i32;
             let expected = reversed.signum() * (reversed.abs() - 16).max(0);
-            assert_eq!(i32::from(recoil.amount), expected);
+            assert_eq!(i32::from(recoil.camera_pitch_recoil), expected);
         }
-        let mut recoil = PitchRecoil { amount: 128 };
+        let mut recoil = PlayerHitControl { camera_pitch_recoil: 128, ..Default::default() };
         for expected in [-112, 96, -80, 64, -48, 32, -16, 0, 0] {
-            recoil.advance();
-            assert_eq!(recoil.amount, expected);
+            recoil.advance_pitch_recoil();
+            assert_eq!(recoil.camera_pitch_recoil, expected);
         }
     }
 

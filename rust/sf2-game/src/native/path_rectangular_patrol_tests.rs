@@ -370,7 +370,7 @@ fn death_halves_the_active_axis_then_signals_unlinks_scores_and_retires_identity
                 inputs.selected_score = Some(&mut score);
                 inputs.primary_control = Some(PrimaryControl {
                     target: &mut control,
-                    linked_mode: false,
+                    linked_mode: Some(false),
                 });
                 let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };
                 inputs.objective_counts = Some(&mut objective_counts);

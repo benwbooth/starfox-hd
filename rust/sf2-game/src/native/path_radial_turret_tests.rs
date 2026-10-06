@@ -460,7 +460,7 @@ fn four_turret_deaths_restore_constructor_links_and_raise_release_signal_once() 
         inputs.primary_player = Some(player);
         inputs.primary_control = Some(PrimaryControl {
             target: &mut control,
-            linked_mode: false,
+            linked_mode: Some(false),
         });
         inputs.audio = Some(audio(&mut events));
         assert_eq!(
@@ -597,7 +597,7 @@ fn encounter_release_reveals_three_effects_then_publishes_delayed_exit() {
         inputs.primary_player = Some(player);
         inputs.primary_control = Some(PrimaryControl {
             target: &mut control,
-            linked_mode: false,
+            linked_mode: Some(false),
         });
         assert_eq!(
             runtime

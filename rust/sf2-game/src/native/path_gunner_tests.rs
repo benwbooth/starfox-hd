@@ -231,7 +231,7 @@ fn feedback_uses_fresh_primary_control_not_selected_context_and_faults_only_when
     );
     inputs.primary_control = Some(PrimaryControl {
         target: &mut target,
-        linked_mode: false,
+        linked_mode: Some(false),
     });
     assert_eq!(
         runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
@@ -528,7 +528,7 @@ fn death_requests_primary_feedback_flickers_fifteen_times_then_scores_and_preser
                     inputs.selected = Some(selected);
                     inputs.primary_control = Some(PrimaryControl {
                         target: &mut control,
-                        linked_mode: false,
+                        linked_mode: Some(false),
                     });
                     inputs.primary_feedback = Some(PrimaryFeedback {
                         state,

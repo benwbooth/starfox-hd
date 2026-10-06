@@ -28,6 +28,10 @@ impl ExclusionGroups {
         Self(self.0 & other.0)
     }
 
+    pub const fn without(self, other: Self) -> Self {
+        Self(self.0 & !other.0)
+    }
+
     pub const fn from_authored_class(class: u8) -> Self {
         Self(class & 0xF8)
     }

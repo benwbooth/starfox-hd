@@ -399,7 +399,7 @@ fn controller_releases_shield_then_core_and_emits_four_numbered_beams_until_live
 
 #[test]
 fn core_contact_thresholds_keep_signed_byte_wrap_and_do_not_duplicate_periodic_registration() {
-    use super::super::path_player_control::PitchRecoil;
+    use super::super::player_hit_control::{PlayerHitControl, PrimaryFeedback};
     use super::super::{AudioState, Behavior, ObjectKind};
     use super::projectile_tests::audio;
     let catalog = authored_paths::catalog();
@@ -420,11 +420,11 @@ fn core_contact_thresholds_keep_signed_byte_wrap_and_do_not_duplicate_periodic_r
             ))
             .unwrap();
         let mut events = AudioState::default();
-        let mut recoil = PitchRecoil::default();
+        let mut recoil = PlayerHitControl::default();
         let mut inputs = world(&mut random);
         inputs.audio = Some(audio(&mut events));
         inputs.primary_player = Some(player);
-        inputs.primary_pitch_recoil = Some(&mut recoil);
+        inputs.primary_feedback = Some(PrimaryFeedback { state: 0, hit: &mut recoil });
         assert_eq!(
             runtime
                 .enter_program(&catalog, &mut objects, owner, &mut inputs, 20)
@@ -525,7 +525,7 @@ fn core_contact_thresholds_keep_signed_byte_wrap_and_do_not_duplicate_periodic_r
 
 #[test]
 fn core_death_awards_once_decrements_both_bytes_and_retains_its_authored_aftermath() {
-    use super::super::path_player_control::{PitchRecoil, PlayerTargetControl, PrimaryControl};
+    use super::super::path_player_control::{PlayerTargetControl, PrimaryControl};
     use super::super::path_score::PlayerScore;
     use super::super::player_hit_control::{PlayerHitControl, PrimaryFeedback};
     use super::super::{AudioState, Behavior, ObjectKind};
@@ -573,7 +573,6 @@ fn core_death_awards_once_decrements_both_bytes_and_retains_its_authored_afterma
                 feedback_flags: 0x80,
                 ..Default::default()
             };
-            let mut recoil = PitchRecoil::default();
             let mut events = AudioState::default();
             let mut inputs = world(&mut random);
             inputs.objective_counts = Some(&mut counts);
@@ -584,13 +583,12 @@ fn core_death_awards_once_decrements_both_bytes_and_retains_its_authored_afterma
             inputs.selected = Some(player);
             inputs.primary_control = Some(PrimaryControl {
                 target: &mut control,
-                linked_mode: false,
+                linked_mode: Some(false),
             });
             inputs.primary_feedback = Some(PrimaryFeedback {
                 state: 1,
                 hit: &mut hit,
             });
-            inputs.primary_pitch_recoil = Some(&mut recoil);
             assert_eq!(
                 runtime
                     .enter_program(&catalog, &mut objects, owner, &mut inputs, 30)
@@ -651,7 +649,7 @@ fn core_death_awards_once_decrements_both_bytes_and_retains_its_authored_afterma
                     }
                 );
                 assert_eq!(
-                    inputs.primary_pitch_recoil.as_deref().unwrap().amount,
+                    inputs.primary_feedback.as_ref().unwrap().hit.camera_pitch_recoil,
                     if marked { 128 } else { 0 }
                 );
                 assert_eq!(*inputs.random, expected_random);

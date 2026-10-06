@@ -54,7 +54,7 @@ fn death_drop_selects_all_five_pickups_and_consumes_only_the_reached_random_draw
             inputs.primary_player = Some(player);
             inputs.primary_control = Some(PrimaryControl {
                 target: &mut control,
-                linked_mode: false,
+                linked_mode: Some(false),
             });
             let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 1, ..Default::default() };
             inputs.objective_counts = Some(&mut objective_counts);
@@ -383,7 +383,7 @@ fn new_contact_damage_enters_full_death_sequence_and_records_original_identity()
                 inputs.primary_player = Some(player);
                 inputs.primary_control = Some(PrimaryControl {
                     target: &mut control,
-                    linked_mode: false,
+                    linked_mode: Some(false),
                 });
                 let mut objective_counts = super::super::path_scene_state::EncounterObjectiveCounts { remaining_word: 0, ..Default::default() };
                 inputs.objective_counts = Some(&mut objective_counts);

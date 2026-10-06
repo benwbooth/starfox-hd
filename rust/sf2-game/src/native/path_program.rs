@@ -209,7 +209,6 @@ pub struct PathWorld<'a> {
     /// Shared environmental reference plane (1E0F), in world-Y coordinates.
     pub environment_plane_height: Option<i16>,
     pub projectile_trigger: Option<&'a mut ProjectileTrigger>,
-    pub primary_pitch_recoil: Option<&'a mut super::path_player_control::PitchRecoil>,
     pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
     pub protection: Option<super::path_protection::PathProtection<'a>>,
     pub linked_shot_count: Option<super::path_shots::LinkedShotCount<'a>>,
@@ -299,7 +298,6 @@ impl PathWorld<'_> {
             action_gate: None,
             environment_plane_height: None,
             projectile_trigger: None,
-            primary_pitch_recoil: None,
             linked_effect_activity: None,
             protection: None,
             linked_shot_count: None,
@@ -1190,6 +1188,7 @@ pub enum ProgramError {
     MissingEnvironmentPlaneHeight,
     MissingProjectileTrigger,
     MissingPrimaryPitchRecoil,
+    MissingPrimaryLinkedMode,
     MissingLinkedEffectActivity,
     MissingProtection,
     Protection(super::path_protection::ProtectionError),
@@ -1843,10 +1842,10 @@ impl PathRuntime {
                     .get(primary)
                     .ok_or(PathRuntimeError::MissingActor(primary))?;
                 world
-                    .primary_pitch_recoil
+                    .primary_feedback
                     .as_mut()
                     .ok_or(ProgramError::MissingPrimaryPitchRecoil)?
-                    .initialize_if_idle(amount);
+                    .hit.initialize_pitch_recoil(amount);
                 objects
                     .get_mut(owner)
                     .expect("validated recoil owner")
@@ -2228,11 +2227,11 @@ impl PathRuntime {
                         .target
                         .configure_alternate_axes(owner, actor.base.position, range),
                     PlayerControlCommand::LockForLinkedMode => {
-                        input.target.lock_for_linked_mode(input.linked_mode)
+                        input.target.lock_for_linked_mode(input.linked_mode.ok_or(ProgramError::MissingPrimaryLinkedMode)?)
                     }
                     PlayerControlCommand::FollowPrimaryPosition => {
                         actor.base.position =
-                            primary_position(pose.0, pose.1, pose.2, input.linked_mode)
+                            primary_position(pose.0, pose.1, pose.2, input.linked_mode.ok_or(ProgramError::MissingPrimaryLinkedMode)?)
                     }
                     PlayerControlCommand::RefreshOwnedOrigin => input
                         .target
@@ -2844,7 +2843,6 @@ mod tests {
             action_gate: None,
             environment_plane_height: None,
             projectile_trigger: None,
-            primary_pitch_recoil: None,
             linked_effect_activity: None,
             protection: None,
             linked_shot_count: None,
@@ -3493,7 +3491,7 @@ mod tests {
     #[test]
     fn projectile_shared_import_link_and_recoil_require_live_inputs_without_partial_statement_writes(
     ) {
-        use super::super::path_player_control::PitchRecoil;
+        use super::super::player_hit_control::{PlayerHitControl, PrimaryFeedback};
         let (mut runtime, mut objects, owner, mut random) = setup();
         let primary = objects
             .allocate(Object::new(
@@ -3532,8 +3530,8 @@ mod tests {
         ] {
             objects = original.clone();
             let catalog = PathCatalog::new(vec![vec![statement]]).unwrap();
-            let mut recoil = PitchRecoil::default();
-            let mut missing_player_recoil = PitchRecoil::default();
+            let mut recoil = PlayerHitControl::default();
+            let mut missing_player_recoil = PlayerHitControl::default();
             let mut inputs = world(&mut random);
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
@@ -3541,7 +3539,7 @@ mod tests {
             );
             assert_eq!(objects, original);
             inputs.primary_player = Some(removed);
-            inputs.primary_pitch_recoil = Some(&mut missing_player_recoil);
+            inputs.primary_feedback = Some(PrimaryFeedback { state: 0, hit: &mut missing_player_recoil });
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::Runtime(PathRuntimeError::MissingActor(
@@ -3549,9 +3547,9 @@ mod tests {
                 )))
             );
             assert_eq!(objects, original);
-            assert_eq!(inputs.primary_pitch_recoil.as_ref().unwrap().amount, 0);
+            assert_eq!(inputs.primary_feedback.as_ref().unwrap().hit.camera_pitch_recoil, 0);
             inputs.primary_player = Some(primary);
-            inputs.primary_pitch_recoil = None;
+            inputs.primary_feedback = None;
             if needs_recoil {
                 assert_eq!(
                     runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
@@ -3559,7 +3557,7 @@ mod tests {
                 );
                 assert_eq!(objects, original);
             }
-            inputs.primary_pitch_recoil = Some(&mut recoil);
+            inputs.primary_feedback = Some(PrimaryFeedback { state: 0, hit: &mut recoil });
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                 Err(ProgramError::BudgetExceeded {
@@ -3581,7 +3579,7 @@ mod tests {
                 expected.get_mut(owner).unwrap().base.linked_object = Some(primary);
             }
             assert_eq!(objects, expected);
-            assert_eq!(recoil.amount, if needs_recoil { 128 } else { 0 });
+            assert_eq!(recoil.camera_pitch_recoil, if needs_recoil { 128 } else { 0 });
         }
         for writing in [false, true] {
             let command = if writing {
@@ -3631,7 +3629,8 @@ mod tests {
     #[test]
     fn authored_triggered_child_enters_locked_target_on_request_contact_occupancy_or_surface() {
         use super::super::collision_surface::SurfaceMode;
-        use super::super::path_player_control::{PitchRecoil, PlayerTargetControl, PrimaryControl};
+        use super::super::path_player_control::{PlayerTargetControl, PrimaryControl};
+        use super::super::player_hit_control::{PlayerHitControl, PrimaryFeedback};
         use super::super::path_sound::AuthoredCue;
         use super::super::path_sound::{CueListener, PathAudio};
         use super::super::world_occupancy::{
@@ -3667,8 +3666,9 @@ mod tests {
                     .conditions
                     .selected_player = PlayerTarget::Secondary;
                 let mut trigger = ProjectileTrigger::default();
-                let mut recoil = PitchRecoil {
-                    amount: initial_recoil,
+                let mut recoil = PlayerHitControl {
+                    camera_pitch_recoil: initial_recoil,
+                    ..Default::default()
                 };
                 let mut control = PlayerTargetControl {
                     configuration_locked: true,
@@ -3729,10 +3729,10 @@ mod tests {
                     inputs.primary_player = Some(primary);
                     inputs.selected = Some(selected);
                     inputs.projectile_trigger = Some(&mut trigger);
-                    inputs.primary_pitch_recoil = Some(&mut recoil);
+                    inputs.primary_feedback = Some(PrimaryFeedback { state: 0, hit: &mut recoil });
                     inputs.primary_control = Some(PrimaryControl {
                         target: &mut control,
-                        linked_mode: true,
+                        linked_mode: Some(true),
                     });
                     inputs.selected_occupancy_exempt = Some(!(cause == 3 && visit == 4));
                     if cause == 3 && visit == 4 {
@@ -3833,7 +3833,7 @@ mod tests {
                             if visit == activated_at { 10 } else { 3 }
                         );
                         assert_eq!(
-                            recoil.amount,
+                            recoil.camera_pitch_recoil,
                             if initial_recoil == 0 {
                                 128
                             } else {
@@ -3844,7 +3844,7 @@ mod tests {
                     } else {
                         assert_eq!(control.owner, Some(parent));
                         assert_eq!(control.transition_delay, 59);
-                        assert_eq!(recoil.amount, initial_recoil);
+                        assert_eq!(recoil.camera_pitch_recoil, initial_recoil);
                     }
                 }
                 let events = audio
@@ -9981,7 +9981,6 @@ mod tests {
                 action_gate: None,
                 environment_plane_height: None,
                 projectile_trigger: None,
-                primary_pitch_recoil: None,
                 linked_effect_activity: None,
                 protection: None,
                 linked_shot_count: None,
@@ -13888,7 +13887,7 @@ mod tests {
             expected.base.path = Some(cursor(0, 1));
             inputs.primary_control = Some(PrimaryControl {
                 target: &mut control,
-                linked_mode: true,
+                linked_mode: Some(true),
             });
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
@@ -13982,7 +13981,7 @@ mod tests {
                         inputs.selected = Some(owner);
                         inputs.primary_control = Some(PrimaryControl {
                             target: &mut control,
-                            linked_mode: linked,
+                            linked_mode: Some(linked),
                         });
                         inputs.audio = Some(PathAudio {
                             events: &mut audio,
@@ -14211,7 +14210,6 @@ mod tests {
                 action_gate: None,
                 environment_plane_height: None,
                 projectile_trigger: None,
-                primary_pitch_recoil: None,
                 linked_effect_activity: None,
                 protection: None,
                 linked_shot_count: None,
@@ -14367,7 +14365,6 @@ mod tests {
                         action_gate: None,
                         environment_plane_height: None,
                         projectile_trigger: None,
-                        primary_pitch_recoil: None,
                         linked_effect_activity: None,
                         protection: None,
                         linked_shot_count: None,

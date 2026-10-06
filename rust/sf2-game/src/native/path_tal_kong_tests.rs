@@ -352,7 +352,7 @@ fn tal_kong_death_separates_boss_score_from_camera_effect_and_final_progress() {
             inputs.selected = Some(selected);
             inputs.primary_control = Some(PrimaryControl {
                 target: &mut control,
-                linked_mode: false,
+                linked_mode: Some(false),
             });
             inputs.primary_feedback = Some(PrimaryFeedback {
                 state,
