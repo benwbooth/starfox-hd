@@ -112,6 +112,27 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Added the typed native scene-map owner: validated dense-index graphs,
+  source-selected branches, retrying display/load waits, retained yield markers,
+  current-actor effects, explicit external phase releases and latched service
+  faults. No source addresses or machine-state host are used by this owner.
+  Ordinary map allocation now has its own no-pressure-sweep pool operation:
+  insert after the active head, initialize fresh defaults, preserve zero speed,
+  and clear the map's selected actor when allocation fails. The source proof
+  caught an incorrect speed initialization before this code was integrated.
+  Thirteen native tests cover these contracts and malformed graph/service cases.
+  The five dispatch tests now compare the native owner too; together with two
+  new allocation tests they perform 238,340 original-code calls, including every
+  display-progress/publication byte pair, 256 load-table byte offsets, all 232
+  authored ordinary spawns under varied defaults/markers, and all 60 allocations
+  followed by exhaustion. Allocation tests execute the unchanged formatter and
+  handler; they do not claim to execute or validate the installed strategies.
+  All 1,184 native unit tests and two architecture integration tests pass in
+  debug/release, all 1,229 compatibility-enabled tests pass in debug, the seven
+  original-code tests pass in debug/release, and the app builds. This owner is
+  still awaiting the decoded scene catalog, real scene
+  services and production frame wiring; it is not full-game integration.
+
 - Recovered SF2's frame-to-map dispatch contract before replacing its staging
   controller: the nonzero delay operand is a retained yield marker, not a
   countdown. The original main loop dispatches again on the next visit; its

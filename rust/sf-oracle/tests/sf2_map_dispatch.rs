@@ -2,6 +2,11 @@
 //! observed gameplay schedule supplies a delay or a phase transition here.
 
 use sf2_data::map::{MapAddress, SpawnRecord, EXTERNAL_PHASE_GATES, MAP_COMMANDS};
+use sf2_game::scene_map::{
+    MapCatalog, MapCondition, MapCursor, MapFramePolicy, MapInstruction, MapStop, SceneMap,
+    SceneMapHost,
+};
+use sf2_game::ObjectId;
 use sf2_map::{MapVm, RunStop, Sf2MapHost};
 use sf_oracle::{call, Entry, SnesBus};
 
@@ -38,6 +43,115 @@ fn dispatch(source: &mut SnesBus, cursor: MapAddress) {
 struct ControlHost {
     mode: u8,
     external_flags: u16,
+    display_ready: Option<bool>,
+    load_idle: Option<bool>,
+}
+
+type NativeInstruction = MapInstruction<(), ()>;
+
+const fn native_cursor(index: u16) -> MapCursor {
+    MapCursor::from_index(index)
+}
+
+#[test]
+fn display_and_load_waits_match_original_cursor_and_marker_publication() {
+    let mut source = SnesBus::new(rom());
+    for (opcode, condition, retry_marker) in [
+        (0x4C, MapCondition::DisplayReady, Some(1)),
+        (0x64, MapCondition::LoadTableIdle, None),
+    ] {
+        let program: [NativeInstruction; 3] = [
+            NativeInstruction::Yield {
+                marker: 0xCAFE,
+                next: native_cursor(1),
+            },
+            NativeInstruction::Await {
+                condition,
+                retry_marker,
+                next: native_cursor(2),
+            },
+            NativeInstruction::Stop,
+        ];
+        let catalog = MapCatalog::new(&program, &[]).unwrap();
+        source.write8(0x7EA000, opcode);
+        source.write8(0x7EA001, 2);
+        source.write8(0x192E, 0x7E);
+        for progress in 0..=u8::MAX {
+            for display in 0..=u8::MAX {
+                // For the load test, progress selects each byte offset in
+                // the first 256 table bytes, independent of display state.
+                // These offsets include both NULL and non-NULL entries.
+                if opcode == 0x64 && display > 1 {
+                    continue;
+                }
+                let offset = u32::from(progress);
+                let load_idle =
+                    source.read16(0x03D774 + offset) | source.read16(0x03D775 + offset) == 0;
+                let mut host = ControlHost {
+                    display_ready: Some(progress == 0 && display == 0x80),
+                    load_idle: Some(load_idle),
+                    ..Default::default()
+                };
+                let mut flow = SceneMap::new(&catalog, native_cursor(0)).unwrap();
+                flow.visit(&catalog, &mut host, MapFramePolicy::default(), 1)
+                    .unwrap();
+                source.write16(0x1655, 0xCAFE);
+                source.write16(0x1657, 0x2000);
+                source.write16(0x1642, u16::from(progress));
+                source.write8(0x7F007C, display);
+                let returned = call(
+                    &mut source,
+                    0x038FC9,
+                    &Entry {
+                        x: 0x2000,
+                        // The call bootstrap owns F4/F5; seed the fade progress
+                        // through its Y argument rather than writing it earlier.
+                        y: u16::from(progress),
+                        p: 0x20,
+                        ..Default::default()
+                    },
+                );
+                assert!(returned.returned);
+                let native = flow
+                    .visit(&catalog, &mut host, MapFramePolicy::default(), 2)
+                    .unwrap();
+                let waited = source.read16(0x1657) == 0x2000;
+                assert_eq!(
+                    native.stop,
+                    if waited {
+                        MapStop::Waiting(condition)
+                    } else {
+                        MapStop::Stopped
+                    }
+                );
+                assert_eq!(flow.cursor(), native_cursor(if waited { 1 } else { 2 }));
+                assert_eq!(flow.yield_marker(), source.read16(0x1655));
+            }
+        }
+    }
+}
+
+impl SceneMapHost<(), ()> for ControlHost {
+    type Error = std::convert::Infallible;
+    fn condition(&self, condition: MapCondition) -> Result<bool, Self::Error> {
+        Ok(match condition {
+            MapCondition::ModeEquals(value) => self.mode == value,
+            MapCondition::ModeLowBitSet => self.mode & 1 != 0,
+            MapCondition::ExternalEvent => self.external_flags & 0x0400 != 0,
+            MapCondition::DisplayReady => self.display_ready.expect("unexpected display query"),
+            MapCondition::LoadTableIdle => self.load_idle.expect("unexpected load query"),
+            _ => panic!("unexpected native predicate {condition:?}"),
+        })
+    }
+    fn apply(&mut self, _: &()) -> Result<(), Self::Error> {
+        panic!("unexpected native effect")
+    }
+    fn apply_to_current(&mut self, _: ObjectId, _: &()) -> Result<(), Self::Error> {
+        panic!("unexpected native actor effect")
+    }
+    fn spawn(&mut self, _: &()) -> Result<Option<ObjectId>, Self::Error> {
+        panic!("unexpected native spawn")
+    }
 }
 
 impl Sf2MapHost for ControlHost {
@@ -110,8 +224,17 @@ fn all_authored_phase_loops_dispatch_again_without_consuming_the_marker() {
     let mut source = SnesBus::new(rom());
     let mut host = ControlHost::default();
     assert_eq!(EXTERNAL_PHASE_GATES.len(), 237);
+    let program: [NativeInstruction; 2] = [
+        NativeInstruction::Yield {
+            marker: 5000,
+            next: native_cursor(1),
+        },
+        NativeInstruction::Jump(native_cursor(0)),
+    ];
+    let catalog = MapCatalog::new(&program, &[]).unwrap();
     for gate in EXTERNAL_PHASE_GATES {
         for previous in [0, 1, 5000, u16::MAX] {
+            let mut flow = SceneMap::new(&catalog, native_cursor(0)).unwrap();
             let mut native = MapVm::new(gate.hold);
             native.set_counter(previous);
             source.write16(0x1655, previous);
@@ -124,6 +247,12 @@ fn all_authored_phase_loops_dispatch_again_without_consuming_the_marker() {
                 assert_eq!(source.read16(0x1657), native.cursor().address - 0x8000);
                 assert_eq!(source.read16(0x1655), native.counter());
                 assert_eq!(native.counter(), 5000);
+                let actual = flow
+                    .visit(&catalog, &mut host, MapFramePolicy::default(), 3)
+                    .unwrap();
+                assert_eq!(actual.stop, MapStop::Yielded(source.read16(0x1655)));
+                assert_eq!(actual.commands, result.commands_executed);
+                assert_eq!(flow.cursor(), native_cursor(1));
             }
         }
     }
@@ -148,6 +277,22 @@ fn every_authored_mode_branch_matches_the_original_for_all_mode_bytes() {
             bounded[file((u32::from(command.address.bank) << 16) | u32::from(successor))] = 2;
         }
         let mut source = SnesBus::new(bounded);
+        let condition = match command.opcode {
+            0x9E => MapCondition::ModeEquals(command.raw[1]),
+            0xA2 => MapCondition::ModeLowBitSet,
+            0xA4 => MapCondition::ExternalEvent,
+            _ => unreachable!(),
+        };
+        let program: [NativeInstruction; 3] = [
+            NativeInstruction::Branch {
+                condition,
+                taken: native_cursor(1),
+                otherwise: native_cursor(2),
+            },
+            NativeInstruction::Stop,
+            NativeInstruction::Stop,
+        ];
+        let catalog = MapCatalog::new(&program, &[]).unwrap();
         for mode in 0..=u8::MAX {
             let external_flags = if mode & 1 == 0 { 0xFBFF } else { 0xFFFF };
             source.write16(0x1BA5, 0xA500 | u16::from(mode));
@@ -159,6 +304,7 @@ fn every_authored_mode_branch_matches_the_original_for_all_mode_bytes() {
             let mut host = ControlHost {
                 mode,
                 external_flags,
+                ..Default::default()
             };
             assert_eq!(
                 native.run(&mut host, 1).unwrap().stop,
@@ -170,6 +316,17 @@ fn every_authored_mode_branch_matches_the_original_for_all_mode_bytes() {
                 "{command:?} mode={mode}"
             );
             assert_eq!(source.read16(0x1655), native.counter());
+            let mut flow = SceneMap::new(&catalog, native_cursor(0)).unwrap();
+            let actual = flow
+                .visit(&catalog, &mut host, MapFramePolicy::default(), 2)
+                .unwrap();
+            assert_eq!(actual.stop, MapStop::Stopped);
+            let expected = if source.read16(0x1657) == target - 0x8000 {
+                1
+            } else {
+                2
+            };
+            assert_eq!(flow.cursor(), native_cursor(expected));
             count += 1;
         }
     }
@@ -188,12 +345,41 @@ fn delay_zero_preserves_the_marker_and_nonzero_values_yield_only_this_visit() {
     source.write8(0x7EA000, 0x12);
     source.write8(0x7EA003, 0x02);
     for value in 0..=u16::MAX {
+        let program: [NativeInstruction; 3] = [
+            NativeInstruction::Yield {
+                marker: 0xCAFE,
+                next: native_cursor(1),
+            },
+            NativeInstruction::Yield {
+                marker: value,
+                next: native_cursor(2),
+            },
+            NativeInstruction::Stop,
+        ];
+        let catalog = MapCatalog::new(&program, &[]).unwrap();
+        let mut flow = SceneMap::new(&catalog, native_cursor(0)).unwrap();
+        let mut host = ControlHost::default();
+        flow.visit(&catalog, &mut host, MapFramePolicy::default(), 1)
+            .unwrap();
         source.write16(0x7EA001, value);
         source.write16(0x1655, 0xCAFE);
         dispatch(&mut source, cursor);
         assert_eq!(source.read16(0x1657), 0x2003);
         let expected = if value == 0 { 0xCAFE } else { value };
         assert_eq!(source.read16(0x1655), expected, "operand={value}");
+        let actual = flow
+            .visit(&catalog, &mut host, MapFramePolicy::default(), 2)
+            .unwrap();
+        assert_eq!(
+            actual.stop,
+            if value == 0 {
+                MapStop::Stopped
+            } else {
+                MapStop::Yielded(value)
+            }
+        );
+        assert_eq!(flow.yield_marker(), source.read16(0x1655));
+        assert_eq!(flow.cursor(), native_cursor(2));
         // STOP executes on the next visit even for the largest marker.
         dispatch(
             &mut source,
@@ -204,6 +390,13 @@ fn delay_zero_preserves_the_marker_and_nonzero_values_yield_only_this_visit() {
         );
         assert_eq!(source.read16(0x1655), expected);
         assert_eq!(source.read16(0x1657), 0x2003);
+        assert_eq!(
+            flow.visit(&catalog, &mut host, MapFramePolicy::default(), 1)
+                .unwrap()
+                .stop,
+            MapStop::Stopped
+        );
+        assert_eq!(flow.yield_marker(), source.read16(0x1655));
     }
 }
 
@@ -234,6 +427,25 @@ fn original_frame_owner_does_not_turn_map_yields_into_countdowns() {
     source.write8(0x7EA003, 2);
     for flags in 0..=u8::MAX {
         for marker in [0, 1, 5000, u16::MAX] {
+            let program: [NativeInstruction; 3] = [
+                NativeInstruction::Yield {
+                    marker,
+                    next: native_cursor(1),
+                },
+                NativeInstruction::Yield {
+                    marker: 5000,
+                    next: native_cursor(2),
+                },
+                NativeInstruction::Stop,
+            ];
+            let catalog = MapCatalog::new(&program, &[]).unwrap();
+            let mut flow =
+                SceneMap::new(&catalog, native_cursor(if marker == 0 { 1 } else { 0 })).unwrap();
+            let mut host = ControlHost::default();
+            if marker != 0 {
+                flow.visit(&catalog, &mut host, MapFramePolicy::default(), 1)
+                    .unwrap();
+            }
             source.write8(0x1AA6, flags);
             source.write8(0x192E, 0x7E);
             source.write16(0x1657, 0x2000);
@@ -252,6 +464,28 @@ fn original_frame_owner_does_not_turn_map_yields_into_countdowns() {
             let skipped = flags & 0x21 == 0x21;
             assert_eq!(source.read16(0x1657), if skipped { 0x2000 } else { 0x2003 });
             assert_eq!(source.read16(0x1655), if skipped { marker } else { 5000 });
+            let policy = MapFramePolicy {
+                alternate_view: flags & 1 != 0,
+                suppress_alternate_map: flags & 0x20 != 0,
+            };
+            let actual = flow.visit(&catalog, &mut host, policy, 1).unwrap();
+            assert_eq!(
+                actual.stop,
+                if skipped {
+                    MapStop::Suppressed
+                } else {
+                    MapStop::Yielded(5000)
+                }
+            );
+            assert_eq!(
+                flow.cursor(),
+                native_cursor(if source.read16(0x1657) == 0x2000 {
+                    1
+                } else {
+                    2
+                })
+            );
+            assert_eq!(flow.yield_marker(), source.read16(0x1655));
         }
     }
 }

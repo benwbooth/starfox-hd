@@ -1205,6 +1205,20 @@ impl ObjectStore {
         pressure_head: Option<ObjectId>,
         object: Object,
     ) -> Option<ObjectId> {
+        let id = self.allocate_without_pressure_after(after, object)?;
+        if self.free.is_empty() {
+            self.mark_pressure_retirements(pressure_head, id);
+        }
+        Some(id)
+    }
+
+    /// Source map allocation has its own free-list pop and does not enter
+    /// the strategy allocator's last-slot retirement sweep.
+    pub(super) fn allocate_without_pressure_after(
+        &mut self,
+        after: Option<ObjectId>,
+        object: Object,
+    ) -> Option<ObjectId> {
         let position = match after {
             Some(id) => self.active.iter().position(|candidate| *candidate == id)? + 1,
             None => 0,
@@ -1227,9 +1241,6 @@ impl ObjectStore {
             self.slots[after.index()].as_mut().unwrap().base.next = Some(id);
         }
         self.active.insert(position, id);
-        if self.free.is_empty() {
-            self.mark_pressure_retirements(pressure_head, id);
-        }
         Some(id)
     }
 
