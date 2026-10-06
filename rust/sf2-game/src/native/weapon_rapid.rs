@@ -108,7 +108,9 @@ pub(super) fn launch(
     // Unlike the charged/simple launchers, both rapid admission gates above
     // execute even when the object pool is full. Later observations do not.
     if objects.len() == OBJECT_CAPACITY {
-        return Ok(None);
+        return Err(LaunchError::Creation(
+            weapon_creation::CreationError::ObjectPoolExhausted,
+        ));
     }
     let pitch = if weapon == RapidWeapon::Alternate {
         Some(

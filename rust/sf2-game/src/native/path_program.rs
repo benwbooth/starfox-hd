@@ -2345,14 +2345,9 @@ impl PathRuntime {
                 }
                 let defaults = world.spawn_defaults().ok_or(ProgramError::MissingSpawnDefaults)?;
                 let state = world.weapons.as_deref_mut().ok_or(ProgramError::MissingWeaponState)?;
-                // Admission or allocation can fail normally. The wrapper
-                // substitutes the reserved scene actor, then still applies
-                // the authored exclusion class and publishes last-spawn.
-                let fallback = if objects.len() == super::OBJECT_CAPACITY {
-                    let id = state.fallback.ok_or(ProgramError::MissingWeaponFallback)?;
-                    objects.get(id).ok_or(PathRuntimeError::MissingActor(id))?;
-                    Some(id)
-                } else { None };
+                // Only admission rejection returns normally without a shot.
+                // Allocation exhaustion is terminal, before fallback edits,
+                // last-spawn publication or advancement to the next command.
                 // $7F:88C4 resets every retained muzzle/aim input. Source
                 // graphics-bank switching here has no native equivalent.
                 state.parameters = super::weapon_launch::LaunchParameters::default();
@@ -2368,7 +2363,7 @@ impl PathRuntime {
                     hostile_counts: Some(&mut state.hostile_counts),
                     random: world.random,
                 }).map_err(ProgramError::WeaponLaunch)?;
-                let result = created.or(fallback).or(state.fallback).ok_or(ProgramError::MissingWeaponFallback)?;
+                let result = created.or(state.fallback).ok_or(ProgramError::MissingWeaponFallback)?;
                 let actor = objects.get_mut(result).ok_or(PathRuntimeError::MissingActor(result))?;
                 actor.base.contacts.exclusion_groups = actor.base.contacts.exclusion_groups
                     .union(super::collision_pass::ExclusionGroups::PATH_SPAWN);
@@ -9469,7 +9464,7 @@ mod tests {
     }
 
     #[test]
-    fn independent_spawning_continues_on_success_and_full_pool_without_running_the_new_path() {
+    fn independent_spawning_continues_only_on_success_without_running_the_new_path() {
         use super::super::{ObjectSpawnDefaults, OBJECT_CAPACITY};
         for full in [false, true] {
             let catalog = PathCatalog::new(vec![
@@ -9518,14 +9513,13 @@ mod tests {
             assert_eq!(objects, before);
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 2).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
-                Ok(ControlStep::Movement)
+                if full { Err(ProgramError::Spawn(super::super::path_spawn::SpawnError::PoolExhausted)) }
+                else { Ok(ControlStep::Movement) }
             );
-            assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 2)));
+            assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, if full { 0 } else { 2 })));
             assert!(runtime.branch.invert_next);
             if full {
-                let mut expected = before;
-                expected.get_mut(owner).unwrap().base.path = Some(cursor(0, 2));
-                assert_eq!(objects, expected);
+                assert_eq!(objects, before);
                 assert_eq!(runtime.spawns.last_spawn, Some(owner));
             } else {
                 let created = runtime.spawns.last_spawn.unwrap();
@@ -9716,7 +9710,7 @@ mod tests {
             ))
         );
         assert_eq!(objects, before);
-        assert_eq!(runtime.spawns.last_spawn, None);
+        assert_eq!(runtime.spawns.last_spawn, Some(owner));
     }
 
     fn health(operation: ByteOperation, next: PathCursor) -> Statement {

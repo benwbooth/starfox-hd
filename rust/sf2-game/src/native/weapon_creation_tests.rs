@@ -226,7 +226,7 @@ fn exhausted_pool_and_missing_caller_are_atomic_for_both_services() {
                 LaunchParameters::default(),
                 ObjectSpawnDefaults::default()
             ),
-            Ok(None)
+            Err(CreationError::ObjectPoolExhausted)
         );
         assert_eq!(objects, before);
     }

@@ -258,11 +258,13 @@ fn recovery_full_pool_keeps_shield_change_and_zero_request_needs_no_player_input
     scene.fill_pool();
     scene.world.spawn_defaults = None;
     scene.world.shield_recovery.as_mut().unwrap().amount = 255;
-    assert!(scene.recover().unwrap());
+    assert_eq!(scene.recover(), Err(SceneError::Recovery(
+        crate::player_recovery::RecoveryError::ObjectPoolExhausted)));
     assert_eq!(scene.records().contact.unwrap().hit.reserve_shield, 41);
     assert_eq!(scene.objects.len(), OBJECT_CAPACITY);
     assert_eq!(path_relationships::find_direct_child(&scene.objects, scene.owner, 24).unwrap(), None);
     assert_eq!(scene.world.shield_recovery.unwrap().amount, 0);
+    assert_eq!(scene.recover(), Err(SceneError::Faulted));
 
     let mut scene = Scene::new(0);
     scene.objects.remove(scene.owner).unwrap();
@@ -378,10 +380,14 @@ fn every_packed_count_and_type_preserves_wrapped_type_aliases_and_original_empty
             scene.records().action.as_mut().unwrap().action = None;
             scene.records().protection = Some(DeflectionProtection::from_control(0xA0));
             scene.world.projectile_trigger.as_mut().unwrap().activation = 231;
-            let consumed = packed % 16 != 0 && kind % 128 != 0;
+            let admitted = packed % 16 != 0;
+            let needs_allocation = kind % 128 < 2;
+            let consumed = admitted && !needs_allocation;
             assert_eq!(
-                scene.use_item().unwrap(),
-                consumed,
+                use_item(&mut scene.objects, &mut scene.world, scene.owner),
+                if admitted && needs_allocation {
+                    Err(ConsumableError::ObjectPoolExhausted)
+                } else { Ok(consumed) },
                 "count {packed}, type {kind}"
             );
             assert_eq!(
@@ -394,11 +400,11 @@ fn every_packed_count_and_type_preserves_wrapped_type_aliases_and_original_empty
             );
             assert_eq!(
                 scene.records().action.unwrap().action.is_some(),
-                consumed && kind % 128 == 1
+                admitted && kind % 128 == 1
             );
             assert_eq!(
                 scene.world.projectile_trigger.unwrap().activation,
-                if consumed && kind % 128 == 1 { 0 } else { 231 }
+                231
             );
             assert_eq!(
                 scene.records().protection.unwrap().control(),
@@ -503,7 +509,9 @@ fn triggered_flags_and_active_stream_gate_before_allocation_and_unreached_inputs
                 .bits(),
             flags & 0x18
         );
-        assert_eq!(scene.use_item().unwrap(), flags & 0x18 == 0);
+        assert_eq!(use_item(&mut scene.objects, &mut scene.world, scene.owner),
+            if flags & 0x18 == 0 { Err(ConsumableError::ObjectPoolExhausted) }
+            else { Ok(false) });
     }
     scene.records().action.as_mut().unwrap().action = Some(PlayerAction::TriggeredProjectile);
     scene
@@ -580,41 +588,24 @@ fn fresh_installers_share_formatting_but_keep_different_attachment_pause_and_sel
 }
 
 #[test]
-fn full_pool_still_starts_triggered_timeline_and_consumes_but_healing_does_neither() {
+fn full_pool_starts_triggered_action_but_faults_before_trigger_clear_or_item_consumption() {
     for kind in [0, 1] {
         let mut scene = Scene::new(kind);
         scene.fill_pool();
-        assert_eq!(scene.use_item().unwrap(), kind == 1);
+        assert_eq!(scene.use_item(), Err(SceneError::Consumable(
+            ConsumableError::ObjectPoolExhausted)));
         assert_eq!(scene.objects.len(), OBJECT_CAPACITY);
         assert_eq!(
             scene.records().equipment.unwrap().packed_consumables,
-            if kind == 1 { 0xB2 } else { 0xB3 }
+            0xB3
         );
-        if kind == 1 {
-            assert_eq!(scene.world.projectile_trigger.unwrap().activation, 0);
-            let owner = scene.owner;
-            for time in 0..=40 {
-                scene
-                    .host()
-                    .advance_player_action(owner, InputState::default())
-                    .unwrap();
-                assert_eq!(
-                    scene.world.projectile_trigger.unwrap().activation,
-                    u8::from(time >= 12)
-                );
-            }
-            assert_eq!(
-                scene.records().action.unwrap(),
-                PlayerActionState {
-                    action: None,
-                    elapsed: 1,
-                    auxiliary_counter: 0,
-                    total_updates: 40
-                }
-            );
-            assert!(scene.use_item().unwrap());
-            assert_eq!(scene.world.projectile_trigger.unwrap().activation, 0);
-        }
+        assert_eq!(scene.world.projectile_trigger.unwrap().activation, 251);
+        assert_eq!(scene.records().action.unwrap().action,
+            (kind == 1).then_some(PlayerAction::TriggeredProjectile));
+        let owner = scene.owner;
+        assert_eq!(scene.host().advance_player_action(owner, InputState::default()),
+            Err(SceneError::Faulted));
+        assert_eq!(scene.use_item(), Err(SceneError::Faulted));
     }
 }
 

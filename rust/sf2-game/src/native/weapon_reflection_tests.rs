@@ -54,7 +54,7 @@ fn absent_reflection_gate_and_empty_contact_list_do_not_read_unreached_inputs() 
 
 #[test]
 fn missing_live_inputs_fail_before_disabling_shot_or_consuming_randomness() {
-    for case in 0..8 {
+    for case in 0..7 {
         let mut objects = ObjectStore::new();
         let mut resources = ProgramResources::default();
         let primary = objects.allocate(actor()).unwrap();
@@ -67,11 +67,6 @@ fn missing_live_inputs_fail_before_disabling_shot_or_consuming_randomness() {
         let incoming = objects.allocate(shot).unwrap();
         let mut contacts = ContactStore::default();
         contacts.record_pair(owner, incoming, [None, None]).unwrap();
-        if case == 7 {
-            while objects.len() < OBJECT_CAPACITY {
-                objects.allocate(actor()).unwrap();
-            }
-        }
         let original = objects.clone();
         let mut random = RandomState::default();
         let original_random = random;
@@ -342,7 +337,7 @@ fn reflection_order_scatter_sprite_and_retained_shape_follow_live_contact_list()
 }
 
 #[test]
-fn full_pool_still_disables_incoming_and_formats_fallback_without_hostile_draw() {
+fn full_pool_keeps_incoming_disable_and_scatter_but_never_formats_fallback() {
     let mut objects = ObjectStore::new();
     let mut resources = ProgramResources::default();
     let owner = objects.allocate(actor()).unwrap();
@@ -372,17 +367,12 @@ fn full_pool_still_disables_incoming_and_formats_fallback_without_hostile_draw()
     expected_random.next_byte();
     expected_random.next_byte();
     let mut weapons = WeaponState {
-        fallback: Some(fallback),
+        // The fatal branch must not require even a valid fallback input.
+        fallback: None,
         ..Default::default()
     };
-    let mut expected_fallback = objects.get(fallback).unwrap().clone();
-    expected_fallback.base.shape = original.base.shape;
-    expected_fallback.base.position = original.base.position;
-    expected_fallback.extension.material_set = original.extension.material_set;
-    expected_fallback.base.flags.scaled_sprite = true;
-    expected_fallback.extension.depth_offset = 0xCBA7;
-    expected_fallback.extension.texture_scroll_x = 137;
-    reflect_contacts(
+    let expected_fallback = objects.get(fallback).unwrap().clone();
+    let result = reflect_contacts(
         &mut objects,
         &mut resources,
         owner,
@@ -399,11 +389,12 @@ fn full_pool_still_disables_incoming_and_formats_fallback_without_hostile_draw()
             secondary: None,
             random: &mut random,
         },
-    )
-    .unwrap();
+    );
+    assert_eq!(result, Err(ReflectionError::Launch(LaunchError::Creation(
+        crate::weapon_creation::CreationError::ObjectPoolExhausted))));
     assert_eq!(objects.len(), OBJECT_CAPACITY);
     assert_eq!(objects.get(fallback).unwrap(), &expected_fallback);
-    assert_eq!(objects.get(incoming).unwrap().base.speed, 60);
+    assert_eq!(objects.get(incoming).unwrap().base.speed, original.base.speed);
     assert!(objects.get(incoming).unwrap().base.flags.collision_disabled);
     assert_eq!(weapons.hostile_counts, HostileLaunchCounts::default());
     assert_eq!(random, expected_random);

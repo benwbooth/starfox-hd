@@ -17,10 +17,11 @@ const PLAYER_WEAPON_GROUP: u8 = 255;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CreationError {
     MissingActor(ObjectId),
+    ObjectPoolExhausted,
 }
 
-/// $0D:E017. Pool exhaustion is an ordinary failed allocation with no actor
-/// changes. The caller decides whether to use the world's reserved fallback.
+/// $0D:E017. Pool exhaustion enters the source's non-returning fatal handler;
+/// it must not resume a caller's fallback or post-launch side effects.
 /// A successful result still needs a variant-specific path and other settings.
 pub fn common(
     objects: &mut ObjectStore,
@@ -48,7 +49,7 @@ pub fn common(
         defaults,
     );
     let Some(created) = objects.allocate_weapon_after(caller, fresh) else {
-        return Ok(None);
+        return Err(CreationError::ObjectPoolExhausted);
     };
     let weapon = objects.get_mut(created).expect("fresh weapon");
     weapon.base.hit_points = INITIAL_HEALTH;

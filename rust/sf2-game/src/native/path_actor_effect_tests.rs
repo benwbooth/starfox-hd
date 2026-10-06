@@ -620,7 +620,7 @@ fn repeating_emitter_preserves_wait_wrap_and_goto_yield_between_complete_pulses(
 }
 
 #[test]
-fn exhausted_emitter_spawns_borrow_retained_last_actor_or_report_missing_selection() {
+fn exhausted_emitter_spawns_fault_before_borrowing_any_retained_actor() {
     use super::super::OBJECT_CAPACITY;
     let catalog = paths::catalog();
     for timed in [false, true] {
@@ -654,7 +654,7 @@ fn exhausted_emitter_spawns_borrow_retained_last_actor_or_report_missing_selecti
                         .unwrap();
                 }
                 runtime.spawns.last_spawn = prior.map(|_| previous);
-                let mut expected = objects.get(previous).unwrap().clone();
+                let expected = objects.get(previous).unwrap().clone();
                 let before_random = random;
                 let mut inputs = world(&mut random);
                 inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
@@ -668,33 +668,8 @@ fn exhausted_emitter_spawns_borrow_retained_last_actor_or_report_missing_selecti
                     Ok(CallbackStep::Run(_))
                 ));
                 let result = runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 12);
-                if prior.is_none() {
-                    assert_eq!(
-                        result,
-                        Err(ProgramError::ActorContext(
-                            ActorContextError::MissingLastSpawn
-                        ))
-                    );
-                    assert_eq!(runtime.program_actor(), Some(owner));
-                } else {
-                    assert_eq!(
-                        result,
-                        Ok(ProgramExit {
-                            actor: owner,
-                            step: ControlStep::ResumeCallbacks
-                        })
-                    );
-                    assert_eq!(
-                        runtime.step_callbacks(&mut objects, owner, TriggerWorldInputs::default()),
-                        Ok(CallbackStep::Complete)
-                    );
-                    expected.base.contacts.run_when_paused = true;
-                    if timed {
-                        expected.base.position.y = 0;
-                    } else {
-                        expected.extension.surface_contact.group = part.wrapping_add(6);
-                    }
-                }
+                assert_eq!(result, Err(ProgramError::Spawn(super::super::path_spawn::SpawnError::PoolExhausted)));
+                assert_eq!(runtime.program_actor(), Some(owner));
                 assert_eq!(objects.get(previous).unwrap(), &expected);
                 assert_eq!(runtime.spawns.last_spawn, prior.map(|_| previous));
                 assert_eq!(objects.len(), OBJECT_CAPACITY);

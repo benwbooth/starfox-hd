@@ -207,11 +207,11 @@ fn all_queue_bytes_use_wrapped_signed_admission_and_only_decrement_low_delay() {
 
 #[test]
 fn full_pool_distinguishes_no_weapon_levels_and_preserves_unreached_muzzle_stores() {
-    let mut scene = Scene::new();
-    scene.fill_pool();
-    scene.record().rapid_aim = None;
-    scene.world.weapons.as_mut().unwrap().fallback = None;
     for level in 0..=u8::MAX {
+        let mut scene = Scene::new();
+        scene.fill_pool();
+        scene.record().rapid_aim = None;
+        scene.world.weapons.as_mut().unwrap().fallback = None;
         scene.record().equipment.as_mut().unwrap().weapon_level = level;
         scene.charge().rapid_control = 0x10;
         scene.world.weapons.as_mut().unwrap().parameters = LaunchParameters {
@@ -220,8 +220,13 @@ fn full_pool_distinguishes_no_weapon_levels_and_preserves_unreached_muzzle_store
             yaw_offset: -31,
             target: Some(Vector3::default()),
         };
-        scene.visit(false).unwrap();
         let no_weapon = level == 0 || level >= 129;
+        assert_eq!(scene.visit(false), if no_weapon { Ok(()) } else {
+            Err(SceneError::Rapid(RapidError::Launch(LaunchError::Creation(
+                crate::weapon_creation::CreationError::ObjectPoolExhausted,
+            ))))
+        });
+        assert_eq!(scene.execution.is_faulted(), !no_weapon);
         assert_eq!(
             scene.charge().rapid_control,
             if no_weapon { 1 } else { 0x10 }
@@ -371,7 +376,7 @@ fn linked_muzzle_uses_fixed_view_xz_restores_player_and_honors_override_bit() {
 }
 
 #[test]
-fn linked_allocation_rejection_restores_pose_but_missing_input_fault_does_not_replay() {
+fn linked_admission_rejection_restores_pose_but_missing_input_fault_does_not_replay() {
     let mut scene = Scene::new();
     scene.world.fixed_players[0] = Some(scene.proxy);
     scene.objects.get_mut(scene.proxy).unwrap().base.position = Vector3 {
@@ -392,7 +397,8 @@ fn linked_allocation_rejection_restores_pose_but_missing_input_fault_does_not_re
         scene.objects.get(scene.owner).unwrap().base.position,
         original
     );
-    assert_eq!(scene.charge().rapid_control, 0x10);
+    assert_eq!(scene.charge().rapid_control, 1);
+    scene.charge().rapid_control = 0x10;
     scene
         .world
         .bind_shots(&scene.objects, scene.owner, ActiveShots::from_count(0))

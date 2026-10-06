@@ -149,7 +149,7 @@ fn numbered_sprite_constructor_zero_count_is_not_empty_and_missing_argument_is_n
         } else {
             assert_eq!(result, Err(ProgramError::Spawn(SpawnError::PoolExhausted)));
             assert_eq!(objects.len(), OBJECT_CAPACITY);
-            assert_eq!(runtime.spawns.last_spawn, None);
+            assert_eq!(runtime.spawns.last_spawn, Some(objects.active_ids()[1]));
             assert_eq!(
                 runtime.spawns.companion_parameter,
                 Some(250u8.wrapping_add((OBJECT_CAPACITY - 1) as u8))

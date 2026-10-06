@@ -92,14 +92,10 @@ pub fn reflect_contacts(
                 .weapons
                 .as_deref_mut()
                 .ok_or(ReflectionError::MissingWeaponState)?;
-            // The launcher's ordinary full-pool branch reads neither live
-            // player pointer, but reflection still edits its reserved fallback.
-            if objects.len() == OBJECT_CAPACITY {
-                let fallback = weapons.fallback.ok_or(ReflectionError::MissingFallback)?;
-                objects
-                    .get(fallback)
-                    .ok_or(ReflectionError::MissingActor(fallback))?;
-            } else {
+            // A full pool faults inside allocation, after the incoming-shot
+            // disable and random scatter below. It never edits a fallback or
+            // reads the launcher's later live-player observations.
+            if objects.len() != OBJECT_CAPACITY {
                 let primary = world
                     .primary
                     .ok_or(ReflectionError::Launch(LaunchError::MissingPrimary))?;

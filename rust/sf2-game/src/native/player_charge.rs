@@ -84,6 +84,7 @@ pub enum ChargeError {
     MissingWeapons,
     MissingSpawnDefaults,
     MissingActor(ObjectId),
+    ObjectPoolExhausted,
     Relationships(RelationshipError),
     Launch(LaunchError),
 }
@@ -141,7 +142,7 @@ fn ensure_effect(
         return Ok(());
     }
     if objects.len() == OBJECT_CAPACITY {
-        return Ok(());
+        return Err(ChargeError::ObjectPoolExhausted);
     }
     let defaults = world
         .spawn_defaults()
@@ -154,7 +155,7 @@ fn ensure_effect(
     );
     let head = objects.active_ids().first().copied();
     let Some(effect) = objects.allocate_after(head, fresh) else {
-        return Ok(());
+        return Err(ChargeError::ObjectPoolExhausted);
     };
     path_relationships::attach_fresh_child(objects, owner, effect, EFFECT_NUMBER)
         .map_err(ChargeError::Relationships)?;
@@ -180,7 +181,7 @@ fn launch(
     let weapons = world.weapons.as_mut().ok_or(ChargeError::MissingWeapons)?;
     weapons.parameters = Default::default();
     if objects.len() == OBJECT_CAPACITY {
-        return Ok(());
+        return Err(ChargeError::ObjectPoolExhausted);
     }
     let defaults = defaults.ok_or(ChargeError::MissingSpawnDefaults)?;
     weapon_dispatch::launch(

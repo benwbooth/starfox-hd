@@ -156,7 +156,7 @@ fn offset_spawn_preserves_word_wrap_byte_rotation_and_default_player_selection()
 }
 
 #[test]
-fn offset_spawn_full_pool_retains_last_selection_and_does_not_execute_child() {
+fn offset_spawn_full_pool_faults_before_last_selection_or_path_advance() {
     let (mut runtime, mut objects, owner, mut random) = setup();
     while objects.len() < OBJECT_CAPACITY {
         objects
@@ -191,17 +191,13 @@ fn offset_spawn_full_pool_retains_last_selection_and_does_not_execute_child() {
         Statement::Control(ControlCommand::End),
     ]])
     .unwrap();
-    let mut expected = objects.clone();
-    expected.get_mut(owner).unwrap().base.path = Some(at(1));
+    let expected = objects.clone();
     let before_random = random;
     let mut inputs = world(&mut random);
     inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
     assert_eq!(
         runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1),
-        Err(ProgramError::BudgetExceeded {
-            cursor: at(1),
-            executed: 1
-        })
+        Err(ProgramError::Spawn(super::super::path_spawn::SpawnError::PoolExhausted))
     );
     assert_eq!(objects, expected);
     assert_eq!(runtime.spawns.last_spawn, Some(owner));

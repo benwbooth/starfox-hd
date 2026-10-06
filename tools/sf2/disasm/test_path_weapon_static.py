@@ -123,7 +123,7 @@ class PathWeaponStaticTests(unittest.TestCase):
             "a53af00bb921000901992100ee691dee6b1db931000950993100"
             "b93100091099310060")
 
-    def test_path_fire_resets_every_launch_input_and_substitutes_reserved_actor_on_failure(self):
+    def test_path_fire_resets_inputs_and_substitutes_reserved_actor_only_on_returning_rejection(self):
         self.assert_source(0x7F88C4,
             "a55e29e7855e8f3a3000a9008db014a9008db214a9008db414a9008db714"
             "a9008db6149cb8149cb914b52f229ca803c00000d003acd6148c71d760")

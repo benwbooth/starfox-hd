@@ -549,8 +549,8 @@ fn sprite_emitter_runs_its_own_fallthrough_and_finishes_after_the_authored_waits
 }
 
 #[test]
-fn full_pool_reuses_retained_last_spawn_and_null_selection_faults_after_admission() {
-    use super::super::{path_actor_context::ActorContextError, OBJECT_CAPACITY};
+fn full_pool_faults_without_borrowing_last_spawn_or_consuming_later_random_draws() {
+    use super::super::{path_spawn::SpawnError, OBJECT_CAPACITY};
     let catalog = authored_paths::catalog();
     for root in [
         authored_paths::SELECTED_SCENERY_ARC_EMITTER,
@@ -592,7 +592,7 @@ fn full_pool_reuses_retained_last_spawn_and_null_selection_faults_after_admissio
                 16
             };
             let before = objects.clone();
-            let mut expected_random = random;
+            let expected_random = random;
             let mut events = AudioState::default();
             let mut inputs = world(&mut random);
             inputs.selected = Some(selected);
@@ -600,41 +600,8 @@ fn full_pool_reuses_retained_last_spawn_and_null_selection_faults_after_admissio
             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
             inputs.audio = Some(audio(&mut events));
             let result = runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 100);
-            if retained {
-                let yaw = expected_random.next_byte();
-                let dx = i16::from(expected_random.next_byte() as i8) * 6;
-                let dz = i16::from(expected_random.next_byte() as i8) * 6;
-                assert_eq!(
-                    result,
-                    Ok(ProgramExit {
-                        actor: owner,
-                        step: ControlStep::Movement
-                    })
-                );
-                let actor = objects.get(borrowed).unwrap();
-                assert_eq!(actor.base.path, before.get(borrowed).unwrap().base.path);
-                assert_eq!(
-                    actor.base.position,
-                    Vector3 {
-                        x: dx,
-                        y: if root == authored_paths::SELECTED_SCENERY_ARC_EMITTER {
-                            -500
-                        } else {
-                            0
-                        },
-                        z: dz
-                    }
-                );
-                assert_eq!(actor.base.yaw, Angle::from_units(yaw));
-            } else {
-                assert_eq!(
-                    result,
-                    Err(ProgramError::ActorContext(
-                        ActorContextError::MissingLastSpawn
-                    ))
-                );
-                assert_eq!(objects.get(borrowed), before.get(borrowed));
-            }
+            assert_eq!(result, Err(ProgramError::Spawn(SpawnError::PoolExhausted)));
+            assert_eq!(objects.get(borrowed), before.get(borrowed));
             assert_eq!(objects.len(), OBJECT_CAPACITY);
             for &id in objects.active_ids() {
                 if id != owner && id != borrowed {
@@ -645,11 +612,7 @@ fn full_pool_reuses_retained_last_spawn_and_null_selection_faults_after_admissio
             assert_eq!(inputs.random, &expected_random);
             assert_eq!(
                 objects.get(owner).unwrap().base.attachment,
-                if root == authored_paths::SELECTED_SCENERY_ARC_EMITTER {
-                    retained.then_some(borrowed)
-                } else {
-                    None
-                }
+                None
             );
         }
     }

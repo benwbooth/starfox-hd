@@ -561,7 +561,7 @@ fn emitter_waits_twenty_five_plus_two_visits_per_attack_parameter_between_spawns
 }
 
 #[test]
-fn full_pool_still_increments_counter_without_mutating_last_spawn_or_other_actors() {
+fn full_pool_faults_before_counter_increment_without_mutating_last_spawn_or_other_actors() {
     let catalog = authored_paths::catalog();
     for root in ROOTS {
         for previous in [false, true] {
@@ -597,16 +597,17 @@ fn full_pool_still_increments_counter_without_mutating_last_spawn_or_other_actor
             inputs.coordination = Some(&mut shared);
             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
             inputs.selected = Some(selected);
-            for _ in 0..2 {
+            for visit in 0..2 {
                 assert_eq!(
                     runtime
                         .enter_program(&catalog, &mut objects, owner, &mut inputs, 100)
-                        .unwrap()
-                        .step,
-                    ControlStep::Movement
+                        .map(|exit| exit.step),
+                    if visit == 0 { Ok(ControlStep::Movement) } else {
+                        Err(ProgramError::Spawn(super::super::path_spawn::SpawnError::PoolExhausted))
+                    }
                 );
             }
-            assert_eq!(inputs.coordination.as_deref().unwrap().handshake, 1);
+            assert_eq!(inputs.coordination.as_deref().unwrap().handshake, 0);
             assert_eq!(runtime.spawns.last_spawn, last_spawn);
             for (id, before) in bystanders {
                 assert_eq!(objects.get(id).unwrap(), &before);

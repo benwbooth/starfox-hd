@@ -49,10 +49,10 @@ class PlayerConsumableStaticTests(unittest.TestCase):
         self.assert_source(0x06AAC6, "C2 20 B9 3B 6B C9 00 00 E2 20 F0 04 5C E0 AA 06 C2 20 A9 80 00 99 3B 6B E2 20")
         self.assert_source(0x7FB1EF, "5A B4 2B C2 20 B9 3B 6B C9 00 00 E2 20 F0 04 5C 0B B2 7F C2 20 A5 02 99 3B 6B E2 20")
 
-    def test_recovery_feedback_installer_preserves_existing_child_and_succeeds_on_full_pool(self):
+    def test_recovery_feedback_installer_preserves_existing_child_before_allocation(self):
         # Number 24 is distinct from the healing emitter's number 22. A found
-        # child returns immediately; failed allocation leaves no child. Both
-        # exits return success and neither undoes the preceding shield write.
+        # child returns immediately. The apparent carry-clear return after
+        # allocation cannot execute: exhaustion enters non-returning $008032.
         self.assert_source(0x07D0C6,
             "5A 08 E2 20 C2 10 A9 18 22 7B 2A 7F C0 00 00 F0 04 5C 19 D1 07 C2 20 A9 9C BC "
             "85 5F E2 20 22 17 2A 7F B0 04 5C 07 D1 07 A9 18 22 3D 2A 7F DA BB 7A C2 20 "

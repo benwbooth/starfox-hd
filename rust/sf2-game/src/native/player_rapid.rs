@@ -133,7 +133,12 @@ fn flight_helper(
         y: 0,
         z: distance,
     };
-    Ok(dispatch(objects, world, resources, owner, weapon, defaults)?.is_some())
+    dispatch(objects, world, resources, owner, weapon, defaults)?;
+    // Shot-count rejection preserves the helper's non-null player/view
+    // selection just like a no-weapon level. The enclosing flight wrapper
+    // accepts that return and consumes the queued request without a shot.
+    // Pool exhaustion, unlike admission rejection, never returns here.
+    Ok(true)
 }
 
 fn launch_flight(
@@ -181,7 +186,7 @@ fn launch_flight(
     let original = (actor.base.position.x, actor.base.position.z);
     actor.base.position.x = position.x;
     actor.base.position.z = position.z;
-    // On an ordinary allocation rejection, restore the source origin. A
+    // On an ordinary admission rejection, restore the source origin. A
     // diagnostic fault retains earlier writes and must not be retried.
     let result = flight_helper(objects, world, resources, owner, level, distance, defaults)?;
     let actor = objects.get_mut(owner).expect("live rapid caller");

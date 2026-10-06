@@ -41,9 +41,8 @@ pub struct OffsetSpawn {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnError {
     Relationships(RelationshipError),
-    /// Source allocation failure publishes a null last-spawn and then writes
-    /// fields through that null destination. Native execution reports a fault
-    /// instead of emulating those unrelated memory corruptions.
+    /// Strategy allocation enters the non-returning fatal display before
+    /// publishing last-spawn or returning to any child/independent caller.
     PoolExhausted,
     /// Only malformed preexisting native chains can reach this case. The
     /// allocated object remains live and identifiable for error reporting.
@@ -145,7 +144,7 @@ impl SpawnState {
         fresh.base.hit_points = parameters.actor.hit_points;
         fresh.base.attack_power = parameters.actor.attack_power;
         let Some(created) = objects.allocate_scoped_after(caller, fresh) else {
-            return Ok(None);
+            return Err(SpawnError::PoolExhausted);
         };
         self.last_spawn = Some(created);
         Ok(Some(created))
@@ -153,8 +152,8 @@ impl SpawnState {
 
     /// `$7F:91A3`: an independent actor copies the caller's world pose and
     /// player/group selection, but no attachment, relative pose, or velocity.
-    /// Allocation failure is an ordinary skipped spawn and leaves last_spawn
-    /// unchanged ($7F:9224), unlike the attached-child failure path.
+    /// Exhaustion is terminal and preserves last_spawn. The apparent failure
+    /// continuation at $7F:9224 is unreachable after the fatal allocator call.
     pub fn independent(
         &mut self,
         objects: &mut ObjectStore,
@@ -180,7 +179,7 @@ impl SpawnState {
         fresh.base.hit_points = parameters.hit_points;
         fresh.base.attack_power = parameters.attack_power;
         let Some(created) = objects.allocate_scoped_after(caller, fresh) else {
-            return Ok(None);
+            return Err(SpawnError::PoolExhausted);
         };
         self.last_spawn = Some(created);
         Ok(Some(created))
@@ -201,7 +200,6 @@ impl SpawnState {
             path_relationships::spawn_parent(objects, caller).map_err(SpawnError::Relationships)?;
         let fresh = Object::new_authored(kind, parameters.shape, Behavior::FollowPath, defaults);
         let Some(child) = objects.allocate_scoped_after(caller, fresh) else {
-            self.last_spawn = None;
             return Err(SpawnError::PoolExhausted);
         };
         path_relationships::attach_fresh_child(objects, parent, child, parameters.number)
@@ -383,7 +381,7 @@ mod tests {
                 },
                 ObjectSpawnDefaults::default()
             ),
-            Ok(None)
+            Err(SpawnError::PoolExhausted)
         );
         assert_eq!(spawns.last_spawn, Some(caller));
         assert_eq!(objects, before);
@@ -602,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn full_pool_clears_last_spawn_and_faults_without_a_fake_actor_or_null_field_writes() {
+    fn full_pool_faults_before_last_spawn_or_actor_writes() {
         let mut objects = ObjectStore::new();
         let caller = objects.allocate(actor()).unwrap();
         for _ in 1..OBJECT_CAPACITY {
@@ -623,7 +621,7 @@ mod tests {
             ),
             Err(SpawnError::PoolExhausted)
         );
-        assert_eq!(spawns.last_spawn, None);
+        assert_eq!(spawns.last_spawn, Some(caller));
         assert_eq!(objects, before);
     }
 

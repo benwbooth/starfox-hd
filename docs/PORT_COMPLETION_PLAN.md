@@ -113,6 +113,36 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Corrected the shared strategy-object exhaustion contract across charged
+  fire, consumables, shield feedback, ordinary/rapid weapons, reflection,
+  path fire, and all three path-spawn forms. Errors stop at the original
+  non-returning fatal allocation boundary while retaining earlier parameter,
+  input, shield, action, incoming-shot-disable and random-state writes.
+  Failed spawns preserve the previous last-spawn selection; no unrelated
+  retained actor is borrowed and no later emitter counter/cursor advances.
+  Existing-child and real admission gates still return normally. Map
+  allocation remains separate. This supersedes the older graceful-drop,
+  null-publication and full-pool fallback expectations below.
+  Original execution also exposed a rapid-fire distinction: shot-count
+  admission rejection retains the player's non-null auxiliary/view selection,
+  so the flight wrapper consumes a queue entry even without a shot. Fatal
+  exhaustion never returns, never consumes that entry, and can retain the
+  linked view's temporary X/Z position. The native service now preserves
+  both outcomes. New source tests exercise complete original installers,
+  dispatchers, operand readers, pool code and sound/random routines; no
+  allocator or error handler is patched. All 61 original player-service
+  comparisons pass in debug/release, including nine new groups with 80,918
+  exhaustion/admission fixtures. All 1,331 native tests and two architecture
+  checks pass in both profiles; oracle-enabled verification passes 1,339
+  unit tests, 35 runtime tests and two architecture checks. All 670 source
+  checks, 209 lowerer tests, exact catalog/architecture checks and all three
+  application builds pass.
+  The caller-dependent result of a rejected rapid selector in path fire
+  still needs a separate source-context audit; player-flight rejection must
+  not be generalized into an assumed reserved-actor fallback. Production
+  flight/frame integration and the previously recorded whole-game blockers
+  remain open.
+
 - Ported the complete boost/brake selector, transitions and both cancellation
   entries, including the real numbered boost and paired brake effect
   installers. State is owned by the player allocation; processed input,
@@ -127,9 +157,9 @@ running; scheduled work is not a guarantee of a completion date.
   Its apparent carry-clear return is unreachable. Throttle now reports and
   latches `ObjectPoolExhausted`, preserving partial child allocation and
   control writes; the oracle compares the real fatal-entry boundary without
-  patching code. Other callers of `$7F:2925/$7F:2A17`, including earlier
-  charged/consumable effects and weapon launchers, still need a capacity-failure
-  audit: their existing graceful-drop tests are not proof of this contract.
+  patching code. This discovery prompted the shared caller capacity-failure
+  audit recorded above; earlier graceful-drop tests were not proof of this
+  contract.
   This closes another dependency of the native flight visit, not its
   production frame integration; ambient motion, surface response, speed,
   movement and camera remain open. All 1,331 native tests and two architecture

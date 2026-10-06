@@ -365,10 +365,15 @@ fn every_count_uses_signed_admission_before_allocation_and_never_changes_the_cou
                     caller,
                     request(weapon),
                     &mut world,
-                )
-                .unwrap();
-                assert_eq!(result.is_some(), admitted && !full);
-                if result.is_none() {
+                );
+                if admitted && full {
+                    assert_eq!(result, Err(LaunchError::Creation(
+                        weapon_creation::CreationError::ObjectPoolExhausted,
+                    )));
+                } else {
+                    assert_eq!(result.unwrap().is_some(), admitted);
+                }
+                if full || !admitted {
                     assert_eq!(objects, before);
                 }
                 assert_eq!(

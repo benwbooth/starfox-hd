@@ -484,35 +484,40 @@ fn release_launches_real_charged_mesh_resets_shared_parameters_and_keeps_walker_
 }
 
 #[test]
-fn full_pool_skips_effect_inputs_but_keeps_start_ready_and_release_side_effects() {
+fn full_pool_faults_before_charge_cues_and_after_release_parameters_are_cleared() {
     let mut scene = Scene::new();
     scene.fill_pool();
     scene.world.spawn_defaults = None;
     scene.record().auxiliary = None;
     scene.charge().progress = 24 << 8;
     scene.world.weapons.as_mut().unwrap().published_pitch = None;
-    scene.visit(true, false).unwrap();
     assert_eq!(
-        scene.events(),
-        [
-            authored(49, PlayerTarget::Primary),
-            authored(53, PlayerTarget::Primary)
-        ]
+        scene.visit(true, false),
+        Err(SceneError::Charge(ChargeError::ObjectPoolExhausted))
     );
-    assert_eq!(scene.charge().progress, 25 << 8);
+    assert!(scene.events().is_empty());
+    assert_eq!(scene.charge().progress, 24 << 8);
+    assert_eq!(scene.charge().control, 0x80);
     assert_eq!(scene.effect(), None);
-    scene.record().auxiliary = Some(SelectedAuxiliaryState {
-        mode: 0x10,
-        action_flags: 1,
-        stored_world_position: Vector3::default(),
-        stored_rotation: Default::default(),
-    });
-    scene.visit(false, false).unwrap();
+    assert_eq!(scene.visit(true, false), Err(SceneError::Faulted));
+
+    let mut scene = Scene::new();
+    scene.fill_pool();
+    scene.world.spawn_defaults = None;
+    scene.record().auxiliary = None;
+    scene.charge().progress = (25 << 8) | 179;
+    scene.charge().control = 0xB7;
+    scene.world.weapons.as_mut().unwrap().parameters.yaw_offset = -37;
+    assert_eq!(scene.visit(false, false),
+        Err(SceneError::Charge(ChargeError::ObjectPoolExhausted)));
     assert_eq!(scene.objects.len(), OBJECT_CAPACITY);
-    assert_eq!(scene.charge().rapid_control, 5);
-    assert_eq!(scene.charge().speed_impulse, 30);
-    assert_eq!(scene.charge().progress, 12 << 8);
-    assert_eq!(scene.events(), [authored(244, PlayerTarget::Primary)]);
+    assert_eq!(scene.charge().rapid_control, 0);
+    assert_eq!(scene.charge().speed_impulse, 0);
+    assert_eq!(scene.charge().progress, (25 << 8) | 179);
+    assert_eq!(scene.charge().control, 0xA7);
+    assert_eq!(scene.world.weapons.unwrap().parameters, Default::default());
+    assert!(scene.events().is_empty());
+    assert_eq!(scene.visit(false, false), Err(SceneError::Faulted));
 }
 
 #[test]

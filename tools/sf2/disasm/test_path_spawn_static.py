@@ -71,7 +71,7 @@ class PathSpawnStaticTests(unittest.TestCase):
         self.assert_source(0x7F2BD2, "B5 12 99 12 00 B5 14 99 14 00 B5 16 99 16 00 6B")
         self.assert_source(0x7FCA72, "E2 20 C2 20 B5 2B 18 69 07 00 95 2B")
 
-    def test_failed_allocator_returns_null_destination_without_initializing_an_actor(self):
+    def test_allocator_wrapper_contains_unreachable_carry_clear_return_after_fatal(self):
         self.assert_source(0x7F2A17, "86 3A AE A8 12 22 25 29 7F B0 07 A0 00 00 A6 3A 18 6B 9B A6 3A E2 20 22 BC 29 7F C2 20 A5 5F 99 04 00 E2 20 38 6B")
 
     def test_first_path_strategy_sets_flags_and_clears_repeat_not_wait_or_stack(self):

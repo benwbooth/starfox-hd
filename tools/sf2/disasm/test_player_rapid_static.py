@@ -31,7 +31,7 @@ class PlayerRapidStaticTests(unittest.TestCase):
         self.assert_source(0x07D988, "DA 5A 08 E2 20 C2 10 B4 2B A9 00 8D BC 1D B9 06 6C 8D B6 1D C2 20 AD 84 1B 89 02 00 E2 20 F0 03 4C 19 DA")
         self.assert_source(0x07D9AB, "5A B4 2B B9 63 6B 7A 89 40 F0 04 5C C2 D9 07 29 80 F0 04 5C D1 D9 07")
 
-    def test_linked_origin_copies_only_xz_and_restores_even_when_allocation_fails(self):
+    def test_linked_origin_copies_only_xz_and_restores_only_after_a_returning_helper(self):
         self.assert_source(0x07D9D1, "AD B6 1D 3A F0 07 3A F0 04 A9 14 80 02 A9 EC 8D BC 1D A0 3F 03 C2 20 B5 0C 8D BA 1D B5 10 8D B8 1D B9 0C 00 95 0C B9 10 00 95 10 E2 20 20 1E DA C2 20 AD BA 1D 95 0C AD B8 1D 95 10 E2 20 C0 00 00 F0 05 28 7A FA 38 60 28 7A FA 18 60")
 
     def test_no_weapon_level_keeps_non_null_selection_that_wrapper_accepts(self):
@@ -49,6 +49,13 @@ class PlayerRapidStaticTests(unittest.TestCase):
     def test_each_valid_profile_resets_muzzle_and_calls_its_real_variant(self):
         for address, selection in [(0x07DA4C, 6), (0x07DA6E, 8), (0x07DA8F, 10)]:
             self.assert_source(address, f"A9 00 8D B0 14 A9 00 8D B2 14 AD BC 1D 8D B4 14 A9 {selection:02X} 22 9C A8 03 C0 00 00")
+
+    def test_shot_count_rejection_preserves_non_null_player_view_selection_and_consumes_queue(self):
+        # The count gate restores its incoming selection. Its rejected
+        # launcher returns directly; no zero destination is manufactured.
+        self.assert_source(0x06A9E6,
+            "08 5A B4 2B B9 03 6C 7A C9 08 10 03 28 38 6B 28 18 6B")
+        self.assert_source(0x0DE0CE, "6B")
 
 
 if __name__ == "__main__":

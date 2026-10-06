@@ -156,7 +156,7 @@ pub fn launch(
         );
     }
     if objects.len() == OBJECT_CAPACITY {
-        return Ok(None);
+        return Err(LaunchError::Creation(CreationError::ObjectPoolExhausted));
     }
     let player_heavy = if request.weapon == PathWeapon::PlayerOrHostileHeavy {
         let primary = world.primary.ok_or(LaunchError::MissingPrimary)?;

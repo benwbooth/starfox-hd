@@ -226,7 +226,7 @@ fn charged_mesh_requires_a_pitch_snapshot_unless_allocation_already_fails() {
                 random: &mut random,
             }
         ),
-        Ok(None)
+        Err(LaunchError::Creation(CreationError::ObjectPoolExhausted))
     );
     assert_eq!(objects, before);
     assert_eq!(random, before_random);
@@ -584,7 +584,7 @@ fn missing_inputs_fault_atomically_but_nonhostile_and_full_pool_need_no_unread_i
                     random: &mut random,
                 }
             ),
-            Ok(None)
+            Err(LaunchError::Creation(CreationError::ObjectPoolExhausted))
         );
         assert_eq!(objects, before);
         assert_eq!(random, before_random);

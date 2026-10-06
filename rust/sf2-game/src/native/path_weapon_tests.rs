@@ -175,8 +175,8 @@ fn fire_resets_shared_pose_inputs_and_publishes_spawn_without_consuming_ifnot_or
 }
 
 #[test]
-fn full_pool_publishes_real_fallback_and_only_adds_path_exclusion_membership() {
-    let (catalog, entry, finish) = fire_catalog();
+fn full_pool_faults_before_fallback_edits_or_last_spawn_and_path_advance() {
+    let (catalog, entry, _) = fire_catalog();
     for selection in [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32] {
         for owner_is_fallback in [false, true] {
             let (mut runtime, mut objects, owner, mut random) = setup();
@@ -205,14 +205,7 @@ fn full_pool_publishes_real_fallback_and_only_adds_path_exclusion_membership() {
             while objects.len() < OBJECT_CAPACITY {
                 objects.allocate(actor()).unwrap();
             }
-            let mut expected = objects.clone();
-            expected.get_mut(owner).unwrap().base.path = Some(finish);
-            expected
-                .get_mut(fallback)
-                .unwrap()
-                .base
-                .contacts
-                .exclusion_groups = ExclusionGroups::from_authored_class(0xB8);
+            let expected = objects.clone();
             let before_random = random;
             let mut state = prior_state(Some(fallback));
             let mut expected_state = state;
@@ -224,16 +217,14 @@ fn full_pool_publishes_real_fallback_and_only_adds_path_exclusion_membership() {
             inputs.weapons = Some(&mut state);
             inputs.caller_weapon_inputs = Some(rapid_inputs(owner));
             assert_eq!(
-                runtime
-                    .enter_program(&catalog, &mut objects, owner, &mut inputs, 2)
-                    .unwrap()
-                    .step,
-                ControlStep::Movement
+                runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 2),
+                Err(ProgramError::WeaponLaunch(weapon_dispatch::LaunchError::Creation(
+                    super::super::weapon_creation::CreationError::ObjectPoolExhausted)))
             );
             assert_eq!(objects, expected);
             assert_eq!(random, before_random);
             assert_eq!(state, expected_state);
-            assert_eq!(runtime.spawns.last_spawn, Some(fallback));
+            assert_eq!(runtime.spawns.last_spawn, None);
             assert!(runtime.branch.invert_next);
         }
     }
@@ -313,7 +304,7 @@ fn admission_rejection_uses_real_fallback_even_with_free_pool_slots() {
 }
 
 #[test]
-fn unported_selector_and_missing_fallback_fail_explicitly_without_synthesizing_weapons() {
+fn unported_selector_and_missing_state_fail_and_full_pool_never_reads_fallback() {
     let (catalog, entry, _) = fire_catalog();
     for selection in 0..=u8::MAX {
         if PathWeapon::from_selection(selection).is_some() {
@@ -353,7 +344,8 @@ fn unported_selector_and_missing_fallback_fail_explicitly_without_synthesizing_w
         }
         let before = objects.clone();
         let mut state = prior_state(None);
-        let before_state = state;
+        let mut expected_state = state;
+        if missing { expected_state.parameters = Default::default(); }
         let mut inputs = world(&mut random);
         inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
         if missing {
@@ -362,13 +354,14 @@ fn unported_selector_and_missing_fallback_fail_explicitly_without_synthesizing_w
         assert_eq!(
             runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 1),
             Err(if missing {
-                ProgramError::MissingWeaponFallback
+                ProgramError::WeaponLaunch(weapon_dispatch::LaunchError::Creation(
+                    super::super::weapon_creation::CreationError::ObjectPoolExhausted))
             } else {
                 ProgramError::MissingWeaponState
             })
         );
         assert_eq!(objects, before);
-        assert_eq!(state, before_state);
+        assert_eq!(state, expected_state);
     }
 }
 

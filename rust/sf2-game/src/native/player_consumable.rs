@@ -78,6 +78,7 @@ pub enum ConsumableError {
     MissingPlayerAction(ObjectId),
     MissingShieldCapacity,
     MissingProjectileTrigger,
+    ObjectPoolExhausted,
 }
 
 impl From<WorldInputError> for ConsumableError {
@@ -120,16 +121,18 @@ fn allocate_effect(
     objects: &mut ObjectStore,
     world: &ScenePathWorld,
     kind: ObjectKind,
-) -> Result<Option<ObjectId>, ConsumableError> {
+) -> Result<ObjectId, ConsumableError> {
     if objects.len() == OBJECT_CAPACITY {
-        return Ok(None);
+        return Err(ConsumableError::ObjectPoolExhausted);
     }
     let defaults = world
         .spawn_defaults()
         .ok_or(ConsumableError::MissingSpawnDefaults)?;
     let effect = Object::new_authored(kind, ShapeId::EMPTY, Behavior::FollowPath, defaults);
     let head = objects.active_ids().first().copied();
-    Ok(objects.allocate_after(head, effect))
+    objects
+        .allocate_after(head, effect)
+        .ok_or(ConsumableError::ObjectPoolExhausted)
 }
 
 fn install_triggered(
@@ -137,9 +140,7 @@ fn install_triggered(
     world: &ScenePathWorld,
     owner: ObjectId,
 ) -> Result<(), ConsumableError> {
-    let Some(effect) = allocate_effect(objects, world, ObjectKind::Projectile)? else {
-        return Ok(());
-    };
+    let effect = allocate_effect(objects, world, ObjectKind::Projectile)?;
     objects
         .get_mut(effect)
         .expect("allocated projectile")
@@ -163,9 +164,7 @@ pub fn install_recovery(
     if path_relationships::find_direct_child(objects, owner, RECOVERY_EFFECT_NUMBER)?.is_some() {
         return Ok(false);
     }
-    let Some(effect) = allocate_effect(objects, world, ObjectKind::Effect)? else {
-        return Ok(false);
-    };
+    let effect = allocate_effect(objects, world, ObjectKind::Effect)?;
     path_relationships::attach_fresh_child(objects, owner, effect, RECOVERY_EFFECT_NUMBER)?;
     objects
         .get_mut(effect)
@@ -183,9 +182,9 @@ pub fn install_recovery(
     Ok(true)
 }
 
-/// Return whether the item was consumed. Ordinary rejection and object-pool
-/// exhaustion are not diagnostic failures. Writes preceding a missing input
-/// remain committed; the scene wrapper prevents replay of a faulted visit.
+/// Return whether the item was consumed. Ordinary admission rejection is not
+/// a fault, but pool exhaustion enters the source's non-returning diagnostic.
+/// Earlier writes remain committed; the scene wrapper prevents replay.
 pub fn use_item(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,

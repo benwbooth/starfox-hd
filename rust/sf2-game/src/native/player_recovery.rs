@@ -18,6 +18,7 @@ pub enum RecoveryError {
     MissingRequest,
     MissingShieldCapacity,
     MissingSpawnDefaults,
+    ObjectPoolExhausted,
 }
 
 impl From<WorldInputError> for RecoveryError {
@@ -38,10 +39,11 @@ fn install_feedback(
 ) -> Result<(), RecoveryError> {
     // An existing child is not reformatted or restarted, including when it
     // has already been marked for removal but is still linked this visit.
-    if path_relationships::find_direct_child(objects, owner, FEEDBACK_NUMBER)?.is_some()
-        || objects.len() == OBJECT_CAPACITY
-    {
+    if path_relationships::find_direct_child(objects, owner, FEEDBACK_NUMBER)?.is_some() {
         return Ok(());
+    }
+    if objects.len() == OBJECT_CAPACITY {
+        return Err(RecoveryError::ObjectPoolExhausted);
     }
     let defaults = world
         .spawn_defaults()
@@ -54,7 +56,7 @@ fn install_feedback(
     );
     let head = objects.active_ids().first().copied();
     let Some(effect) = objects.allocate_after(head, effect) else {
-        return Ok(());
+        return Err(RecoveryError::ObjectPoolExhausted);
     };
     path_relationships::attach_fresh_child(objects, owner, effect, FEEDBACK_NUMBER)?;
     objects
@@ -67,8 +69,8 @@ fn install_feedback(
 }
 
 /// Clear the shared request before any player/capacity reads. Recovery goes
-/// to this caller, not implicitly the primary player. Ordinary exhaustion of
-/// visual-effect slots never cancels or requeues a completed shield change.
+/// to this caller, not implicitly the primary player. Pool exhaustion faults
+/// after the shield change; it never cancels or requeues that completed write.
 /// Returns whether a nonzero request was consumed, not allocation success.
 pub fn consume(
     objects: &mut ObjectStore,

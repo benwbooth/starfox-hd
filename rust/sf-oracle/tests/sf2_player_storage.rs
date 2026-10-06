@@ -38,6 +38,9 @@ mod vertical_tests;
 #[path = "support/sf2_player_throttle.rs"]
 mod throttle_tests;
 
+#[path = "support/sf2_player_pool_failure.rs"]
+mod pool_failure_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};
