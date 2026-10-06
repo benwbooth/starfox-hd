@@ -123,6 +123,7 @@ pub enum SceneError<E> {
     PlayerStorage(super::player_storage::PlayerStorageError),
     TargetLock(super::player_target_lock::TargetLockError),
     ReticlePosition(super::player_target_lock::ReticlePositionError),
+    Reticle(super::player_reticle::ReticleError),
     PlayerInput(super::player_input::PlayerInputError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
@@ -241,6 +242,39 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
             .target_reticle
             .track_projected(projected)
             .map_err(SceneError::ReticlePosition);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Player-mode service ($07:B038), separate from display positioning.
+    pub fn prepare_player_reticle(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_reticle::prepare(self.objects, self.world, owner)
+            .map_err(SceneError::Reticle);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Continuous display slice ($07:A418..A66B), including real projection,
+    /// reticle easing and target retention. The caller owns display cadence
+    /// and must publish the earlier retained matrix/viewport. Marker drawing
+    /// and the display service's preceding instrument work remain separate.
+    pub fn position_and_retain_primary_target(&mut self) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = (|| {
+            let owner = self.world.primary_player.ok_or(SceneError::MissingPrimaryPlayer)?;
+            super::player_reticle::position(self.objects, self.world, owner)
+                .map_err(SceneError::Reticle)?;
+            self.retain_primary_target()
+        })();
         if result.is_err() {
             self.execution.faulted = true;
         }

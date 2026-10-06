@@ -152,6 +152,25 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Reticle mode preparation (`$07:B038..B0CD`) and the complete position producer
+(`$07:A418..A504`) now use live scene/player owners. Preparation is independently
+scheduled by the actual player-mode caller; display positioning and target
+retention compose into one scene-host slice through `$07:A66B`. The inactive
+branch resets both axes to 100. The active branch copies current player
+rotation and retained aim into the existing proxy, uses the fixed view's saved
+render origin, publishes its fine angles, and applies the retained view matrix
+without rebuilding it. Source execution checks all 32,768 preparation cases,
+512 missing-input prefixes, 75,265 complete host/two-graphics-job projections
+and 3,072 uninterrupted projection-to-retention cases including audio. Native
+tests cover lazy inputs, partial mutations, allocation reset and fault latching.
+Scene enable/inhibition and frame-produced matrix/viewport must be explicitly
+published. The earlier instrument services, marker drawing and `Game::tick`
+display cadence remain unclosed; this is not shipping full-display integration.
+All 1,280 native tests and 23 selected original-execution tests pass in debug
+and release. Compatibility-feature testing passes 1,288 unit tests and 35
+runtime tests; 209 lowerer tests, 629 static tests, catalog/architecture checks
+and all three app builds also pass.
+
 The numerical reticle-positioning dependency is now source-backed. The
 individual-point job (`$01:D50A`) always uses bounded division, including at
 depths where mesh projection selects a reciprocal table. Native code reuses

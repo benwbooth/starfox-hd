@@ -58,6 +58,7 @@ pub struct PlayerPathRecords {
     /// Candidate/marker selection, distinct from the scripted follow target.
     pub target_selection: Option<super::path_target::TargetSelection>,
     pub target_lock: Option<super::player_target_lock::TargetLock>,
+    pub reticle_display: Option<super::player_reticle::ReticleDisplay>,
     pub visit: Option<super::player_visit::PlayerVisitControl>,
     /// Scripted input words (6A88/6A8A), ORed after controller remapping and
     /// the activity mask, then cleared only by an admitted input visit.
@@ -188,6 +189,12 @@ pub struct ScenePathWorld {
     /// Retained homing publication, independent of fresh target selection.
     pub published_homing_target: Option<super::path_target::PublishedHomingTarget>,
     pub target_reticle: super::player_target_lock::TargetReticle,
+    /// Shared reticle-enable bit (1E2F bit 80); entry/reset owns publication.
+    pub reticle_enabled: Option<bool>,
+    /// Shared scene gate (1B96 bit 0100). Its producer is distinct from
+    /// scripted-view mode and must not be inferred from it or player health.
+    pub reticle_inhibited: Option<bool>,
+    pub marker_projection: super::player_reticle::MarkerProjection,
     pub countdown: Option<super::path_countdown::PathCountdown>,
     pub impact: Option<super::path_impact::ImpactState>,
     pub occupancy: Option<super::world_occupancy::WorldOccupancy>,
@@ -313,6 +320,9 @@ impl ScenePathWorld {
             linked_effect_activity: None,
             published_homing_target: None,
             target_reticle: Default::default(),
+            reticle_enabled: None,
+            reticle_inhibited: None,
+            marker_projection: Default::default(),
             countdown: None,
             impact: None,
             occupancy: None,

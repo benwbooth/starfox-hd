@@ -113,6 +113,27 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Closed the reticle mode preparer (`$07:B038..B0CD`) and full position
+  producer (`$07:A418..A504`), composing the latter with target retention in
+  one scene-host display slice. Preparation retains the visiting actor's
+  marker state; display copies the primary player's current rotation and
+  retained aim into the real aim proxy. Projection uses the fixed view's
+  saved render origin and the previously prepared matrix, while separately
+  publishing its full fine angles. It does not recompute that matrix from
+  the newly published angles. Hidden reticles reset both axes to 100 without
+  reading projection inputs. Mode preparation matches 32,768 original cases
+  and 512 diagnostic prefixes. Unmodified host execution and both original
+  graphics jobs match 75,265 projection cases; 3,072 continuous cases verify
+  the composed scene-host projection/retention slice including its sound
+  queue. Missing inputs preserve completed writes and latch against retry.
+  Shared enable/inhibition and retained matrix/viewport remain explicit
+  publications, not fabricated defaults. The preceding instrument services,
+  marker drawing and source-owned shipping frame scheduling remain open.
+  Validation passes all 1,280 native tests and 23 selected original-execution
+  tests in debug/release, 1,288 compatibility-feature unit tests and 35 runtime
+  tests, 209 lowerer tests, 629 static tests, catalog/architecture checks and
+  all three app builds.
+
 - Closed the numerical reticle-positioning dependency of target retention.
   Individual markers use the source's bounded-division projector at every
   depth, not the mesh's far-depth reciprocal table. The positioning tail

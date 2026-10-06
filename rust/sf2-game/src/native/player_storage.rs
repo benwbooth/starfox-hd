@@ -136,6 +136,7 @@ pub fn replace(
         target_control: Some(Default::default()),
         target_selection: Some(Default::default()),
         target_lock: Some(Default::default()),
+        reticle_display: Some(Default::default()),
         visit: Some(super::player_visit::PlayerVisitControl {
             pilot_code: inputs.pilot_code,
             ..Default::default()
