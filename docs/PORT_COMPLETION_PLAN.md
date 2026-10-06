@@ -178,6 +178,17 @@ running; scheduled work is not a guarantee of a completion date.
   on missing-input resume. All 1,073 native tests and two integration tests pass
   in debug/release; all 550 source tests, architecture, exact regeneration and
   the app build pass. Production integration status is unchanged.
+- Reviewed the existing SF1 path-fire correction against all six source
+  handlers: ordinary fire ORs the ENEMY1 class after construction; CANHIT
+  neither adds nor clears that class and leaves constructor immunity intact.
+  An opcode-level test covers all six forms, existing class bits, inactive
+  targets, slot-zero targets and allocation failure. The `ponpon` trace's 225
+  post-construction projectile records now add that one bit; a source test
+  reverses only that field and verifies the original complete-file hash.
+  This closes the `sf-path/interp_trace` baseline failure without generating
+  expected data from native output. All 38 path tests pass in debug/release;
+  the three source/fixture-audit tests, architecture check and app build pass.
+  The other five failing targets remain open.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

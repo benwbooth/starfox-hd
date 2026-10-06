@@ -671,12 +671,22 @@ fn path_find_near_shape(
     best
 }
 
+/// Apply the collision-class distinction encoded by the source's ordinary
+/// and `CANHIT` path-fire opcodes.
+/// PATHS.ASM .fire/.fireatplayer/.fireatshape OR ENEMY1 after construction;
+/// their CANHIT counterparts omit that instruction. Neither changes immunity.
+fn apply_path_fire_collision_class(projectile: &mut Alien, is_can_hit_variant: bool) {
+    if !is_can_hit_variant {
+        projectile.collflags |= ACF_COLLTYPE2;
+    }
+}
+
 /// C `path_fire_weapon`.
 fn path_fire_weapon<H: PathHost>(
     world: &mut PathWorld,
     host: &mut H,
     self_idx: usize,
-    can_hit_owner: bool,
+    is_can_hit_variant: bool,
 ) -> Option<u16> {
     let (mut speed, weapontype, rotx, roty) = {
         let al = &world.aliens[self_idx];
@@ -711,9 +721,7 @@ fn path_fire_weapon<H: PathHost>(
         ACF_COLLTYPE4,
     );
     if let Some(s) = shot {
-        if can_hit_owner {
-            world.aliens[s as usize].immuneptr = 0;
-        }
+        apply_path_fire_collision_class(&mut world.aliens[s as usize], is_can_hit_variant);
     }
     shot
 }
@@ -788,10 +796,10 @@ fn path_fire_at_target<H: PathHost>(
     world: &mut PathWorld,
     host: &mut H,
     self_idx: usize,
-    can_hit_owner: bool,
+    is_can_hit_variant: bool,
     target: Option<usize>,
 ) {
-    let shot = path_fire_weapon(world, host, self_idx, can_hit_owner);
+    let shot = path_fire_weapon(world, host, self_idx, is_can_hit_variant);
     let (shot, target) = match (shot, target) {
         (Some(s), Some(t)) => (s, t),
         _ => return,
@@ -3281,16 +3289,16 @@ pub fn strat_path_tick<H: PathHost>(world: &mut PathWorld, host: &mut H, self_id
             }
 
             P_FIREATPLAYER | P_FIREATPLAYERCANHIT => {
-                let can_hit_owner = opcode == P_FIREATPLAYERCANHIT;
+                let is_can_hit_variant = opcode == P_FIREATPLAYERCANHIT;
                 let target = path_get_player(world, host);
-                path_fire_at_target(world, host, si, can_hit_owner, target);
+                path_fire_at_target(world, host, si, is_can_hit_variant, target);
                 advance = 1;
             }
 
             P_FIREATSHAPE | P_FIREATSHAPECANHIT => {
-                let can_hit_owner = opcode == P_FIREATSHAPECANHIT;
+                let is_can_hit_variant = opcode == P_FIREATSHAPECANHIT;
                 let target = path_get_obj_by_ptr(world, world.aliens[si].ptr);
-                path_fire_at_target(world, host, si, can_hit_owner, target);
+                path_fire_at_target(world, host, si, is_can_hit_variant, target);
                 advance = 1;
             }
 
@@ -3567,6 +3575,45 @@ mod object_handle_tests {
         assert_ne!(player_handle, PATH_NULL_OBJ);
         assert_eq!(path_get_obj_by_ptr(&world, player_handle), Some(0));
         assert_eq!(path_get_obj_by_ptr(&world, PATH_NULL_OBJ), None);
+    }
+}
+
+#[cfg(test)]
+mod path_fire_tests {
+    use super::*;
+
+    fn projectile() -> Alien {
+        Alien {
+            collflags: ACF_COLLTYPE1 | ACF_COLLTYPE4,
+            immuneptr: 7,
+            ..Alien::default()
+        }
+    }
+
+    #[test]
+    fn ordinary_path_fire_adds_the_enemy_collision_class() {
+        let mut projectile = projectile();
+
+        apply_path_fire_collision_class(&mut projectile, false);
+
+        assert_eq!(
+            projectile.collflags & (ACF_COLLTYPE1 | ACF_COLLTYPE2 | ACF_COLLTYPE4),
+            ACF_COLLTYPE1 | ACF_COLLTYPE2 | ACF_COLLTYPE4
+        );
+        assert_eq!(projectile.immuneptr, 7);
+    }
+
+    #[test]
+    fn can_hit_path_fire_omits_the_enemy_collision_class() {
+        let mut projectile = projectile();
+
+        apply_path_fire_collision_class(&mut projectile, true);
+
+        assert_eq!(
+            projectile.collflags & (ACF_COLLTYPE1 | ACF_COLLTYPE2 | ACF_COLLTYPE4),
+            ACF_COLLTYPE1 | ACF_COLLTYPE4
+        );
+        assert_eq!(projectile.immuneptr, 7);
     }
 }
 
