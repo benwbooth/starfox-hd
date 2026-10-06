@@ -169,6 +169,7 @@ pub fn replace(
         steering: Some(Default::default()),
         vertical: Some(Default::default()),
         throttle: Some(Default::default()),
+        ambient: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),

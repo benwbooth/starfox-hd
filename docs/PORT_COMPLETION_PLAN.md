@@ -113,6 +113,26 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete ambient player waveform update (`$06:F2F7..F365`)
+  into canonical player-owned state. It preserves the early scripted-view
+  skip, independently wrapping/range-checked phases, special-family bank
+  hold, signed samples, and wrapping retained-word accumulation. Bank goes
+  directly to the existing pose composer; the retained offset is not
+  mislabeled as actor or camera height. The player initializer owns the
+  new fields and the native scene service latches partial errors.
+  Four original-code groups cover 145,408 cases, including all phase pairs,
+  all retained words, all mode bytes, high view flags, continuous pauses,
+  and continuous ambient-to-pose consumption without feeding native state
+  back into the reference. The three new native groups and exact waveform/
+  call-order source checks also pass. All 1,336 native tests and both
+  architecture checks pass in debug/release; oracle-enabled checks pass
+  1,344 unit tests, 35 runtime tests and both architecture checks. All 68
+  original player-service groups pass in both profiles, alongside 674
+  source checks, 209 lowerer tests, the exact catalog and architecture
+  checks, and builds of all three application binaries.
+  This removes one more dependency of the enclosing flight visit; surface
+  response, speed, motion, camera and production frame integration remain open.
+
 - Audited rapid-shot rejection through the complete original opcode and
   weapon dispatchers. The latter narrows the retained selection before
   entering the launcher. Therefore ordinary player shot-count rejection

@@ -131,6 +131,7 @@ pub enum SceneError<E> {
     PlayerSteering(super::player_steering::SteeringError),
     PlayerVertical(super::player_vertical::VerticalError),
     PlayerThrottle(super::player_throttle::ThrottleError),
+    PlayerAmbient(super::player_ambient::AmbientError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -159,6 +160,22 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Retained ambient terms, after roll input and before boost/brake.
+    pub fn advance_player_ambient(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_ambient::advance(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerAmbient);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Boost/brake service after roll/ambient and before surface/speed work.
     pub fn advance_player_throttle(
         &mut self,
