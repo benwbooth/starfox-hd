@@ -112,6 +112,28 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-05
 
+- Corrected SF1's live body/wing collision contracts: broken-wing wall damage
+  uses the body's cooldown and an explicit four-point power; wall entries skip
+  object recoil, wire wings skip impact cues, and both intact/broken wings share
+  the effect-copy/spark tail with its missing-effect gate. Damage scaling is an
+  arithmetic byte shift, and the final clamp tests the wrapped subtraction's
+  sign. Adopted the pre-existing quantized eleven-degree shake correction after
+  verifying both entry points against the original code; unrelated player and
+  collision edits remain unstaged. Replaced the damage test's two handwritten
+  mock implementations with calls to the actual shipping function: 132,608
+  original executions cover every health/power pair and cooldown byte, and
+  2,048 full body/wing source calls cover scaled powers, entry recoil, broken
+  wings, walls, effects and pool exhaustion. Four native tests and three source
+  assertions cover the same contracts without replay-derived expectations.
+  All 1,530 game/path/strategy tests pass in debug/release; the three scoped
+  oracle targets (13 tests), all 40 SF1 Python checks, architecture audit and
+  app build pass. An isolated staged-only checkout also passes the four native
+  collision tests and both new original-code targets, independently of the
+  unrelated working-tree edits. The Corneria route still reaches the carrier with two body
+  points against the old assertion of one. That assertion originates in the
+  native-search commit `1c624fc`, not an independent original-game checkpoint;
+  it remains unchanged pending route diagnosis. Neither it nor the separate
+  semantic-trace failures is certified by this collision slice.
 - Completed two additional SF2 source graphs: target-gated pulse attacker and
   periodic pulse-pair emitter. All 1,045 native tests and two integration tests
   pass in debug/release; app build succeeds.

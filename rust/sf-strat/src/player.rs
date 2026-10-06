@@ -1706,7 +1706,6 @@ fn pcollobj_valid(ptr: i16) -> bool {
 
 fn play_wing_hit_se(g: &mut Game, partner: Option<u16>, soft_se: u8) {
     if g.vars.pshipflags2 & PSF2_WIRESHIP != 0 {
-        g.hooks.play_se(soft_se);
         return;
     }
     match partner {
@@ -1763,10 +1762,14 @@ fn pwingcol(g: &mut Game, idx: u16) {
         g.coldet_apply_damage(idx, 1, 0);
     }
 
-    // `s_do_strat x` dispatches the wing's ordinary attachment strategy before
-    // either effect copies its position.
+    finish_wing_scrape(g, idx);
+}
+
+/// Shared `no_pwingcol` tail, reached by intact and broken wings alike.
+fn finish_wing_scrape(g: &mut Game, idx: u16) {
+    // Reattach before either effect copies the new position. A missing
+    // persistent scrape effect also suppresses transient spark allocation.
     pcbox_wing_strat(g, idx);
-    // Copy spexplod FX to box pos if sword1 holds one.
     let sword = g.objs.aliens[idx as usize].sword1;
     if sword > 0 {
         let src = g.objs.aliens[idx as usize];
@@ -1775,9 +1778,9 @@ fn pwingcol(g: &mut Game, idx: u16) {
             fx.worldx = src.worldx;
             fx.worldy = src.worldy;
             fx.worldz = src.worldz;
+            sgen_spark(g, idx);
         }
     }
-    sgen_spark(g, idx);
 }
 
 /// ROM `brkpwingcol` (PSTRATS.ASM:91) — broken wing: bounce hit onto body box.
@@ -1786,8 +1789,14 @@ fn brkpwingcol(g: &mut Game, idx: u16) {
         let partner = g.objs.aliens[idx as usize].collobjptr;
         g.objs.aliens[body as usize].collobjptr = partner;
         g.objs.aliens[body as usize].sflags |= ASF_COLLIDE;
+        if partner == 0 {
+            // The wall has no actor AP. Source `.bodywallcol` supplies four
+            // explicitly, using the BODY's cooldown rather than the wing's.
+            const BROKEN_WING_WALL_DAMAGE: u8 = 4;
+            g.coldet_apply_damage(body, BROKEN_WING_WALL_DAMAGE, 0);
+        }
     }
-    pcbox_wing_strat(g, idx);
+    finish_wing_scrape(g, idx);
 }
 
 /// ROM `pendcolB_Istrat` (PSTRATS.ASM:241).
@@ -1888,19 +1897,17 @@ pub fn pcollw_istrat(g: &mut Game, idx: u16) {
         }
     }
 
-    if let Some(player) = g.coldet.pcbox.player {
+    if let Some(player) = partner.and(g.coldet.pcbox.player) {
         let rotz = g.objs.aliens[player as usize].rotz as i8;
         let player_pitch = g.vars.sv_i16(sv::PLROTX);
-        let pitch_whole = (player_pitch >> 8) as i8;
         if rotz >= 0 {
             // .nur: plrotx+1 += 8, nudge +X, Zshake
             g.vars
                 .set_sv_i16(sv::PLROTX, player_pitch.wrapping_add((8i16) << 8));
             g.objs.aliens[player as usize].worldx =
                 g.objs.aliens[player as usize].worldx.wrapping_add(10);
-            // -deg11*256
-            g.vars.set_sv_i16(sv::PLAYER_ZSHAKE, -((11i16) << 8));
-            let _ = pitch_whole;
+            // `deg11` is the source's quantized 8/256-turn angle.
+            g.vars.set_sv_i16(sv::PLAYER_ZSHAKE, -((DEG11 as i16) << 8));
         } else {
             g.vars
                 .set_sv_i16(sv::PLROTX, player_pitch.wrapping_sub((8i16) << 8));
@@ -1970,7 +1977,7 @@ pub fn pcolrw_istrat(g: &mut Game, idx: u16) {
         }
     }
 
-    if let Some(player) = g.coldet.pcbox.player {
+    if let Some(player) = partner.and(g.coldet.pcbox.player) {
         let rotz = g.objs.aliens[player as usize].rotz as i8;
         let player_pitch = g.vars.sv_i16(sv::PLROTX);
         if rotz < 0 {
@@ -1979,7 +1986,7 @@ pub fn pcolrw_istrat(g: &mut Game, idx: u16) {
                 .set_sv_i16(sv::PLROTX, player_pitch.wrapping_add((8i16) << 8));
             g.objs.aliens[player as usize].worldx =
                 g.objs.aliens[player as usize].worldx.wrapping_sub(10);
-            g.vars.set_sv_i16(sv::PLAYER_ZSHAKE, (11i16) << 8); // deg11*256
+            g.vars.set_sv_i16(sv::PLAYER_ZSHAKE, (DEG11 as i16) << 8);
         } else {
             g.vars
                 .set_sv_i16(sv::PLROTX, player_pitch.wrapping_sub((8i16) << 8));

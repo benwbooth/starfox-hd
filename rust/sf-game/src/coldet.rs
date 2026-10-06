@@ -729,7 +729,10 @@ impl Game {
         // indestructible (the port only treated $FF as such). Reset the
         // cooldown regardless, matching the ROM's `.o2c` fall-through.
         if (al.hp as i8) >= 0 {
-            al.hp = al.hp.saturating_sub(damage);
+            // `SBC; BPL` tests the wrapped BYTE's sign, not unsigned borrow.
+            // Encoded AP values with bit 7 set must retain that distinction.
+            let remaining = al.hp.wrapping_sub(damage);
+            al.hp = if (remaining as i8) < 0 { 0 } else { remaining };
         }
         al.collcount = FRAMESPERAP; // tpa = framesperAP
     }
@@ -740,7 +743,8 @@ impl Game {
     /// call into [`Game::coldet_run`], but the player's routed body/wing proxy
     /// strategies need the original operation and its AP scale-down argument.
     pub fn coldet_apply_damage(&mut self, victim: u16, attacker_ap: u8, scale_down: u8) {
-        self.do_coll(victim, attacker_ap >> scale_down.min(7));
+        // Source `asra` is CMP #128 / ROR: an arithmetic byte shift.
+        self.do_coll(victim, ((attacker_ap as i8) >> scale_down.min(7)) as u8);
     }
 
     /// C `Coldet_Run()` (src/game/coldet.c:179, chkcoll COLDET.ASM:225-861),
