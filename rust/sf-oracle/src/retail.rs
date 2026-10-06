@@ -2134,14 +2134,16 @@ impl RetailBootBus {
         }
         let v = self.cur_v();
         if v != prev_v {
-            // HDMA runs in the prior scanline's H-blank and updates registers
-            // for the line now becoming visible. SNES scanlines 1..224 map to
-            // the 224-line native output.
+            // Finish the preceding line before applying its H-blank writes.
+            // HDMA's new values belong to the following visible line, not
+            // the line just drawn. Keep source coordinates equal to the
+            // hardware scanline (the 256x224 diagnostic view includes the
+            // blank line zero), as used by the BG tile/scroll coordinates.
+            if prev_v != 0 && usize::from(prev_v) < FRAME_HEIGHT {
+                self.ppu.render_scanline(usize::from(prev_v));
+            }
             if u64::from(prev_v) < VBLANK_START_LINE {
                 self.run_hdma_scanline();
-            }
-            if (1..=FRAME_HEIGHT as u16).contains(&v) {
-                self.ppu.render_scanline(usize::from(v - 1));
             }
         }
         let vb = self.in_vblank();
@@ -3088,20 +3090,64 @@ mod retail_boot_bus_tests {
         rom[0x7FFC..0x7FFE].copy_from_slice(&0x8000u16.to_le_bytes());
         let mut machine = RetailMachine::new(rom);
         assert_eq!(
-            machine.tick_until_cpu_execution_any(0, &[0x008003, 0x008002], 1).unwrap(),
+            machine
+                .tick_until_cpu_execution_any(0, &[0x008003, 0x008002], 1)
+                .unwrap(),
             Some(0x008002)
         );
         assert_eq!(machine.cpu_x(), 42);
         assert_eq!(
-            machine.tick_until_cpu_execution_any(0, &[0x008003, 0x008002], 1).unwrap(),
+            machine
+                .tick_until_cpu_execution_any(0, &[0x008003, 0x008002], 1)
+                .unwrap(),
             Some(0x008003)
         );
         assert_eq!(machine.cpu_x(), 43);
         let before = (machine.pc(), machine.master_clock(), machine.cpu_x());
-        assert_eq!(machine.tick_until_cpu_execution_any(0, &[0x008002], 0).unwrap(), None);
-        assert_eq!((machine.pc(), machine.master_clock(), machine.cpu_x()), before);
+        assert_eq!(
+            machine
+                .tick_until_cpu_execution_any(0, &[0x008002], 0)
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            (machine.pc(), machine.master_clock(), machine.cpu_x()),
+            before
+        );
         assert!(machine.tick_until_cpu_execution(0, 0x008002, 1).unwrap());
         assert_eq!(machine.cpu_x(), 43);
+    }
+
+    #[test]
+    fn hblank_display_writes_apply_after_the_completed_scanline() {
+        let mut bus = bus();
+        // A white backdrop. Hardware line zero never displays pixels, even
+        // without forced blank. HDMA publishes full brightness in line zero's
+        // H-blank, then blanks again in line one's H-blank.
+        bus.ppu.write(0x2121, 0);
+        bus.ppu.write(0x2122, 255);
+        bus.ppu.write(0x2122, 127);
+        bus.ppu.write(0x2100, 15);
+        for (offset, byte) in [1, 15, 1, 128, 0].into_iter().enumerate() {
+            bus.poke8(0x7E_1000 + offset as u32, byte);
+        }
+        bus.reg_write(0x4300, 0);
+        bus.reg_write(0x4301, 0);
+        bus.reg_write(0x4302, 0);
+        bus.reg_write(0x4303, 16);
+        bus.reg_write(0x4304, 126);
+        bus.reg_write(0x420C, 1);
+        bus.init_hdma();
+        for _ in 0..DOTS_PER_LINE * 3 {
+            bus.advance_ppu_dot();
+        }
+        bus.ppu.begin_frame(1);
+        let frame = bus.ppu.frame();
+        for (row, color) in [(0, 0), (1, 255), (2, 0)] {
+            assert!(frame.rgba[row * 256 * 4..(row + 1) * 256 * 4]
+                .chunks_exact(4)
+                .all(|pixel| pixel == [color, color, color, 255]));
+        }
     }
 
     #[test]

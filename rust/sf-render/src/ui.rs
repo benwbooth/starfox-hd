@@ -41,9 +41,6 @@ const SF2_REFERENCE_HEIGHT: i32 = 224;
 const SF1_TITLE_VISIBLE_SCANLINES: i32 = 207;
 const SF1_TITLE_BLANK_SCANLINES: i32 = SF2_REFERENCE_HEIGHT - SF1_TITLE_VISIBLE_SCANLINES;
 const SF1_TITLE_BLANK_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-/// The source HDMA table holds its first aperture record for the top 15 screen
-/// rows. Account for that phase when placing the 192-row source bitmap.
-const SF1_SOURCE_WIPE_VERTICAL_PHASE: f32 = -1.0;
 const SF2_OPAQUE_BLACK_PIXEL: [u8; 4] = [0, 0, 0, u8::MAX];
 const SF2_GAME_OVER_CONTINUE_END_RETAIL_FRAME: u16 = 172;
 const SF2_GAME_OVER_RESULTS_END_RETAIL_FRAME: u16 = 76;
@@ -4121,7 +4118,7 @@ impl Ui {
             let (origin_x, origin_top, wipe_width, wipe_height) = if inputs.source_resolution {
                 (
                     (output_width - source_width) * 0.5,
-                    (output_height - source_height) * 0.5 + SF1_SOURCE_WIPE_VERTICAL_PHASE,
+                    (output_height - source_height) * 0.5,
                     source_width,
                     source_height,
                 )

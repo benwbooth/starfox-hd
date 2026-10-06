@@ -1032,6 +1032,27 @@ running; scheduled work is not a guarantee of a completion date.
   three failing tests, one ignored test and two failing executable examples).
   Testing includes the preserved pre-existing working-tree changes.
 
+- Independently closed the remaining launch aperture/scanout row discrepancy.
+  All sixteen original normalized aperture buffers already agreed; the
+  verification PPU was applying H-blank state one row early, and the native
+  renderer compensated with a minus-one-row wipe offset. Corrected the
+  publication boundary and removed that compensation. The independent run
+  also exposed the sprite layer's missing first-visible-row delay, now fixed
+  in both reference sampling and native scaled/source rendering. A new
+  repeatable two-reset Mesen gate pins the ROM, specifies every controller
+  button, disables frame skipping and requires identical original captures.
+  Original BG1 bitmap identity and settled original scanouts select all
+  sixteen full frames without consulting native pixels. All 57,344 pixels
+  per scene 5..20 and every byte of all sixteen aperture records pass in
+  debug and release. Original window state and sprite-Y wrap/flip have focused tests;
+  unchanged release Training, renderer/GPU regressions, 64 SF1 Python checks,
+  architecture and all app builds pass. The full release workspace records
+  3,902 passing tests, three failing tests, one ignored test and two failing
+  executable examples, retaining the same four failing semantic, route, title
+  and weapon targets. The run includes preserved pre-existing working-tree
+  edits. This does not certify production elapsed
+  timing, other scenes or general reference-PPU accuracy.
+
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
 working merely because the user is due back.

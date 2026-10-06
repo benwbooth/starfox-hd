@@ -79,6 +79,11 @@ def main() -> int:
     parser.add_argument("--profile", type=Path, help="use this empty profile directory")
     parser.add_argument("--timeout", type=int, default=30, help="Mesen timeout in seconds")
     parser.add_argument(
+        "--render-every-frame",
+        action="store_true",
+        help="disable wall-clock-dependent SNES frame skipping for pixel captures",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="suppress emulator diagnostics while retaining script artifacts",
@@ -123,6 +128,8 @@ def main() -> int:
     ]
     if not args.quiet:
         command.insert(2, "--enableStdout")
+    if args.render_every_frame:
+        command.insert(2, "--snes.disableFrameSkipping=true")
     environment = os.environ.copy()
     environment["XDG_CONFIG_HOME"] = str(profile)
     try:

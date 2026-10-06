@@ -341,6 +341,61 @@ enters two sampled ticks late; the weapon trace fails at the gameplay-entry
 boundary. These existing failures are not waived. This run includes unrelated
 pre-existing working-tree changes; it is not a clean-revision certification.
 
+## Independent launch scanline and sprite boundary (2026-10-06)
+
+The independent aperture discrepancy above is now resolved for all sixteen
+launch scenes. Every byte of Mesen's sixteen 896-byte normalized aperture
+buffers matches the original-program runner, and the native spans match all
+192 used rows of each record. The error was in presentation: the verification
+PPU applied the next line's H-blank writes before rendering the preceding
+line. The native source renderer had acquired a compensating minus-one-row
+wipe offset. The reference now completes a line before publishing its next
+H-blank settings, and the native offset is removed. Flight display blanking
+retains visible hardware lines 17 through 206. A bus-level test independently
+guards the H-blank publication order and permanently blank hardware line zero.
+
+An additional original sprite difference was previously hidden by both
+implementations: a sprite's stored Y identifies the row before its first
+visible pixel. The reference sprite samplers now account for the wrapped
+one-row delay, and the native sprite layer places its first visible row
+accordingly in both source-resolution and scaled output. The warning begins
+at line 73, not 72; its 1,671 opaque pixels are unchanged. The sprite sampler
+test exhausts all stored/display Y bytes with both vertical-flip choices.
+These conventions are independently visible in Mesen's original-game register
+trace and pixels, and in its
+[line/sprite publication](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/SNES/SnesPpu.cpp#L364)
+and [H-blank scheduling](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/SNES/SnesMemoryManager.cpp#L213).
+
+Run the repeatable independent gate from the Nix development shell:
+
+```sh
+nix develop --command python3 tools/sf1/run_launch_video_oracle.py
+```
+
+It pins the original ROM, starts two disposable Mesen profiles with every
+controller button specified and frame skipping disabled, and requires
+byte-identical manifests, RGB captures, VRAM and aperture buffers. The native
+comparison selects a settled reference from two consecutive identical original
+scanouts containing the complete original BG1 bitmap. Native pixels never
+participate in selection. Mesen's documented `scanline + 6` non-overscan output
+placement maps the diagnostic hardware-line 0..223 view; the crop is no longer
+chosen by image similarity. All 57,344 pixels in each scene 5..20, plus all
+sixteen aperture buffers, pass this independent gate in debug and release. Captures are
+retained in temporary evidence directories, not shipping assets or expected
+native fixtures. This verifies these rendered scenes, not elapsed production
+timing, all later scenes or full reference-PPU behavior.
+
+The unchanged release Training gate still passes all 1,758 semantic/draw/audio
+updates and 1,752 bitmap comparisons after these shared changes. The renderer
+library and GPU checks, 64 SF1 Python checks, architecture audit and all three
+application builds pass. The full release workspace run records 3,902 passing
+tests, three failing tests, one ignored test and two failing executable
+examples. The four failing targets remain `semantic_trace`,
+`sf1_corneria_route`, `sf1_title_trace` and `sf1_weapon_trace`: fixed-boot
+phase/checkpoint assumptions, controller-route player loss, title setup
+duration and weapon-entry alignment are still open. These results include
+preserved pre-existing working-tree edits, not a clean-revision certification.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from

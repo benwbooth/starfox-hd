@@ -56,7 +56,9 @@ const SF1_TITLE_SOURCE_APERTURE: SourceBitmapAperture = SourceBitmapAperture {
     height: 190.0,
 };
 const SF1_FLIGHT_SOURCE_APERTURE: SourceBitmapAperture = SourceBitmapAperture {
-    top: 16.0,
+    // HDMATABS holds forced blank through hardware line 16. The next 190
+    // completed lines are visible, including line 206 at the lower edge.
+    top: 17.0,
     height: 190.0,
 };
 

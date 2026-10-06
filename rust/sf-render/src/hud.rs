@@ -143,7 +143,9 @@ const UNIT_QUAD: [Vertex2; 4] = [
 /// the 256x224 presentation raster.
 const BITMAP_X_OFS: i32 = 16;
 const BITMAP_Y_OFS: i32 = 16;
-const SOURCE_OAM_Y_ADJUSTMENT: i32 = 0;
+/// Source sprite coordinates identify the preceding display row; their first
+/// visible pixel is one row lower than a bitmap pixel with the same Y value.
+const SPRITE_FIRST_VISIBLE_ROW_OFFSET: i32 = 1;
 
 /// The retail flight-meter tile rows select a fixed presentation palette,
 /// independently of the BGS-selected polygon palette used by the scene.
@@ -891,14 +893,7 @@ impl Hud {
             Self::draw_stage_banner(sprites, stage_banner);
         }
 
-        sprites.render_hud(
-            gpu,
-            if inputs.source_resolution {
-                SOURCE_OAM_Y_ADJUSTMENT
-            } else {
-                0
-            },
-        );
+        sprites.render_hud(gpu, SPRITE_FIRST_VISIBLE_ROW_OFFSET);
     }
 }
 

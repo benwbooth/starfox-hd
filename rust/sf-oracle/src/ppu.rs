@@ -639,7 +639,10 @@ impl Ppu {
             let (w, h) = if is_large { large } else { small };
             let sx = i32::from(self.oam[o]) | (i32::from(x_high) << 8);
             let sx = if sx >= 256 { sx - 512 } else { sx };
-            let sy = i32::from(self.oam[o + 1]);
+            // Sprite rows are fetched on the preceding scanline. An OAM Y
+            // byte selects the line before the first visible row, wrapping
+            // at 256 independently of the background's scanline coordinate.
+            let sy = i32::from(self.oam[o + 1].wrapping_add(1));
             let mut px = x as i32 - sx;
             let mut py = y as i32 - sy;
             if py < 0 {
@@ -750,7 +753,7 @@ impl Ppu {
             let (w, h) = if is_large { large } else { small };
             let sx = i32::from(self.oam[o]) | (i32::from(x_high) << 8);
             let sx = if sx >= 256 { sx - 512 } else { sx };
-            let sy = i32::from(self.oam[o + 1]);
+            let sy = i32::from(self.oam[o + 1].wrapping_add(1));
             let mut py = y as i32 - sy;
             if py < 0 {
                 py += 256;
@@ -909,6 +912,35 @@ mod tests {
                 let scaled = component * level / 15;
                 let expected = ((scaled << 3) | (scaled >> 2)) as u8;
                 assert_eq!(ppu.color(0), [expected, expected, expected, 255]);
+            }
+        }
+    }
+
+    #[test]
+    fn sprite_rows_start_after_the_oam_y_byte_and_wrap_before_vertical_flip() {
+        let mut ppu = Ppu::new();
+        ppu.registers[0x2C] = 0x10;
+        ppu.oam[0] = 32;
+        for row in 0..8 {
+            let color = row + 1;
+            for plane in 0..4 {
+                ppu.vram[(plane / 2) * 16 + row * 2 + plane % 2] =
+                    if color & (1 << plane) != 0 { 255 } else { 0 };
+            }
+        }
+        for mirrored in [false, true] {
+            ppu.oam[3] = if mirrored { 0x80 } else { 0 };
+            for origin in 0..=255u8 {
+                ppu.oam[1] = origin;
+                for display_row in 0..=255u8 {
+                    let row = display_row.wrapping_sub(origin.wrapping_add(1));
+                    let expected = (row < 8).then(|| {
+                        let tile_row = if mirrored { 7 - row } else { row };
+                        (128 + tile_row + 1, 0)
+                    });
+                    assert_eq!(ppu.sprite_pixel(32, usize::from(display_row)), expected);
+                    assert_eq!(ppu.sprite_scanline(usize::from(display_row))[32], expected);
+                }
             }
         }
     }

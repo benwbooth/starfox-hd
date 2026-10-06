@@ -1,6 +1,8 @@
 //! Strict composed-video anchors around the source-hardware-only launch
 //! aperture cadence interval.
 
+#[path = "../examples/support/sf1_mesen_video.rs"]
+mod mesen_video;
 #[path = "../examples/support/mod.rs"]
 mod support;
 #[path = "../examples/support/sf1_timing.rs"]
@@ -68,7 +70,8 @@ const CAPTURE_ANCHORS: [u16; 17] = [
     WARNING_LAYER_ANCHOR,
 ];
 const WARNING_LEFT: usize = 72;
-const WARNING_TOP: usize = 72;
+// The sprite formatter writes Y=72; its first visible row is hardware line 73.
+const WARNING_TOP: usize = 73;
 const WARNING_WIDTH: usize = 128;
 const WARNING_HEIGHT: usize = 16;
 const WARNING_OPAQUE_PIXELS: usize = 1_671;
@@ -107,6 +110,8 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
     let mut certified = BTreeSet::new();
     let mut warning_layer_certified = false;
     let mut first_video_divergence = None;
+    let mesen = std::env::var_os("SF1_LAUNCH_MESEN_DIR")
+        .map(|directory| mesen_video::LaunchVideo::read(std::path::Path::new(&directory)));
 
     for tick in 0..u32::from(WARNING_LAYER_ANCHOR + SCANOUT_DRAIN_UPDATES) {
         assert!(
@@ -273,7 +278,7 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
                 break;
             };
             let raster = completed_rasters.drain(..=index).last().unwrap();
-            let (scene, _, native_rgb) = pending_video.pop_front().unwrap();
+            let (scene, bitmap, native_rgb) = pending_video.pop_front().unwrap();
             let retail_rgb = video::completed_rgb(&raster);
             let difference = compare_source_rgb(
                 u64::from(scene),
@@ -282,6 +287,27 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
                 &native_rgb,
             )
             .expect("compare launch anchor video");
+            if let Some(mesen) = &mesen {
+                let independent = mesen.settled_original_bitmap(&bitmap).unwrap_or_else(|| {
+                    panic!("Mesen did not display the complete original bitmap for scene {scene}")
+                });
+                assert_eq!(
+                    compare_source_rgb(
+                        u64::from(scene),
+                        independent.video_frame,
+                        &independent.rgb,
+                        &native_rgb
+                    )
+                    .unwrap(),
+                    None,
+                    "independent Mesen launch scene {scene}"
+                );
+                eprintln!(
+                    "launch_mesen scene={scene} original_scanout={} compared_pixels={}",
+                    independent.video_frame,
+                    SOURCE_FRAME_WIDTH * SOURCE_FRAME_HEIGHT
+                );
+            }
             if std::env::var_os("SF1_LAUNCH_DIAGNOSTIC").is_some() {
                 write_source_rgb_ppm(
                     format!("/tmp/sf1-launch-scene-{scene}-retail.ppm"),

@@ -5,7 +5,7 @@ mod support;
 #[path = "../examples/support/sf1_timing.rs"]
 mod timing_entry;
 
-use sf_core::screen_wipe::ScreenWipeKind;
+use sf_core::screen_wipe::{ApertureSpan, ScreenWipeKind, SOURCE_HEIGHT};
 use sf_oracle::{
     load_retail_rom, RetailMachine, RETAIL_DOSTRATS, RETAIL_FADEDIR, RETAIL_SCRAMBLE_COUNT,
     RETAIL_XINIDISP1,
@@ -31,6 +31,10 @@ const BLACK_WINDOW_MASK: u8 = 2;
 const WINDOW_VALUE_OFFSET: u32 = 7;
 const STAR_RECORD_BYTES: u16 = 42;
 const LAUNCH_WARNING_DRAIN_UPDATES: u16 = 80;
+const NORMALIZED_RIGHT_EDGES: usize = 0x0EF2;
+const EDGE_ROWS: usize = 224;
+const EDGE_BYTES: usize = EDGE_ROWS * 2;
+const FLIGHT_LEFT: u16 = 16;
 
 fn boundary(retail: &mut RetailMachine, address: u32) {
     assert!(retail
@@ -68,6 +72,29 @@ fn retail_launch_map_owns_wipe_request_and_cleanup() {
         let count = retail.peek8(WORK_RAM | RETAIL_SCRAMBLE_COUNT);
         boundary(&mut retail, AFTER_WINDOW_WIPE);
         let next_record = retail.peek16(WORK_RAM | WIPE_RECORD);
+        let edge_bytes: Vec<_> = (0..EDGE_BYTES * 2)
+            .map(|offset| retail.peek_gsu_ram(NORMALIZED_RIGHT_EDGES + offset))
+            .collect();
+        if has_record {
+            if let Some(directory) = std::env::var_os("SF1_LAUNCH_MESEN_DIR") {
+                let path = std::path::PathBuf::from(directory)
+                    .join(format!("launch_edges_{update:04}.bin"));
+                assert_eq!(
+                    edge_bytes,
+                    std::fs::read(path).expect("Mesen aperture buffer"),
+                    "independent Mesen aperture bytes at update {update}"
+                );
+            }
+            if let Some(directory) = std::env::var_os("SF1_LAUNCH_EDGE_DIR") {
+                let directory = std::path::PathBuf::from(directory);
+                std::fs::create_dir_all(&directory).unwrap();
+                std::fs::write(
+                    directory.join(format!("launch_edges_{update:04}.bin")),
+                    &edge_bytes,
+                )
+                .unwrap();
+            }
+        }
         boundary(&mut retail, RETAIL_DOSTRATS);
         native.tick(0);
         let frame = native.frame();
@@ -112,6 +139,22 @@ fn retail_launch_map_owns_wipe_request_and_cleanup() {
                 }
             );
             rendered_records.insert(source_frame);
+            let spans = frame.screen_wipe.aperture_spans();
+            for row in 0..SOURCE_HEIGHT {
+                // mwinswplst leaves the right edge in m_circlebuf and the
+                // left edge in m_circlebuf2; equal edges become an empty
+                // interval. copywh0wh1 takes their low bytes for display.
+                let right = u16::from(edge_bytes[row * 2]);
+                let left = u16::from(edge_bytes[EDGE_BYTES + row * 2]);
+                let original = (left <= right).then(|| ApertureSpan {
+                    left: left.checked_sub(FLIGHT_LEFT).expect("flight left edge"),
+                    right_exclusive: right + 1 - FLIGHT_LEFT,
+                });
+                assert_eq!(
+                    spans[row], original,
+                    "prepared aperture at update {update}, row {row}"
+                );
+            }
         }
         assert_eq!(
             native.game.vars.strategy.wipe_active,
