@@ -150,6 +150,34 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Full shared storage/formatter entry. This does not run the enclosing
+    /// player strategy's global reset or first movement-mode visit.
+    pub fn initialize_player_storage(
+        &mut self,
+        owner: ObjectId,
+        inputs: super::player_storage::PlayerStorageInputs,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        if self.execution.paths.is_active() {
+            self.execution.faulted = true;
+            return Err(SceneError::NestedPathInvocation);
+        }
+        let result = super::player_storage::initialize(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime,
+            owner,
+            inputs,
+        )
+        .map_err(SceneError::PlayerStorage);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Publish processed controller/script input at the enclosing mode's
     /// source-ordered callsite. This is not implicit in the earlier player
     /// prefix: that prefix's action service observes the prior publication.

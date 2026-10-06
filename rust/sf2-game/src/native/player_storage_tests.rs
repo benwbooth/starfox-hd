@@ -229,8 +229,19 @@ fn initialized_records_feed_the_real_player_prefix_and_replacement_resets_modifi
     };
     for pilot in 0..=255 {
         scene
-            .replace_player_storage(primary, inputs(pilot))
+            .initialize_player_storage(primary, inputs(pilot))
             .unwrap();
+        assert_eq!(scene.world.player_display_subject, Some(primary));
+        let actor = scene.objects.get(primary).unwrap();
+        assert!(!actor.extension.path_state.hold_latched);
+        assert_eq!(
+            actor.extension.path_state.animation.shape.fixed_frame(),
+            Some(0)
+        );
+        assert!(actor.base.contacts.allow_same_shape);
+        assert!(actor.base.flags.casts_shadow);
+        assert!(actor.base.flags.exclude_from_shape_footprint_search);
+        assert!(actor.base.flags.maximum_draw_distance);
         assert_eq!(
             scene
                 .world
@@ -301,6 +312,7 @@ fn exhausted_storage_releases_old_programs_but_latches_before_publication_or_ret
     let catalog = PathCatalog::new(vec![]).unwrap();
     let mut callbacks = Callbacks;
     world.primary_player = Some(other);
+    world.player_display_subject = Some(other);
     world
         .bind_player(&objects, primary, PlayerPathRecords::default())
         .unwrap();
@@ -336,13 +348,14 @@ fn exhausted_storage_releases_old_programs_but_latches_before_publication_or_ret
         statement_budget: 128,
     };
     assert_eq!(
-        scene.replace_player_storage(primary, inputs(2)),
+        scene.initialize_player_storage(primary, inputs(2)),
         Err(SceneError::PlayerStorage(PlayerStorageError::Allocation(
             AllocationFailure::NoContiguousFit
         )))
     );
     assert!(scene.execution.is_faulted());
     assert_eq!(scene.world.primary_player, Some(other));
+    assert_eq!(scene.world.player_display_subject, Some(other));
     assert!(scene.world.player(scene.objects, primary).is_err());
     assert_eq!(scene.objects.get(primary).unwrap().base, before.base);
     assert_eq!(
@@ -366,8 +379,87 @@ fn exhausted_storage_releases_old_programs_but_latches_before_publication_or_ret
     );
     let resources = scene.execution.paths.runtime.resources.clone();
     assert_eq!(
-        scene.replace_player_storage(primary, inputs(2)),
+        scene.initialize_player_storage(primary, inputs(2)),
         Err(SceneError::Faulted)
     );
     assert_eq!(scene.execution.paths.runtime.resources, resources);
+}
+
+#[test]
+fn direct_formatter_changes_only_its_authored_fields_without_player_storage() {
+    for seed in 0..=u8::MAX {
+        let mut objects = ObjectStore::new();
+        let primary = owner(&mut objects);
+        let other = owner(&mut objects);
+        let mut world = ScenePathWorld::new(RandomState::new([1, 2, 3, seed]));
+        world.primary_player = Some(other);
+        world.secondary_player = Some(primary);
+        world.fixed_players = [Some(other), Some(primary)];
+        world.player_display_subject = Some(other);
+        let actor = objects.get_mut(primary).unwrap();
+        actor.base.behavior = Behavior::PathMovement;
+        actor.base.attack_power = seed;
+        actor.base.hit_points = seed;
+        actor.base.flags.visible = seed & 1 != 0;
+        actor.base.flags.collision_disabled = seed & 2 != 0;
+        actor.base.flags.casts_shadow = seed & 4 != 0;
+        actor.base.flags.maximum_draw_distance = seed & 8 != 0;
+        actor.base.flags.exclude_from_shape_footprint_search = seed & 16 != 0;
+        actor.base.contacts.allow_same_shape = seed & 32 != 0;
+        actor.base.contacts.run_when_paused = seed & 64 != 0;
+        actor.extension.path_state.hold_latched = seed & 128 != 0;
+        actor.extension.path_state.animation.shape =
+            crate::path_appearance::AnimationControl::from_packed(seed);
+        actor.extension.path_state.animation.color =
+            crate::path_appearance::AnimationControl::from_packed(!seed);
+        actor.extension.animation_frame = seed;
+        actor.extension.color_frame = !seed;
+        let mut expected = actor.clone();
+        expected.base.attack_power = 0;
+        expected.base.contacts.allow_same_shape = true;
+        expected.base.flags.casts_shadow = true;
+        expected.base.flags.maximum_draw_distance = true;
+        expected.base.flags.exclude_from_shape_footprint_search = true;
+        expected.extension.path_state.hold_latched = false;
+        expected.extension.path_state.animation.shape.initialize(0);
+        let other_before = objects.get(other).unwrap().clone();
+
+        format_for_scene(&mut objects, &mut world, primary).unwrap();
+        assert_eq!(objects.get(primary), Some(&expected));
+        assert_eq!(objects.get(other), Some(&other_before));
+        assert_eq!(world.player_display_subject, Some(primary));
+        assert_eq!(world.primary_player, Some(other));
+        assert_eq!(world.secondary_player, Some(primary));
+        assert_eq!(world.fixed_players, [Some(other), Some(primary)]);
+        assert_eq!(world.random.bytes(), [1, 2, 3, seed]);
+        assert!(world.player(&objects, primary).is_err());
+        assert!(world.processed_player_input.is_none());
+        assert!(world.view_transition_mode.is_none());
+
+        // The manual control is consumed only when animation is published;
+        // formatting must not rewrite an already-built display snapshot.
+        crate::path_appearance::publish_animation(objects.get_mut(primary).unwrap(), !seed);
+        assert_eq!(objects.get(primary).unwrap().extension.animation_frame, 0);
+        assert_eq!(
+            objects.get(primary).unwrap().extension.color_frame,
+            expected.extension.path_state.animation.color.resolve(!seed)
+        );
+    }
+}
+
+#[test]
+fn formatter_missing_actor_does_not_reselect_the_display_subject() {
+    let mut objects = ObjectStore::new();
+    let absent = owner(&mut objects);
+    let retained = owner(&mut objects);
+    objects.remove(absent).unwrap();
+    let mut world = ScenePathWorld::new(RandomState::default());
+    world.player_display_subject = Some(retained);
+    assert_eq!(
+        format_for_scene(&mut objects, &mut world, absent),
+        Err(PlayerStorageError::World(WorldInputError::MissingActor(
+            absent
+        )))
+    );
+    assert_eq!(world.player_display_subject, Some(retained));
 }

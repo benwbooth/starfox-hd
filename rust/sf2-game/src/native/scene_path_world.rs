@@ -148,6 +148,11 @@ pub struct ScenePathWorld {
     pub primary_player: Option<ObjectId>,
     pub secondary_player: Option<ObjectId>,
     pub fixed_players: [Option<ObjectId>; 2],
+    /// Common player formatter's retained subject ($150D/$12C1/$1509).
+    /// Those three legacy publications are assigned together to the same
+    /// actor, with no independent readers/writers in the recovered scene
+    /// code. They are not the primary-player or fixed-camera selection.
+    pub player_display_subject: Option<ObjectId>,
     /// Shared D7F4 enable, also consumed by the linked protection service.
     pub contacts_enabled: Option<bool>,
     /// Shared 1AA6 bit 02 for reflection-list traversal.
@@ -247,6 +252,7 @@ impl ScenePathWorld {
             primary_player: None,
             secondary_player: None,
             fixed_players: [None; 2],
+            player_display_subject: None,
             contacts_enabled: None,
             reflect_all_contacts: None,
             weapons: None,

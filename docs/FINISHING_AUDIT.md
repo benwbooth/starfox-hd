@@ -431,6 +431,33 @@ shipping playback data. The raw polygon-bitmap comparison still differs where
 the native renderer intentionally separates HUD layers; the composed-frame
 comparison has no such exclusions and remains exact. This certifies the bounded
 laser scenario, not all weapons, elapsed production cadence or the campaign.
+
+### Steering-route timing diagnosis — 2026-10-06
+
+A fresh source-bound comparison reaches the independent Mesen capture through
+Corneria scene 1500 without injecting game state. Scenes 1–191 pass the existing
+full semantic/object comparator. Scene 192 still stops at the unverified
+retail/native path-cursor correspondence; that guard has not been bypassed.
+An explicitly globals-only diagnostic first differs in published motion timing
+at scene 210, then in player position at scene 326 after the scene-325 timing
+divergence. The native production timing still replays the neutral recording.
+Both versions lose the player on this steering tape, at different times; its
+old native boss-arrival assertion is not independent proof of the correct
+outcome. Existing route, checkpoint and title failures remain unchanged.
+
+The in-tree hardware runner also still disagrees with Mesen: a temporary
+strategy-boundary diagnostic first reports eight motion refreshes at scene 24,
+while independent neutral and route captures and the native table report seven.
+The first 40 independent route snapshots match, including objects. This is a
+runner timing defect, not grounds to change gameplay to eight refreshes. The
+temporary diagnostic was removed without changing any established assertion.
+
+Local evidence: `/tmp/sf1-corneria-source-strategy-published-oct06.log`,
+`/tmp/sf1-corneria-route1500-mesen-oct06.log`,
+`/tmp/sf1-corneria-route1500-native-oct06.log`, and the original capture under
+`/tmp/nix-shell.HLK96i/starfox-mesen-profile.1g2f2gyl/Mesen2/LuaScriptData/mesen_corneria_timing_oracle/`.
+These results diagnose timing; they do not certify the later route, shape
+identity, pixels, audio, or source-derived production scheduling.
 The independent comparison passes in debug and release, and the two fresh
 captures are byte-identical. The banking branch separately passes 150 updates
 of roll and all 32 background-offset columns. All 65 SF1 Python tests and the

@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Completed the SF2 shared player-storage entry through its actual formatter,
+  retaining separate boundaries for allocation and formatting. It publishes
+  the retained display subject, selects manual shape frame zero, clears the
+  path-hold latch and attack power, and applies the exact collision/shadow/
+  draw flags without changing visibility, controller side or fixed cameras.
+  The composed scene-host entry retains release-before-allocation and latches
+  failure before formatting or retry. Two new native tests cover all flag
+  combinations and missing actors; existing player-prefix and exhaustion tests
+  now also cover the composed entry. Unmodified source matches all 256 flag
+  bytes, including the full retained state write set, and eight complete
+  allocation-to-formatter cases. All 1,242 native tests pass in debug/release,
+  plus compatibility tests, eight player source-comparison tests in both
+  profiles, 619 source tests, architecture checks and all three app builds.
+  The enclosing shared reset, first player entry/modes and production frame
+  owner remain open. The next integration audit found nine `PathWorld` inputs
+  that `ScenePathWorld` never binds; those missing canonical owners must be
+  connected before treating the scene adapter as a usable general path host.
+
 - Implemented the complete processed-input service used by player movement
   modes. It selects the live actor's controller side, preserves sampled edges,
   applies flight-only vertical inversion and the full alternate button layout,

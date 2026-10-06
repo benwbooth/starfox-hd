@@ -1,9 +1,8 @@
-//! Scene-owned player auxiliary storage (`$06:8260..82B4`).
+//! Scene-owned player storage and formatting (`$06:8260..82E9`).
 //!
-//! This allocation/clear/publication prefix is shared by the player entries.
-//! It stops before their separate view-selection and object-formatting tail
-//! (`$06:82B7`), global reset and next-visit mode initialization. None of those
-//! services is implied by obtaining a player record here.
+//! The allocation/clear/publication prefix and object-formatting tail remain
+//! separately callable source boundaries. The composed initializer runs both,
+//! but not its caller's shared reset, target reset or next-visit mode entry.
 
 use super::path_runtime::{PathRuntime, PathRuntimeError};
 use super::program_resources::{AllocationFailure, ProgramResources};
@@ -17,6 +16,8 @@ const PLAYER_RECORD_COST: u16 = 472;
 const PLAYER_GROUP: u8 = u8::MAX;
 const PLAYER_OBJECT_HEALTH: u8 = 1;
 const FINE_ANGLE_SHIFT: u32 = 8;
+const INITIAL_SHAPE_FRAME: u8 = 0;
+const PLAYER_ATTACK_POWER: u8 = 0;
 
 /// Published inputs read by this prefix, not inferred pilot profiles or
 /// guessed defaults. Shield is copied before the later shared clamp.
@@ -159,6 +160,47 @@ pub fn replace(
     world.primary_player = Some(owner);
     actor.base.hit_points = PLAYER_OBJECT_HEALTH;
     Ok(())
+}
+
+/// The shared formatter (`$06:82B7`), independently of the preceding storage
+/// prefix. It does not allocate, change the controller side or select a camera.
+/// In particular, clearing PATHHOLD does not change the assigned strategy,
+/// visibility or collision enable; those are different source flags.
+pub fn format_for_scene(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    owner: ObjectId,
+) -> Result<(), PlayerStorageError> {
+    let actor = objects
+        .get_mut(owner)
+        .ok_or(WorldInputError::MissingActor(owner))?;
+    world.player_display_subject = Some(owner);
+    actor
+        .extension
+        .path_state
+        .animation
+        .shape
+        .initialize(INITIAL_SHAPE_FRAME);
+    actor.base.attack_power = PLAYER_ATTACK_POWER;
+    actor.extension.path_state.hold_latched = false;
+    actor.base.contacts.allow_same_shape = true;
+    actor.base.flags.casts_shadow = true;
+    actor.base.flags.exclude_from_shape_footprint_search = true;
+    actor.base.flags.maximum_draw_distance = true;
+    Ok(())
+}
+
+/// Complete shared storage entry through its formatter. Allocation failure
+/// keeps the earlier program release and does not publish a display subject.
+pub fn initialize(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    runtime: &mut PathRuntime,
+    owner: ObjectId,
+    inputs: PlayerStorageInputs,
+) -> Result<(), PlayerStorageError> {
+    replace(objects, world, runtime, owner, inputs)?;
+    format_for_scene(objects, world, owner)
 }
 
 #[cfg(test)]

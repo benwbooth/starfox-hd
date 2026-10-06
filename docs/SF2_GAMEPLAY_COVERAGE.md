@@ -152,6 +152,18 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The shared player-storage entry now reaches the end of its formatter
+(`$06:8260..82E9`) through the scene actor host. Storage replacement, retained
+selection, manual animation, path-hold clearing, attack power and selective
+collision/draw flags use their existing typed owners. The formatter does not
+enable visibility/collision or change fixed cameras. Allocation failure keeps
+earlier release effects and prevents formatting/retry. All 256 original flag
+bytes and eight allocation-to-formatter cases match the unmodified source;
+1,242 native tests pass in debug/release, eight player source-comparison tests
+pass in both profiles, and 619 source tests plus all app builds pass. This is
+not the enclosing player initializer: shared reset, first-entry/mode services,
+missing scene-to-path bindings and production frame ownership remain open.
+
 The contact subsystem now has ROM-extracted profiles for all 61 shapes using
 compound object-contact boxes, word-exact center/overlap math, directional
 contact storage and separation, callback-driven hit response, and the ordered
