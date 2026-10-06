@@ -85,6 +85,7 @@ nix develop --command bash -c 'cd rust && cargo test --workspace --no-fail-fast'
 nix develop --command bash -c 'cd rust && cargo test -p sf2-game --no-default-features --release && cargo build -p sf-app'
 python3 tools/check_native_architecture.py
 python3 tools/sf2/generate_native_paths.py --check
+python3 tools/sf2/disasm/extract_scene_loaders.py --check
 python3 tools/sf2/audit_gameplay_static.py
 python3 tools/sf2/path_backlog.py
 python3 -m unittest discover -s tools/sf2 -p test_path_backlog.py
@@ -111,6 +112,25 @@ on 2026-10-05. Local continuation requires the computer and desktop app to remai
 running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
+
+- Inventoried the scene-loading dependency of the native map/frame owner:
+  all 31 authored map requests select 19 table entries and 17 distinct loader
+  routines. A fail-closed control-flow extractor retains 840 instruction nodes,
+  both sides of conditional loads, polling loops, shared tails and 42 embedded
+  artwork packets. Packet payloads are not instructions; helper return widths
+  and seven-byte payload consumption are gated against the reviewed source.
+  All 32 distinct referenced artwork streams now match the original Super FX
+  decompressor byte-for-byte in their actual character/tile-map destinations,
+  with neighboring canaries preserved. The generated oracle fixture stores
+  original operands/code hashes, not native-produced expected pixels.
+  Decoded length and transfer length are distinct: the two-layer loader copies
+  only half of one decoded tile-map stream. All 616 SF2 disassembly/source tests,
+  exact fixture regeneration, the architecture audit, 14 native data tests and
+  nine artwork/display oracle tests pass; the nine oracle tests also pass in
+  release. This closes source inventory and decoder coverage for these loads,
+  **not native loader execution, transfer scheduling or shipping integration**.
+  In particular, the boot opening selects load-table entry 141 / loader C80B;
+  the separate two-layer CB1C loader is not the opening's artwork installer.
 
 - Implemented native scene-display ownership for the two distinct source fade
   services, the separate frame-owned blank hold, entry fade initialization,
