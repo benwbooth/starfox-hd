@@ -125,6 +125,17 @@ running; scheduled work is not a guarantee of a completion date.
 - A fresh full-workspace run is in progress. The SF1 native semantic checkpoint
   test has failed; preserve it as a release blocker pending the final report and
   source diagnosis. Do not replace its expected hash with current native output.
+- Completed the objective-gated pulse patrol and its wingmate announcement
+  helper, including the shared scene-event word's source producers/consumers.
+  The catalog now has 150 roots, nine helpers, 6,099 source commands and 6,040
+  typed statements. The discovered-root backlog is 65 registered/41 blocked.
+  All 1,049 native unit tests and two integration tests pass in debug/release;
+  209 lowerer tests, 540 source tests, three backlog tests and the app build pass.
+- The workspace baseline also exposes a Corneria route assertion: Attack
+  Carrier body durability is two, while the test expects one. Diagnose the
+  original damage/initialization contract before changing code or expectation.
+  The semantic failures involve motion-refresh timing and require independent
+  source diagnosis; the in-tree oracle is not automatically authoritative.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

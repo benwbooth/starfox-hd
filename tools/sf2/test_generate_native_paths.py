@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 149;', source)
-        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 8;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 5962;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 150;', source)
+        self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6099;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -81,6 +81,25 @@ class NativePathGenerationTests(unittest.TestCase):
         changed[0x425CB:0x425CD] = (0x82A6).to_bytes(2, 'little')
         with self.assertRaisesRegex(UnsupportedPath, 'no verified child installer'):
             generate(bytes(changed), (("EMITTER", PathAddress(0x82A5)),))
+
+    def test_scene_event_word_and_announcement_close_the_complete_pulse_patrol(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, digest in [
+            (0x2BE9, 534, '082ccb527153174e4d71a50572075cca509112dac5030ac397573c223d62af92'),
+            (0x8007, 16, '29abce38417688c18d8638426a076096fe3d4faff6c075d58c1fea015abfd02a'),
+        ]:
+            commands = graph(extractor, PathAddress(root))
+            self.assertEqual(len(commands), count)
+            self.assertEqual(len(lower_graph(extractor, PathAddress(root), 0)[1]), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
+        self.assertIn(PathAddress(0x2BE9), extractor.discover_roots())
+        self.assertEqual(extractor.decode_command(PathAddress(0x2C93)).raw_hex, '410780')
+        self.assertIn('SceneEventCommand::CopyTo(WordField::ScriptValue)', self.lower_record('7ca3881b')[0])
+        self.assertIn('SceneEventCommand::Assign(WordOperand::Actor(WordField::ScriptValue))', self.lower_record('7ea3881b')[0])
+        for opcode in [0x7C, 0x7E]:
+            for address in [0x1B87, 0x1B89]:
+                with self.assertRaises(UnsupportedPath):
+                    self.lower_record(bytes([opcode, 0xA3]).hex() + address.to_bytes(2, 'little').hex())
 
     def test_protection_override_has_its_own_non_ifnot_branch_statement(self):
         self.assertEqual(self.lower_record('30 36 f5')[0],

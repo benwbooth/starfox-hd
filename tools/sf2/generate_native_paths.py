@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("OBJECTIVE_GATED_PULSE_PATROL", PathAddress(0x2BE9)),
     ("TARGET_GATED_PULSE_ATTACKER", PathAddress(0x6550)),
     ("PERIODIC_PULSE_PAIR_EMITTER", PathAddress(0x82A5)),
     ("NUMBERED_SPRITE_PURSUER", PathAddress(0x23D4)),
@@ -180,6 +181,7 @@ SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # entry is bound to a direct call or callback registration/redirection reachable
 # from a discovered actor root.
 SUBROUTINES = (
+    ("ANNOUNCE_WINGMATE_SCENE_EVENT", PathAddress(0x8007), PathAddress(0x2BE9), PathAddress(0x2C93)),
     ("COUNT_AND_RECORD_OBJECTIVE", PathAddress(0x80B1), PathAddress(0x2102), PathAddress(0x21D0)),
     ("SPAWN_NUMBERED_HIT_SPRITES", PathAddress(0x85C3), PathAddress(0x23D4), PathAddress(0x2404)),
     ("SPAWN_NUMBERED_LARGE_HIT_SPRITES", PathAddress(0x85F0), PathAddress(0x6230), PathAddress(0x6278)),
@@ -1850,6 +1852,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "ExportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | high << 8
+            if address == 0x1B88:
+                statement = f"Statement::SceneEvent {{ command: super::path_scene_state::SceneEventCommand::Assign(WordOperand::Actor({word_field(variable)})), next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address not in (0x1D88, 0x1D8C):
                 raise UnsupportedPath(f"unreviewed handoff coordinate {address:04X}")
             operation = 'StoreX' if address == 0x1D88 else 'StoreZ'
@@ -1857,6 +1863,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
+            if address == 0x1B88:
+                statement = f"Statement::SceneEvent {{ command: super::path_scene_state::SceneEventCommand::CopyTo({word_field(variable)}), next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address == 0x1D90 and variable == 0x06:
                 statement = f"Statement::AttachPublishedHomingTarget {{ next: {next_cursor()} }}"
                 statements.append(statement)

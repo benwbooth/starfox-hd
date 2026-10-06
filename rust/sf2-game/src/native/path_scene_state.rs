@@ -73,6 +73,22 @@ pub struct ObjectiveCompletion {
     pub bits: u16,
 }
 
+/// Shared scene-event flags, distinct from objective completion, execution
+/// mode and encounter-local signals. Paths transfer the whole source word
+/// ($1B88); the wingmate announcement sets bit 0200 before queuing speech.
+/// Scene setup clears the word ($04:DECD), and the scene transition consumer
+/// tests/clears that event alongside bit 4000 ($04:B588..B5C3).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SceneEventFlags {
+    pub bits: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SceneEventCommand {
+    CopyTo(super::path_fields::WordField),
+    Assign(super::path_fields::WordOperand),
+}
+
 /// Live objective accounting shared by encounter paths and campaign writeback.
 /// Planet entry initializes both low bytes to the same count. Space entry
 /// retains the packed campaign byte in `node_record`, and publishes the sum

@@ -4208,3 +4208,30 @@ failure reporting. `--check` fails while any discovered root remains open.
 The report is not a whole-ROM inventory or a shipping-integration certificate.
 
 The active two-game execution plan is `PORT_COMPLETION_PLAN.md`.
+
+### Scene-event publication and objective-gated patrol — 2026-10-05
+
+The shared scene-event word now has typed whole-word transfers, distinct from
+objective completion and encounter-local signals. Source fixtures bind its
+scene-entry clear, transition consumer, and the wingmate announcement helper.
+The helper publishes the event before optional radio, preserves its saved
+arguments, and skips speech for the source's absent-wingmate sentinel.
+Unreviewed neighboring words remain unsupported.
+
+This closes the complete objective-gated pulse-patrol graph (`$44:2BE9`,
+534 commands) and announcement helper (`$44:8007`, 16 commands). Catalog totals
+are **150 actor roots, nine helpers, 6,099 source commands and 6,040 typed
+statements**. The independent-root backlog is now 65 registered, 41 blocked,
+and zero lowerable-but-unregistered roots; 85 additional installed child roots
+remain outside that denominator.
+
+Tests cover every word value for imports and exports, missing-input and budget
+ordering, other shared-state preservation, every wingmate byte, publication
+before a later failure and non-republication on resume. Patrol tests cover
+completed-objective skip and live initialization through its transition wait,
+including child identity, attack, placement, parent ownership and unchanged RNG.
+All 1,049 native unit tests and two integration tests pass in debug and release;
+209 lowerer tests, 540 disassembly/source tests, three backlog tests, exact
+regeneration, architecture checks, static audit and the app build pass.
+The production world/scheduler connection is still open; these counts do not
+establish playable campaign completion.

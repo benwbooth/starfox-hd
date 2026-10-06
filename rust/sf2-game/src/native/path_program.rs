@@ -172,6 +172,9 @@ mod progress_exit_tests;
 #[cfg(test)]
 #[path = "path_numbered_sprite_tests.rs"]
 mod numbered_sprite_tests;
+#[cfg(test)]
+#[path = "path_scene_event_tests.rs"]
+mod scene_event_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -189,6 +192,7 @@ pub struct PathWorld<'a> {
     pub coordination: Option<&'a mut super::path_scene_state::EncounterCoordination>,
     pub objective_counts: Option<&'a mut super::path_scene_state::EncounterObjectiveCounts>,
     pub objective_completion: Option<&'a mut super::path_scene_state::ObjectiveCompletion>,
+    pub scene_events: Option<&'a mut super::path_scene_state::SceneEventFlags>,
     pub path_latches: Option<&'a mut super::path_scene_state::PathLatches>,
     pub sound_bank_request: Option<&'a mut super::path_scene_state::SoundBankRequest>,
     pub friend_health: Option<&'a mut super::path_death::FriendHealth>,
@@ -866,6 +870,10 @@ pub enum Statement {
         source: super::path_fields::WordOperand,
         next: PathCursor,
     },
+    SceneEvent {
+        command: super::path_scene_state::SceneEventCommand,
+        next: PathCursor,
+    },
     RefreshSelectedChargeAttachment {
         next: PathCursor,
     },
@@ -1091,6 +1099,7 @@ pub enum ProgramError {
     MissingCoordination,
     MissingObjectiveCounts,
     MissingObjectiveCompletion,
+    MissingSceneEvents,
     MissingPathLatches,
     MissingSoundBankRequest,
     MissingDeferredMessage,
@@ -2055,6 +2064,18 @@ impl PathRuntime {
                     actor.base.path = Some(next);
                     Ok(ControlStep::Continue)
                 }
+                Statement::SceneEvent { command, next } => {
+                    use super::path_scene_state::SceneEventCommand;
+                    let events = world.scene_events.as_deref_mut()
+                        .ok_or(ProgramError::MissingSceneEvents)?;
+                    let actor = objects.get_mut(owner).expect("validated scene-event owner");
+                    match command {
+                        SceneEventCommand::CopyTo(field) => field.write(actor, events.bits),
+                        SceneEventCommand::Assign(value) => events.bits = value.read(actor),
+                    }
+                    actor.base.path = Some(next);
+                    Ok(ControlStep::Continue)
+                }
                 Statement::RefreshSelectedChargeAttachment { next } => {
                     use super::path_relationships::RelationshipError;
                     let selected = world.selected.ok_or(ProgramError::Relationship(
@@ -2711,6 +2732,7 @@ mod tests {
             coordination: None,
             objective_counts: None,
             objective_completion: None,
+            scene_events: None,
             path_latches: None,
             sound_bank_request: None,
             encounter_signals: None,
@@ -9847,6 +9869,7 @@ mod tests {
                 coordination: None,
                 objective_counts: None,
                 objective_completion: None,
+                scene_events: None,
                 path_latches: None,
                 sound_bank_request: None,
                 encounter_signals: None,
@@ -13929,10 +13952,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 149);
-        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 8);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 5903);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 5962);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 150);
+        assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6040);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6099);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -14076,6 +14099,7 @@ mod tests {
                 coordination: None,
                 objective_counts: None,
                 objective_completion: None,
+                scene_events: None,
                 path_latches: None,
                 sound_bank_request: None,
                 encounter_signals: None,
@@ -14231,6 +14255,7 @@ mod tests {
                         coordination: None,
                         objective_counts: None,
                         objective_completion: None,
+                        scene_events: None,
                         path_latches: None,
                         sound_bank_request: None,
                         encounter_signals: None,
