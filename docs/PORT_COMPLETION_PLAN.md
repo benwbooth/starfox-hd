@@ -113,6 +113,31 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported both SF2 pitch-input routines, the complete soft/hard terrain
+  controllers, retained full-word input history and the map parameter-copy
+  service. State lives on the existing player allocation; pose, fine pitch,
+  contact protection, scene height and shared input remain canonical.
+  Preserved held-up versus retained-down selection, active neutral fine
+  pitch, wrapped height comparisons, signed cosine scaling, sequential
+  upper/lower correction, odd-visit lean and the hard limit's zero-pitch
+  branch. Scene wrappers select the primary configuration target and latch
+  partial failures. Unchanged original code matches 65,536 configurations
+  and history updates, 32,768 input/flag combinations, 262,144 protected
+  height cases, 524,288 terrain cases, 512 missing-input prefixes and 1,536
+  continuous history/pitch/terrain/pose visits. Each side retains its own
+  fine orientation; native output is never fed back into the reference.
+  Fixed the separate up+down-as-neutral bug in both shipping controllers;
+  real game ticks cover both control styles, preserving existing single-key
+  behavior and selecting the positive pitch branch for opposing input.
+  These legacy controllers remain approximate. The full native flight visit
+  still needs ambient motion, boost/brake effects, surface response, speed,
+  movement and camera wiring; the map catalog also still needs to call the
+  typed configuration service. All 1,323 native tests plus two architecture
+  checks pass in debug/release, and the oracle-enabled suite passes 1,331
+  unit tests and 35 runtime tests. All 48 original player-service comparisons
+  pass in both profiles, with 660 source tests, 209 lowerer tests, exact
+  catalog/architecture checks and builds of all three application binaries.
+
 - Ported the complete SF2 horizontal controller (`$06:E4B1..E7C8`) and
   turning-lean producer (`$06:E8F5..E9E9`), using the existing canonical
   player allocation, pose, input, contact and shoulder owners. Includes

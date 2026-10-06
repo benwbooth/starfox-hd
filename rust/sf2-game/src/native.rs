@@ -98,6 +98,7 @@ pub mod player_input;
 pub mod player_roll;
 pub mod player_pose;
 pub mod player_steering;
+pub mod player_vertical;
 mod player_effect;
 pub mod program_resources;
 pub mod program_state;

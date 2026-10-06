@@ -129,6 +129,7 @@ pub enum SceneError<E> {
     PlayerRoll(super::player_roll::RollError),
     PlayerPose(super::player_pose::PoseError),
     PlayerSteering(super::player_steering::SteeringError),
+    PlayerVertical(super::player_vertical::VerticalError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -157,6 +158,62 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Map configuration targets the actual primary player ($06:9A2F).
+    pub fn configure_player_vertical(
+        &mut self,
+        profile: super::player_vertical::VerticalProfile,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = self.world.primary_player.ok_or(SceneError::MissingPrimaryPlayer)
+            .and_then(|owner| {
+                super::player_vertical::configure(self.objects, self.world, owner, profile)
+                    .map_err(SceneError::PlayerVertical)
+            });
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Retain input history before horizontal control, not before each pitch
+    /// helper. Otherwise an intervening history clear would be lost.
+    pub fn retain_player_input(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_vertical::retain_input(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerVertical);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// The source-adjacent pitch and terrain pair, after horizontal control.
+    pub fn advance_player_vertical(
+        &mut self,
+        owner: ObjectId,
+        mode: super::player_vertical::VerticalMode,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_vertical::advance(
+            self.objects,
+            self.world,
+            &self.execution.paths.runtime.resources,
+            owner,
+            mode,
+        )
+        .map_err(SceneError::PlayerVertical);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Horizontal control runs between shoulder selection and roll/pose.
     pub fn advance_player_steering(
         &mut self,

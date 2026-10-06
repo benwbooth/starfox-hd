@@ -16438,7 +16438,8 @@ impl Game {
     ) -> Option<Vector3> {
         let at_upper_boundary = position.y >= PLAYER_VERTICAL_UPPER_BOUND;
         let at_lower_boundary = position.y <= PLAYER_VERTICAL_LOWER_BOUND;
-        let pitch_target = if up != down {
+        // Both original pitch modes select their positive target for up+down.
+        let pitch_target = if up || down {
             if up {
                 if at_upper_boundary {
                     PLAYER_BOUNDARY_PITCH_TARGET
@@ -16453,7 +16454,7 @@ impl Game {
         } else {
             0
         };
-        let pitch_lean_target = if up != down {
+        let pitch_lean_target = if up || down {
             if up {
                 if at_upper_boundary {
                     -PLAYER_BOUNDARY_PITCH_LEAN
@@ -18729,7 +18730,8 @@ impl Game {
             .unwrap_or_default();
         let at_upper_boundary = position.y >= PLAYER_VERTICAL_UPPER_BOUND;
         let at_lower_boundary = position.y <= PLAYER_VERTICAL_LOWER_BOUND;
-        let pitch_target = if up != down {
+        // Preserve the original positive-target priority for opposing input.
+        let pitch_target = if up || down {
             if up {
                 if at_upper_boundary {
                     PLAYER_BOUNDARY_PITCH_TARGET
@@ -18744,7 +18746,7 @@ impl Game {
         } else {
             0
         };
-        let pitch_lean_target = if up != down {
+        let pitch_lean_target = if up || down {
             if up {
                 if at_upper_boundary {
                     -PLAYER_BOUNDARY_PITCH_LEAN
@@ -34241,6 +34243,65 @@ mod tests {
                 games[0].state.mission.player_flight.yaw_accumulator,
                 games[2].state.mission.player_flight.yaw_accumulator,
             );
+        }
+    }
+
+    #[test]
+    fn both_vertical_buttons_take_positive_pitch_branch_in_both_shipping_flight_controllers() {
+        for (style, positive) in [
+            (FlightControlStyle::TypeA, Button::Down),
+            (FlightControlStyle::TypeB, Button::Up),
+        ] {
+            for pressure in [false, true] {
+                let mut games = [Game::new(), Game::new(), Game::new()];
+                for game in &mut games {
+                    game.begin_opening_sortie().unwrap();
+                    if pressure {
+                        game.begin_pressure_fighter_encounter().unwrap();
+                    }
+                    let first_frame = if pressure {
+                        pressure_fighters::LIVE_FIRST_RETAIL_FRAME
+                    } else {
+                        MISSION_PLAYER_INPUT_START_RETAIL_FRAME
+                    };
+                    game.state.mode_frame = u32::from(first_frame)
+                        / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+                    game.state.mission.phase = MissionPhase::Active;
+                    game.state.mission.departed_certified_neutral_path = true;
+                    game.state.pilot_selection.control_style = style;
+                }
+                let controls = [
+                    positive as u16,
+                    Button::Up as u16 | Button::Down as u16,
+                    0,
+                ];
+                for visit in 0..16 {
+                    for (game, controls) in games.iter_mut().zip(controls) {
+                        game.tick(controls).unwrap();
+                    }
+                    let poses: Vec<_> = games.iter().map(|game| {
+                        let player = game.state.objects
+                            .get(game.state.mission.primary_player.unwrap()).unwrap();
+                        (
+                            player.base.position,
+                            player.base.velocity,
+                            player.base.pitch,
+                            player.base.yaw,
+                            player.base.roll,
+                            player.base.speed,
+                        )
+                    }).collect();
+                    assert_eq!(poses[0], poses[1], "style={style:?} pressure={pressure} visit={visit}");
+                    assert_eq!(
+                        games[0].state.mission.player_flight,
+                        games[1].state.mission.player_flight,
+                    );
+                }
+                assert_ne!(
+                    games[0].state.mission.player_flight.pitch_accumulator,
+                    games[2].state.mission.player_flight.pitch_accumulator,
+                );
+            }
         }
     }
 

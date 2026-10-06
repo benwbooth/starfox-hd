@@ -66,6 +66,7 @@ pub struct PlayerPathRecords {
     pub roll: Option<super::player_roll::PlayerRoll>,
     pub pose: Option<super::player_pose::PlayerPose>,
     pub steering: Option<super::player_steering::PlayerSteering>,
+    pub vertical: Option<super::player_vertical::PlayerVerticalControl>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,

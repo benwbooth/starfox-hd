@@ -164,6 +164,7 @@ pub fn replace(
         roll: Some(Default::default()),
         pose: Some(Default::default()),
         steering: Some(Default::default()),
+        vertical: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),
