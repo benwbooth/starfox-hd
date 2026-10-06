@@ -138,6 +138,7 @@ pub fn replace(
             pilot_code: inputs.pilot_code,
             ..Default::default()
         }),
+        injected_input: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),

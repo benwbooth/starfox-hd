@@ -108,6 +108,7 @@ fn replacement_initializes_every_supported_player_record_without_initializing_th
     let records = world.player(&objects, primary).unwrap();
     assert_eq!(records.contact.unwrap().hit.reserve_shield, 173);
     assert_eq!(records.visit.unwrap().pilot_code, 255);
+    assert_eq!(records.injected_input, Some(crate::InputState::default()));
     assert_eq!(records.score, Some(inputs(255).score));
     assert!(
         records.protection.is_some() && records.auxiliary.is_some() && records.charge.is_some()

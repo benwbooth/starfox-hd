@@ -27,6 +27,7 @@ pub use native::player_consumable;
 pub use native::player_visit;
 pub use native::player_recovery;
 pub use native::player_storage;
+pub use native::player_input;
 pub use native::path_target;
 pub use native::target_search;
 pub use native::scene_strategy;

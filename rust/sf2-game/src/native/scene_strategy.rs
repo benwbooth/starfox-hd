@@ -121,6 +121,7 @@ pub enum SceneError<E> {
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerStorage(super::player_storage::PlayerStorageError),
+    PlayerInput(super::player_input::PlayerInputError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -149,6 +150,24 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Publish processed controller/script input at the enclosing mode's
+    /// source-ordered callsite. This is not implicit in the earlier player
+    /// prefix: that prefix's action service observes the prior publication.
+    pub fn prepare_player_input(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<super::InputState, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_input::prepare(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerInput);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Target reset after the enclosing initializer's shared-state reset.
     /// Its source order is deliberately separate from storage replacement.
     pub fn initialize_player_target(

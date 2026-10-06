@@ -1,6 +1,9 @@
-//! Unmodified player auxiliary allocation/clear/publication prefix and target
-//! initialization/selection. Storage deliberately stops before the distinct
+//! Unmodified player input preparation, auxiliary allocation/clear/publication
+//! prefix and target initialization/selection. Storage stops before the distinct
 //! view-selection tail ($06:82B7); targeting runs its separate full routines.
+
+#[path = "support/sf2_player_input.rs"]
+mod input_tests;
 
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
@@ -222,6 +225,7 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                 assert_eq!(source.bus.read16(WRAM + 0x1E24), slot as u16);
                 assert_eq!(world.primary_player, Some(owner));
                 let records = world.player(&objects, owner).unwrap();
+                assert_eq!(records.injected_input, Some(sf2_game::InputState::default()));
                 assert_eq!(
                     records.visit.unwrap().pilot_code,
                     source.bus.read8(WRAM + slot + 0x6BFF)

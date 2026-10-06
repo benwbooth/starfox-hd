@@ -113,6 +113,23 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Implemented the complete processed-input service used by player movement
+  modes. It selects the live actor's controller side, preserves sampled edges,
+  applies flight-only vertical inversion and the full alternate button layout,
+  publishes the pre-activity snapshot, then masks inactive controls and consumes
+  queued script input. Scripted-view and protection gates clear processed input
+  but retain both the queued input and earlier pre-mask publication. Player
+  storage installs the actual zeroed injection words; the scene wrapper latches
+  partial failures. Six new native tests include exhaustive words/modes/options,
+  missing-input ordering, retained controller edges, and remapped charging through
+  a real effect and projectile launch. Unmodified source matches all 327,680
+  differential cases across controller words, both option maps, all movement modes
+  and gate bytes. All 1,236 native tests pass in debug/release, together with
+  compatibility checks, six original-instruction tests in both profiles,
+  616 source checks, architecture checks and all three application builds.
+  The surrounding player-mode call order and shipping frame owner remain open;
+  the earlier player prefix intentionally does not resample or prepare controls.
+
 - Connected scripted view transitions to the scene's canonical execution-mode
   word. Authored save/move/restore, fresh allocation defaults, player warning/
   action/fire gates and each actor's strategy admission now observe the same

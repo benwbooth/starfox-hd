@@ -54,6 +54,9 @@ pub struct PlayerPathRecords {
     /// Candidate/marker selection, distinct from the scripted follow target.
     pub target_selection: Option<super::path_target::TargetSelection>,
     pub visit: Option<super::player_visit::PlayerVisitControl>,
+    /// Scripted input words (6A88/6A8A), ORed after controller remapping and
+    /// the activity mask, then cleared only by an admitted input visit.
+    pub injected_input: Option<super::InputState>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -152,6 +155,15 @@ pub struct ScenePathWorld {
     pub weapons: Option<super::weapon_dispatch::WeaponState>,
     pub palette: Option<super::player_action::ScenePalette>,
     pub player_service_flags: Option<super::player_action::PlayerServiceFlags>,
+    /// Display-sampled held/pressed snapshots (1292/1296 and 1294/1298).
+    /// Actor input preparation never computes fresh edges from these words.
+    pub controller_inputs: [Option<super::InputState>; 2],
+    pub player_input_settings: Option<super::player_input::PlayerInputSettings>,
+    /// Current shared processed words (held 1938, pressed 1936).
+    pub processed_player_input: Option<super::InputState>,
+    /// Remapped words before activity filtering (held 1DA7, pressed 1DA9).
+    /// Early input gates preserve this separate publication.
+    pub unmasked_player_input: Option<super::InputState>,
     /// Published active shield capacity (1DD5), not current active shield.
     pub active_shield_capacity: Option<u8>,
     /// Shared equipment publications (1DD2/3), separate from live equipment.
@@ -240,6 +252,10 @@ impl ScenePathWorld {
             weapons: None,
             palette: None,
             player_service_flags: None,
+            controller_inputs: [None; 2],
+            player_input_settings: None,
+            processed_player_input: None,
+            unmasked_player_input: None,
             active_shield_capacity: None,
             active_consumables: None,
             shield_recovery: None,

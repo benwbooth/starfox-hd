@@ -147,6 +147,63 @@ fn authored(id: u8, side: PlayerTarget) -> SoundEvent {
 }
 
 #[test]
+fn remapped_controller_edges_charge_and_release_a_real_projectile_through_scene_services() {
+    let mut scene = Scene::new();
+    scene.world.player_input_settings = Some(crate::player_input::PlayerInputSettings {
+        flight_style: 128,
+        button_layout: 255,
+    });
+    scene.record().injected_input = Some(InputState::default());
+    scene.world.controller_inputs[0] = Some(InputState::default());
+    let owner = scene.owner;
+    for visit in 0..=18 {
+        scene.world.controller_inputs[0]
+            .as_mut()
+            .unwrap()
+            .sample(Buttons::from_bits(Button::Y as u16));
+        let processed = scene.host().prepare_player_input(owner).unwrap();
+        assert!(processed.held.contains(Button::B));
+        assert_eq!(processed.pressed.contains(Button::B), visit == 0);
+        scene
+            .host()
+            .advance_player_charge(owner, processed)
+            .unwrap();
+        assert_eq!(scene.charge().progress, (visit * 384).min(25 * 256));
+    }
+    let orb = scene.effect().expect("real numbered charge effect");
+    scene.world.controller_inputs[0]
+        .as_mut()
+        .unwrap()
+        .sample(Buttons::default());
+    let released = scene.host().prepare_player_input(owner).unwrap();
+    assert_eq!(released, InputState::default());
+    scene.host().advance_player_charge(owner, released).unwrap();
+    assert_eq!(scene.charge().progress, 12 * 256);
+    assert!(scene.objects.get(orb).unwrap().base.flags.remove_after_tick);
+    let shots: Vec<_> = scene
+        .objects
+        .active_ids()
+        .iter()
+        .copied()
+        .filter(|id| *id != owner && *id != orb)
+        .collect();
+    assert_eq!(shots.len(), 1);
+    assert_eq!(
+        scene.objects.get(shots[0]).unwrap().base.path,
+        Some(authored_paths::AIMED_IMPACT_PROJECTILE)
+    );
+    assert_eq!(
+        scene.objects.get(shots[0]).unwrap().base.shape,
+        ShapeId::PLAYER_CHARGED_LASER_LAUNCH
+    );
+    assert_eq!(
+        scene.world.controller_inputs[0],
+        Some(InputState::default())
+    );
+    assert!(!scene.execution.is_faulted());
+}
+
+#[test]
 fn processed_press_does_not_charge_and_full_high_byte_comparison_ignores_fraction() {
     let mut scene = Scene::new();
     scene.charge().control = 0x0B;
