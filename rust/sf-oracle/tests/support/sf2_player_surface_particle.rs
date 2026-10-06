@@ -10,10 +10,10 @@ use sf2_game::{
     ShapeId, Vector3,
 };
 
-const OWNER: u16 = 0x03BD;
-const SLOT: u32 = 64;
+pub(super) const OWNER: u16 = 0x03BD;
+pub(super) const SLOT: u32 = 64;
 
-fn address(id: Option<ObjectId>) -> u16 {
+pub(super) fn address(id: Option<ObjectId>) -> u16 {
     id.map_or(0, |id| OWNER + id.index() as u16 * 0x3F)
 }
 fn installer(kind: SurfaceParticle) -> u32 {
@@ -29,13 +29,13 @@ fn strategy(kind: SurfaceParticle) -> u32 {
     }
 }
 
-struct Native {
-    objects: ObjectStore,
-    world: ScenePathWorld,
-    owner: ObjectId,
+pub(super) struct Native {
+    pub(super) objects: ObjectStore,
+    pub(super) world: ScenePathWorld,
+    pub(super) owner: ObjectId,
 }
 impl Native {
-    fn new(source: &mut Source, count: usize, roll: u8, yaw: u8, seed: u16) -> Self {
+    pub(super) fn new(source: &mut Source, count: usize, roll: u8, yaw: u8, seed: u16) -> Self {
         let mut objects = ObjectStore::new();
         let owner = objects
             .allocate(Object::new(
@@ -178,7 +178,7 @@ impl Native {
         result.ok()
     }
 
-    fn compare_pool(&self, source: &Source) {
+    pub(super) fn compare_pool(&self, source: &Source) {
         assert_eq!(
             source.bus.read16(0x12A8),
             address(self.objects.active_ids().first().copied())

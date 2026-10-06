@@ -47,6 +47,9 @@ mod ambient_tests;
 #[path = "support/sf2_player_surface_particle.rs"]
 mod surface_particle_tests;
 
+#[path = "support/sf2_player_surface.rs"]
+mod surface_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};
@@ -68,6 +71,7 @@ struct Source {
     bus: SnesBus,
     reset: bool,
     writes: Option<Vec<(u32, u8)>>,
+    last_carry: bool,
 }
 
 impl System for Source {
@@ -98,6 +102,7 @@ impl Source {
             bus,
             reset: false,
             writes: None,
+            last_carry: false,
         }
     }
 
@@ -163,6 +168,7 @@ impl Source {
             if cpu.tcu() == 0
                 && (u32::from(cpu.pbr()) << 16 | u32::from(cpu.pc().wrapping_sub(1))) == boundary
             {
+                self.last_carry = cpu.p() & 1 != 0;
                 return cpu.c();
             }
         }
@@ -374,6 +380,9 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                     y: word(0x6B0D) as i16,
                     z: word(0x6B0F) as i16,
                 });
+                let surface = records.surface.unwrap();
+                assert_eq!(surface.plane_height, word(0x6A7D) as i16);
+                assert_eq!(surface.material, byte(0x6A82));
                 assert_eq!(
                     player_storage::get(&objects, &runtime.resources, owner).unwrap(),
                     &PlayerStorage {

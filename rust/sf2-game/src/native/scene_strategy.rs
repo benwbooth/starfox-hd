@@ -133,6 +133,7 @@ pub enum SceneError<E> {
     PlayerThrottle(super::player_throttle::ThrottleError),
     PlayerAmbient(super::player_ambient::AmbientError),
     PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
+    PlayerSurface(super::player_surface::SurfaceError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -631,6 +632,19 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         }
         result
     }
+    pub fn respond_player_surface(
+        &mut self,
+        owner: ObjectId,
+        context: super::player_surface::SurfaceContext,
+    ) -> Result<super::player_surface::SurfaceResponse, SceneError<C::Error>> {
+        if self.execution.faulted { return Err(SceneError::Faulted); }
+        let result = super::player_surface::respond(self.objects, self.world,
+            &mut self.execution.paths.runtime.resources, owner, context)
+            .map_err(SceneError::PlayerSurface);
+        if result.is_err() { self.execution.faulted = true; }
+        result
+    }
+
     /// Surface effects allocate/format here, but their independent strategies
     /// first run when the live actor scheduler reaches them.
     pub fn spawn_player_surface_particle(

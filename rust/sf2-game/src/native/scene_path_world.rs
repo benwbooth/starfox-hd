@@ -76,6 +76,7 @@ pub struct PlayerPathRecords {
     /// Surface particles consume the previous visit before flight rewrites it.
     /// It is neither base velocity nor the published path displacement.
     pub flight_displacement: Option<super::Vector3>,
+    pub surface: Option<super::player_surface::PlayerSurface>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -199,6 +200,9 @@ pub struct ScenePathWorld {
     pub active_consumables: Option<super::player_visit::PublishedConsumables>,
     pub shield_recovery: Option<super::player_hit_control::ShieldRecoveryRequest>,
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
+    /// Shared carry context (1E13); one enables the actor's carry-mode gate.
+    /// This is distinct from the general collision-mode byte at 1B4D.
+    pub player_carry_mode: Option<u8>,
     pub environment_plane_height: Option<i16>,
     pub friend_health: Option<super::path_death::FriendHealth>,
     pub targeting_upgrade: Option<super::path_target::TargetingUpgradeState>,
@@ -335,6 +339,7 @@ impl ScenePathWorld {
             active_consumables: None,
             shield_recovery: None,
             surface_mode: None,
+            player_carry_mode: None,
             environment_plane_height: None,
             friend_health: None,
             targeting_upgrade: None,

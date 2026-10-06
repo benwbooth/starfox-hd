@@ -113,6 +113,27 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete two-wing surface response (`$07:DD6F..E0C8`) and
+  both wing-effect installers (`$07:D403..D4D4`). It uses the live reserved
+  probe actor, original byte-quantized roll/pitch/yaw and wrapping plane
+  tests; preserves upper-contact precedence, selective carry suppression,
+  byte-only fine-pitch/bank edits, existing recoil and exact sound routing;
+  and installs real authored wing paths or the custom material particles.
+  The response exposes the real event/height-byte handoff consumed by the
+  following speed service. Five unmodified-original groups pass 17,679
+  full-response cases, including retained multi-visit state and both fatal
+  allocation boundaries. Five native groups cover lazy inputs, partial
+  fault latching and all three effect lifetimes through the live scheduler.
+  All 1,346 native tests and both architecture checks pass in debug/release;
+  oracle-enabled checks pass 1,354 unit tests, 35 runtime tests and both
+  architecture checks. All 77 original player-service groups pass in both
+  profiles, together with 685 source checks, 209 lowerer tests, exact catalog
+  and architecture checks, and builds of all three application binaries.
+  The wing installer inherits its child number rather than setting one:
+  this is an explicit optional caller input, diagnosed only if that branch
+  reaches its read. Its enclosing producer remains open, as do the shared
+  carry-mode producer, speed/motion/camera and shipping frame integration.
+
 - Ported both surface-particle installers and complete custom strategies
   (`$07:C6E8..C867`) into the native actor scheduler. Fresh sibling allocation,
   self-referential transform parent, pause exemption, byte-quantized roll/yaw,

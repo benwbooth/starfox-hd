@@ -102,6 +102,7 @@ pub mod player_vertical;
 pub mod player_throttle;
 pub mod player_ambient;
 pub mod player_surface_particle;
+pub mod player_surface;
 mod player_effect;
 pub mod program_resources;
 pub mod program_state;

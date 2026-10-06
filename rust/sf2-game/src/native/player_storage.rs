@@ -171,6 +171,7 @@ pub fn replace(
         throttle: Some(Default::default()),
         ambient: Some(Default::default()),
         flight_displacement: Some(Default::default()),
+        surface: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),
