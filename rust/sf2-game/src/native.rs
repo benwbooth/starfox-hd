@@ -85,6 +85,7 @@ pub mod player_hit_control;
 pub mod player_charge;
 pub mod player_rapid;
 pub mod player_weapon_aim;
+pub mod player_action;
 pub mod program_resources;
 pub mod program_state;
 pub mod proximity_warning;

@@ -48,6 +48,7 @@ pub struct PlayerPathRecords {
     pub auxiliary: Option<SelectedAuxiliaryState>,
     pub charge: Option<super::player_charge::PlayerCharge>,
     pub rapid_aim: Option<super::player_rapid::RapidAim>,
+    pub action: Option<super::player_action::PlayerActionState>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -113,6 +114,8 @@ pub struct ScenePathWorld {
     /// Shared 1AA6 bit 02 for reflection-list traversal.
     pub reflect_all_contacts: Option<bool>,
     pub weapons: Option<super::weapon_dispatch::WeaponState>,
+    pub palette: Option<super::player_action::ScenePalette>,
+    pub player_service_flags: Option<super::player_action::PlayerServiceFlags>,
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
     pub impact: Option<super::path_impact::ImpactState>,
     pub occupancy: Option<super::world_occupancy::WorldOccupancy>,
@@ -164,6 +167,8 @@ impl ScenePathWorld {
             contacts_enabled: None,
             reflect_all_contacts: None,
             weapons: None,
+            palette: None,
+            player_service_flags: None,
             surface_mode: None,
             impact: None,
             occupancy: None,

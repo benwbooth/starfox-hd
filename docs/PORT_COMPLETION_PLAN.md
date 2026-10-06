@@ -355,6 +355,16 @@ running; scheduled work is not a guarantee of a completion date.
   architecture and app build pass. Consumable use also installs a parallel
   timed player-action stream; its state and actual service calls must be
   ported before the enclosing weapon/player sequence is source-complete.
+- Implemented the triggered consumable's parallel player-action stream over
+  the live player record and shared projectile trigger. Preserved authored
+  command order, same-visit early detonation, full-word palette snapshots,
+  selective restoration flags, termination's final increment and overflow
+  freeze. Eight tests cover every clock word, trigger byte, configuration and
+  palette word, source read gates, non-replay faults and shared path ownership.
+  All 1,145 native tests and two integration tests pass in debug/release;
+  590 source tests, exact regeneration, architecture and app build pass.
+  The consumable-use caller and its concrete effect installers are next;
+  the outer player strategy and production frame-loop migration remain open.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

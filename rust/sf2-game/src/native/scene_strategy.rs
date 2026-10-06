@@ -115,6 +115,7 @@ pub enum SceneError<E> {
     Charge(super::player_charge::ChargeError),
     Rapid(super::player_rapid::RapidError),
     WeaponAim(super::player_weapon_aim::WeaponAimError),
+    PlayerAction(super::player_action::PlayerActionError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
     World(WorldInputError),
@@ -142,6 +143,22 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Parallel action stream, independently scheduled by player control.
+    pub fn advance_player_action(
+        &mut self,
+        owner: ObjectId,
+        input: super::InputState,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_action::advance(self.objects, self.world, owner, input)
+            .map_err(SceneError::PlayerAction);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Independently scheduled forward-point update for future rapid fire.
     pub fn retain_player_weapon_aim(
         &mut self,
