@@ -114,6 +114,7 @@ pub enum SceneError<E> {
     Reflection(super::weapon_reflection::ReflectionError),
     Charge(super::player_charge::ChargeError),
     Rapid(super::player_rapid::RapidError),
+    WeaponAim(super::player_weapon_aim::WeaponAimError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
     World(WorldInputError),
@@ -141,6 +142,26 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Beginning of the weapon service, before consumables and rapid fire.
+    pub fn publish_player_weapon_aim(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_weapon_aim::publish(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.steering,
+            owner,
+        )
+        .map_err(SceneError::WeaponAim);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Rapid tail of the player weapon service. Aiming and consumable work
     /// precede this call; the charged-fire service follows it.
     pub fn advance_player_rapid(

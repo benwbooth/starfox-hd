@@ -333,6 +333,17 @@ running; scheduled work is not a guarantee of a completion date.
   **Aiming publication, retained-target updates, consumable service and outer
   player/frame ownership remain open.** These services are not yet adopted
   by the shipping player update.
+- Implemented weapon-pitch publication and its complete ordered target scan.
+  Preserved source class/flag domains, wrapping signed range comparisons,
+  first-on-tie selection, half-open angle windows, separate signed rounding,
+  proxy overwrite/alias behavior and early writes before diagnostic faults.
+  Twelve tests exhaust both class bytes, range bounds, angle windows, fine
+  pitches and non-Walker modes; a composed check carries freshly published
+  Walker pitch into a real alternate projectile. All 1,132 native tests and
+  two integration tests pass in debug/release; 580 source checks, exact
+  regeneration, architecture and app build pass. **The retained forward aim
+  point has a separate producer, and consumable/outer player/frame ownership
+  remain open.** These are still scene services, not shipping-loop adoption.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

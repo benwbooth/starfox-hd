@@ -447,6 +447,43 @@ fn alternate_branch_uses_pressed_edge_action_gate_level_mask_and_published_pitch
 }
 
 #[test]
+fn freshly_published_walker_pitch_reaches_real_alternate_projectile() {
+    let mut scene = Scene::new();
+    scene.record().auxiliary.as_mut().unwrap().mode = 0x20;
+    // This branch does not consume retained-target coordinates.
+    scene.record().rapid_aim = None;
+    let origin = scene.objects.get(scene.owner).unwrap().base.position;
+    let mut target = Object::new(ObjectKind::Enemy, ShapeId::EMPTY, Behavior::Unassigned);
+    target.base.position = Vector3 {
+        x: origin.x,
+        y: origin.y + 100,
+        z: origin.z + 1000,
+    };
+    target.base.flags.general_search_eligible = true;
+    target.base.contacts.exclusion_groups = crate::collision_pass::ExclusionGroups::PATH_SPAWN;
+    let target = scene.objects.allocate(target).unwrap();
+    let owner = scene.owner;
+    scene.host().publish_player_weapon_aim(owner).unwrap();
+    assert_eq!(
+        scene.world.weapons.unwrap().published_pitch,
+        Some(Angle::from_units(5))
+    );
+    scene.visit(true).unwrap();
+    let shot = scene
+        .spawned()
+        .into_iter()
+        .find(|id| *id != target)
+        .unwrap();
+    let shot = scene.objects.get(shot).unwrap();
+    assert_eq!(
+        shot.base.path,
+        Some(authored_paths::ALTERNATE_RAPID_IMPACT_PROJECTILE)
+    );
+    assert_eq!(shot.base.pitch, Angle::from_units(5));
+    assert_eq!(shot.base.child_number, 252);
+}
+
+#[test]
 fn path_launch_observations_follow_actual_firing_owner_not_selected_or_attached_player() {
     let mut scene = Scene::new();
     let other = scene.proxy;
