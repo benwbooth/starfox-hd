@@ -6896,47 +6896,42 @@ pub fn missbound_chk_exp(g: &mut Game, idx: u16) {
     let min_py = g.vars.minpmove_y;
 
     let mut kill = false;
-    if flags & MB_RIGHT != 0 && wx > max_mx {
+    // The source's MORE/LESS macros branch on the sign of a wrapping word
+    // difference. Preserve this at coordinate overflow as well as near edges.
+    if flags & MB_RIGHT != 0 && wx.wrapping_sub(max_mx) > 0 {
         kill = true;
     }
-    if !kill && flags & MB_LEFT != 0 && wx < min_mx {
+    if !kill && flags & MB_LEFT != 0 && wx.wrapping_sub(min_mx) < 0 {
         kill = true;
     }
-    if !kill && flags & (MB_TOP | MB_RTOP | MB_LTOP) != 0 && wy < min_py {
-        // Top edge: optional left/right player-x gates (colony/bridge).
-        let pl = nuke_player_idx(g);
-        if flags & MB_RTOP != 0 {
-            if let Some(p) = pl {
-                let miss_tr = g.vars.sv_i16(sv::MISSBTOPRIGHT);
-                if g.objs.aliens[p as usize].worldx <= miss_tr {
-                    kill = true;
-                }
-            } else {
-                kill = true;
-            }
-        } else if flags & MB_LTOP != 0 {
-            if let Some(p) = pl {
-                let miss_tl = g.vars.sv_i16(sv::MISSBTOPLEFT);
-                if g.objs.aliens[p as usize].worldx <= miss_tl {
-                    kill = true;
-                }
-            } else {
-                kill = true;
-            }
+    if !kill && flags & (MB_TOP | MB_RTOP | MB_LTOP) != 0 && wy.wrapping_sub(min_py) <= 0 {
+        // Both top gates apply sequentially when both flags are set. Equality
+        // belongs to the vertical boundary, but the left player gate is strict.
+        if flags & (MB_RTOP | MB_LTOP) != 0 {
+            let Some(player) = g.player_object() else {
+                // A gated boundary requires the scene's exposed player. Do
+                // not manufacture a slot-zero player during an unowned scene.
+                return;
+            };
+            let player_x = g.objs.aliens[player as usize].worldx;
+            let within_right_gate = flags & MB_RTOP == 0
+                || player_x.wrapping_sub(g.vars.sv_i16(sv::MISSBTOPRIGHT)) <= 0;
+            let beyond_left_gate =
+                flags & MB_LTOP == 0 || player_x.wrapping_sub(g.vars.sv_i16(sv::MISSBTOPLEFT)) > 0;
+            kill = within_right_gate && beyond_left_gate;
         } else {
             kill = true;
         }
     }
-    if !kill && flags & (MB_BOTTOM | MB_LBOTTOM) != 0 && wy > max_my {
+    if !kill && flags & (MB_BOTTOM | MB_LBOTTOM) != 0 && wy.wrapping_sub(max_my) >= 0 {
         if flags & MB_LBOTTOM != 0 {
-            if let Some(p) = nuke_player_idx(g) {
-                let miss_bl = g.vars.sv_i16(sv::MISSBBOTLEFT);
-                if g.objs.aliens[p as usize].worldx <= miss_bl {
-                    kill = true;
-                }
-            } else {
-                kill = true;
-            }
+            let Some(player) = g.player_object() else {
+                return;
+            };
+            kill = g.objs.aliens[player as usize]
+                .worldx
+                .wrapping_sub(g.vars.sv_i16(sv::MISSBBOTLEFT))
+                > 0;
         } else {
             kill = true;
         }

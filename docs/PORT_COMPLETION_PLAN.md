@@ -248,6 +248,17 @@ running; scheduled work is not a guarantee of a completion date.
   audit and app build pass. The remaining pickup behavior beyond constructor
   ordering, missile boundaries, earlier oracle blockers and SF2 wiring are not
   certified by this slice.
+- Closed the shared missile-boundary branch gap. Restored wrapping word
+  comparisons, inclusive top/bottom edges, the strict left player gates, both
+  top gates when combined, and the actual exposed-player relationship instead
+  of slot zero. A source-built ROM differential exhausts all 256 flag values
+  across 228,096 coordinate/player combinations, including signed extremes;
+  three native tests keep representative edge contracts available without ROM
+  assets. All 1,519 game/path/strategy tests pass in debug, all 1,276 strategy
+  tests pass in release, both weapon oracle targets pass in debug/release,
+  and the 33 SF1 Python tests, architecture audit and app build pass. The source
+  boundary proof does not certify absent-player scene states or unrelated bomb
+  logic. Continue with the two remaining SF1 oracle blockers and SF2 scene wiring.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
