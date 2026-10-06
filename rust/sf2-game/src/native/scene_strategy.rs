@@ -1,0 +1,453 @@
+//! Scene binding for the shared native actor services.
+//!
+//! One owner composes strategy selection, path invocation, hit/death dispatch,
+//! positional sound and complete retirement over the same live stores. Scene-
+//! specific native callbacks and map continuations are required services, not
+//! ignored defaults. The frame owner still decides when the two strategy
+//! portions, collision pass, cleanup and audio publication occur.
+
+use super::collision_contacts::{Contact, ContactHost, ContactId, ContactStore};
+use super::collision_pass::{self, CollisionEpochHost, EpochError};
+use super::common_destruction::{
+    self, DestructionError, DestructionHost, EffectError, EffectInputs, EffectMotion, EffectPhase,
+    MapDeathCounts,
+};
+use super::hit_response::{
+    self, HitActor, HitActorMut, HitCallback, HitContext, HitError, HitResponseHost,
+};
+use super::path_invocation::{InvocationEntry, InvocationError, PathInvocation};
+use super::path_program::PathCatalog;
+use super::path_runtime::PathRuntimeError;
+use super::path_sound::AuthoredCue;
+use super::positional_audio::{LoopListener, MissingLoopListener, PositionalAudio};
+use super::retirement::{self, RetirementError, RetirementHost};
+use super::scene_path_world::{ScenePathWorld, WorldInputError};
+use super::scene_proxy::SceneProxyStore;
+use super::strategy_schedule::{
+    select_strategy, ScheduleError, StrategyAction, StrategyCompletion, StrategyHost,
+    StrategyInputs, StrategySchedule,
+};
+use super::{Behavior, ObjectId, ObjectStore, SoundEvent, Vector3};
+
+/// Concrete scene/native registrations supply these methods. There are no
+/// default success implementations: an unsupported callback must be an error,
+/// and an absent callback must be distinguished by its actual registration.
+/// Callback code may mutate the live scene, but must not recycle a currently
+/// executing actor or either endpoint of the contact being separated.
+pub trait SceneCallbacks: Sized {
+    type Error;
+    fn assigned(
+        host: &mut SceneActors<'_, Self>,
+        owner: ObjectId,
+    ) -> Result<StrategyCompletion, Self::Error>;
+    fn death_override(
+        host: &mut SceneActors<'_, Self>,
+        owner: ObjectId,
+    ) -> Result<Option<StrategyCompletion>, Self::Error>;
+    fn has_hit_callback(host: &SceneActors<'_, Self>, owner: ObjectId, kind: HitCallback) -> bool;
+    fn hit_callback(
+        host: &mut SceneActors<'_, Self>,
+        owner: ObjectId,
+        other: ObjectId,
+        kind: HitCallback,
+        context: &mut HitContext,
+    ) -> Result<(), Self::Error>;
+    fn separation(
+        host: &mut SceneActors<'_, Self>,
+        contact: ContactId,
+        entry: Contact,
+    ) -> Result<(), Self::Error>;
+    fn resume_map_on_death(
+        host: &mut SceneActors<'_, Self>,
+        owner: ObjectId,
+    ) -> Result<(), Self::Error>;
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SceneStrategyControls {
+    pub paused: bool,
+    pub excluded_actor: Option<ObjectId>,
+    pub positional_suppressed: bool,
+    pub loop_listener: Option<LoopListener>,
+    pub death_effects: Option<EffectInputs>,
+}
+
+/// Shared invocation state belongs to the scene, not to an individual actor.
+/// A failed world service latches the scene at the diagnostic boundary: an
+/// outer retry must not apply contact damage, callbacks or allocations twice.
+#[derive(Debug, Default)]
+pub struct SceneExecution {
+    pub paths: PathInvocation,
+    pub hit_context: HitContext,
+    pub positional: PositionalAudio,
+    pub controls: SceneStrategyControls,
+    pub map_counts: Option<MapDeathCounts>,
+    faulted: bool,
+    retire_immediately: bool,
+}
+
+impl SceneExecution {
+    pub fn is_faulted(&self) -> bool {
+        self.faulted
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SceneError<E> {
+    Faulted,
+    MissingActor(ObjectId),
+    MissingPrimaryPlayer,
+    MissingDeathInputs,
+    MissingMapCounts,
+    NestedPathInvocation,
+    World(WorldInputError),
+    Path(InvocationError<WorldInputError>),
+    Runtime(PathRuntimeError),
+    Effect(EffectError),
+    Positional(MissingLoopListener),
+    Callbacks(E),
+    Hit(Box<HitError<SceneError<E>>>),
+    Destruction(Box<DestructionError<SceneError<E>>>),
+    Retirement(Box<RetirementError<SceneError<E>>>),
+    Epoch(Box<EpochError<SceneError<E>>>),
+}
+
+/// Short-lived borrow of a real scene. Objects, resources, contacts and player
+/// records are never copied into a second strategy-owned object collection.
+pub struct SceneActors<'a, C: SceneCallbacks> {
+    pub objects: &'a mut ObjectStore,
+    pub world: &'a mut ScenePathWorld,
+    pub execution: &'a mut SceneExecution,
+    pub catalog: &'a PathCatalog,
+    pub callbacks: &'a mut C,
+    /// Diagnostic statement bound, not a movement count or frame budget.
+    pub statement_budget: usize,
+}
+
+impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Publish the shared clock even for an empty or entirely suspended pass.
+    /// Render readiness and positional-accumulator reset are separate owners.
+    pub fn begin_strategy_epoch(
+        &mut self,
+        schedule: &mut StrategySchedule,
+    ) -> Result<(), ScheduleError<SceneError<C::Error>>> {
+        if self.execution.faulted {
+            return Err(ScheduleError::Host(SceneError::Faulted));
+        }
+        schedule.begin(self.objects)?;
+        self.world.strategy_clock = schedule.clock();
+        Ok(())
+    }
+
+    /// Source contact/deferred-retirement pass. Its placement relative to
+    /// strategy/render/collision work is supplied by the frame owner.
+    pub fn clean_epoch(&mut self) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result =
+            collision_pass::clean_epoch(self).map_err(|error| SceneError::Epoch(Box::new(error)));
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    fn assigned(&mut self, owner: ObjectId) -> Result<ObjectId, SceneError<C::Error>> {
+        let behavior = self
+            .objects
+            .get(owner)
+            .ok_or(SceneError::MissingActor(owner))?
+            .base
+            .behavior;
+        match behavior {
+            Behavior::Unassigned => Ok(owner),
+            Behavior::FollowPath | Behavior::PathMovement => {
+                let entry = if behavior == Behavior::PathMovement {
+                    InvocationEntry::Movement
+                } else {
+                    InvocationEntry::Program
+                };
+                self.execution
+                    .paths
+                    .begin(owner, entry)
+                    .map_err(|_| SceneError::NestedPathInvocation)?;
+                self.execution
+                    .paths
+                    .resume(
+                        self.catalog,
+                        self.objects,
+                        self.world,
+                        self.statement_budget,
+                    )
+                    .map_err(SceneError::Path)
+            }
+            Behavior::ImpactBurst(_) => {
+                super::path_effect::step(self.objects.get_mut(owner).expect("live impact actor"))
+                    .expect("validated impact behavior");
+                Ok(owner)
+            }
+            Behavior::Destruction(phase) => {
+                let motion = if phase == EffectPhase::Animate {
+                    let primary = self
+                        .world
+                        .primary_player
+                        .ok_or(SceneError::MissingPrimaryPlayer)?;
+                    let record = self
+                        .world
+                        .player_mut(self.objects, primary)
+                        .map_err(SceneError::World)?;
+                    let mode = record
+                        .auxiliary
+                        .ok_or(SceneError::World(WorldInputError::MissingAuxiliary(
+                            primary,
+                        )))?
+                        .mode;
+                    let displacement = if mode & 0xF0 == 0x10 {
+                        record
+                            .displacement
+                            .ok_or(SceneError::World(WorldInputError::MissingDisplacement(
+                                super::path_control::PlayerTarget::Primary,
+                            )))?
+                            .world_delta
+                    } else {
+                        Vector3::default()
+                    };
+                    Some(EffectMotion {
+                        primary_mode: mode,
+                        displacement,
+                    })
+                } else {
+                    None
+                };
+                common_destruction::step_effect(
+                    self.objects.get_mut(owner).expect("live death effect"),
+                    motion,
+                )
+                .map_err(SceneError::Effect)?;
+                Ok(owner)
+            }
+            _ => {
+                let result = C::assigned(self, owner).map_err(SceneError::Callbacks)?;
+                self.execution.retire_immediately |= result.retire_now;
+                Ok(result.actor)
+            }
+        }
+    }
+
+    fn strategy(
+        &mut self,
+        owner: ObjectId,
+        clock: u16,
+    ) -> Result<StrategyCompletion, SceneError<C::Error>> {
+        self.world.strategy_clock = clock;
+        self.execution.retire_immediately = false;
+        let actor = self
+            .objects
+            .get(owner)
+            .ok_or(SceneError::MissingActor(owner))?;
+        let decision = select_strategy(
+            StrategyInputs {
+                health: actor.base.hit_points,
+                suspended: actor.base.flags.strategy_suspended,
+                excluded_actor: self.execution.controls.excluded_actor == Some(owner),
+                first_visit: actor.base.contacts.first_strategy_visit,
+                hit_pending: actor.base.contacts.pending_hit,
+                run_when_paused: actor.base.contacts.run_when_paused,
+                has_assigned_strategy: actor.base.behavior != Behavior::Unassigned,
+            },
+            self.execution.controls.paused,
+        );
+        if decision.clear_first_visit {
+            self.objects
+                .get_mut(owner)
+                .expect("live strategy actor")
+                .base
+                .contacts
+                .first_strategy_visit = false;
+        }
+        let returned = match decision.action {
+            StrategyAction::Skip => owner,
+            StrategyAction::Assigned => self.assigned(owner)?,
+            StrategyAction::CommonDestruction => common_destruction::destroy(self, owner)
+                .map_err(|error| SceneError::Destruction(Box::new(error)))?,
+            StrategyAction::HitResponse => {
+                // Retain the shared callback context even on a terminal fault;
+                // no copyback of actor health or flags spans a callback.
+                let mut context = std::mem::take(&mut self.execution.hit_context);
+                let result = hit_response::respond(self, owner, &mut context);
+                self.execution.hit_context = context;
+                result.map_err(|error| SceneError::Hit(Box::new(error)))?
+            }
+        };
+        if decision.service_positional_sound {
+            let actor = self
+                .objects
+                .get(returned)
+                .ok_or(SceneError::MissingActor(returned))?;
+            self.execution
+                .positional
+                .observe(
+                    returned,
+                    actor,
+                    self.execution.controls.positional_suppressed,
+                    self.execution.controls.loop_listener,
+                )
+                .map_err(SceneError::Positional)?;
+        }
+        Ok(StrategyCompletion {
+            actor: returned,
+            retire_now: self.execution.retire_immediately,
+        })
+    }
+}
+
+impl<C: SceneCallbacks> StrategyHost for SceneActors<'_, C> {
+    type Error = SceneError<C::Error>;
+    fn objects(&self) -> &ObjectStore {
+        self.objects
+    }
+    fn strategy_suspended(&self, _: ObjectId) -> bool {
+        false
+    }
+    fn run_strategy(
+        &mut self,
+        owner: ObjectId,
+        clock: u16,
+    ) -> Result<StrategyCompletion, Self::Error> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = self.strategy(owner, clock);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+    fn retire_object(&mut self, owner: ObjectId) -> Result<(), Self::Error> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = retirement::retire(self, owner)
+            .map(|_| ())
+            .map_err(|error| SceneError::Retirement(Box::new(error)));
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+}
+
+impl<C: SceneCallbacks> ContactHost for SceneActors<'_, C> {
+    type Error = SceneError<C::Error>;
+    fn contacts(&self) -> &ContactStore {
+        &self.world.contacts
+    }
+    fn contacts_mut(&mut self) -> &mut ContactStore {
+        &mut self.world.contacts
+    }
+    fn on_separation(&mut self, id: ContactId, contact: Contact) -> Result<(), Self::Error> {
+        C::separation(self, id, contact).map_err(SceneError::Callbacks)
+    }
+}
+
+impl<C: SceneCallbacks> HitResponseHost for SceneActors<'_, C> {
+    fn hit_actor(&self, owner: ObjectId) -> Option<HitActor> {
+        self.objects.get(owner).map(HitActor::from_object)
+    }
+    fn hit_actor_mut(&mut self, owner: ObjectId) -> Option<HitActorMut<'_>> {
+        self.objects.get_mut(owner).map(HitActorMut::from_object)
+    }
+    fn has_hit_callback(&self, owner: ObjectId, kind: HitCallback) -> bool {
+        C::has_hit_callback(self, owner, kind)
+    }
+    fn run_hit_callback(
+        &mut self,
+        owner: ObjectId,
+        other: ObjectId,
+        kind: HitCallback,
+        context: &mut HitContext,
+    ) -> Result<(), Self::Error> {
+        C::hit_callback(self, owner, other, kind, context).map_err(SceneError::Callbacks)
+    }
+    fn strategies_paused(&self) -> bool {
+        self.execution.controls.paused
+    }
+    fn run_assigned_strategy(&mut self, owner: ObjectId) -> Result<ObjectId, Self::Error> {
+        self.assigned(owner)
+    }
+}
+
+impl<C: SceneCallbacks> DestructionHost for SceneActors<'_, C> {
+    type Error = SceneError<C::Error>;
+    fn objects(&self) -> &ObjectStore {
+        self.objects
+    }
+    fn objects_mut(&mut self) -> &mut ObjectStore {
+        self.objects
+    }
+    fn objects_and_proxies_mut(&mut self) -> (&mut ObjectStore, &mut SceneProxyStore) {
+        (self.objects, &mut self.world.proxies)
+    }
+    fn run_death_override(&mut self, owner: ObjectId) -> Result<Option<ObjectId>, Self::Error> {
+        C::death_override(self, owner)
+            .map(|result| {
+                result.map(|result| {
+                    self.execution.retire_immediately |= result.retire_now;
+                    result.actor
+                })
+            })
+            .map_err(SceneError::Callbacks)
+    }
+    fn map_death_counts(&mut self) -> Result<&mut MapDeathCounts, Self::Error> {
+        self.execution
+            .map_counts
+            .as_mut()
+            .ok_or(SceneError::MissingMapCounts)
+    }
+    fn resume_map_on_death(&mut self, owner: ObjectId) -> Result<(), Self::Error> {
+        C::resume_map_on_death(self, owner).map_err(SceneError::Callbacks)
+    }
+    fn effect_inputs(&mut self) -> Result<EffectInputs, Self::Error> {
+        self.execution
+            .controls
+            .death_effects
+            .ok_or(SceneError::MissingDeathInputs)
+    }
+    fn queue_death_sound(&mut self, cue: AuthoredCue) -> Result<(), Self::Error> {
+        self.world.audio.queue(SoundEvent::Authored(cue));
+        Ok(())
+    }
+}
+
+impl<C: SceneCallbacks> RetirementHost for SceneActors<'_, C> {
+    fn objects(&self) -> &ObjectStore {
+        self.objects
+    }
+    fn objects_and_proxies_mut(&mut self) -> (&mut ObjectStore, &mut SceneProxyStore) {
+        (self.objects, &mut self.world.proxies)
+    }
+    fn release_actor_programs(&mut self, owner: ObjectId) -> Result<(), Self::Error> {
+        self.execution
+            .paths
+            .runtime
+            .release_actor_programs(self.objects, owner)
+            .map_err(SceneError::Runtime)
+    }
+}
+
+impl<C: SceneCallbacks> CollisionEpochHost for SceneActors<'_, C> {
+    fn objects(&self) -> &ObjectStore {
+        self.objects
+    }
+    fn objects_mut(&mut self) -> &mut ObjectStore {
+        self.objects
+    }
+    fn retire_object(&mut self, actor: ObjectId) -> Result<(), Self::Error> {
+        StrategyHost::retire_object(self, actor)
+    }
+}
+
+#[cfg(test)]
+#[path = "scene_strategy_tests.rs"]
+mod tests;

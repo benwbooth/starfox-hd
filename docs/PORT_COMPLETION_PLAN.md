@@ -273,6 +273,21 @@ running; scheduled work is not a guarantee of a completion date.
   profiles, along with 551 source tests, exact regeneration, architecture and
   the app build. **The scene adapter is not yet wired into `Game::tick`;**
   this remains a service-integration milestone, not a migrated encounter.
+- Added the scene actor host composing source strategy selection, the shared
+  path driver, hit/death services, paired contact cleanup and full retirement
+  over one live object/resource world. Empty and suspended passes still publish
+  one strategy clock; missing services latch a terminal diagnostic so an outer
+  retry cannot repeat damage, map counts or allocations. Scene-specific native
+  callback and map-continuation providers are required, with no default success.
+  Added the source positional-loop owner: sample after each strategy, retain
+  first-on-tie order and all authored control bits, preserve sounds from actors
+  retired later in the pass, and keep accumulator reset/publication/freeze
+  separate. Nine composed-host tests, three audio tests and four source proofs
+  cover this layer. All 1,094 native tests plus two integration tests pass in
+  debug/release; all 555 source tests, exact regeneration, architecture and app
+  build pass. **The tested host uses explicit test callback providers; real
+  scene/native registrations, render-work scheduling and `Game::tick` adoption
+  remain open.** Do not represent the new host as a migrated live encounter.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

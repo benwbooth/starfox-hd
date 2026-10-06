@@ -422,6 +422,9 @@ pub enum ObjectKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Behavior {
+    /// No assigned source strategy. Death and hit dispatch still precede
+    /// this null-handler check; it is not an inert stand-in for missing code.
+    Unassigned,
     MissionEntryFlyby,
     PlayerSelection,
     PlayerFlight,
