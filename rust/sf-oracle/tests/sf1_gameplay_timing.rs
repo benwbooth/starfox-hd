@@ -2,6 +2,8 @@
 
 #[path = "../examples/support/mod.rs"]
 mod support;
+#[path = "../examples/support/sf1_timing.rs"]
+mod timing_entry;
 
 use sf_game::gameplay_timing::{timing_for_update, GameplayTickTiming};
 use sf_map::catalog::map_id;
@@ -80,5 +82,37 @@ fn typed_corneria_neutral_timing_matches_independent_mesen_reference_points() {
             expected,
             "Corneria timing at game frame {game_frame}",
         );
+    }
+}
+
+#[test]
+fn retail_counter_boundaries_match_independent_mesen_early_scenes() {
+    let Some(rom) = sf_oracle::load_retail_rom() else {
+        eprintln!("skip: retail Rev 2 ROM not found at repository root");
+        return;
+    };
+    let mut retail = sf_oracle::RetailMachine::new(rom);
+    timing_entry::enter_first_corneria_interval(&mut retail)
+        .expect("source-driven Corneria handoff");
+    assert_eq!(retail.peek8(0x7E_0000 | sf_oracle::RETAIL_FRAMERATE), 2);
+    // Independently measured with Mesen 2.1.1 on 2026-10-06, neutral input,
+    // at $02:DA7E after framerate copies framec. This tests the reference
+    // runner itself, not the native game's recorded timing table. It does
+    // not claim exact master-clock or later-scene agreement.
+    for (index, refreshes) in [3, 3, 3, 4].into_iter().enumerate() {
+        assert!(retail
+            .tick_until_cpu_execution(0, timing_entry::FRAME_RATE_SAMPLE_COMPLETE, 12)
+            .unwrap());
+        assert_eq!(
+            retail.peek16(0x7E_0000 | sf_oracle::RETAIL_GAMEFRAME),
+            index as u16 + 1
+        );
+        assert_eq!(
+            retail.peek8(0x7E_0000 | sf_oracle::RETAIL_FRAMERATE),
+            refreshes
+        );
+        assert!(retail
+            .tick_until_cpu_execution(0, timing_entry::FRAME_COUNTER_RESET_COMPLETE, 12)
+            .unwrap());
     }
 }

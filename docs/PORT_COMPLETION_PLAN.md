@@ -936,6 +936,34 @@ running; scheduled work is not a guarantee of a completion date.
   This does not certify the other pickup families, repair-pod construction/
   movement, the two outstanding SF1 route/oracle failures, or SF2 frame wiring.
 
+- Refreshed the complete workspace baseline after the player-input integration:
+  3,866 harness tests pass, three fail, and one existing autonomous SF2 gate
+  remains ignored. Cargo also runs standalone example checks; the failing
+  targets are SF1 `semantic_trace`, `sf1_corneria_route`, and
+  `sf1_training_trace` (forward velocity 64 versus 63 at tick 443). The earlier
+  path and strategy fixture failures no longer occur. Both release launchers
+  also completed a separate 240-tick hidden startup/readback smoke test with
+  dummy audio; this proves startup, not picture or audio parity.
+- Corrected the verification-only reference bus's missing DRAM-refresh stalls
+  and low-bank FastROM speed, and made the SF1 timing diagnostic enter through
+  actual source boundaries instead of fixed boot tick 890. Five new bus tests
+  include every bank class and 682 start phases of the original horizontal
+  wait. A fresh independent Mesen capture and reset-to-gameplay test agree on
+  the first four Corneria counts `3, 3, 3, 4` in debug/release. Exact clock
+  agreement and production source-derived timing remain open. The corrected
+  reference exposes additional failures, which are retained: a full release
+  oracle run passes 446 harness tests, fails seven and retains one ignored
+  gate, with seven failing targets including its standalone examples. These
+  are `semantic_trace`, `sf1_corneria_route`, `sf1_launch_video`,
+  `sf2_intro_native_scene`, `sf1_title_trace`, `sf1_training_trace` and
+  `sf1_weapon_trace`. The subsequently added independent timing test passes
+  separately in both profiles, as do all 26 oracle library tests and the
+  original bitmap-clear bus test. All 56 SF1 Python checks, the architecture
+  audit and three app builds in debug/release pass. See `FINISHING_AUDIT.md` for exact scope and
+  evidence. No native expectations, timing arrays or ignored tests were changed;
+  the next work is source-bound synchronization and the exposed timing/RNG
+  contracts, not accepting the new outputs as expected results.
+
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
 working merely because the user is due back.

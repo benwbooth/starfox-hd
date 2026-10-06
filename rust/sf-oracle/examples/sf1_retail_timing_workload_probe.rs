@@ -5,20 +5,19 @@
 
 #[path = "support/mod.rs"]
 mod support;
+#[path = "support/sf1_timing.rs"]
+mod timing_entry;
 
-use sf_oracle::sf1_input::{corneria_attack_carrier_input, corneria_front_end_input};
+use sf_oracle::sf1_input::corneria_attack_carrier_input;
 use sf_oracle::{
     load_retail_rom, GsuRunEvent, RetailMachine, RETAIL_DOSTRATS, RETAIL_FRAMERATE,
     RETAIL_GAMEFRAME,
 };
 
 const WORK_RAM: u32 = 0x7E_0000;
-const VIDEO_FRAMES_PER_FRONT_END_TICK: u32 = 3;
-const FRONT_END_TICKS_BEFORE_CORNERIA_HANDOFF: u32 = 890;
 const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
 const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
 const CORNERIA_AUDIO_UPLOAD_FRAME: u16 = 186;
-const MAX_HANDOFF_BOUNDARIES: usize = 4;
 const DEFAULT_FIRST_COMPLETED_SCENE: u16 = 315;
 const DEFAULT_LAST_COMPLETED_SCENE: u16 = 322;
 const HORIZONTAL_POLL_TRACE_ITERATIONS: usize = 64;
@@ -31,9 +30,9 @@ const RETAIL_TRANSFER_STATE: u32 = 0x0000;
 const RETAIL_TRANSFER_COUNTER: u32 = 0x18BB;
 const RETAIL_FRAME_COUNTER: u32 = 0x1200;
 const RETAIL_FRAME_COUNTER_RESET: u32 = 0x02_D960;
-const RETAIL_FRAME_COUNTER_RESET_COMPLETE: u32 = 0x02_D963;
+const RETAIL_FRAME_COUNTER_RESET_COMPLETE: u32 = timing_entry::FRAME_COUNTER_RESET_COMPLETE;
 const RETAIL_FRAME_COUNTER_SAMPLE: u32 = 0x02_DA78;
-const RETAIL_FRAME_RATE_SAMPLE_COMPLETE: u32 = 0x02_DA7E;
+const RETAIL_FRAME_RATE_SAMPLE_COMPLETE: u32 = timing_entry::FRAME_RATE_SAMPLE_COMPLETE;
 const RETAIL_TRANSFER_SLOT_READY: u32 = 0x02_D967;
 const RETAIL_TRANSFER_STARTED: u32 = 0x02_D96E;
 const RETAIL_CIRCLE_EFFECT_COMPLETE: u32 = 0x02_D971;
@@ -146,61 +145,13 @@ fn main() {
     );
     let mut retail = RetailMachine::new(rom);
 
-    for tick in 0..FRONT_END_TICKS_BEFORE_CORNERIA_HANDOFF {
-        retail
-            .tick_video_frames(
-                corneria_front_end_input(tick),
-                VIDEO_FRAMES_PER_FRONT_END_TICK,
-            )
-            .expect("retail front-end timing");
-    }
-    assert!(
-        retail
-            .tick_until_cpu_execution(
-                corneria_front_end_input(FRONT_END_TICKS_BEFORE_CORNERIA_HANDOFF),
-                RETAIL_DOSTRATS,
-                MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE,
-            )
-            .expect("initial Corneria timing boundary"),
-        "retail did not reach initial Corneria boundary",
-    );
-    let mut handoff_tick = FRONT_END_TICKS_BEFORE_CORNERIA_HANDOFF;
-    for _ in 0..MAX_HANDOFF_BOUNDARIES {
-        if retail.peek16(WORK_RAM | RETAIL_GAMEFRAME) == 0 {
-            break;
-        }
-        handoff_tick = handoff_tick.saturating_add(1);
-        assert!(
-            retail
-                .tick_until_cpu_execution(
-                    corneria_front_end_input(handoff_tick),
-                    RETAIL_DOSTRATS,
-                    MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE,
-                )
-                .expect("Corneria frame-zero timing boundary"),
-            "retail did not reach Corneria frame zero",
-        );
-    }
+    // Follow the original game-start and counter-reset instructions. A fixed
+    // 890-tick handoff depends on the very hardware timing this probe audits
+    // and used to miss the first completed scene. Inputs stay tied to display
+    // frames, matching the independent Mesen script, not reference state.
+    timing_entry::enter_first_corneria_interval(&mut retail)
+        .expect("retail front-end source boundary");
     assert_eq!(retail.peek16(WORK_RAM | RETAIL_GAMEFRAME), 0);
-
-    // `transfer_l` reset `framec` before this DOSTRATS boundary. Move to the
-    // following reset so every emitted row covers the entire reset-to-sample
-    // interval, including strategy, draw-list, sprite, collision, and 3D work.
-    let initial_input = if routed {
-        corneria_attack_carrier_input(retail.peek16(WORK_RAM | RETAIL_GAMEFRAME))
-    } else {
-        0
-    };
-    assert!(
-        retail
-            .tick_until_cpu_execution(
-                initial_input,
-                RETAIL_FRAME_COUNTER_RESET_COMPLETE,
-                MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE,
-            )
-            .expect("initial frame-counter reset"),
-        "retail did not reach the first complete frame-counter reset",
-    );
     assert_eq!(
         retail.peek8(WORK_RAM | RETAIL_FRAME_COUNTER),
         0,

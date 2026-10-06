@@ -1579,6 +1579,9 @@ pub struct RetailBootBus {
     /// NTSC master oscillator count. CPU bus accesses take 6, 8, or 12 master
     /// clocks; four master clocks advance one nominal PPU dot.
     master_clock: u64,
+    /// Next CPU-bus refresh stall. The raster and coprocessors continue while
+    /// WRAM refresh holds the CPU for forty master clocks once per scanline.
+    next_dram_refresh_master_clock: u64,
     /// Duration selected by the address touched during the current 65816
     /// microcycle. Internal/invalid cycles use the CPU's fixed 6-clock speed.
     cpu_cycle_master_clocks: u8,
@@ -1649,6 +1652,10 @@ pub struct RetailBootBus {
 
 /// Dots per scanline (SNES: 341 dots, 340 on some lines — we use the nominal).
 const DOTS_PER_LINE: u64 = 341;
+const MASTER_CLOCKS_PER_SCANLINE: u64 = DOTS_PER_LINE * 4;
+const DRAM_REFRESH_POSITION: u64 = 538;
+const DRAM_REFRESH_ALIGNMENT_MASK: u64 = 7;
+const DRAM_REFRESH_STALL_CLOCKS: u64 = 40;
 /// Scanlines per frame (NTSC nominal).
 const LINES_PER_FRAME: u64 = 262;
 /// First scanline of vblank (NTSC: 225 = $E1 after 224 visible lines).
@@ -1662,6 +1669,7 @@ impl RetailBootBus {
             res_line: true,
             dot: 0,
             master_clock: 0,
+            next_dram_refresh_master_clock: DRAM_REFRESH_POSITION,
             cpu_cycle_master_clocks: 6,
             dma_master_clocks_pending: 0,
             fast_rom: false,
@@ -2094,7 +2102,7 @@ impl RetailBootBus {
                 0x4200..=0x5FFF => 6,
                 0x6000..=0x7FFF => 8,
                 _ => {
-                    if self.fast_rom {
+                    if self.fast_rom && bank & 0x80 != 0 {
                         6
                     } else {
                         8
@@ -2147,7 +2155,19 @@ impl RetailBootBus {
     }
 
     fn advance_master_clocks(&mut self, clocks: u64) {
-        let target = self.master_clock.saturating_add(clocks);
+        let mut target = self.master_clock.saturating_add(clocks);
+        // The refresh point alternates with the scanline's phase against the
+        // eight-master-clock DRAM clock. Account for every crossed event,
+        // including DMA spans, without stalling the raster or Super FX.
+        // Independent implementation: Mesen 2.1.1 SnesMemoryManager::Reset /
+        // ProcessEvent, revision b9fa69ddc6d0a331fb103fdb5eef6904305703c2.
+        while self.next_dram_refresh_master_clock <= target {
+            target = target.saturating_add(DRAM_REFRESH_STALL_CLOCKS);
+            let next_line = (self.next_dram_refresh_master_clock / MASTER_CLOCKS_PER_SCANLINE + 1)
+                * MASTER_CLOCKS_PER_SCANLINE;
+            self.next_dram_refresh_master_clock =
+                next_line + DRAM_REFRESH_POSITION - (next_line & DRAM_REFRESH_ALIGNMENT_MASK);
+        }
         while self.dot < target / 4 {
             self.master_clock = (self.dot + 1) * 4;
             self.advance_ppu_dot();
@@ -2925,6 +2945,116 @@ mod retail_boot_bus_tests {
 
     fn bus() -> RetailBootBus {
         RetailBootBus::new(vec![0; 0x10_0000])
+    }
+
+    #[test]
+    fn dram_refresh_stalls_once_at_the_exact_boundary() {
+        let mut bus = bus();
+        bus.advance_master_clocks(537);
+        assert_eq!(bus.master_clock, 537);
+        bus.advance_master_clocks(1);
+        assert_eq!(bus.master_clock, 578);
+        assert_eq!(bus.dot, 144, "raster keeps advancing during the CPU stall");
+        assert_eq!(bus.inner.gsu_master_clocks, 576);
+        assert_eq!(bus.next_dram_refresh_master_clock, 1898);
+        bus.advance_master_clocks(1);
+        assert_eq!(bus.master_clock, 579, "do not replay the same refresh");
+    }
+
+    #[test]
+    fn fast_rom_only_accelerates_the_high_bank_cartridge_windows() {
+        let mut bus = bus();
+        for fast in [false, true] {
+            bus.fast_rom = fast;
+            for bank in 0..=255 {
+                for offset in [
+                    0x0000, 0x1FFF, 0x2000, 0x4000, 0x4200, 0x6000, 0x8000, 0xFFFF,
+                ] {
+                    let address = (bank << 16) | offset;
+                    let expected = if (0x40..=0x7F).contains(&bank) {
+                        8
+                    } else if bank >= 0xC0 {
+                        if fast {
+                            6
+                        } else {
+                            8
+                        }
+                    } else {
+                        match offset {
+                            0x0000..=0x1FFF | 0x6000..=0x7FFF => 8,
+                            0x2000..=0x3FFF | 0x4200..=0x5FFF => 6,
+                            0x4000..=0x41FF => 12,
+                            _ => {
+                                if fast && bank >= 0x80 {
+                                    6
+                                } else {
+                                    8
+                                }
+                            }
+                        }
+                    };
+                    assert_eq!(bus.cpu_access_speed(address, AddressType::Data), expected);
+                    assert_eq!(bus.cpu_access_speed(address, AddressType::Invalid), 6);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dram_refresh_keeps_scanline_phase_across_long_dma_spans() {
+        let mut whole = bus();
+        let mut sliced = bus();
+        whole.advance_master_clocks(2800);
+        for _ in 0..2800 {
+            sliced.advance_master_clocks(1);
+        }
+        assert_eq!(whole.master_clock, 2880);
+        assert_eq!(whole.master_clock, sliced.master_clock);
+        assert_eq!(whole.dot, sliced.dot);
+        assert_eq!(whole.next_dram_refresh_master_clock, 3266);
+        whole.advance_master_clocks(386);
+        assert_eq!(whole.master_clock, 3306);
+        assert_eq!(whole.next_dram_refresh_master_clock, 4626);
+    }
+
+    #[test]
+    fn dram_refresh_stalls_cpu_and_dma_time_but_not_the_coprocessor_clock() {
+        let mut bus = bus();
+        bus.advance_master_clocks(532);
+        bus.cpu_cycle_master_clocks = 6;
+        bus.tick_raster();
+        assert_eq!(bus.master_clock, 578);
+        assert_eq!(bus.inner.gsu_master_clocks, 576);
+        bus.dma_master_clocks_pending = 1320;
+        bus.tick_raster();
+        assert_eq!(bus.master_clock, 1944);
+        assert_eq!(bus.inner.gsu_master_clocks, 1944);
+        assert_eq!(bus.dma_master_clocks_pending, 0);
+    }
+
+    #[test]
+    fn horizontal_transfer_poll_escapes_for_every_cpu_start_phase() {
+        // SF1 Rev 2 $02:DCC5..DCD9 / TRANS.ASM dmahpos: latch H, reject
+        // its ninth bit, and wait for the narrow 90..100-dot safe window.
+        // With a free-running CPU and no DRAM stalls some phases repeatedly
+        // skip this window, producing spurious multi-frame gameplay delays.
+        const POLL: [u8; 21] = [
+            0xAD, 0x37, 0x21, 0xAE, 0x3C, 0x21, 0xAD, 0x3C, 0x21, 0x29, 0x01, 0xD0, 0xF3, 0xE0,
+            0x5A, 0x90, 0xEF, 0xE0, 0x64, 0xB0, 0xEB,
+        ];
+        let mut rom = vec![0; 0x8000];
+        rom[..POLL.len()].copy_from_slice(&POLL);
+        rom[POLL.len()] = 0xDB; // STP after the observed exit, never executed.
+        rom[0x7FFC..0x7FFE].copy_from_slice(&0x8000u16.to_le_bytes());
+        for phase in (0..MASTER_CLOCKS_PER_SCANLINE).step_by(2) {
+            let mut machine = RetailMachine::new(rom.clone());
+            machine.bus.advance_master_clocks(phase);
+            assert!(
+                machine.tick_until_cpu_execution(0, 0x008015, 1).unwrap(),
+                "horizontal safe-window poll failed to exit within one display frame at phase {phase}",
+            );
+            assert!((90..100).contains(&machine.cpu.x()));
+        }
     }
 
     #[test]

@@ -89,6 +89,50 @@ comparator; scene 192 requires a verified path-cursor mapping (retail 13864,
 native 13867 for slot 28). Neither gate was bypassed. The extended capture and
 native output are retained in `/tmp/sf1-independent-scenes-zJ1L1s/`.
 
+### Reference-bus correction and early-scene recheck — 2026-10-06
+
+A new independent Mesen 2.1.1 capture confirms completed-scene refresh counts
+`3, 3, 3, 4` for neutral Corneria scenes 1–4, with entry motion `2, 3, 3, 3`.
+The in-tree runner omitted the 40-master-clock DRAM-refresh stall on every
+scanline. Its horizontal safe-window polling could consequently take several
+display frames. The runner now includes the phase-aligned refresh stalls and
+restricts FastROM acceleration to the high-bank cartridge windows, following
+the independent [Mesen memory-manager implementation](https://github.com/SourMesen/Mesen2/blob/b9fa69ddc6d0a331fb103fdb5eef6904305703c2/Core/SNES/SnesMemoryManager.cpp).
+The raster and Super FX continue during CPU stalls. Five new bus tests cover
+exact boundaries, repeated and DMA-spanning refreshes, all bank-speed classes,
+and the original horizontal-wait loop at all 682 two-clock start phases.
+
+The timing probe now follows the original Corneria game-start and first
+counter-reset entries rather than assuming tick 890. It includes the first
+completed scene instead of skipping it. The new independent-reference test
+executes from reset without state injection and passes in debug and release.
+Its four sampled counts agree with Mesen; exact master-clock durations still
+differ. This does **not** certify the rest of the hardware runner or replace
+the production timing recordings.
+
+This correction also changes existing reference results. The integrated SF1
+semantic gate now exposes an earlier title/attract phase difference at tick
+127; the fixed-boot title, launch-video and weapon comparisons fail. The three
+observed-pass SF2 opening comparisons now fail on glyph position at update 101,
+so observed actor-pass partitions alone no longer establish that integration.
+Their expectations and the separate ignored autonomous gate remain unchanged.
+The native Corneria hash still first differs at tick 1500 and the controller
+route still loses the player at level frame 1499. Do not treat the corrected
+early timing counts as closure of any of these gates.
+
+Reproduce the bounded independent capture with the existing Lua script, using
+`SF1_MESEN_CORNERIA_INPUT=neutral`, `SF1_MESEN_CORNERIA_FIRST_SCENE=1`,
+`SF1_MESEN_CORNERIA_LAST_SCENE=4` and `SF1_MESEN_CORNERIA_GSU_JOBS=1`.
+The ROM SHA-256 is
+`82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548`.
+The Mesen executable SHA-256 is
+`6a0d2e16708adf65f468e3a36edf2009e85bdb747a536b960b0ea642f9f065c1`.
+Local evidence: `/tmp/sf1-timing-mesen-oct06.txt`,
+`/tmp/sf1-timing-retail-source-handoff-oct06.log`,
+`/tmp/sf1-refresh-independent-test-oct06.log`, and
+`/tmp/sf-oracle-refresh-full-oct06.log`. These are diagnostic artifacts, not
+distributed game assets or whole-game certification.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from
