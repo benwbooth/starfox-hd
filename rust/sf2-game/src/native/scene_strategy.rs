@@ -113,6 +113,7 @@ pub enum SceneError<E> {
     Auxiliary(super::actor_auxiliary::AuxiliaryError),
     Reflection(super::weapon_reflection::ReflectionError),
     Charge(super::player_charge::ChargeError),
+    Rapid(super::player_rapid::RapidError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
     World(WorldInputError),
@@ -140,6 +141,29 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Rapid tail of the player weapon service. Aiming and consumable work
+    /// precede this call; the charged-fire service follows it.
+    pub fn advance_player_rapid(
+        &mut self,
+        owner: ObjectId,
+        input: super::InputState,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_rapid::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+            input,
+        )
+        .map_err(SceneError::Rapid);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Called at the charged-fire point of the real player strategy. The
     /// caller supplies its processed inputs and retains frame ownership.
     pub fn advance_player_charge(

@@ -46,6 +46,8 @@ pub struct PlayerCharge {
     pub control: u8,
     /// Auxiliary 6B63 bit 80, shared with the charge-orb observation.
     pub linked_mode: bool,
+    /// Auxiliary 6B63 bit 40 overrides linked-mode muzzle relocation.
+    pub linked_muzzle_disabled: bool,
     /// Rapid-shot queue and delay (6B60), also written on charged release.
     pub rapid_control: u8,
     /// Speed impulse and lifetime (6B56/58), consumed by flight dynamics.

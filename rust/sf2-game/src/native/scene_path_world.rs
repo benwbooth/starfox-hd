@@ -47,6 +47,9 @@ pub struct PlayerPathRecords {
     pub protection: Option<super::path_protection::DeflectionProtection>,
     pub auxiliary: Option<SelectedAuxiliaryState>,
     pub charge: Option<super::player_charge::PlayerCharge>,
+    pub rapid_aim: Option<super::player_rapid::RapidAim>,
+    /// Selected auxiliary map flag bit 80, read by occupancy checks.
+    pub occupancy_exempt: Option<bool>,
     pub equipment: Option<SelectedEquipment>,
     pub score: Option<PlayerScore>,
     pub particles: Option<SelectedParticleEffects>,
@@ -89,6 +92,7 @@ pub enum WorldInputError {
     MissingActionGate,
     MissingPlayerConfiguration,
     MissingPlayerCharge(ObjectId),
+    MissingEquipment(ObjectId),
 }
 
 /// Owning records shared by all actors in a native scene. Scene entry must
@@ -106,6 +110,9 @@ pub struct ScenePathWorld {
     /// Shared 1AA6 bit 02 for reflection-list traversal.
     pub reflect_all_contacts: Option<bool>,
     pub weapons: Option<super::weapon_dispatch::WeaponState>,
+    pub surface_mode: Option<super::collision_surface::SurfaceMode>,
+    pub impact: Option<super::path_impact::ImpactState>,
+    pub occupancy: Option<super::world_occupancy::WorldOccupancy>,
     players: [Option<BoundPlayer>; OBJECT_CAPACITY],
     // Separate borrows of selected equipment and linked shot counts can name
     // the same player. Both stores have one generation-checked owner.
@@ -154,6 +161,9 @@ impl ScenePathWorld {
             contacts_enabled: None,
             reflect_all_contacts: None,
             weapons: None,
+            surface_mode: None,
+            impact: None,
+            occupancy: None,
             players: [None; OBJECT_CAPACITY],
             shots: [None; OBJECT_CAPACITY],
             audio: AudioState::default(),
@@ -245,6 +255,25 @@ impl ScenePathWorld {
             .map(|binding| binding.count)
     }
 
+    /// Firing-owner observations, independent of the path-selected player
+    /// and its attachment. Missing fields remain lazy launch-time errors.
+    pub fn caller_weapon_inputs(
+        &self,
+        objects: &ObjectStore,
+        owner: ObjectId,
+    ) -> Option<super::weapon_rapid::CallerWeaponInputs> {
+        let records = &self.players[owner.index()]
+            .filter(|binding| Some(binding.lifetime) == objects.lifetime_id(owner))?
+            .records;
+        Some(super::weapon_rapid::CallerWeaponInputs {
+            owner,
+            active_shots: self.shots(objects, owner),
+            weapon_level: records.equipment.map(|equipment| equipment.weapon_level),
+            roll_step: records.rapid_aim.map(|aim| aim.roll_step),
+            retained_aim: records.rapid_aim.map(|aim| aim.retained_aim),
+        })
+    }
+
     fn selected(&self, selected: PlayerTarget) -> Option<ObjectId> {
         match selected {
             PlayerTarget::Primary => self.primary_player,
@@ -262,6 +291,7 @@ impl InvocationWorld for ScenePathWorld {
         actor: ObjectId,
         selected: PlayerTarget,
     ) -> Result<PathWorld<'_>, Self::Error> {
+        let caller_weapon_inputs = self.caller_weapon_inputs(objects, actor);
         let actor = objects
             .get(actor)
             .ok_or(WorldInputError::MissingActor(actor))?;
@@ -292,6 +322,7 @@ impl InvocationWorld for ScenePathWorld {
         world.fixed_players = self.fixed_players;
         world.selected = selected;
         world.primary_motion = primary_motion;
+        world.caller_weapon_inputs = caller_weapon_inputs;
         world.published_motion = self.published_motion;
         world.active_charge_threshold = self.active_charge_threshold;
         // One traversal can borrow disjoint fields even when selected and
@@ -305,6 +336,7 @@ impl InvocationWorld for ScenePathWorld {
             if selected == Some(owner) {
                 world.selected_auxiliary = records.auxiliary.as_mut();
                 world.selected_charge = records.charge.map(|charge| charge.path_input());
+                world.selected_occupancy_exempt = records.occupancy_exempt;
                 world.selected_equipment = records.equipment.as_mut();
                 world.selected_score = records.score.as_mut();
                 world.selected_particle_effects = records.particles.as_mut();
@@ -332,6 +364,9 @@ impl InvocationWorld for ScenePathWorld {
             layout: *layout,
         });
         world.contacts = Some(&self.contacts);
+        world.surface_mode = self.surface_mode;
+        world.impact = self.impact.as_mut();
+        world.occupancy = self.occupancy.as_ref();
         world.scene_proxies = Some(&mut self.proxies);
         world.campaign = self.campaign;
         world.camera_heading = self.camera_heading;

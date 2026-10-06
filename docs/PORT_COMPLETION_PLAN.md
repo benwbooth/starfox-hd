@@ -317,6 +317,22 @@ running; scheduled work is not a guarantee of a completion date.
   architecture and app build pass. **The outer player strategy, preceding
   rapid-fire/aiming service and production frame-loop adoption remain open;**
   this does not replace `Game::update_player_blaster` yet.
+- Implemented the following rapid-fire tail and flight launcher, including
+  full-byte queue admission, launch-rejection retry, processed alternate-fire
+  edges, linked fixed-view muzzle relocation, publication ordering and the
+  source's exceptional no-weapon-level return behavior. Firing observations
+  now bind the actual actor's equipment, retained aim, roll and live shot count
+  independently of path selection and attachment. Added scene-owned surface,
+  impact and occupancy bindings needed by the real projectile paths.
+  Eight tests cover all queue/equipment bytes, rejection/fault lifetimes,
+  alternate variants and a complete launched rapid projectile's scheduler,
+  count and resource lifetime, followed by a real charged-release cooldown.
+  Seven source-byte checks cover the whole tail and flight helper contracts.
+  All 1,120 native tests and two integration tests pass in debug/release;
+  572 source tests, exact regeneration, architecture and app build pass.
+  **Aiming publication, retained-target updates, consumable service and outer
+  player/frame ownership remain open.** These services are not yet adopted
+  by the shipping player update.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
