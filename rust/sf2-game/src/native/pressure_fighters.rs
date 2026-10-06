@@ -268,11 +268,9 @@ pub(super) fn player_ambient_bank(phase: u8) -> i8 {
     PLAYER_AMBIENT_BANK_WAVE[usize::from(phase % PLAYER_AMBIENT_BANK_PERIOD)]
 }
 
-/// The source controller reduces the scripted bank spring to three
-/// quarters by summing its arithmetic half and quarter.
+/// Share the source pose controller's separately truncated signed halves.
 pub(super) fn decay_player_bank_recovery(value: i8) -> i8 {
-    let half = value >> 1;
-    half.wrapping_add(half >> 1)
+    crate::player_pose::recover_bank(value)
 }
 
 const CAMERA_AMBIENT_HEIGHT_PERIOD: u8 = 32;

@@ -33,6 +33,7 @@ pub use native::player_target_lock;
 pub use native::player_reticle;
 pub use native::player_input;
 pub use native::player_roll;
+pub use native::player_pose;
 pub use native::path_target;
 pub use native::target_search;
 pub use native::scene_strategy;

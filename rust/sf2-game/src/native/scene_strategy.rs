@@ -127,6 +127,7 @@ pub enum SceneError<E> {
     Reticle(super::player_reticle::ReticleError),
     PlayerInput(super::player_input::PlayerInputError),
     PlayerRoll(super::player_roll::RollError),
+    PlayerPose(super::player_pose::PoseError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -155,6 +156,25 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Compose the live player orientation after steering, roll and speed.
+    /// This is not the enclosing mode: motion and camera follow separately.
+    pub fn compose_player_pose(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_pose::compose(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+        )
+        .map_err(SceneError::PlayerPose);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// The mode runs this after input preparation and before steering.
     pub fn prepare_player_shoulders(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {

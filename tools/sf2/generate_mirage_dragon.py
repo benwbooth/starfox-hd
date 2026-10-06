@@ -359,7 +359,7 @@ def camera_anchor_cadence(records: list[Record]) -> list[int]:
         TRIG_SOURCE.read_text(encoding="utf-8"),
     )
     curve = rust_table(
-        "SF2_ARCTANGENT_CURVE",
+        "ARCTANGENT_CURVE",
         ANGLE_SOURCE.read_text(encoding="utf-8"),
     )
     state = CameraAnchorState()

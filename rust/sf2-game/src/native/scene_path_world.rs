@@ -64,6 +64,7 @@ pub struct PlayerPathRecords {
     /// the activity mask, then cleared only by an admitted input visit.
     pub injected_input: Option<super::InputState>,
     pub roll: Option<super::player_roll::PlayerRoll>,
+    pub pose: Option<super::player_pose::PlayerPose>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -177,6 +178,10 @@ pub struct ScenePathWorld {
     /// Remapped words before activity filtering (held 1DA7, pressed 1DA9).
     /// Early input gates preserve this separate publication.
     pub unmasked_player_input: Option<super::InputState>,
+    /// Steering publications (1E36/38), after input and terrain correction.
+    /// Pose consumes them; it does not invent neutral steering on absence.
+    pub player_pitch_target: Option<u16>,
+    pub player_yaw_increment: Option<u16>,
     /// Published active shield capacity (1DD5), not current active shield.
     pub active_shield_capacity: Option<u8>,
     /// Shared equipment publications (1DD2/3), separate from live equipment.
@@ -313,6 +318,8 @@ impl ScenePathWorld {
             player_input_settings: None,
             processed_player_input: None,
             unmasked_player_input: None,
+            player_pitch_target: None,
+            player_yaw_increment: None,
             active_shield_capacity: None,
             active_consumables: None,
             shield_recovery: None,

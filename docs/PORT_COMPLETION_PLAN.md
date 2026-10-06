@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the full SF2 flight-pose composer (`$06:ECB0..EE09`) using the
+  canonical fine-angle/bank allocation, shared steering publications,
+  linked-mode/retained-pitch owner, roll impulse and contact gate. Includes
+  wrapped quarter/eighth pitch response, separately rounded bank recovery,
+  locked versus integrated yaw, all four additive roll terms, the distinct
+  visible-roll decay branch and source-ordered partial failure. Original
+  execution matches 131,072 fine-pitch/bank/impulse cases, 8,192 mode/gate
+  combinations, 1,280 missing-input prefixes and 1,600 continuous roll/pose
+  visits. The scene host latches failures instead of retrying an integrated
+  yaw. The enclosing steering/terrain/speed/motion frame remains open, so
+  this is not a replacement shipping player mode.
+  The audit also exposed incorrect negative bank recovery in both shipping
+  encounter controllers. Both now share the verified pose recovery helper;
+  all signed byte values converge, and real recurring-attacker game ticks
+  test negative values through zero. Updated their generators/templates and
+  repaired Mirage Dragon's stale reference to the consolidated arctangent
+  table; both generated modules reproduce exactly. All 1,307 native tests
+  and both architecture integration checks pass in debug/release; the
+  oracle-enabled suite passes 1,315 unit tests and 35 runtime tests. All 35
+  original player-storage/input/pose comparisons pass in both profiles.
+  All 646 source checks, 209 lowerer tests, generated catalog/architecture
+  checks and all three application builds pass.
+
 - Ported SF2 shoulder arbitration (`$06:9075..90D3`) and the double-tap
   roll controller (`$06:E7FF..E8F4`). Both-held input uses the last shoulder
   edge, with right winning simultaneous edges. Roll protection is published

@@ -96,6 +96,7 @@ pub mod player_target_lock;
 pub mod player_reticle;
 pub mod player_input;
 pub mod player_roll;
+pub mod player_pose;
 mod player_effect;
 pub mod program_resources;
 pub mod program_state;

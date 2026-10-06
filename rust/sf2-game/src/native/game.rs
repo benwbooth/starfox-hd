@@ -34141,6 +34141,55 @@ mod tests {
     }
 
     #[test]
+    fn both_shipping_bank_consumers_recover_all_signed_values_without_negative_stalls() {
+        for raw in 0..=u8::MAX {
+            let value = raw as i8;
+            let expected = value / 2 + (value / 2) / 2;
+            assert_eq!(pressure_fighters::decay_player_bank_recovery(value), expected);
+            assert_eq!(mirage_dragon::decay_player_bank_recovery(value), expected);
+            let mut retained = value;
+            for _ in 0..16 {
+                retained = crate::player_pose::recover_bank(retained);
+            }
+            assert_eq!(retained, 0, "initial={value}");
+        }
+    }
+
+    #[test]
+    fn recurring_attacker_live_ticks_release_negative_bank_recovery_without_a_stall() {
+        for initial in [-128i8, -127, -7, -3, -1, 0, 1, 7, 127] {
+            let mut game = Game::new();
+            game.begin_opening_sortie().unwrap();
+            game.begin_pressure_fighter_encounter().unwrap();
+            let player = game.state.mission.primary_player.unwrap();
+            // Start just after the entry handoff, whose own source bank is
+            // positive. Exercise the retained signed field through real ticks.
+            game.state.mode_frame = u32::from(pressure_fighters::LIVE_FIRST_RETAIL_FRAME)
+                / RETAIL_PRESENTATION_FRAMES_PER_TICK;
+            game.state.mission.phase = MissionPhase::Active;
+            game.state.mission.player_flight.bank_recovery = initial;
+            let mut expected = initial;
+            for _ in 0..16 {
+                let retail_frame = (game.state.mode_frame + 1)
+                    * RETAIL_PRESENTATION_FRAMES_PER_TICK;
+                let cadence = pressure_fighters::live_flight_cadence(retail_frame as u16).unwrap();
+                for _ in 0..cadence.player_updates {
+                    let half = expected / 2;
+                    expected = half + half / 2;
+                }
+                game.tick(0).unwrap();
+                assert_eq!(game.state.mission.player_flight.bank_recovery, expected,
+                    "initial={initial} frame={retail_frame}");
+                let ambient = pressure_fighters::player_ambient_bank(
+                    game.state.mission.player_flight.ambient_bank_phase);
+                assert_eq!(game.state.objects.get(player).unwrap().base.roll.units(),
+                    ambient.wrapping_add(expected) as u8);
+            }
+            assert_eq!(expected, 0, "initial={initial}");
+        }
+    }
+
+    #[test]
     fn recurring_attacker_player_camera_and_natural_hit_match_every_oracle_boundary() {
         let mut game = Game::new();
         game.state.roster.selected = [Some(Pilot::Peppy), Some(Pilot::Fox)];

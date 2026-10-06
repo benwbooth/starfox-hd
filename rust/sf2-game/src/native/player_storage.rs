@@ -75,6 +75,25 @@ pub fn get<'a>(
     }
 }
 
+/// Mutably borrow the same allocation used by formatting and pose seeding.
+/// No service may keep a second copy of the fine angles or retained bank.
+pub fn get_mut<'a>(
+    objects: &ObjectStore,
+    resources: &'a mut ProgramResources<ProgramData>,
+    owner: ObjectId,
+) -> Result<&'a mut PlayerStorage, PlayerStorageError> {
+    let storage = objects
+        .get(owner)
+        .ok_or(WorldInputError::MissingActor(owner))?
+        .base
+        .player_storage
+        .ok_or(PlayerStorageError::MissingStorage(owner))?;
+    match resources.get_owned_mut(owner, storage) {
+        Some(ProgramData::PlayerStorage(record)) => Ok(record),
+        _ => Err(PlayerStorageError::MissingStorage(owner)),
+    }
+}
+
 /// Replace the entire actor-owned resource chain, allocate a player record,
 /// clear its supported semantic fields, then publish selection and copied
 /// pilot/shield/score. Earlier release survives an allocation failure, exactly
@@ -143,6 +162,7 @@ pub fn replace(
         }),
         injected_input: Some(Default::default()),
         roll: Some(Default::default()),
+        pose: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),

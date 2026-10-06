@@ -8,7 +8,8 @@ use super::{Angle, Vector3};
 
 #[cfg(test)]
 use super::{
-    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe, MissionPlayerKeyframe,
+    mission_camera_keyframe, mission_player_keyframe, MissionCameraKeyframe,
+    MissionPlayerKeyframe,
 };
 
 #[cfg(test)]
@@ -1343,11 +1344,9 @@ pub(super) fn player_cinematic_phase(retail_frame: u16) -> PlayerCinematicPhase 
     }
 }
 
-/// The retail controller reduces each signed bank recovery term to three
-/// quarters by summing its arithmetic half and quarter.
+/// Share the source pose controller's separately truncated signed halves.
 pub(super) fn decay_player_bank_recovery(value: i8) -> i8 {
-    let half = value >> 1;
-    half.wrapping_add(half >> 1)
+    crate::player_pose::recover_bank(value)
 }
 
 pub(super) fn decay_player_bank_trim(value: i8) -> i8 {
