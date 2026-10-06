@@ -53,6 +53,25 @@ fn select_edge_cycles_once_and_plays_the_authored_sound() {
     assert_eq!(&*sounds.borrow(), &[0x65]);
 }
 
+#[test]
+fn cockpit_enable_is_published_before_view_changes_and_without_a_player() {
+    let (mut game, _, _) = playable_game();
+    game.vars.player_view_mode = PlayerViewMode::Cockpit;
+    game.vars.player_view_options = PlayerViewOptions::ExteriorAndCockpit;
+    game.vars.strategy.hud_rotation = 171;
+    game.vars.pad1 = pad::SELECT;
+    game.tick();
+    assert_eq!(game.vars.player_view_mode, PlayerViewMode::LeavingCockpit);
+    assert_eq!(game.vars.strategy.hud_rotation.to_le_bytes(), [171, 255]);
+    game.tick();
+    assert_eq!(game.vars.strategy.hud_rotation.to_le_bytes(), [171, 0]);
+
+    game.vars.internal_playpt = -1;
+    game.vars.player_view_mode = PlayerViewMode::Cockpit;
+    game.run_strategies();
+    assert_eq!(game.vars.strategy.hud_rotation.to_le_bytes(), [171, 255]);
+}
+
 type Gate = fn(&mut Game, u16);
 
 #[test]

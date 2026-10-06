@@ -398,6 +398,36 @@ impl SourceRaster {
         }
     }
 
+    /// `mdrawhud` follows object/shadow drawing and precedes particles. It
+    /// uses opaque indexed line color, independent of HD material smoothing.
+    pub fn draw_cockpit_hud(
+        &mut self,
+        hud: sf_core::cockpit_hud::CockpitHudState,
+        palette: &[[f32; 3]; 16],
+    ) {
+        for line in hud.lines().into_iter().flatten() {
+            self.workload.line_candidates += 1;
+            self.workload.lines_drawn += 1;
+            line.visit_pixels(|x, y| {
+                self.workload.line_samples += 1;
+                if line.palette_index == SOURCE_CLEAR_INDEX {
+                    return;
+                }
+                let pixel = (usize::from(y) + PLAYFIELD_TOP as usize) * WIDTH
+                    + usize::from(x)
+                    + PLAYFIELD_LEFT as usize;
+                let rgba = pixel * CHANNELS;
+                let [r, g, b] = palette[usize::from(line.palette_index)];
+                self.rgba[rgba..rgba + CHANNELS].copy_from_slice(&rgba8([r, g, b, 1.0]));
+                self.indices[pixel] = line.palette_index;
+                self.owners[pixel] = 0;
+                self.faces[pixel] = NO_FACE;
+                self.has_pixels = true;
+                self.workload.line_writes += 1;
+            });
+        }
+    }
+
     /// Apply the palette selected by the source BG1 tilemap beneath the
     /// shield and boost meters. The source changes the palette bank on the
     /// complete 8-pixel-high tile run, so scene pixels visible through meter

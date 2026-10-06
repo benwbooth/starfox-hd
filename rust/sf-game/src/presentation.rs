@@ -172,6 +172,7 @@ pub fn compose_source_presentation(
     aligned.scene_style = scene.scene_style;
     aligned.scene_style.game_palette = presentation_palette;
     aligned.point_pixels.clone_from(&scene.point_pixels);
+    aligned.cockpit_hud = scene.cockpit_hud;
     aligned.meters = scene.meters;
     aligned.stayblack = scene.stayblack;
     aligned.gameflags = scene.gameflags;
@@ -226,13 +227,21 @@ mod tests {
 
     #[test]
     fn completed_scene_uses_live_display_controls() {
-        let scene = frame(10, 0, true);
+        let mut scene = frame(10, 0, true);
+        scene.cockpit_hud = sf_core::cockpit_hud::CockpitHudState {
+            enabled: true,
+            roll: 171,
+            palette_index: 6,
+            left_wing_broken: true,
+            right_wing_broken: false,
+        };
         let presentation = frame(11, 3, false);
 
         let composed = compose_source_presentation(&scene, &presentation);
 
         assert_eq!(composed.gameframe, scene.gameframe);
         assert_eq!(composed.screen_wipe, scene.screen_wipe);
+        assert_eq!(composed.cockpit_hud, scene.cockpit_hud);
         assert_eq!(composed.display_brightness, presentation.display_brightness);
         assert_eq!(
             composed.display_forced_blank,

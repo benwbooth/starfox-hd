@@ -16,7 +16,8 @@ pub enum PointFieldMode {
     Pollen,
 }
 
-/// One source-resolution point emitted by a projected background field.
+/// One source-resolution indexed pixel. Non-field bitmap primitives use
+/// [`PointIdentity::Untracked`] rather than inventing interpolation identities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PointPixel {
     pub x: u8,

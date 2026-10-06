@@ -1,5 +1,5 @@
 use sf_core::sf1_shape_metrics::sf1_shape_metrics;
-use sf_core::shape::SF1_SHAPE_INTRO_ARWING;
+use sf_core::shape::{SF1_SHAPE_COCKPIT_PLAYER, SF1_SHAPE_INTRO_ARWING};
 
 const NULL_SHAPE: u16 = 0;
 const PLAYER_SHIP_SHAPE: u16 = 2;
@@ -38,4 +38,16 @@ fn launch_intro_arwing_retains_its_authored_sort_depth() {
     assert_eq!(ordinary.sort_depth, 0);
     assert_eq!(intro.sort_depth, INTRO_ARWING_SORT_DEPTH);
     assert_eq!(intro.half_extents, ordinary.half_extents);
+}
+
+#[test]
+fn cockpit_player_retains_arwing_bounds_instead_of_generic_null_shape_bounds() {
+    assert_eq!(
+        sf1_shape_metrics(SF1_SHAPE_COCKPIT_PLAYER),
+        sf1_shape_metrics(PLAYER_SHIP_SHAPE),
+    );
+    assert_ne!(
+        sf1_shape_metrics(SF1_SHAPE_COCKPIT_PLAYER),
+        sf1_shape_metrics(NULL_SHAPE),
+    );
 }

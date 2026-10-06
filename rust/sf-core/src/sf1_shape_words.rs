@@ -248,6 +248,8 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xA567, 291),
     // slot_1
     (0xA583, 448),
+    // training
+    (0xA59F, 482),
     // face_box
     (0xA5BB, 347),
     // tow_1
@@ -600,8 +602,12 @@ pub const SOURCE_SHAPE_WORDS: &[(u16, u16)] = &[
     (0xBABB, 319),
     // lcube
     (0xBAF3, 34),
+    // nullplayer
+    (0xBB2B, 483),
     // bmyship_4
     (0xBB47, 372),
+    // imyship_4
+    (0xBB63, 507),
     // myship_4
     (0xBB7F, 2),
     // friendship_4

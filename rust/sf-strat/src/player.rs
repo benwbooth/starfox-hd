@@ -1262,6 +1262,7 @@ fn playerdead_istrat(g: &mut Game, idx: u16) {
     // either the cockpit-ejection or crash path. `internalPLAYPT` continues
     // to identify the moving ship for the per-frame player-position mirror.
     g.vars.player_object = g.vars.dummyobj;
+    setcurrpshape(g, idx);
 
     // PSTRATS.ASM:3031-3045 disables and detaches the three HP proxies.
     g.pcbox_detach();
@@ -2025,22 +2026,18 @@ pub fn pcolrw_strat(g: &mut Game, idx: u16) {
 /// C `setcurrpshape` (strat_player.c:262).
 fn setcurrpshape(g: &mut Game, idx: u16) {
     let damage = g.vars.pshipflags & (PSF_BRKLWING | PSF_BRKRWING);
-    let pick = |variable: sv, g: &Game| {
-        let v = g.vars.sv_u16(variable);
-        if v != 0 {
-            v
-        } else {
-            SHAPE_ARWING
-        }
-    };
-    let shape = if damage == 0 {
-        pick(sv::PLAYERSHAPE, g)
+    g.vars.strategy.cockpit_hud_left_wing_broken = damage & PSF_BRKLWING != 0;
+    g.vars.strategy.cockpit_hud_right_wing_broken = damage & PSF_BRKRWING != 0;
+    let shape = if g.vars.player_view_mode == PlayerViewMode::Cockpit {
+        sf_core::shape::SF1_SHAPE_COCKPIT_PLAYER
+    } else if damage == 0 {
+        g.vars.strategy.player_shapes[0]
     } else if damage == PSF_BRKLWING {
-        pick(sv::PLAYERSHAPEL, g)
+        g.vars.strategy.player_shapes[1]
     } else if damage == PSF_BRKRWING {
-        pick(sv::PLAYERSHAPER, g)
+        g.vars.strategy.player_shapes[2]
     } else {
-        pick(sv::PLAYERSHAPELR, g)
+        g.vars.strategy.player_shapes[3]
     };
     g.objs.aliens[idx as usize].shape = shape;
 }
@@ -2243,6 +2240,7 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     }
     move_limit &= g.vars.sv_u8(sv::PMOVELIMITAND);
     g.vars.set_sv_u8(sv::PMOVELIMIT, move_limit);
+    setcurrpshape(g, idx);
 
     if move_limit & PML_BBOTTOM != 0 && g.objs.aliens[i].vy >= 0 {
         g.objs.aliens[i].worldy = max_y;
@@ -2522,13 +2520,12 @@ fn playermove_srou(g: &mut Game, idx: u16) {
         g.vars.strategy.player_depth_shake = displaced.wrapping_sub(displaced >> 2);
     }
 
-    let hudrot = al.rotz as i8 as i16;
+    let hud_roll = al.rotz;
     let vel = al.vel;
-    g.vars.set_sv_i16(sv::HUDROT, hudrot);
+    let enable = g.vars.strategy.hud_rotation.to_le_bytes()[1];
+    g.vars.strategy.hud_rotation = i16::from_le_bytes([hud_roll, enable]);
     g.vars.set_sv_i16(sv::PLAYER_SPEED, vel as i16);
     g.vars.set_sv_u8(sv::PMOVELIMIT, 0);
-
-    setcurrpshape(g, idx);
 }
 
 // ============================================================
@@ -7364,6 +7361,7 @@ pub fn player_move_init(g: &mut Game, idx: u16) {
     g.vars.viewdist = OUTVIEWDIST;
     g.vars.set_sv_i16(sv::OUTDIST, OUTVIEWDIST);
     g.vars.strategy.player_death_yaw_step = PLAYER_DEATH_YAW_STEP;
+    setcurrpshape(g, idx);
 }
 
 /// ROM `playerCHASE2_init` — dup + silence engines; continue as space.

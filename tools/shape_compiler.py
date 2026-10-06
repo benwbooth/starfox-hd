@@ -386,6 +386,8 @@ EXTENDED_SHAPES = {
     # Training's visible octagonal course ring. TRAINING.ASM references the
     # ShapeHdr directly, so it has no def_shape catalog slot.
     "training":         482,
+    # PSTRATS cockpit selection: no vertices/faces, but real player bounds.
+    "nullplayer":       483,
 }
 
 
@@ -1949,7 +1951,27 @@ def main() -> int:
         if ext_id in compiled_shapes:
             continue  # already have this slot
         if hdr.points_label == '0' or hdr.faces_label == '0':
-            continue  # header-only shape (no geometry)
+            if hdr.label != "nullplayer":
+                continue  # unsupported header-only shape
+            if hdr.points_label != '0' or hdr.faces_label != '0':
+                raise ValueError("nullplayer must retain its empty source geometry")
+            compiled_shapes[ext_id] = ShapeData(
+                shape_id=ext_id,
+                name=hdr.label,
+                vertices=[],
+                animation_frames=[],
+                reflected_pair_starts=[],
+                faces=[],
+                painter_nodes=[],
+                color_table=hdr.color_table,
+                sort_depth=hdr.sort_depth,
+                visual_extent=hdr.visual_extent,
+                coordinate_shift=hdr.shift,
+                half_extents=hdr.half_extents,
+                source_lods=compile_source_lods(hdr),
+            )
+            ext_compiled[hdr.label] = ext_id
+            continue
 
         vertex_frames, reflected_pair_starts = parse_vertex_frames(
             af, hdr.points_label, hdr.shift)

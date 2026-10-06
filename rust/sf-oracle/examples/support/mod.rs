@@ -729,6 +729,7 @@ pub fn frame_inputs(frame: &FrameSnapshot, game_state: RenderGameState) -> Frame
         nomax_bg2_yscroll: frame.nomax_bg2_yscroll,
         scene_style: frame.scene_style,
         point_pixels: &frame.point_pixels,
+        cockpit_hud: frame.cockpit_hud,
         pal_target: frame.pal_target,
         palfade_num: frame.palfade_num,
         windowmode: frame.windowmode,

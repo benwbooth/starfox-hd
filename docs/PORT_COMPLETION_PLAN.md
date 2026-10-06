@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Connected SF1's source cockpit reticle to completed scene snapshots and both
+  shipping render paths. The native lines preserve the original rotation's
+  low-word subtraction/borrow behavior, ordered mirrored strokes, transparent
+  palette zero and independent damaged-wing colors. Strategy initialization
+  owns the enable byte, movement owns the roll byte, and ship selection publishes
+  damage and the authored invisible cockpit ship with its real collision bounds.
+  Original-code checks cover all 16,384 enabled geometry/color/damage cases,
+  768 disabled cases, 1,024 complete indexed rasters, and 11,264 CPU-side
+  enable/roll/ship-selection cases. Both render paths are GPU-tested, including
+  empty object lists and previous-frame retention. All 1,791 scoped native
+  debug tests and 1,542 core/game/strategy release tests pass, as does the release
+  GPU check; all 29 scoped original-code tests pass in both profiles. The legacy
+  C trace keeps its signed-roll column through a documented adapter, with an
+  added disabled-HUD assertion; no expected fixtures were changed. Generation
+  and architecture checks, oracle examples, and all three app binaries in
+  debug/release pass. This closes the cockpit HUD slice, not the incomplete
+  movement initializer, unrelated retained parity failures, or game certification.
+
 - Ported the opening's inherited layer-policy producers and common load-table
   visibility reset. Cold boot starts with no visible layers; selecting the
   opening view changes the artwork plane, video initialization clears extra

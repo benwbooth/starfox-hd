@@ -645,6 +645,7 @@ impl DrawListRenderer {
         source_bitmap_clear: Option<SourceBitmapRect>,
         source_scene_camera: Option<SourceSceneCamera>,
         source_point_pixels: &[PointPixel],
+        source_cockpit_hud: sf_core::cockpit_hud::CockpitHudState,
         source_gameplay_meter_palette: Option<&crate::shapes::ShapePaletteRgb>,
         shadow_style: ShadowStyle,
     ) {
@@ -657,9 +658,8 @@ impl DrawListRenderer {
         // reached their cull boundary, exposing seams as a 20 Hz flicker.
         let (presenting_previous, presented) = presentation_entries(prev, curr, alpha);
         self.last_source_workload = crate::source_raster::SourceFrameWorkload::default();
-        if presented.is_empty() {
-            return;
-        }
+        // Background points and the cockpit reticle can still draw when
+        // this scene has no mesh commands. Publish their bitmap/work too.
 
         // The game tick is 20Hz but rendering is uncapped: rebuild the view
         // matrix from the interpolated camera so the camera glides with the
@@ -949,6 +949,9 @@ impl DrawListRenderer {
             }
         }
 
+        if source_presentation_offset.is_some() {
+            source_raster.draw_cockpit_hud(source_cockpit_hud, shape_palette);
+        }
         let (output_width, output_height) = gpu.size();
         if let Some(rect) = source_bitmap_clear {
             source_raster.clear_rect(rect);

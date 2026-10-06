@@ -22,6 +22,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use sf_core::{
+    cockpit_hud::CockpitHudState,
     pad,
     player_view::{PlayerViewMode, PlayerViewOptions},
     point_field::PointPixel,
@@ -1059,6 +1060,8 @@ pub struct FrameSnapshot {
     pub scene_style: SceneStyle,
     /// Source-resolution pixels produced by the typed background point field.
     pub point_pixels: Vec<PointPixel>,
+    /// Reticle state belonging to this completed polygon bitmap.
+    pub cockpit_hud: CockpitHudState,
     /// Background palette-row source selected by FADETOSEA/FADETOGROUND.
     pub pal_target: Option<PaletteFadeTarget>,
     /// ROM `palnum` remaining counter. Starts at 30 and steps by two while
@@ -1430,6 +1433,7 @@ pub struct Shell {
     /// Completed point-field pixels published with the preceding source
     /// framebuffer, one presentation update behind the working point state.
     presented_point_pixels: Vec<PointPixel>,
+    presented_cockpit_hud: CockpitHudState,
     /// Completed source HUD state. This stays separate from the live message
     /// counters used by strategies and semantic conformance checks.
     radio_presentation: RadioPresentation,
@@ -1508,6 +1512,7 @@ impl Shell {
             camera: GameCamera::new(),
             point_field: PointField::new(),
             presented_point_pixels: Vec::new(),
+            presented_cockpit_hud: CockpitHudState::default(),
             radio_presentation: RadioPresentation::default(),
             draw_list: Vec::new(),
             cam_snapshot: CameraSnapshot::default(),
@@ -1984,6 +1989,7 @@ impl Shell {
             nomax_bg2_yscroll: v.strategy.no_maximum_background_y != 0,
             scene_style: v.scene_style,
             point_pixels: self.presented_point_pixels.clone(),
+            cockpit_hud: self.presented_cockpit_hud,
             pal_target: v.palfade_target,
             palfade_num: v.palfade_num,
             windowmode: st.windows.windowmode,
@@ -2086,6 +2092,7 @@ impl Shell {
         self.point_field = PointField::new();
         self.presented_point_pixels.clear();
         self.radio_presentation = RadioPresentation::default();
+        self.presented_cockpit_hud = CockpitHudState::default();
         self.game.world = World::init();
         self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:123-127): the sf-path literal
@@ -2737,6 +2744,7 @@ impl Shell {
         self.point_field = PointField::new();
         self.presented_point_pixels.clear();
         self.radio_presentation = RadioPresentation::default();
+        self.presented_cockpit_hud = CockpitHudState::default();
         self.game.world = World::init();
         self.reregister_strats();
         {
@@ -2804,6 +2812,7 @@ impl Shell {
         self.game.run_strategies();
         self.cam_snapshot = self.camera.update(&mut self.game.vars, &self.game.objs);
         self.update_point_field();
+        self.capture_cockpit_hud();
         self.game.step_palette_fade();
         draw::build_list(
             &mut self.game.objs,
@@ -2827,6 +2836,19 @@ impl Shell {
         if let Some((map_id, player)) = self.pending_presentation_player.take() {
             self.initialize_player_for_map(map_id, player);
         }
+    }
+
+    fn capture_cockpit_hud(&mut self) {
+        // RAMSTUFF publishes roll for the completed scene, while GSTRATS and
+        // PSTRATS have already published its enable, colour and wing damage.
+        let strategy = &self.game.vars.strategy;
+        self.presented_cockpit_hud = CockpitHudState {
+            enabled: strategy.hud_rotation < 0,
+            roll: strategy.hud_rotation.to_le_bytes()[0],
+            palette_index: strategy.cockpit_hud_color,
+            left_wing_broken: strategy.cockpit_hud_left_wing_broken,
+            right_wing_broken: strategy.cockpit_hud_right_wing_broken,
+        };
     }
 
     fn update_point_field(&mut self) {
@@ -2997,6 +3019,7 @@ impl Shell {
         self.point_field = PointField::new();
         self.presented_point_pixels.clear();
         self.radio_presentation = RadioPresentation::default();
+        self.presented_cockpit_hud = CockpitHudState::default();
         self.game.world = World::init();
         self.reregister_strats();
         // Paths_Init + Paths_LoadData (boot.c:79-83): static catalog via
@@ -3173,6 +3196,7 @@ impl Shell {
         // getview_l (nmi.c:70).
         self.cam_snapshot = self.camera.update(&mut self.game.vars, &self.game.objs);
         self.update_point_field();
+        self.capture_cockpit_hud();
 
         // dosounds_l (nmi.c:73) runs app-side: sf-app feeds the
         // FrameSnapshot sound-layer inputs to sf-audio each tick.
@@ -3385,6 +3409,7 @@ impl Shell {
         self.point_field = PointField::new();
         self.presented_point_pixels.clear();
         self.radio_presentation = RadioPresentation::default();
+        self.presented_cockpit_hud = CockpitHudState::default();
         self.game.world.lastplayz = 0;
         self.game.world.lastzchange = 0;
         self.game.world.last_obj = None;
@@ -4886,6 +4911,40 @@ mod tests {
             GameplayEntryPhase::ActiveLevel,
             "level initialization did not reach its measured completion boundary"
         );
+    }
+
+    #[test]
+    fn cockpit_reticle_is_captured_with_the_completed_scene_and_cleared_on_reset() {
+        let mut shell = Shell::new();
+        shell.game.vars.freezestrats = 1;
+        shell.game.vars.strategy.hud_rotation = i16::from_le_bytes([171, 255]);
+        shell.game.vars.strategy.cockpit_hud_color = 6;
+        shell.game.vars.strategy.cockpit_hud_left_wing_broken = true;
+        shell.nmi_game_tick();
+        let captured = shell.frame().cockpit_hud;
+        assert_eq!(
+            captured,
+            CockpitHudState {
+                enabled: true,
+                roll: 171,
+                palette_index: 6,
+                left_wing_broken: true,
+                right_wing_broken: false,
+            }
+        );
+        shell.game.vars.strategy.hud_rotation = 0;
+        shell.game.vars.strategy.cockpit_hud_color = 15;
+        shell.game.vars.strategy.cockpit_hud_left_wing_broken = false;
+        assert_eq!(
+            shell.frame().cockpit_hud,
+            captured,
+            "live changes cannot repaint the completed bitmap"
+        );
+        shell.nmi_game_tick();
+        assert!(!shell.frame().cockpit_hud.enabled);
+        shell.presented_cockpit_hud = captured;
+        shell.game_init();
+        assert_eq!(shell.frame().cockpit_hud, CockpitHudState::default());
     }
 
     #[test]

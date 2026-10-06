@@ -13,6 +13,8 @@ pub const SF2_SHAPE_NAMESPACE_START: u16 = 1024;
 /// Flat identity of `Imyship_4`, the launch-intro Arwing ShapeHdr. It shares
 /// the regular Arwing mesh but retains its authored presentation metadata.
 pub const SF1_SHAPE_INTRO_ARWING: u16 = 507;
+/// Cockpit-only player header: empty geometry with normal Arwing bounds.
+pub const SF1_SHAPE_COCKPIT_PLAYER: u16 = 483;
 
 pub const fn sf2_shape_id(catalog_index: u16) -> u16 {
     SF2_SHAPE_NAMESPACE_START + catalog_index

@@ -420,6 +420,15 @@ impl Game {
 
     /// C `init_strats_l` (src/game/obj.c:134, GSTRATS.ASM:423-434).
     fn init_strats(&mut self) {
+        // GSTRATS owns only the enable byte, before SELECT or the player
+        // strategy can change views. PSTRATS subsequently owns only roll.
+        let roll = self.vars.strategy.hud_rotation.to_le_bytes()[0];
+        let enabled = if self.vars.player_view_mode == PlayerViewMode::Cockpit {
+            u8::MAX
+        } else {
+            0
+        };
+        self.vars.strategy.hud_rotation = i16::from_le_bytes([roll, enabled]);
         // m_bossHP (MVARS.MC:251) is a per-frame accumulator: ROM zeroes it
         // in mdrawbossHP after the bar draws (MDRAWLIS.MC:1057); the port
         // zeroes it here, before the strat pass re-sums each living boss

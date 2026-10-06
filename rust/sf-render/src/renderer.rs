@@ -23,6 +23,7 @@ use crate::sprites::Sprites;
 use crate::transform::Transform;
 use crate::ui::Ui;
 use sf_core::{
+    cockpit_hud::CockpitHudState,
     player_view::PlayerViewMode,
     point_field::PointPixel,
     scene::{
@@ -422,6 +423,10 @@ pub struct FrameInputs<'a> {
     /// Preceding fixed-update point field used during the open interpolation
     /// interval. `None` means the caller has no presentation history.
     pub previous_point_pixels: Option<&'a [PointPixel]>,
+    /// Reticle belonging to the completed scene, not the current live camera mode.
+    pub cockpit_hud: CockpitHudState,
+    /// Discrete reticle state retained throughout the open presentation interval.
+    pub previous_cockpit_hud: Option<CockpitHudState>,
 
     // Background palette-row fade (map-VM FADETOSEA/FADETOGROUND,
     // WORLD.ASM:371-394; consumer fadepalto_l MAIN.ASM:2762).
@@ -548,6 +553,8 @@ impl<'a> Default for FrameInputs<'a> {
             scene_style: SceneStyle::default(),
             point_pixels: &[],
             previous_point_pixels: None,
+            cockpit_hud: CockpitHudState::default(),
+            previous_cockpit_hud: None,
             pal_target: None,
             palfade_num: 0,
             windowmode: 0,
@@ -874,6 +881,11 @@ impl Renderer {
         } else {
             inputs.point_pixels
         };
+        let presented_cockpit_hud = if alpha < 1.0 {
+            inputs.previous_cockpit_hud.unwrap_or(inputs.cockpit_hud)
+        } else {
+            inputs.cockpit_hud
+        };
         if !inputs.source_resolution {
             let points = crate::point_field::interpolate_points(
                 inputs.previous_point_pixels,
@@ -930,9 +942,21 @@ impl Renderer {
             self.hud.source_bitmap_clear(inputs),
             inputs.source_scene_camera,
             presented_point_pixels,
+            presented_cockpit_hud,
             source_gameplay_meter_palette.as_ref(),
             self.shadow_style,
         );
+        if !inputs.source_resolution {
+            let pixels = presented_cockpit_hud.pixels();
+            let points = crate::point_field::interpolate_points(None, &pixels, 1.0);
+            self.ui.render_point_field(
+                &mut self.gpu,
+                &points,
+                &shape_palette,
+                scene_width,
+                scene_height,
+            );
+        }
         self.particles.render(&mut self.gpu, &self.transform);
         if inputs.game_state == GameState::Title {
             self.bg2d

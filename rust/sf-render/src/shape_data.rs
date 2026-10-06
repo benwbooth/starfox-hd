@@ -233,6 +233,7 @@ pub const SHAPE_EXT_LFLASH_0: u16 = 479;
 pub const SHAPE_EXT_MFLASH_0: u16 = 480;
 pub const SHAPE_EXT_SFLASH_0: u16 = 481;
 pub const SHAPE_EXT_TRAINING: u16 = 482;
+pub const SHAPE_EXT_NULLPLAYER: u16 = 483;
 pub const SHAPE_EXT_IMYSHIP_4: u16 = 507;
 pub const SHAPE_EXT_OP_0: u16 = 508;
 pub const SHAPE_EXT_OP_1: u16 = 509;
@@ -98114,6 +98115,13 @@ static SHAPE_482_FACES: [ShapeFace; 32] = [
 
 static SHAPE_482_PAINTER: [ShapePainterNode; 0] = [];
 
+// Shape 483: nullplayer
+static SHAPE_483_REFLECTED_PAIR_STARTS: [u16; 0] = [];
+static SHAPE_483_VERTS: [ShapeVertex; 0] = [];
+static SHAPE_483_FACES: [ShapeFace; 0] = [];
+
+static SHAPE_483_PAINTER: [ShapePainterNode; 0] = [];
+
 // Shape 507: imyship_4
 static SHAPE_507_REFLECTED_PAIR_STARTS: [u16; 6] = [4, 6, 8, 10, 12, 14];
 static SHAPE_507_VERTS: [ShapeVertex; 16] = [
@@ -99121,7 +99129,7 @@ static SHAPE_511_FACES: [ShapeFace; 6] = [
 
 static SHAPE_511_PAINTER: [ShapePainterNode; 0] = [];
 
-pub const SHAPE_DATA_COUNT: usize = 479;
+pub const SHAPE_DATA_COUNT: usize = 480;
 
 pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
     ShapeDataEntry {
@@ -104509,6 +104517,17 @@ pub static SHAPE_DATA: [ShapeDataEntry; SHAPE_DATA_COUNT] = [
         source_lods: [None, None, None],
         default_color_table: "id_0_c",
         name: "training",
+    },
+    ShapeDataEntry {
+        shape_id: 483,
+        vertices: &SHAPE_483_VERTS,
+        animation_frames: &[],
+        reflected_pair_starts: &SHAPE_483_REFLECTED_PAIR_STARTS,
+        faces: &SHAPE_483_FACES,
+        painter_nodes: &SHAPE_483_PAINTER,
+        source_lods: [None, None, None],
+        default_color_table: "id_0_c",
+        name: "nullplayer",
     },
     ShapeDataEntry {
         shape_id: 507,

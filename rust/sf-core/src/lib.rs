@@ -9,6 +9,7 @@
 //! - `src/sf_rtl.h` -> [`pad`]
 
 pub mod aim_angle;
+pub mod cockpit_hud;
 pub mod player_view;
 pub mod point_field;
 pub mod scene;

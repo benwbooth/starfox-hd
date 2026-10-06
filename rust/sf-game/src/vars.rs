@@ -411,6 +411,9 @@ pub struct StrategyVariables {
     pub player_ship_selection: u8,
     /// Source `m_hudcolour`: cockpit line palette index, published before colour animation.
     pub cockpit_hud_color: u8,
+    /// Published by `setcurrpshape`, not recomputed from later collision state.
+    pub cockpit_hud_left_wing_broken: bool,
+    pub cockpit_hud_right_wing_broken: bool,
     pub fire_count: u8,
     pub fire_delay: u8,
     pub special_delay: u8,

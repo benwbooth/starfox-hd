@@ -31,6 +31,9 @@ mod body_pickup;
 #[path = "support/wire_pickup.rs"]
 mod wire_pickup;
 
+#[path = "support/cockpit_hud.rs"]
+mod cockpit_hud;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,

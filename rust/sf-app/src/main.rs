@@ -1248,6 +1248,7 @@ fn main() {
                     previous_presented_frame
                         .point_pixels
                         .clone_from(&presented_frame.point_pixels);
+                    previous_presented_frame.cockpit_hud = presented_frame.cockpit_hud;
                 }
             }
 
@@ -1311,6 +1312,8 @@ fn main() {
                 scene_style: frame.scene_style,
                 point_pixels: &frame.point_pixels,
                 previous_point_pixels: Some(&previous_presented_frame.point_pixels),
+                cockpit_hud: frame.cockpit_hud,
+                previous_cockpit_hud: Some(previous_presented_frame.cockpit_hud),
                 pal_target: frame.pal_target,
                 palfade_num: frame.palfade_num,
                 windowmode: frame.windowmode,

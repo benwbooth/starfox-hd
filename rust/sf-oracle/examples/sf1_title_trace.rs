@@ -465,6 +465,7 @@ fn native_video_hash(
         nomax_bg2_yscroll: frame.nomax_bg2_yscroll,
         scene_style: frame.scene_style,
         point_pixels: &frame.point_pixels,
+        cockpit_hud: frame.cockpit_hud,
         previous_point_pixels: Some(previous_point_pixels),
         pal_target: frame.pal_target,
         palfade_num: frame.palfade_num,
