@@ -152,6 +152,25 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The numerical reticle-positioning dependency is now source-backed. The
+individual-point job (`$01:D50A`) always uses bounded division, including at
+depths where mesh projection selects a reciprocal table. Native code reuses
+the already-ported divider path explicitly, with 86,016 independent original
+projector comparisons. The host positioning tail (`$07:A471..A504`) clamps and
+eases into the canonical shared reticle. Its vertical lower trigger is 32 but
+the replacement is 16; both axes preserve wrapped signed lower tests, unsigned
+upper tests and negative-odd rounding toward zero. Original host execution
+matches 262,144 clamp/easing cases, 512 partial missing-axis prefixes and
+3,072 continuous positioning-to-lock-retention cases. Five native tests cover
+these edges, scene failure latching and the real projection/easing/retention
+chain. Outer reticle gates, aim-proxy and selected-view preparation, the rest
+of the display routine and frame cadence remain unfinished. This does not
+establish a complete reticle producer or shipping `Game::tick` integration.
+This checkpoint passes 1,272 native tests and 19 selected original-execution
+tests in both debug and release, 1,280 compatibility-feature unit tests plus
+35 runtime tests, 209 lowerer tests, 625 static tests, catalog and architecture
+checks, and all three app builds.
+
 The native target-lock retention producer now implements `$07:A50A..A66B`
 inside the original `$07:A326` display service. Source calls at `$03:8053` and
 `$03:810E`, plus the primary-player reload immediately before retention, keep

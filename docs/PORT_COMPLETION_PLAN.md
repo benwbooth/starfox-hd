@@ -113,6 +113,23 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Closed the numerical reticle-positioning dependency of target retention.
+  Individual markers use the source's bounded-division projector at every
+  depth, not the mesh's far-depth reciprocal table. The positioning tail
+  (`$07:A471..A504`) preserves asymmetric vertical clamping, wrapped signed
+  lower comparisons, unsigned upper comparisons and signed half-step easing.
+  It updates the shared reticle in source axis order, with scene-host failure
+  latching. Original execution verifies 86,016 projector cases, 262,144
+  clamp/easing cases, 512 missing-axis prefixes and 3,072 uninterrupted
+  positioning-to-retention cases. Five new native tests include the real
+  projection/easing/retention chain. Validation passes 1,272 native tests in
+  debug and release, all 19 selected original-execution tests in both profiles,
+  1,280 compatibility-feature unit tests, 35 runtime tests, 209 lowerer tests,
+  625 static tests, catalog and architecture checks, and all three app builds.
+  These are complete numerical boundaries,
+  not the still-unported outer display gates, aim-proxy/view preparation or
+  a substitute for their source-owned scheduling.
+
 - Implemented the source display service's target-lock retention boundary
   (`$07:A50A..A66B`) against the canonical primary-player selection and shared
   homing publication. Retained candidate, acquisition clock, grace period and

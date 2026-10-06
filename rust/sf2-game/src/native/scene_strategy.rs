@@ -122,6 +122,7 @@ pub enum SceneError<E> {
     PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerStorage(super::player_storage::PlayerStorageError),
     TargetLock(super::player_target_lock::TargetLockError),
+    ReticlePosition(super::player_target_lock::ReticlePositionError),
     PlayerInput(super::player_input::PlayerInputError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
@@ -223,6 +224,23 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         }
         let result = super::player_target_lock::update(self.objects, self.world)
             .map_err(SceneError::TargetLock);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Reticle positioning tail after the actual point projector completes.
+    /// The display caller supplies that result and owns update ordering.
+    pub fn track_target_reticle(&mut self, projected: [i16; 2]) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = self
+            .world
+            .target_reticle
+            .track_projected(projected)
+            .map_err(SceneError::ReticlePosition);
         if result.is_err() {
             self.execution.faulted = true;
         }

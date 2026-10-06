@@ -87,6 +87,61 @@ fn every_byte_coordinate_preserves_wrapped_half_open_window() {
 }
 
 #[test]
+fn reticle_tracking_keeps_asymmetric_clamp_and_wrap_boundaries() {
+    // At the projected point plus 24 there is no easing: inspect the exact
+    // selected goal, including the source's signed-subtraction overflow.
+    for (projected, goal) in [
+        ([15, 31], [40, 40]),
+        ([16, 32], [40, 56]),
+        ([17, 33], [41, 57]),
+        ([208, 176], [232, 200]),
+        ([209, 177], [232, 200]),
+        ([-32768, -32768], [232, 200]),
+        ([-32752, -32736], [40, 40]),
+    ] {
+        let mut reticle = TargetReticle {
+            horizontal: Some(goal[0]),
+            vertical: Some(goal[1]),
+        };
+        reticle.track_projected(projected).unwrap();
+        assert_eq!(reticle.horizontal, Some(goal[0]));
+        assert_eq!(reticle.vertical, Some(goal[1]));
+    }
+}
+
+#[test]
+fn reticle_easing_truncates_negative_odd_steps_and_updates_axes_in_order() {
+    for (previous, expected) in [
+        (127, 128),
+        (129, 128),
+        (131, 130),
+        (125, 126),
+        (0, 192),
+        (255, 192),
+    ] {
+        let mut reticle = TargetReticle {
+            horizontal: Some(previous),
+            vertical: None,
+        };
+        assert_eq!(
+            reticle.track_projected([104, 104]),
+            Err(ReticlePositionError::MissingVertical)
+        );
+        assert_eq!(reticle.horizontal, Some(expected));
+        assert_eq!(reticle.vertical, None);
+    }
+    let mut reticle = TargetReticle {
+        horizontal: None,
+        vertical: Some(71),
+    };
+    assert_eq!(
+        reticle.track_projected([104, 104]),
+        Err(ReticlePositionError::MissingHorizontal)
+    );
+    assert_eq!(reticle.vertical, Some(71));
+}
+
+#[test]
 fn acquisition_updates_only_primary_and_repeated_lock_does_not_repeat_sound() {
     let (objects, mut world, primary, secondary, target) = setup();
     let other_before = *world.player(&objects, secondary).unwrap();
@@ -523,5 +578,92 @@ fn scene_wrapper_latches_partial_error_and_cannot_replay_cancel_after_input_repa
                 .previous_candidate,
             None
         );
+    }
+}
+
+#[test]
+fn scene_reticle_position_error_latches_before_lock_retention_or_repeated_easing() {
+    let (mut objects, mut world, _, _, target) = setup();
+    let mut execution = SceneExecution::default();
+    let catalog = PathCatalog::new(vec![]).unwrap();
+    let mut callbacks = Callbacks;
+    world.target_reticle = TargetReticle {
+        horizontal: Some(0),
+        vertical: None,
+    };
+    let mut scene = SceneActors {
+        objects: &mut objects,
+        world: &mut world,
+        execution: &mut execution,
+        catalog: &catalog,
+        callbacks: &mut callbacks,
+        statement_budget: 10,
+    };
+    assert_eq!(
+        scene.track_target_reticle([104, 104]),
+        Err(SceneError::ReticlePosition(
+            ReticlePositionError::MissingVertical
+        ))
+    );
+    assert_eq!(scene.world.target_reticle.horizontal, Some(192));
+    scene.world.target_reticle.vertical = Some(0);
+    scene.world.published_homing_target = Some(PublishedHomingTarget {
+        object: Some(target),
+    });
+    assert_eq!(
+        scene.track_target_reticle([104, 104]),
+        Err(SceneError::Faulted)
+    );
+    assert_eq!(scene.retain_primary_target(), Err(SceneError::Faulted));
+    assert_eq!(scene.world.target_reticle.horizontal, Some(192));
+    assert_eq!(
+        scene.world.published_homing_target.unwrap().object,
+        Some(target)
+    );
+}
+
+#[test]
+fn individual_projection_and_reticle_easing_feed_the_next_retention_visit() {
+    use crate::intro_projection::{project_individual_point, ProjectionViewport};
+    let (objects, mut world, primary, _, target) = setup();
+    world.target_reticle = TargetReticle {
+        horizontal: Some(0),
+        vertical: Some(0),
+    };
+    world
+        .player_mut(&objects, primary)
+        .unwrap()
+        .target_selection
+        .as_mut()
+        .unwrap()
+        .screen = [112, 96];
+    let point = project_individual_point(
+        [0, 0, 1024],
+        ProjectionViewport {
+            center: [112, 96],
+            left: 0,
+            right: 224,
+            top: 0,
+            bottom: 192,
+        },
+    );
+    for (step, coordinates) in [[196, 60], [166, 90], [151, 105]].into_iter().enumerate() {
+        world
+            .target_reticle
+            .track_projected([point.x, point.y])
+            .unwrap();
+        assert_eq!(
+            world.target_reticle,
+            TargetReticle {
+                horizontal: Some(coordinates[0]),
+                vertical: Some(coordinates[1])
+            }
+        );
+        update(&objects, &mut world).unwrap();
+        assert_eq!(
+            world.published_homing_target.unwrap().object,
+            (step != 0).then_some(target)
+        );
+        assert_eq!(events(&mut world).len(), usize::from(step == 1));
     }
 }

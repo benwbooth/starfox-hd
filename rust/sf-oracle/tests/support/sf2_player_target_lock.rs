@@ -235,6 +235,16 @@ impl Check {
         expected[(BASE + 0x6BC6) as usize] = lock.acquisition_clock;
         expected[(BASE + 0x6BC7) as usize] = lock.grace_remaining;
         expected[(BASE + 0x6BB7) as usize] = lock.marker_style;
+        expected[0x1E30] = self
+            .world
+            .target_reticle
+            .horizontal
+            .unwrap_or(case.reticle[0]);
+        expected[0x1E31] = self
+            .world
+            .target_reticle
+            .vertical
+            .unwrap_or(case.reticle[1]);
         let events: Vec<_> = self
             .world
             .audio
@@ -289,6 +299,7 @@ impl Check {
                 BASE + 0x6BB7..BASE + 0x6BB8,
                 0x1CF6..0x1D16,
                 0x1D16..0x1D17,
+                0x1E30..0x1E32,
             ];
             assert!(
                 permitted.iter().any(|range| range.contains(&offset)),
@@ -455,4 +466,40 @@ fn target_retention_acquisition_preserves_original_sound_publication_write_order
     expected.push((BASE + 0x6BC7, 10));
     expected.push((BASE + 0x6BC2, case.control & !0x18));
     assert_eq!(writes, expected);
+}
+
+#[test]
+fn reticle_tracking_and_target_retention_match_one_continuous_source_boundary() {
+    let mut check = Check::new();
+    for byte in 0..=u8::MAX {
+        for forced in 0..3 {
+            for clock in [0, 1, 254, 255] {
+                let case = Case {
+                    forced,
+                    clock,
+                    reticle: [byte, !byte],
+                    screen: [byte.rotate_left(2), byte.rotate_right(3)],
+                    queue: (byte & 15) * 2,
+                    ..Case::default()
+                };
+                check.seed(case);
+                let projected = [i16::from(byte) - 31, 201 - i16::from(byte)];
+                check.source.bus.write16(WRAM + 0x79, projected[0] as u16);
+                check.source.bus.write16(WRAM + 0x7B, projected[1] as u16);
+                check.source.bus.write16(WRAM + 0x12C3, OWNER);
+                check
+                    .source
+                    .bus
+                    .write16(WRAM + u32::from(OWNER) + 0x2B, STORAGE);
+                check.source.run(0x07A471, Some(STOP), 0, OWNER, true);
+                check
+                    .world
+                    .target_reticle
+                    .track_projected(projected)
+                    .unwrap();
+                player_target_lock::update(&check.objects, &mut check.world).unwrap();
+                check.compare(case);
+            }
+        }
+    }
 }

@@ -42,6 +42,67 @@ pub struct TargetReticle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReticlePositionError {
+    MissingHorizontal,
+    MissingVertical,
+}
+
+impl TargetReticle {
+    /// Positioning tail (`$07:A471..A504`) after the individual-point
+    /// projector. Projection and the outer display gates are separate owners;
+    /// this method never invents a view, projected point or update cadence.
+    /// A missing vertical sample preserves the completed horizontal update.
+    pub fn track_projected(&mut self, projected: [i16; 2]) -> Result<(), ReticlePositionError> {
+        const CLAMP_FLOOR: u8 = 16;
+        const HORIZONTAL_LOW_TRIGGER: i16 = 16;
+        const VERTICAL_LOW_TRIGGER: i16 = 32;
+        const HORIZONTAL_CEILING: u16 = 208;
+        const VERTICAL_CEILING: u16 = 176;
+
+        let clamp = |value: i16, low_trigger: i16, ceiling: u16| {
+            // The first comparison tests a wrapped signed subtraction, but
+            // the upper edge compares unsigned words. In particular, the
+            // vertical trigger is 32 even though its replacement is 16.
+            if value.wrapping_sub(low_trigger) < 0 {
+                CLAMP_FLOOR
+            } else if value as u16 > ceiling {
+                ceiling as u8
+            } else {
+                value as u8
+            }
+        };
+        let horizontal = clamp(projected[0], HORIZONTAL_LOW_TRIGGER, HORIZONTAL_CEILING)
+            .wrapping_add(RETICLE_OFFSET);
+        let vertical = clamp(projected[1], VERTICAL_LOW_TRIGGER, VERTICAL_CEILING)
+            .wrapping_add(RETICLE_OFFSET);
+        let ease = |previous: u8, goal: u8| {
+            const MINIMUM_DELTA: i8 = 2;
+            let delta = goal.wrapping_sub(previous) as i8;
+            if delta == 0 {
+                return goal;
+            }
+            let delta = if delta > 0 {
+                delta.max(MINIMUM_DELTA)
+            } else {
+                delta.min(-MINIMUM_DELTA)
+            };
+            // Signed division truncates negative odd deltas toward zero.
+            previous.wrapping_add_signed(delta / 2)
+        };
+        self.horizontal = Some(ease(
+            self.horizontal
+                .ok_or(ReticlePositionError::MissingHorizontal)?,
+            horizontal,
+        ));
+        self.vertical = Some(ease(
+            self.vertical.ok_or(ReticlePositionError::MissingVertical)?,
+            vertical,
+        ));
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetLockError {
     World(WorldInputError),
     MissingUpgrade,

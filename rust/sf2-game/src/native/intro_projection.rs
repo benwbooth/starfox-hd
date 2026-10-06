@@ -45,6 +45,16 @@ pub fn project_point([x, y, mut z]: [i16; 3], viewport: ProjectionViewport) -> P
     projected(x, y, outside)
 }
 
+/// Individual marker projection (`$01:D50A` calling `$01:A2DB`) always uses
+/// bounded division. It does not select the mesh reciprocal-table path at
+/// larger depth or clamp the depth first. Reticle and mesh pixels can differ.
+pub fn project_individual_point(
+    point: [i16; 3],
+    viewport: ProjectionViewport,
+) -> ProjectedShapePoint {
+    project_near(point, viewport)
+}
+
 fn projected(x: i16, y: i16, outside: u16) -> ProjectedShapePoint {
     ProjectedShapePoint {
         x,
@@ -177,6 +187,14 @@ mod tests {
             project_point([0, 192, 256], VIEWPORT),
             projected(112, 192, 0)
         );
+    }
+
+    #[test]
+    fn individual_markers_keep_division_rounding_beyond_mesh_near_depth() {
+        assert_eq!(project_point([256, 0, 512], VIEWPORT).x, 175);
+        assert_eq!(project_individual_point([256, 0, 512], VIEWPORT).x, 176);
+        assert_eq!(project_individual_point([256, 0, -512], VIEWPORT).x, 48);
+        assert_eq!(project_individual_point([0, 0, 0], VIEWPORT).x, 112);
     }
 
     #[test]
