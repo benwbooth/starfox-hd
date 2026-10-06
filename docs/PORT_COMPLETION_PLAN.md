@@ -303,6 +303,20 @@ running; scheduled work is not a guarantee of a completion date.
   **Native death registrations, map continuations and production frame-loop
   adoption remain open.** Player-contact binding is not a complete player
   initializer or a migrated live encounter.
+- Implemented the source charged-fire controller over the live player record,
+  shared weapon parameters, real projectile allocator and numbered charge-orb
+  installer. Authored orb callbacks now observe the same fractional charge
+  state as the player service. Preserved processed press/hold distinctions,
+  signed-byte decay, full-pool side effects, Walker recoil suppression, source
+  cue order and terminal diagnostics after partially executed visits.
+  Nine tests cover every fine-charge word, every control-byte/signed-level
+  combination, real charged projectiles and an authored orb's complete
+  scheduler/resource lifetime. Seven source-byte proofs include the input
+  producer and the complete effect installer. All 1,112 native tests and two
+  integration tests pass in debug/release; 565 source tests, exact regeneration,
+  architecture and app build pass. **The outer player strategy, preceding
+  rapid-fire/aiming service and production frame-loop adoption remain open;**
+  this does not replace `Game::update_player_blaster` yet.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

@@ -112,6 +112,7 @@ pub enum SceneError<E> {
     MissingContactCallback(ObjectId),
     Auxiliary(super::actor_auxiliary::AuxiliaryError),
     Reflection(super::weapon_reflection::ReflectionError),
+    Charge(super::player_charge::ChargeError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
     World(WorldInputError),
@@ -139,6 +140,29 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Called at the charged-fire point of the real player strategy. The
+    /// caller supplies its processed inputs and retains frame ownership.
+    pub fn advance_player_charge(
+        &mut self,
+        owner: ObjectId,
+        input: super::InputState,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_charge::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+            input,
+        )
+        .map_err(SceneError::Charge);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Publish the shared clock even for an empty or entirely suspended pass.
     /// Render readiness and positional-accumulator reset are separate owners.
     pub fn begin_strategy_epoch(

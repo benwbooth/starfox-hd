@@ -229,9 +229,20 @@ pub fn find_child(
     let Some(parent) = parent else {
         return Ok(None);
     };
+    find_direct_child(objects, parent, number)
+}
+
+/// `$7F:2A7B`: search the caller's actual chain without the authored path
+/// wrapper's owner-flag/mother selection. Player effect installers call this
+/// entry directly, including before the first child sets the owner flag.
+pub fn find_direct_child(
+    objects: &ObjectStore,
+    owner: ObjectId,
+    number: u8,
+) -> Result<Option<ObjectId>, RelationshipError> {
     let mut child = objects
-        .get(parent)
-        .ok_or(RelationshipError::MissingActor(parent))?
+        .get(owner)
+        .ok_or(RelationshipError::MissingActor(owner))?
         .base
         .first_child;
     let mut visited = [false; OBJECT_CAPACITY];

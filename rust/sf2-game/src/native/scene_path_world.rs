@@ -11,7 +11,6 @@
 mod tests;
 
 use super::collision_contacts::ContactStore;
-use super::path_charge::SelectedChargeInput;
 use super::path_control::{forward_plane_projection, PlayerTarget};
 use super::path_equipment::SelectedEquipment;
 use super::path_invocation::InvocationWorld;
@@ -47,7 +46,7 @@ pub struct PlayerPathRecords {
     pub contact: Option<super::scene_contact::PlayerContactControl>,
     pub protection: Option<super::path_protection::DeflectionProtection>,
     pub auxiliary: Option<SelectedAuxiliaryState>,
-    pub charge: Option<SelectedChargeInput>,
+    pub charge: Option<super::player_charge::PlayerCharge>,
     pub equipment: Option<SelectedEquipment>,
     pub score: Option<PlayerScore>,
     pub particles: Option<SelectedParticleEffects>,
@@ -89,6 +88,7 @@ pub enum WorldInputError {
     MissingContactEnable,
     MissingActionGate,
     MissingPlayerConfiguration,
+    MissingPlayerCharge(ObjectId),
 }
 
 /// Owning records shared by all actors in a native scene. Scene entry must
@@ -304,7 +304,7 @@ impl InvocationWorld for ScenePathWorld {
             let records = &mut player.records;
             if selected == Some(owner) {
                 world.selected_auxiliary = records.auxiliary.as_mut();
-                world.selected_charge = records.charge;
+                world.selected_charge = records.charge.map(|charge| charge.path_input());
                 world.selected_equipment = records.equipment.as_mut();
                 world.selected_score = records.score.as_mut();
                 world.selected_particle_effects = records.particles.as_mut();

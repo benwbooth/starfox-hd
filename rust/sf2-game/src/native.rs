@@ -82,6 +82,7 @@ pub mod platform_carry;
 pub mod positional_audio;
 pub mod player_contact;
 pub mod player_hit_control;
+pub mod player_charge;
 pub mod program_resources;
 pub mod program_state;
 pub mod proximity_warning;

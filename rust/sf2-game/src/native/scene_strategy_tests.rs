@@ -1,4 +1,3 @@
-use super::super::path_charge::SelectedChargeInput;
 use super::*;
 use crate::path_program::SelectedAuxiliaryState;
 use crate::path_triggers::{Trigger, TriggerKind};
@@ -177,9 +176,10 @@ fn split_schedule_composes_authored_charge_callbacks_and_live_selected_records()
             &scene.objects,
             player,
             PlayerPathRecords {
-                charge: Some(SelectedChargeInput {
+                charge: Some(crate::player_charge::PlayerCharge {
                     linked_mode: false,
-                    level: 3,
+                    progress: 3 << 8,
+                    ..Default::default()
                 }),
                 ..PlayerPathRecords::default()
             },
@@ -195,7 +195,7 @@ fn split_schedule_composes_authored_charge_callbacks_and_live_selected_records()
                 .charge
                 .as_mut()
                 .unwrap()
-                .level = 25;
+                .progress = 25 << 8;
         }
         scene.execution.positional.begin_epoch();
         scene.host().begin_strategy_epoch(&mut schedule).unwrap();

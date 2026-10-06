@@ -321,9 +321,10 @@ fn authored_charge_path_runs_through_scene_owned_selected_state_and_retained_cal
             &objects,
             player,
             PlayerPathRecords {
-                charge: Some(SelectedChargeInput {
+                charge: Some(crate::player_charge::PlayerCharge {
                     linked_mode: false,
-                    level: 3,
+                    progress: 3 << 8,
+                    ..Default::default()
                 }),
                 ..PlayerPathRecords::default()
             },
@@ -340,7 +341,7 @@ fn authored_charge_path_runs_through_scene_owned_selected_state_and_retained_cal
                 .charge
                 .as_mut()
                 .unwrap()
-                .level = 25;
+                .progress = 25 << 8;
         }
         let held = objects
             .get(owner)
