@@ -989,6 +989,24 @@ running; scheduled work is not a guarantee of a completion date.
   all three app builds pass. Front-end timing and the remaining route/oracle
   failures remain open; this is not whole-game or full-screen certification.
 
+- Replaced fixed-boot and fixed-latency SF1 launch comparisons with actual
+  strategy entry and original-bitmap-to-original-scanout association. The
+  comparison still requires full-screen pixel equality and never selects a
+  reference using native pixels. This exposed and fixed the retail launch
+  warning's reversed blink half-cycle and missing aperture gate; the oracle's
+  warning-counter address was also wrong. A new original-instruction test
+  covers 69,632 counter/frame cases. Both launch anchors and the separate
+  1,671-pixel warning layer pass, with every sampled launch camera checked.
+  The first source-bound player state also agrees. Title logic now reaches
+  all 96 checks before the retained duration failure. The warning countdown
+  still advances early after the aperture, and its terminal publication and
+  interpolation remain open. Source-ordered wipe/HUD lifecycle and the larger
+  recorded timing/initialization replacements remain required; this is not
+  full launch, front-end or campaign certification. All 495 core/game/render
+  tests, 28 oracle library tests and ten focused launch/entry tests pass in
+  both profiles; the release Training replay, 58 SF1 source checks,
+  architecture audit and all three app builds in both profiles also pass.
+
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
 working merely because the user is due back.

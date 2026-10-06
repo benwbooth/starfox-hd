@@ -538,10 +538,14 @@ fn main() {
         .expect("headless title renderer");
     let retail_setup_ticks = advance_retail_to_title(&mut retail);
     let native_setup_ticks = advance_native_to_title(&mut native);
-    assert_eq!(
-        native_setup_ticks, retail_setup_ticks,
-        "title setup duration diverged"
-    );
+    // Keep wall-clock setup and strategy-bound state as separate checks.
+    // A timing mismatch must still fail this gate, but it should not prevent
+    // us from locating a distinct state error after both reach the title.
+    if native_setup_ticks != retail_setup_ticks {
+        eprintln!(
+            "title_setup_duration native_ticks={native_setup_ticks} retail_ticks={retail_setup_ticks} diverged=true"
+        );
+    }
     assert!(
         retail
             .tick_until_cpu_execution(0, RETAIL_DOSTRATS, MAX_VIDEO_FRAMES_PER_TITLE_UPDATE)
@@ -945,4 +949,8 @@ fn main() {
             "authoritative Mesen title video diverged"
         );
     }
+    assert_eq!(
+        native_setup_ticks, retail_setup_ticks,
+        "title setup duration diverged"
+    );
 }

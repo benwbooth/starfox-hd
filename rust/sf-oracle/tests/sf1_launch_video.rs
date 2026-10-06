@@ -3,52 +3,45 @@
 
 #[path = "../examples/support/mod.rs"]
 mod support;
+#[path = "../examples/support/sf1_timing.rs"]
+mod timing_entry;
+#[path = "../examples/support/sf1_video.rs"]
+mod video;
 
 use sf_core::stage_banner::ScrambleBannerState;
-use sf_difftest::{compare_source_rgb, SOURCE_FRAME_HEIGHT, SOURCE_FRAME_WIDTH};
-use sf_game::shell::{FrameSnapshot, GameState, GameplayEntryPhase};
+use sf_difftest::{
+    compare_source_rgb, write_source_rgb_ppm, SOURCE_FRAME_HEIGHT, SOURCE_FRAME_WIDTH,
+};
+use sf_game::shell::FrameSnapshot;
 use sf_oracle::{
-    load_retail_rom, PpuFrame, RetailMachine, RETAIL_BUILD_DRAWLIST_L, RETAIL_DOSTRATS,
-    RETAIL_GAMEFRAME, RETAIL_SCRAMBLE_COUNT,
+    load_retail_rom, RetailMachine, RETAIL_BUILD_DRAWLIST_L, RETAIL_DOSTRATS, RETAIL_GAMEFRAME,
+    RETAIL_SCRAMBLE_COUNT,
 };
 use sf_render::{
     draw_list::DrawListEntry,
     renderer::{config_from_repo_root, FrameInputs, GameState as RenderGameState, Renderer},
 };
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 const RETAIL_ROM_SHA256: &str = "82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548";
 const WORK_RAM: u32 = 0x7E_0000;
-const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
 const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
-const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
-const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = 900;
-const CORNERIA_AUDIO_UPLOAD_TICK: u32 = 1_080;
 const FIRST_APERTURE_ANCHOR: u16 = 7;
 const POST_APERTURE_ANCHOR: u16 = 20;
-const STALE_WARNING_LAYER_ANCHOR: u16 = 21;
+const WARNING_LAYER_ANCHOR: u16 = 21;
 const COMPOSED_ANCHORS: [u16; 2] = [FIRST_APERTURE_ANCHOR, POST_APERTURE_ANCHOR];
 const CAPTURE_ANCHORS: [u16; 3] = [
     FIRST_APERTURE_ANCHOR,
     POST_APERTURE_ANCHOR,
-    STALE_WARNING_LAYER_ANCHOR,
+    WARNING_LAYER_ANCHOR,
 ];
 const WARNING_LEFT: usize = 72;
 const WARNING_TOP: usize = 72;
 const WARNING_WIDTH: usize = 128;
 const WARNING_HEIGHT: usize = 16;
 const WARNING_OPAQUE_PIXELS: usize = 1_671;
-
-fn source_rgb(frame: PpuFrame) -> Vec<u8> {
-    assert_eq!(frame.width, SOURCE_FRAME_WIDTH);
-    assert_eq!(frame.height, SOURCE_FRAME_HEIGHT);
-    frame
-        .rgba
-        .chunks_exact(4)
-        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
-        .collect()
-}
+const SCANOUT_DRAIN_UPDATES: u16 = 4;
 
 #[test]
 fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
@@ -74,80 +67,72 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
     .expect("headless launch anchor renderer");
     let mut retail = RetailMachine::new(rom);
     let mut native = support::configured_shell();
-    let mut retail_level_boundary_aligned = false;
-    let mut previous_retail_level_frame = None;
-    let mut pending: Option<(u16, FrameSnapshot, Vec<DrawListEntry>)> = None;
+    timing_entry::enter_first_corneria_update(&mut retail).expect("source-bound launch entry");
+    timing_entry::enter_native_corneria_update(&mut native).expect("native launch entry");
+    retail.capture_completed_rasters();
+    let mut pending: Option<(u16, FrameSnapshot, Vec<DrawListEntry>, Vec<u8>)> = None;
+    let mut pending_video = VecDeque::new();
+    let mut completed_rasters = VecDeque::new();
     let mut certified = BTreeSet::new();
-    let mut stale_warning_layer_certified = false;
+    let mut warning_layer_certified = false;
+    let mut first_video_divergence = None;
 
-    for tick in 0..=support::WEAPON_TRACE_END_TICK {
-        let input = support::weapon_input(tick);
-        let next_input = support::weapon_input(tick.saturating_add(1));
-        let native_level_active = native.state() == GameState::Playing
-            && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel;
-        let align_completed_level_frame =
-            native_level_active && tick >= COMPLETED_FRAME_ALIGNMENT_TICK;
-        let mut retail_scene_draws = None;
-        let mut retail_video = None;
-
-        if align_completed_level_frame {
-            if !retail_level_boundary_aligned {
-                assert!(
-                    retail
-                        .tick_until_cpu_execution(
-                            input,
-                            RETAIL_DOSTRATS,
-                            MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE,
-                        )
-                        .expect("initial launch gameplay boundary"),
-                    "retail did not reach the initial launch gameplay boundary"
-                );
-                retail_level_boundary_aligned = true;
-            }
-            let max_video_frames = if tick == CORNERIA_AUDIO_UPLOAD_TICK {
-                MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD
-            } else {
-                MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE
-            };
-            assert!(
-                retail
-                    .tick_until_cpu_execution(input, RETAIL_BUILD_DRAWLIST_L, max_video_frames)
-                    .expect("launch draw-list boundary"),
-                "retail did not complete launch draw list at tick {tick}"
-            );
-            retail_scene_draws = Some(support::retail_source_draws(&retail));
-            assert!(
-                retail
-                    .tick_until_cpu_execution(next_input, RETAIL_DOSTRATS, max_video_frames)
-                    .expect("next launch gameplay boundary"),
-                "retail did not reach the next launch gameplay update at tick {tick}"
-            );
-            retail_video = Some((retail.video_frame(), source_rgb(retail.ppu_frame())));
-        } else {
+    for tick in 0..u32::from(WARNING_LAYER_ANCHOR + SCANOUT_DRAIN_UPDATES) {
+        assert!(
             retail
-                .tick_video_frames(input, VIDEO_FRAMES_PER_NATIVE_TICK)
-                .expect("retail launch front end");
-        }
-
+                .tick_until_cpu_execution(
+                    0,
+                    RETAIL_BUILD_DRAWLIST_L,
+                    MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE
+                )
+                .expect("launch draw-list boundary"),
+            "retail did not complete launch draw list at update {tick}"
+        );
+        let retail_scene_draws = support::retail_source_draws(&retail);
+        let retail_scene_camera = [0x00C1, 0x00C3, 0x00C5, 0x1633, 0x1635, 0x1637]
+            .map(|address| retail.peek16(WORK_RAM | address) as i16);
+        assert!(
+            retail
+                .tick_until_cpu_execution(0, RETAIL_DOSTRATS, MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE)
+                .expect("next launch gameplay boundary"),
+            "retail did not reach the next launch update {tick}"
+        );
+        completed_rasters.extend(retail.take_completed_rasters());
         let retail_level_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
-        let retail_completed_level_update = align_completed_level_frame
-            || previous_retail_level_frame.is_none_or(|previous| previous != retail_level_frame);
-        if !native_level_active || retail_completed_level_update {
-            native.tick(input);
-        }
-        if native.state() != GameState::Playing
-            || native.frame().gameplay_entry_phase != GameplayEntryPhase::ActiveLevel
-        {
-            continue;
-        }
-        previous_retail_level_frame = Some(retail_level_frame);
-
+        native.tick(0);
         let game_frame = native.game.vars.gameframe;
+        if std::env::var_os("SF1_LAUNCH_DIAGNOSTIC").is_some() {
+            eprintln!(
+                "launch_hud scene={game_frame} original_count={} native_count={} wipe={:?}",
+                retail.peek8(WORK_RAM | RETAIL_SCRAMBLE_COUNT),
+                native.game.vars.scramble_count,
+                native.frame().screen_wipe
+            );
+        }
+        assert_eq!(
+            game_frame,
+            tick as u16 + 1,
+            "native skipped a launch update"
+        );
+        assert_eq!(game_frame, retail_level_frame, "launch strategy boundary");
         let current_draw_list = native
             .draw_list()
             .iter()
             .map(support::render_entry)
             .collect::<Vec<_>>();
+        let camera = native.frame().camera;
+        assert_eq!(
+            retail_scene_camera,
+            [
+                (camera.x >> 16) as i16,
+                (camera.y >> 16) as i16,
+                (camera.z >> 16) as i16,
+                camera.rotation[0] as i16,
+                camera.rotation[1] as i16,
+                camera.rotation[2] as i16,
+            ],
+            "launch camera at scene {game_frame}",
+        );
         if game_frame == FIRST_APERTURE_ANCHOR {
             assert_eq!(
                 native.game.vars.scramble_count, 50,
@@ -157,14 +142,14 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
         if CAPTURE_ANCHORS.contains(&game_frame) {
             assert_eq!(
                 support::native_source_draws(&native),
-                *retail_scene_draws
-                    .as_ref()
-                    .expect("retail launch scene draw list"),
+                retail_scene_draws,
                 "launch scene draws at game frame {game_frame}"
             );
         }
 
-        if let Some((pending_game_frame, pending_frame, pending_draw_list)) = pending.take() {
+        if let Some((pending_game_frame, pending_frame, pending_draw_list, retail_bitmap)) =
+            pending.take()
+        {
             assert_eq!(game_frame, pending_game_frame + 1);
             if COMPOSED_ANCHORS.contains(&pending_game_frame) {
                 let native_rgb = support::render_presentation_aligned_source_frame(
@@ -173,27 +158,12 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
                     &pending_draw_list,
                     &mut renderer,
                 );
-                let (retail_video_frame, retail_rgb) = retail_video
-                    .as_ref()
-                    .expect("presentation-aligned retail launch frame");
-                assert_eq!(
-                    compare_source_rgb(
-                        u64::from(pending_game_frame),
-                        *retail_video_frame,
-                        retail_rgb,
-                        &native_rgb,
-                    )
-                    .expect("compare launch anchor video"),
-                    None,
-                    "composed launch video at game frame {pending_game_frame}"
-                );
-                certified.insert(pending_game_frame);
+                pending_video.push_back((pending_game_frame, retail_bitmap, native_rgb));
             } else {
-                assert_eq!(pending_game_frame, STALE_WARNING_LAYER_ANCHOR);
-                assert_eq!(
-                    retail.peek8(WORK_RAM | RETAIL_SCRAMBLE_COUNT),
-                    0,
-                    "retail scanout warning must be an older OAM generation"
+                assert_eq!(pending_game_frame, WARNING_LAYER_ANCHOR);
+                assert!(
+                    retail.peek8(WORK_RAM | RETAIL_SCRAMBLE_COUNT) != 0,
+                    "original warning countdown remains active"
                 );
                 let retail_objects = retail.ppu_snapshot_obj_rgba();
 
@@ -202,7 +172,7 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
                     game_state: RenderGameState::Playing,
                     scramble_banner: Some(ScrambleBannerState {
                         ticks_remaining: 50,
-                        game_frame: 0,
+                        game_frame: pending_game_frame,
                     }),
                     ..FrameInputs::default()
                 };
@@ -243,16 +213,62 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
                     }
                 }
                 assert_eq!(changed_pixels, WARNING_OPAQUE_PIXELS);
-                stale_warning_layer_certified = true;
+                warning_layer_certified = true;
             }
         }
 
         if CAPTURE_ANCHORS.contains(&game_frame) {
-            pending = Some((game_frame, native.frame(), current_draw_list));
+            pending = Some((
+                game_frame,
+                native.frame(),
+                current_draw_list,
+                video::original_bitmap(&retail),
+            ));
         }
-        if certified.len() == COMPOSED_ANCHORS.len() && stale_warning_layer_certified {
+
+        // Match the original completed bitmap to its own actual scanout.
+        // This must not choose a raster by comparing against native pixels.
+        // TRANS.ASM starts transferring the previous bitmap before strategies;
+        // IRQ.ASM irqbit3 exposes it only after the aperture work permits the
+        // buffer swap. A fixed one-update scanout delay is therefore invalid.
+        while let Some((_, bitmap, _)) = pending_video.front() {
+            let Some(index) = completed_rasters
+                .iter()
+                .position(|raster| video::displays_original_bitmap(raster, bitmap))
+            else {
+                break;
+            };
+            let raster = completed_rasters.drain(..=index).last().unwrap();
+            let (scene, _, native_rgb) = pending_video.pop_front().unwrap();
+            let retail_rgb = video::completed_rgb(&raster);
+            let difference = compare_source_rgb(
+                u64::from(scene),
+                raster.video_frame,
+                &retail_rgb,
+                &native_rgb,
+            )
+            .expect("compare launch anchor video");
+            if difference.is_some() && std::env::var_os("SF1_LAUNCH_DIAGNOSTIC").is_some() {
+                write_source_rgb_ppm("/tmp/sf1-launch-boundary-retail.ppm", &retail_rgb).unwrap();
+                write_source_rgb_ppm("/tmp/sf1-launch-boundary-native.ppm", &native_rgb).unwrap();
+            }
+            if first_video_divergence.is_none() {
+                first_video_divergence = difference;
+            }
+            eprintln!(
+                "launch_video scene={scene} original_scanout={} compared_pixels={}",
+                raster.video_frame,
+                SOURCE_FRAME_WIDTH * SOURCE_FRAME_HEIGHT
+            );
+            certified.insert(scene);
+        }
+        if pending_video.is_empty() {
+            completed_rasters.clear();
+        }
+        if certified.len() == COMPOSED_ANCHORS.len() && warning_layer_certified {
             renderer.shutdown();
             assert_eq!(certified, COMPOSED_ANCHORS.into_iter().collect());
+            assert_eq!(first_video_divergence, None, "composed launch video");
             return;
         }
     }

@@ -880,8 +880,12 @@ impl Hud {
         }
 
         let presentation_phase = presentation_phase(alpha);
-        if let Some(scramble_banner) = inputs.scramble_banner {
-            Self::draw_scramble_banner(sprites, scramble_banner, presentation_phase);
+        // SPRITES.do_sprites_l skips the warning formatter during an active
+        // aperture; stage announcements remain a separate unconditional lane.
+        if !inputs.screen_wipe.active {
+            if let Some(scramble_banner) = inputs.scramble_banner {
+                Self::draw_scramble_banner(sprites, scramble_banner, presentation_phase);
+            }
         }
         if let Some(stage_banner) = inputs.stage_banner {
             Self::draw_stage_banner(sprites, stage_banner);

@@ -133,6 +133,62 @@ Local evidence: `/tmp/sf1-timing-mesen-oct06.txt`,
 `/tmp/sf-oracle-refresh-full-oct06.log`. These are diagnostic artifacts, not
 distributed game assets or whole-game certification.
 
+### Source-bound SF1 launch and warning branch — 2026-10-06
+
+The launch gate now enters both games through their actual first Corneria
+strategy boundary, starting from reset with ordinary controller input. It no
+longer assumes boot tick 900 or pauses native updates to force agreement.
+The first player position, velocity and camera state match independently;
+the launch gate additionally checks every camera through its final anchor.
+
+The previous one-update scanout assumption was also invalid after the reference
+bus correction: at one strategy boundary the original was still displaying
+scene 6 while the test expected scene 7. The gate now associates the original
+completed bitmap with its own completed BG1 scanout, including the unwindowed
+indices outside the aperture. Native pixels never select the reference frame.
+Malformed, partial and mismatching original bitmaps are rejected; full-screen
+RGB comparison remains strict after association.
+
+That exposes a real native warning error. Retail Rev 2 `prt_scramble` reads its
+counter at `$15B5`, not the oracle's former `$15B7`, and returns when the low
+three game-frame bits are less than **or equal to** three. Its visible phases
+are therefore 4–7. The modified reconstructed source's branch was not reliable
+for this cartridge behavior. The Rust warning now uses the executed retail
+branch and skips formatting while an aperture is active, as `do_sprites_l`
+requires. An original-instruction gate covers every counter byte at sixteen
+phases and every complete frame word: 69,632 cases. Both original-associated
+launch anchors (7 and 20) now pass all 57,344 RGB pixels, and the warning's
+separate 1,671-pixel layer check passes.
+
+This does **not** close all launch timing. A diagnostic still shows the native
+warning countdown decrementing one update early after the wipe: scene 20 is
+49 versus the original's 50. Its terminal-count capture and interpolation
+also require source-ordered publication, not another recorded delay. The old
+claim that scene 21 proves a stale warning with a zero source count was false:
+it read the wrong counter address. The corrected gate verifies the real active
+counter and sprite layer instead.
+
+The title diagnostic now completes its 96 strategy/object/draw comparisons
+before asserting setup duration; those semantic checks pass, but the existing
+setup-duration gate still fails (native 130 versus reference 128 ticks). Its
+embedded video diagnostic first differs at update 13. No expectations were
+blessed and no timing failure was disabled. Other route, production-timing and
+SF2 ownership blockers remain as listed in the completion plan.
+
+Verification passes 495 core/game/render tests, 28 oracle library tests and
+ten focused launch/entry tests in each of debug and release. The unchanged
+release Training replay still passes 1,758 semantic/draw/audio updates and
+1,752 scene-region bitmap comparisons. All three app launchers build in both
+profiles; all 58 SF1 source checks and the native architecture audit pass.
+These results cover the final working tree with its preserved unrelated
+changes, not an isolated export of this commit.
+
+Local evidence: `/tmp/sf1-launch-banner-regressions-oct06.log`,
+`/tmp/sf1-launch-final-release-oct06.log`,
+`/tmp/sf1-launch-candidate-diagnostic-oct06.log`,
+`/tmp/sf1-launch-banner-source-oct06.log`, and
+`/tmp/sf1-boundary-diagnostics-final-oct06.log`.
+
 ### Opening entropy ordering and independent actor recheck — 2026-10-06
 
 The SF2 update-101 difference was not a new glyph-motion arithmetic error.

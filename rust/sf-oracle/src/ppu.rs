@@ -24,6 +24,10 @@ pub struct CompletedRaster {
     pub video_frame: u64,
     pub rgba: Vec<u8>,
     pub bg1_indices: Vec<u8>,
+    /// The same scanout's BG1 indices before the main-screen window mask.
+    /// This associates a transferred bitmap with its display independently
+    /// of aperture visibility, without using the native renderer's pixels.
+    pub bg1_unwindowed_indices: Vec<u8>,
 }
 
 /// A complete CPU-visible PPU snapshot and its composited native-resolution
@@ -74,6 +78,7 @@ pub(crate) struct Ppu {
     completed_bg_hofs: [[u16; 4]; FRAME_HEIGHT],
     capture_bg1_indices: bool,
     scanout_bg1_indices: Vec<u8>,
+    scanout_bg1_unwindowed_indices: Vec<u8>,
     completed_bg1_indices: Vec<u8>,
     scanout_bg_priority: Vec<u8>,
     completed_bg_priority: Vec<u8>,
@@ -113,6 +118,7 @@ impl Ppu {
             completed_bg_hofs: [[0; 4]; FRAME_HEIGHT],
             capture_bg1_indices: false,
             scanout_bg1_indices: vec![u8::MAX; FRAME_WIDTH * FRAME_HEIGHT],
+            scanout_bg1_unwindowed_indices: vec![u8::MAX; FRAME_WIDTH * FRAME_HEIGHT],
             completed_bg1_indices: Vec::new(),
             scanout_bg_priority: vec![0; FRAME_WIDTH * FRAME_HEIGHT],
             completed_bg_priority: Vec::new(),
@@ -140,7 +146,9 @@ impl Ppu {
                 video_frame,
                 rgba: self.completed_rgba.clone(),
                 bg1_indices: self.completed_bg1_indices.clone(),
+                bg1_unwindowed_indices: self.scanout_bg1_unwindowed_indices.clone(),
             });
+            self.scanout_bg1_unwindowed_indices.fill(u8::MAX);
             if self.completed_rasters.len() > COMPLETED_RASTER_HISTORY_LIMIT {
                 self.completed_rasters.pop_front();
             }
@@ -164,6 +172,7 @@ impl Ppu {
         }
         self.capture_completed_rasters = true;
         self.completed_rasters.clear();
+        self.scanout_bg1_unwindowed_indices.fill(u8::MAX);
     }
 
     pub(crate) fn take_completed_rasters(&mut self) -> Vec<CompletedRaster> {
@@ -831,8 +840,13 @@ impl Ppu {
         for x in 0..FRAME_WIDTH {
             if self.capture_bg1_indices {
                 let pixel = y * FRAME_WIDTH + x;
+                let raw_bg1 = self.bg_pixel(0, x, y);
+                if self.capture_completed_rasters {
+                    self.scanout_bg1_unwindowed_indices[pixel] =
+                        raw_bg1.map_or(u8::MAX, |(color, _)| color);
+                }
                 let bg1 = (!self.main_screen_window_masked(0, x))
-                    .then(|| self.bg_pixel(0, x, y))
+                    .then_some(raw_bg1)
                     .flatten();
                 self.scanout_bg1_indices[pixel] = bg1.map_or(u8::MAX, |(color, _)| color);
                 let bg2 = (!self.main_screen_window_masked(1, x))
@@ -966,6 +980,7 @@ mod tests {
         ppu.capture_completed_rasters();
         ppu.scanout_rgba[..4].copy_from_slice(&[12, 34, 56, 255]);
         ppu.scanout_bg1_indices[0] = 47;
+        ppu.scanout_bg1_unwindowed_indices[0] = 63;
 
         ppu.begin_frame(91);
 
@@ -974,6 +989,39 @@ mod tests {
         assert_eq!(rasters[0].video_frame, 91);
         assert_eq!(&rasters[0].rgba[..4], &[12, 34, 56, 255]);
         assert_eq!(rasters[0].bg1_indices[0], 47);
+        assert_eq!(rasters[0].bg1_unwindowed_indices[0], 63);
+        assert!(ppu
+            .scanout_bg1_unwindowed_indices
+            .iter()
+            .all(|value| *value == u8::MAX));
         assert!(ppu.take_completed_rasters().is_empty());
+    }
+
+    #[test]
+    fn raster_association_evidence_precedes_window_mask_without_changing_display() {
+        let mut ppu = Ppu::new();
+        ppu.registers[0] = 15;
+        ppu.registers[5] = 1;
+        ppu.registers[7] = 4; // BG1 tilemap at byte 0x0800.
+        ppu.registers[0x2C] = 1;
+        ppu.registers[0x23] = 2; // Mask inside window one.
+        ppu.registers[0x26] = 80;
+        ppu.registers[0x27] = 176;
+        ppu.registers[0x2E] = 1;
+        ppu.vram[0] = u8::MAX; // Tile zero, row zero, palette index one.
+        ppu.cgram[2] = 31;
+        ppu.capture_completed_rasters();
+        ppu.render_scanline(0);
+        ppu.begin_frame(1);
+        let raster = ppu.take_completed_rasters().pop().unwrap();
+        for x in [0, 79, 80, 128, 176, 177, 255] {
+            assert_eq!(raster.bg1_unwindowed_indices[x], 1);
+            let masked = (80..=176).contains(&x);
+            assert_eq!(raster.bg1_indices[x], if masked { u8::MAX } else { 1 });
+            assert_eq!(
+                &raster.rgba[x * 4..x * 4 + 3],
+                if masked { &[0, 0, 0] } else { &[255, 0, 0] }
+            );
+        }
     }
 }

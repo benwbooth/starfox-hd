@@ -50,7 +50,11 @@ impl ScrambleBannerState {
     }
 
     pub const fn is_visible_at_phase(self, presentation_phase: u8) -> bool {
-        self.ticks_remaining > presentation_phase && self.game_frame & 7 < 3
+        // Retail Rev 2 `prt_scramble` returns on both equality and unsigned
+        // less-than after comparing the low three frame bits with three.
+        // Its visible half-cycle is 4..=7, unlike the modified disassembly's
+        // spelling of this branch.
+        self.ticks_remaining > presentation_phase && self.game_frame & 7 > 3
     }
 }
 
@@ -115,13 +119,13 @@ mod tests {
     }
 
     #[test]
-    fn scramble_warning_blinks_three_ticks_on_and_five_ticks_off() {
+    fn scramble_warning_blinks_four_ticks_off_and_four_ticks_on() {
         for game_frame in 0..16 {
             let state = ScrambleBannerState {
                 ticks_remaining: 3,
                 game_frame,
             };
-            assert_eq!(state.is_visible(), game_frame & 7 < 3);
+            assert_eq!(state.is_visible(), game_frame & 7 > 3);
         }
         assert!(!ScrambleBannerState {
             ticks_remaining: 0,
@@ -131,7 +135,7 @@ mod tests {
 
         let ending = ScrambleBannerState {
             ticks_remaining: 2,
-            game_frame: 0,
+            game_frame: 4,
         };
         assert!(ending.is_visible_at_phase(0));
         assert!(ending.is_visible_at_phase(1));
