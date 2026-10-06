@@ -30,6 +30,8 @@ fn selected_player_and_linked_shot_count_resolve_independent_live_owners() {
     world.secondary_player = Some(secondary);
     world.active_charge_threshold = Some(25);
     for (player, mode, count) in [(primary, 17, 2), (secondary, 35, 6)] {
+        objects.get_mut(player).unwrap().extension.path_state.motion_delta =
+            Vector3 { x: 27, y: -51, z: 77 };
         world
             .bind_player(
                 &objects,
@@ -41,14 +43,7 @@ fn selected_player_and_linked_shot_count_resolve_independent_live_owners() {
                         stored_world_position: Vector3::default(),
                         stored_rotation: Rotation::default(),
                     }),
-                    displacement: Some(PlayerDisplacement {
-                        world_delta: Vector3 {
-                            x: 27,
-                            y: -51,
-                            z: 77,
-                        },
-                        suppress_horizontal: true,
-                    }),
+                    suppress_horizontal_follow: Some(true),
                     equipment: Some(SelectedEquipment::default()),
                     ..PlayerPathRecords::default()
                 },
@@ -118,7 +113,7 @@ fn recycled_slots_cannot_inherit_auxiliary_shots_displacement_or_carry() {
             player,
             PlayerPathRecords {
                 equipment: Some(SelectedEquipment::default()),
-                displacement: Some(PlayerDisplacement::default()),
+                suppress_horizontal_follow: Some(false),
                 carried: Some(CarriedPlayer::default()),
                 ..PlayerPathRecords::default()
             },

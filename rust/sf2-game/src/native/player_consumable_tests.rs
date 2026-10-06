@@ -474,7 +474,8 @@ fn missing_trigger_fault_preserves_installed_path_and_action_but_prevents_duplic
 fn healing_paths_publish_real_shared_requests_and_release_all_children_and_program_resources() {
     let mut scene = Scene::new(0);
     // This scenario keeps the player stationary throughout the effect.
-    scene.records().displacement = Some(Default::default());
+    scene.records().suppress_horizontal_follow = Some(false);
+    scene.world.published_motion = Some(Default::default());
     assert!(scene.use_item().unwrap());
     let effect = scene.effect().unwrap();
     let mut schedule = StrategySchedule::default();

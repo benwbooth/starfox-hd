@@ -378,6 +378,19 @@ running; scheduled work is not a guarantee of a completion date.
   The outer input-delay/placement helper is not yet connected: its original
   relative-auxiliary-index writes require ownership analysis, not an assumed
   player-position update. Outer player/frame ownership remains open.
+- Connected the ordered player-strategy prefix: pilot-specific limits and
+  signed shield clamp, obstacle warnings, low-shield cues, gated shot reset,
+  parallel action, equipment/motion publication and saturating visit age.
+  Its shared-motion producer exposed and corrected duplicated scene inputs:
+  path following and explosion scrolling now read the actual publication,
+  while primary-motion inheritance reads the live actor's displacement.
+  Eight tests cover every pilot/shield, clock/shield, mode and age value,
+  real warning/action ordering, partial faults, caller identity and composed
+  path/explosion consumers. All 1,165 native tests plus two integration tests
+  pass in debug/release; 605 source checks, exact catalog regeneration,
+  architecture and all three app launcher builds pass. **The following
+  player-mode dispatcher and `Game::tick` adoption are still open.** This
+  ordered prefix must not stand in for an unported movement strategy.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

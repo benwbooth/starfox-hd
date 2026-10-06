@@ -9,8 +9,8 @@ use super::{Angle, AudioState, ObjectId, ObjectStore, ShapeId, SoundEvent, Vecto
 
 const MOVEMENT_CLASS_MASK: u8 = 0xF0;
 const FLIGHT_CLASS: u8 = 0x10;
-const TRANSITION_PAIR_MASK: u8 = 0xFE;
-const GUARDED_TRANSITION: u8 = 2;
+const PILOT_PAIR_MASK: u8 = 0xFE;
+const GUARDED_PILOT_PAIR: u8 = 2;
 const HEIGHT_LIMIT: u16 = 300;
 const RANGE_LIMIT: u16 = 500;
 const FORWARD_LIMIT: i16 = 150;
@@ -34,10 +34,10 @@ pub struct WarningControl {
     pub movement_mode: u8,
     /// Player auxiliary bit 20 ($6B77).
     pub inhibited: bool,
-    /// Player transition mode ($6BFF), tested with its low bit removed.
-    pub transition_mode: u8,
-    /// Player auxiliary bit 40 ($6B77) admits the guarded transition pair.
-    pub transition_ready: bool,
+    /// Player pilot code ($6BFF), tested with its low bit removed.
+    pub pilot_code: u8,
+    /// Player auxiliary bit 40 ($6B77) admits the guarded pilot pair.
+    pub guarded_pilot_ready: bool,
 }
 
 impl WarningControl {
@@ -45,8 +45,8 @@ impl WarningControl {
         !self.globally_disabled
             && self.movement_mode & MOVEMENT_CLASS_MASK == FLIGHT_CLASS
             && !self.inhibited
-            && (self.transition_mode & TRANSITION_PAIR_MASK != GUARDED_TRANSITION
-                || self.transition_ready)
+            && (self.pilot_code & PILOT_PAIR_MASK != GUARDED_PILOT_PAIR
+                || self.guarded_pilot_ready)
     }
 }
 
@@ -70,6 +70,7 @@ impl WarningView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WarningError {
     MissingPlayer(ObjectId),
+    MissingView,
     UnknownShape { object: ObjectId, shape: ShapeId },
 }
 
@@ -109,6 +110,19 @@ pub fn update(
     view: WarningView,
     audio: &mut AudioState,
 ) -> Result<(), WarningError> {
+    update_with_view(objects, player, primary_player, control, Some(view), audio)
+}
+
+/// The fixed view is first read for an eligible candidate within the player
+/// height/range bounds; disabled or empty scans do not require publication.
+pub fn update_with_view(
+    objects: &mut ObjectStore,
+    player: ObjectId,
+    primary_player: Option<ObjectId>,
+    control: WarningControl,
+    view: Option<WarningView>,
+    audio: &mut AudioState,
+) -> Result<(), WarningError> {
     if !control.enabled() {
         return Ok(());
     }
@@ -130,9 +144,12 @@ pub fn update(
             player_position.x.wrapping_sub(position.x),
             player_position.z.wrapping_sub(position.z),
         ) as u16;
-        let (lateral, forward) = view.project(position);
-        if height >= HEIGHT_LIMIT || range >= RANGE_LIMIT || !(0..FORWARD_LIMIT).contains(&forward)
-        {
+        if height >= HEIGHT_LIMIT || range >= RANGE_LIMIT {
+            rearm.push(id);
+            continue;
+        }
+        let (lateral, forward) = view.ok_or(WarningError::MissingView)?.project(position);
+        if !(0..FORWARD_LIMIT).contains(&forward) {
             rearm.push(id);
             continue;
         }
@@ -228,8 +245,8 @@ mod tests {
         globally_disabled: false,
         movement_mode: 16,
         inhibited: false,
-        transition_mode: 0,
-        transition_ready: false,
+        pilot_code: 0,
+        guarded_pilot_ready: false,
     };
 
     fn shape(large: bool) -> ShapeId {
@@ -342,18 +359,18 @@ mod tests {
     #[test]
     fn entry_conditions_preserve_all_mode_variants_and_do_not_consume_disabled_state() {
         for mode in 0..=255 {
-            for transition in 0..=255 {
+            for pilot in 0..=255 {
                 for flags in 0..8 {
                     let control = WarningControl {
                         globally_disabled: flags & 1 != 0,
                         inhibited: flags & 2 != 0,
-                        transition_ready: flags & 4 != 0,
+                        guarded_pilot_ready: flags & 4 != 0,
                         movement_mode: mode,
-                        transition_mode: transition,
+                        pilot_code: pilot,
                     };
                     let enabled = (16..32).contains(&mode)
                         && flags & 3 == 0
-                        && (!matches!(transition, 2 | 3) || flags & 4 != 0);
+                        && (!matches!(pilot, 2 | 3) || flags & 4 != 0);
                     assert_eq!(control.enabled(), enabled);
                 }
             }

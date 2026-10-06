@@ -51,6 +51,7 @@ pub struct PlayerPathRecords {
     pub action: Option<super::player_action::PlayerActionState>,
     pub consumable: Option<super::player_consumable::PlayerConsumableControl>,
     pub target_control: Option<super::path_player_control::PlayerTargetControl>,
+    pub visit: Option<super::player_visit::PlayerVisitControl>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -60,7 +61,9 @@ pub struct PlayerPathRecords {
     pub score: Option<PlayerScore>,
     pub particles: Option<SelectedParticleEffects>,
     pub controlled_flags: Option<ControlledAuxFlags>,
-    pub displacement: Option<PlayerDisplacement>,
+    /// Selected-player 6B77 bit 04. Motion itself belongs to the shared
+    /// publication, not to a second per-player displacement copy.
+    pub suppress_horizontal_follow: Option<bool>,
     pub carried: Option<CarriedPlayer>,
 }
 
@@ -88,6 +91,7 @@ pub enum WorldInputError {
     StalePlayerRecord(ObjectId),
     MissingSelectedPlayer(PlayerTarget),
     MissingDisplacement(PlayerTarget),
+    MissingPublishedMotion,
     MissingControlledFlags(PlayerTarget),
     MissingAuxiliary(ObjectId),
     MissingCarryRecords,
@@ -120,6 +124,11 @@ pub struct ScenePathWorld {
     pub player_service_flags: Option<super::player_action::PlayerServiceFlags>,
     /// Published active shield capacity (1DD5), not current active shield.
     pub active_shield_capacity: Option<u8>,
+    /// Shared equipment publications (1DD2/3), separate from live equipment.
+    pub active_consumables: Option<super::player_visit::PublishedConsumables>,
+    /// High byte of the fixed primary view's fine yaw (base 15). Ordinary
+    /// actor yaw is a different byte; scene view control publishes this.
+    pub primary_view_heading: Option<Angle>,
     pub shield_recovery: Option<super::player_hit_control::ShieldRecoveryRequest>,
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
     pub impact: Option<super::path_impact::ImpactState>,
@@ -175,6 +184,8 @@ impl ScenePathWorld {
             palette: None,
             player_service_flags: None,
             active_shield_capacity: None,
+            active_consumables: None,
+            primary_view_heading: None,
             shield_recovery: None,
             surface_mode: None,
             impact: None,
@@ -320,7 +331,8 @@ impl InvocationWorld for ScenePathWorld {
             .and_then(|binding| {
                 Some(PrimaryMotionInput {
                     auxiliary_mode: binding.records.auxiliary?.mode,
-                    displacement: binding.records.displacement?.world_delta,
+                    displacement: objects.get(binding.lifetime.slot())?
+                        .extension.path_state.motion_delta,
                 })
             });
         let linked_shots = actor
@@ -425,9 +437,12 @@ impl InvocationWorld for ScenePathWorld {
         let owner = self
             .selected(selected)
             .ok_or(WorldInputError::MissingSelectedPlayer(selected))?;
-        self.player_mut(objects, owner)?
-            .displacement
-            .ok_or(WorldInputError::MissingDisplacement(selected))
+        let suppress_horizontal = self.player(objects, owner)?
+            .suppress_horizontal_follow
+            .ok_or(WorldInputError::MissingDisplacement(selected))?;
+        let world_delta = self.published_motion
+            .ok_or(WorldInputError::MissingPublishedMotion)?.delta;
+        Ok(PlayerDisplacement { world_delta, suppress_horizontal })
     }
 
     fn trigger_inputs(

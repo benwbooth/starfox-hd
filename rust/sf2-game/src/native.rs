@@ -87,6 +87,7 @@ pub mod player_rapid;
 pub mod player_weapon_aim;
 pub mod player_action;
 pub mod player_consumable;
+pub mod player_visit;
 mod player_effect;
 pub mod program_resources;
 pub mod program_state;

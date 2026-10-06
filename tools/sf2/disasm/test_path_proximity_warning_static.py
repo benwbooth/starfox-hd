@@ -21,7 +21,7 @@ class ProximityWarningStaticTests(unittest.TestCase):
     def test_candidate_flag_controls_only_membership_and_advances_escaped_opcode(self):
         self.assert_source(0x7FC372, "b5 26 09 20 95 26 4c e8 ca b5 26 29 df 95 26 4c e8 ca")
 
-    def test_scan_entry_guards_use_full_movement_class_and_transition_pair(self):
+    def test_scan_entry_guards_use_full_movement_class_and_pilot_pair(self):
         self.assert_source(0x06A647,
             "5a 08 e2 20 c2 10 c2 20 ad 84 1b 89 02 00 e2 20 f0 03 4c 34 a8 b4 2b b9 a0 6a 29 f0 c9 10 f0 04 "
             "5c 34 a8 06 b9 77 6b 89 20 f0 04 5c 34 a8 06 b9 ff 6b 29 fe c9 02 d0 0b b9 77 6b 89 40 d0 04 5c 34 a8 06")

@@ -117,6 +117,7 @@ pub enum SceneError<E> {
     WeaponAim(super::player_weapon_aim::WeaponAimError),
     PlayerAction(super::player_action::PlayerActionError),
     Consumable(super::player_consumable::ConsumableError),
+    PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
     World(WorldInputError),
@@ -144,6 +145,23 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Complete ordered prefix before the source player-mode dispatcher.
+    /// This does not substitute for that mode's movement/weapon strategy.
+    pub fn begin_player_visit(
+        &mut self,
+        owner: ObjectId,
+        input: super::InputState,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_visit::begin(self.objects, self.world, owner, input)
+            .map_err(SceneError::PlayerVisit);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
     /// Dispatch one admitted consumable request, after the outer caller has
     /// handled input delay, child gates and placement.
     pub fn use_player_consumable(&mut self, owner: ObjectId) -> Result<bool, SceneError<C::Error>> {
@@ -337,12 +355,9 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                         )))?
                         .mode;
                     let displacement = if mode & 0xF0 == 0x10 {
-                        record
-                            .displacement
-                            .ok_or(SceneError::World(WorldInputError::MissingDisplacement(
-                                super::path_control::PlayerTarget::Primary,
-                            )))?
-                            .world_delta
+                        self.world.published_motion
+                            .ok_or(SceneError::World(WorldInputError::MissingPublishedMotion))?
+                            .delta
                     } else {
                         Vector3::default()
                     };

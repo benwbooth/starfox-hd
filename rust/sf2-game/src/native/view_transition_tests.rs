@@ -36,8 +36,8 @@ fn mode_changes_only_its_bit_and_drives_initializer_and_warning_views() {
                 globally_disabled: !enabled,
                 movement_mode: flags as u8,
                 inhibited: flags & 4 != 0,
-                transition_mode: (flags >> 8) as u8,
-                transition_ready: flags & 8 != 0,
+                pilot_code: (flags >> 8) as u8,
+                guarded_pilot_ready: flags & 8 != 0,
             };
             let actual = mode.warning_control(expected);
             expected.globally_disabled = enabled;
