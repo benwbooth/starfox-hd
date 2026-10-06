@@ -505,10 +505,22 @@ fn native_video_hash(
 }
 
 fn advance_retail_to_title(retail: &mut RetailMachine) -> u32 {
+    let trace_setup = std::env::var_os("SF_TITLE_TRACE_SETUP_DEBUG").is_some();
     for tick in 0..MAX_SETUP_TICKS {
         retail
             .tick_video_frames(setup_input_for_tick(tick), VIDEO_FRAMES_PER_TICK)
             .expect("retail title setup");
+        if trace_setup {
+            eprintln!(
+                "setup_source tick={} video={} game={} background={} fade={} direction={}",
+                tick + 1,
+                retail.video_frame(),
+                retail.peek16(WORK_RAM | RETAIL_GAMEFRAME),
+                retail.peek16(WORK_RAM | RETAIL_CURRENTBG),
+                retail.peek8(WORK_RAM | sf_oracle::RETAIL_FADE),
+                retail.peek8(WORK_RAM | sf_oracle::RETAIL_FADEDIR) as i8,
+            );
+        }
         if retail.peek16(WORK_RAM | RETAIL_CURRENTBG) == RETAIL_TITLE_BACKGROUND {
             return tick + 1;
         }
@@ -517,8 +529,22 @@ fn advance_retail_to_title(retail: &mut RetailMachine) -> u32 {
 }
 
 fn advance_native_to_title(native: &mut Shell) -> u32 {
+    let trace_setup = std::env::var_os("SF_TITLE_TRACE_SETUP_DEBUG").is_some();
     for tick in 0..MAX_SETUP_TICKS {
         native.tick(setup_input_for_tick(tick));
+        if trace_setup {
+            let frame = native.frame();
+            eprintln!(
+                "setup_native tick={} state={:?} game={} background={} brightness={} blank={} direction={}",
+                tick + 1,
+                native.state(),
+                native.game.vars.gameframe,
+                frame.currentbg,
+                frame.display_brightness,
+                frame.display_forced_blank,
+                native.game.vars.strategy.fade_direction,
+            );
+        }
         if native.state() == GameState::Title {
             return tick + 1;
         }

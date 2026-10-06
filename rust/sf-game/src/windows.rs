@@ -142,6 +142,11 @@ impl Windows {
         self.source_display_fade.is_some()
     }
 
+    #[cfg(test)]
+    pub(crate) fn source_display_level(&self) -> Option<u8> {
+        self.source_display_fade.map(|fade| fade.level)
+    }
+
     pub(crate) fn init_for_source_transfer(&mut self) {
         self.init();
         self.source_display_fade = Some(DisplayFade::forced_black());
@@ -151,6 +156,26 @@ impl Windows {
         if let Some(fade) = &mut self.source_display_fade {
             fade.advance(&mut self.fadedir, game_frame);
         }
+    }
+
+    /// ENDSEQ's intro exit writes the retained fade level, not the black
+    /// window's colour intensity. Its current visible brightness remains
+    /// unchanged until IRQ completes the following transfer.
+    pub(crate) fn start_source_fade_to_black_from(&mut self, rate: MapFadeRate, level: u8) {
+        let mut fade = self.source_display_fade.unwrap_or(DisplayFade {
+            level: self.display_brightness,
+            brightness: self.display_brightness,
+            forced_blank: self.display_forced_blank,
+        });
+        fade.level = level;
+        // The old presentation approximation is not a second fade owner.
+        // Preserve all real colour windows, including an unfinished reveal.
+        if let Some(slot) = self.find_mode(WINDOW_MODE_MAPFADE) {
+            self.dealloc(slot);
+        }
+        self.source_display_fade = Some(fade);
+        self.map_fade_timing = MapFadeTiming::PerSimulationTick;
+        self.fadedir = rate.to_black_direction();
     }
 
     pub fn display_black_subtraction(&self) -> u8 {
@@ -702,6 +727,45 @@ pub fn fade_red_palette(palette: &mut [u16]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intro_exit_replaces_only_the_approximate_fade_and_preserves_publication_until_transfer() {
+        for level in 0..=DISPLAY_BRIGHTNESS_MAX {
+            for prior_brightness in [0, 6, DISPLAY_BRIGHTNESS_MAX] {
+                for forced_blank in [false, true] {
+                    let mut windows = Windows::new();
+                    windows.init_for_forced_black_map_load();
+                    windows.init_black();
+                    let black = windows.find_mode(WINDOW_MODE_BLACK).unwrap();
+                    let black_window = windows.slots[black];
+                    windows.display_brightness = prior_brightness;
+                    windows.display_forced_blank = forced_blank;
+                    windows.start_source_fade_to_black_from(MapFadeRate::Quick, level);
+                    assert!(windows.find_mode(WINDOW_MODE_MAPFADE).is_none());
+                    assert_eq!(windows.slots[black], black_window);
+                    assert_eq!(windows.source_display_level(), Some(level));
+                    assert_eq!(windows.display_brightness(), prior_brightness);
+                    assert_eq!(windows.display_forced_blank(), forced_blank);
+
+                    let mut source = DisplayFade {
+                        level,
+                        brightness: prior_brightness,
+                        forced_blank,
+                    };
+                    let mut direction = -2;
+                    for frame in 0..=DISPLAY_BRIGHTNESS_MAX {
+                        let (mut hold, mut wipe, mut circle) = (-1, 1, 0);
+                        windows.update(&mut hold, &mut wipe, &mut circle);
+                        assert_eq!(windows.source_display_fade, Some(source));
+                        windows.advance_source_display(u16::from(frame));
+                        source.advance(&mut direction, u16::from(frame));
+                        assert_eq!(windows.source_display_fade, Some(source));
+                        assert_eq!(windows.fadedir, direction);
+                    }
+                }
+            }
+        }
+    }
 
     fn tick(w: &mut Windows, oncewipe: &mut u8, circleanim: &mut i16, n: usize) {
         let mut stay_black = -1;

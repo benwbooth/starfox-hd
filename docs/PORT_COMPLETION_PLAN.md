@@ -113,6 +113,35 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Replaced the shipping SF1 intro exit's approximate window-intensity fade
+  with the source-verified display fade. ENDSEQ writes retained brightness 11
+  after the accepting transfer; the following six transfers publish
+  9/7/5/3/1/black and only then hand off to title. The existing visible
+  brightness and real colour windows survive the seed, and the approximate
+  fade cannot keep a second completion clock. Also restored the intro's
+  low-byte frame gate, including its recurring input lock after byte wrap
+  and its ordering before scripted exits. Unchanged original instructions
+  verify 18,432 gate cases against the shipping shell, and an input-only
+  full-machine run verifies the complete six-transfer fade and return.
+  All 134 SF1 game unit tests plus 78 integration tests pass in debug/release;
+  the original fade and caller checks pass in both profiles, as do all 68 SF1
+  source checks, architecture and all three application builds. The title's
+  96 semantic/object/draw updates still agree, but its distinct wall-clock
+  setup assertion remains failing (127 native sampled ticks versus 128
+  original). No compensating delay or changed expected fixture was added;
+  front-end workload and controller-sampling timing remain unclosed.
+
+- The preceding full debug workspace baseline completed: 3,954 harness tests
+  pass, three fail, and the existing autonomous SF2 intro gate remains ignored.
+  The title executable also fails its setup-duration assertion. The three
+  harness failures remain the two semantic-trace checks and the controller-only
+  Corneria route's lost player at level frame 1,499. Training passes all 1,758
+  semantic/draw/audio updates and 1,752 bitmap updates; the weapon executable
+  passes 338 strategy/controller updates, ten weapon-certified updates and
+  26 strict video samples. This run began before the latest reticle and intro
+  changes, so it is a baseline, not final-tree certification. A fresh complete
+  release workspace run is in progress after the intro-exit change.
+
 - Closed the reticle mode preparer (`$07:B038..B0CD`) and full position
   producer (`$07:A418..A504`), composing the latter with target retention in
   one scene-host display slice. Preparation retains the visiting actor's

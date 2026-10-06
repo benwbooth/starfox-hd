@@ -112,7 +112,7 @@ pub const TITLE_INPUT_DELAY_TICKS: u16 = 40;
 pub const TITLE_PRESENTATION_INPUT_READY_TICKS: u16 = 65;
 /// ENDSEQ ignores an intro skip until this many strategy ticks have elapsed.
 pub const INTRO_INPUT_DELAY_TICKS: u16 = 30;
-/// ENDSEQ seeds the intro exit fade at this intensity.
+/// ENDSEQ seeds the intro exit fade at this retained brightness level.
 pub const INTRO_EXIT_FADE_START: u8 = 11;
 /// Retail-observed black presentation between the title fade completing and
 /// the controller screen becoming the active background.
@@ -353,6 +353,7 @@ struct AttractSequence {
     level_loaded: bool,
     phase_ticks: u16,
     fade_destination: Option<AttractDestination>,
+    pending_intro_exit_fade: bool,
     handoff_ticks_remaining: Option<u16>,
 }
 
@@ -362,6 +363,7 @@ impl Default for AttractSequence {
             level_loaded: false,
             phase_ticks: 0,
             fade_destination: None,
+            pending_intro_exit_fade: false,
             handoff_ticks_remaining: None,
         }
     }
@@ -1823,6 +1825,18 @@ impl Shell {
         self.radio_presentation = radio_presentation;
         self.game.vars.shared.friends_meter = friends_meter;
 
+        // ENDSEQ chooses an intro exit after the just-completed transfer.
+        // Seed its retained brightness now; the first fade visit belongs to
+        // the following transfer, not the scene which accepted the button.
+        if self.game_state == GameState::AttractIntro && self.attract.pending_intro_exit_fade {
+            self.attract.pending_intro_exit_fade = false;
+            let mut state = self.state.borrow_mut();
+            state
+                .windows
+                .start_source_fade_to_black_from(MapFadeRate::Quick, INTRO_EXIT_FADE_START);
+            self.game.vars.strategy.fade_direction = state.windows.fadedir;
+        }
+
         // ENDSEQ checks `fadedir` after `transfer_l`; that transfer includes
         // the video interrupt which can complete the fade. Windows_Update is
         // the port's equivalent step, so finish the handoff on this tick when
@@ -2579,18 +2593,18 @@ impl Shell {
         if self.finish_attract_fade_if_ready() {
             return;
         }
+        // ENDSEQ reads the low frame byte, so the input lock recurs after
+        // every byte wrap, including the scripted-exit request branch.
         if self.attract.fade_destination.is_some()
-            || self.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS
+            || u16::from(self.game.vars.gameframe.to_le_bytes()[0]) < INTRO_INPUT_DELAY_TICKS
         {
             return;
         }
 
         if self.game.vars.strategy.intro_exit_requested || self.game.vars.pad1 != 0 {
-            self.begin_attract_fade(
-                AttractDestination::Title,
-                MapFadeRate::Quick,
-                INTRO_EXIT_FADE_START,
-            );
+            self.attract.fade_destination = Some(AttractDestination::Title);
+            self.attract.pending_intro_exit_fade = true;
+            self.attract.handoff_ticks_remaining = None;
         }
     }
 
@@ -2935,7 +2949,8 @@ impl Shell {
         let Some(destination) = self.attract.fade_destination else {
             return false;
         };
-        if self.state.borrow().windows.is_map_fade_active() {
+        if self.attract.pending_intro_exit_fade || self.state.borrow().windows.is_map_fade_active()
+        {
             return false;
         }
 
@@ -4247,22 +4262,34 @@ mod tests {
 
     #[test]
     fn attract_handoff_observes_fade_completion_after_the_transfer_step() {
-        const RETAIL_FADE_TICKS: usize = 10;
-
         let mut shell = Shell::new();
         while shell.state() == GameState::Boot {
             shell.tick(0);
         }
-        shell.tick(0);
-        shell.game.vars.gameframe = INTRO_INPUT_DELAY_TICKS;
-
-        shell.tick(pad::A);
-        assert_eq!(shell.state(), GameState::AttractIntro);
-        for _ in 1..RETAIL_FADE_TICKS {
+        while shell.game.vars.gameframe < INTRO_INPUT_DELAY_TICKS {
             shell.tick(0);
         }
 
+        let brightness = shell.frame().display_brightness;
+        shell.tick(pad::A);
+        assert_eq!(shell.state(), GameState::AttractIntro);
+        assert_eq!(
+            shell.state.borrow().windows.source_display_level(),
+            Some(11)
+        );
+        assert_eq!(shell.frame().display_brightness, brightness);
+        assert_eq!(shell.game.vars.strategy.fade_direction, -2);
+        for expected in [9, 7, 5, 3, 1] {
+            shell.tick(0);
+            assert_eq!(shell.state(), GameState::AttractIntro);
+            assert_eq!(shell.frame().display_brightness, expected);
+            assert_eq!(shell.game.vars.strategy.fade_direction, -2);
+        }
+        shell.tick(0);
         assert_eq!(shell.state(), GameState::Title);
+        assert_eq!(shell.frame().display_brightness, 0);
+        assert!(shell.frame().display_forced_blank);
+        assert_eq!(shell.game.vars.strategy.fade_direction, 0);
     }
 
     fn advance_to_title_entry(shell: &mut Shell) {
