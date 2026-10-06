@@ -1053,6 +1053,27 @@ running; scheduled work is not a guarantee of a completion date.
   edits. This does not certify production elapsed
   timing, other scenes or general reference-PPU accuracy.
 
+- Closed the first-laser gate's fixed-boot entry failure using actual Corneria
+  strategy entry and a shared gameplay-counter input tape. Every one of 338
+  updates checks the original latched pad and both game counters; next-visit
+  buttons must be presented before the original draw boundary because its IRQ
+  can already sample them during strategy work. Ten laser-life updates, camera
+  and laser draw commands, one firing sound and all 26 composed frames now pass.
+  Two fresh Mesen resets independently check all controller visits and produce
+  byte-identical RGB/VRAM evidence. All 57,344 pixels in each scene 312..337
+  match a reference selected only by original bitmap identity and settled
+  original scanouts. No weapon code, original expectations or native state was
+  changed to obtain these matches. `tools/sf1/run_weapon_scanout_oracle.py`
+  reproduces the independent gate. The existing launch decoder coverage is
+  retained; independent debug/release comparisons, the 150-update banking
+  branch, 65 SF1 Python tests and architecture checks pass. The full release
+  workspace retains 3,902 passing tests, three failing tests and one ignored
+  test, with one failing executable example. Only `semantic_trace`,
+  `sf1_corneria_route` and `sf1_title_trace` remain failing targets. The full
+  Training replay remains green; these results include preserved pre-existing
+  working-tree changes. This does not close production
+  timing, the remaining route/front-end failures or full weapon/campaign scope.
+
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
 working merely because the user is due back.

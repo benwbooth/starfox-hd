@@ -33,6 +33,21 @@ class RepeatedLaunchCaptures(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "launch_edges_0005.bin"):
                 verify_repeated_captures(first, second)
 
+    def test_partial_weapon_capture_is_not_repeatable_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            first, second = (Path(directory) / name for name in ("first", "second"))
+            for path in (first, second):
+                path.mkdir()
+                (path / "weapon_display.txt").write_text("video=1\n")
+                (path / "weapon_0001.ppm").write_bytes(b"original pixels")
+                with self.assertRaisesRegex(RuntimeError, "omitted paired weapon"):
+                    capture_identity(path, "weapon")
+                (path / "weapon_0001.vram").write_bytes(b"original bitmap")
+            verify_repeated_captures(first, second, "weapon")
+            (second / "weapon_display.txt").write_text("video=2\n")
+            with self.assertRaisesRegex(RuntimeError, "weapon_display.txt"):
+                verify_repeated_captures(first, second, "weapon")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -110,8 +110,9 @@ fn retail_launch_video_matches_before_and_after_variable_scanout_cadence() {
     let mut certified = BTreeSet::new();
     let mut warning_layer_certified = false;
     let mut first_video_divergence = None;
-    let mesen = std::env::var_os("SF1_LAUNCH_MESEN_DIR")
-        .map(|directory| mesen_video::LaunchVideo::read(std::path::Path::new(&directory)));
+    let mesen = std::env::var_os("SF1_LAUNCH_MESEN_DIR").map(|directory| {
+        mesen_video::OriginalVideo::read(std::path::Path::new(&directory), "launch_display.txt")
+    });
 
     for tick in 0..u32::from(WARNING_LAYER_ANCHOR + SCANOUT_DRAIN_UPDATES) {
         assert!(

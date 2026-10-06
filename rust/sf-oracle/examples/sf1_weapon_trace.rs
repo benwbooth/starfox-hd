@@ -3,7 +3,12 @@
 //! Source addresses and cartridge storage are confined to this oracle adapter;
 //! the native side is read only through typed flat game objects.
 
+#[path = "support/sf1_mesen_video.rs"]
+mod mesen_video;
 mod support;
+#[allow(dead_code)]
+#[path = "support/sf1_timing.rs"]
+mod timing_entry;
 
 use sf_core::pad;
 use sf_difftest::{
@@ -20,18 +25,24 @@ use sf_oracle::{
     RETAIL_VIEW_POSITION_Y, RETAIL_VIEW_POSITION_Z,
 };
 use sf_render::renderer::{config_from_repo_root, Renderer};
+use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 
+const RETAIL_ROM_SHA256: &str = "82e39dfbb3e4fe5c28044e80878392070c618b298dd5a267e5ea53c8f72cc548";
 const WORK_RAM: u32 = 0x7E_0000;
-const VIDEO_FRAMES_PER_NATIVE_TICK: u32 = 3;
-const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 12;
-const MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD: u32 = 240;
-const COMPLETED_FRAME_ALIGNMENT_TICK: u32 = 900;
-const CORNERIA_AUDIO_UPLOAD_TICK: u32 = 1_080;
-const FIRST_LEVEL_STATE_TICK: u32 = 892;
-const FIRE_START_TICK: u32 = 1_212;
-const BANK_PROBE_INPUT_START_TICK: u32 = 1_188;
+// A source update may suspend for the music upload. This is a fail-closed
+// execution budget, not an assumed elapsed duration or synchronization offset.
+const MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE: u32 = 240;
+// The launch player sequence yields control on scene 321. The controller
+// tape is already holding fire; both implementations must create the shot
+// on that first controllable visit, not one update later.
+const FIRST_LASER_GAME_FRAME: u32 = 321;
+const BANK_PROBE_INPUT_START_GAME_FRAME: u16 = 295;
 const BANK_PROBE_LAST_GAME_FRAME: u16 = 337;
+// ALCS cont0 / contl0 precede trig0l by seven / five bytes. The unique
+// controller-screen instruction skeleton pins trig0l at retail $1209.
+const RETAIL_LATCHED_PAD_HIGH: u32 = sf_oracle::RETAIL_CONTROLLER_TRIGGER_LOW - 7;
+const RETAIL_LATCHED_PAD_LOW: u32 = sf_oracle::RETAIL_CONTROLLER_TRIGGER_LOW - 5;
 const SOURCE_FRAME_WIDTH: usize = 256;
 const SOURCE_FRAME_HEIGHT: usize = 224;
 const PLAYER_LASER_SOUND: u8 = 53;
@@ -211,9 +222,9 @@ fn completed_raster_rgb(raster: &CompletedRaster) -> Vec<u8> {
         .collect()
 }
 
-fn trace_input(tick: u32, bank_probe: bool) -> u16 {
-    support::weapon_input(tick)
-        | if bank_probe && tick >= BANK_PROBE_INPUT_START_TICK {
+fn trace_input(game_frame: u16, bank_probe: bool) -> u16 {
+    support::weapon_gameplay_input(game_frame)
+        | if bank_probe && game_frame >= BANK_PROBE_INPUT_START_GAME_FRAME {
             pad::LEFT
         } else {
             0
@@ -528,10 +539,9 @@ fn native_laser_draws(shell: &Shell) -> Vec<LaserDraw> {
 
 fn main() {
     let rom = load_retail_rom().expect("Star Fox retail ROM is required");
+    assert_eq!(format!("{:x}", Sha256::digest(&rom)), RETAIL_ROM_SHA256);
     let mut retail = RetailMachine::new(rom);
     let mut native = support::configured_shell();
-    let mut retail_level_boundary_aligned = false;
-    let mut previous_retail_level_frame = None;
     let mut certified_weapon_updates = 0;
     let mut first_weapon_tick = None;
     let mut native_laser_sound_count = 0;
@@ -631,13 +641,17 @@ fn main() {
     let dump_all_video = std::env::var_os("SF1_WEAPON_VIDEO_DUMP_ALL").is_some();
     let probe_raster_association =
         std::env::var_os("SF1_WEAPON_RASTER_ASSOCIATION_PROBE").is_some();
+    let independent_video = std::env::var_os("SF1_WEAPON_MESEN_DIR").map(|directory| {
+        mesen_video::OriginalVideo::read(std::path::Path::new(&directory), "weapon_display.txt")
+    });
     if let Some(directory) = video_dump_directory.as_ref() {
         std::fs::create_dir_all(directory).expect("create weapon video dump directory");
     }
+    timing_entry::enter_native_corneria_update(&mut native).expect("native Corneria entry");
     if std::env::var_os("SF1_WEAPON_NATIVE_PRESENTATION_PROBE").is_some() {
         let mut scene = None;
-        for tick in 0..=support::weapon_trace_end_tick() {
-            native.tick(trace_input(tick, false));
+        for tick in 1..=u32::from(source_video_presentation_last_game_frame) {
+            native.tick(trace_input(native.game.vars.gameframe, false));
             if native.state() != GameState::Playing
                 || native.frame().gameplay_entry_phase != GameplayEntryPhase::ActiveLevel
             {
@@ -780,8 +794,8 @@ fn main() {
         panic!("native presentation probe did not reach game frame {probe_game_frame}");
     }
     if std::env::var_os("SF1_WEAPON_NATIVE_PROBE").is_some() {
-        for tick in 0..=support::weapon_trace_end_tick() {
-            native.tick(trace_input(tick, false));
+        for tick in 1..=u32::from(source_video_presentation_last_game_frame) {
+            native.tick(trace_input(native.game.vars.gameframe, false));
             if native.state() == GameState::Playing
                 && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
                 && native.game.vars.gameframe == probe_game_frame
@@ -842,11 +856,32 @@ fn main() {
         panic!("native probe did not reach game frame {probe_game_frame}");
     }
 
-    for tick in 0..=support::weapon_trace_end_tick() {
-        let input = trace_input(tick, bank_probe);
-        let next_input = trace_input(tick.saturating_add(1), bank_probe);
+    timing_entry::enter_first_corneria_update(&mut retail).expect("retail Corneria entry");
+    native.drain_sound();
+    // Here `tick` counts complete strategy updates from Corneria entry, not
+    // elapsed boot ticks. Both machines independently reached scene zero.
+    for tick in 1..=u32::from(source_video_presentation_last_game_frame) {
+        let previous_game_frame = u16::try_from(tick - 1).unwrap();
+        assert_eq!(native.game.vars.gameframe, previous_game_frame);
+        assert_eq!(
+            retail.peek16(WORK_RAM | RETAIL_GAMEFRAME),
+            previous_game_frame
+        );
+        let input = trace_input(previous_game_frame, bank_probe);
+        let next_input = trace_input(previous_game_frame + 1, bank_probe);
+        let sampled_original_input = u16::from(retail.peek8(WORK_RAM | RETAIL_LATCHED_PAD_HIGH))
+            << 8
+            | u16::from(retail.peek8(WORK_RAM | RETAIL_LATCHED_PAD_LOW));
+        assert_eq!(
+            sampled_original_input, input,
+            "latched controller at update {tick}"
+        );
         let native_level_active = native.state() == GameState::Playing
             && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel;
+        assert!(
+            native_level_active,
+            "native left active Corneria at update {tick}"
+        );
         if probe_compositor
             && !compositor_capture_enabled
             && native_level_active
@@ -862,31 +897,16 @@ fn main() {
             retail.capture_completed_rasters();
             completed_raster_capture_enabled = true;
         }
-        let align_completed_level_frame =
-            native_level_active && tick >= COMPLETED_FRAME_ALIGNMENT_TICK;
-        let mut retail_draws_for_update = None;
-        let mut retail_scene_draws_for_update = None;
-        let mut retail_view_for_update = None;
-        let mut retail_sound_events_for_update = None;
-        let mut retail_video_for_update = None;
-        let mut retail_horizontal_for_update = None;
+        let retail_draws_for_update;
+        let retail_scene_draws_for_update;
+        let retail_view_for_update;
+        let retail_sound_events_for_update;
+        let retail_video_for_update;
+        let retail_horizontal_for_update;
         let mut retail_projection_captures_for_update = None;
         let mut retail_pixel_write_captures_for_update = None;
         let mut retail_bank_for_update = None;
-        if align_completed_level_frame {
-            if !retail_level_boundary_aligned {
-                assert!(
-                    retail
-                        .tick_until_cpu_execution(
-                            input,
-                            RETAIL_DOSTRATS,
-                            MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE,
-                        )
-                        .expect("initial gameplay boundary"),
-                    "retail did not reach the initial gameplay boundary"
-                );
-                retail_level_boundary_aligned = true;
-            }
+        {
             let retail_frame_rate = retail.peek8(WORK_RAM | RETAIL_FRAMERATE);
             retail_frame_rate_range = Some(retail_frame_rate_range.map_or(
                 (retail_frame_rate, retail_frame_rate),
@@ -898,14 +918,14 @@ fn main() {
                 },
             ));
             let retail_sound_cursor = retail.peek8(WORK_RAM | RETAIL_SOUND_EFFECT_WRITE_CURSOR);
-            let max_video_frames = if tick == CORNERIA_AUDIO_UPLOAD_TICK {
-                MAX_VIDEO_FRAMES_DURING_AUDIO_UPLOAD
-            } else {
-                MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE
-            };
+            let max_video_frames = MAX_VIDEO_FRAMES_PER_LEVEL_UPDATE;
+            // IRQ.getcont0 has already latched this strategy visit's pad.
+            // Present the next visit's physical buttons for the entire new
+            // transfer, including IRQ work before build_drawlist. Changing
+            // them only after the draw boundary can miss the release sample.
             assert!(
                 retail
-                    .tick_until_cpu_execution(input, RETAIL_BUILD_DRAWLIST_L, max_video_frames)
+                    .tick_until_cpu_execution(next_input, RETAIL_BUILD_DRAWLIST_L, max_video_frames)
                     .expect("completed gameplay draw boundary"),
                 "retail did not complete gameplay draw update {tick}"
             );
@@ -990,27 +1010,12 @@ fn main() {
                 |row| retail_ppu.scanline_bg_hofs[row][1] as i16,
             ));
             retail_video_for_update = Some((retail.video_frame(), source_rgb(retail_ppu)));
-        } else {
-            retail
-                .tick_video_frames(input, VIDEO_FRAMES_PER_NATIVE_TICK)
-                .expect("retail front-end update");
         }
         if completed_raster_capture_enabled {
             completed_rasters.extend(retail.take_completed_rasters());
         }
         let retail_level_frame = retail.peek16(WORK_RAM | RETAIL_GAMEFRAME);
-        let retail_completed_level_update = align_completed_level_frame
-            || previous_retail_level_frame
-                .map(|previous| previous != retail_level_frame)
-                .unwrap_or(true);
-        if !native_level_active || retail_completed_level_update {
-            native.tick(input);
-        }
-        if native.state() == GameState::Playing
-            && native.frame().gameplay_entry_phase == GameplayEntryPhase::ActiveLevel
-        {
-            previous_retail_level_frame = Some(retail_level_frame);
-        }
+        native.tick(input);
         if std::env::var_os("SF1_WEAPON_RETAIL_HORIZONTAL_TABLE_PROBE").is_some()
             && native.game.vars.gameframe == probe_game_frame.wrapping_add(1)
         {
@@ -1029,7 +1034,7 @@ fn main() {
             return;
         }
 
-        if bank_probe && align_completed_level_frame {
+        if bank_probe {
             let Some((retail_roll, retail_offsets)) = retail_bank_for_update else {
                 continue;
             };
@@ -1099,7 +1104,7 @@ fn main() {
             continue;
         }
 
-        if trace_timing && (tick >= FIRST_LEVEL_STATE_TICK || tick + 1 == FIRST_LEVEL_STATE_TICK) {
+        if trace_timing {
             println!(
                 "timing tick={tick} input={input} retail_game_frame={retail_level_frame} retail_video_frame={} native_game_frame={} native_active={native_level_active}",
                 retail.video_frame(),
@@ -1745,6 +1750,34 @@ fn main() {
             let candidate = pending_source_video
                 .pop_front()
                 .expect("matched pending source video");
+            if let Some(independent) = &independent_video {
+                let original = independent
+                    .settled_original_bitmap(&candidate.retail_bitmap)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "no settled Mesen bitmap for weapon scene {}",
+                            candidate.game_frame
+                        )
+                    });
+                assert_eq!(
+                    compare_source_rgb(
+                        u64::from(candidate.game_frame),
+                        original.video_frame,
+                        &original.rgb,
+                        &candidate.native_rgb,
+                    )
+                    .expect("independent weapon pixels"),
+                    None,
+                    "Mesen weapon scene {}",
+                    candidate.game_frame,
+                );
+                println!(
+                    "weapon_mesen scene={} original_scanout={} compared_pixels={}",
+                    candidate.game_frame,
+                    original.video_frame,
+                    SOURCE_FRAME_WIDTH * SOURCE_FRAME_HEIGHT
+                );
+            }
             let retail_rgb = completed_raster_rgb(&raster);
             if dump_all_video {
                 let dump_directory = video_dump_directory
@@ -1809,9 +1842,6 @@ fn main() {
             );
         }
 
-        if tick < FIRST_LEVEL_STATE_TICK {
-            continue;
-        }
         assert_eq!(
             native.game.vars.gameframe, retail_level_frame,
             "game frame at tick {tick}"
@@ -1845,8 +1875,7 @@ fn main() {
 
     let first_weapon_tick = first_weapon_tick.expect("script did not fire a player laser");
     assert_eq!(
-        first_weapon_tick,
-        FIRE_START_TICK + 2,
+        first_weapon_tick, FIRST_LASER_GAME_FRAME,
         "first firing update"
     );
     assert_eq!(
@@ -1933,7 +1962,7 @@ fn main() {
         "unmatched completed retail raster"
     );
     println!(
-        "sf1_weapon certified_updates={certified_weapon_updates} first_divergence=none first_weapon_tick={first_weapon_tick} sound_events={native_laser_sound_count} retail_presentation_cadence={:?} native_gameplay_cadence={} source_coverage=playerfire,fire_elaser,pelaser",
+        "sf1_weapon strategy_updates={source_video_presentation_last_game_frame} controller_updates={source_video_presentation_last_game_frame} certified_updates={certified_weapon_updates} first_divergence=none first_weapon_game_frame={first_weapon_tick} sound_events={native_laser_sound_count} retail_presentation_cadence={:?} native_gameplay_cadence={} source_coverage=playerfire,fire_elaser,pelaser",
         retail_frame_rate_range.expect("retail presentation cadence coverage"),
         native.game.vars.strategy.frame_rate,
     );

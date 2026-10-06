@@ -1,4 +1,4 @@
-//! Independent launch scanouts selected only by original BG1 bitmap data.
+//! Independent gameplay scanouts selected only by original BG1 bitmap data.
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -18,14 +18,14 @@ pub struct Scanout {
     pub rgb: Vec<u8>,
 }
 
-pub struct LaunchVideo {
+pub struct OriginalVideo {
     frames: Vec<Scanout>,
 }
 
-impl LaunchVideo {
-    pub fn read(directory: &Path) -> Self {
-        let manifest = std::fs::read_to_string(directory.join("launch_display.txt"))
-            .expect("Mesen launch manifest");
+impl OriginalVideo {
+    pub fn read(directory: &Path, manifest_name: &str) -> Self {
+        let manifest = std::fs::read_to_string(directory.join(manifest_name))
+            .expect("Mesen original-video manifest");
         assert_eq!(
             manifest.lines().next(),
             Some("rom_sha1=cf08148cd8f26d51f8c67c956179dfc594e7a4f1"),
@@ -167,7 +167,7 @@ mod tests {
         };
         let mut partial = bitmap.clone();
         partial[BITMAP_WIDTH * (BITMAP_HEIGHT - 1)] = 0;
-        let mut captures = LaunchVideo {
+        let mut captures = OriginalVideo {
             frames: vec![
                 frame(1, partial, vec![4]),
                 frame(2, bitmap.clone(), vec![4]),

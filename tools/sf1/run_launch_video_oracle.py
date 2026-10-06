@@ -24,21 +24,23 @@ SCRIPT = ROOT / "tools/sf1/mesen_launch_display_oracle.lua"
 RUNNER = ROOT / "tools/sf2/run_mesen_oracle.py"
 
 
-def capture_identity(directory: Path) -> dict[str, str]:
-    files = [directory / "launch_display.txt"]
-    files.extend(sorted(directory.glob("launch_*.ppm")))
-    files.extend(sorted(directory.glob("launch_*.vram")))
-    files.extend(sorted(directory.glob("launch_edges_*.bin")))
-    if len(files) <= 1:
-        raise RuntimeError("Mesen omitted its launch captures")
+def capture_identity(directory: Path, prefix: str = "launch") -> dict[str, str]:
+    files = [directory / f"{prefix}_display.txt"]
+    images = sorted(directory.glob(f"{prefix}_*.ppm"))
+    bitmaps = sorted(directory.glob(f"{prefix}_*.vram"))
+    if not images or {path.stem for path in images} != {path.stem for path in bitmaps}:
+        raise RuntimeError(f"Mesen omitted paired {prefix} images or VRAM captures")
+    files.extend(images)
+    files.extend(bitmaps)
+    files.extend(sorted(directory.glob(f"{prefix}_edges_*.bin")))
     return {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
 
 
-def verify_repeated_captures(first: Path, second: Path) -> None:
-    a, b = capture_identity(first), capture_identity(second)
+def verify_repeated_captures(first: Path, second: Path, prefix: str = "launch") -> None:
+    a, b = capture_identity(first, prefix), capture_identity(second, prefix)
     if a != b:
         changed = sorted(name for name in a.keys() | b.keys() if a.get(name) != b.get(name))
-        raise RuntimeError(f"fresh Mesen launch runs differ: {', '.join(changed)}")
+        raise RuntimeError(f"fresh Mesen {prefix} runs differ: {', '.join(changed)}")
 
 
 def main() -> int:

@@ -522,6 +522,16 @@ pub fn weapon_input(tick: u32) -> u16 {
 
 /// Match the external Mesen source-video capture, which starts gameplay input
 /// from the retail game-frame counter after the variable-rate front end.
+pub fn weapon_gameplay_input(game_frame: u16) -> u16 {
+    if (WEAPON_VIDEO_FIRE_FIRST_GAME_FRAME..=WEAPON_VIDEO_FIRE_LAST_GAME_FRAME)
+        .contains(&game_frame)
+    {
+        pad::Y
+    } else {
+        0
+    }
+}
+
 pub fn weapon_video_input(shell: &Shell, tick: u32) -> u16 {
     let active = shell.state() == sf_game::shell::GameState::Playing
         && shell.frame().gameplay_entry_phase == sf_game::shell::GameplayEntryPhase::ActiveLevel;
@@ -529,14 +539,7 @@ pub fn weapon_video_input(shell: &Shell, tick: u32) -> u16 {
         return weapon_input(tick);
     }
     let front_end_input = weapon_input(tick) & !pad::Y;
-    front_end_input
-        | if (WEAPON_VIDEO_FIRE_FIRST_GAME_FRAME..=WEAPON_VIDEO_FIRE_LAST_GAME_FRAME)
-            .contains(&shell.game.vars.gameframe)
-        {
-            pad::Y
-        } else {
-            0
-        }
+    front_end_input | weapon_gameplay_input(shell.game.vars.gameframe)
 }
 
 pub fn render_entry(entry: &sf_core::DrawListEntry) -> RenderDrawListEntry {

@@ -396,6 +396,52 @@ phase/checkpoint assumptions, controller-route player loss, title setup
 duration and weapon-entry alignment are still open. These results include
 preserved pre-existing working-tree edits, not a clean-revision certification.
 
+## Source-bound first laser and independent scanouts (2026-10-06)
+
+The first-laser gate no longer treats a recorded boot tick as gameplay entry.
+Both implementations reach the actual first Corneria strategy visit through
+their own front ends and legal controller input, without state injection.
+Every one of 338 strategy updates checks the game counter and the original
+latched controller word. The physical buttons for the next visit are presented
+throughout the current transfer: `IRQ.getcont0` can run before the draw-list
+boundary. Setting those buttons only after drawing missed a release sample
+and produced an extra original shot. This was a harness input error, not a
+reason to change native weapon logic or bless a new expected trace.
+
+The gate now passes ten laser-life updates including allocation/list order,
+position, velocity, rotation, owner, lifetime, damage/collision fields and
+animation; the camera, laser draw commands and one firing sound also agree.
+All 26 full scene draw lists and composed frames 312..337 pass. An additional
+independent gate uses two fresh Mesen resets, checks its latched pad at every
+strategy visit from scene zero through 340, and requires byte-identical
+manifests, RGB frames and VRAM. It compares all 57,344 pixels per scene, selecting
+the reference solely from complete original BG1 bitmap identity and two settled
+original scanouts. It does not use the older fixed-three-display-frame capture
+delay or native pixels for alignment.
+
+```sh
+nix develop --command python3 tools/sf1/run_weapon_scanout_oracle.py
+```
+
+The shared decoder now accepts a named original-video manifest and retains its
+launch coverage. Repeatability checks reject missing image/VRAM pairs, and Lua
+callback failures explicitly terminate this new capture instead of allowing
+other callbacks to continue. Captures remain diagnostic temporary files, not
+shipping playback data. The raw polygon-bitmap comparison still differs where
+the native renderer intentionally separates HUD layers; the composed-frame
+comparison has no such exclusions and remains exact. This certifies the bounded
+laser scenario, not all weapons, elapsed production cadence or the campaign.
+The independent comparison passes in debug and release, and the two fresh
+captures are byte-identical. The banking branch separately passes 150 updates
+of roll and all 32 background-offset columns. All 65 SF1 Python tests and the
+architecture audit pass. The full release workspace retains 3,902 passing
+tests, three failing tests and one ignored test, but only one executable
+example now fails: `sf1_title_trace`. The other two failing targets remain
+`semantic_trace` and `sf1_corneria_route`; no assertions in those gates changed.
+The unchanged full Training replay also passes its 1,758 semantic/draw/audio
+updates and 1,752 bitmap updates. As before, workspace results include the
+preserved pre-existing dirty changes rather than certifying a clean revision.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from
