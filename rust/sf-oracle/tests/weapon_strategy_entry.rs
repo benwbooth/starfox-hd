@@ -22,6 +22,9 @@ const WRAM: u32 = 0x7E_0000;
 #[path = "support/repair_chain.rs"]
 mod repair_chain;
 
+#[path = "support/special_pickup.rs"]
+mod special_pickup;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,
@@ -411,11 +414,15 @@ impl Source {
     }
 
     fn run(&self, bus: &mut SnesBus, name: &str) {
+        self.run_at(bus, name, OBJECT);
+    }
+
+    fn run_at(&self, bus: &mut SnesBus, name: &str, object: u32) {
         let exit = call(
             bus,
             self.symbol(name),
             &Entry {
-                x: OBJECT as u16,
+                x: object as u16,
                 p: 0x20,
                 dbr: 0x7E, // TRANS.dostrats owns extended actor data in WRAM.
                 ..Default::default()
@@ -423,7 +430,7 @@ impl Source {
         );
         assert!(exit.returned, "{name} did not reach its original return");
         assert_eq!(
-            exit.x, OBJECT as u16,
+            exit.x, object as u16,
             "{name} must preserve the current object"
         );
     }

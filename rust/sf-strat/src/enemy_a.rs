@@ -906,7 +906,9 @@ const HPLASMA_AP: u8 = 10;
 const ITEM5_PICKUP_Z: i16 = 120;
 const ITEM5_PICKUP_XY: i16 = 60;
 const ITEM5_MAX_SPEC: u16 = 5;
-const ITEM5_SCORE: u16 = 100;
+const ITEM5_FLASH_VISITS: u8 = 30;
+const ITEM5_DROP_OFFSET_Y: i16 = -20;
+const SE_SPECIAL_PICKUP: u8 = 0x18;
 const UP1MAN_AP: u8 = 8;
 const UP1MAN_PICKUP_X: i16 = 40 * 2;
 const UP1MAN_PICKUP_Y: i16 = 60 * 2;
@@ -9449,7 +9451,7 @@ fn item5_init(g: &mut Game, idx: u16) {
     al.stratptr = Some(s);
     al.collstratptr = None;
     al.expstratptr = None;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// C `Strat_Item5_Init` (strat_enemy.c:3966).
@@ -9460,46 +9462,38 @@ pub fn strat_item5_init(g: &mut Game, idx: u16) {
 
 /// C `item5_collect` (strat_enemy.c:3975).
 fn item5_collect(g: &mut Game, idx: u16) {
-    use crate::common::{sv, StratRam};
-    // Canonical ROM `specwepcnt` (sv 0x056E) — same store player fire / removenuke use.
-    let cnt = g.vars.sv_u16(sv::SPECWEPCNT);
-    if cnt < ITEM5_MAX_SPEC {
-        g.vars.set_sv_u16(sv::SPECWEPCNT, cnt + 1);
-        // ASM GASTRATS.ASM:2586 `s_set_var B,specflash,#30` inside the
-        // specwepcnt<5 block. (Audit A #24)
-        g.vars.shared.special_flash = 30;
-        g.hooks.play_se(0x18);
-        let score = g.vars.shared.player_score;
-        g.vars.shared.player_score = score.wrapping_add(ITEM5_SCORE);
+    let count = g.vars.strategy.special_weapon_count;
+    // The source tests the sign of a word subtraction, even for an inherited
+    // out-of-range inventory. Its s_score macro has no executable body.
+    if (count.wrapping_sub(ITEM5_MAX_SPEC) as i16) < 0 {
+        g.vars.strategy.special_weapon_count = count.wrapping_add(1);
+        g.vars.shared.special_flash = ITEM5_FLASH_VISITS;
+        g.hooks.play_se(SE_SPECIAL_PICKUP);
     }
     flashplayer_istrat(g, idx);
 }
 
 /// C `item5_strat` (strat_enemy.c:3989).
 fn item5_strat(g: &mut Game, idx: u16) {
-    // ASM item5_strat (GASTRATS.ASM:2571) leads with `s_remove_ifplayerdead x`,
-    // which removes on `pshipflags2 & psf2_playerHP0` (HP0), not object
-    // existence. (Audit A #23)
-    let pl = player(g);
-    if pl.is_none() || g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
-        g.objs.aldead = 1;
-        return;
+    if g.vars.pshipflags2 & PSF2_PLAYERHP0 != 0 {
+        mark_pickup_removal(g, idx);
     }
-    let pl = pl.unwrap();
     if g.objs.aliens[idx as usize].sbyte1 == 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.worldz = al.worldz.wrapping_add(20);
+        al.worldz = al.worldz.wrapping_add(PICKUP_FORWARD_STEP);
     }
+    let Some(player) = g.player_object() else {
+        g.objs.aldead = 1;
+        return;
+    };
+    let pl = g.objs.aliens[player as usize];
     let me = g.objs.aliens[idx as usize];
     // ASM `s_jmp_Zdistmore x,y,#60*2` / `s_jmp_XYdistmore x,y,#30*2` skip when
     // |dz|>=120 / |dx|+|dy|>=60 — pickup requires strictly less. (Audit A Minor 3)
-    let zdist = (me.worldz as i32 - pl.worldz as i32).abs() as i16;
-    if zdist >= ITEM5_PICKUP_Z {
+    if pickup_outside_z(&me, &pl, ITEM5_PICKUP_Z) {
         return;
     }
-    let mut xydist = (me.worldx as i32 - pl.worldx as i32).abs() as i16;
-    xydist = xydist.wrapping_add((me.worldy as i32 - pl.worldy as i32).abs() as i16);
-    if xydist >= ITEM5_PICKUP_XY {
+    if pickup_outside_xy(&me, &pl, ITEM5_PICKUP_XY) {
         return;
     }
     item5_collect(g, idx);
@@ -10369,11 +10363,13 @@ pub fn bomwingdie_istrat(g: &mut Game, idx: u16) {
 /// C `bomwing_die` (strat_enemy.c:4271).
 fn bomwing_die(g: &mut Game, idx: u16) {
     if let Some(drop) = make_obj(g, SH_ITEM_5) {
-        item5_init(g, drop);
+        g.objs.active_move_after(drop, idx);
+        let init = sid(g, strat_item5_init);
         let me = g.objs.aliens[idx as usize];
         let al = &mut g.objs.aliens[drop as usize];
+        al.stratptr = Some(init);
         al.worldx = me.worldx;
-        al.worldy = me.worldy.wrapping_sub(20);
+        al.worldy = me.worldy.wrapping_add(ITEM5_DROP_OFFSET_Y);
         al.worldz = me.worldz;
     }
     strat_explode(g, idx);

@@ -5,6 +5,27 @@ from test_strategy_source_contracts import instructions, source
 
 
 class PickupSourceTests(unittest.TestCase):
+    def test_special_weapon_pickup_caps_inventory_but_always_enters_flash(self):
+        body = source("STRAT/GASTRATS.ASM").split("\nitem5_Istrat", 1)[1].split(";********", 1)[0]
+        self.assertEqual(instructions(body), [
+            "s_set_alptrs x,item5_strat,0,0", "s_set_alsflag x,colldisable", "item5_strat",
+            "s_start_strat", "s_remove_ifplayerdead x", "s_jmp_alvarNOTZERO B,x,al_sbyte1,.stop",
+            "s_add_alvar W,x,al_worldz,#20", ".stop", "s_set_objtobeplayer y",
+            "s_jmp_Zdistmore x,y,#60*2,.nitem", "s_jmp_XYdistmore x,y,#30*2,.nitem",
+            "s_jmp_varmoreEQ W,specwepcnt,#5,.maxspec", "IFEQ INFBOMBS", "s_inc_var W,specwepcnt",
+            "ENDC", "s_set_var B,specflash,#30", "TRIGSE $18", "s_score #100", ".maxspec",
+            "s_set_strat x,flashplayer_Istrat", "s_jmpto_strat x", ".nitem s_end_strat",
+        ])
+        self.assertIn("infbombs equ 0", instructions(source("CONFIG/DEBUG.INC")))
+        compare = source("INC/STRATMAC.INC").split("\ns_jmp_varmoreEQ\t", 1)[1].split("\tENDM", 1)[0]
+        self.assertEqual(instructions(compare)[-5:], [
+            "lda \\2", "cmp \\3", "CHG_MODEBACK \\1", "rlbpl \\4", "stratmac_end"])
+        drop = source("STRAT/GASTRATS.ASM").split("\nbomwingdie_Istrat", 1)[1].split(";********", 1)[0]
+        self.assertEqual(instructions(drop), [
+            "s_start_strat", "s_make_obj #item_5,.badobj", "s_set_strat y,item5_Istrat",
+            "s_copy_pos y,x", "s_add_alvar W,y,al_worldy,#-20", ".badobj", "s_jmp explode_Istrat",
+        ])
+
     def test_repair_pickup_failure_retains_actor_and_success_defers_the_new_ship(self):
         body = source("STRAT/GASTRATS.ASM").split("\nitem4_Istrat", 1)[1].split(";********", 1)[0]
         self.assertEqual(instructions(body), [

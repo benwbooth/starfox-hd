@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Completed the adjacent SF1 special-weapon pickup and bomber-drop caller.
+  Collection now selects the exposed player, preserves the source's wrapped
+  range checks and signed word inventory cap, continues after a death marker,
+  writes collision-disable in its proper flag byte, and leaves score unchanged.
+  Full inventory still consumes the pickup through the flash initializer,
+  without restarting the HUD flash or playing the award sound. Enemy drops
+  preserve their inherited position offset and defer initialization to one
+  same-pass visit after the dying parent. Inventory access now uses its typed
+  owner directly. Original-code tests verify all 65,536 inventory words,
+  wrapped coordinates, drifting/stationary pickups, cockpit/death ordering,
+  failed allocation and the drop's first visit. Native production-pass tests
+  verify one award and subsequent flash progression. All 1,538 game/path/
+  strategy tests and 17 weapon/pickup original-code tests pass in debug/release;
+  all 45 SF1 source tests, the architecture audit and all three app builds pass.
+  The exhaustive test resets case inputs while retaining the ROM allocation;
+  it does not substitute expected state or skip original execution. Existing
+  whole-game timing, route and SF2 integration gates remain open.
+
 - Completed the source-level SF1 repair pickup/ship chain in the shipping
   strategy dispatcher. A failed repair-ship allocation leaves its pickup
   available; all three callers install the child after themselves and defer
@@ -134,8 +152,9 @@ running; scheduled work is not a guarantee of a completion date.
   in debug/release; all 44 SF1 source tests, the architecture audit and all
   three app-binary builds pass. No trace fixtures were regenerated. This does
   not close the retained SF1 semantic/timing or route gates, nor SF2's pending
-  native frame/scene integration. The adjacent special-weapon pickup still
-  has the same score/flag/death-order discrepancies and is queued next.
+  native frame/scene integration. The adjacent special-weapon pickup's
+  score/flag/death-order discrepancies were queued at this checkpoint and
+  are addressed in the subsequent batch above.
 
 - Connected native opening-controller requests and button skips to a typed
   cinematic exit owner. Input holds, the delayed button-request transition,

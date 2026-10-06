@@ -10,8 +10,9 @@ use sf_game::{
     Game,
 };
 use sf_strat::enemy_a::{
-    flashplayer_istrat, item4_istrat, item4_strat, item7a_istrat, ripair_istrat, ripair_strat,
-    strat_item7_init, PSF_BRKLWING, PSF_BRKRWING, PSF_LWINGCOLL, PSF_RWINGCOLL, SH_HELPBALL,
+    bomwingdie_istrat, flashplayer_istrat, item4_istrat, item4_strat, item7a_istrat, ripair_istrat,
+    ripair_strat, strat_item5_init, strat_item7_init, PSF_BRKLWING, PSF_BRKRWING, PSF_LWINGCOLL,
+    PSF_RWINGCOLL, SH_HELPBALL,
 };
 
 #[derive(Clone, Default)]
@@ -388,4 +389,104 @@ fn repair_pickup_death_marker_releases_fire_then_still_allocates_and_marks_again
     assert_eq!(game.objs.aliens[fire as usize].shape, 401);
     assert_eq!(game.objs.aliens[fire as usize].sbyte1, 0);
     assert!(sounds.0.borrow().is_empty());
+}
+
+#[test]
+fn special_pickup_uses_the_signed_word_cap_and_consumes_even_when_full_or_dead() {
+    for (before, after) in [
+        (0, 1),
+        (4, 5),
+        (5, 5),
+        (6, 6),
+        (32772, 32772),
+        (32773, 32774),
+        (65535, 0),
+    ] {
+        for dead in [false, true] {
+            for cockpit in [false, true] {
+                let (mut game, _, pickup, sounds) = scene();
+                game.vars.strategy.special_weapon_count = before;
+                game.vars.shared.special_flash = 201;
+                game.vars.shared.player_score = 47;
+                game.objs.aliens[pickup as usize].count = 91;
+                if dead {
+                    game.vars.pshipflags2 = PSF2_PLAYERHP0;
+                }
+                if cockpit {
+                    game.vars.player_view_mode = PlayerViewMode::Cockpit;
+                }
+                strat_item5_init(&mut game, pickup);
+                assert_eq!(game.vars.strategy.special_weapon_count, after);
+                assert_eq!(
+                    game.vars.shared.special_flash,
+                    if before == after { 201 } else { 30 }
+                );
+                assert_eq!(game.vars.shared.player_score, 47);
+                assert_eq!(
+                    *sounds.0.borrow(),
+                    if before == after { vec![] } else { vec![0x18] }
+                );
+                let item = game.objs.aliens[pickup as usize];
+                assert_eq!(item.sflags, 0xA4);
+                assert_eq!(item.sflags2, 0xB0 | ASF2_COLLDISABLE);
+                assert_eq!(item.count, if cockpit { 91 } else { 19 });
+                assert_eq!(game.objs.aldead, u8::from(dead) + u8::from(dead || cockpit));
+            }
+        }
+    }
+}
+
+#[test]
+fn special_drop_only_awards_inventory_when_its_own_entry_visits_the_player() {
+    let (mut game, player, bomber, sounds) = scene();
+    let pl = game.objs.aliens[player as usize];
+    let al = &mut game.objs.aliens[bomber as usize];
+    [al.worldx, al.worldy, al.worldz] = [pl.worldx, pl.worldy, pl.worldz];
+    al.sflags = 0;
+    al.sflags2 = 0;
+    game.vars.strategy.special_weapon_count = 4;
+    bomwingdie_istrat(&mut game, bomber);
+    assert_eq!(game.vars.strategy.special_weapon_count, 4);
+    assert!(sounds.0.borrow().is_empty());
+    let active = game.objs.active_indices();
+    let child = active[active.iter().position(|&id| id == bomber).unwrap() + 1];
+    let drop = game.objs.aliens[child as usize];
+    assert_eq!(drop.shape, 158);
+    assert_eq!(
+        [drop.worldx, drop.worldy, drop.worldz],
+        [pl.worldx, pl.worldy.wrapping_sub(20), pl.worldz]
+    );
+    assert_eq!(drop.sflags2 & ASF2_COLLDISABLE, 0);
+    game.objs.aldead = 0;
+    game.call_strat(drop.stratptr.unwrap(), child);
+    assert_eq!(game.vars.strategy.special_weapon_count, 5);
+    assert_eq!(game.objs.aliens[child as usize].count, 19);
+    assert_eq!(*sounds.0.borrow(), [0x18]);
+}
+
+#[test]
+fn production_pass_enters_the_special_drop_once_before_its_next_flash_visit() {
+    let (mut game, player, bomber, sounds) = scene();
+    let pl = game.objs.aliens[player as usize];
+    let init = game.world.register_strategy(bomwingdie_istrat);
+    let al = &mut game.objs.aliens[bomber as usize];
+    [al.worldx, al.worldy, al.worldz] = [pl.worldx, pl.worldy, pl.worldz];
+    al.sflags = 0;
+    al.sflags2 = 0;
+    al.stratptr = Some(init);
+    game.vars.strategy.special_weapon_count = 4;
+    game.run_strategies();
+    assert!(!game.objs.aliens[bomber as usize].active);
+    let flash = game
+        .objs
+        .active_indices()
+        .into_iter()
+        .find(|&id| game.objs.aliens[id as usize].count == 19)
+        .unwrap();
+    assert_eq!(game.vars.strategy.special_weapon_count, 5);
+    assert_eq!(*sounds.0.borrow(), [0x18]);
+    game.run_strategies();
+    assert_eq!(game.objs.aliens[flash as usize].count, 18);
+    assert_eq!(game.vars.strategy.special_weapon_count, 5);
+    assert_eq!(*sounds.0.borrow(), [0x18]);
 }

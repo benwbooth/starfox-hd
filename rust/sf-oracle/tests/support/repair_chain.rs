@@ -13,14 +13,19 @@ const LEFT: u32 = 0x0900;
 const RIGHT: u32 = 0x0A00;
 
 #[derive(Clone, Default)]
-struct Sounds(Rc<RefCell<Vec<u8>>>);
+pub(super) struct Sounds(Rc<RefCell<Vec<u8>>>);
+impl Sounds {
+    pub(super) fn clear(&self) {
+        self.0.borrow_mut().clear();
+    }
+}
 impl Hooks for Sounds {
     fn play_se(&mut self, sound: u8) {
         self.0.borrow_mut().push(sound);
     }
 }
 
-fn scene() -> (Game, u16, u16, Sounds) {
+pub(super) fn scene() -> (Game, u16, u16, Sounds) {
     let sounds = Sounds::default();
     let mut game = Game::with_hooks(Box::new(sounds.clone()));
     let decoy = game.objs.alloc().unwrap();
@@ -53,7 +58,7 @@ fn scene() -> (Game, u16, u16, Sounds) {
     (game, player, id, sounds)
 }
 
-fn seed(source: &Source, game: &Game, id: u16) -> SnesBus {
+pub(super) fn seed(source: &Source, game: &Game, id: u16) -> SnesBus {
     let mut bus = SnesBus::new(source.rom.clone());
     source.seed(&mut bus, &game.objs.aliens[id as usize], game);
     source.byte(
@@ -87,7 +92,7 @@ fn seed(source: &Source, game: &Game, id: u16) -> SnesBus {
     bus
 }
 
-fn compare_sound(source: &Source, bus: &mut SnesBus, sounds: &Sounds, context: &str) {
+pub(super) fn compare_sound(source: &Source, bus: &mut SnesBus, sounds: &Sounds, context: &str) {
     let count = bus.read8(WRAM | source.symbol("SDSPT3"));
     let expected: Vec<_> = (0..count)
         .map(|slot| bus.read8(WRAM | (source.symbol("SDPORT3") + u32::from(slot))))
