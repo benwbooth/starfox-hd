@@ -731,6 +731,10 @@ pub struct Exit {
     pub c: u16,
     pub x: u16,
     pub y: u16,
+    /// The routine reached the harness's return trap, rather than the cycle
+    /// guard or an unrelated stop instruction. Differential tests must check
+    /// this before treating memory left by a partial call as reference output.
+    pub returned: bool,
 }
 
 /// Run a far (`JSL`/`RTL`) subroutine at `target` (24-bit) to its return.
@@ -809,6 +813,10 @@ pub fn call(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
         c: cpu.c(),
         x: cpu.x(),
         y: cpu.y(),
+        returned: started
+            && cpu.stopped()
+            && cpu.pbr() == 0
+            && cpu.pc() == STUB_PC.wrapping_add(stub.len() as u16),
     }
 }
 
@@ -882,6 +890,10 @@ pub fn call_near(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
         c: cpu.c(),
         x: cpu.x(),
         y: cpu.y(),
+        returned: started
+            && cpu.stopped()
+            && u32::from(cpu.pbr()) == target_bank
+            && cpu.pc() == trap_pc.wrapping_add(1),
     }
 }
 
@@ -949,12 +961,34 @@ mod tests {
         bus.wram_write16(0x12, 2222);
 
         let exit = call(&mut bus, 0x00_8000, &Entry::default());
+        assert!(exit.returned);
         let sum = bus.wram_read16(0x14);
         eprintln!(
             "ORACLE self-test: 1111+2222 -> wram[$14]={sum}, A={}",
             exit.a
         );
         assert_eq!(sum, 3333, "injected routine should compute 1111+2222");
+    }
+
+    #[test]
+    fn call_results_distinguish_returns_from_stops_inside_the_callee() {
+        let mut far_rom = vec![0; 0x8000];
+        far_rom[0] = 0x6B; // RTL
+        assert!(call(&mut SnesBus::new(far_rom), 0x008000, &Entry::default()).returned);
+        let mut near_rom = vec![0; 0x8000];
+        near_rom[0] = 0x60; // RTS
+        assert!(call_near(&mut SnesBus::new(near_rom), 0x008000, &Entry::default()).returned);
+        let mut stopped_rom = vec![0; 0x8000];
+        stopped_rom[0] = 0xDB; // STP inside the callee is not a valid return.
+        assert!(
+            !call(
+                &mut SnesBus::new(stopped_rom.clone()),
+                0x008000,
+                &Entry::default()
+            )
+            .returned
+        );
+        assert!(!call_near(&mut SnesBus::new(stopped_rom), 0x008000, &Entry::default()).returned);
     }
 
     /// The retail ROM is present, headerless, and LoROM ("STAR FOX" @ $00:FFC0).

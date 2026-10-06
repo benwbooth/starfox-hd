@@ -229,6 +229,25 @@ running; scheduled work is not a guarantee of a completion date.
   checkout. These are subsystem results, not a new whole-workspace certificate.
   `helpballhome_Istrat` and source missile-boundary comparisons remain next;
   the two earlier oracle release blockers and SF2 production wiring remain open.
+- Closed the orbiting and homing helpball entry/retirement slice. Both
+  initializers enter their strategies immediately; pickup and child constructors
+  install those initializers for the objects' own same-pass visits. Corrected
+  sprite/target flag domains, preserved unrelated flags and the sprite colour
+  high byte, separated homing aim from visible camera-facing angles, retained
+  counters on initialization, restored wrapping comparisons/decrements, and
+  retained source target locks when allocation fails. A terminal orbit visit
+  continues through movement/search after marking removal, as in the source.
+  The five weapon-entry differential tests now cover 95 source executions,
+  including six complete CPU-to-Super-FX homing calls and 48 orbit boundary
+  cases. They install the original boot-copied math trampoline and require a
+  verified subroutine return; new oracle result metadata detects partial calls
+  and unexpected stops. A production-loop test verifies three helper children
+  each initialize exactly once after their parent. All 1,516 game/path/strategy
+  tests pass in debug, all 1,273 strategy tests pass in release, and 29 scoped
+  oracle tests pass in both profiles. All 33 SF1 Python tests, the architecture
+  audit and app build pass. The remaining pickup behavior beyond constructor
+  ordering, missile boundaries, earlier oracle blockers and SF2 wiring are not
+  certified by this slice.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

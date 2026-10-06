@@ -1,7 +1,7 @@
 //! ROM `helpball` / `helpballhome` / Hcoll / Hrem (GSTRATS.ASM).
 
 use sf_game::alien::{
-    ObjectVisualKind, ASF3_LOCKON, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_NOHITAFFECT,
+    ObjectVisualKind, ASF2_COLLDISABLE, ASF3_LOCKON, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF_SSPRITE,
 };
 use sf_game::draw::AF_INVIEW_PL;
 use sf_game::vars::HARD_HP;
@@ -38,6 +38,7 @@ fn helpball_istrat_sets_orbit_radius_and_colldisable() {
     let mut g = Game::new();
     let _p = spawn_player(&mut g);
     let idx = g.objs.alloc().expect("hb");
+    g.objs.aliens[idx as usize].shape = SH_HELPBALL;
     helpball_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte3, 30);
     assert_eq!(g.objs.aliens[idx as usize].shape, SH_HELPBALL);
@@ -45,7 +46,8 @@ fn helpball_istrat_sets_orbit_radius_and_colldisable() {
         g.objs.aliens[idx as usize].visual_kind,
         ObjectVisualKind::ScaledSprite
     );
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_SSPRITE, 0);
     assert!(g.objs.aliens[idx as usize].stratptr.is_some());
 }
 
@@ -79,7 +81,6 @@ fn helpball_orbits_and_spawns_home_on_valid_target() {
     let hb = g.objs.alloc().expect("hb");
     helpball_istrat(&mut g, hb);
 
-    helpball_strat(&mut g, hb);
     assert_eq!(
         g.objs.aliens[enemy as usize].sflags3 & ASF3_LOCKON,
         ASF3_LOCKON
@@ -92,14 +93,25 @@ fn helpball_orbits_and_spawns_home_on_valid_target() {
         .iter()
         .enumerate()
         .find(|(i, a)| {
-            *i as u16 != hb && *i as u16 != enemy && *i as u16 != 0 && a.active && a.ap == 20
+            *i as u16 != hb
+                && *i as u16 != enemy
+                && *i as u16 != 0
+                && a.active
+                && a.shape == SH_SHELPBALL
         })
         .map(|(i, _)| i as u16)
         .expect("home shot");
     assert_eq!(g.objs.aliens[home as usize].ptr, enemy.wrapping_add(1));
     assert_eq!(g.objs.aliens[home as usize].sword1, hb as i16);
+    assert_eq!(g.objs.aliens[hb as usize].next, Some(home));
+    assert_eq!(
+        g.objs.aliens[home as usize].count, 0,
+        "initializer is deferred"
+    );
+    let init = g.objs.aliens[home as usize].stratptr.unwrap();
+    g.call_strat(init, home);
     assert_eq!(g.objs.aliens[home as usize].vel, 40);
-    assert_eq!(g.objs.aliens[home as usize].count, 70);
+    assert_eq!(g.objs.aliens[home as usize].count, 69);
     assert_eq!(g.objs.aliens[home as usize].shape, SH_SHELPBALL);
     assert_eq!(
         g.objs.aliens[home as usize].visual_kind,
@@ -117,7 +129,7 @@ fn helpball_skips_locked_friend_hard_and_nohit() {
     g.objs.aliens[friend as usize].collflags |= 0x80; // ACF_COLLTYPE5 friend
 
     let nohit = spawn_enemy(&mut g, 480, 0, 5);
-    g.objs.aliens[nohit as usize].sflags |= ASF_NOHITAFFECT;
+    g.objs.aliens[nohit as usize].sflags3 |= ASF3_NOHITAFFECT;
 
     let hb = g.objs.alloc().expect("hb");
     helpball_istrat(&mut g, hb);
@@ -150,8 +162,8 @@ fn helpball_hcoll_only_hurts_when_partner_is_target() {
     let target = spawn_enemy(&mut g, 200, 0, 5);
     let other = spawn_enemy(&mut g, 300, 0, 5);
     let home = g.objs.alloc().expect("h");
-    helpballhome_istrat(&mut g, home);
     g.objs.aliens[home as usize].ptr = target.wrapping_add(1);
+    helpballhome_istrat(&mut g, home);
     g.objs.aliens[home as usize].collobjptr = other;
     g.objs.aliens[home as usize].sflags2 |= 0x10; // skip missbound
     helpball_hcoll_istrat(&mut g, home);
@@ -174,4 +186,40 @@ fn helpball_expires_after_ten_shots_and_radius_grow() {
     assert_eq!(g.objs.aliens[hb as usize].sbyte3, 120);
     helpball_strat(&mut g, hb);
     assert_eq!(g.objs.aldead, 1);
+}
+
+#[test]
+fn helpball_children_initialize_once_later_in_the_same_production_pass() {
+    let mut g = Game::new();
+    spawn_player(&mut g);
+    for x in [500, 700, 900, 1100] {
+        spawn_enemy(&mut g, x, 0, 10);
+    }
+    let hb = g.objs.alloc().unwrap();
+    let init = g.world.register_strategy(helpball_istrat);
+    g.objs.aliens[hb as usize].shape = SH_HELPBALL;
+    g.objs.aliens[hb as usize].stratptr = Some(init);
+
+    g.run_strategies();
+
+    assert_eq!(g.objs.aliens[hb as usize].sbyte1, 3);
+    assert_eq!(g.objs.aliens[hb as usize].sbyte2, 3);
+    let homes: Vec<_> = g
+        .objs
+        .active_indices()
+        .into_iter()
+        .filter(|&id| g.objs.aliens[id as usize].shape == SH_SHELPBALL)
+        .collect();
+    assert_eq!(homes.len(), 3);
+    for &id in &homes {
+        let shot = &g.objs.aliens[id as usize];
+        assert_eq!(shot.count, 69);
+        assert_eq!(shot.sword1, hb as i16);
+        assert_ne!(shot.sflags & ASF_SSPRITE, 0);
+        assert_eq!(shot.roty, 128, "visible orientation is not the homing aim");
+    }
+    g.run_strategies();
+    for id in homes {
+        assert_eq!(g.objs.aliens[id as usize].count, 68);
+    }
 }

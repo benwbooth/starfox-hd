@@ -152,8 +152,8 @@ fn helpballhome_snaps_negated_yaw() {
     g.objs.aliens[idx as usize].worldz = 0;
     g.objs.aliens[idx as usize].ptr = target.wrapping_add(1); // index+1 encoding
     helpballhome_istrat(&mut g, idx);
-    let s = g.objs.aliens[idx as usize].stratptr.expect("strat");
-    g.call_strat(s, idx);
+    // The initializer falls directly into the first homing visit. Another
+    // visit would aim from its already-moved position, not this entry position.
     let raw = yanglexy(0, 0, 250, 600);
     let neg = raw.wrapping_neg();
     assert_ne!(raw, neg);

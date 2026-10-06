@@ -5275,6 +5275,16 @@ pub fn fire_yhplasma(g: &mut Game, firer: u16) -> Option<u16> {
 // ============================================================
 
 const NUM_HELP_SHOTS: u8 = 10;
+const HELP_MAX_ACTIVE_SHOTS: u8 = 3;
+const HELP_INITIAL_RADIUS: u8 = 30;
+const HELP_RADIUS_GROWTH: u8 = 3;
+const HELP_FINAL_RADIUS: u8 = 120;
+const HELP_ORBIT_ROTATION_STEP: u8 = 12;
+const HELP_TARGET_MIN_DISTANCE: i16 = 300;
+const HELP_TARGET_MAX_DISTANCE: i16 = 4000;
+const HELP_SHOT_DAMAGE: u8 = 20;
+const HELP_SHOT_SPEED: u8 = 40;
+const HELP_SHOT_LIFETIME: u8 = 70;
 pub const SH_HELPBALL: u16 = 226;
 /// Extended shape-catalog id for the source's distinct homing helper shot.
 pub const SH_SHELPBALL: u16 = 406;
@@ -5296,17 +5306,17 @@ pub fn helpball_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, helpball_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.shape = SH_HELPBALL;
         al.stratptr = Some(tick);
         al.collstratptr = None;
         al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
-        al.sbyte3 = 30;
-        al.sbyte1 = 0;
-        al.sbyte2 = 0;
-        al.sflags4 &= !ASF4_INVISIBLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.sbyte3 = HELP_INITIAL_RADIUS;
+        al.sflags |= ASF_SSPRITE;
+        al.depthoffset &= !i16::from(u8::MAX);
+        al.tx = 0;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
     }
+    helpball_strat(g, idx);
 }
 
 /// ROM `helpball_strat` (GSTRATS.ASM:2241).
@@ -5315,29 +5325,38 @@ pub fn helpball_strat(g: &mut Game, idx: u16) {
     use sf_game::draw::AF_INVIEW_PL;
     use sf_game::vars::HARD_HP;
 
-    let Some(player) = nuke_player_idx(g) else {
+    let Some(player) = g.player_object() else {
         g.objs.aldead = 1;
         return;
     };
+    let [pitch, yaw] = crate::common::flat_billboard_rotation(&g.vars);
+    g.objs.aliens[idx as usize].rotx = pitch;
+    g.objs.aliens[idx as usize].roty = yaw;
 
     // Lifetime: after numhelpshots fired, expand radius then remove.
-    if g.objs.aliens[idx as usize].sbyte2 >= NUM_HELP_SHOTS {
-        let r = g.objs.aliens[idx as usize].sbyte3.wrapping_add(3);
+    // Source byte comparisons test the sign of the wrapping subtraction.
+    let shot_count = g.objs.aliens[idx as usize].sbyte2;
+    if shot_count.wrapping_sub(NUM_HELP_SHOTS) as i8 >= 0 {
+        let r = g.objs.aliens[idx as usize]
+            .sbyte3
+            .wrapping_add(HELP_RADIUS_GROWTH);
         g.objs.aliens[idx as usize].sbyte3 = r;
-        if r >= 120 {
+        if r.wrapping_sub(HELP_FINAL_RADIUS) as i8 >= 0 {
             g.objs.aldead = 1;
-            return;
+            // s_remove_obj does not return: orbit and target traversal follow.
         }
     }
 
     {
         let radius = g.objs.aliens[idx as usize].sbyte3;
         helpball_orbit_pos(g, idx, player, radius);
-        g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize].rotz.wrapping_add(12);
+        g.objs.aliens[idx as usize].rotz = g.objs.aliens[idx as usize]
+            .rotz
+            .wrapping_add(HELP_ORBIT_ROTATION_STEP);
     }
 
     // Cap concurrent homes at 3 (sbyte1).
-    if g.objs.aliens[idx as usize].sbyte1 >= 3 {
+    if g.objs.aliens[idx as usize].sbyte1 == HELP_MAX_ACTIVE_SHOTS {
         return;
     }
 
@@ -5350,7 +5369,7 @@ pub fn helpball_strat(g: &mut Game, idx: u16) {
         if yi == idx || yi == player {
             continue;
         }
-        if g.objs.aliens[idx as usize].sbyte1 >= 3 {
+        if g.objs.aliens[idx as usize].sbyte1 == HELP_MAX_ACTIVE_SHOTS {
             break;
         }
         let yal = g.objs.aliens[yi as usize];
@@ -5361,13 +5380,15 @@ pub fn helpball_strat(g: &mut Game, idx: u16) {
         probe.worldx = self_pos.0;
         probe.worldz = self_pos.1;
         let d = crate::common::strat_dist_xz(&probe, &yal);
-        if d < 300 || d >= 4000 {
+        if d.wrapping_sub(HELP_TARGET_MIN_DISTANCE) < 0
+            || d.wrapping_sub(HELP_TARGET_MAX_DISTANCE) >= 0
+        {
             continue;
         }
         if yal.flags & AF_INVIEW_PL == 0 {
             continue;
         }
-        if yal.sflags & (ASF_NOHITAFFECT | ASF_COLLDISABLE) != 0 {
+        if yal.sflags3 & ASF3_NOHITAFFECT != 0 || yal.sflags2 & ASF2_COLLDISABLE != 0 {
             continue;
         }
         if yal.collflags & ACF_COLLTYPE5 != 0 {
@@ -5383,9 +5404,12 @@ pub fn helpball_strat(g: &mut Game, idx: u16) {
         // Lock and spawn shelpball home.
         g.objs.aliens[yi as usize].sflags3 |= ASF3_LOCKON;
         let Some(home) = make_obj(g, SH_SHELPBALL) else {
-            g.objs.aliens[yi as usize].sflags3 &= !ASF3_LOCKON;
-            break;
+            // Source's allocation-failure branch resumes the search with the
+            // target still locked and without incrementing either shot count.
+            continue;
         };
+        g.objs.active_move_after(home, idx);
+        let init = sid(g, helpballhome_istrat);
         {
             let src = g.objs.aliens[idx as usize];
             let al = &mut g.objs.aliens[home as usize];
@@ -5394,8 +5418,8 @@ pub fn helpball_strat(g: &mut Game, idx: u16) {
             al.worldz = src.worldz;
             al.ptr = yi.wrapping_add(1);
             al.sword1 = idx as i16; // mother helpball
+            al.stratptr = Some(init);
         }
-        helpballhome_istrat(g, home);
         g.objs.aliens[idx as usize].sbyte1 = g.objs.aliens[idx as usize].sbyte1.wrapping_add(1);
         g.objs.aliens[idx as usize].sbyte2 = g.objs.aliens[idx as usize].sbyte2.wrapping_add(1);
     }
@@ -5412,28 +5436,32 @@ pub fn helpballhome_istrat(g: &mut Game, idx: u16) {
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
         al.hp = 1;
-        al.ap = 20;
-        al.vel = 40;
-        al.count = 70;
+        al.ap = HELP_SHOT_DAMAGE;
+        al.vel = HELP_SHOT_SPEED;
+        al.count = HELP_SHOT_LIFETIME;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE5; // laser + friend
-        al.type_ |= ATLASER;
         al.type_ &= !ATZREMOVE;
-        al.sflags4 &= !ASF4_INVISIBLE;
+        al.sflags |= ASF_SSPRITE;
+        // s_sprite_obj writes only the low colour byte of depthoffset.
+        al.depthoffset &= !i16::from(u8::MAX);
+        al.tx = 0;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
-        al.sbyte1 = al.roty;
-        al.sbyte2 = al.rotx;
     }
+    helpballhome_strat(g, idx);
 }
 
 /// ROM `helpballhome_strat` (GSTRATS.ASM:2295).
 pub fn helpballhome_strat(g: &mut Game, idx: u16) {
+    let [pitch, yaw] = crate::common::flat_billboard_rotation(&g.vars);
+    g.objs.aliens[idx as usize].rotx = pitch;
+    g.objs.aliens[idx as usize].roty = yaw;
     let ti = {
         let ptr = g.objs.aliens[idx as usize].ptr;
         if ptr == 0 {
             None
         } else {
             let t = ptr as i32 - 1;
-            if t >= 0 && (t as usize) < NUMBER_AL && g.objs.aliens[t as usize].active {
+            if t >= 0 && (t as usize) < NUMBER_AL {
                 Some(t as u16)
             } else {
                 None
@@ -5455,9 +5483,7 @@ pub fn helpballhome_strat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.sbyte1 = yaw;
         al.sbyte2 = pitch;
-        al.roty = yaw;
-        al.rotx = pitch;
-        crate::common::strat_gen_vecs_3d(al);
+        [al.vx, al.vy, al.vz] = crate::common::strat_velocity_3d(pitch, yaw, al.vel);
     }
     apply_velocity(&mut g.objs.aliens[idx as usize]);
     add_player_z(g, idx);
@@ -5503,11 +5529,9 @@ pub fn helpball_hrem_istrat(g: &mut Game, idx: u16) {
     }
     // Dec mother's active-home count (sbyte1).
     let mother = g.objs.aliens[idx as usize].sword1 as u16;
-    if (mother as usize) < NUMBER_AL && g.objs.aliens[mother as usize].active {
-        let n = g.objs.aliens[mother as usize].sbyte1;
-        if n > 0 {
-            g.objs.aliens[mother as usize].sbyte1 = n - 1;
-        }
+    if (mother as usize) < NUMBER_AL {
+        let parent = &mut g.objs.aliens[mother as usize];
+        parent.sbyte1 = parent.sbyte1.wrapping_sub(1);
     }
     g.objs.aldead = 1;
 }
@@ -9827,19 +9851,12 @@ pub fn item7a_strat(g: &mut Game, idx: u16) {
     if xydist >= ITEM7A_PICKUP_XY {
         return;
     }
-    // Spawn helper ball at pickup position.
+    // Source installs the helper for its own visit, which anchors it to the
+    // exposed player. It does not copy the pickup's position into the helper.
     if let Some(ball) = make_obj(g, SH_HELPBALL) {
-        let (px, py, pz) = {
-            let m = &g.objs.aliens[idx as usize];
-            (m.worldx, m.worldy, m.worldz)
-        };
-        {
-            let al = &mut g.objs.aliens[ball as usize];
-            al.worldx = px;
-            al.worldy = py;
-            al.worldz = pz;
-        }
-        helpball_istrat(g, ball);
+        g.objs.active_move_after(ball, idx);
+        let init = sid(g, helpball_istrat);
+        g.objs.aliens[ball as usize].stratptr = Some(init);
     }
     g.hooks.play_se(0x10);
     // ROM jsl pLWing_Istrat / pRWing_Istrat on pcbox wings — repair flags.

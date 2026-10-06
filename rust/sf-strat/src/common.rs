@@ -456,19 +456,28 @@ pub fn strat_gen_vecs_nvecs(al: &mut Alien) {
 /// C `Strat_GenVecs3D` (alvel3vecs_l, STRATROU.ASM:221-283): ROM-exact 3D
 /// velocity from pitch and yaw.
 pub fn strat_gen_vecs_3d(al: &mut Alien) {
+    [al.vx, al.vy, al.vz] = strat_velocity_3d(al.rotx, al.roty, al.vel);
+}
+
+/// Source `n3dvecs_l` with explicit aim, independent of displayed orientation.
+/// Sprite projectiles keep their homing aim in strategy bytes while their
+/// visible pitch/yaw continue facing the camera.
+pub fn strat_velocity_3d(pitch: u8, yaw: u8, speed: u8) -> [i16; 3] {
     // `n3dvecs_l` negates YAW but does not negate pitch. Keeping a former
     // renderer-oriented pitch negation here made scripted vertical arcs run
     // backward in world simulation (notably DM_LB1's two-door entrance). Any
     // display-axis conversion belongs in the renderer, not world physics.
     use crate::snes_trig::{mulslog_mac8, COSTAB, SINTAB};
-    let yaw = (al.roty as i8).wrapping_neg() as u8 as usize;
-    let pitch = al.rotx as usize;
-    let vel = al.vel as i8;
+    let yaw = (yaw as i8).wrapping_neg() as u8 as usize;
+    let pitch = pitch as usize;
+    let vel = speed as i8;
     let cosx = COSTAB[pitch];
 
-    al.vx = mulslog_mac8(mulslog_mac8(vel, SINTAB[yaw]), cosx) as i16;
-    al.vy = mulslog_mac8(vel, SINTAB[pitch]) as i16;
-    al.vz = mulslog_mac8(mulslog_mac8(vel, COSTAB[yaw]), cosx) as i16;
+    [
+        mulslog_mac8(mulslog_mac8(vel, SINTAB[yaw]), cosx) as i16,
+        mulslog_mac8(vel, SINTAB[pitch]) as i16,
+        mulslog_mac8(mulslog_mac8(vel, COSTAB[yaw]), cosx) as i16,
+    ]
 }
 
 /// ROM `sr_gen_3dvecs` / `sr_gen_3dvecs1..3` (STRATROU.ASM:2624):
