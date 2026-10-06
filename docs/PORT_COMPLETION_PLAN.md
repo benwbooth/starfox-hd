@@ -113,6 +113,31 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Connected the standard loader's native artwork publications to `OpeningScene`:
+  typed background tiles/map cells, separate live/sprite palette ownership, and
+  an ordered publication queue which distinguishes main-loop requests from
+  display services. Character publication queues the map directly; foreground
+  selection and the later sprite request require main-loop resumptions.
+  Foreground policy is sampled at its source boundary, the inherited
+  background-palette skip is consumed once, overlapping requests fail without
+  mutation, and neither publication nor request advances actors or clocks.
+  The additional decoded character tile is correctly excluded from upload.
+  Original reset-to-loader execution now verifies every publication boundary,
+  the actual emulator VRAM character/map transfers, live/saved palettes and
+  sprite colors. Another 1,024 original selector executions verify both policy
+  states, all selector bytes and unrelated flag bits. A combined 440-update
+  opening check passes for palettes, actors, RNG and camera, using observed
+  source pass partitions **and artwork service boundaries**, not injected
+  colors or a hardcoded update-two installer. It passes in debug/release.
+  All 18 native data tests, 1,194 native game unit tests and two architecture
+  integration tests pass in debug/release; all 1,239 compatibility-enabled
+  game tests pass in debug, 11 scoped oracle tests pass in release, and all
+  three app binaries build. The architecture audit also passes.
+  **Autonomous artwork scheduling, other scene-setup side effects, display
+  timing, render-state handoff and `Game::tick` adoption remain open.** Both
+  existing ignored autonomous gates are retained; this batch does not change
+  the shipping intro's recorded presentation controller or certify SF2.
+
 - Separated historical SF1 checkpoint hashing from the expanded live trace
   schema. The nine fields added after those checkpoints remain in full live
   retail/native comparisons; only the old fingerprint uses its original field

@@ -2,15 +2,18 @@
 //! partitioning as scheduler input, but never supplies actor poses, allocations
 //! or RNG corrections. The separate ignored autonomous gate remains failing
 //! until the timer/PPU refresh timing can be derived natively.
-//! Palette parity has its own ignored gate: the actor-only comparison does
-//! not cover the source's queued palette transfers during opening setup.
+//! Artwork integration additionally supplies observed publication boundaries,
+//! never palette contents. The separate actor-partition-only palette gate stays
+//! ignored until a native frame owner schedules those publications itself.
 
+use sf2_data::opening_artwork::{ForegroundPaletteId, OpeningArtwork};
 use sf2_game::intro_camera::OpeningCameraCue;
 use sf2_game::intro_controller::{IntroColor, OpeningScenePalette, INTRO_PALETTE_COLORS};
 use sf2_game::intro_scene::{OpeningAnimationFrame, OpeningScene, OpeningSceneActor};
 use sf2_game::object::{
     object_address, object_index, ACTIVE_LIST, FIELD_PATH, FIELD_SHAPE, PLAYER_ONE,
 };
+use sf2_game::scene_artwork::{ArtworkPublication, ArtworkResume, ForegroundSelection};
 use sf2_game::{RandomState, Vector3};
 use sf_oracle::RetailMachine;
 
@@ -40,7 +43,7 @@ fn active_slots(machine: &RetailMachine) -> Vec<usize> {
 
 #[test]
 fn native_actor_integration_with_observed_source_pass_partition() {
-    check_opening_with_observed_source_pass_partition(false);
+    check_opening_with_observed_source_pass_partition(false, false);
 }
 
 #[test]
@@ -72,16 +75,24 @@ fn opening_view_initialization_matches_native_default() {
 }
 
 #[test]
-#[ignore = "known failure at update 2: native opening palette loading is not scheduled"]
+#[ignore = "native frame host does not yet schedule artwork publications autonomously"]
 fn native_palette_integration_with_observed_source_pass_partition() {
-    check_opening_with_observed_source_pass_partition(true);
+    check_opening_with_observed_source_pass_partition(true, false);
 }
 
-fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
+#[test]
+fn native_palette_and_actor_integration_with_observed_source_services() {
+    check_opening_with_observed_source_pass_partition(true, true);
+}
+
+fn check_opening_with_observed_source_pass_partition(check_palette: bool, observe_artwork: bool) {
     let rom = std::fs::read(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Star Fox 2 (USA, Europe).sfc"),
     )
     .expect("native opening verification requires the user-owned retail SF2 ROM");
+    let artwork = std::sync::Arc::new(
+        OpeningArtwork::decode(&rom[..0xB3FB8], &rom[..0xB44E4], &rom[..0xC2F24]).unwrap(),
+    );
     let mut machine = RetailMachine::new(rom);
     // Next-node markers distinguish consecutive visits even if a strategy
     // returns without calling any other watched routine.
@@ -93,6 +104,16 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
         0x7F3531,
         0x7F357D,
         ENTROPY_REFRESH,
+        0x03C80B, // Begin standard scene artwork.
+        0x7F0BBF, // Setup's polygon palette copied.
+        0x03C813, // Main loader resumes after setup.
+        0x7F0CB2, // Character publication completed.
+        0x7F0D08, // Map publication completed.
+        0x03C893, // Main loader selected the standard foreground row.
+        0x03C879, 0x03C85F, // Alternate rows must not be silently treated as standard.
+        0x03D509, // Foreground publication completed.
+        0x03D520, // Main loader requests sprites.
+        0x03D52C, // Sprite publication completed.
     ]);
     assert!(machine
         .tick_until_cpu_execution(0, CONTROLLER, 240)
@@ -131,6 +152,57 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
         native
             .tick_with_refresh_boundaries(&budget)
             .expect("native shared pool exhaustion");
+        if observe_artwork {
+            // The controller is the first actor and the only actor writing
+            // this palette. These events follow its just-completed visit and
+            // precede the next controller entry. Do not inject original colors
+            // or replace this event order with a completed-update number.
+            for &pc in &dispatches {
+                let publication = match pc {
+                    0x03C80B => {
+                        // The boot request does not inherit a palette-skip flag.
+                        assert_eq!(machine.peek16(WRAM + 0x1B9C) & 0x0040, 0);
+                        native.begin_artwork_load(artwork.clone(), false).unwrap();
+                        None
+                    }
+                    0x7F0BBF => Some(ArtworkPublication::PolygonPalette),
+                    0x03C813 => {
+                        assert_eq!(
+                            native.resume_artwork_load(ForegroundSelection::STANDARD).unwrap(),
+                            ArtworkResume::Queued(ArtworkPublication::BackgroundCharacters)
+                        );
+                        None
+                    }
+                    0x7F0CB2 => Some(ArtworkPublication::BackgroundCharacters),
+                    0x7F0D08 => Some(ArtworkPublication::BackgroundMap),
+                    0x03C893 => {
+                        assert_eq!(
+                            native.resume_artwork_load(ForegroundSelection::STANDARD).unwrap(),
+                            ArtworkResume::Queued(ArtworkPublication::ForegroundPalette(
+                                ForegroundPaletteId::Standard
+                            ))
+                        );
+                        None
+                    }
+                    0x03C879 | 0x03C85F => panic!("unexpected alternate foreground in neutral boot"),
+                    0x03D509 => Some(ArtworkPublication::ForegroundPalette(
+                        ForegroundPaletteId::Standard,
+                    )),
+                    0x03D520 => {
+                        assert_eq!(
+                            native.resume_artwork_load(ForegroundSelection::STANDARD).unwrap(),
+                            ArtworkResume::Queued(ArtworkPublication::SpritePalette)
+                        );
+                        None
+                    }
+                    0x03D52C => Some(ArtworkPublication::SpritePalette),
+                    _ => None,
+                };
+                if let Some(publication) = publication {
+                    assert_eq!(native.publish_artwork(), Some(publication));
+                }
+            }
+        }
         assert_eq!(
             word(&machine, auxiliary.wrapping_add(0x6C16)),
             completed_updates
@@ -138,8 +210,6 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool) {
         assert_eq!(native.controller().elapsed_updates(), completed_updates);
         if check_palette {
             // Compare state, never inject source colors after initialization.
-            // The first missing transfer changes color 2 to $679C at update 2;
-            // a write watch identifies the WRAM DMA routine at $7F:0AA6.
             for (index, (live, saved)) in native
                 .palette()
                 .colors

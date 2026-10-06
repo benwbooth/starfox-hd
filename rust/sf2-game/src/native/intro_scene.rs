@@ -44,7 +44,17 @@ use super::object::{
     OBJECT_CAPACITY,
 };
 use super::render::{MaterialSetId, Rotation};
+use super::scene_artwork::{
+    ArtworkLoadPhase, ArtworkPublication, ArtworkResume, ForegroundSelection, OpeningArtworkLoad,
+    SceneArtwork,
+};
 use super::state::RandomState;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpeningArtworkRequestError {
+    AlreadyLoading,
+    NotStarted,
+}
 
 /// One independently scheduled member of the opening's shared actor pool.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,6 +344,8 @@ pub struct OpeningScene {
     inactive_player: ObjectId,
     controller: OpeningSceneController,
     palette: OpeningScenePalette,
+    artwork: SceneArtwork,
+    artwork_load: Option<OpeningArtworkLoad>,
     random: RandomState,
     camera: IntroCameraView,
     camera_target: Option<ObjectId>,
@@ -393,6 +405,8 @@ impl OpeningScene {
             inactive_player,
             controller: OpeningSceneController::default(),
             palette,
+            artwork: SceneArtwork::default(),
+            artwork_load: None,
             random,
             camera: IntroCameraView::default(),
             camera_target: None,
@@ -423,6 +437,46 @@ impl OpeningScene {
     }
     pub fn palette(&self) -> &OpeningScenePalette {
         &self.palette
+    }
+    pub fn artwork(&self) -> &SceneArtwork {
+        &self.artwork
+    }
+    pub fn artwork_load_phase(&self) -> Option<ArtworkLoadPhase> {
+        self.artwork_load.as_ref().map(OpeningArtworkLoad::phase)
+    }
+    /// Called by the scene host when the source's standard artwork request is
+    /// accepted, not by the actor controller at a prescribed update number.
+    /// Existing assets remain published until their individual service events.
+    pub fn begin_artwork_load(
+        &mut self,
+        artwork: std::sync::Arc<sf2_data::opening_artwork::OpeningArtwork>,
+        skip_background_palette: bool,
+    ) -> Result<(), OpeningArtworkRequestError> {
+        if self
+            .artwork_load_phase()
+            .is_some_and(|phase| phase != ArtworkLoadPhase::Complete)
+        {
+            return Err(OpeningArtworkRequestError::AlreadyLoading);
+        }
+        self.artwork.skip_next_background_palette = skip_background_palette;
+        self.artwork_load = Some(OpeningArtworkLoad::new(artwork));
+        Ok(())
+    }
+    pub fn resume_artwork_load(
+        &mut self,
+        foreground: ForegroundSelection,
+    ) -> Result<ArtworkResume, OpeningArtworkRequestError> {
+        self.artwork_load
+            .as_mut()
+            .map(|load| load.resume(foreground))
+            .ok_or(OpeningArtworkRequestError::NotStarted)
+    }
+    /// The host calls this only at an artwork service boundary. This does not
+    /// advance actors, palette effects, clocks or unrelated scene-mode setup.
+    pub fn publish_artwork(&mut self) -> Option<ArtworkPublication> {
+        self.artwork_load
+            .as_mut()?
+            .publish(&mut self.artwork, &mut self.palette)
     }
     pub fn random(&self) -> RandomState {
         self.random
