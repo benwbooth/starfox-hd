@@ -113,6 +113,28 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported both surface-particle installers and complete custom strategies
+  (`$07:C6E8..C867`) into the native actor scheduler. Fresh sibling allocation,
+  self-referential transform parent, pause exemption, byte-quantized roll/yaw,
+  sprite formatting, retained player-motion inheritance and the final parent
+  size write match the source. Animation advances before integration; terminal
+  frames request deferred removal without moving, and horizontal damping
+  preserves the original separately rounded signed half/eighth terms.
+  The player initializer now owns the combined flight-displacement record,
+  distinct from actor velocity and the shared path-motion publication.
+  Four unmodified-original groups pass: 18,944 installer parameter/rotation
+  cases, 36 repeated/pressure/fatal-pool calls, every animation byte and every
+  signed velocity word, and 512 independently retained installed lifetimes.
+  Five native groups cover ordering, partial faults, duplicate siblings and
+  both lifetimes through the actual paused scheduler and retirement service.
+  All 1,341 native tests and both architecture checks pass in debug/release;
+  oracle-enabled checks pass 1,349 unit tests, 35 runtime tests and both
+  architecture checks. All 72 original player-service groups pass in both
+  profiles, alongside 679 source checks, 209 lowerer tests, the exact catalog
+  and architecture checks, and builds of all three application binaries. This closes
+  the particle dependency of surface response, not its enclosing flight visit
+  or shipping `Game::tick` integration.
+
 - Ported the complete ambient player waveform update (`$06:F2F7..F365`)
   into canonical player-owned state. It preserves the early scripted-view
   skip, independently wrapping/range-checked phases, special-family bank

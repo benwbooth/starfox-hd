@@ -432,6 +432,7 @@ pub enum Behavior {
     /// Source PATHHOLD installs the movement service without path dispatch.
     PathMovement,
     ImpactBurst(super::path_effect::ImpactBurstPhase),
+    SurfaceParticle(super::player_surface_particle::SurfaceParticle),
     /// Common death sprite/companion strategy ($03:A279/$03:A30B).
     Destruction(super::common_destruction::EffectPhase),
     EnemyFlight,

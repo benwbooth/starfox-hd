@@ -132,6 +132,7 @@ pub enum SceneError<E> {
     PlayerVertical(super::player_vertical::VerticalError),
     PlayerThrottle(super::player_throttle::ThrottleError),
     PlayerAmbient(super::player_ambient::AmbientError),
+    PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -630,6 +631,25 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         }
         result
     }
+    /// Surface effects allocate/format here, but their independent strategies
+    /// first run when the live actor scheduler reaches them.
+    pub fn spawn_player_surface_particle(
+        &mut self,
+        owner: ObjectId,
+        kind: super::player_surface_particle::SurfaceParticle,
+        input: super::player_surface_particle::ParticleInputs,
+    ) -> Result<ObjectId, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_surface_particle::spawn(self.objects, self.world, owner, kind, input)
+            .map_err(SceneError::PlayerSurfaceParticle);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Publish the shared clock even for an empty or entirely suspended pass.
     /// Render readiness and positional-accumulator reset are separate owners.
     pub fn begin_strategy_epoch(
@@ -690,6 +710,11 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
             Behavior::ImpactBurst(_) => {
                 super::path_effect::step(self.objects.get_mut(owner).expect("live impact actor"))
                     .expect("validated impact behavior");
+                Ok(owner)
+            }
+            Behavior::SurfaceParticle(_) => {
+                super::player_surface_particle::step(self.objects.get_mut(owner).expect("live surface particle"))
+                    .expect("validated surface particle behavior");
                 Ok(owner)
             }
             Behavior::Destruction(phase) => {

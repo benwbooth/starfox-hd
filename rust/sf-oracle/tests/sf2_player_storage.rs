@@ -44,6 +44,9 @@ mod pool_failure_tests;
 #[path = "support/sf2_player_ambient.rs"]
 mod ambient_tests;
 
+#[path = "support/sf2_player_surface_particle.rs"]
+mod surface_particle_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};
@@ -366,6 +369,11 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                 assert_eq!(ambient.bank_phase, byte(0x6AD6));
                 assert_eq!(ambient.offset_phase, byte(0x6ADB));
                 assert_eq!(ambient.retained_offset, word(0x6AE2) as i16);
+                assert_eq!(records.flight_displacement.unwrap(), Vector3 {
+                    x: word(0x6B0B) as i16,
+                    y: word(0x6B0D) as i16,
+                    z: word(0x6B0F) as i16,
+                });
                 assert_eq!(
                     player_storage::get(&objects, &runtime.resources, owner).unwrap(),
                     &PlayerStorage {

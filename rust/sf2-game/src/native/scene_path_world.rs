@@ -72,6 +72,10 @@ pub struct PlayerPathRecords {
     pub vertical: Option<super::player_vertical::PlayerVerticalControl>,
     pub throttle: Option<super::player_throttle::PlayerThrottle>,
     pub ambient: Option<super::player_ambient::PlayerAmbient>,
+    /// Combined thrust/base translation retained by flight (6B0B/0D/0F).
+    /// Surface particles consume the previous visit before flight rewrites it.
+    /// It is neither base velocity nor the published path displacement.
+    pub flight_displacement: Option<super::Vector3>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
