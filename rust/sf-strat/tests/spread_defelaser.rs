@@ -7,7 +7,7 @@ use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
     defelasercol_istrat, fire_elaser, fire_spread, spread_istrat, spread_strat, spreada_init,
-    ASF2_RELEXPLODE,
+    ASF4_RELEXPLODE,
 };
 
 const SHAPE_ELASER2: u16 = 511;
@@ -27,7 +27,7 @@ fn fire_spread_stats_and_arm_countdown() {
         assert_eq!(al.vel, 40);
         assert_eq!(al.count, 50);
         assert_eq!(al.sbyte3, 10);
-        assert_eq!(al.sflags2 & ASF2_RELEXPLODE, 0);
+        assert_eq!(al.sflags4 & ASF4_RELEXPLODE, 0);
         assert_ne!(al.collflags & ACF_COLLTYPE5, 0); // friend
         assert_ne!(al.collflags & ACF_COLLTYPE4, 0); // enemyweap
     }

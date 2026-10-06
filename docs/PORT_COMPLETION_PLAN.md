@@ -189,6 +189,30 @@ running; scheduled work is not a guarantee of a completion date.
   expected data from native output. All 38 path tests pass in debug/release;
   the three source/fixture-audit tests, architecture check and app build pass.
   The other five failing targets remain open.
+- Reviewed and completed the SF1 relative-explosion/polygon-suppression flag
+  migration, source sprite flags, homing-shot saved speed, radar initialization
+  fallthrough and terminal lifetime stores. Fixed an additional control-flow
+  error: `s_kill_obj` marks death but does not return, so debris still moves and
+  the bomb still applies falling acceleration on its death visit. Boundary
+  tests cover all 256 lifetime values, manual detonation, coordinate wrapping
+  and independence of the macro-facing and relative-explosion flags.
+  All 14 retained enemy/boss regression traces pass. Seven complete-file
+  inverse-hash audits preserve every field outside these reviewed corrections;
+  native-output blessing was removed from the four reviewed trace harnesses.
+  Full `sf-game`, `sf-path` and `sf-strat` suites pass in debug/release, all 30
+  SF1 Python checks pass, and the architecture and app checks pass. An isolated
+  staged-only tree also passes all 1,510 tests from those three packages when
+  supplied the same user-owned reference/catalog assets (the initial export
+  correctly exposed their absence), and its app build succeeds independently
+  of the working tree. Unrelated local changes remain unstaged.
+  The original `bo_parity`, `ea_parity` and `eb_parity` failures are closed;
+  `semantic_trace` and `sf1_corneria_route` remain release blockers.
+- Next SF1 source gap found during this review: `relflatmiss_Istrat`,
+  `flatmiss_Istrat` and `helpballhome_Istrat` fall through to their movement
+  strategies in ASM, but their Rust initializers currently stop after setup.
+  This must be corrected and verified from source, including birth-frame
+  movement/lifetime, before treating the weapon family as complete. Retained
+  legacy traces may encode that old delay and are not authority for preserving it.
 
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully

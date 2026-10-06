@@ -5,7 +5,7 @@ use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
     hover_istrat, implode_istrat, implode_strat, stopexplode_istrat, weapcollide_istrat,
-    ASF2_NOEXPSND, ASF2_RELEXPLODE,
+    ASF2_NOEXPSND, ASF4_RELEXPLODE,
 };
 
 #[test]
@@ -53,7 +53,7 @@ fn stopexplode_undoes_velocity_then_explodes() {
     g.objs.aliens[idx as usize].vz = 20;
     g.objs.aliens[idx as usize].sflags2 |= ASF2_NOEXPSND;
     stopexplode_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE, 0);
     assert_eq!(g.objs.aliens[idx as usize].worldx, 90);
     assert_eq!(g.objs.aliens[idx as usize].worldy, 45);
     assert_eq!(g.objs.aliens[idx as usize].worldz, 180);

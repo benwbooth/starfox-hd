@@ -27,7 +27,7 @@ use crate::common::{
 use crate::enemy_a::{
     add_player_z, addrnd2pos_xy, bigparticleexplode_istrat, copy_pos, fire_nuke,
     make_large_exp_obj, make_medium_exp_obj, phitflash_istrat, shiplb1_istrat, sid as ea_sid,
-    strat_explode, ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SFLAG3, ASF4_NOPOLYEXP,
+    strat_explode, ASF2_NOEXPSND, ASF2_SFLAG3, ASF3_NOPOLYEXP, ASF4_RELEXPLODE,
 };
 /// ROM `sflag4` — sflags2 bit 7 (STRATEQU.INC make_sflag after sflag3).
 const ASF2_SFLAG4: u8 = 0x80;
@@ -6072,7 +6072,7 @@ pub fn shrapnel_srou(g: &mut Game, parent: u16) {
         if let Some(y) = make_large_exp_obj(g, parent) {
             {
                 let al = &mut g.objs.aliens[y as usize];
-                al.sflags4 |= ASF4_NOPOLYEXP;
+                al.sflags3 |= ASF3_NOPOLYEXP;
                 al.sflags2 &= !ASF2_NOEXPSND;
                 al.vz = 150;
                 al.worldz = al.worldz.wrapping_sub(200);
@@ -6082,7 +6082,7 @@ pub fn shrapnel_srou(g: &mut Game, parent: u16) {
         if let Some(y) = make_medium_exp_obj(g, parent) {
             {
                 let al = &mut g.objs.aliens[y as usize];
-                al.sflags4 |= ASF4_NOPOLYEXP;
+                al.sflags3 |= ASF3_NOPOLYEXP;
                 al.sflags2 &= !ASF2_NOEXPSND;
                 al.vz = 150;
                 al.worldz = al.worldz.wrapping_sub(200);
@@ -6673,14 +6673,14 @@ pub fn viewoutoflb1_strat(g: &mut Game, idx: u16) {
             if let Some(parent) = mapvar1_obj(g) {
                 if let Some(y) = make_large_exp_obj(g, parent) {
                     addrnd2pos_xy(g, y);
-                    g.objs.aliens[y as usize].sflags2 &= !ASF2_RELEXPLODE;
-                    g.objs.aliens[y as usize].sflags4 |= ASF4_NOPOLYEXP;
+                    g.objs.aliens[y as usize].sflags4 &= !ASF4_RELEXPLODE;
+                    g.objs.aliens[y as usize].sflags3 |= ASF3_NOPOLYEXP;
                     g.objs.aliens[y as usize].worldy =
                         g.objs.aliens[y as usize].worldy.wrapping_sub(400);
                 }
                 if let Some(y) = make_large_exp_obj(g, parent) {
-                    g.objs.aliens[y as usize].sflags2 &= !ASF2_RELEXPLODE;
-                    g.objs.aliens[y as usize].sflags4 |= ASF4_NOPOLYEXP;
+                    g.objs.aliens[y as usize].sflags4 &= !ASF4_RELEXPLODE;
+                    g.objs.aliens[y as usize].sflags3 |= ASF3_NOPOLYEXP;
                     addrnd2pos_xy(g, y);
                     g.objs.aliens[y as usize].worldy =
                         g.objs.aliens[y as usize].worldy.wrapping_sub(800);

@@ -53,7 +53,7 @@ use crate::enemy_a::{
     fire_boss_hmissile1, fire_chick_hmissile1, fire_hmissile1, fire_hplasma, make_fol_exp_obj,
     make_large_exp_obj, make_medium_exp_obj, player, start_boss_explosion_circle, strat_aim_3d,
     strat_fire_relslowlaser, strat_fire_relslowlaserhome, strat_hit_flash, strat_pitch_toward,
-    strat_qboss_explode_init, ASF4_NOPOLYEXP,
+    strat_qboss_explode_init, ASF3_NOPOLYEXP,
 };
 
 // ============================================================
@@ -2667,7 +2667,7 @@ pub fn bossbrobsepexp_istrat(g: &mut Game, idx: u16) {
 /// ROM `bossBrobsepexp_strat` — Lexp shower while falling; then bossBrobexp.
 pub fn bossbrobsepexp_strat(g: &mut Game, idx: u16) {
     if let Some(e) = make_large_exp_obj(g, idx) {
-        g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+        g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
         addrnd2pos_xy(g, e);
     }
     let ground = (-80i16) << BOSSB_SCALE;
@@ -2758,7 +2758,7 @@ pub fn bossbpwaitexp_istrat(g: &mut Game, idx: u16) {
 pub fn bossbpwaitexp_strat(g: &mut Game, idx: u16) {
     if notdelay_stag(g, idx, 1) {
         if let Some(e) = make_large_exp_obj(g, idx) {
-            g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+            g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
             addrnd2pos_xy(g, e);
         }
     }

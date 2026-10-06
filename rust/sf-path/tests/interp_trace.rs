@@ -1,4 +1,4 @@
-//! Trace parity of the fallback path catalog against its C oracle.
+//! Regression traces of the fallback path catalog, originally C-derived.
 //!
 //! Fixtures (`tests/fixtures/pi_<scenario>.txt`) were dumped by a standalone
 //! harness (`pi_harness.c`, kept in the session scratchpad) that compiles
@@ -6,9 +6,8 @@
 //! + `src/game/game_vars.c` with recording stubs for every extern paths.c
 //! calls, then drives N ticks of a scripted scenario per path id.
 //!
-//! This test replays the identical scenarios through the Rust interpreter
-//! with a recording [`PathHost`] whose stub behavior matches the C harness
-//! stubs 1:1, and asserts the produced trace text is byte-identical.
+//! This test replays those scenarios through the Rust interpreter with a
+//! recording [`PathHost`] and asserts the retained trace text is byte-identical.
 //!
 //! The Rust interpreter has since diverged from the C oracle ON PURPOSE where
 //! the 65816 oracle proved C wrong vs the ROM (proportional ROM achase
@@ -16,13 +15,14 @@
 //! adiv2 space-flight coupling, P_IFBETWEEN exclusive lower bound,
 //! P_CHILDDEAD fallthrough, p_sound2 data, and zero-safe flat object handles
 //! for source pointers (so the player in slot zero remains targetable) — see
-//! sf-oracle/tests/audit_path.rs). The pi_*.txt fixtures are now a snapshot
-//! of the ROM-corrected Rust output; re-bless with SF_BLESS_FIXTURES=1 after
-//! intentional behavior changes.
+//! sf-oracle/tests/audit_path.rs). These historical snapshots are regression
+//! guards, not independent ROM evidence. Native-output blessing is disabled.
+//! The ordinary-fire correction has a reversible complete-file audit in
+//! tools/sf1/test_path_fire_source.py; future changes need their own source proof.
 
 use sf_path::alien::{
     Alien, ObjectVisualKind, StratRef, ACF_COLLTYPE1, ACF_COLLTYPE5, AFEXP, ASF2_COLLDISABLE,
-    ASF4_NOPOLYEXP, ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL,
+    ASF3_NOPOLYEXP, ASF_HITFLASH, ASF_PARTOBJ, NUMBER_AL,
 };
 use sf_path::ids::*;
 use sf_path::interp::{
@@ -287,7 +287,7 @@ impl PathHost for RecHost {
             }
             // C path_literal_robexplode_set_nopolyexp.
             CB_ROBEXPLODE_NOPOLYEXP => {
-                world.aliens[si].sflags4 |= ASF4_NOPOLYEXP;
+                world.aliens[si].sflags3 |= ASF3_NOPOLYEXP;
             }
             // C path_literal_dsmoke_init_colanim.
             CB_DSMOKE_INIT_COLANIM => {
@@ -872,11 +872,6 @@ fn interp_trace_parity() {
             sc.name
         );
         let actual = run_scenario(sc);
-        if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
-            std::fs::write(&fixture_path, &actual)
-                .unwrap_or_else(|e| panic!("bless {fixture_path}: {e}"));
-            continue;
-        }
         let expected = std::fs::read_to_string(&fixture_path)
             .unwrap_or_else(|e| panic!("read {fixture_path}: {e}"));
 
@@ -887,7 +882,7 @@ fn interp_trace_parity() {
                 line_no += 1;
                 if a != e {
                     failures.push(format!(
-                        "{}: divergence at line {line_no}\n  C:    {e}\n  rust: {a}",
+                        "{}: divergence at line {line_no}\n  expected: {e}\n  rust:     {a}",
                         sc.name
                     ));
                     break;
@@ -895,7 +890,7 @@ fn interp_trace_parity() {
             }
             if actual.lines().count() != expected.lines().count() {
                 failures.push(format!(
-                    "{}: line count rust {} vs C {}",
+                    "{}: line count rust {} vs expected {}",
                     sc.name,
                     actual.lines().count(),
                     expected.lines().count()

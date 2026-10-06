@@ -5,7 +5,7 @@ use sf_game::Game;
 use sf_strat::enemy_a::{
     fire_boss_hmissile1, fire_fakefar_hmissile1, fire_hmissile1, fire_hmissile2, fire_missile1,
     fire_missile2, hmissile2_istrat, hmissile2_strat, missile1_istrat, missile1_strat,
-    missile2_istrat, missile2a_strat, ASF2_RELEXPLODE, ASF2_SFLAG2, ASF2_SFLAG3, COLLTYPE_ZENEMY,
+    missile2_istrat, missile2a_strat, ASF2_SFLAG2, ASF2_SFLAG3, ASF4_RELEXPLODE, COLLTYPE_ZENEMY,
     DEG180,
 };
 
@@ -22,7 +22,7 @@ fn fire_missile1_and_missile2_stats() {
         assert_eq!(al.ap, 4);
         assert_eq!(al.vel, 30);
         assert_eq!(al.count, 100);
-        assert_eq!(al.sflags2 & ASF2_RELEXPLODE, 0);
+        assert_eq!(al.sflags4 & ASF4_RELEXPLODE, 0);
         assert_ne!(al.type_ & ATMISSILE, 0);
         assert_ne!(al.sflags & ASF_SHADOW, 0);
         assert_ne!(al.collflags & COLLTYPE_ZENEMY, 0);
@@ -34,7 +34,7 @@ fn fire_missile1_and_missile2_stats() {
         assert_eq!(al.hp, 2);
         assert_eq!(al.ap, 4);
         assert_eq!(al.vel, 30);
-        assert_ne!(al.sflags2 & ASF2_RELEXPLODE, 0);
+        assert_ne!(al.sflags4 & ASF4_RELEXPLODE, 0);
         assert_ne!(al.type_ & ATZREMOVE, 0);
     }
 }
@@ -75,7 +75,7 @@ fn fire_fakefar_sets_sflag3_and_boss_swaps_exp() {
     let firer = g.objs.alloc().expect("f");
     let fake = fire_fakefar_hmissile1(&mut g, firer).expect("fake");
     assert_ne!(g.objs.aliens[fake as usize].sflags2 & ASF2_SFLAG3, 0);
-    assert_ne!(g.objs.aliens[fake as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(g.objs.aliens[fake as usize].sflags4 & ASF4_RELEXPLODE, 0);
 
     let boss = fire_boss_hmissile1(&mut g, firer).expect("boss");
     assert!(g.objs.aliens[boss as usize].expstratptr.is_some());

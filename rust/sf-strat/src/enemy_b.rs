@@ -61,10 +61,11 @@ pub const STRAT_ADDR_BOSSF: u32 = sf_map::consts::is::BOSSF;
 pub(crate) mod eb_compat {
     pub use sf_game::alien::{
         Alien, ExplosionSize, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
-        ACF_COLLTYPE5, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_REALOBJ,
-        ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_PLAYEROBJ, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE,
-        ASF_HITFLASH, ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER,
-        ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
+        ACF_COLLTYPE5, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_NOPOLYEXP,
+        ASF3_REALOBJ, ASF4_CHILDOBJ, ASF4_CSPECIAL, ASF4_DONESND, ASF4_INVISIBLE, ASF4_MOTHEROBJ,
+        ASF4_PLAYEROBJ, ASF4_RELEXPLODE, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
+        ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED,
+        ATZREMOVE, NUMBER_AL,
     };
     pub use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
     pub use sf_game::vars::{
@@ -133,7 +134,6 @@ pub(crate) mod eb_compat {
     pub const AFONFIRE: u8 = 64;
 
     // al_sflags2 bits (obj.h:121-123)
-    pub const ASF2_RELEXPLODE: u8 = 0x04;
     pub const ASF2_NOEXPSND: u8 = 0x08;
     pub const ASF2_SFLAG1: u8 = 0x10;
 
@@ -141,12 +141,6 @@ pub(crate) mod eb_compat {
     pub const ASF3_SFLAG5: u8 = 0x01;
     pub const ASF3_SFLAG7: u8 = 0x04;
     pub const ASF3_TEXTOBJ: u8 = 0x40;
-    // al_sflags4 bits (obj.h:116-117)
-    pub const ASF4_DONESND: u8 = 0x02;
-    pub const ASF4_NOPOLYEXP: u8 = 0x04;
-    pub const ASF4_CHILDOBJ: u8 = 0x10;
-    pub const ASF4_MOTHEROBJ: u8 = 0x40;
-
     // stratflags (variables.h:109)
     pub const SF_NOFIRING: u8 = 1;
 
@@ -586,7 +580,7 @@ fn bigexplode_istrat(g: &mut Game, idx: u16) {
         };
         addrnd2pos_xy(g, e);
         let al = &mut g.objs.aliens[e as usize];
-        al.sflags4 |= ASF4_NOPOLYEXP;
+        al.sflags3 |= ASF3_NOPOLYEXP;
         al.count = i;
         if i == 2 || i == 4 {
             al.sflags2 &= !ASF2_NOEXPSND;
@@ -596,7 +590,7 @@ fn bigexplode_istrat(g: &mut Game, idx: u16) {
     let s_exp = sid(g, strat_explode);
     let al = &mut g.objs.aliens[idx as usize];
     al.count = 4;
-    al.sflags2 |= ASF2_RELEXPLODE;
+    al.sflags4 |= ASF4_RELEXPLODE;
     // s_jmp delayexplode_Istrat: s_hardvars + alptrs delayexplode/0/explode.
     al.hp = HARD_HP;
     al.ap = HARD_AP;
@@ -617,7 +611,7 @@ fn setoutexp_srou(g: &mut Game, e: u16) {
         // s_make_xyvec y,angle,dist (sr_make_xyvec).
         al.vx = mulslog(dist, SINTAB[angle as usize] as i32) as i16;
         al.vy = mulslog(dist, COSTAB[angle as usize] as i32) as i16;
-        al.sflags4 |= ASF4_NOPOLYEXP;
+        al.sflags3 |= ASF3_NOPOLYEXP;
         al.count = life;
     }
     addrnd2pos_xy(g, e);
@@ -671,7 +665,7 @@ pub fn bossbigoutexplode_icont(g: &mut Game, idx: u16, offx: i16, offy: i16, off
             al.worldy = al.worldy.wrapping_add(offy);
             al.worldz = al.worldz.wrapping_add(offz);
             al.sflags = me_sflags;
-            al.sflags2 |= ASF2_RELEXPLODE;
+            al.sflags4 |= ASF4_RELEXPLODE;
         }
         crate::enemy_a::bigparticleexplode_istrat(g, p);
     }
@@ -685,7 +679,7 @@ pub fn bossbigoutexplode_icont(g: &mut Game, idx: u16, offx: i16, offy: i16, off
         if let Some(e) = make_fol_exp_obj(g, idx) {
             setoutexp_srou(g, e);
             addsvars2pos(g, e, offx, offy, offz);
-            g.objs.aliens[e as usize].sflags2 |= ASF2_RELEXPLODE;
+            g.objs.aliens[e as usize].sflags4 |= ASF4_RELEXPLODE;
         }
         if let Some(e) = make_large_exp_obj(g, idx) {
             setoutexp_srou(g, e);
@@ -698,7 +692,7 @@ pub fn bossbigoutexplode_icont(g: &mut Game, idx: u16, offx: i16, offy: i16, off
             addsvars2pos(g, e, offx, offy, offz);
             let al = &mut g.objs.aliens[e as usize];
             al.count = al.count.wrapping_add(8);
-            al.sflags2 |= ASF2_RELEXPLODE;
+            al.sflags4 |= ASF4_RELEXPLODE;
         }
     }
 
@@ -706,7 +700,7 @@ pub fn bossbigoutexplode_icont(g: &mut Game, idx: u16, offx: i16, offy: i16, off
     let s_tick = sid(g, delayremove_strat);
     let al = &mut g.objs.aliens[idx as usize];
     al.count = 11;
-    al.sflags2 |= ASF2_RELEXPLODE;
+    al.sflags4 |= ASF4_RELEXPLODE;
     al.sflags |= ASF_COLLDISABLE;
     al.hp = HARD_HP;
     al.ap = HARD_AP;
@@ -778,7 +772,7 @@ pub fn mfire1_icont(g: &mut Game, idx: u16) {
         al.roty = al.roty.wrapping_add(al.sbyte1);
         gen_vecs_3d(al);
         al.sbyte1 = DEG180;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.snd2 = 0x0d;
     }
     let rnd = (sfrtl_random(g) & 0xFF) as u8;
@@ -1762,7 +1756,7 @@ fn boss7exp_init(g: &mut Game, idx: u16) {
 fn boss7exp_strat(g: &mut Game, idx: u16) {
     if g.vars.gameframe & 1 == 0 {
         if let Some(e) = make_large_exp_obj(g, idx) {
-            g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+            g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
             addrnd2pos_xy(g, e);
         }
     }
@@ -3762,7 +3756,7 @@ pub fn bossfcdie2_strat(g: &mut Game, idx: u16) {
         let ry = ((sfrtl_random(g) & 0xFF) as i16) - 127;
         let rz = ((sfrtl_random(g) & 0xFF) as i16) - 127;
         let al = &mut g.objs.aliens[exp as usize];
-        al.sflags4 |= ASF4_NOPOLYEXP;
+        al.sflags3 |= ASF3_NOPOLYEXP;
         al.worldx = al.worldx.wrapping_add(rx);
         al.worldy = al.worldy.wrapping_add(ry);
         al.worldz = al.worldz.wrapping_add(rz);
@@ -3774,7 +3768,7 @@ pub fn bossfcdie2_strat(g: &mut Game, idx: u16) {
         if zdist >= 4000 {
             if g.vars.gameframe & 1 == 0 {
                 if let Some(fexp) = make_fol_exp_obj(g, idx) {
-                    g.objs.aliens[fexp as usize].sflags4 |= ASF4_NOPOLYEXP;
+                    g.objs.aliens[fexp as usize].sflags3 |= ASF3_NOPOLYEXP;
                     addrnd2pos_xy(g, fexp);
                 }
             }

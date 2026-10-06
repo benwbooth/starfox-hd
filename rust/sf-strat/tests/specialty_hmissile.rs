@@ -7,7 +7,7 @@ use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{
     chickhmissile1_istrat, chickhmissile1_strat, fire_chick_hmissile1, fire_kami_hmissile1,
     fire_qh_missile1, fire_stb_hmissile1, hmissile3_istrat, hmissile3_strat, qhmissile1_istrat,
-    qhmissile1_strat, stbhmissile1_istrat, stbhmissile1_strat, ASF2_RELEXPLODE, ASF2_SFLAG2,
+    qhmissile1_strat, stbhmissile1_istrat, stbhmissile1_strat, ASF2_SFLAG2, ASF4_RELEXPLODE,
     COLLTYPE_ENEMY2, COLLTYPE_ZENEMY, DEG180,
 };
 
@@ -24,7 +24,7 @@ fn fire_kami_chick_stb_qh_stats() {
         assert_eq!(al.ap, 8);
         assert_eq!(al.vel, 40);
         assert_eq!(al.count, 100);
-        assert_ne!(al.sflags2 & ASF2_RELEXPLODE, 0);
+        assert_ne!(al.sflags4 & ASF4_RELEXPLODE, 0);
         assert_ne!(al.collflags & COLLTYPE_ZENEMY, 0);
     }
 

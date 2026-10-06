@@ -5,7 +5,7 @@
 use sf_game::alien::{ASF3_REALOBJ, ATZREMOVE};
 use sf_game::game::Game;
 use sf_strat::enemy_a::{
-    hardenemy1_istrat, strat_hard_init, strat_szaco2_init, strat_zaco1l_init, ASF2_RELEXPLODE,
+    hardenemy1_istrat, strat_hard_init, strat_szaco2_init, strat_zaco1l_init, ASF4_RELEXPLODE,
     COLLTYPE_ENEMY1, DEG0,
 };
 use sf_strat::table;
@@ -144,7 +144,7 @@ fn zaco1_phase2_spiral_uses_sintab_toward_zero() {
     assert_eq!(g.objs.aliens[idx as usize].ptr, 0);
 }
 
-/// Minor #15: szaco2_Istrat sets relexplode (HD ASF2_RELEXPLODE).
+/// Minor #15: szaco2_Istrat sets relexplode (HD ASF4_RELEXPLODE).
 #[test]
 fn szaco2_init_sets_relexplode() {
     let mut g = Game::new();
@@ -152,7 +152,7 @@ fn szaco2_init_sets_relexplode() {
     let idx = spawn(&mut g);
     strat_szaco2_init(&mut g, idx);
     assert_ne!(
-        g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE,
+        g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE,
         0,
         "szaco2 must set relexplode"
     );

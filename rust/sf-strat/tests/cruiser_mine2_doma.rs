@@ -10,7 +10,7 @@ use sf_strat::enemies_ground::{
     updoorcol_istrat,
 };
 use sf_strat::enemy_a::{
-    dpilar_istrat, halfd_istrat, ASF2_RELEXPLODE, ASF2_SFLAG1, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP,
+    dpilar_istrat, halfd_istrat, ASF2_SFLAG1, ASF4_RELEXPLODE, COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP,
     DEG180, DEG45, DEG90,
 };
 
@@ -137,7 +137,7 @@ fn mine2_rises_doma_chases_dpilar_alias() {
     mine2_istrat(&mut g, mine);
     assert_eq!(g.objs.aliens[mine as usize].hp, 2);
     assert_eq!(g.objs.aliens[mine as usize].vy, -45);
-    assert_ne!(g.objs.aliens[mine as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(g.objs.aliens[mine as usize].sflags4 & ASF4_RELEXPLODE, 0);
     assert_ne!(
         g.objs.aliens[mine as usize].collflags & COLLTYPE_ENEMYWEAP,
         0

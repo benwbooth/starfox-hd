@@ -239,18 +239,18 @@ pub const ASF3_SFLAG7: u8 = 0x04; // path trigger: any collision hit
 pub const ASF3_REALOBJ: u8 = 0x08;
 pub const ASF3_TEXTOBJ: u8 = 0x40;
 pub const ASF3_NOHITAFFECT: u8 = 0x20;
+pub const ASF3_NOPOLYEXP: u8 = 0x40;
 
 // al_sflags4 bits (C origin: src/game/obj.h ASF4_*).
 pub const ASF4_PLAYEROBJ: u8 = 0x01;
 pub const ASF4_DONESND: u8 = 0x02;
-pub const ASF4_NOPOLYEXP: u8 = 0x04;
+pub const ASF4_RELEXPLODE: u8 = 0x04;
 pub const ASF4_INVISIBLE: u8 = 0x08;
 pub const ASF4_CHILDOBJ: u8 = 0x10;
 pub const ASF4_SFLAG8: u8 = 0x20;
 pub const ASF4_MOTHEROBJ: u8 = 0x40;
 
 // al_sflags2 explosion-system bits (C origin: src/game/obj.h ASF2_*).
-pub const ASF2_RELEXPLODE: u8 = 0x04;
 pub const ASF2_NOEXPSND: u8 = 0x08;
 pub const ASF2_SFLAG1: u8 = 0x10;
 

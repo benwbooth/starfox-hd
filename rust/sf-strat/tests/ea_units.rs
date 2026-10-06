@@ -77,6 +77,14 @@ fn points_positive_z_boundaries() {
 }
 
 #[test]
+fn rader0_initializer_falls_through_to_first_rotation() {
+    let mut game = Game::new();
+    let radar = game.objs.alloc().expect("radar slot");
+    enemy_a::strat_rader0_init(&mut game, radar);
+    assert_eq!(game.objs.aliens[radar as usize].roty, 8);
+}
+
+#[test]
 fn ea_random_is_prng_next() {
     // C PRNG_NEXT(rnd) = (rnd*91 + 0x61D7) & 0xFFFF (src/types.h:57).
     let mut g = Game::new();

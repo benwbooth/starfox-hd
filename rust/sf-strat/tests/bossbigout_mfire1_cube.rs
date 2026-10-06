@@ -6,7 +6,7 @@ use sf_game::vars::{GF_BOSSDEAD, HARD_HP};
 use sf_game::Game;
 use sf_strat::enemies_ground::misstankexp_istrat;
 use sf_strat::enemy_a::{
-    cubecoll_strat, cubeexp_strat, cubefall_istrat, cubefall_strat, ASF2_RELEXPLODE,
+    cubecoll_strat, cubeexp_strat, cubefall_istrat, cubefall_strat, ASF4_RELEXPLODE,
     COLLTYPE_ENEMY1, DEG180, DEG5,
 };
 use sf_strat::enemy_b::{
@@ -32,7 +32,7 @@ fn bossbigoutexplode_sets_bossdead_and_delayremove() {
     bossbigoutexplode_istrat(&mut g, idx);
     assert_ne!(g.vars.gameflags & GF_BOSSDEAD, 0);
     assert_eq!(g.objs.aliens[idx as usize].count, 11);
-    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE, 0);
     assert!(
         g.objs.active_indices().len() > before,
         "circle + particle + outward sprites"
@@ -126,7 +126,7 @@ fn mfire1_aims_and_spins() {
     assert_eq!(g.objs.aliens[idx as usize].ap, 8);
     assert_eq!(g.objs.aliens[idx as usize].vel, 80);
     assert_ne!(g.objs.aliens[idx as usize].collflags & COLLTYPE_ENEMY1, 0);
-    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE, 0);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, DEG180);
     assert_eq!(g.objs.aliens[idx as usize].snd2, 0x0d);
 

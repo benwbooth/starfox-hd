@@ -1,4 +1,4 @@
-//! enemy_b lane parity tests against the C oracle.
+//! Enemy-B regression traces, originally captured from the retired C port.
 //!
 //! Fixtures under `tests/fixtures/eb_*.txt` were dumped by the scratchpad C
 //! harness `eb_harness.c` (a superset of `ea_harness.c`) that compiled the
@@ -10,7 +10,8 @@
 //! ticks of `Obj_RunStrategies` (Rust: `Game::run_strategies`) while
 //! scripting the player identically. Every tick emits one `T` line of
 //! globals and one `O` line per active alien in active-list order; the Rust
-//! replay must match the C dump byte-for-byte.
+//! replay must match the retained snapshot byte-for-byte. These snapshots have
+//! received source corrections and are not independent cartridge evidence.
 //!
 //! The bossf and spacepilon fixtures include the retail runtime random draw at
 //! the start of every completed strategy frame. The retired C translation did
@@ -21,14 +22,10 @@
 //! The retired C allocation shim instead pushed those children at the active
 //! head, causing linked components to consume a stale mother pose.
 //!
-//! Regenerate (repo root, harness source in session scratchpad, run inside
-//! `nix develop`, strip the Obj_Init banner):
-//!   gcc -O2 -Isrc $(pkg-config --cflags sdl2) -o eb_harness.bin eb_harness.c \
-//!       src/strat/strat_enemy.c src/strat/strat_common.c \
-//!       src/strat/strat_ground.c src/game/obj.c src/game/game_vars.c -lm
-//!   for s in boss7 bossf spacepilon tit; do \
-//!       ./eb_harness.bin $s | grep -v '^Obj_Init' \
-//!           > rust/sf-strat/tests/fixtures/eb_$s.txt; done
+//! The 2026-10 flag-byte and sprite corrections have a reversible complete-file
+//! audit and source assertions in tools/sf1/test_strategy_source_contracts.py.
+//! Native-output blessing is disabled; future fixture changes require their
+//! own independent source evidence.
 
 mod support;
 
@@ -173,15 +170,6 @@ fn run_scenario(mut g: Game, fixture: &str) {
         dump_tick(&g, t, &mut out);
     }
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), fixture);
-    // Bless mode: C dump harness deleted in the RIIR; SF_BLESS_FIXTURES=1 rewrites
-    // from the current Rust trace. Divergence is the ROM-correct spawn init cascade
-    // (type_=8/realobj/animframe=0/colframe=0) + collcount=1 seeding and the
-    // scheduler-level random draw documented above; the boss/enemy-B strats here
-    // are unchanged. Regression guard, not a C-parity proof.
-    if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
-        std::fs::write(&path, &out).expect("write fixture");
-        return;
-    }
     let expected = std::fs::read_to_string(&path).expect("fixture");
     for (i, (got, want)) in out.lines().zip(expected.lines()).enumerate() {
         assert_eq!(got, want, "{} line {} mismatch", fixture, i + 1);

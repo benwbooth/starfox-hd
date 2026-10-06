@@ -197,10 +197,16 @@ pub const ASF3_LOCKON: u8 = 0x10;
 /// both objects set this bit (~nothing does). C `src/game/obj.h` ASF3_*.
 pub const ASF3_SAMESHAPECOLLIDE: u8 = 0x80;
 pub const ASF3_NOHITAFFECT: u8 = 0x20;
+/// Suppress per-face explosion geometry while retaining the object-level
+/// explosion envelope (`STRATEQU.INC` `nopolyexp`).
+pub const ASF3_NOPOLYEXP: u8 = 0x40;
 
 // al_sflags4 bits (C `src/game/obj.h` ASF4_* + `src/game/world.h` markers).
 pub const ASF4_PLAYEROBJ: u8 = 0x01;
 pub const ASF4_DONESND: u8 = 0x02;
+/// Keep explosion debris relative to the moving player view
+/// (`STRATEQU.INC` `relexplode`).
+pub const ASF4_RELEXPLODE: u8 = 0x04;
 pub const ASF4_INVISIBLE: u8 = 0x08;
 /// Child in a mother/child family (`childobj`).
 pub const ASF4_CHILDOBJ: u8 = 0x10;

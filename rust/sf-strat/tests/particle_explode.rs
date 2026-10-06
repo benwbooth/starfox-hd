@@ -8,7 +8,7 @@ use sf_strat::enemy_a::{
     fastparticleexplode_istrat, fastparticleexplode_strat, lmarkexplode_istrat,
     mmarkexplode_istrat, particleexplode_istrat, particleexplode_strat, particlefire_icont,
     particlefire_istrat, particlefiredown_istrat, smarkexplode_istrat, ASF2_NOEXPSND,
-    ASF2_RELEXPLODE,
+    ASF4_RELEXPLODE,
 };
 
 #[test]
@@ -54,7 +54,7 @@ fn bigparticle_expires_at_110_and_scrolls_when_relexplode() {
     let idx = g.objs.alloc().expect("slot");
     g.vars.pviewvelz = 10;
     g.objs.aliens[idx as usize].worldz = 100;
-    g.objs.aliens[idx as usize].sflags2 |= ASF2_RELEXPLODE;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_RELEXPLODE;
     bigparticleexplode_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 255);
 

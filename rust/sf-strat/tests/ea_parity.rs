@@ -1,4 +1,4 @@
-//! enemy_a lane parity tests against the C oracle.
+//! Enemy-A regression traces, originally captured from the retired C port.
 //!
 //! Fixtures under `tests/fixtures/ea_*.txt` were dumped by a scratchpad C
 //! harness (`ea_harness.c`) that compiled the REAL `src/strat/strat_enemy.c`
@@ -10,7 +10,8 @@
 //! then run 120 ticks of `Obj_RunStrategies` (Rust: `Game::run_strategies`)
 //! while scripting the player identically. Every tick emits one `T` line of
 //! globals and one `O` line per active alien in active-list order; the Rust
-//! replay must match the C dump byte-for-byte.
+//! replay must match the retained snapshot byte-for-byte. These snapshots have
+//! received source corrections and are not independent cartridge evidence.
 //!
 //! The worm and boss1 fixtures retain the source generic-explosion
 //! sprite/polygon lifetimes. The explosion child is inserted after its host and
@@ -33,14 +34,10 @@
 //! flag byte. `STRATEQU.INC` assigns it bit 8; the retired C translation placed
 //! it in the first byte, where it incorrectly aliased `partobj`.
 //!
-//! Regenerate (from the repo root, harness source in the session
-//! scratchpad; strip the Obj_Init banner line):
-//!   gcc -O2 -Isrc -o ea_harness ea_harness.c \
-//!       src/strat/strat_enemy.c src/strat/strat_common.c \
-//!       src/strat/strat_ground.c src/game/obj.c src/game/game_vars.c -lm
-//!   for s in zaco1 houdai worm gate2 rader0 boss1; do \
-//!       ./ea_harness $s | grep -v '^Obj_Init' \
-//!           > rust/sf-strat/tests/fixtures/ea_$s.txt; done
+//! The 2026-10 flag-byte, sprite, lifetime, homing-speed-state and radar-entry
+//! corrections have a reversible complete-file audit and source assertions in
+//! tools/sf1/test_strategy_source_contracts.py. Native-output blessing is
+//! disabled; future fixture changes require independent source evidence.
 
 mod support;
 
@@ -191,16 +188,6 @@ fn run_scenario(mut g: Game, events: impl Fn(&mut Game, i32), fixture: &str) {
         dump_tick(&g, t, &mut out);
     }
     let path = format!("{}/tests/fixtures/{}", env!("CARGO_MANIFEST_DIR"), fixture);
-    // Bless mode: the scratchpad C dump harness was deleted in the RIIR, so these
-    // fixtures can't be regenerated from C. SF_BLESS_FIXTURES=1 rewrites them from
-    // the current source-verified Rust trace. Spawn-time init is proven ROM-correct
-    // by sf-oracle audit_boss/audit_coldet; changed enemy strategies were diffed
-    // against GASTRATS/KSTRATS.ASM, and generic explosion allocation/lifetimes
-    // against EXPSTRAT.ASM. Regression guard, not an independent C-parity proof.
-    if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
-        std::fs::write(&path, &out).expect("write fixture");
-        return;
-    }
     let expected = std::fs::read_to_string(&path).expect("fixture");
     for (i, (got, want)) in out.lines().zip(expected.lines()).enumerate() {
         assert_eq!(got, want, "{} line {} mismatch", fixture, i + 1);

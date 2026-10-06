@@ -5,7 +5,7 @@ use sf_game::Game;
 use sf_strat::enemy_a::{
     elaser_istrat, elaser_strat, fire_hplasma, fire_ovalbeam, fire_relovalbeam, fire_relringlaser,
     fire_ringlaser, fire_shortplasma, fire_slow_elaser, fire_yhplasma, yhoming_istrat,
-    yhoming_strat, ASF2_RELEXPLODE, ASF2_SFLAG1, SH_BOUNCYBALL,
+    yhoming_strat, ASF2_SFLAG1, ASF4_RELEXPLODE, SH_BOUNCYBALL,
 };
 
 #[test]
@@ -52,7 +52,7 @@ fn fire_rel_and_abs_oval_ring_shortplasma() {
     assert_eq!(g.objs.aliens[e as usize].shape, SH_BOUNCYBALL);
     assert_eq!(g.objs.aliens[e as usize].ap, 10);
     assert_eq!(g.objs.aliens[e as usize].count, 30);
-    assert_ne!(g.objs.aliens[e as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(g.objs.aliens[e as usize].sflags4 & ASF4_RELEXPLODE, 0);
     assert_eq!(
         g.objs.aliens[e as usize].visual_kind,
         ObjectVisualKind::ScaledSprite

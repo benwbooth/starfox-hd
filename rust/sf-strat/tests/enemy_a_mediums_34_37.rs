@@ -8,7 +8,7 @@ use sf_game::vars::{HARD_AP, HARD_HP};
 use sf_strat::enemy_a::{
     delayexplode_strat, strat_hard180yr_init, strat_hard90yr_init, strat_houdai_init,
     strat_pillar3_init, strat_skillfly_init, strat_spacebarshoot_init, strat_zaco1l_init,
-    strat_zacos_init, wm, ASF4_NOPOLYEXP, COLLTYPE_ENEMY1,
+    strat_zacos_init, wm, ASF3_NOPOLYEXP, COLLTYPE_ENEMY1,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -130,7 +130,7 @@ fn pillar3explode_spawns_eight_silent_children() {
     assert_eq!(children.len(), 8);
     for (i, (_slot, al)) in children.iter().enumerate() {
         assert_eq!(al.shape, 0, "child {i} uses the non-mesh envelope");
-        assert_ne!(al.sflags4 & ASF4_NOPOLYEXP, 0, "child {i} nopolyexp");
+        assert_ne!(al.sflags3 & ASF3_NOPOLYEXP, 0, "child {i} nopolyexp");
         assert_eq!(al.count, i as u8, "staggered lifecnt 0..7");
     }
     assert_eq!(

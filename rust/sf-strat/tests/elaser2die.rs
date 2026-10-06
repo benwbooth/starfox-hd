@@ -4,7 +4,7 @@ use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ, ATZREMOVE};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{
-    elaser2die_istrat, elaser2die_strat, pelaser2die_istrat, playerbeamdie_istrat, ASF2_RELEXPLODE,
+    elaser2die_istrat, elaser2die_strat, pelaser2die_istrat, playerbeamdie_istrat, ASF4_RELEXPLODE,
 };
 
 #[test]
@@ -59,7 +59,7 @@ fn elaser2die_scrolls_when_relexplode() {
     let idx = g.objs.alloc().expect("laser");
     g.vars.pviewvelz = 12;
     g.objs.aliens[idx as usize].worldz = 100;
-    g.objs.aliens[idx as usize].sflags2 |= ASF2_RELEXPLODE;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_RELEXPLODE;
     g.objs.aliens[idx as usize].animframe = 0x80; // frame 0
     elaser2die_istrat(&mut g, idx);
     // istrat already ran one strat tick → worldz += 12, anim 2

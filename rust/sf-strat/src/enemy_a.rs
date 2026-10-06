@@ -57,7 +57,6 @@ pub const DEG360: u16 = 256;
 pub const AF_LEFT_PL: u8 = 4;
 
 // al_sflags2 bits (C src/game/obj.h ASF2_*)
-pub const ASF2_RELEXPLODE: u8 = 0x04;
 pub const ASF2_NOEXPSND: u8 = 0x08;
 pub const ASF2_SFLAG1: u8 = 0x10;
 pub const ASF2_SFLAG2: u8 = 0x20;
@@ -69,17 +68,12 @@ pub const ASF3_SFLAG6: u8 = 0x02;
 pub const ASF3_SFLAG7: u8 = 0x04;
 /// STRATMAC `smflag1` — the strategy-macro latch used by `s_face_player` /
 /// `s_initface_player`. Per STRATEQU.INC:910 it is sflags2 bit 0x04 (the same
-/// bit as the mislabeled ASF2_RELEXPLODE above; ROM `relexplode` is really a
-/// sflags4 bit, so nothing that shares an object with para's smflag1 also uses
-/// relexplode). (Audit A #20/#21)
+/// bit value as `relexplode`, but two source bytes earlier. The typed
+/// fields keep those independent source flags separate. (Audit A #20/#21)
 pub const ASF2_SMFLAG1: u8 = 0x04;
 
-// al_sflags3 bits — re-export from sf-game (single source of truth).
-pub use sf_game::alien::{ASF4_CHILDOBJ, ASF4_MOTHEROBJ};
-
-// al_sflags4 bit read by the renderer (sf-game draw.rs `ASF4_NOPOLYEXP`) to
-// suppress the face/poly explosion count.
-pub const ASF4_NOPOLYEXP: u8 = 0x04;
+// Source flag bytes 3 and 4 — re-export from sf-game (single source of truth).
+pub use sf_game::alien::{ASF3_NOPOLYEXP, ASF4_CHILDOBJ, ASF4_MOTHEROBJ, ASF4_RELEXPLODE};
 
 // bossflags bits (C src/variables.h BF_*)
 pub const BF_FLAG1: u8 = 1;
@@ -549,7 +543,7 @@ pub(crate) fn fire_relslowlaser_weapon_pos(
         // this field controls object lifecycle and weapon-family tests.
         al.type_ = ATMISSILE;
         al.sflags4 &= !ASF4_INVISIBLE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4 | ACF_COLLTYPE1;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -607,7 +601,7 @@ pub(crate) fn fire_relfastelaser_weapon_pos(
         al.count = 40;
         al.type_ = ATMISSILE;
         al.sflags4 &= !ASF4_INVISIBLE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collflags |= ACF_FIRSTFRAME | ACF_WEAPON | ACF_COLLTYPE4 | ACF_COLLTYPE1;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -694,11 +688,14 @@ pub fn strat_fire_relslowlaserhome(g: &mut Game, idx: u16, pitch: u8, yaw: u8) -
         al.stratptr = Some(init);
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.rotx = pitch;
         al.roty = yaw;
         al.sbyte1 = pitch;
         al.sbyte2 = yaw;
+        // `gen_weapon` copies the firing object's speed to source `al_sbyte3`.
+        // This homing strategy retains it without adding it to its laser vector.
+        al.sbyte3 = me.vel;
         al.animframe = 0;
     }
     g.objs.aliens[idx as usize].immuneptr = shot;
@@ -1052,7 +1049,7 @@ pub fn hitflash_bossd_istrat(g: &mut Game, idx: u16) {
     }
     g.hooks.play_se(0x80);
     if let Some(exp) = hitflash_exp_at_collobj(g, idx, make_medium_exp_obj) {
-        g.objs.aliens[exp as usize].sflags4 |= ASF4_NOPOLYEXP;
+        g.objs.aliens[exp as usize].sflags3 |= ASF3_NOPOLYEXP;
     }
     strat_hit_flash(g, idx);
 }
@@ -1431,7 +1428,10 @@ fn explode_icont(g: &mut Game, idx: u16) {
         object.sflags = source.sflags & !(ASF_HITFLASH | ASF_SHADOW | ASF_SPECIAL);
         object.sflags2 = source.sflags2;
         object.sflags3 = source.sflags3 & !ASF3_REALOBJ;
-        object.sflags4 = source.sflags4 & !ASF4_CSPECIAL;
+        // `s_copy_sflags` preserves the fourth source flag byte. The source
+        // clears ordinary `special` on the sprite, but intentionally leaves
+        // `Cspecial` intact (EXPSTRAT.ASM explode_Icont).
+        object.sflags4 = source.sflags4;
         object.visual_kind = ObjectVisualKind::ScaledSprite;
         object.shape = presentation.sprite_shape;
         object.tx = presentation.sprite_scale_adjustment;
@@ -1466,14 +1466,14 @@ fn explode_icont(g: &mut Game, idx: u16) {
             EXPLOSION_FAR_SOUND,
         );
     }
-    if g.objs.aliens[idx as usize].sflags4 & ASF4_NOPOLYEXP != 0 {
+    if g.objs.aliens[idx as usize].sflags3 & ASF3_NOPOLYEXP != 0 {
         g.objs.aldead = 1;
     }
 }
 
 /// ROM `explode_end` (EXPSTRAT.ASM:902) — shared mesh-explosion tick tail.
 pub fn explode_end(g: &mut Game, idx: u16) {
-    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
         add_player_z(g, idx);
     }
     apply_velocity(&mut g.objs.aliens[idx as usize]);
@@ -1656,7 +1656,7 @@ pub fn bigparticleexplode_strat(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     }
-    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
         add_player_z(g, idx);
     }
 }
@@ -1674,7 +1674,7 @@ pub fn circ2particleexplode_strat(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     }
-    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
         add_player_z(g, idx);
     }
 }
@@ -1790,7 +1790,7 @@ pub fn implode_strat(g: &mut Game, idx: u16) {
 pub fn stopexplode_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.worldx = al.worldx.wrapping_sub(al.vx);
         al.worldy = al.worldy.wrapping_sub(al.vy);
         al.worldz = al.worldz.wrapping_sub(al.vz);
@@ -1912,7 +1912,7 @@ pub fn ship1col_istrat(g: &mut Game, idx: u16) {
         if partner != 0 && (partner as usize) < NUMBER_AL && g.objs.aliens[partner as usize].active
         {
             if let Some(e) = make_large_exp_obj(g, partner) {
-                g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+                g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
             }
         }
         g.objs.aliens[idx as usize].hitflags = 0;
@@ -2221,7 +2221,7 @@ pub fn ship1a_strat(g: &mut Game, idx: u16) {
         if frame_tick_mod(g, 1) {
             if let Some(e) = make_large_exp_obj(g, idx) {
                 addrnd2pos_xy(g, e);
-                g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+                g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
             }
             let _ = crate::common::makesmoke_srou(g, idx);
         }
@@ -2619,14 +2619,14 @@ pub fn ship0cdown_strat(g: &mut Game, idx: u16) {
             copy_pos(g, e, idx);
             addrnd2pos_xy(g, e);
             g.objs.aliens[e as usize].worldz = g.objs.aliens[e as usize].worldz.wrapping_add(300);
-            g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+            g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
             fastparticleexplode_istrat(g, e);
         }
     }
     if let Some(e) = make_large_exp_obj(g, idx) {
         addrnd2pos_xy(g, e);
         g.objs.aliens[e as usize].worldz = g.objs.aliens[e as usize].worldz.wrapping_add(300);
-        g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+        g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
     }
 
     if !burning {
@@ -2889,8 +2889,8 @@ fn make_eye_exp_burst(g: &mut Game, idx: u16, left: bool) {
         };
         {
             let al = &mut g.objs.aliens[e as usize];
-            // ROM relexplode is sflags4; HD make_exp_obj already sets ASF2_RELEXPLODE.
-            al.sflags4 |= ASF4_NOPOLYEXP;
+            // ROM relexplode is sflags4; HD make_exp_obj already sets ASF4_RELEXPLODE.
+            al.sflags3 |= ASF3_NOPOLYEXP;
             al.worldz = al.worldz.wrapping_add(-20);
             al.worldx = al.worldx.wrapping_add(dx);
             al.worldy = al.worldy.wrapping_add(dy);
@@ -3239,7 +3239,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].stratstate == MIEXP1_STATE {
         for _ in 0..2 {
             if let Some(e) = make_large_exp_obj(g, idx) {
-                g.objs.aliens[e as usize].sflags4 |= ASF4_NOPOLYEXP;
+                g.objs.aliens[e as usize].sflags3 |= ASF3_NOPOLYEXP;
                 g.objs.aliens[e as usize].worldy =
                     g.objs.aliens[e as usize].worldy.wrapping_sub(15 << 4);
                 addrnd2pos_xy(g, e);
@@ -3820,7 +3820,7 @@ pub fn mcore1_istrat(g: &mut Game, idx: u16) {
         al.stratstate = 0;
         al.sbyte1 = 0;
         al.sbyte2 = 0;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         if level != 1 {
             al.shape = SH_FACE_BOX_PROXY;
             al.colframe = 0;
@@ -4251,7 +4251,7 @@ pub fn expspiece_strat(g: &mut Game, idx: u16) {
         }
         al.count = c;
     }
-    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
         add_player_z(g, idx);
     }
 }
@@ -4282,14 +4282,14 @@ pub fn exppiece_strat(g: &mut Game, idx: u16) {
         al.rotz = al.rotz.wrapping_add(4);
         // s_dec_lifecnt x,1 → kill_obj when count hits 0
         let c = al.count.wrapping_sub(1);
+        al.count = c;
         if c == 0 {
             crate::common::kill_obj(al);
-            return;
         }
-        al.count = c;
+        // s_kill_obj marks death; it does not return from this strategy.
         apply_velocity(al);
     }
-    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
         add_player_z(g, idx);
         g.objs.aliens[idx as usize].worldz = g.objs.aliens[idx as usize]
             .worldz
@@ -4428,7 +4428,7 @@ pub fn elaser2die_istrat(g: &mut Game, idx: u16) {
 /// ROM `elaser2die_strat` (GSTRATS.ASM:1975).
 pub fn elaser2die_strat(g: &mut Game, idx: u16) {
     use sf_game::vars::GF_PLAYERDYING;
-    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0
         && g.vars.gameflags & GF_PLAYERDYING == 0
     {
         add_player_z(g, idx);
@@ -4740,11 +4740,10 @@ pub fn relflatmiss_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         let c = al.count.wrapping_sub(1);
+        al.count = c;
         if c == 0 {
             crate::common::kill_obj(al);
-            return;
         }
-        al.count = c;
     }
     miss_end(g, idx);
 }
@@ -4771,11 +4770,10 @@ pub fn flatmiss_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         let c = al.count.wrapping_sub(1);
+        al.count = c;
         if c == 0 {
             crate::common::kill_obj(al);
-            return;
         }
-        al.count = c;
     }
     miss_end(g, idx);
 }
@@ -4874,10 +4872,11 @@ pub fn fire_plasma(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = PLASMA_AP;
         al.vel = 80;
         al.count = 100; // 30+70
+        al.sflags |= ASF_SSPRITE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4; // laser + enemyweap
         al.type_ = ATMISSILE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
     }
@@ -4907,10 +4906,11 @@ pub fn fire_beamball(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = 8;
         al.vel = 70;
         al.count = 100;
+        al.sflags |= ASF_SSPRITE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
         al.type_ = ATMISSILE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
     }
@@ -4949,10 +4949,11 @@ fn fire_flat_beam(
         al.ap = ap;
         al.vel = speed;
         al.count = life;
+        al.sflags |= ASF_SSPRITE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
         al.type_ = ATMISSILE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
     }
@@ -5073,10 +5074,11 @@ fn fire_hplasma_with_rotation(
         al.ap = HPLASMA_AP;
         al.vel = 60;
         al.count = 50;
+        al.sflags |= ASF_SSPRITE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
         al.type_ = ATMISSILE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
         al.rotx = al.rotx.wrapping_add(pitch_offset);
@@ -5239,11 +5241,12 @@ pub fn fire_yhplasma(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = 8;
         al.vel = 100;
         al.count = 50;
+        al.sflags |= ASF_SSPRITE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.collflags |= ACF_COLLTYPE1 | ACF_COLLTYPE4;
         al.type_ |= ATLASER;
         al.type_ &= !ATZREMOVE; // s_setnoremove_behind
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.ptr = target.wrapping_add(1);
         al.collstratptr = Some(coll);
         al.expstratptr = Some(rem);
@@ -5452,11 +5455,10 @@ pub fn helpballhome_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         let c = al.count.wrapping_sub(1);
+        al.count = c;
         if c == 0 {
             crate::common::kill_obj(al);
-            return;
         }
-        al.count = c;
     }
 }
 
@@ -5800,7 +5802,8 @@ pub fn fire_fakefar_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = HMISSILE1_AP;
         al.vel = HMISSILE_FIRE_SPEED;
         al.count = MISSILE_FIRE_LIFE;
-        al.sflags2 |= ASF2_RELEXPLODE | ASF2_SFLAG3;
+        al.sflags4 |= ASF4_RELEXPLODE;
+        al.sflags2 |= ASF2_SFLAG3;
         al.animframe = 0x80; // s_init_anim #0
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -5822,7 +5825,7 @@ pub fn fire_hmissile2(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = HMISSILE1_AP;
         al.vel = HMISSILE_FIRE_SPEED;
         al.count = MISSILE_FIRE_LIFE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
@@ -5851,7 +5854,7 @@ pub fn fire_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = HMISSILE1_AP;
         al.vel = HMISSILE_FIRE_SPEED;
         al.count = MISSILE_FIRE_LIFE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
@@ -5887,7 +5890,7 @@ pub fn fire_missile2(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = MISSILE2_AP;
         al.vel = MISSILE_FIRE_SPEED;
         al.count = MISSILE_FIRE_LIFE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
@@ -6187,7 +6190,7 @@ pub fn fire_kami_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = KAMI_HMISSILE_AP;
         al.vel = KAMI_HMISSILE_SPEED;
         al.count = MISSILE_FIRE_LIFE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
@@ -6208,7 +6211,7 @@ pub fn fire_chick_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = CHICK_HMISSILE_AP;
         al.vel = CHICK_HMISSILE_SPEED;
         al.count = CHICK_HMISSILE_LIFE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
@@ -6229,7 +6232,7 @@ pub fn fire_stb_hmissile1(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = HMISSILE1_AP;
         // speed set in istrat (#10); life 100
         al.count = MISSILE_FIRE_LIFE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collflags |= COLLTYPE_ENEMY2; // enemy2
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
@@ -6251,7 +6254,7 @@ pub fn fire_qh_missile1(g: &mut Game, firer: u16) -> Option<u16> {
         al.ap = QH_MISSILE_AP;
         al.vel = HMISSILE_FIRE_SPEED;
         al.count = MISSILE_FIRE_LIFE;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
     }
@@ -6957,11 +6960,10 @@ pub fn nuke_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         let c = al.count.wrapping_sub(1);
+        al.count = c;
         if c == 0 {
             crate::common::kill_obj(al);
-            return;
         }
-        al.count = c;
     }
 
     const PFM_DIEFALL: u8 = 1;
@@ -6974,7 +6976,6 @@ pub fn nuke_strat(g: &mut Game, idx: u16) {
     let pad_new = g.vars.pad1 & !pad_prev;
     if pad_new & pad::A != 0 {
         crate::common::kill_obj(&mut g.objs.aliens[idx as usize]);
-        return;
     }
 
     if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
@@ -7206,6 +7207,8 @@ pub fn strat_rader0_init(g: &mut Game, idx: u16) {
     al.hp = RADER_HP;
     al.ap = RADER_AP;
     al.collflags |= COLLTYPE_ENEMY1 | COLLTYPE_ZENEMY;
+    // The source initializer falls directly through into rader0_strat.
+    al.roty = al.roty.wrapping_add(8);
 }
 
 /// C `Strat_Rader1_Init` (strat_enemy.c:437).
@@ -7316,8 +7319,8 @@ pub(crate) fn pillar3explode_strat(g: &mut Game, idx: u16) {
         if let Some(child) = make_medium_exp_obj(g, idx) {
             let al = &mut g.objs.aliens[child as usize];
             // ASM: s_clr_alsflag relexplode, s_set_alsflag nopolyexp.
-            al.sflags2 &= !ASF2_RELEXPLODE;
-            al.sflags4 |= ASF4_NOPOLYEXP;
+            al.sflags4 &= !ASF4_RELEXPLODE;
+            al.sflags3 |= ASF3_NOPOLYEXP;
             al.worldx = al.worldx.wrapping_add(ox);
             al.worldy = al.worldy.wrapping_add(oy).wrapping_add(sword2);
             al.worldz = al.worldz.wrapping_sub(10);
@@ -7343,7 +7346,7 @@ pub(crate) fn pillar3explode_strat(g: &mut Game, idx: u16) {
         al.expstratptr = None;
         al.count = 7;
         // ASM delayremove_Istrat opens with `s_clr_alsflag x,relexplode`.
-        al.sflags2 &= !ASF2_RELEXPLODE;
+        al.sflags4 &= !ASF4_RELEXPLODE;
     }
     // ASM `s_jmp delayremove_Istrat` is a tail-jump: the initializer falls
     // through into delayremove_strat, so the explosion frame itself applies
@@ -14920,7 +14923,7 @@ pub fn strat_szaco2_init(g: &mut Game, idx: u16) {
     // ASM GA2STRAT.ASM:236-238 `s_set_debrisdata #zaco_8p` + `relexplode`.
     // Extended-bank mesh `SHAPE_EXT_ZACO_8P` (283) from SHAPES2.ASM.
     al.debrisshape = SH_ZACO_8P;
-    al.sflags2 |= ASF2_RELEXPLODE;
+    al.sflags4 |= ASF4_RELEXPLODE;
 }
 
 // ============================================================
@@ -16648,7 +16651,8 @@ pub(crate) fn make_exp_obj(g: &mut Game, parent: u16) -> Option<u16> {
     {
         let al = &mut g.objs.aliens[child as usize];
         al.sflags3 &= !ASF3_REALOBJ;
-        al.sflags2 |= ASF2_COLLDISABLE | ASF2_NOEXPSND | ASF2_RELEXPLODE;
+        al.sflags2 |= ASF2_COLLDISABLE | ASF2_NOEXPSND;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.stratptr = Some(s_tick);
@@ -16730,7 +16734,7 @@ pub fn delayexplode_strat(g: &mut Game, idx: u16) {
         }
         return;
     }
-    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
         add_player_z(g, idx);
     }
 }
@@ -16747,7 +16751,7 @@ pub(crate) fn delayremove_strat(g: &mut Game, idx: u16) {
         g.objs.aldead = 1;
         return;
     }
-    if g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE != 0 {
+    if g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE != 0 {
         add_player_z(g, idx);
     }
 }
@@ -16802,7 +16806,7 @@ pub(crate) fn circdelayexplode_strat(g: &mut Game, idx: u16) {
                 let s = sid(g, delayremove_strat);
                 let al = &mut g.objs.aliens[big as usize];
                 al.sflags |= ASF_COLLDISABLE;
-                al.sflags2 |= ASF2_RELEXPLODE;
+                al.sflags4 |= ASF4_RELEXPLODE;
                 al.flags |= AFEXP;
                 al.count = 110;
                 al.stratptr = Some(s);
@@ -16861,7 +16865,7 @@ pub fn strat_qboss_explode_init(g: &mut Game, idx: u16) {
     g.vars.gameflags |= GF_BOSSDEAD;
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.sflags2 |= ASF2_SFLAG1;
     }
     circdelayexplode_init(g, idx);

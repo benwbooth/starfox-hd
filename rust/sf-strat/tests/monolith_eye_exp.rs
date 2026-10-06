@@ -4,7 +4,7 @@ use sf_game::alien::{ASF_COLLIDE, ASF_HITFLASH};
 use sf_game::Game;
 use sf_strat::enemy_a::{
     makelefteyeexp_srou, makerighteyeexp_srou, monolithcol_istrat, rebelasercol_istrat,
-    ASF2_SFLAG1, ASF4_NOPOLYEXP, SH_FACE_0,
+    ASF2_SFLAG1, ASF3_NOPOLYEXP, SH_FACE_0,
 };
 
 const SHAPE_ELASER2: u16 = 511;
@@ -41,7 +41,7 @@ fn lefteye_burst_spawns_15_lexp_with_face0_offset() {
         .find(|&i| i != idx)
         .expect("child");
     let c = &g.objs.aliens[child as usize];
-    assert_ne!(c.sflags4 & ASF4_NOPOLYEXP, 0);
+    assert_ne!(c.sflags3 & ASF3_NOPOLYEXP, 0);
     // Base x = 1000 - 320 = 680, then ±127 rnd → in [553, 807]
     assert!(
         (553..=807).contains(&c.worldx),

@@ -7,7 +7,7 @@ use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
     hitflash_bossd_istrat, hitflash_lexp_istrat, hitflash_mexp_istrat, hitflash_sexp_istrat,
-    mchitflash_strat, misscol_istrat, strat_hit_flash, ASF4_NOPOLYEXP,
+    mchitflash_strat, misscol_istrat, strat_hit_flash, ASF3_NOPOLYEXP,
 };
 
 fn mark_normal_strategy(g: &mut Game, idx: u16) {
@@ -123,7 +123,7 @@ fn hitflash_bossd_sets_nopolyexp_when_hittable() {
     assert!(g.objs.aliens.iter().any(|a| {
         a.active
             && a.visual_kind == ObjectVisualKind::ExplosionEnvelope(ExplosionSize::Medium)
-            && a.sflags4 & ASF4_NOPOLYEXP != 0
+            && a.sflags3 & ASF3_NOPOLYEXP != 0
     }));
 }
 

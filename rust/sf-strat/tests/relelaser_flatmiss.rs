@@ -5,8 +5,22 @@ use sf_game::Game;
 use sf_strat::enemy_a::{
     fire_beamball, fire_friend_elaser, fire_plasma, fire_reb_elaser, flatmiss_istrat,
     flatmiss_strat, relelaser_istrat, relelaser_strat, relflatmiss_istrat, relflatmiss_strat,
-    ASF2_RELEXPLODE, ASF2_SFLAG1, SH_BOUNCYBALL,
+    strat_fire_relslowlaserhome, ASF2_SFLAG1, ASF4_RELEXPLODE, SH_BOUNCYBALL,
 };
+
+#[test]
+fn homing_laser_preserves_firer_speed_and_source_flag_byte() {
+    let mut g = Game::new();
+    let firer = g.objs.alloc().expect("firer");
+    g.objs.aliens[firer as usize].vel = 60;
+
+    let shot = strat_fire_relslowlaserhome(&mut g, firer, 0, 0).expect("homing laser");
+    let laser = g.objs.aliens[shot as usize];
+
+    assert_eq!(laser.sbyte3, 60, "gen_weapon preserves firing-object speed");
+    assert_eq!(laser.sflags2, 0, "relexplode is not a source-byte-2 flag");
+    assert_ne!(laser.sflags4 & ASF4_RELEXPLODE, 0);
+}
 
 #[test]
 fn relelaser_istrat_scales_vecs_and_animates() {
@@ -64,7 +78,25 @@ fn relflatmiss_scrolls_and_kills_on_life() {
     relflatmiss_strat(&mut g, idx);
     // scrolled +5 then killed
     assert_eq!(g.objs.aliens[idx as usize].hp, 0);
+    assert_eq!(g.objs.aliens[idx as usize].count, 0);
     assert!(g.objs.aliens[idx as usize].worldz >= 105);
+}
+
+#[test]
+fn flatmiss_records_the_zero_lifetime_before_killing() {
+    let mut g = Game::new();
+    let idx = g.objs.alloc().expect("ball");
+    {
+        let al = &mut g.objs.aliens[idx as usize];
+        al.count = 1;
+        al.sflags2 |= ASF2_SFLAG1;
+    }
+    flatmiss_istrat(&mut g, idx);
+
+    flatmiss_strat(&mut g, idx);
+
+    assert_eq!(g.objs.aliens[idx as usize].count, 0);
+    assert_eq!(g.objs.aliens[idx as usize].hp, 0);
 }
 
 #[test]
@@ -119,7 +151,7 @@ fn fire_plasma_and_beamball_stats() {
     assert_eq!(g.objs.aliens[plasma as usize].ap, 10);
     assert_eq!(g.objs.aliens[plasma as usize].vel, 80);
     assert_eq!(g.objs.aliens[plasma as usize].count, 100);
-    assert_ne!(g.objs.aliens[plasma as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(g.objs.aliens[plasma as usize].sflags4 & ASF4_RELEXPLODE, 0);
     assert_eq!(
         g.objs.aliens[plasma as usize].visual_kind,
         ObjectVisualKind::ScaledSprite

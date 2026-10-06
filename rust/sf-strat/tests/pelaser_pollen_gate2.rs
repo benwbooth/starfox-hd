@@ -6,7 +6,7 @@ use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{
     explodegate2_istrat, makepollen_srou, particlepollen_istrat, particlepollen_strat,
-    pelasercollide_istrat, ASF2_NOEXPSND, ASF2_RELEXPLODE,
+    pelasercollide_istrat, ASF2_NOEXPSND, ASF4_RELEXPLODE,
 };
 
 #[test]
@@ -79,7 +79,8 @@ fn explodegate2_always_stopexplodes() {
     g.objs.aliens[idx as usize].worldy = 2;
     g.objs.aliens[idx as usize].worldz = 3;
     g.objs.aliens[idx as usize].vx = 10;
-    g.objs.aliens[idx as usize].sflags2 |= ASF2_NOEXPSND | ASF2_RELEXPLODE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_NOEXPSND;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_RELEXPLODE;
     // Force spawn path: partner is laser
     let laser = g.objs.alloc().expect("laser");
     g.objs.aliens[idx as usize].collobjptr = laser;

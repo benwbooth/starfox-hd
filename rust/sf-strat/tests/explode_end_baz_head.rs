@@ -4,7 +4,7 @@ use sf_game::alien::ASF_COLLDISABLE;
 use sf_game::Game;
 use sf_strat::enemies_ground::{bazexp_istrat, bazfall_istrat, bazfall_strat, SH_BAZOOKA2};
 use sf_strat::enemy_a::{
-    explode_end, explode_strat, headfire_istrat, headfire_strat, lexplode_strat, ASF2_RELEXPLODE,
+    explode_end, explode_strat, headfire_istrat, headfire_strat, lexplode_strat, ASF4_RELEXPLODE,
     DEG45,
 };
 
@@ -37,7 +37,7 @@ fn explode_strat_advances_and_relexplode_scrolls() {
         let al = &mut g.objs.aliens[idx as usize];
         al.count = 0;
         al.count1 = 3;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.worldz = 100;
         al.colframe = 0x80;
     }

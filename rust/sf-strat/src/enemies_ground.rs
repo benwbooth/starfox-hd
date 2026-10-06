@@ -57,7 +57,7 @@ use crate::enemy_a::{
     strat_aim_3d, strat_aim_yaw, strat_explode, strat_fire_relslowlaser,
     strat_fire_relslowlaserhome, strat_hit_flash, strat_move3d, strat_nocoll_init,
     strat_obj_index_or_null, strat_phase_offset, strat_pitch_toward, strat_relslowelaser_speed,
-    update_fog_visibility, AF_LEFT_PL, ASF2_NOEXPSND, ASF2_RELEXPLODE, ASF2_SMFLAG1,
+    update_fog_visibility, AF_LEFT_PL, ASF2_NOEXPSND, ASF2_SMFLAG1, ASF4_RELEXPLODE,
     COLLTYPE_ENEMY1, COLLTYPE_ENEMYWEAP, COLLTYPE_ZENEMY, DEG11, DEG180, DEG45, DEG90,
     FOG_VISIBILITY_DISTANCE, SH_BOUNCYBALL, SH_MISSILE,
 };
@@ -7093,7 +7093,7 @@ pub fn mine2_istrat(g: &mut Game, idx: u16) {
         al.ap = MINE2_AP;
         al.vy = -45;
         al.roty = sf_random(&mut g.vars) as u8;
-        al.sflags2 |= ASF2_RELEXPLODE;
+        al.sflags4 |= ASF4_RELEXPLODE;
         al.collflags |= COLLTYPE_ENEMYWEAP;
     }
 }

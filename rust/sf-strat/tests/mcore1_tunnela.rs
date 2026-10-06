@@ -7,7 +7,7 @@ use sf_strat::common::null_strat;
 use sf_strat::enemies_ground::{tunnela2_strat, tunnela_istrat, tunnela_strat};
 use sf_strat::enemy_a::wm;
 use sf_strat::enemy_a::{
-    mcore1_istrat, mcore1_strat, mcore1col_istrat, ASF2_RELEXPLODE, DEG180, DEG45,
+    mcore1_istrat, mcore1_strat, mcore1col_istrat, ASF4_RELEXPLODE, DEG180, DEG45,
 };
 
 const HF5: u8 = 1 << 4;
@@ -49,7 +49,7 @@ fn mcore1_init_wait_zoom() {
     assert_eq!(al.ap, 40);
     assert_eq!(al.rotx, DEG180);
     assert_eq!(al.roty, DEG45.wrapping_neg());
-    assert_ne!(al.sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(al.sflags4 & ASF4_RELEXPLODE, 0);
     // Fall-through: state 0 → 1, sbyte1=20, nohitaffect
     assert_eq!(al.stratstate, 1);
     assert_eq!(al.sbyte1, 19); // set 20 then same-frame beqdec

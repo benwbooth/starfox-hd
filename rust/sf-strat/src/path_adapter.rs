@@ -56,7 +56,7 @@ use sf_game::vars::FRAMESPERAP;
 use sf_game::world::World;
 use sf_path::alien::{
     Alien as PAlien, ObjectVisualKind as PObjectVisualKind, StratRef, ACF_FIRSTFRAME, AFEXP,
-    ASF3_REALOBJ, ASF4_NOPOLYEXP, ASF_PARTOBJ, ATZREMOVE,
+    ASF3_NOPOLYEXP, ASF3_REALOBJ, ASF_PARTOBJ, ATZREMOVE,
 };
 use sf_path::interp::{dispatch_strat, PathHost, PathWorld};
 use sf_path::literals::InlineIps;
@@ -1028,7 +1028,7 @@ impl PathHost for Adapter<'_> {
             }
             // robexplode disables polygon debris before its particle burst.
             CB_ROBEXPLODE_NOPOLYEXP => {
-                world.aliens[si].sflags4 |= ASF4_NOPOLYEXP;
+                world.aliens[si].sflags3 |= ASF3_NOPOLYEXP;
             }
             CB_DSMOKE_INIT_COLANIM => {
                 world.aliens[si].colframe = 0;
@@ -1186,7 +1186,7 @@ mod tests {
     };
     use crate::common::{strat_gen_vecs_2d, strat_gen_vecs_3d};
     use crate::enemy_a::SH_BOUNCYBALL;
-    use sf_game::alien::{ACF_COLLTYPE1, ACF_COLLTYPE4, ATMISSILE};
+    use sf_game::alien::{ACF_COLLTYPE1, ACF_COLLTYPE4, ASF_SSPRITE, ATMISSILE};
     use sf_game::obj::strat_init_obj_vars;
     use sf_path::alien::{ACF_FIRSTFRAME, ASF3_REALOBJ, ATZREMOVE};
     use sf_path::interp::PathWorld;
@@ -1366,6 +1366,7 @@ mod tests {
         assert_eq!(projectile.count, EXPECTED_LIFETIME);
         assert_eq!(projectile.type_, ATMISSILE);
         assert_eq!(projectile.roty, AUTHORED_CURRENT_YAW);
+        assert_ne!(projectile.sflags & ASF_SSPRITE, 0);
         assert_eq!(
             projectile.collflags & (ACF_COLLTYPE1 | ACF_COLLTYPE4),
             ACF_COLLTYPE1 | ACF_COLLTYPE4

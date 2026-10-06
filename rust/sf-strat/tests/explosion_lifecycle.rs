@@ -1,5 +1,6 @@
 use sf_game::alien::{
-    ObjectVisualKind, AFEXP, AFONFIRE, ASF2_COLLDISABLE, ASF4_PLAYEROBJ, ASF_HITFLASH, ASF_SHADOW,
+    ObjectVisualKind, AFEXP, AFONFIRE, ASF2_COLLDISABLE, ASF4_CSPECIAL, ASF4_PLAYEROBJ,
+    ASF_HITFLASH, ASF_SHADOW,
 };
 use sf_game::draw::AF_INVIEW_PL;
 use sf_game::{Game, Hooks};
@@ -43,6 +44,7 @@ fn player_sized_explosion_keeps_polygon_debris_and_a_scaled_sprite_alive() {
         object.flags = AF_INVIEW_PL | AFONFIRE;
         object.sflags = ASF_HITFLASH | ASF_SHADOW;
         object.sflags2 = 0;
+        object.sflags4 = ASF4_CSPECIAL;
         [object.worldx, object.worldy, object.worldz] = DESTROYED_POSITION;
         [object.vx, object.vy, object.vz] = DESTROYED_VELOCITY;
         object.fireobjptr = fire + 1;
@@ -75,6 +77,7 @@ fn player_sized_explosion_keeps_polygon_debris_and_a_scaled_sprite_alive() {
     assert_eq!(sprite_object.count, 0);
     assert_eq!(sprite_object.count1, MEDIUM_EXPLOSION_SPRITE_TICKS);
     assert_eq!(sprite_object.sflags & (ASF_HITFLASH | ASF_SHADOW), 0);
+    assert_eq!(sprite_object.sflags4 & ASF4_CSPECIAL, ASF4_CSPECIAL);
     assert_eq!(
         [
             sprite_object.worldx,
@@ -113,7 +116,7 @@ fn no_polygon_explosion_removes_only_the_destroyed_mesh() {
         object.shape = PLAYER_SHIP_SHAPE;
         object.flags = AF_INVIEW_PL;
         object.sflags2 = ASF2_NOEXPSND;
-        object.sflags4 = sf_strat::enemy_a::ASF4_NOPOLYEXP;
+        object.sflags3 = sf_strat::enemy_a::ASF3_NOPOLYEXP;
     }
 
     strat_explode(&mut game, destroyed);

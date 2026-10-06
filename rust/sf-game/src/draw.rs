@@ -10,8 +10,8 @@
 //! PFM_SHADOWS)`, and the AF_* placement-flag clears/sets on the alien.
 
 use crate::alien::{
-    ObjectVisualKind, ACF_FIRSTFRAME, AFEXP, ASF4_INVISIBLE, ASF_HITFLASH, ASF_PARTOBJ, ASF_SHADOW,
-    ASF_TEXTOBJ, ATGND, ATZREMOVE,
+    ObjectVisualKind, ACF_FIRSTFRAME, AFEXP, ASF3_NOPOLYEXP, ASF4_INVISIBLE, ASF_HITFLASH,
+    ASF_PARTOBJ, ASF_SHADOW, ASF_TEXTOBJ, ATGND, ATZREMOVE,
 };
 use crate::obj::Objects;
 use crate::vars::{GF_NOZREMOVE, PFM_SHADOWS};
@@ -23,9 +23,6 @@ pub const AF_INRNG_PL: u8 = 2;
 pub const AF_LEFT_PL: u8 = 4;
 pub const AF_FRONT_PL: u8 = 8;
 pub const AF_INVIEW_PL: u8 = 16;
-
-/// C `ASF4_NOPOLYEXP` (src/game/obj.h:117).
-pub const ASF4_NOPOLYEXP: u8 = 0x04;
 
 /// Camera values consumed by the retail view-space placement pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -210,7 +207,7 @@ pub fn build_list(
 
         // Explosion state (draw.c:91-107).
         if al.flags & AFEXP != 0 {
-            entry.explosion_cnt = if al.sflags4 & ASF4_NOPOLYEXP != 0 {
+            entry.explosion_cnt = if al.sflags3 & ASF3_NOPOLYEXP != 0 {
                 0
             } else {
                 al.count
@@ -461,8 +458,8 @@ mod tests {
         assert_eq!(out[0].shad_z, 56);
         assert_eq!(out[0].obj_id, 2);
 
-        // ASF4_NOPOLYEXP suppresses the face-explosion count.
-        objs.aliens[b as usize].sflags4 = ASF4_NOPOLYEXP;
+        // ASF3_NOPOLYEXP suppresses the face-explosion count.
+        objs.aliens[b as usize].sflags3 = ASF3_NOPOLYEXP;
         objs.aliens[b as usize].flags = AFEXP; // rebuild cleared placement bits
         out.clear();
         build_list(

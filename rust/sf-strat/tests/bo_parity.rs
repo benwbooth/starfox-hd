@@ -10,8 +10,8 @@
 //! spawn the boss with its Istrat as the initial stratptr, run 150 ticks
 //! of `Game::run_strategies` (C `Obj_RunStrategies`) while scripting the
 //! player identically. Every tick emits one `T` global line plus one `A`
-//! line per active alien in SLOT order; the Rust replay must match the blessed
-//! ROM-verified trace byte-for-byte.
+//! line per active alien in SLOT order; the Rust replay must match the retained
+//! snapshot byte-for-byte. This is not independent cartridge evidence.
 //!
 //! The boss2 fixture from tick 22 onward includes the source `explode_Istrat`
 //! sprite/polygon split. `s_make_obj` inserts the sprite after the exploding
@@ -28,14 +28,10 @@
 //! therefore advances after the mother's completed pose in the same pass.
 //! The retired C allocator incorrectly pushed every child at the list head.
 //!
-//! Regenerate (repo root; harness in the session scratchpad):
-//!   gcc -O1 -Isrc -o bo_harness bo_harness.c bo_stubs.c \
-//!       src/strat/strat_boss2.c src/strat/strat_boss_sea.c \
-//!       src/strat/strat_boss8.c src/strat/strat_enemy.c \
-//!       src/strat/strat_common.c src/strat/strat_ground.c \
-//!       src/game/obj.c src/game/game_vars.c -lm
-//!   for s in boss2 bossg boss8; do ./bo_harness $s \
-//!       > rust/sf-strat/tests/fixtures/bo_$s.txt; done
+//! The 2026-10 flag-byte and sprite corrections have a reversible complete-file
+//! audit and source assertions in tools/sf1/test_strategy_source_contracts.py.
+//! Native-output blessing is disabled; future fixture changes require their
+//! own independent source evidence.
 
 mod support;
 
@@ -205,28 +201,16 @@ fn run(scenario: &str) -> String {
 
 fn check(scenario: &str, fixture: &str) {
     let got = run(scenario);
-    // Bless mode: the original C dump harness was deleted in the RIIR, so these
-    // fixtures can no longer be regenerated from C. Set SF_BLESS_FIXTURES=1 to
-    // rewrite them from the current source-verified Rust trace. The ROM ground
-    // truth for spawn-time init is proven separately by sf-oracle
-    // tests/audit_boss.rs; boss inits were diffed against
-    // GBSTRATS/D2STRATS/GB3STRAT, and generic explosion allocation/lifetimes
-    // against EXPSTRAT.ASM. This test is a regression guard, not an independent
-    // C-parity proof.
-    if std::env::var_os("SF_BLESS_FIXTURES").is_some() {
-        std::fs::write(fixture, &got).unwrap_or_else(|e| panic!("write {fixture}: {e}"));
-        return;
-    }
     let want = std::fs::read_to_string(fixture).unwrap_or_else(|e| panic!("read {fixture}: {e}"));
     if got != want {
         // Report the first diverging line for a fast bisect.
         for (i, (a, b)) in got.lines().zip(want.lines()).enumerate() {
             if a != b {
-                panic!("{scenario} parity diverged at line {i}:\n  rust: {a}\n     c: {b}");
+                panic!("{scenario} trace diverged at line {i}:\n  rust: {a}\n  expected: {b}");
             }
         }
         panic!(
-            "{scenario} parity: length mismatch (rust {} lines, c {} lines)",
+            "{scenario} trace: length mismatch (rust {} lines, expected {} lines)",
             got.lines().count(),
             want.lines().count()
         );

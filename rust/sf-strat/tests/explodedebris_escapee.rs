@@ -7,7 +7,7 @@ use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{
     escapee_istrat, escapeeexplode2_istrat, escapeeexplode_istrat, explodebigparts_istrat,
     explodedebris_istrat, exppiece_istrat, exppiece_strat, expspiece_istrat, expspiece_strat,
-    fastexplodedebris_istrat, makeescapee_icont, strat_explode, ASF2_NOEXPSND, ASF2_RELEXPLODE,
+    fastexplodedebris_istrat, makeescapee_icont, strat_explode, ASF2_NOEXPSND, ASF4_RELEXPLODE,
     MEDPSPEED_I16,
 };
 
@@ -128,7 +128,7 @@ fn exppiece_relexplode_scrolls() {
     let idx = g.objs.alloc().expect("slot");
     g.vars.pviewvelz = 10;
     g.objs.aliens[idx as usize].worldz = 1000;
-    g.objs.aliens[idx as usize].sflags2 |= ASF2_RELEXPLODE;
+    g.objs.aliens[idx as usize].sflags4 |= ASF4_RELEXPLODE;
     g.objs.aliens[idx as usize].count = 20;
     // skip istrat random life — set strat manually
     exppiece_istrat(&mut g, idx);

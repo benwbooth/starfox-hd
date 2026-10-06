@@ -16,7 +16,7 @@
 
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_FIRSTFRAME, ACF_WEAPON, AFONFIRE, ASF2_COLLDISABLE,
-    ASF3_REALOBJ, ASF4_INVISIBLE, ATLASER, ATZREMOVE, NUMBER_AL,
+    ASF3_REALOBJ, ASF4_INVISIBLE, ASF_SSPRITE, ATLASER, ATZREMOVE, NUMBER_AL,
 };
 // NUMBER_AL used by updateengine_srou bounds check.
 use sf_game::vars::GameVars;
@@ -681,6 +681,7 @@ pub fn flash_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
         al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.sflags |= ASF_SSPRITE;
         al.depthoffset = 0;
         al.tx = 0;
         al.sflags2 |= ASF2_COLLDISABLE;
@@ -999,6 +1000,7 @@ pub fn boost_istrat(g: &mut Game, idx: u16) {
         al.type_ &= !ATZREMOVE; // s_setnoremove_behind
         al.stratptr = Some(tick);
         al.visual_kind = ObjectVisualKind::ScaledSprite;
+        al.sflags |= ASF_SSPRITE;
         al.depthoffset = 0;
         // s_sprite_obj x,#0,svar_byte1 — sbyte1 is optional size from boost_sprite.
         al.tx = al.sbyte1;
@@ -1044,7 +1046,7 @@ mod boost_field_tests {
     use super::*;
 
     #[test]
-    fn boost_uses_typed_sprite_kind_and_second_collision_flag_byte() {
+    fn boost_preserves_source_sprite_and_collision_flag_bytes() {
         let mut game = Game::new();
         let host = strat_make_obj(&mut game, 0).expect("boost host");
         let flame = strat_make_obj(&mut game, SH_BOOSTSHAPE).expect("boost flame");
@@ -1054,7 +1056,7 @@ mod boost_field_tests {
 
         let flame = game.objs.aliens[usize::from(flame)];
         assert_eq!(flame.visual_kind, ObjectVisualKind::ScaledSprite);
-        assert_eq!(flame.sflags, 0);
+        assert_eq!(flame.sflags & ASF_SSPRITE, ASF_SSPRITE);
         assert_eq!(flame.sflags2 & ASF2_COLLDISABLE, ASF2_COLLDISABLE);
     }
 }

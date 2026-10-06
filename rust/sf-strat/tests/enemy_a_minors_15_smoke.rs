@@ -3,7 +3,7 @@
 
 use sf_game::alien::ASF3_REALOBJ;
 use sf_game::game::Game;
-use sf_strat::enemy_a::{strat_szaco2_init, strat_zaco3_init, ASF2_RELEXPLODE, SH_ZACO_8P};
+use sf_strat::enemy_a::{strat_szaco2_init, strat_zaco3_init, ASF4_RELEXPLODE, SH_ZACO_8P};
 
 // Generated USHAPES.ASM smoke, distinct from the fire/burn-mark shape.
 const SH_SMOKE: u16 = 358;
@@ -109,7 +109,7 @@ fn szaco2_init_sets_debrisshape_and_relexplode() {
     spawn_player(&mut g, 0, -40, 0);
     let idx = spawn(&mut g);
     strat_szaco2_init(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_RELEXPLODE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_RELEXPLODE, 0);
     assert_eq!(
         g.objs.aliens[idx as usize].debrisshape, SH_ZACO_8P,
         "szaco2 debris must be zaco_8p (SHAPE_EXT 283), not zaco_8 stand-in"
