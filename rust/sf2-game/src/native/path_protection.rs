@@ -42,6 +42,13 @@ impl DeflectionProtection {
         self.0 & PROJECTILE_DEFLECTION != 0
     }
 
+    /// Barrel-roll control publishes only this bit from its entering
+    /// impulse; the timed protection count and remaining tags survive.
+    pub fn set_projectile_deflection(&mut self, enabled: bool) {
+        self.0 = (self.0 & !PROJECTILE_DEFLECTION)
+            | if enabled { PROJECTILE_DEFLECTION } else { 0 };
+    }
+
     /// `$06:9F0D..9F20`, called only after the surrounding player-update
     /// gates admit this service. The shared clock, not effect age, controls
     /// each eighth-update decrement; zero never borrows into upper flags.

@@ -63,6 +63,7 @@ pub struct PlayerPathRecords {
     /// Scripted input words (6A88/6A8A), ORed after controller remapping and
     /// the activity mask, then cleared only by an admitted input visit.
     pub injected_input: Option<super::InputState>,
+    pub roll: Option<super::player_roll::PlayerRoll>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,

@@ -126,6 +126,7 @@ pub enum SceneError<E> {
     ReticlePosition(super::player_target_lock::ReticlePositionError),
     Reticle(super::player_reticle::ReticleError),
     PlayerInput(super::player_input::PlayerInputError),
+    PlayerRoll(super::player_roll::RollError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -154,6 +155,33 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// The mode runs this after input preparation and before steering.
+    pub fn prepare_player_shoulders(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_roll::prepare_shoulders(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerRoll);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Later movement service: publish projectile protection, then advance
+    /// double-tap/roll state. Steering is a distinct intervening service.
+    pub fn advance_player_roll(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_roll::advance(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerRoll);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Reset the scene publications owned by the currently ported player
     /// services. Remaining enclosing initialization is explicitly separate.
     pub fn reset_player_services(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {

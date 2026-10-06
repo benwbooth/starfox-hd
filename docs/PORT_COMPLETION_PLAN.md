@@ -113,6 +113,28 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported SF2 shoulder arbitration (`$06:9075..90D3`) and the double-tap
+  roll controller (`$06:E7FF..E8F4`). Both-held input uses the last shoulder
+  edge, with right winning simultaneous edges. Roll protection is published
+  from the entering impulse: it starts one visit after the roll and remains
+  active on the final decay visit. Tap history saturates, active impulses
+  wrap, unrelated protection/action bits survive, and missing later state
+  keeps the completed prefix. The scene host uses the existing protection
+  owner through real projectile reflection, sound and random draws.
+  Connected shoulder arbitration to the shipping Walker controller and
+  retained it across form changes; this fixes the previous unconditional
+  left priority. The original code matches 4,096 shoulder cases, 81,664
+  roll cases and 2,560 continuous input/roll visits, plus write ordering.
+  The source Walker consumer and shipping controller regression are also
+  checked for ordinary turning. Roll pose composition and the complete
+  native player-mode/frame owner remain unfinished; the full roll controller
+  is not yet shipping gameplay. All 1,298 native tests and both architecture
+  integration checks pass in debug/release; the oracle-enabled suite passes
+  1,306 unit tests and 35 runtime tests. All 31 original player-storage/input/
+  roll comparisons pass (the new Walker comparison was also rerun in debug).
+  All 640 source checks, 209 lowerer tests, generated catalog/architecture
+  checks and all three application builds pass.
+
 - Added the shared player-entry reset for already-native SF2 scene services
   (`$06:958C..9691`): processed input, published shield, aiming pitch, surface
   and action gates, handoff flags, recovery/protection, horizontal reticle,

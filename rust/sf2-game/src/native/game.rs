@@ -7223,6 +7223,7 @@ impl Game {
         self.state.mission.message = Default::default();
         self.state.mission.player_walker = Default::default();
         self.state.mission.player_flight.pitch_accumulator = 0;
+        self.state.mission.player_shoulders = Default::default();
         self.state.mission.player_flight.yaw_accumulator = OPENING_FLIGHT_YAW_ACCUMULATOR;
         self.state.mission.player_flight.pitch_lean = 0;
         self.state.mission.player_flight.ambient_bank_phase = 0;
@@ -16264,6 +16265,7 @@ impl Game {
         if self.update_player_transformation(primary_id) {
             return Ok(());
         }
+        self.state.mission.player_shoulders.update(self.state.input);
         if self.state.mission.player_craft_form == PlayerCraftForm::Walker {
             return self.update_active_walker(primary_id, retail_frame, weapons_enabled);
         }
@@ -18646,6 +18648,7 @@ impl Game {
         if self.update_player_transformation(primary_id) {
             return Ok(());
         }
+        self.state.mission.player_shoulders.update(self.state.input);
         if self.state.mission.player_craft_form == PlayerCraftForm::Walker {
             return self.update_active_walker(primary_id, retail_frame, weapons_enabled);
         }
@@ -18840,8 +18843,10 @@ impl Game {
         retail_frame: u16,
         weapons_enabled: bool,
     ) -> Result<(), Error> {
-        let turn_left = self.state.input.held.contains(Button::LeftShoulder);
-        let turn_right = self.state.input.held.contains(Button::RightShoulder);
+        // $06:B4D2 consumes the earlier $06:9075 arbitration. Holding both
+        // shoulders follows the last edge, not a hard-coded left priority.
+        let turn_left = self.state.mission.player_shoulders.left_selected();
+        let turn_right = self.state.mission.player_shoulders.right_selected();
         let walking = self.state.input.held.contains(Button::Up);
         let jump_held = self.state.input.held.contains(Button::Y);
         let jump_pressed = self.state.input.pressed.contains(Button::Y);
@@ -24748,7 +24753,7 @@ mod tests {
     }
 
     #[test]
-    fn walker_right_turn_uses_signed_spring_and_left_has_button_priority() {
+    fn walker_right_turn_and_simultaneous_shoulder_edges_follow_source_arbitration() {
         let mut right = Game::new();
         right.begin_opening_sortie().unwrap();
         right.begin_eladard_sortie().unwrap();
@@ -24775,8 +24780,8 @@ mod tests {
         both.state.mission.player_craft_form = PlayerCraftForm::Walker;
         both.tick(Button::LeftShoulder as u16 | Button::RightShoulder as u16)
             .unwrap();
-        assert_eq!(both.state.mission.player_walker.turn_spring, 2_176);
-        assert_eq!(both.state.mission.player_walker.turn_velocity, 1);
+        assert_eq!(both.state.mission.player_walker.turn_spring, -2_176);
+        assert_eq!(both.state.mission.player_walker.turn_velocity, -1);
         assert_eq!(
             both.state.objects.get(both_player).unwrap().base.yaw,
             Angle::from_units(
@@ -24786,9 +24791,49 @@ mod tests {
                     .heading_offset
                     .unwrap()
                     .units()
-                    .wrapping_add(8)
+                    .wrapping_sub(9)
             )
         );
+    }
+
+    #[test]
+    fn walker_holding_both_shoulders_tracks_new_edges_not_repeated_held_buttons() {
+        let (mut game, _, _) = active_walker_game();
+        let left = Button::LeftShoulder as u16;
+        let right = Button::RightShoulder as u16;
+        for (held, expected_control, spring, velocity) in [
+            (right, 0xA0, -2_176, -1),
+            (left | right, 0x40, 544, 0),
+            (left | right, 0x40, 2_584, 1),
+            (right, 0x20, -238, 0),
+            (0, 0, -119, 0),
+            (left | right, 0xA0, -2_265, -1),
+        ] {
+            game.tick(held).unwrap();
+            assert_eq!(game.state.mission.player_shoulders.bits(), expected_control);
+            assert_eq!(game.state.mission.player_walker.turn_spring, spring);
+            assert_eq!(game.state.mission.player_walker.turn_velocity, velocity);
+        }
+    }
+
+    #[test]
+    fn shoulder_preference_survives_form_change_but_not_a_new_player_sortie() {
+        let (mut game, player, _) = active_walker_game();
+        let both = Button::LeftShoulder as u16 | Button::RightShoulder as u16;
+        game.tick(Button::RightShoulder as u16).unwrap();
+        game.tick(both).unwrap();
+        assert!(game.state.mission.player_shoulders.left_selected());
+        game.begin_player_transformation(PlayerCraftTransformationDirection::ToFlight);
+        game.begin_player_transformation(PlayerCraftTransformationDirection::ToWalker);
+        assert!(game.state.mission.player_shoulders.left_selected());
+        assert_eq!(game.state.mission.player_walker.turn_spring, 0);
+        // Complete only the fixture's form handoff; the real active-frame
+        // owner must not re-sample held-both into two new button edges.
+        game.state.mission.player_craft_form = PlayerCraftForm::Walker;
+        game.tick(both).unwrap();
+        assert_eq!(game.state.mission.player_walker.turn_spring, 2_176);
+        game.start_sortie(MissionVisit::EladardBase, player, None);
+        assert_eq!(game.state.mission.player_shoulders.bits(), 0);
     }
 
     #[test]

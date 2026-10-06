@@ -1658,6 +1658,9 @@ pub struct MissionState {
     pub mirage_dragon_camera: MirageDragonCameraState,
     pub flight_follow_camera: FlightFollowCameraState,
     pub player_walker: PlayerWalkerState,
+    /// Shared by flight and Walker. Form changes retain the last shoulder
+    /// edge; only a new player/sortie clears its selection history.
+    pub player_shoulders: super::player_roll::ShoulderControl,
     pub player_craft_form: PlayerCraftForm,
     pub message: MissionMessageState,
     /// Becomes true when steering leaves the certified neutral path.

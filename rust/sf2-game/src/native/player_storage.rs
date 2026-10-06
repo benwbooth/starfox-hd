@@ -142,6 +142,7 @@ pub fn replace(
             ..Default::default()
         }),
         injected_input: Some(Default::default()),
+        roll: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),

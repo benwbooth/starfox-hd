@@ -23,6 +23,9 @@ mod reticle_producer_tests;
 #[path = "support/sf2_player_scene_reset.rs"]
 mod scene_reset_tests;
 
+#[path = "support/sf2_player_roll.rs"]
+mod roll_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};

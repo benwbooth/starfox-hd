@@ -473,6 +473,55 @@ fn missing_reached_input_and_stale_registration_latch_before_damage_and_cannot_r
 }
 
 #[test]
+fn double_tap_roll_producer_drives_actual_projectile_reflection_at_both_boundaries() {
+    use crate::player_roll::PlayerRoll;
+    use crate::{Button, Buttons, InputState};
+
+    for decays in [0, 1, 15, 16, 17] {
+        let mut scene = Scene::new();
+        scene.record().roll = Some(PlayerRoll::default());
+        // Reflection's source gate admits this pending separation even
+        // though the hit pass itself skips the owner.
+        scene.objects.get_mut(scene.owner).unwrap().base.contacts.skip_contacts = true;
+        scene.world.reflect_all_contacts = Some(false);
+        scene.world.spawn_defaults = Some(ObjectSpawnDefaults::default());
+        scene.world.weapons = Some(Default::default());
+        scene.objects.get_mut(scene.other).unwrap().base.contacts.credits_hit_side = true;
+        let owner = scene.owner;
+        let shoulder = Button::LeftShoulder as u16;
+        for (held, pressed) in [(shoulder, shoulder), (0, 0), (shoulder, shoulder)] {
+            scene.world.processed_player_input = Some(InputState {
+                held: Buttons::from_bits(held), pressed: Buttons::from_bits(pressed),
+            });
+            scene.host().prepare_player_shoulders(owner).unwrap();
+            scene.host().advance_player_roll(owner).unwrap();
+        }
+        scene.world.processed_player_input = Some(InputState::default());
+        for _ in 0..decays {
+            scene.host().advance_player_roll(owner).unwrap();
+        }
+        let protected = (1..=16).contains(&decays);
+        assert_eq!(scene.record().protection.unwrap().projectile_deflection(), protected);
+        let mut expected_random = scene.world.random;
+        if protected {
+            for _ in 0..3 { expected_random.next_byte(); }
+        }
+        scene.execution.hit_context.damage = 5;
+        let first = scene.world.contacts.first(owner).unwrap();
+        let entry = *scene.world.contacts.get(first).unwrap();
+        scene.host().on_separation(first, entry).unwrap();
+        assert_eq!(scene.objects.len(), if protected { 3 } else { 2 });
+        assert_eq!(scene.objects.get(scene.other).unwrap().base.flags.collision_disabled, protected);
+        assert_eq!(scene.execution.hit_context.damage, if protected { 0 } else { 5 });
+        assert_eq!(scene.world.random, expected_random);
+        assert_eq!(scene.record().contact.unwrap().hit.feedback_flags & 8, 0);
+        assert_eq!(scene.events(), [SoundEvent::Authored(AuthoredCue::new(
+            if protected { 24 } else { 18 }, 0, PlayerTarget::Primary,
+        ))]);
+    }
+}
+
+#[test]
 fn protection_feedback_reflection_sound_and_randomness_share_live_scene_owners() {
     for scatter in [false, true] {
         let mut scene = Scene::new();
