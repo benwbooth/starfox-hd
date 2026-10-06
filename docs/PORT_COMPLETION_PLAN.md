@@ -139,8 +139,13 @@ running; scheduled work is not a guarantee of a completion date.
   semantic/draw/audio updates and 1,752 bitmap updates; the weapon executable
   passes 338 strategy/controller updates, ten weapon-certified updates and
   26 strict video samples. This run began before the latest reticle and intro
-  changes, so it is a baseline, not final-tree certification. A fresh complete
-  release workspace run is in progress after the intro-exit change.
+  changes, so it is a baseline, not final-tree certification. The subsequent
+  complete release workspace run, including the reticle and intro-exit changes,
+  finished with 3,964 harness tests passing, the same three failing and the same
+  one ignored. Its title executable retains the 127-versus-128 setup failure;
+  training and the strict weapon/video checks pass with the counts above.
+  These results cover the working tree, including preserved pre-existing edits,
+  not just the committed changes. None of the failing gates was weakened.
 
 - Closed the reticle mode preparer (`$07:B038..B0CD`) and full position
   producer (`$07:A418..A504`), composing the latter with target retention in

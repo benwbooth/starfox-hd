@@ -161,7 +161,10 @@ fn original_intro_exit_and_shipping_shell_publish_six_transfers_then_handoff() {
     assert_eq!(native.game.vars.strategy.fade_direction, -2);
     assert_eq!(original.peek8(WORK_RAM | RETAIL_FADE), 11);
     assert_eq!(original.peek8(WORK_RAM | RETAIL_FADEDIR) as i8, -2);
-    assert_eq!(native.game.vars.gameframe, original.peek16(WORK_RAM | RETAIL_GAMEFRAME));
+    assert_eq!(
+        native.game.vars.gameframe,
+        original.peek16(WORK_RAM | RETAIL_GAMEFRAME)
+    );
     let display = original.peek8(RETAIL_XINIDISP1);
     assert_eq!(native.frame().display_brightness, display & 15);
     assert_eq!(native.frame().display_forced_blank, display & 0x80 != 0);
@@ -171,7 +174,10 @@ fn original_intro_exit_and_shipping_shell_publish_six_transfers_then_handoff() {
             .tick_until_cpu_execution(0, INTRO_EXIT_TRANSFER_DONE, MAX_TRANSFER_VIDEO_FRAMES)
             .unwrap());
         native.tick(0);
-        assert_eq!(native.game.vars.gameframe, original.peek16(WORK_RAM | RETAIL_GAMEFRAME));
+        assert_eq!(
+            native.game.vars.gameframe,
+            original.peek16(WORK_RAM | RETAIL_GAMEFRAME)
+        );
         assert_eq!(original.peek8(WORK_RAM | RETAIL_FADE), expected_level);
         let display = original.peek8(RETAIL_XINIDISP1);
         assert_eq!(native.frame().display_brightness, display & 15);
