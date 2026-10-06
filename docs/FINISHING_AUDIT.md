@@ -133,6 +133,67 @@ Local evidence: `/tmp/sf1-timing-mesen-oct06.txt`,
 `/tmp/sf-oracle-refresh-full-oct06.log`. These are diagnostic artifacts, not
 distributed game assets or whole-game certification.
 
+### Opening entropy ordering and independent actor recheck — 2026-10-06
+
+The SF2 update-101 difference was not a new glyph-motion arithmetic error.
+The original can call its background entropy service **inside** an actor's
+visit. The read-only instruction-entry probe captured the service between
+the lower-case E's two direction draws and two spin draws. Counting only
+completed actor visits placed that refresh before the actor instead. Both
+orders finish with the same RNG state, but assign different values to motion.
+
+The typed opening now accepts refresh boundaries measured in consumer draws,
+through a scoped native random source shared by logo, burst and chain code.
+It still generates every value itself. This supports intra-actor ordering
+without injecting observed values, coordinates, allocations or results.
+The existing coarse between-actor API remains available, with its limitation
+documented. Repeated/zero boundaries, tail refreshes, spin-versus-direction
+separation and capacity-failure rollback have regression coverage.
+
+All three original-code opening integration checks again pass 440 updates,
+including consumer draw counts, actor poses, active-list order, camera and
+palette/publication checks. They now explicitly supply observed entropy order,
+not a misleading actor-pass approximation. The separate autonomous timing
+gate remains unchanged and ignored; shipping `tick()` still uses its coarse
+tail refresh and is **not** certified by these observed-order tests.
+
+An independent Mesen 2.1.1 run also passes a new native comparison for all
+440 updates: every active slot, actor position/rotation, camera and final RNG
+state. Its refresh boundaries differ from the in-tree runner. In particular,
+at update 164 it refreshes after two of one burst actor's eight draws. This
+confirms that mid-actor ordering is a real source contract, not an in-tree
+timing artifact. The comparison supplies only the initial RNG seed and refresh
+order. Palette, pixels, audio and autonomous timing are outside this separate
+independent comparison; it does not certify all opening presentation.
+
+Reproduce the independent capture and comparison:
+
+```sh
+entropy_profile=$(mktemp -d /tmp/sf2-opening-entropy.XXXXXX)
+nix develop --command python3 tools/sf2/run_mesen_oracle.py \
+  tools/sf2/mesen_opening_entropy_oracle.lua \
+  --profile "$entropy_profile" --timeout 180
+nix develop --command cargo run --manifest-path rust/Cargo.toml \
+  -p sf-oracle --release --example sf2_opening_entropy_trace -- \
+  "$entropy_profile/Mesen2/LuaScriptData/mesen_opening_entropy_oracle/sf2_opening_entropy.txt"
+```
+
+The capture rejects nested generator arithmetic rather than pretending it is
+an atomic draw. The comparator rejects incomplete traces and duplicate fields,
+and checks the exact consumer draw count. The SF2 ROM SHA-256 is
+`e134f20f6ee7d422d06faea6b1ae1e4101d1d0a200a0571d715d1cf23d959e8c`.
+The local capture is
+`/tmp/sf2-opening-independent-oct06.AnZFSR/Mesen2/LuaScriptData/mesen_opening_entropy_oracle/sf2_opening_entropy.txt`
+(SHA-256 `f3077e605d35a511541a1ff149b5636e23090cfb9f8f6110fd94fb133e20bc6f`).
+All 1,240 native tests and two native architecture tests pass in debug/release,
+as do 41 focused oracle/parser tests (one pre-existing autonomous gate remains
+ignored), the independent Mesen comparison in both profiles, all 616 SF2 source
+checks, the architecture audit and all three app launcher builds.
+Other evidence: `/tmp/sf2-opening-visits-oct06.log`,
+`/tmp/sf2-opening-independent-mesen-oct06.log`,
+`/tmp/sf2-entropy-final-counted-checks-oct06.log` and
+`/tmp/sf2-entropy-static-oct06.log`.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from

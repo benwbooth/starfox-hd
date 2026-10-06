@@ -2453,6 +2453,20 @@ impl RetailMachine {
         address: u32,
         max_video_frames: u32,
     ) -> Result<bool, String> {
+        Ok(self
+            .tick_until_cpu_execution_any(pad1, &[address], max_video_frames)?
+            .is_some())
+    }
+
+    /// Advance to the first fetched instruction in `addresses`, preserving
+    /// execution order across alternative semantic boundaries. This read-only
+    /// oracle facility does not inject state or execute native game callbacks.
+    pub fn tick_until_cpu_execution_any(
+        &mut self,
+        pad1: u16,
+        addresses: &[u32],
+        max_video_frames: u32,
+    ) -> Result<Option<u32>, String> {
         self.bus.set_pad1(pad1);
         let frame_dots = DOTS_PER_LINE * LINES_PER_FRAME;
         let target = self
@@ -2460,11 +2474,13 @@ impl RetailMachine {
             .dot
             .saturating_add(frame_dots.saturating_mul(u64::from(max_video_frames)));
         while self.bus.dot < target {
-            if self.tick_cpu_cycle()? == Some(address) {
-                return Ok(true);
+            if let Some(address) = self.tick_cpu_cycle()? {
+                if addresses.contains(&address) {
+                    return Ok(Some(address));
+                }
             }
         }
-        Ok(false)
+        Ok(None)
     }
 
 
@@ -2536,6 +2552,11 @@ impl RetailMachine {
 
     pub fn pc(&self) -> u32 {
         (u32::from(self.cpu.pbr()) << 16) | u32::from(self.cpu.pc())
+    }
+
+    /// Current CPU X value for verification at an instruction-entry boundary.
+    pub fn cpu_x(&self) -> u16 {
+        self.cpu.x()
     }
 
     pub fn peek8(&self, address: u32) -> u8 {
@@ -3055,6 +3076,31 @@ mod retail_boot_bus_tests {
             );
             assert!((90..100).contains(&machine.cpu.x()));
         }
+    }
+
+    #[test]
+    fn alternative_instruction_boundaries_stop_in_execution_order_without_mutation() {
+        let mut rom = vec![0; 0x8000];
+        // LDX #42; INX; BRA back to INX. Boundaries observe the next
+        // instruction's entry, before its operand reads or side effects.
+        rom[..5].copy_from_slice(&[0xA2, 42, 0xE8, 0x80, 0xFD]);
+        rom[0x7FFC..0x7FFE].copy_from_slice(&0x8000u16.to_le_bytes());
+        let mut machine = RetailMachine::new(rom);
+        assert_eq!(
+            machine.tick_until_cpu_execution_any(0, &[0x008003, 0x008002], 1).unwrap(),
+            Some(0x008002)
+        );
+        assert_eq!(machine.cpu_x(), 42);
+        assert_eq!(
+            machine.tick_until_cpu_execution_any(0, &[0x008003, 0x008002], 1).unwrap(),
+            Some(0x008003)
+        );
+        assert_eq!(machine.cpu_x(), 43);
+        let before = (machine.pc(), machine.master_clock(), machine.cpu_x());
+        assert_eq!(machine.tick_until_cpu_execution_any(0, &[0x008002], 0).unwrap(), None);
+        assert_eq!((machine.pc(), machine.master_clock(), machine.cpu_x()), before);
+        assert!(machine.tick_until_cpu_execution(0, 0x008002, 1).unwrap());
+        assert_eq!(machine.cpu_x(), 43);
     }
 
     #[test]

@@ -81,6 +81,69 @@ pub struct RandomState {
     bytes: [u8; 4],
 }
 
+/// An ordered source of gameplay random draws. Scene scheduling may advance
+/// the shared generator between draws without assigning those values to an actor.
+pub trait RandomSource {
+    fn next_byte(&mut self) -> u8;
+}
+
+impl RandomSource for RandomState {
+    fn next_byte(&mut self) -> u8 {
+        RandomState::next_byte(self)
+    }
+}
+
+/// Scoped entropy refreshes, expressed only as counts of completed consumer
+/// draws. Values still come from the native generator, never an observed trace.
+pub(crate) struct InterleavedRandom<'a> {
+    state: RandomState,
+    refresh_after_draws: &'a [usize],
+    next_refresh: usize,
+    draws: usize,
+}
+
+impl<'a> InterleavedRandom<'a> {
+    pub(crate) fn new(state: RandomState, refresh_after_draws: &'a [usize]) -> Self {
+        assert!(
+            refresh_after_draws.windows(2).all(|pair| pair[0] <= pair[1]),
+            "random refresh boundaries must be sorted"
+        );
+        Self {
+            state,
+            refresh_after_draws,
+            next_refresh: 0,
+            draws: 0,
+        }
+    }
+
+    pub(crate) fn refresh(&mut self) {
+        self.state.next_byte();
+    }
+
+    pub(crate) fn draw_count(&self) -> usize {
+        self.draws
+    }
+
+    pub(crate) fn finish(mut self) -> RandomState {
+        while self.next_refresh < self.refresh_after_draws.len() {
+            self.refresh();
+            self.next_refresh += 1;
+        }
+        self.state
+    }
+}
+
+impl RandomSource for InterleavedRandom<'_> {
+    fn next_byte(&mut self) -> u8 {
+        while self.refresh_after_draws.get(self.next_refresh) == Some(&self.draws) {
+            self.refresh();
+            self.next_refresh += 1;
+        }
+        self.draws += 1;
+        self.state.next_byte()
+    }
+}
+
 impl RandomState {
     pub const fn new(bytes: [u8; 4]) -> Self {
         Self { bytes }
@@ -2646,6 +2709,39 @@ impl Default for GameState {
 mod tests {
     use super::super::campaign_world_assignments::NORMAL_OCCUPIED_WORLD_COUNT;
     use super::*;
+
+    #[test]
+    fn interleaved_random_preserves_each_draw_and_the_final_generator_state() {
+        let seed = RandomState::new([37, 130, 132, 50]);
+        let mut reference = seed;
+        let draws: Vec<_> = (0..9).map(|_| reference.next_byte()).collect();
+        let mut stream = InterleavedRandom::new(seed, &[0, 0, 2, 2, 20]);
+        assert_eq!(stream.next_byte(), draws[2]);
+        assert_eq!(stream.next_byte(), draws[3]);
+        assert_eq!(stream.next_byte(), draws[6]);
+        assert_eq!(stream.next_byte(), draws[7]);
+        assert_eq!(stream.finish(), reference);
+    }
+
+    #[test]
+    fn empty_draw_stream_still_applies_every_scheduled_refresh() {
+        let seed = RandomState::new([17, 91, 211, 37]);
+        let mut reference = seed;
+        for _ in 0..3 {
+            reference.next_byte();
+        }
+        assert_eq!(
+            InterleavedRandom::new(seed, &[0, 0, usize::MAX]).finish(),
+            reference
+        );
+        assert_eq!(InterleavedRandom::new(seed, &[]).finish(), seed);
+    }
+
+    #[test]
+    #[should_panic(expected = "random refresh boundaries must be sorted")]
+    fn interleaved_random_rejects_reversed_order() {
+        InterleavedRandom::new(RandomState::default(), &[2, 1]);
+    }
 
     #[test]
     fn cue_ring_keeps_fifo_order_across_wrap_and_partial_batches() {

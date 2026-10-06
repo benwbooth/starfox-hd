@@ -54,7 +54,7 @@ use super::scene_artwork::{
 };
 use super::scene_frame::NormalFrameBuffers;
 use super::scene_video::{SceneLayerPolicy, SceneModePublication, SceneModeSetup, SceneVideo};
-use super::state::RandomState;
+use super::state::{InterleavedRandom, RandomSource, RandomState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpeningArtworkRequestError {
@@ -334,6 +334,8 @@ pub struct OpeningActorSnapshot {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct OpeningSceneFrameEvents {
+    /// Consumer draws only; background entropy refreshes are not actor draws.
+    pub random_draws: usize,
     /// Artwork published at the joined normal-frame boundary. This preserves
     /// loader order but does not assign display times to those publications.
     pub artwork_publications: Vec<ArtworkPublication>,
@@ -1056,9 +1058,10 @@ impl OpeningScene {
         &mut self,
         after: ObjectId,
         pose: IntroScenePose,
+        random: &mut impl RandomSource,
         events: &mut OpeningSceneFrameEvents,
     ) -> Result<(), IntroDestructionCapacityError> {
-        if let Some((particle, sound)) = opening_burst(pose, self.global_clock, &mut self.random) {
+        if let Some((particle, sound)) = opening_burst(pose, self.global_clock, random) {
             self.allocate(after, OpeningSceneActor::Burst(particle), events)?;
             if let Some(sound) = sound {
                 events.burst_audio.push(OpeningBurstAudio {
@@ -1172,6 +1175,7 @@ impl OpeningScene {
     fn advance_actor(
         &mut self,
         id: ObjectId,
+        random: &mut impl RandomSource,
         events: &mut OpeningSceneFrameEvents,
     ) -> Result<(), IntroDestructionCapacityError> {
         let cue = self.controller.cue();
@@ -1261,7 +1265,7 @@ impl OpeningScene {
                         depth: self.scene_depth_velocity,
                         horizontal_locked: true,
                     },
-                    &mut self.random,
+                    random,
                 );
                 let pose = IntroScenePose {
                     position: glyph.position,
@@ -1340,7 +1344,7 @@ impl OpeningScene {
                     )?;
                 }
                 if step.emit_burst {
-                    self.spawn_burst(id, pose, events)?;
+                    self.spawn_burst(id, pose, random, events)?;
                 }
                 if step.request_destruction {
                     self.common_destruction(id, craft.shape(), pose.position, events)?;
@@ -1352,7 +1356,7 @@ impl OpeningScene {
                 let shape = craft.shape;
                 self.actors[id.index()] = Some(OpeningSceneActor::DepartingCraft(craft));
                 if step.emit_burst {
-                    self.spawn_burst(id, pose, events)?;
+                    self.spawn_burst(id, pose, random, events)?;
                 }
                 if step.request_destruction {
                     self.common_destruction(id, shape, pose.position, events)?;
@@ -1511,7 +1515,7 @@ impl OpeningScene {
                                 parent,
                                 predecessor,
                                 self.chain_controls,
-                                &mut self.random,
+                                random,
                             ) {
                                 self.allocate(
                                     id,
@@ -1570,10 +1574,11 @@ impl OpeningScene {
     /// Advance one complete actor traversal and its ordinary-frame artwork
     /// barrier, with the generic RNG refresh after the active-list tail.
     ///
-    /// Retail's timer/PPU update can perform that refresh before the actor
-    /// traversal reaches its tail.  Callers which supply that observed or
-    /// independently derived visit boundary must use
-    /// [`Self::tick_with_first_pass_budget`] instead.  Capacity failure rolls
+    /// Retail's entropy update can interrupt a traversal, including between
+    /// two draws by one actor. Callers with derived or observed ordering use
+    /// [`Self::tick_with_random_refreshes`]. The coarser
+    /// [`Self::tick_with_first_pass_budget`] supports only between-actor splits.
+    /// Capacity failure rolls
     /// back the controller, palette, pool, RNG, camera and auxiliary state
     /// together. Frame work is joined at this coarse boundary; this API does
     /// not model upload deadlines or perform the scene's rendering itself.
@@ -1618,7 +1623,23 @@ impl OpeningScene {
             "opening refresh boundaries must be sorted"
         );
         let mut pending = self.clone();
-        let events = pending.advance(refresh_after_visits)?;
+        let events = pending.advance(refresh_after_visits, &[])?;
+        *self = pending;
+        Ok(events)
+    }
+
+    /// Advance a complete traversal with entropy refreshes after the supplied
+    /// numbers of actor random draws. Unlike actor-visit boundaries, this can
+    /// preserve a refresh between one actor's direction, spin, or burst draws.
+    /// Only ordering is supplied; actors and the shared generator remain native.
+    /// Repeated and zero boundaries are allowed; remaining refreshes occur at
+    /// the tail. This does not derive the source's autonomous refresh timing.
+    pub fn tick_with_random_refreshes(
+        &mut self,
+        refresh_after_draws: &[usize],
+    ) -> Result<OpeningSceneFrameEvents, IntroDestructionCapacityError> {
+        let mut pending = self.clone();
+        let events = pending.advance(&[], refresh_after_draws)?;
         *self = pending;
         Ok(events)
     }
@@ -1626,8 +1647,10 @@ impl OpeningScene {
     fn advance(
         &mut self,
         refresh_after_visits: &[usize],
+        refresh_after_draws: &[usize],
     ) -> Result<OpeningSceneFrameEvents, IntroDestructionCapacityError> {
         let mut events = OpeningSceneFrameEvents::default();
+        let mut random = InterleavedRandom::new(self.random, refresh_after_draws);
         self.frame_buffers
             .begin_frame()
             .expect("previous opening frame has joined its work");
@@ -1635,29 +1658,29 @@ impl OpeningScene {
         let mut visits = 0usize;
         let mut next_refresh = 0usize;
         while refresh_after_visits.get(next_refresh) == Some(&0) {
-            self.random.next_byte();
+            random.refresh();
             next_refresh += 1;
         }
         let mut cursor = self.objects.active_ids().first().copied();
         while let Some(id) = cursor {
-            self.advance_actor(id, &mut events)?;
+            self.advance_actor(id, &mut random, &mut events)?;
             visits += 1;
             while refresh_after_visits.get(next_refresh) == Some(&visits) {
-                self.random.next_byte();
+                random.refresh();
                 next_refresh += 1;
             }
             // The strategy may have inserted a child after this actor.
             cursor = self.objects.get(id).expect("cleanup is deferred").base.next;
         }
-        // Runtime $7F:058C increments the entropy word and $7F:058F calls the
-        // shared subtract generator at $7F:7BD4. A controller-to-controller
-        // traversal can span multiple source frames, so any remaining
-        // caller-supplied refreshes land after the active-list tail and before
-        // the distinct $7F:402D cleanup pass.
+        // Runtime $7F:058F advances the shared subtract generator. A traversal
+        // can span multiple refreshes, including during an actor. Apply any
+        // remaining caller-supplied refreshes at the tail before cleanup.
         while next_refresh < refresh_after_visits.len() {
-            self.random.next_byte();
+            random.refresh();
             next_refresh += 1;
         }
+        events.random_draws = random.draw_count();
+        self.random = random.finish();
         for id in self.objects.active_ids().to_vec() {
             if self.retiring[id.index()] {
                 self.objects
@@ -2138,6 +2161,35 @@ mod tests {
     }
 
     #[test]
+    fn intra_actor_refresh_preserves_direction_but_changes_spin() {
+        let mut scene = OpeningScene::new(
+            RandomState::new([17, 91, 211, 37]),
+            OpeningScenePalette::new([IntroColor::default(); INTRO_PALETTE_COLORS]),
+        );
+        for _ in 0..100 {
+            scene.tick().unwrap();
+        }
+        let first_primary = scene.actors().find_map(|(id, actor)| {
+            matches!(actor, OpeningSceneActor::LogoGlyph(glyph) if glyph.layer == LogoLayer::Primary)
+                .then_some(id)
+        }).unwrap();
+        let mut tail = scene.clone();
+        let tail_events = tail.tick().unwrap();
+        let split_events = scene.tick_with_random_refreshes(&[2]).unwrap();
+        let OpeningSceneActor::LogoGlyph(split) = scene.actor(first_primary).unwrap() else {
+            panic!("first primary remains a glyph");
+        };
+        let OpeningSceneActor::LogoGlyph(unsplit) = tail.actor(first_primary).unwrap() else {
+            panic!("first primary remains a glyph");
+        };
+        assert_eq!(split.position, unsplit.position);
+        assert_eq!(split.velocity, unsplit.velocity);
+        assert_ne!(split.rotation, unsplit.rotation);
+        assert_eq!(scene.random(), tail.random());
+        assert_eq!(split_events, tail_events);
+    }
+
+    #[test]
     fn split_traversal_capacity_error_rolls_back_even_an_early_refresh() {
         let mut scene = OpeningScene::new(
             RandomState::new([17, 91, 211, 37]),
@@ -2160,6 +2212,11 @@ mod tests {
         let before = scene.clone();
         let error = scene
             .tick_with_refresh_boundaries(&[0, 0, usize::MAX])
+            .unwrap_err();
+        assert_eq!(error.available_slots, 0);
+        assert_eq!(scene, before);
+        let error = scene
+            .tick_with_random_refreshes(&[0, 0, usize::MAX])
             .unwrap_err();
         assert_eq!(error.available_slots, 0);
         assert_eq!(scene, before);

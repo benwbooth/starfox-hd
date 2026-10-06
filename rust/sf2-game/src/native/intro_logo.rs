@@ -6,7 +6,7 @@
 
 use super::object::{Angle, ShapeId, Vector3};
 use super::render::{MaterialSetId, Rotation};
-use super::state::RandomState;
+use super::state::{RandomSource, RandomState};
 
 const GLYPH_COUNT: usize = 9;
 const LAYERS_PER_GLYPH: usize = 2;
@@ -422,7 +422,7 @@ impl NintendoLogoActor {
         &mut self,
         release: bool,
         scroll: LogoSceneScroll,
-        random: &mut RandomState,
+        random: &mut impl RandomSource,
     ) -> LogoActorEvents {
         let mut events = LogoActorEvents {
             spawn_outline_child: std::mem::take(&mut self.outline_child_pending),

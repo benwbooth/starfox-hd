@@ -150,7 +150,7 @@ pub use state::{
     MissionVisit, Pilot, PilotCraftClass, PilotCraftProfile, PilotSelectionCursor,
     PilotSelectionPhase, PilotSelectionState, PlanetObjectiveStatus, PlayerBlasterState,
     PlayerCraftForm, PlayerCraftTransformation, PlayerCraftTransformationDirection,
-    PlayerDamageState, PlayerWalkerState, RandomState, RecurringAttacker, RecurringAttackerStatus,
+    PlayerDamageState, PlayerWalkerState, RandomSource, RandomState, RecurringAttacker, RecurringAttackerStatus,
     RecurringAttackersState, ResultsChoice, ResultsPhase, ResultsState, Roster, SoundEvent,
     StrategicMapActor, StrategicMapActorKind, StrategicMapAppearance, StrategicMapPhase,
     StrategicMapState, StrategicMapTutorialPage, StrategicOpeningPage, StrategicOpeningState,

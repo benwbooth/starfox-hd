@@ -964,6 +964,20 @@ running; scheduled work is not a guarantee of a completion date.
   the next work is source-bound synchronization and the exposed timing/RNG
   contracts, not accepting the new outputs as expected results.
 
+- Corrected the SF2 opening's observed entropy-order contract: original
+  refreshes can interrupt one actor between its random draws, so completed
+  actor visits alone cannot determine value assignment. Added a native random
+  source that preserves draw-level interleaving without observed RNG values or
+  actor-state injection. The three original-code 440-update opening gates now
+  pass with precise ordering. A separate independent Mesen comparison passes
+  all 440 updates for slots, actor poses, camera and final RNG using Mesen's
+  different refresh order; its palette/pixels/audio remain outside scope.
+  All 1,240 native tests plus two architecture tests, 41 focused oracle/parser
+  tests, the independent comparison and all app builds pass in debug/release;
+  616 source checks and the architecture audit pass.
+  The autonomous timing gate and shipping coarse refresh are still open.
+  Source-bound SF1 synchronization and production timing remain next blockers.
+
 Leave a final handoff listing exact tested revisions, launcher commands, tests
 actually run, and any unresolved limitations. Never label unfinished work fully
 working merely because the user is due back.

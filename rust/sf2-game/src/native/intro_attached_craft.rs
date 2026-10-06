@@ -9,7 +9,7 @@ use super::intro_free_craft::IntroAuxiliaryEffect;
 use super::intro_motion::{IntroAttachment, IntroScenePose};
 use super::object::{Angle, ObjectId, ShapeId, StereoPosition, Vector3};
 use super::render::Rotation;
-use super::state::RandomState;
+use super::state::{RandomSource, RandomState};
 
 const CRAFT_SHAPE: ShapeId = ShapeId::from_catalog_index(64);
 const NO_MESH: ShapeId = ShapeId::from_catalog_index(0);
@@ -123,7 +123,7 @@ impl OpeningBurstParticle {
     }
 }
 
-fn centered_random(random: &mut RandomState, mask: u16) -> i16 {
+fn centered_random(random: &mut impl RandomSource, mask: u16) -> i16 {
     let high = random.next_byte();
     let low = random.next_byte();
     ((u16::from_be_bytes([high, low]) & mask) as i16).wrapping_sub((mask >> 1) as i16)
@@ -134,7 +134,7 @@ fn centered_random(random: &mut RandomState, mask: u16) -> i16 {
 pub fn opening_burst(
     pose: IntroScenePose,
     scene_phase: u8,
-    random: &mut RandomState,
+    random: &mut impl RandomSource,
 ) -> Option<(OpeningBurstParticle, Option<OpeningBurstSound>)> {
     if scene_phase & BURST_EMISSION_PHASE != 0 {
         return None;

@@ -7,7 +7,7 @@ use super::intro_formation::chase_formation_angle;
 use super::intro_motion::{follow_intro_predecessor, IntroAttachment, IntroScenePose};
 use super::object::{Angle, ObjectId, ShapeId, Vector3};
 use super::render::Rotation;
-use super::state::RandomState;
+use super::state::{RandomSource, RandomState};
 
 pub const OPENING_CHAIN_SEGMENT_COUNT: usize = 9;
 const BODY_SHAPE: ShapeId = ShapeId::from_catalog_index(340);
@@ -245,7 +245,7 @@ impl OpeningChainSegment {
         parent_pose: IntroScenePose,
         predecessor_pose: IntroScenePose,
         controls: OpeningChainControls,
-        random: &mut RandomState,
+        random: &mut impl RandomSource,
     ) -> Option<OpeningChainDepartureBurst> {
         loop {
             match self.phase {

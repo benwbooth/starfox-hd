@@ -1,6 +1,7 @@
-//! Native opening actor integration. One test supplies observed CPU/GSU pass
-//! partitioning as scheduler input, but never supplies actor poses, allocations
-//! or RNG corrections. The separate ignored autonomous gate remains failing
+//! Native opening actor integration. Tests supply observed entropy-refresh
+//! ordering as scheduler input, but never supply actor poses, allocations or
+//! random values. Refreshes can interrupt an actor between two draws, not only
+//! split the traversal between actors. The separate ignored autonomous gate remains failing
 //! until the timer/PPU refresh timing can be derived natively.
 //! Artwork is also checked with native frame-barrier scheduling; that test
 //! supplies only the initial decoded request, never publication boundaries or
@@ -25,6 +26,8 @@ const UPDATE: u32 = 0x7F34E7;
 const FIRST_VISIT: u32 = 0x7F3519;
 const RESUME_VISIT: u32 = 0x7F3565;
 const ENTROPY_REFRESH: u32 = 0x7F058F;
+const RANDOM_DRAW: u32 = 0x7F7BD4;
+const RANDOM_RETURN: u32 = 0x7F7BE7;
 
 fn word(machine: &RetailMachine, address: u16) -> u16 {
     machine.peek16(WRAM + u32::from(address))
@@ -43,8 +46,8 @@ fn active_slots(machine: &RetailMachine) -> Vec<usize> {
 }
 
 #[test]
-fn native_actor_integration_with_observed_source_pass_partition() {
-    check_opening_with_observed_source_pass_partition(false, false);
+fn native_actor_integration_with_observed_entropy_order() {
+    check_opening_with_observed_entropy_order(false, false);
 }
 
 #[test]
@@ -76,16 +79,16 @@ fn opening_view_initialization_matches_native_default() {
 }
 
 #[test]
-fn native_palette_integration_with_observed_source_pass_partition() {
-    check_opening_with_observed_source_pass_partition(true, false);
+fn native_palette_integration_with_observed_entropy_order() {
+    check_opening_with_observed_entropy_order(true, false);
 }
 
 #[test]
 fn native_palette_and_actor_integration_with_observed_source_services() {
-    check_opening_with_observed_source_pass_partition(true, true);
+    check_opening_with_observed_entropy_order(true, true);
 }
 
-fn check_opening_with_observed_source_pass_partition(check_palette: bool, observe_artwork: bool) {
+fn check_opening_with_observed_entropy_order(check_palette: bool, observe_artwork: bool) {
     let rom = std::fs::read(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Star Fox 2 (USA, Europe).sfc"),
     )
@@ -104,6 +107,8 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         0x7F3531,
         0x7F357D,
         ENTROPY_REFRESH,
+        RANDOM_DRAW,
+        RANDOM_RETURN, // Distinguishes consecutive draws by the same actor.
         0x03C80B, // Begin standard scene artwork.
         0x7F0C24, // Setup palette, lighting and layout published.
         0x03C813, // Main loader resumes after setup.
@@ -143,6 +148,7 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
     }
     machine.take_cpu_execution_watch_hits();
     let mut observed_splits = std::collections::BTreeSet::new();
+    let mut intra_actor_refreshes = 0;
     let mut draw_failures = std::collections::BTreeMap::new();
     let mut draw_checks = 0;
     for completed_updates in 1..=440 {
@@ -152,17 +158,45 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         let dispatches = machine.take_cpu_execution_watch_hits();
         let mut visits = 0;
         let mut budget = Vec::new();
+        let mut draws = 0;
+        let mut actor_draws = 0;
+        let mut refresh_after_draws = Vec::new();
+        let mut refreshing = false;
+        let mut drawing = None;
         for &pc in &dispatches {
             match pc {
-                0x7F3531 | 0x7F357D => visits += 1,
-                ENTROPY_REFRESH => budget.push(visits),
+                0x7F3531 | 0x7F357D => {
+                    visits += 1;
+                    actor_draws = 0;
+                }
+                ENTROPY_REFRESH => {
+                    assert_eq!(drawing, None, "refresh interrupted generator arithmetic");
+                    assert!(!refreshing);
+                    budget.push(visits);
+                    refresh_after_draws.push(draws);
+                    intra_actor_refreshes += usize::from(actor_draws > 0);
+                    refreshing = true;
+                }
+                RANDOM_DRAW => {
+                    assert_eq!(drawing, None);
+                    drawing = Some(std::mem::take(&mut refreshing));
+                }
+                RANDOM_RETURN => {
+                    if !drawing.take().expect("random return has an entry") {
+                        draws += 1;
+                        actor_draws += 1;
+                    }
+                }
                 _ => {}
             }
         }
+        assert!(!refreshing);
+        assert_eq!(drawing, None);
         observed_splits.insert(budget.clone());
         let native_events = native
-            .tick_with_refresh_boundaries(&budget)
+            .tick_with_random_refreshes(&refresh_after_draws)
             .expect("native shared pool exhaustion");
+        assert_eq!(native_events.random_draws, draws, "random draws at update {completed_updates}");
         if check_palette && !observe_artwork {
             // These source events are assertions only. The native owner got
             // no service-boundary input: it retained the frame-buffer roles,
@@ -354,6 +388,12 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
             machine.peek8(WRAM + 0xC4),
             native.global_clock().wrapping_add(1)
         );
+        let random: [u8; 4] = std::array::from_fn(|i| machine.peek8(WRAM + 0xE0 + i as u32));
+        assert_eq!(
+            random,
+            native.random().bytes(),
+            "RNG update={completed_updates} budget={budget:?}"
+        );
         let slots: Vec<_> = native.actors().map(|(id, _)| id.index()).collect();
         assert_eq!(
             active_slots(&machine),
@@ -455,12 +495,6 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
                 }
             }
         }
-        let random: [u8; 4] = std::array::from_fn(|i| machine.peek8(WRAM + 0xE0 + i as u32));
-        assert_eq!(
-            random,
-            native.random().bytes(),
-            "RNG update={completed_updates} budget={budget:?}"
-        );
         {
             assert_eq!(
                 word(&machine, CAMERA_VIEW + 0x29),
@@ -505,6 +539,7 @@ fn check_opening_with_observed_source_pass_partition(check_palette: bool, observ
         observed_splits.len() > 1,
         "boot must exercise variable pass partitioning"
     );
+    assert!(intra_actor_refreshes > 0, "boot must refresh between one actor's random draws");
     assert!(
         draw_checks > 1000,
         "opening must exercise complete actor lifecycles"
