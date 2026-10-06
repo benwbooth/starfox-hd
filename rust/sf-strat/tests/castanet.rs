@@ -23,8 +23,8 @@ const SH_CAST_BOSS_E_1_PROXY: u16 = 330; // bit2 rotz==128 (DSTRATS.ASM:6237)
 const SH_CAST_BOSS_E_1A_PROXY: u16 = 331; // bit2 otherwise (DSTRATS.ASM:6239)
 const SH_CAST_RINGLASER_PROXY: u16 = 334; // ringlaser (DSTRATS.ASM:6363)
 const CAST_SFLAG1: u8 = 0x10; // sflag1 on sflags2
-const ASF_COLLDISABLE: u8 = 0x10; // alien.rs
-const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
+use sf_game::alien::ASF2_COLLDISABLE;
+use sf_game::alien::ASF3_NOHITAFFECT;
 const CASTANET_MAXHP: u16 = 240; // castanetHP(120) * 2 (DSTRATS.ASM:5762)
 const FIRE_MODE: u8 = 18; // .fire mode-table index (DSTRATS.ASM:5803)
 const GENERATE_MINIS_MODE: u8 = 3;
@@ -112,8 +112,8 @@ fn init_sets_bossmaxhp_and_spawns_two_bits() {
 
     assert_eq!(g.vars.bossmaxhp, CASTANET_MAXHP, "bossmaxHP = castanetHP*2");
     let b = &g.objs.aliens[boss as usize];
-    assert_ne!(b.sflags & ASF_COLLDISABLE, 0, "mother is colldisable");
-    assert_ne!(b.sflags & ASF_NOHITAFFECT, 0, "mother is nohitaffect");
+    assert_ne!(b.sflags2 & ASF2_COLLDISABLE, 0, "mother is colldisable");
+    assert_ne!(b.sflags3 & ASF3_NOHITAFFECT, 0, "mother is nohitaffect");
     assert_ne!(b.ptr, 0, "bit1 linked via al_ptr");
     assert_ne!(b.sword1, 0, "bit2 linked via al_sword1");
     assert_eq!(count_bits(&g), 2, "two cymbal bits spawned");

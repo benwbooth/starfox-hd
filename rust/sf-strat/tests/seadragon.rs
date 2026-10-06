@@ -34,8 +34,8 @@ const SH_FIREBREATH: u16 = 363;
 const SD_SFLAG2: u8 = 0x20; // sflags2 — "it's a dragon"
 const SD_SFLAG3: u8 = 0x40; // sflags2 — head created once
 const SD_SFLAG5_SFLAGS3: u8 = 0x01; // sflags3 — sink/withdraw request
-const ASF_COLLDISABLE: u8 = 0x10; // alien.rs
-const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
+use sf_game::alien::ASF2_COLLDISABLE;
+use sf_game::alien::ASF3_NOHITAFFECT;
 const ASF4_SFLAG8: u8 = 0x20; // alien.rs (lochness "lock ness")
 const SEANECK_HP: u8 = 255; // hardHP
 const SEADRAGON_HEAD_HP: u8 = 4; // seadragonHP
@@ -121,7 +121,7 @@ fn seadragon2_init_sets_snake_flags_and_neck_hp() {
     assert_ne!(b.sflags2 & SD_SFLAG2, 0, "sflag2 (dragon) set");
     assert_eq!(b.worldy, -40, "worldy dropped by sprout_maxy/2 = 40");
     assert_eq!(b.hp, SEANECK_HP, "neck hp = seaneckHP (255)");
-    assert_ne!(b.sflags & ASF_NOHITAFFECT, 0, "neck nohitaffect set");
+    assert_ne!(b.sflags3 & ASF3_NOHITAFFECT, 0, "neck nohitaffect set");
     // sbyte2 (fire counter) copied through from the seadragon2 init = 15.
     assert_eq!(b.sbyte2, 15, "seadragon2 sbyte2 = 15 (fire counter seed)");
 }
@@ -277,7 +277,7 @@ fn seadragon_and_lochness_init_variants() {
         "plain seadragon has no fire counter (sbyte2=0)"
     );
     assert_ne!(
-        s.sflags & ASF_COLLDISABLE,
+        s.sflags2 & ASF2_COLLDISABLE,
         0,
         "seadragon colldisable (submerged)"
     );

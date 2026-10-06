@@ -1,7 +1,7 @@
 //! Tick 192: bossA cup GO/IROTATE/return + turret husk revive
 //! (AUDIT_ENEMY_B Criticals #3–#9 verify).
 
-use sf_game::alien::{ASF4_INVISIBLE, ASF_NOHITAFFECT};
+use sf_game::alien::{ASF4_INVISIBLE, ASF3_NOHITAFFECT};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::boss_attach_child_to_mother;
@@ -48,7 +48,7 @@ fn bossa_cup_go_returns_when_past_player() {
     bossacupperl_istrat(&mut g, cup);
 
     g.objs.aliens[cup as usize].stratstate = BOSSA_CUP_STATE_GO;
-    g.objs.aliens[cup as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[cup as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[cup as usize].worldz = 1000; // behind player by 500
     g.objs.aliens[cup as usize].vel = 45;
 
@@ -73,7 +73,7 @@ fn bossa_cup_go_stays_while_ahead_of_player() {
     bossacupperl_istrat(&mut g, cup);
 
     g.objs.aliens[cup as usize].stratstate = BOSSA_CUP_STATE_GO;
-    g.objs.aliens[cup as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[cup as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[cup as usize].worldz = 2000; // ahead
     g.objs.aliens[cup as usize].vel = 45;
 
@@ -94,7 +94,7 @@ fn bossa_cup_go_does_not_fire() {
     bossacupperl_istrat(&mut g, cup);
 
     g.objs.aliens[cup as usize].stratstate = BOSSA_CUP_STATE_GO;
-    g.objs.aliens[cup as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[cup as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[cup as usize].worldz = 2000;
     g.objs.aliens[cup as usize].vel = 45;
 

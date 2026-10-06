@@ -1,7 +1,7 @@
 //! Tick 212: chicken `wings_istrat` (DSTRATS.ASM:4744-4764) — flap loop
 //! (reset at frame 14 → 4) and sflag1 fold reverse to 0.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW, ATZREMOVE};
+use sf_game::alien::{ASF3_REALOBJ, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF_SHADOW, ATZREMOVE};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_game::vars::{HARD_AP, HARD_HP};
@@ -40,8 +40,8 @@ fn wings_istrat_sets_flags_and_falls_into_flap() {
     let al = &g.objs.aliens[idx as usize];
     assert_eq!(al.hp, HARD_HP);
     assert_eq!(al.ap, HARD_AP);
-    assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
-    assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(al.sflags3 & ASF3_NOHITAFFECT, 0);
+    assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(al.sflags & ASF_SHADOW, 0);
     assert_eq!(al.type_ & ATZREMOVE, 0);
     assert!(al.collstratptr.is_some(), "hitflash_istrat");

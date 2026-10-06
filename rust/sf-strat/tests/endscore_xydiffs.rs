@@ -1,5 +1,6 @@
 //! Tick 108: XYDIFFS + MAKEENDOBJ/MAKENUM + CLEARHVOFS/GAMECLIPWINDOW + CHECKIFIAMEND.
 
+use sf_game::alien::{ASF2_COLLDISABLE, ASF3_NOPOLYEXP, ASF4_INVISIBLE, ASF_PARTOBJ, ASF_TEXTOBJ};
 use sf_game::clip::{BgScrollOffsets, GameClipWindow};
 use sf_game::Game;
 use sf_strat::common::{xy_diffs, xy_diffs_abs};
@@ -61,6 +62,29 @@ fn makeendobj_spawns_at_player_plus_offset() {
     assert_eq!(al.worldz, 300i16.wrapping_add(END_OBJ_Z));
     assert_eq!(al.depthoffset, END_OBJ_COLOUR as i16);
     assert_eq!(al.coltab, 0x1234);
+    // STRATLIB s_text_obj writes first-byte textobj and second-byte
+    // colldisable; neither bit is a particle, polygon or invisibility tag.
+    assert_ne!(al.sflags & ASF_TEXTOBJ, 0);
+    assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
+    assert_eq!(al.sflags & ASF_PARTOBJ, 0);
+    assert_eq!(al.sflags3 & ASF3_NOPOLYEXP, 0);
+    assert_eq!(al.sflags4 & ASF4_INVISIBLE, 0);
+    let mut draw_list = Vec::new();
+    sf_game::draw::build_list(
+        &mut g.objs,
+        0,
+        0,
+        sf_game::draw::CullView::default(),
+        0,
+        &|_| None,
+        &mut draw_list,
+    );
+    let text = draw_list
+        .iter()
+        .find(|entry| entry.obj_id == idx + 1)
+        .expect("visible tally text");
+    assert_ne!(text.flags & sf_core::dl_flags::TEXT, 0);
+    assert_eq!(text.sflags & ASF_PARTOBJ, 0);
 }
 
 #[test]

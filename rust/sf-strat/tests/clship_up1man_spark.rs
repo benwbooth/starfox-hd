@@ -1,7 +1,7 @@
 //! Tick 79: CLSHIP1–3 / TURN2 / dive·under boost + floatCLship +
 //! up1manchild1–3 + firenormringlaser + boss2spark.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_SHADOW, ATZREMOVE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_SHADOW, ATZREMOVE};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::bosses::{boss2spark_istrat, boss2spark_srou, boss2spark_strat};
@@ -163,7 +163,7 @@ fn up1manchild_firenorm_boss2spark() {
     let spark = spawn_obj(&mut g);
     g.objs.aliens[spark as usize].sword1 = obj_link(host) as i16;
     boss2spark_istrat(&mut g, spark);
-    assert_ne!(g.objs.aliens[spark as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[spark as usize].sflags2 & ASF2_COLLDISABLE, 0);
     boss2spark_srou(&mut g, spark); // no-op
 
     // Advance sbyte1 via delay-3 frames until ≥10, then fire path runs.

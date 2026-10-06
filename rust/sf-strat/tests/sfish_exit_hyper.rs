@@ -1,6 +1,6 @@
 //! ROM sfish + exit + openlr + hyperspace + pillar3f + torpedoa leaves.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_SHADOW};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_SHADOW};
 use sf_game::Game;
 use sf_strat::enemies_ground::{
     exit_istrat, exitcoll_istrat, openlr_istrat, openlr_strat, openlrcol_istrat, pillar3f_istrat,
@@ -55,7 +55,7 @@ fn sfish_alone_swims_and_bounces() {
     assert_eq!(g.objs.aliens[idx as usize].hp, 100);
     assert_eq!(g.objs.aliens[idx as usize].vx, 20);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 200);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     let x0 = g.objs.aliens[idx as usize].worldx;
     sfish_strat(&mut g, idx);
     // Moved by vx
@@ -77,7 +77,7 @@ fn exit_openlr_hyperspace_pillar() {
 
     let e = spawn_obj(&mut g);
     exit_istrat(&mut g, e);
-    assert_ne!(g.objs.aliens[e as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[e as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.aliens[e as usize].stratptr.is_none());
     exitcoll_istrat(&mut g, e);
     assert_eq!(g.objs.aldead, 1);
@@ -90,7 +90,7 @@ fn exit_openlr_hyperspace_pillar() {
     openlrcol_istrat(&mut g, o);
     assert_ne!(g.objs.aliens[o as usize].sflags2 & ASF2_SFLAG1, 0);
     openlr_strat(&mut g, o);
-    assert_ne!(g.objs.aliens[o as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[o as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.aliens[o as usize].animframe & 0x7F >= 1);
 
     let ho = spawn_obj(&mut g);
@@ -148,7 +148,7 @@ fn hyperspace_initializer_emits_exact_screen_space_streak() {
     );
     assert_eq!(emitted.worldz, PLAYER_Z + HYPER_WORLD_DISTANCE);
     assert_eq!(emitted.rotz, roll);
-    assert_ne!(emitted.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(emitted.sflags2 & ASF2_COLLDISABLE, 0);
     assert!(emitted.stratptr.is_some());
     assert_eq!(g.vars.rng, expected_random.vars.rng);
     assert_eq!(g.objs.aliens[emitter as usize].roty, DEG180);
@@ -197,8 +197,8 @@ fn torpedoa_surfaces() {
     let mut g = Game::new();
     spawn_player(&mut g, 0);
     let idx = spawn_obj(&mut g);
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     torpedoa_init(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     torpedoa_strat(&mut g, idx);
 }

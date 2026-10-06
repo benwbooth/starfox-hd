@@ -28,7 +28,7 @@ const SH_CHICK_BOSS_D_9: u16 = 388; // wing2
 const SH_FLINGBOSS_BODY: u16 = 11; // .passiton mother target
 
 const CH_SFLAG5_SFLAGS3: u8 = 0x01; // mother/parent damage latch (sflags3)
-const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
+use sf_game::alien::ASF3_NOHITAFFECT;
 const ATLASER: u8 = 4; // alien.rs al_type
 const CHICKEN_MAXHP: u16 = 64; // chickenbodyHP (DSTRATS.ASM:68)
 
@@ -183,7 +183,7 @@ fn terminus_hits_shorten_chains_without_corrupting_the_active_list() {
             cur = al.next;
         }
 
-        if g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT == 0 {
+        if g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT == 0 {
             exposed = true;
             break;
         }
@@ -201,7 +201,7 @@ fn check_fin_exposes_body_when_terminus_direct() {
     let (mut g, boss) = setup(0, 0);
     bosses::strat_chicken_init(&mut g, boss); // stratptr now = chicken_strat
     assert_ne!(
-        g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT,
+        g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT,
         0,
         "body starts invulnerable (long necks)"
     );
@@ -212,7 +212,7 @@ fn check_fin_exposes_body_when_terminus_direct() {
 
     g.run_strategies(); // runs the mode machine -> .check_fin
     assert_eq!(
-        g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT,
+        g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT,
         0,
         "body became vulnerable with a tail directly exposed"
     );

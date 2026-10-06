@@ -42,13 +42,27 @@ class StrategySourceContractTests(unittest.TestCase):
     def test_source_flag_byte_and_mask_assignments(self):
         flags = re.findall(r"^[ \t]+make_sflag[ \t]+(\w+)", source("INC/STRATEQU.INC"), re.M)
         self.assertEqual(len(flags), 32)
-        for name, byte, mask in [("ssprite", 1, 32), ("colldisable", 2, 1),
-                                 ("smflag1", 2, 4), ("nopolyexp", 3, 64),
+        for name, byte, mask in [("partobj", 1, 16), ("ssprite", 1, 32),
+                                 ("textobj", 1, 64), ("collide", 1, 128),
+                                 ("colldisable", 2, 1), ("Lcollide", 2, 2),
+                                 ("smflag1", 2, 4), ("nohitaffect", 3, 32),
+                                 ("nopolyexp", 3, 64),
                                  ("relexplode", 4, 4)]:
             index = flags.index(name)
             self.assertEqual((index // 8 + 1, 1 << (index % 8)), (byte, mask), name)
         sprite = source("INC/STRATLIB.INC").split("s_sprite_obj\tMACRO", 1)[1].split("ENDM", 1)[0]
         self.assertIn("s_set_alsflag {obj},ssprite", instructions(sprite))
+
+    def test_source_text_constructor_does_not_hide_or_mark_polygons(self):
+        text = source("INC/STRATLIB.INC").split("s_text_obj\tMACRO", 1)[1].split("ENDM", 1)[0]
+        flags = [line for line in instructions(text) if line.startswith("s_set_alsflag")]
+        self.assertEqual(flags, ["s_set_alsflag {obj},textobj", "s_set_alsflag {obj},colldisable"])
+
+    def test_retired_flag_aliases_cannot_reenter_native_gameplay(self):
+        retired = re.compile(r"\b(?:ASF_(?:COLLDISABLE|NOHITAFFECT|LCOLLIDE)|ASF[34]_TEXTOBJ)\b")
+        for crate in ("sf-game", "sf-path", "sf-strat"):
+            for path in (ROOT / "rust" / crate / "src").rglob("*.rs"):
+                self.assertIsNone(retired.search(path.read_text()), str(path.relative_to(ROOT)))
 
     def test_radar_initializer_falls_through_to_rotation(self):
         radar = source("STRAT/GASTRATS.ASM").split("\nrader0_Istrat\n", 1)[1]
@@ -113,9 +127,11 @@ class StrategySourceContractTests(unittest.TestCase):
 
     def test_reviewed_regression_tests_cannot_bless_native_output(self):
         for relative in ["sf-strat/tests/ea_parity.rs", "sf-strat/tests/eb_parity.rs",
-                         "sf-strat/tests/bo_parity.rs", "sf-path/tests/interp_trace.rs"]:
+                         "sf-strat/tests/bo_parity.rs", "sf-strat/tests/sp_player_parity.rs",
+                         "sf-path/tests/interp_trace.rs"]:
             code = (ROOT / "rust" / relative).read_text()
             self.assertNotIn('var_os("SF_BLESS_FIXTURES")', code, relative)
+            self.assertNotIn('var("SF_BLESS_SP_PLAYER")', code, relative)
             self.assertNotIn("std::fs::write", code, relative)
 
     def test_fixture_audit_recovers_every_original_byte(self):
@@ -124,6 +140,8 @@ class StrategySourceContractTests(unittest.TestCase):
                 original = []
                 corrected_particle_records = 0
                 fixture = (FIXTURES / f"{name}.txt").read_text()
+                from test_strategy_flag_layout import undo_flag_layout
+                fixture = undo_flag_layout(name, fixture)
                 if name == "ea_houdai":
                     from test_weapon_entry_source import undo_houdai_birth_visit
                     fixture = undo_houdai_birth_visit(fixture)

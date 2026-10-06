@@ -1,6 +1,6 @@
 //! ROM friend2 + leng0 + meteor2/col + winglazerman/tree/uperm/iris leaves.
 
-use sf_game::alien::{ObjectVisualKind, ASF3_LOCKON, ASF_COLLDISABLE, ASF_HITFLASH, ASF_SHADOW};
+use sf_game::alien::{ObjectVisualKind, ASF3_LOCKON, ASF2_COLLDISABLE, ASF_HITFLASH, ASF_SHADOW};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
@@ -63,7 +63,7 @@ fn leng0_opens_when_close() {
     let idx = spawn_obj(&mut g);
     g.objs.aliens[idx as usize].worldz = 2000;
     leng0_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     leng0_strat(&mut g, idx); // far: no open
     assert_eq!(g.objs.aliens[idx as usize].animframe & 0x7F, 0);
 
@@ -72,7 +72,7 @@ fn leng0_opens_when_close() {
         leng0_strat(&mut g, idx);
     }
     assert_eq!(g.objs.aliens[idx as usize].animframe & 0x7F, 10);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn meteor2_and_col_tree_iris_uperm() {
     assert_eq!(g.objs.aliens[m as usize].tx, 0);
     // enemy1 = 0x10
     assert_ne!(g.objs.aliens[m as usize].collflags & 0x10, 0);
-    g.objs.aliens[m as usize].sflags &= !sf_game::alien::ASF_NOHITAFFECT;
+    g.objs.aliens[m as usize].sflags3 &= !sf_game::alien::ASF3_NOHITAFFECT;
     g.objs.aliens[m as usize].hp = 20;
     g.objs.aliens[m as usize].ap = 4;
     meteorcol_istrat(&mut g, m);

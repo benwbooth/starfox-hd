@@ -1,6 +1,6 @@
 //! Tick 82: mcore1 body + tunnela HF5 toggle + null_strat.
 
-use sf_game::alien::ASF_NOHITAFFECT;
+use sf_game::alien::ASF3_NOHITAFFECT;
 use sf_game::vars::HARD_AP;
 use sf_game::Game;
 use sf_strat::common::null_strat;
@@ -53,7 +53,7 @@ fn mcore1_init_wait_zoom() {
     // Fall-through: state 0 → 1, sbyte1=20, nohitaffect
     assert_eq!(al.stratstate, 1);
     assert_eq!(al.sbyte1, 19); // set 20 then same-frame beqdec
-    assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(al.sflags3 & ASF3_NOHITAFFECT, 0);
     assert!(al.collstratptr.is_some());
     assert!(al.expstratptr.is_some());
 

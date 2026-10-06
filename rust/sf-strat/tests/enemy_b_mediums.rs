@@ -1,6 +1,6 @@
 //! Tick 194: AUDIT_ENEMY_B Mediums #20–#26 verify (already ported).
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::vars::GameVars;
 use sf_game::Game;
 use sf_strat::common::{sf_random, strat_gen_vecs_3d};
@@ -108,7 +108,7 @@ fn death_sequences_boss7fall_and_bossa_breakup() {
     boss7hatchexp_istrat(&mut g, hatch);
     {
         let al = &g.objs.aliens[hatch as usize];
-        assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+        assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
         assert_eq!(al.vel, 10);
         assert_eq!(al.sbyte2, 2); // bounce count after fall init
         assert!(al.expstratptr.is_some());

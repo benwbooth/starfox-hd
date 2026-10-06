@@ -1,6 +1,6 @@
 //! Tick 90: bossAcup open/up/uplow/getchild + L/M/R istrat leaves.
 
-use sf_game::alien::{ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ASF3_NOHITAFFECT, ASF_SHADOW};
 use sf_game::Game;
 use sf_strat::enemy_a::boss_attach_child_to_mother;
 use sf_strat::enemy_b::{
@@ -43,7 +43,7 @@ fn bossacupper_lmr_init_and_getchild() {
     assert_eq!(g.objs.aliens[cup as usize].rotx, 0u8.wrapping_sub(DEG90));
     assert_eq!(g.objs.aliens[cup as usize].roty, DEG180);
     assert_ne!(g.objs.aliens[cup as usize].sflags & ASF_SHADOW, 0);
-    assert_ne!(g.objs.aliens[cup as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[cup as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     // Home: rotz=mother.roty; pos = turret + (0,-15<<2,-2<<2)
     assert_eq!(g.objs.aliens[cup as usize].rotz, 40);
     assert_eq!(g.objs.aliens[cup as usize].worldx, 100);

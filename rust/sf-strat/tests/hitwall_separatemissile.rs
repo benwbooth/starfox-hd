@@ -2,7 +2,7 @@
 //! `pelasercollide_Istrat` solid-hit → `make_snd(HitWall)` (GSTRATS.ASM:763);
 //! `separatemissile_l` has zero STRAT call sites (dead ROM helper).
 
-use sf_game::alien::ASF_NOHITAFFECT;
+use sf_game::alien::ASF3_NOHITAFFECT;
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_game::vars::HARD_HP;
 use sf_strat::enemy_a::pelasercollide_istrat;
@@ -47,7 +47,7 @@ fn pelasercollide_solid_fires_hitwall_make_snd() {
         let al = &mut g.objs.aliens[wall as usize];
         al.active = true;
         al.hp = HARD_HP;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.collstratptr = None;
     }
     pelasercollide_istrat(&mut g, laser);

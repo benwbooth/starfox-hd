@@ -40,6 +40,9 @@ mod player_movement_init;
 #[path = "support/particle_emitters.rs"]
 mod particle_emitters;
 
+#[path = "support/strategy_flags.rs"]
+mod strategy_flags;
+
 struct Source {
     rom: Vec<u8>,
     symbols: HashMap<String, u32>,

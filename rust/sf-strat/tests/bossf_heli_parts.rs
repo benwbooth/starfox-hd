@@ -1,7 +1,7 @@
 //! Tick 102: BossF airship heli parts — body / feet / arm / head (DSTRATS.ASM).
 //! Tick 217: ENEMY1 colltype = ACF_COLLTYPE2 (0x10).
 
-use sf_game::alien::{ACF_COLLTYPE2, ASF4_CHILDOBJ, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ACF_COLLTYPE2, ASF4_CHILDOBJ, ASF3_NOHITAFFECT, ASF_SHADOW};
 use sf_game::vars::{COLLTYPE_ENEMY1, HARD_AP, HARD_HP};
 use sf_game::Game;
 use sf_strat::bossf_heli::{
@@ -95,7 +95,7 @@ fn body_istrat_hard_shadow_nohit() {
     assert_eq!(al.hp, HARD_HP);
     assert_eq!(al.ap, HARD_AP);
     assert_ne!(al.sflags & ASF_SHADOW, 0);
-    assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(al.sflags3 & ASF3_NOHITAFFECT, 0);
     assert_eq!(al.stratstate, 0);
     assert!(al.stratptr.is_some());
     assert!(al.collstratptr.is_some());
@@ -221,7 +221,7 @@ fn head_istrat_and_heli_advances() {
     let mut g = Game::new();
     let idx = spawn(&mut g);
     bossfhead_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     assert_eq!(g.objs.aliens[idx as usize].hp, HARD_HP);
     g.objs.aliens[idx as usize].stratstate = 2; // heli
     g.objs.aliens[idx as usize].childroty = 8; // near 0 — achase shift5 is slow

@@ -1,6 +1,6 @@
 //! Tick 98: THEEND zoom/fin/flip/flyaway/check (KSTRATS.ASM).
 
-use sf_game::alien::{ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{ASF2_COLLDISABLE, ATZREMOVE};
 use sf_game::Game;
 use sf_strat::theend::{
     theend_check_istrat, theend_fin2_istrat, theend_fin_istrat, theend_fin_strat,
@@ -80,7 +80,7 @@ fn flyaway_spins_and_retreats() {
     let idx = spawn(&mut g);
     g.objs.aliens[idx as usize].worldz = 500;
     theend_flyaway_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(g.objs.aliens[idx as usize].type_ & ATZREMOVE, 0);
     assert_eq!(g.objs.aliens[idx as usize].rotx, 3);
     assert_eq!(g.objs.aliens[idx as usize].worldz, 500 - 20);
@@ -100,12 +100,12 @@ fn flip_tumble_then_restore() {
     assert_eq!(g.objs.aliens[idx as usize].sbyte3, 2);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 31); // 32 then same-frame dec
     assert_eq!(g.objs.aliens[idx as usize].vy, -45 + 3);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 
     g.objs.aliens[idx as usize].sbyte1 = 1;
     theend_flip_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].stratptr, Some(fin));
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]
@@ -115,6 +115,6 @@ fn ok_negative_numendok_flies_away() {
     g.vars.numendok = 0xFF;
     g.objs.aliens[idx as usize].rotz = 0;
     theend_fin2_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(g.objs.aliens[idx as usize].type_ & ATZREMOVE, 0);
 }

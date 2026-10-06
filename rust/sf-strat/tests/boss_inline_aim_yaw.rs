@@ -1,7 +1,7 @@
 //! Tick 168–169: bossA cup / boss8 / bossbrob / boss2 home / chick —
 //! obj2obj movement-aim yaw `nega`.
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_NOHITAFFECT};
+use sf_game::alien::{ASF3_REALOBJ, ASF3_NOHITAFFECT};
 use sf_game::game::Game;
 use sf_strat::bosses::{boss2top_strat, chick_istrat};
 use sf_strat::enemy_a::boss_attach_child_to_mother;
@@ -64,7 +64,7 @@ fn bossacup_go_aims_with_negated_yanglexy() {
 
     // GO state, already past the $66/nohitaffect entry tick.
     g.objs.aliens[cup as usize].stratstate = 2; // BOSSA_CUP_STATE_GO
-    g.objs.aliens[cup as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[cup as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[cup as usize].sbyte3 = DEG0;
     g.objs.aliens[cup as usize].sbyte4 = DEG0;
     g.objs.aliens[cup as usize].worldx = 0;

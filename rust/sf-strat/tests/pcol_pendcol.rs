@@ -1,6 +1,6 @@
 //! Tick 101: pcolRW / pendcolB / pendcolLW / pendcolRW (PSTRATS.ASM).
 
-use sf_game::alien::{ASF2_COLLDISABLE, ASF_COLLDISABLE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_PARTOBJ};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::player::{
@@ -58,7 +58,7 @@ fn pcolrw_sets_flags_flash_and_fx() {
     assert!(g.objs.aliens[rwing as usize].sword1 > 0);
     let effect = g.objs.aliens[rwing as usize].sword1 as usize;
     assert_eq!(g.objs.aliens[effect].roty, HALF_TURN_ANGLE);
-    assert_eq!(g.objs.aliens[effect].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[effect].sflags & ASF_PARTOBJ, 0);
     assert_ne!(g.objs.aliens[effect].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.aliens.iter().filter(|a| a.active).count() > before);
 

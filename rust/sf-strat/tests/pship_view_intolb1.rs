@@ -1,6 +1,6 @@
 //! Tick 88: pshipintolb1 + viewintolb1.
 
-use sf_game::alien::{ASF4_INVISIBLE, ASF_COLLDISABLE};
+use sf_game::alien::{ASF4_INVISIBLE, ASF2_COLLDISABLE};
 use sf_game::vars::{GF_NOZREMOVE, PSTF_INSEQ};
 use sf_game::Game;
 use sf_strat::common::StratRam;
@@ -33,7 +33,7 @@ fn pshipintolb1_climb_then_roll() {
     let mut g = Game::new();
     let idx = spawn(&mut g);
     pshipintolb1_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].vel, MED_PSPEED as u8);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, DEG90 / 2);
     assert_eq!(g.objs.aliens[idx as usize].stratstate, 0);

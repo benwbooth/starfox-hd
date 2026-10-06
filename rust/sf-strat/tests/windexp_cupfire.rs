@@ -1,6 +1,6 @@
 //! ROM windexp/windspin + tank1fire/misspoda + cupfire + ship1aexp/mine2expnofire.
 
-use sf_game::alien::{ObjectVisualKind, ASF4_INVISIBLE, ASF_COLLDISABLE, ASF_NOHITAFFECT, ATLASER};
+use sf_game::alien::{ObjectVisualKind, ASF4_INVISIBLE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ATLASER};
 use sf_game::Game;
 use sf_strat::enemies_ground::{
     misspoda_init, tank1fire, windexp_istrat, windspin_istrat, windspin_strat,
@@ -38,7 +38,7 @@ fn windspin_coasts_and_expires() {
     let idx = g.objs.alloc().expect("blade");
     g.objs.aliens[idx as usize].rotz = DEG90;
     windspin_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].count, 40);
     assert!(g.objs.aliens[idx as usize].sbyte1 >= 7);
     let rot0 = g.objs.aliens[idx as usize].rotz;
@@ -95,7 +95,7 @@ fn misspoda_fires_burst_and_kills_self() {
     let before = g.objs.active_indices().len();
     misspoda_init(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].hp, 0);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.active_indices().len() > before + 3, "5 missiles");
 }
 
@@ -144,7 +144,7 @@ fn ship1aexp_sets_nohitaffect() {
     let tick = g.world.register_strategy(|_g, _i| {});
     g.objs.aliens[idx as usize].stratptr = Some(tick);
     ship1aexp_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 #[test]

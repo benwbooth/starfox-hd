@@ -1,6 +1,6 @@
 //! ROM explode_end / explode_strat / lexplode + bazexp/bazfall + headfire.
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::Game;
 use sf_strat::enemies_ground::{bazexp_istrat, bazfall_istrat, bazfall_strat, SH_BAZOOKA2};
 use sf_strat::enemy_a::{
@@ -95,7 +95,7 @@ fn bazexp_spawns_fall_debris() {
     );
     assert_eq!((barrel.rotx, barrel.roty, barrel.rotz), (10, 20, 30));
     assert_eq!(barrel.count, 30);
-    assert_ne!(barrel.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(barrel.sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aldead, 1);
 }
 
@@ -105,7 +105,7 @@ fn bazfall_tumbles_and_expires() {
     let idx = g.objs.alloc().expect("f");
     bazfall_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].count, 30);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     let rot0 = g.objs.aliens[idx as usize].roty;
     bazfall_strat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].roty, rot0.wrapping_add(16));

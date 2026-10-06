@@ -2,7 +2,7 @@
 //! fall → hatch shell+chick / wait-to-hit / bounce→nothing (was instant
 //! `strat_explode` on land).
 
-use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_SHADOW};
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF2_COLLDISABLE, ASF_SHADOW};
 use sf_game::game::{Game, Hooks};
 use sf_game::obj::strat_init_obj_vars;
 use sf_strat::bosses::{chicken_egg_istrat, chicken_egg_strat};
@@ -189,5 +189,5 @@ fn chicken_egg_shell_settles_to_nothing() {
         .iter()
         .find(|a| a.active && a.shape == SH_CHICK_SHELL)
         .expect("shell");
-    assert_ne!(shell.sflags & ASF_COLLDISABLE, 0, "shell → nothing_istrat");
+    assert_ne!(shell.sflags2 & ASF2_COLLDISABLE, 0, "shell → nothing_istrat");
 }

@@ -1,6 +1,6 @@
 //! Tick 83: teleporter_istrat (bossH prop) + bonfire fire points.
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::vars::{HARD_AP, HARD_HP};
 use sf_game::Game;
 use sf_strat::bossh::{teleporter_istrat, teleporter_strat};
@@ -27,7 +27,7 @@ fn teleporter_init_and_bonfire_at_20() {
     let al = &g.objs.aliens[idx as usize];
     assert_eq!(al.hp, HARD_HP);
     assert_eq!(al.ap, HARD_AP);
-    assert_ne!(al.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(al.sflags2 & ASF2_COLLDISABLE, 0);
     // Fall-through: beqdec 50→49, anim advances, ty -= 5
     assert_eq!(al.sbyte2, 49);
     assert_eq!(al.animframe & 0x7F, 1);

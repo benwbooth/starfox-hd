@@ -4,7 +4,7 @@ use sf_core::screen_fill_circle::{
     ScreenFillCircleCenter, ScreenFillCirclePhase, SMART_BOMB_FLASH_RADIUS,
     SMART_BOMB_INITIAL_COLOR_LEVEL,
 };
-use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_HITFLASH, ASF_NOHITAFFECT, ATNUKED};
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_HITFLASH, ASF3_NOHITAFFECT, ATNUKED};
 use sf_game::vars::PSF_NOFIRE;
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
@@ -128,7 +128,7 @@ fn nukeexp_skips_nohitaffect_and_removes_at_max() {
         al.hp = 50;
         al.sflags3 |= ASF3_REALOBJ;
         al.flags |= 8;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
     nukeexp_strat(&mut g, nuke);
     assert_eq!(g.objs.aliens[immune as usize].hp, 50);

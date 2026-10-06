@@ -28,8 +28,8 @@ use sf_core::sf1_shape_metrics::sf1_shape_metrics;
 use sf_game::alien::{
     Alien, ExplosionSize, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3,
     ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, AFONFIRE, ASF2_COLLDISABLE,
-    ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_SFLAG8, ASF_COLLDISABLE,
-    ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL, ASF_SSPRITE,
+    ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_CSPECIAL, ASF4_INVISIBLE, ASF4_SFLAG8,
+    ASF_COLLIDE, ASF_HITFLASH, ASF_PARTOBJ, ASF_SHADOW, ASF_SPECIAL, ASF_SSPRITE,
     ATGND, ATLASER, ATMISSILE, ATNUKED, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::{PCBOX_WING_AP, PCBOX_WING_HP};
@@ -1894,7 +1894,7 @@ pub fn escapeeexplode_istrat(g: &mut Game, idx: u16) {
 
 /// ROM `ship1aexp_Istrat` (GASTRATS.ASM:604) — become invulnerable, resume tick.
 pub fn ship1aexp_istrat(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+    g.objs.aliens[idx as usize].sflags3 |= ASF3_NOHITAFFECT;
     jmpto_strat(g, idx);
 }
 
@@ -1953,7 +1953,7 @@ pub fn shiplb1ychase_srou(g: &mut Game, idx: u16) {
 
 /// ROM `shiplb1_Istrat` (GCSTRATS.ASM:1199) — friend escort peel during LB1 exit.
 pub fn shiplb1_istrat(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     // Fall-through into the body (no separate stratptr in ROM — self-looping Istrat).
     let s = sid(g, shiplb1_istrat);
     g.objs.aliens[idx as usize].stratptr = Some(s);
@@ -2279,7 +2279,7 @@ pub fn ship3a_strat(g: &mut Game, idx: u16) {
 
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.snd2 = 0;
     }
     g.vars.pshipflags &= !PSF_NOCTRL;
@@ -2430,7 +2430,7 @@ pub fn ship2into_strat(g: &mut Game, idx: u16) {
         return;
     }
 
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     g.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
     // Pull player toward space center.
     if (pidx as usize) < NUMBER_AL && g.objs.aliens[pidx as usize].active {
@@ -2518,7 +2518,7 @@ pub fn ship3_istrat(g: &mut Game, idx: u16) {
         al.collflags |= COLLTYPE_ENEMY1;
         al.vy = -40;
         al.type_ |= ATGND;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.rotz = DEG90;
         al.snd2 = 8;
     }
@@ -2573,7 +2573,7 @@ pub fn ship3_strat(g: &mut Game, idx: u16) {
 /// by MAP1_3C.  The original ISTRAT is its own per-frame body.
 pub fn ship3a_istrat(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.roty = DEG180;
     al.worldz = al.worldz.wrapping_sub(10);
     al.worldy = al.worldy.wrapping_add(8);
@@ -2592,7 +2592,7 @@ pub fn ship3a_istrat(g: &mut Game, idx: u16) {
 pub fn ship0cdown_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, ship0cdown_strat);
     let al = &mut g.objs.aliens[idx as usize];
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.stratptr = Some(tick);
     al.sbyte1 = 60;
     al.count = 60 + 35 + 20;
@@ -2705,7 +2705,7 @@ pub fn exitopen_strat(g: &mut Game, idx: u16) {
         }
         let dy = me.sbyte1 as i8 as i16;
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.worldy = al.worldy.wrapping_add(dy);
     }
 }
@@ -2783,7 +2783,7 @@ pub fn core1_istrat(g: &mut Game, idx: u16) {
         al.ap = HARD_AP;
         al.roty = DEG180;
         al.collflags |= COLLTYPE_ENEMY1;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
     g.vars.gameflags &= !GF_STRATDONE1;
 }
@@ -2793,7 +2793,7 @@ pub fn core1_strat(g: &mut Game, idx: u16) {
         let me = &g.objs.aliens[idx as usize];
         let zdist = (me.worldz as i32 - pl.worldz as i32).abs();
         if zdist <= 1000 {
-            g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+            g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
         }
     }
     g.objs.aliens[idx as usize].roty = g.objs.aliens[idx as usize].roty.wrapping_add(8);
@@ -3024,7 +3024,8 @@ pub fn monolith_istrat(g: &mut Game, idx: u16) {
         al.sbyte2 = eye_hp;
         al.collflags |= COLLTYPE_ENEMY1;
         al.type_ &= !ATZREMOVE;
-        al.sflags |= ASF_NOHITAFFECT | ASF_COLLDISABLE;
+        al.sflags3 |= ASF3_NOHITAFFECT;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.stratstate = MPARTOUT_I_STATE;
     }
     monolith_strat(g, idx);
@@ -3081,7 +3082,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
                     g.objs.aliens[core as usize].worldy.wrapping_sub(15 << 4);
                 mcore1_istrat(g, core);
                 g.objs.aliens[core as usize].sflags4 |= ASF4_INVISIBLE;
-                g.objs.aliens[core as usize].sflags |= ASF_COLLDISABLE;
+                g.objs.aliens[core as usize].sflags2 |= ASF2_COLLDISABLE;
                 g.objs.aliens[idx as usize].ptr = core.wrapping_add(1);
             }
         }
@@ -3091,7 +3092,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].stratstate == MINITFIRE_STATE {
         let al = &mut g.objs.aliens[idx as usize];
         al.flags &= !AFEXP;
-        al.sflags &= !ASF_COLLDISABLE;
+        al.sflags2 &= !ASF2_COLLDISABLE;
         al.sflags2 &= !ASF2_SFLAG1;
         al.sbyte4 = 100;
         monolith_next_state(g, idx);
@@ -3262,7 +3263,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
                     let al = &mut g.objs.aliens[core as usize];
                     al.worldy = al.worldy.wrapping_sub(15 << 4);
                     al.sflags4 &= !ASF4_INVISIBLE;
-                    al.sflags &= !ASF_COLLDISABLE;
+                    al.sflags2 &= !ASF2_COLLDISABLE;
                     al.stratstate = 0;
                 }
             }
@@ -3275,7 +3276,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
     // 16: face-poly explosion expands for thirty ticks.
     if g.objs.aliens[idx as usize].stratstate == MEXP1_STATE {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.flags |= AFEXP;
         al.count = al.count.wrapping_add(2);
         al.sword1 = 130;
@@ -3311,7 +3312,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
         g.objs.aliens[idx as usize].count = g.objs.aliens[idx as usize].count.wrapping_sub(2);
         if g.objs.aliens[idx as usize].count == 0 {
             g.objs.aliens[core as usize].sflags4 |= ASF4_INVISIBLE;
-            g.objs.aliens[core as usize].sflags |= ASF_COLLDISABLE;
+            g.objs.aliens[core as usize].sflags2 |= ASF2_COLLDISABLE;
             g.hooks.play_se(0x87);
             if currentlevel(g) == 3 {
                 g.objs.aliens[idx as usize].flags &= !AFEXP;
@@ -3368,7 +3369,7 @@ pub fn monolith_strat(g: &mut Game, idx: u16) {
         }
         let f = g.objs.aliens[idx as usize].animframe;
         g.objs.aliens[idx as usize].animframe = if f >= 20 { 11 } else { f + 1 };
-        g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+        g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
         g.objs.aliens[idx as usize].sflags2 &= !ASF2_SFLAG1;
         g.objs.aliens[idx as usize].sbyte3 = 30;
         if g.objs.aliens[idx as usize].sbyte1 == 0 && g.objs.aliens[idx as usize].sbyte2 == 0 {
@@ -3492,7 +3493,7 @@ pub fn suckcube_istrat(g: &mut Game, idx: u16) {
     al.count = 20;
     al.type_ &= !ATZREMOVE; // s_setnoremove_behind
     al.stratptr = Some(tick);
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// ROM `suckcube_strat` — rotx+=12 then suckbits_cont.
@@ -3508,7 +3509,7 @@ pub fn suckbits_istrat(g: &mut Game, idx: u16) {
     al.count = 6;
     al.type_ &= !ATZREMOVE;
     al.stratptr = Some(tick);
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// ROM `suckbits_strat` — fall straight into cont.
@@ -3683,7 +3684,7 @@ pub fn monolithpart_istrat(g: &mut Game, idx: u16) {
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.collflags |= COLLTYPE_ENEMY1;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.type_ &= !ATZREMOVE;
     }
     let r = (sf_random(&mut g.vars) as u8) & 3;
@@ -3856,7 +3857,7 @@ pub fn mcore1_strat(g: &mut Game, idx: u16) {
 
         // state 0 — wait1
         if g.objs.aliens[idx as usize].stratstate == 0 {
-            g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+            g.objs.aliens[idx as usize].sflags3 |= ASF3_NOHITAFFECT;
             g.objs.aliens[idx as usize].sbyte1 = 20;
             g.objs.aliens[idx as usize].stratstate = 1;
         }
@@ -3872,7 +3873,7 @@ pub fn mcore1_strat(g: &mut Game, idx: u16) {
 
         // state 2 — zoom toward player
         if g.objs.aliens[idx as usize].stratstate == 2 {
-            g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+            g.objs.aliens[idx as usize].sflags3 |= ASF3_NOHITAFFECT;
             {
                 let al = &mut g.objs.aliens[idx as usize];
                 al.sbyte2 = al.sbyte2.wrapping_add(8);
@@ -3933,7 +3934,7 @@ pub fn mcore1_strat(g: &mut Game, idx: u16) {
 
         // state 4 — flip init (falls into state 5)
         if g.objs.aliens[idx as usize].stratstate == 4 {
-            g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+            g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
             let flip = if level == 3 { DEG180 / 2 } else { DEG180 / 4 };
             let al = &mut g.objs.aliens[idx as usize];
             al.sbyte1 = flip;
@@ -3981,7 +3982,7 @@ pub fn mcore1_strat(g: &mut Game, idx: u16) {
                 let mut rz = al.rotz;
                 achase_angle(&mut rz, 0, 3);
                 al.rotz = rz;
-                al.sflags |= ASF_NOHITAFFECT;
+                al.sflags3 |= ASF3_NOHITAFFECT;
                 al.worldx = chase_proportional(al.worldx, 0, 3);
             }
             let viewcy = g.vars.sv_i16(crate::common::sv::VIEWCY);
@@ -4033,7 +4034,7 @@ pub fn mcore1exp_strat(g: &mut Game, idx: u16) {
             {
                 let al = &mut g.objs.aliens[c as usize];
                 al.worldz = base_z.wrapping_add((i as i16).wrapping_mul(100));
-                al.sflags |= ASF_COLLDISABLE;
+                al.sflags2 |= ASF2_COLLDISABLE;
             }
             blowcube_istrat(g, c);
         }
@@ -4233,7 +4234,7 @@ pub fn expspiece_istrat(g: &mut Game, idx: u16) {
     al.stratptr = Some(s);
     al.rotx = rotx;
     al.rotz = rotz;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.sflags &= !ASF_HITFLASH;
     al.count = 15;
 }
@@ -4268,7 +4269,7 @@ pub fn exppiece_istrat(g: &mut Game, idx: u16) {
         al.expstratptr = Some(exp);
         al.hp = HARD_HP;
         al.ap = 8;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sflags &= !ASF_HITFLASH;
         al.count = life;
         apply_velocity(al);
@@ -4314,7 +4315,7 @@ pub fn pelasercollide_istrat(g: &mut Game, idx: u16) {
         if partner != 0 && (partner as usize) < NUMBER_AL && g.objs.aliens[partner as usize].active
         {
             let p = &g.objs.aliens[partner as usize];
-            p.sflags & ASF_NOHITAFFECT != 0 || p.hp == HARD_HP || p.collstratptr.is_none()
+            p.sflags3 & ASF3_NOHITAFFECT != 0 || p.hp == HARD_HP || p.collstratptr.is_none()
         } else {
             true
         };
@@ -6057,7 +6058,7 @@ pub fn chickhmissile1_strat(g: &mut Game, idx: u16) {
     let dist = crate::common::strat_dist_xz(&g.objs.aliens[idx as usize], &pl);
     if near || (dist < CHICK_NEAR_DIST && !any_joy_dir_down(g)) {
         g.objs.aliens[idx as usize].sflags2 |= ASF2_SFLAG2;
-        g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+        g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
         {
             let al = &mut g.objs.aliens[idx as usize];
             let c = al.count.wrapping_sub(1);
@@ -6390,7 +6391,7 @@ pub fn spreada_init(g: &mut Game, idx: u16) {
         if yal.collflags & ACF_WEAPON != 0 {
             continue;
         }
-        if yal.sflags & ASF_COLLDISABLE != 0 {
+        if yal.sflags2 & ASF2_COLLDISABLE != 0 {
             continue;
         }
         if yal.hp == HARD_HP {
@@ -6490,7 +6491,7 @@ pub fn bonfire_istrat(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick);
         al.collstratptr = Some(coll);
         al.expstratptr = Some(exp);
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.vel = BONFIRE_SPEED;
@@ -6513,7 +6514,7 @@ pub fn bonfire_strat(g: &mut Game, idx: u16) {
             al.worldx = px;
             al.worldy = py;
             al.worldz = pz;
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.sbyte1 = 0;
         }
         bonfire_trail_istrat(g, trail);
@@ -6529,7 +6530,7 @@ fn bonfire_trail_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
         al.collflags |= COLLTYPE_ENEMY1;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 1;
         al.tx = 0;
@@ -6597,7 +6598,8 @@ pub fn ironball_istrat(g: &mut Game, idx: u16) {
         al.expstratptr = Some(exp);
         al.hp = HARD_HP;
         al.ap = IRONBALL_AP;
-        al.sflags |= ASF_NOHITAFFECT | ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
+        al.sflags |= ASF_SHADOW;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
         al.tx = 0;
@@ -7079,7 +7081,7 @@ pub fn nukeexp_strat(g: &mut Game, idx: u16) {
         if d >= r_hi || d < r_lo {
             continue;
         }
-        if yal.sflags & (ASF_NOHITAFFECT | ASF_COLLDISABLE) != 0 {
+        if yal.sflags3 & ASF3_NOHITAFFECT != 0 || yal.sflags2 & ASF2_COLLDISABLE != 0 {
             continue;
         }
         if yal.flags & AF_FRONT_PL == 0 {
@@ -7581,7 +7583,8 @@ pub fn strat_gate3_init(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(s);
-        al.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.sflags |= ASF_SHADOW;
         al.colframe = 0;
     }
     gate3_strat(g, idx);
@@ -8078,7 +8081,7 @@ pub(crate) fn hmissile1_strat(g: &mut Game, idx: u16) {
     }
     if g.vars.gameflags & GF_BOSSDEAD != 0 || bossflags(g) & BF_DYING != 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.hp = 0;
         hmissile1_remove(g, idx);
     }
@@ -8128,7 +8131,7 @@ pub(crate) fn homingflat_strat(g: &mut Game, idx: u16) {
     }
     if g.vars.gameflags & GF_BOSSDEAD != 0 || bossflags(g) & BF_DYING != 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.hp = 0;
         hmissile1_remove(g, idx);
     }
@@ -8708,7 +8711,7 @@ pub fn boss1back_strat(g: &mut Game, idx: u16) {
             }
             boss_clear_child_link(g, cover);
             boss_prune_family_links(g, idx);
-            g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+            g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
             g.hooks.play_se(0x85);
         }
         g.objs.aliens[idx as usize].sflags4 |= BOSS1_PARENT_FLAG_COVER_GONE;
@@ -8866,7 +8869,7 @@ pub fn boss1covdie_strat(g: &mut Game, idx: u16) {
 
 /// C `boss1turcol_coll` (strat_enemy.c:2616).
 fn boss1turcol_coll(g: &mut Game, idx: u16) {
-    if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT != 0 {
+    if g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT != 0 {
         let al = &mut g.objs.aliens[idx as usize];
         al.hitflags = 0;
         al.sflags &= !ASF_COLLIDE;
@@ -8888,7 +8891,7 @@ fn boss1turret_init_common(g: &mut Game, idx: u16, strat: StrategyFn) {
     al.ap = BOSS1_TURRET_AP;
     al.roty = DEG180;
     al.collflags |= COLLTYPE_ENEMY1 | COLLTYPE_ENEMYWEAP;
-    al.sflags |= ASF_NOHITAFFECT;
+    al.sflags3 |= ASF3_NOHITAFFECT;
     al.type_ |= ATGND;
     al.colframe = 0;
     g.vars.bossmaxhp = g.vars.bossmaxhp.wrapping_add(BOSS1_TURRET_HP as u16);
@@ -8930,7 +8933,7 @@ pub fn boss1turret_nfire(g: &mut Game, idx: u16, mother: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.colframe = 0; // s_init_colanim #4
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
     boss1turret_end(g, idx, mother);
 }
@@ -8940,7 +8943,7 @@ pub fn boss1turretfire_end(g: &mut Game, idx: u16, mother: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.colframe = al.colframe.wrapping_add(1) & 3; // s_add_colanim #1,#4
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
     }
     let cover = boss1_cover_obj(g, mother);
     if let Some(cover) = cover {
@@ -9030,7 +9033,8 @@ pub fn strat_boss1_init(g: &mut Game, idx: u16) {
         al.collflags |= COLLTYPE_ENEMY1;
         al.type_ |= ATGND;
         al.colframe = 0;
-        al.sflags |= ASF_SHADOW | ASF_COLLDISABLE;
+        al.sflags |= ASF_SHADOW;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sbyte3 = 1;
         al.sflags2 &= !(BOSS1_PARENT_FLAG_TURRETS_OPEN | BOSS1_PARENT_FLAG_SIDE_RIGHT);
         al.sflags4 &= !(BOSS1_PARENT_FLAG_COVER_BLOCK | BOSS1_PARENT_FLAG_COVER_GONE);
@@ -9055,7 +9059,7 @@ pub fn boss1makechild(g: &mut Game, idx: u16) {
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_TR2, boss1turret_r_init);
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_TR3, boss1turret_r_init);
     let _ = boss1_spawn_child(g, idx, BOSS1_CHILD_COVER, boss1cov_init);
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     boss1_update_child_positions(g, idx); // boss1rots_srou
     g.objs.aliens[idx as usize].stratstate = 0;
     g.objs.aliens[idx as usize].sbyte3 = 1;
@@ -9228,7 +9232,7 @@ fn zaco2dash_strat(g: &mut Game, idx: u16) {
             al.count -= 1;
         }
         if al.count == 0 {
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.hp = 0;
         }
     }
@@ -10236,7 +10240,7 @@ pub fn hyperspace_strat(g: &mut Game, idx: u16) {
             al.worldy = random_y.wrapping_add(roll_y).wrapping_add(SPACE_VIEWCY);
             al.worldz = emitter_z;
             al.rotz = roll;
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.stratptr = Some(streak_tick);
         }
     }
@@ -10729,7 +10733,7 @@ fn starbull2(g: &mut Game, idx: u16) {
     let tick = sid(g, stbfp_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags &= !ASF_COLLDISABLE;
+        al.sflags2 &= !ASF2_COLLDISABLE;
         al.stratptr = Some(tick);
         al.sbyte1 = 20;
         al.sflags2 &= !ASF2_SMFLAG1; // s_initface_player
@@ -10835,7 +10839,7 @@ fn item0_istrat(g: &mut Game, idx: u16) {
         al.stratptr = Some(s);
         al.collstratptr = None;
         al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.rotx = DEG90.wrapping_neg();
     }
     // ASM item0_Istrat (GASTRATS.ASM:2678) ends with `item0_strat s_start_strat`
@@ -10951,7 +10955,7 @@ pub fn strat_up1man_init(g: &mut Game, idx: u16) {
         al.stratptr = Some(s);
         al.collstratptr = None;
         al.expstratptr = None;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sbyte2 = UP1MAN_ROT_SPEED;
         al.ptr = 0;
         al.sword1 = 0;
@@ -11016,7 +11020,7 @@ fn up1manhit_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.sflags2 |= UP1MAN_SFLAG1;
         al.sflags &= !ASF_COLLIDE;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
     }
     up1manchild_strat(g, idx);
 }
@@ -13360,7 +13364,7 @@ fn carrierc_strat(g: &mut Game, idx: u16) {
 /// C `Strat_Base1_Init` — ASM `base1_Istrat` (KSTRATS.ASM:373-379):
 /// `s_set_alptrs base1_strat,0,0` (null collide+explode), `s_set_aldata
 /// #hardhp,#2` (ap=2), `roty=deg180`, `init_anim 0`. The old port set a
-/// hit_flash collide, an explode strat, ap=HARD_AP(8), added ASF_NOHITAFFECT,
+/// hit_flash collide, an explode strat, ap=HARD_AP(8), added ASF3_NOHITAFFECT,
 /// and had no roty. (Audit A #10 — CAVEAT: the reference is the ultrastarfox
 /// hack; confirm base1 against the original disassembly, as the removed C
 /// oracle may have targeted a different base1.)
@@ -14345,7 +14349,7 @@ pub fn exitlight6_istrat(g: &mut Game, idx: u16) {
 
 /// ROM `exitlight_init` — colldisable then fall into A phase.
 pub fn exitlight_init(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     exitlight_a_init(g, idx);
 }
 
@@ -14430,7 +14434,7 @@ pub fn fastfighter_init(g: &mut Game, idx: u16) {
         al.ap = FIGHTER_AP;
         al.roty = DEG180;
         al.vel = 80;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.snd2 = 2;
         gen_vecs_3d(al);
     }
@@ -14654,7 +14658,8 @@ pub fn crane0_istrat(g: &mut Game, idx: u16) {
         let c_exp = sid(g, strat_explode);
         {
             let al = &mut g.objs.aliens[child as usize];
-            al.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
+            al.sflags2 |= ASF2_COLLDISABLE;
+            al.sflags |= ASF_SHADOW;
             al.stratptr = None;
             al.collstratptr = Some(c_coll);
             al.expstratptr = Some(c_exp);
@@ -14800,7 +14805,7 @@ pub fn tzaco7go_istrat(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick);
         al.vy = 5;
         al.vz = -20;
-        al.sflags &= !ASF_COLLDISABLE;
+        al.sflags2 &= !ASF2_COLLDISABLE;
     }
     tzaco7go_strat(g, idx);
 }
@@ -16838,7 +16843,7 @@ pub(crate) fn circdelayexplode_init(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
     al.hp = HARD_HP;
     al.ap = HARD_AP;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.stratptr = Some(s);
     al.collstratptr = None;
     al.expstratptr = None;
@@ -16881,7 +16886,7 @@ pub(crate) fn circdelayexplode_strat(g: &mut Game, idx: u16) {
                 copy_pos(g, big, idx);
                 let s = sid(g, delayremove_strat);
                 let al = &mut g.objs.aliens[big as usize];
-                al.sflags |= ASF_COLLDISABLE;
+                al.sflags2 |= ASF2_COLLDISABLE;
                 al.sflags4 |= ASF4_RELEXPLODE;
                 al.flags |= AFEXP;
                 al.count = 110;
@@ -17022,7 +17027,7 @@ pub fn strat_boss_explode_init(g: &mut Game, idx: u16) {
             al.sflags3 = me.sflags3;
             al.sflags4 = me.sflags4;
             al.sflags3 &= !ASF3_REALOBJ;
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.sflags2 |= ASF2_NOEXPSND;
         }
         copy_pos(g, proxy, idx);

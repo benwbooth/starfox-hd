@@ -1,6 +1,6 @@
 //! ROM crane0 + tzaco7 go/fall/cat (GA2STRAT.ASM:693-870).
 
-use sf_game::alien::{ACF_COLLTYPE1, ACF_COLLTYPE5, ASF_COLLDISABLE, ASF_SHADOW};
+use sf_game::alien::{ACF_COLLTYPE1, ACF_COLLTYPE5, ASF2_COLLDISABLE, ASF_SHADOW};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemy_a::{
@@ -46,7 +46,7 @@ fn crane0_istrat_spawns_carried_zaco7() {
     assert!(c.active);
     assert_eq!(c.hp, 6);
     assert_eq!(c.ap, 8);
-    assert_ne!(c.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(c.sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(c.sflags & ASF_SHADOW, 0);
     assert_ne!(c.collflags & COLLTYPE_ENEMY1, 0);
     assert_eq!(c.worldx, al.worldx);
@@ -86,7 +86,7 @@ fn crane0_releases_child_when_close() {
     // go_istrat sets vy=5 then runs one strat tick (vy−1 → 4).
     assert_eq!(g.objs.aliens[child as usize].vy, 4);
     assert_eq!(g.objs.aliens[child as usize].vz, -20);
-    assert_eq!(g.objs.aliens[child as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[child as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert!(g.objs.aliens[child as usize].stratptr.is_some());
 }
 
@@ -107,7 +107,7 @@ fn crane0col_hf1_kills_child_hf2_drops() {
     g.objs.aliens[idx as usize].hitflags = 0x01; // HF1
     crane0col_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[child as usize].hp, 0);
-    assert_ne!(g.objs.aliens[child as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[child as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].hitflags, 0);
 
     // Fresh crane for HF2 drop.
@@ -151,7 +151,7 @@ fn tzaco7fall_explodes_at_ground() {
     tzaco7fall_istrat(&mut g, idx);
     // explode path: hp cleared / colldisable or aldead.
     let al = &g.objs.aliens[idx as usize];
-    assert!(al.hp == 0 || al.sflags & ASF_COLLDISABLE != 0 || g.objs.aldead != 0);
+    assert!(al.hp == 0 || al.sflags2 & ASF2_COLLDISABLE != 0 || g.objs.aldead != 0);
 }
 
 #[test]

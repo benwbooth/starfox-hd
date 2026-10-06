@@ -1,6 +1,6 @@
 //! ROM exitlight blink + fastfighter 1/2/3 + blackholeexit alias (GASTRATS / KSTRATS).
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::Game;
 use sf_strat::bosses::blackholeexit_istrat;
 use sf_strat::enemy_a::{
@@ -36,7 +36,7 @@ fn exitlight1_cycles_a_then_b() {
     spawn_player(&mut g, 0);
     let idx = spawn_obj(&mut g);
     exitlight1_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // istrat set sbyte2=2 then A_init ran one A tick (beqdec → sbyte2=1, colanim 1).
     assert_eq!(g.objs.aliens[idx as usize].sbyte2, 1);
     assert_eq!(g.objs.aliens[idx as usize].colframe & 0x7F, 1);
@@ -80,7 +80,7 @@ fn fastfighter_init_sets_stats_and_vecs() {
     assert_eq!(g.objs.aliens[idx as usize].roty, DEG180);
     assert_eq!(g.objs.aliens[idx as usize].vel, 80);
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 8);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // gen_3dvecs from deg180 should produce non-zero vz.
     assert_ne!(g.objs.aliens[idx as usize].vz, 0);
 }

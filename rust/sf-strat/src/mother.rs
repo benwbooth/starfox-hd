@@ -44,7 +44,7 @@ use crate::common::{
 };
 use crate::enemy_a::{sid, strat_explode, strat_hit_flash, COLLTYPE_ENEMY1};
 use sf_game::alien::{
-    ObjectVisualKind, StratId, ASF_COLLDISABLE, ASF_COLLIDE, ASF_NOHITAFFECT, ATZREMOVE,
+    ObjectVisualKind, StratId, ASF2_COLLDISABLE, ASF_COLLIDE, ASF3_NOHITAFFECT, ATZREMOVE,
 };
 use sf_game::game::Game;
 use sf_map::consts::DirectStrategy;
@@ -376,7 +376,7 @@ fn meteor_init_common(g: &mut Game, idx: u16) {
     }
     strat_gen_vecs_3d(al); // s_jsr dgen3dvecs (rotx=0 pitch)
     al.collflags |= COLLTYPE_ENEMY1; // s_set_colltype x,ENEMY1
-    al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag x,nohitaffect
+    al.sflags3 |= ASF3_NOHITAFFECT; // s_set_alsflag x,nohitaffect
                                   // ROM falls through meteor_istrat3 into meteor_strat the same frame.
     strat_meteor_tick(g, idx);
 }
@@ -418,7 +418,7 @@ fn strat_meteor_fragment_init(g: &mut Game, idx: u16) {
         al.sword1 = 60;
         al.stratptr = Some(tick);
         al.collflags |= COLLTYPE_ENEMY1;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.visual_kind = ObjectVisualKind::ScaledSprite;
         al.depthoffset = 0;
         al.tx = 0;
@@ -478,7 +478,7 @@ pub fn strat_searchmeteor_init(g: &mut Game, idx: u16) {
     }
     strat_gen_vecs_3d(al); // s_jsr dgen3dvecs
     al.collflags |= COLLTYPE_ENEMY1;
-    al.sflags |= ASF_NOHITAFFECT;
+    al.sflags3 |= ASF3_NOHITAFFECT;
     strat_searchmeteor_tick(g, idx);
 }
 
@@ -523,7 +523,7 @@ fn strat_searchmeteor_tick(g: &mut Game, idx: u16) {
 pub fn strat_clasteroid_init(g: &mut Game, idx: u16) {
     let tick = sid(g, strat_clasteroid_tick);
     let al = &mut g.objs.aliens[idx as usize];
-    al.sflags |= ASF_COLLDISABLE; // s_set_alsflag x,colldisable
+    al.sflags2 |= ASF2_COLLDISABLE; // s_set_alsflag x,colldisable
     al.stratptr = Some(tick);
     al.count = 70; // s_set_lifecnt x,#70
     al.visual_kind = ObjectVisualKind::ScaledSprite;

@@ -1,7 +1,7 @@
 //! Tick 211: chicken `firebreathe_istrat` (DSTRATS.ASM:4629-4699) — trail
 //! pieces, ground bounce re-aim, |worldx|/Z bounds → short fade.
 
-use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF_NOHITAFFECT};
+use sf_game::alien::{ObjectVisualKind, ASF3_REALOBJ, ASF3_NOHITAFFECT};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_game::vars::HARD_HP;
@@ -56,7 +56,7 @@ fn firebreath_istrat_sets_ball_data() {
     assert_eq!(al.hp, HARD_HP);
     assert_eq!(al.ap, FIREBREATH_AP);
     assert_eq!(al.sbyte1, 2);
-    assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(al.sflags3 & ASF3_NOHITAFFECT, 0);
     assert_ne!(al.collflags & 0x10, 0); // ENEMY1 / ACF_COLLTYPE2
     assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
     assert_eq!(al.depthoffset, 0);
@@ -128,7 +128,7 @@ fn firebreath_x_limit_becomes_short() {
     chicken_firebreath_strat(&mut g, idx);
     // Still active as short; nohitaffect set.
     assert!(g.objs.aliens[idx as usize].active);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     assert_eq!(
         g.objs.aliens[idx as usize].visual_kind,
         ObjectVisualKind::ScaledSprite

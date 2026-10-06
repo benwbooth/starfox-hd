@@ -1,6 +1,6 @@
 //! Tick 137: AUDIT_BOSS_TICKS2 Mediums #10–#15 verify (already fixed in bosses.rs).
 
-use sf_game::alien::{ASF3_REALOBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ASF3_REALOBJ, ASF2_COLLDISABLE};
 use sf_game::Game;
 use sf_strat::bosses::{
     boss8a_strat, boss8die_istrat, bossseamon_strat, nucleuslauncher_istrat, nucleuslauncher_strat,
@@ -10,8 +10,8 @@ use sf_strat::common::sf_random;
 
 const SH_SEA_0_0: u16 = 31;
 const SH_SEA_0_1_PROXY: u16 = 258;
-const SEA_SFLAG1: u8 = 0x20;
-const SEA_SFLAG2: u8 = 0x40;
+const SEA_SFLAG1: u8 = 0x10; // STRATEQU.INC sflag1
+const SEA_SFLAG2: u8 = 0x20; // STRATEQU.INC sflag2
 const B8_SFLAG5: u8 = 0x01; // sflags3 — ROM asf_sflag5
 
 fn spawn_player(g: &mut Game, x: i16, z: i16) {
@@ -91,7 +91,7 @@ fn seamon_post_landing_snaps_to_surface() {
         al.vx = 0;
         al.vz = 0;
         al.sflags2 |= SEA_SFLAG1; // already latched
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sbyte3 = 40; // skip swim wiggle
         al.sbyte4 = 40; // skip jump countdown path side-effects
     }
@@ -117,7 +117,7 @@ fn seamon_swim_shape_byte_test_locks_after_landing() {
         al.vx = 0;
         al.vz = 0;
         al.sflags2 = 0;
-        al.sflags &= !ASF_COLLDISABLE;
+        al.sflags2 &= !ASF2_COLLDISABLE;
         al.sbyte3 = 0;
         al.sbyte1 = 1;
         al.sbyte4 = 40;
@@ -149,7 +149,7 @@ fn seamon_swim_shape_byte_test_locks_after_landing() {
     {
         let al = &mut g.objs.aliens[fish as usize];
         al.sflags2 = SEA_SFLAG1; // sflag2 clear, sflag1 set
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sbyte3 = 0;
         al.sbyte1 = 1;
         al.sbyte4 = 40;

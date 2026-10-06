@@ -1,4 +1,4 @@
-use sf_game::alien::{ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{ASF2_COLLDISABLE, ATZREMOVE};
 use sf_game::game::Game;
 use sf_game::obj::strat_init_obj_vars;
 use sf_game::world::op;
@@ -55,7 +55,7 @@ fn intro_commander_builds_the_complete_three_piece_model() {
     game.call_strat(init, parent);
 
     let parent_object = &game.objs.aliens[parent as usize];
-    assert_ne!(parent_object.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(parent_object.sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(parent_object.type_ & ATZREMOVE, 0);
     assert_eq!(
         (parent_object.vx, parent_object.vy, parent_object.vz),

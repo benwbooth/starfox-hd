@@ -48,7 +48,7 @@
 
 use sf_game::alien::{
     Alien, ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
-    ACF_COLLTYPE5, ACF_COLLTYPE6, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW,
+    ACF_COLLTYPE5, ACF_COLLTYPE6, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF_SHADOW,
 };
 use sf_game::game::{Game, StrategyFn};
 use sf_game::obj::strat_init_obj_vars;
@@ -462,7 +462,7 @@ pub fn bossh_init(g: &mut Game, idx: u16) {
         al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1
         al.depthoffset = 1; // s_set_alvar al_depthoffset,#1
         al.sbyte3 = 1; // s_set_alvar al_sbyte3,#1 (spin rate)
-        al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag nohitaffect
+        al.sflags3 |= ASF3_NOHITAFFECT; // s_set_alsflag nohitaffect
         al.sbyte1 = BOSSHHITCOUNT_INIT; // s_set_var bosshhitcount,#35
         al.stratstate = BossHMode::WalkOn as u8;
     }
@@ -946,7 +946,7 @@ fn bh_move(g: &mut Game, idx: u16) {
     if children_dead(g, idx, BOSSH_FIRST_LEG, BOSSH_LAST_LEG) {
         let al = &mut g.objs.aliens[idx as usize];
         al.coltab = ID_1_C;
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
         al.tx = al.tx.wrapping_add(BOSSH_VULNERABLE_TEXTURE_STEP);
     } else {
         g.objs.aliens[idx as usize].hp = BOSSH_HP;
@@ -976,7 +976,7 @@ fn create_impact_smoke(g: &mut Game, source: u16) {
     object.worldz = source_position.worldz;
     object.tx = object.tx.wrapping_add(texture_adjustment);
     object.visual_kind = ObjectVisualKind::ScaledSprite;
-    object.sflags |= ASF_COLLDISABLE;
+    object.sflags2 |= ASF2_COLLDISABLE;
     object.stratptr = Some(tick);
     object.collstratptr = None;
     object.expstratptr = None;
@@ -1004,7 +1004,7 @@ fn zdist_less(g: &Game, idx: u16, d: i16) -> bool {
 fn bossh_explode(g: &mut Game, idx: u16) {
     if let Some(top) = boss_find_child_obj(g, idx, BOSSH_TOP) {
         g.objs.aliens[top as usize].hp = 0;
-        g.objs.aliens[top as usize].sflags |= ASF_COLLDISABLE;
+        g.objs.aliens[top as usize].sflags2 |= ASF2_COLLDISABLE;
     }
     if let Some(tp) = boss_find_child_obj(g, idx, BOSSH_TELEPORT) {
         g.objs.free(tp);
@@ -1285,7 +1285,7 @@ fn bosshleg_explode(g: &mut Game, idx: u16) {
         let object = &mut g.objs.aliens[idx as usize];
         object.expstratptr = Some(fall);
         object.vel = BOSSH_LEG_FALL_SPEED;
-        object.sflags |= ASF_COLLDISABLE;
+        object.sflags2 |= ASF2_COLLDISABLE;
         strat_gen_vecs_nvecs(object);
     }
     bosshleg_explode_fall(g, idx);
@@ -1321,7 +1321,7 @@ pub fn bosshtop_init(g: &mut Game, idx: u16) {
     al.sflags |= ASF_SHADOW; // s_set_alsflag shadow
     al.hp = HARDHP; // s_set_aldata #bosshtopHP(hardHP),#bosshtopAP
     al.ap = HARDAP;
-    al.sflags |= ASF_NOHITAFFECT; // s_set_alsflag nohitaffect
+    al.sflags3 |= ASF3_NOHITAFFECT; // s_set_alsflag nohitaffect
     al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1
 }
 
@@ -1420,7 +1420,7 @@ pub fn teleporter_istrat(g: &mut Game, idx: u16) {
         al.animframe = ANIMATION_ACTIVE;
         al.hp = HARD_HP;
         al.ap = HARD_AP;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.collflags |= ACF_COLLTYPE2;
         al.stratptr = Some(tick);
         al.sbyte2 = TELEPORTER_START_DELAY;

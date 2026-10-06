@@ -5,7 +5,7 @@
 //! `al_depthoffset`. Digit helpers (`makeendobjn` / `makenumt`) map 0..=9 to
 //! the `msg_0` table base before calling the spawn body.
 
-use sf_game::alien::{ASF4_TEXTOBJ, ASF_COLLDISABLE};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_TEXTOBJ};
 use sf_game::score;
 use sf_game::shell::EndingScorePart;
 use sf_game::Game;
@@ -15,10 +15,6 @@ use sf_path::ids::{
 };
 
 use crate::common::strat_make_obj;
-
-/// `al_sflags3` textobj (C ASF3_TEXTOBJ / path_adapter) — same bit as
-/// [`sf_game::alien::ASF3_LOCKON`] in this port's remapping.
-const ASF3_TEXTOBJ: u8 = 0x40;
 
 /// Shape id for tally text carriers (ROM `#zaco_4`).
 pub const SH_ZACO_4: u16 = 105;
@@ -107,9 +103,8 @@ fn spawn_text_obj(g: &mut Game, sp: EndObjSpawn) -> Option<u16> {
         .unwrap_or((0, 0, 0));
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
-        al.sflags3 |= ASF3_TEXTOBJ;
-        al.sflags4 |= ASF4_TEXTOBJ;
+        al.sflags2 |= ASF2_COLLDISABLE;
+        al.sflags |= ASF_TEXTOBJ;
         al.depthoffset = sp.colour as i16;
         al.coltab = sp.msg;
         al.ty = sp.ty;

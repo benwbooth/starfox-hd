@@ -788,8 +788,8 @@ const SH_ASTEROID1: u16 = 275; // meteo0 death fragment
 const SH_F_FISH: u16 = 271; // torpedo surfaced shape
 const SH_TADPOLE: u16 = 227; // break_meteorT death spawn
 
-const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs:147
-const ASF_COLLDISABLE: u8 = 0x10; // alien.rs:145
+use sf_game::alien::ASF3_NOHITAFFECT;
+use sf_game::alien::ASF2_COLLDISABLE;
 const COLLTYPE_ZENEMY: u8 = 0x01; // enemy_a acf_colltype6
 
 fn find_shape(g: &Game, shape: u16) -> Option<usize> {
@@ -818,7 +818,7 @@ fn meteo0_init_sets_pose_and_stays_inert_when_far() {
     assert_eq!(a.roty, DEG180, "faces deg180");
     assert_eq!(a.animframe, 0, "inert: anim stays 0 when far");
     assert_eq!(a.sbyte1, 20, "fire budget primed to 20");
-    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "invulnerable while growing");
+    assert_ne!(a.sflags3 & ASF3_NOHITAFFECT, 0, "invulnerable while growing");
 }
 
 #[test]
@@ -835,7 +835,7 @@ fn meteo0_grows_to_max_then_sheds_invulnerability() {
     let a = g.objs.aliens[m as usize];
     assert_eq!(a.animframe, 8, "grown to full (anim 8)");
     assert_ne!(
-        a.sflags & ASF_NOHITAFFECT,
+        a.sflags3 & ASF3_NOHITAFFECT,
         0,
         "still invulnerable at anim 8 entry"
     );
@@ -844,7 +844,7 @@ fn meteo0_grows_to_max_then_sheds_invulnerability() {
     g.vars.gameframe = 1; // (gf+idx)&7 != 0 -> no fire this tick
     tick(&mut g, m);
     let a = g.objs.aliens[m as usize];
-    assert_eq!(a.sflags & ASF_NOHITAFFECT, 0, "sheds nohitaffect at max");
+    assert_eq!(a.sflags3 & ASF3_NOHITAFFECT, 0, "sheds nohitaffect at max");
     assert_eq!(a.sbyte1, 19, "budget decremented once maxed");
 }
 
@@ -877,7 +877,7 @@ fn meteo0_death_spawns_meteor_fragment_and_explodes() {
         tick(&mut g, m);
     }
     assert_eq!(
-        g.objs.aliens[m as usize].sflags & ASF_NOHITAFFECT,
+        g.objs.aliens[m as usize].sflags3 & ASF3_NOHITAFFECT,
         0,
         "grown meteo0 must shed nohitaffect"
     );
@@ -912,7 +912,7 @@ fn big_meteor_is_indestructible_and_static() {
     let a = g.objs.aliens[b as usize];
     assert_eq!(a.hp, HARDHP, "hardHP (indestructible)");
     assert_eq!(a.ap, 12, "big_meteor ap 12");
-    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "nohitaffect");
+    assert_ne!(a.sflags3 & ASF3_NOHITAFFECT, 0, "nohitaffect");
     // .strat is a no-op: position unchanged across ticks (add_player_z is a
     // test no-op with pviewvelz=0, and big_meteor never scrolls anyway).
     let (x0, y0, z0) = (a.worldx, a.worldy, a.worldz);
@@ -973,7 +973,7 @@ fn break_meteort_death_spawns_tadpole_on_the_coin() {
     let tadpole = &g.objs.aliens[tadpole];
     assert!(tadpole.stratptr.is_some(), "spawned tadpole has native AI");
     assert_eq!(
-        tadpole.sflags & ASF_COLLDISABLE,
+        tadpole.sflags2 & ASF2_COLLDISABLE,
         0,
         "spawned tadpole remains collidable"
     );
@@ -1053,7 +1053,7 @@ fn torpedo_init_runs_submerged_and_tracks_yaw() {
     assert_eq!(a.ap, 4, "torpedoAP");
     assert_eq!(a.vel, 30, "speed 30");
     assert_eq!(a.shape, 0, "still submerged (nullshape)");
-    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "non-collidable underwater");
+    assert_ne!(a.sflags2 & ASF2_COLLDISABLE, 0, "non-collidable underwater");
     assert_ne!(a.collflags & COLLTYPE_ZENEMY, 0, "Zenemy collide");
     assert_ne!(
         a.roty, 0,
@@ -1070,7 +1070,7 @@ fn torpedo_surfaces_inside_800z_and_levels_pitch() {
     tick(&mut g, t); // init falls through -> torpedo_strat -> surfaces this tick
     let a = g.objs.aliens[t as usize];
     assert_eq!(a.shape, SH_F_FISH, "surfaced to the f_fish shape");
-    assert_eq!(a.sflags & ASF_COLLDISABLE, 0, "now collidable");
+    assert_eq!(a.sflags2 & ASF2_COLLDISABLE, 0, "now collidable");
     let pitch0 = a.rotx;
     // rotx was set to -deg45 (224) then achased once toward 0 the short way
     // (through 255), so it should already be > 224 (climbing toward 256==0).
@@ -1188,7 +1188,7 @@ fn massivebase_init_indestructible_static() {
     assert_eq!(a.hp, HARDHP, "hardHP");
     assert_eq!(a.ap, HARD_AP, "hardAP");
     assert_eq!(a.roty, DEG180, "faces deg180");
-    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_ne!(a.sflags2 & ASF2_COLLDISABLE, 0, "colldisable");
     assert!(
         a.collstratptr.is_none(),
         "no collide handler (s_set_alptrs .strat,0,0)"
@@ -1296,7 +1296,7 @@ fn colony0_latches_stratdone_when_player_passes() {
         "sflag1 latched"
     );
     assert_ne!(
-        g.objs.aliens[b as usize].sflags & ASF_COLLDISABLE,
+        g.objs.aliens[b as usize].sflags2 & ASF2_COLLDISABLE,
         0,
         "collide off inside"
     );
@@ -1320,7 +1320,7 @@ fn colony0_player_dead_skips_cutscene() {
     let b = place(&mut g, IS_COLONY0, 0, 0, 100, 0);
     tick(&mut g, b);
     assert_ne!(
-        g.objs.aliens[b as usize].sflags & ASF_COLLDISABLE,
+        g.objs.aliens[b as usize].sflags2 & ASF2_COLLDISABLE,
         0,
         "collide off"
     );
@@ -1348,7 +1348,7 @@ fn colony1_pins_worldy_to_camera_mirror() {
     tick(&mut g, b);
     let a = g.objs.aliens[b as usize];
     assert_eq!(a.worldy, -170, "worldy = 2*(-60) - 100 + 50");
-    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_ne!(a.sflags2 & ASF2_COLLDISABLE, 0, "colldisable");
     assert_ne!(a.type_ & ATGND_M, 0, "gnd type");
 }
 
@@ -1364,7 +1364,7 @@ fn colony2_opens_when_player_in_front() {
     tick(&mut g, b);
     let a = g.objs.aliens[b as usize];
     assert_eq!(a.animframe, 1, "door opened one frame");
-    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_ne!(a.sflags2 & ASF2_COLLDISABLE, 0, "colldisable");
     assert_ne!(a.type_ & ATGND_M, 0, "gnd type");
 }
 
@@ -1390,7 +1390,7 @@ fn colonyexit_opens_as_player_approaches_from_front() {
     tick(&mut g, b);
     let a = g.objs.aliens[b as usize];
     assert_eq!(a.animframe, 1, "exit door begins opening");
-    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "colldisable");
+    assert_ne!(a.sflags2 & ASF2_COLLDISABLE, 0, "colldisable");
     assert_ne!(a.type_ & ATGND_M, 0, "gnd type");
     for _ in 0..20 {
         g.objs.aliens[0].worldz = 1000;
@@ -1742,7 +1742,7 @@ const SZACO5_HP: u8 = 2; // STRATEQU.INC:162
 const SZACO5_AP: u8 = 8; // STRATEQU.INC:163
 const HOUDAI5_HP: u8 = 4; // KSTRATS.ASM:47
 const HOUDAI5_AP: u8 = 6; // KSTRATS.ASM:48
-                          // (ASF_COLLDISABLE = 0x10 is already declared earlier in this test module.)
+                          // (ASF2_COLLDISABLE is already imported earlier in this test module.)
 
 fn count_type(g: &Game, enemy: u16, tflag: u8) -> usize {
     g.objs
@@ -1820,7 +1820,7 @@ fn misspod_close_fires_five_missiles_and_self_destructs() {
         .all(|missile| missile.sflags4 & ASF4_INVISIBLE == 0));
     let a = g.objs.aliens[pod as usize];
     assert_eq!(a.hp, 0, "s_kill_obj: hp=0");
-    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "s_kill_obj: colldisable");
+    assert_ne!(a.sflags2 & ASF2_COLLDISABLE, 0, "s_kill_obj: colldisable");
 }
 
 // ---------------- misstank (IS 50) ----------------
@@ -2034,7 +2034,7 @@ const WOODS_HP: u8 = 2; // STRATEQU.INC:148
 const WOODS_AP: u8 = 8; // STRATEQU.INC:149
 const WALL1_AP: u8 = 16; // STRATEQU.INC:210
 const TREE1_AP: u8 = 8; // DSTRATS.ASM:99
-                        // (HARD_AP / ASF_NOHITAFFECT / ASF_COLLDISABLE / ASF_SHADOW / PSF_NOCTRL /
+                        // (HARD_AP / ASF3_NOHITAFFECT / ASF2_COLLDISABLE / ASF_SHADOW / PSF_NOCTRL /
                         // PSF_NOFIRE are already defined earlier in this test module.)
 const DEG22: u8 = 16; // deg360/16
 const DEG45: u8 = 32; // enemy_a DEG45
@@ -2100,7 +2100,7 @@ fn kdoor_init_is_closed_indestructible_door() {
     let a = g.objs.aliens[k as usize];
     assert_eq!(a.hp, HARDHP, "s_set_aldata #hardHP");
     assert_eq!(a.ap, HARD_AP, "s_set_aldata #hardAP");
-    assert_ne!(a.sflags & ASF_COLLDISABLE, 0, "s_set_alsflag colldisable");
+    assert_ne!(a.sflags2 & ASF2_COLLDISABLE, 0, "s_set_alsflag colldisable");
     assert_eq!(a.animframe & 0x7F, 0, "closed (anim 0) while far");
 }
 
@@ -2199,7 +2199,7 @@ fn walll_init_faces_deg180_leans_left() {
     assert_eq!(a.hp, HARDHP, "s_set_aldata #hardHP");
     assert_eq!(a.ap, WALL1_AP, "s_set_aldata #wall1AP");
     assert_eq!(a.roty, DEG180, "s_set_alvar al_roty,#deg180");
-    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "s_set_alsflag nohitaffect");
+    assert_ne!(a.sflags3 & ASF3_NOHITAFFECT, 0, "s_set_alsflag nohitaffect");
     // init sets colanim 4, then the fall-through wall1_strat add_colanim +1 -> 5.
     assert_eq!(a.colframe & 0x7F, 5, "s_init_colanim #4 then +1 same tick");
     assert_eq!(a.animframe & 0x7F, 1, "s_init_anim #1 (leans left)");
@@ -2256,7 +2256,7 @@ fn tree1_init_is_indestructible_sprout_scenery() {
     assert_eq!(a.hp, HARDHP, "tree1HP = hardHP (indestructible)");
     assert_eq!(a.ap, TREE1_AP, "s_set_aldata #tree1ap");
     assert_ne!(a.collflags & COLLTYPE_ENEMY1, 0, "s_set_colltype ENEMY1");
-    assert_ne!(a.sflags & ASF_NOHITAFFECT, 0, "s_set_alsflag nohitaffect");
+    assert_ne!(a.sflags3 & ASF3_NOHITAFFECT, 0, "s_set_alsflag nohitaffect");
     assert_eq!(a.worldy, 60, "root lowered by sprout_maxy/2 (100 - 40)");
     assert!((1..=4).contains(&a.sbyte1), "height (rnd&3)+1 in [1,4]");
     assert_eq!(a.sword1 as u16 & 0xff, 2, "anim speed 2 (sword1 lo)");
@@ -2333,7 +2333,7 @@ const SHOU0_HP: u8 = 2; // STRATEQU.INC:249
 const SHOU0_AP: u8 = 12; // STRATEQU.INC:250
 const TRUCK_HP: u8 = 4; // STRATEQU.INC:142
 const TRUCK_AP: u8 = 8; // STRATEQU.INC:143
-                        // HARD_AP / DEG90 / ASF_COLLDISABLE / ASF2_SFLAG2 / PSF2_PLAYERHP0 are already
+                        // HARD_AP / DEG90 / ASF2_COLLDISABLE / ASF2_SFLAG2 / PSF2_PLAYERHP0 are already
                         // defined earlier in this test module (reused here).
 const ASF_COLLIDE_M: u8 = 0x80; // STRATEQU.INC make_sflag bit 7
 const PSF2_WIRESHIP: u8 = 2; // GILESALC.INC:85

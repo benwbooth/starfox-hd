@@ -1,7 +1,7 @@
 //! Reachability and source-timing regressions for the retail attract intro.
 
 use sf_game::alien::{
-    ASF3_REALOBJ, ASF_COLLDISABLE, ASF_HITFLASH, ATMISSILE, ATZREMOVE,
+    ASF3_REALOBJ, ASF2_COLLDISABLE, ASF_HITFLASH, ATMISSILE, ATZREMOVE,
 };
 use sf_game::Game;
 use sf_map::catalog::map_id;
@@ -125,7 +125,7 @@ fn retail_intro_map_spawns_live_center_wing_and_laser_strategies() {
     game.tick();
     assert!(intro_crafts
         .iter()
-        .all(|&object| game.objs.aliens[object as usize].sflags & ASF_COLLDISABLE != 0));
+        .all(|&object| game.objs.aliens[object as usize].sflags2 & ASF2_COLLDISABLE != 0));
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn center_craft_reaches_the_authored_hit_smoke_and_damaged_flight() {
         assert_eq!(craft_state.vel, INTRO_CRAFT_SPEED);
         assert_eq!(craft_state.hp, 1);
         assert_eq!(craft_state.ap, INTRO_CRAFT_HARDNESS);
-        assert_ne!(craft_state.sflags & ASF_COLLDISABLE, 0);
+        assert_ne!(craft_state.sflags2 & ASF2_COLLDISABLE, 0);
         assert_eq!(craft_state.type_ & ATZREMOVE, 0);
     }
 

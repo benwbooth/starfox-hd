@@ -1,6 +1,6 @@
 //! ROM jump0/1 + jump0a + sokuten + item3/6 + core0/1 + rightwall/mine1 + fog.
 
-use sf_game::alien::{ASF2_COLLDISABLE, ASF_HITFLASH, ASF_NOHITAFFECT};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_HITFLASH, ASF3_NOHITAFFECT};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
@@ -153,13 +153,13 @@ fn core0_1_rightwall_mine_fog() {
     g.objs.aliens[c1 as usize].worldz = 2000;
     core1_istrat(&mut g, c1);
     assert_eq!(g.objs.aliens[c1 as usize].hp, 6);
-    assert_ne!(g.objs.aliens[c1 as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[c1 as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     core1_strat(&mut g, c1);
     // Far: still nohitaffect.
-    assert_ne!(g.objs.aliens[c1 as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[c1 as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     g.objs.aliens[c1 as usize].worldz = 100;
     core1_strat(&mut g, c1);
-    assert_eq!(g.objs.aliens[c1 as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_eq!(g.objs.aliens[c1 as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     let ry = g.objs.aliens[c1 as usize].roty;
     assert_eq!(ry, DEG180.wrapping_add(8).wrapping_add(8)); // two ticks of +8
 

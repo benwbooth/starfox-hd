@@ -1,6 +1,6 @@
 //! ROM boss1turret_nfire / boss1turretfire_end (GBSTRATS.ASM:353-401).
 
-use sf_game::alien::{ASF4_CHILDOBJ, ASF4_MOTHEROBJ, ASF_NOHITAFFECT};
+use sf_game::alien::{ASF4_CHILDOBJ, ASF4_MOTHEROBJ, ASF3_NOHITAFFECT};
 use sf_game::Game;
 use sf_strat::enemy_a::{
     boss1turret_nfire, boss1turretfire_end, boss_attach_child_to_mother, bossflags, set_bossflags,
@@ -26,12 +26,12 @@ fn nfire_sets_colanim0_and_nohitaffect() {
     let tur = spawn(&mut g);
     link_mother_child(&mut g, mother, tur, 2);
     g.objs.aliens[tur as usize].colframe = 3;
-    g.objs.aliens[tur as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[tur as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[tur as usize].hp = 8;
     let hp0 = g.vars.bosshp;
     boss1turret_nfire(&mut g, tur, mother);
     assert_eq!(g.objs.aliens[tur as usize].colframe, 0);
-    assert_ne!(g.objs.aliens[tur as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[tur as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     assert_eq!(g.vars.bosshp, hp0.wrapping_add(8));
     g.objs.aliens[mother as usize].rotz = 40;
     boss1turret_nfire(&mut g, tur, mother);
@@ -45,11 +45,11 @@ fn fire_end_clears_nohitaffect_and_animates() {
     let tur = spawn(&mut g);
     link_mother_child(&mut g, mother, tur, 2);
     g.objs.aliens[tur as usize].colframe = 0;
-    g.objs.aliens[tur as usize].sflags |= ASF_NOHITAFFECT;
+    g.objs.aliens[tur as usize].sflags3 |= ASF3_NOHITAFFECT;
     g.objs.aliens[tur as usize].hp = 8;
     g.vars.gameframe = 1; // off fire gate
     boss1turretfire_end(&mut g, tur, mother);
-    assert_eq!(g.objs.aliens[tur as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_eq!(g.objs.aliens[tur as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     assert_eq!(g.objs.aliens[tur as usize].colframe, 1);
 }
 
@@ -102,9 +102,9 @@ fn nfire_when_turrets_closed() {
     let tur = spawn(&mut g);
     link_mother_child(&mut g, mother, tur, 2);
     g.objs.aliens[tur as usize].colframe = 2;
-    g.objs.aliens[tur as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[tur as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[tur as usize].hp = 8;
     boss1turret_nfire(&mut g, tur, mother);
     assert_eq!(g.objs.aliens[tur as usize].colframe, 0);
-    assert_ne!(g.objs.aliens[tur as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[tur as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }

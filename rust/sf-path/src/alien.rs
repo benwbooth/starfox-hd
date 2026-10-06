@@ -225,10 +225,7 @@ pub const ASF_HITFLASH: u8 = 0x02;
 pub const ASF_SHADOW: u8 = 0x08;
 pub const ASF_PARTOBJ: u8 = 0x10;
 pub const ASF_TEXTOBJ: u8 = 0x40;
-pub const ASF_COLLDISABLE: u8 = 0x10;
 pub const ASF_COLLIDE: u8 = 0x80;
-pub const ASF_NOHITAFFECT: u8 = 0x40;
-pub const ASF_LCOLLIDE: u8 = 0x80;
 
 pub const ASF2_COLLDISABLE: u8 = 0x01;
 pub const ASF2_LCOLLIDE: u8 = 0x02;
@@ -237,7 +234,6 @@ pub const ASF2_LCOLLIDE: u8 = 0x02;
 pub const ASF3_SFLAG5: u8 = 0x01; // path trigger: hit by player weapon
 pub const ASF3_SFLAG7: u8 = 0x04; // path trigger: any collision hit
 pub const ASF3_REALOBJ: u8 = 0x08;
-pub const ASF3_TEXTOBJ: u8 = 0x40;
 pub const ASF3_NOHITAFFECT: u8 = 0x20;
 pub const ASF3_NOPOLYEXP: u8 = 0x40;
 

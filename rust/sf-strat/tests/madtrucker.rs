@@ -35,7 +35,7 @@ const NEGATIVE_FIVE_AS_BYTE: u8 = -5i8 as u8;
 const NEGATIVE_TEN_AS_BYTE: u8 = MADBIKER_ENGINE_Z_OFFSET as u8;
 const MT_HF1: u8 = 0x01;
 const MT_HF2: u8 = 0x02;
-const ASF_NOHITAFFECT: u8 = 0x40; // alien.rs
+use sf_game::alien::ASF3_NOHITAFFECT;
 const ATZREMOVE: u8 = 0x08; // alien.rs type_ zremove
 const ACF_COLLTYPE2: u8 = 0x10; // ROM ENEMY1 (not vars COLLTYPE_ENEMY1=0x01)
 const COLLTYPE_ENEMY2: u8 = 0x20; // ROM ENEMY2 (acf_colltype3)
@@ -233,7 +233,7 @@ fn open_weakspot_hit_damages() {
         0,
         "HF2 consumed"
     );
-    assert_eq!(g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_eq!(g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 // ------------------------------------------------------------
@@ -249,7 +249,7 @@ fn closed_armour_is_invulnerable() {
 
     apply_one_point_collision(&mut g, boss);
     assert_eq!(g.objs.aliens[boss as usize].hp, MADTRUCKER_HP, "no damage");
-    assert_ne!(g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 // ------------------------------------------------------------

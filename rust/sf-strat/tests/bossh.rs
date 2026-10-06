@@ -17,7 +17,7 @@ use sf_strat::bossh;
 
 const WM_RNDVAL: u16 = 0x1F00;
 const ASF4_CHILDOBJ: u8 = 0x10; // enemy_a::ASF4_CHILDOBJ
-const ASF_NOHITAFFECT: u8 = 0x40; // alien::ASF_NOHITAFFECT
+use sf_game::alien::ASF3_NOHITAFFECT;
 const ASF4_PLAYEROBJ: u8 = 0x01;
 const TEST_RANDOM_SEED: u16 = 4660;
 const ANIMATION_FRAME_MASK: u8 = 0x7F;
@@ -219,7 +219,7 @@ fn init_seeds_bar_and_generates_family() {
     // bosshhitcount seeded in the mother's gate byte (al_sbyte1).
     assert_eq!(g.objs.aliens[boss as usize].sbyte1, HITCOUNT_INIT);
     // nohitaffect set while legs live (body invulnerable).
-    assert_ne!(g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT, 0);
 }
 
 #[test]
@@ -436,7 +436,7 @@ fn body_invulnerable_until_all_legs_dead_then_explodes() {
         "body HP re-pinned (invulnerable)"
     );
     assert_ne!(
-        g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT,
+        g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT,
         0,
         "still nohitaffect"
     );
@@ -450,7 +450,7 @@ fn body_invulnerable_until_all_legs_dead_then_explodes() {
     assert!(legs(&g, boss).is_empty(), "all legs destroyed");
     // s_clr_alsflag nohitaffect (D3:571) — body killable now.
     assert_eq!(
-        g.objs.aliens[boss as usize].sflags & ASF_NOHITAFFECT,
+        g.objs.aliens[boss as usize].sflags3 & ASF3_NOHITAFFECT,
         0,
         "body dropped nohitaffect once legs dead"
     );

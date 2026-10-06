@@ -1,6 +1,6 @@
 //! ROM cruiser1/2 + fall/launcher + updoorcol + mine2 + doma + dpilar(=halfd).
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_HITFLASH};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_HITFLASH};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
@@ -80,7 +80,7 @@ fn cruiser2_launchers_and_updoorcol() {
     let body = spawn_obj(&mut g);
     cruiser2fire_istrat(&mut g, body);
     assert_eq!(g.objs.aliens[body as usize].hp, HARD_HP);
-    assert_ne!(g.objs.aliens[body as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[body as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // Three launcher children attached.
     let kids: Vec<_> = (0..g.objs.aliens.len())
         .filter(|&i| {

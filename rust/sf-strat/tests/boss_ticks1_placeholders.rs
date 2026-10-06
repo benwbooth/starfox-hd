@@ -1,7 +1,7 @@
 //! Tick 143: AUDIT_BOSS_TICKS remaining placeholders —
 //! boss2 `particlefiredown_Istrat` leap spawn + bossg `.scrollmsg` tx scroll.
 
-use sf_game::alien::{AFEXP, ASF3_REALOBJ, ASF_COLLDISABLE, ASF_PARTOBJ};
+use sf_game::alien::{AFEXP, ASF3_REALOBJ, ASF2_COLLDISABLE, ASF_PARTOBJ};
 use sf_game::Game;
 use sf_strat::bosses::{boss2_strat, strat_boss2_init, strat_bossg_init};
 use sf_strat::enemy_a::wm;
@@ -58,7 +58,7 @@ fn boss2_leap_spawns_particlefiredown() {
     assert_eq!(al.sbyte1, 4, "amount");
     assert_eq!(al.sbyte2, 9, "life");
     assert!(al.sflags & ASF_PARTOBJ != 0);
-    assert!(al.sflags & ASF_COLLDISABLE != 0);
+    assert!(al.sflags2 & ASF2_COLLDISABLE != 0);
     assert!(al.flags & AFEXP != 0);
     assert!(al.expstratptr.is_some());
     assert_eq!(al.worldx, 10);

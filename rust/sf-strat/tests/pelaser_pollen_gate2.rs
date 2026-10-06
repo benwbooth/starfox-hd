@@ -1,6 +1,6 @@
 //! ROM `pelasercollide` / pollen / `explodegate2` (GSTRATS/EXPSTRAT).
 
-use sf_game::alien::{ASF_NOHITAFFECT, ATLASER};
+use sf_game::alien::{ASF3_NOHITAFFECT, ATLASER};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
@@ -17,7 +17,7 @@ fn pelasercollide_kills_and_calls_expstrat_on_solid() {
     g.objs.aliens[laser as usize].hp = 5;
     g.objs.aliens[laser as usize].collobjptr = wall;
     g.objs.aliens[wall as usize].hp = HARD_HP;
-    g.objs.aliens[wall as usize].sflags |= ASF_NOHITAFFECT;
+    g.objs.aliens[wall as usize].sflags3 |= ASF3_NOHITAFFECT;
     // no collstrat → solid
     g.objs.aliens[wall as usize].collstratptr = None;
 

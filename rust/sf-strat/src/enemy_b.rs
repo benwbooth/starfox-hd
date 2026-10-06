@@ -63,8 +63,8 @@ pub(crate) mod eb_compat {
         Alien, ExplosionSize, StratId, ACF_COLLTYPE1, ACF_COLLTYPE2, ACF_COLLTYPE3, ACF_COLLTYPE4,
         ACF_COLLTYPE5, ACF_COLLTYPE6, ACF_FIRSTFRAME, ACF_WEAPON, AFEXP, ASF3_NOPOLYEXP,
         ASF3_REALOBJ, ASF4_CHILDOBJ, ASF4_CSPECIAL, ASF4_DONESND, ASF4_INVISIBLE, ASF4_MOTHEROBJ,
-        ASF4_PLAYEROBJ, ASF4_RELEXPLODE, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
-        ASF_LCOLLIDE, ASF_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED,
+        ASF4_PLAYEROBJ, ASF4_RELEXPLODE, ASF4_SFLAG8, ASF2_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH,
+        ASF2_LCOLLIDE, ASF3_NOHITAFFECT, ASF_PARTOBJ, ASF_SHADOW, ATGND, ATLASER, ATMISSILE, ATNUKED,
         ATZREMOVE, NUMBER_AL,
     };
     pub use sf_game::game::{Game, PosSndFamilyId, StrategyFn};
@@ -140,7 +140,6 @@ pub(crate) mod eb_compat {
     // al_sflags3 bits (obj.h:109-114)
     pub const ASF3_SFLAG5: u8 = 0x01;
     pub const ASF3_SFLAG7: u8 = 0x04;
-    pub const ASF3_TEXTOBJ: u8 = 0x40;
     // stratflags (variables.h:109)
     pub const SF_NOFIRING: u8 = 1;
 
@@ -647,7 +646,8 @@ pub fn bossbigoutexplode_icont(g: &mut Game, idx: u16, offx: i16, offy: i16, off
             al.worldx = al.worldx.wrapping_add(offx);
             al.worldy = al.worldy.wrapping_add(offy);
             al.worldz = al.worldz.wrapping_add(offz);
-            al.sflags = me_sflags | ASF_COLLDISABLE;
+            al.sflags = me_sflags;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.sflags3 &= !ASF3_REALOBJ;
             al.sflags2 |= ASF2_NOEXPSND;
             al.sflags2 &= !ASF2_SFLAG1; // s_clr_alsflag y,sflag1
@@ -701,7 +701,7 @@ pub fn bossbigoutexplode_icont(g: &mut Game, idx: u16, offx: i16, offy: i16, off
     let al = &mut g.objs.aliens[idx as usize];
     al.count = 11;
     al.sflags4 |= ASF4_RELEXPLODE;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.hp = HARD_HP;
     al.ap = HARD_AP;
     al.stratptr = Some(s_tick);
@@ -818,7 +818,7 @@ fn boss7fall_init(g: &mut Game, idx: u16) {
     let s_fall = sid(g, boss7fall_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.vel = 10;
         al.sbyte2 = al.sbyte2.wrapping_add(al.roty);
         al.sbyte3 = DEG11.wrapping_neg();
@@ -948,11 +948,11 @@ fn boss7hatch_strat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.sflags4 &= !ASF4_INVISIBLE;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
 
     if g.objs.aliens[mother_idx as usize].sflags2 & BOSS7_SFLAG_HATCH != 0 {
-        g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+        g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
         let animframe = g.objs.aliens[idx as usize].animframe;
         if animframe < 8 {
             if animframe == 0 {
@@ -1051,13 +1051,13 @@ fn boss7launcher_common_strat(g: &mut Game, idx: u16, yoff: i16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.sflags4 &= !ASF4_INVISIBLE;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
 
     if g.objs.aliens[mother_idx as usize].sflags2 & BOSS7_SFLAG_LAUNCH != 0 {
         {
             let al = &mut g.objs.aliens[idx as usize];
-            al.sflags &= !ASF_NOHITAFFECT;
+            al.sflags3 &= !ASF3_NOHITAFFECT;
             al.colframe = al.colframe.wrapping_add(1) & 3;
         }
         let animframe = g.objs.aliens[idx as usize].animframe;
@@ -1222,7 +1222,7 @@ fn boss7_enter_alldead(g: &mut Game, idx: u16) {
         al.stratptr = Some(s_strat);
         al.collstratptr = Some(s_coll);
         al.shape = SH_BOSS_7_1;
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
         al.sflags2 &= !(BOSS7_SFLAG_HATCH | BOSS7_SFLAG_LAUNCH);
     }
     play_se(g, BOSS7_OPEN_SOUND);
@@ -1250,7 +1250,7 @@ fn boss7_parent_cont(g: &mut Game, idx: u16) {
             // the shield's exp strat (boss7shieldexp -> boss7fall) runs;
             // the old port obj_free'd it and skipped the fall.
             let al = &mut g.objs.aliens[shield as usize];
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.hp = 0;
         }
     }
@@ -1394,7 +1394,7 @@ pub fn boss7intro_istrat(g: &mut Game, idx: u16) {
     let tick = sid(g, boss7intro_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.type_ &= !ATZREMOVE;
         al.stratptr = Some(tick);
         (al.vx, al.vy, al.vz) = BOSS7_INTRO_INITIAL_VELOCITY;
@@ -1429,7 +1429,7 @@ pub fn boss7intro_strat(g: &mut Game, idx: u16) {
 
 /// ROM `boss7intropart_Istrat` (GISTRATS.ASM:940) — colldisable + childrelpos×4.
 pub fn boss7intropart_istrat(g: &mut Game, idx: u16) {
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     if let Some(m) = boss_get_mother_obj(g, idx) {
         let mother = g.objs.aliens[m as usize];
         let ox = g.objs.aliens[idx as usize].relposx as i8 as i16;
@@ -1802,7 +1802,8 @@ pub fn strat_boss7_init(g: &mut Game, idx: u16) {
         al.collstratptr = None;
         al.expstratptr = Some(s_exp);
         al.collflags |= crate::enemy_a::COLLTYPE_ENEMY1;
-        al.sflags |= ASF_SHADOW | ASF_NOHITAFFECT;
+        al.sflags |= ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         // GB3STRAT.ASM boss7_Istrat: `s_setnoremove_behind x`. The boss
         // approaches from behind the camera; retaining the map object's
         // default ATZREMOVE bit frees the parent and orphans all four parts
@@ -2052,9 +2053,9 @@ fn bossa_retarget_turrets(g: &mut Game, idx: u16) {
 
 /// C `bossA_part_coll` (strat_enemy.c:3061).
 fn bossa_part_coll(g: &mut Game, idx: u16) {
-    let sflags = g.objs.aliens[idx as usize].sflags;
+    let sflags3 = g.objs.aliens[idx as usize].sflags3;
     let sflags4 = g.objs.aliens[idx as usize].sflags4;
-    if sflags4 & ASF4_INVISIBLE != 0 || sflags & ASF_NOHITAFFECT != 0 {
+    if sflags4 & ASF4_INVISIBLE != 0 || sflags3 & ASF3_NOHITAFFECT != 0 {
         let al = &mut g.objs.aliens[idx as usize];
         al.hitflags = 0;
         al.sflags &= !ASF_COLLIDE;
@@ -2076,7 +2077,7 @@ pub fn bossa_turret_exp_init(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.hp = HARD_HP;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
     }
     if let Some(mother) = boss_get_mother_obj(g, idx) {
         let m = &mut g.objs.aliens[mother as usize];
@@ -2147,7 +2148,9 @@ fn bossa_turret_init_common(g: &mut Game, idx: u16) {
         al.sbyte3 = 0;
         al.collflags |= crate::enemy_a::COLLTYPE_ENEMY1 | COLLTYPE_ENEMYWEAP;
         // s_set_alsflag colldisable + nohitaffect (both, GB3STRAT:1170-1171).
-        al.sflags |= ASF_SHADOW | ASF_NOHITAFFECT | ASF_COLLDISABLE;
+        al.sflags |= ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.type_ &= !ATZREMOVE;
     }
     bossa_update_turret_position(g, idx);
@@ -2171,11 +2174,11 @@ fn bossa_turret_cont(g: &mut Game, idx: u16) {
 
     // Fire block: skipped entirely for invisible husks and while
     // nohitaffect (cup covering).
-    if me.sflags4 & ASF4_INVISIBLE == 0 && me.sflags & ASF_NOHITAFFECT == 0 {
+    if me.sflags4 & ASF4_INVISIBLE == 0 && me.sflags3 & ASF3_NOHITAFFECT == 0 {
         // s_jmpnot_objpointnegZ (STRATMAC.INC:6218-6221): the window is
         // roty in [deg180-deg45, deg180+deg45] — facing the player.
         if me.roty >= DEG180 - DEG45 && me.roty <= DEG180 + DEG45 {
-            g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+            g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
             // Frames 15 (yaw -deg11) and 30 (+deg11) of every 32
             // (GB3STRAT.ASM:1195-1199).
             let f = (g.vars.gameframe & 31) as u8;
@@ -2192,7 +2195,7 @@ fn bossa_turret_cont(g: &mut Game, idx: u16) {
                     fire_targeted_hplasma(g, idx, p, 0, -10, 0, me.rotx, me.roty.wrapping_add(off));
             }
         } else {
-            g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+            g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
         }
     }
 
@@ -2286,7 +2289,8 @@ fn bossa_cup_init_common(g: &mut Game, idx: u16, turret_child_num: u8) {
         al.sbyte2 = turret_child_num;
         al.stratstate = BOSSA_CUP_STATE_COVER;
         al.collflags |= crate::enemy_a::COLLTYPE_ENEMY1 | COLLTYPE_ENEMYWEAP;
-        al.sflags |= ASF_SHADOW | ASF_NOHITAFFECT;
+        al.sflags |= ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.type_ &= !ATZREMOVE;
         al.animframe = 0;
         // s_set_alvar B,x,al_rotx,#-deg90 / al_roty,#deg180 (Icont).
@@ -2309,7 +2313,7 @@ pub fn bossa_cup_strat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratstate = BOSSA_CUP_STATE_ROTATE;
         al.sword2 = 40;
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
         state = BOSSA_CUP_STATE_ROTATE;
     }
 
@@ -2335,7 +2339,7 @@ pub fn bossa_cup_strat(g: &mut Game, idx: u16) {
                 3,
             );
             if let Some(t) = getbossacupchild_srou(g, idx) {
-                g.objs.aliens[t as usize].sflags &= !ASF_NOHITAFFECT;
+                g.objs.aliens[t as usize].sflags3 &= !ASF3_NOHITAFFECT;
             }
         }
         BOSSA_CUP_STATE_ROTATE => {
@@ -2352,15 +2356,15 @@ pub fn bossa_cup_strat(g: &mut Game, idx: u16) {
                 g.objs.aliens[mother_idx as usize].sflags4 |= BOSSA_PARENT_FLAG_ATTACK_DONE;
                 let al = &mut g.objs.aliens[idx as usize];
                 al.stratstate = BOSSA_CUP_STATE_UP;
-                al.sflags |= ASF_NOHITAFFECT;
+                al.sflags3 |= ASF3_NOHITAFFECT;
             }
         }
         BOSSA_CUP_STATE_GO => {
             // ROM GO (GB3STRAT.ASM:959-990): drill run. Entry tick =
             // nohitaffect still set -> $66 + clear. No fire, no timer.
-            if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT != 0 {
+            if g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT != 0 {
                 play_se(g, 0x66);
-                g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+                g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
             }
             strat_speed_to(&mut g.objs.aliens[idx as usize], 45, 1);
             if let Some(pl) = player(g) {
@@ -2402,7 +2406,7 @@ pub fn bossa_cup_strat(g: &mut Game, idx: u16) {
         BOSSA_CUP_STATE_RETURN => {
             {
                 let al = &mut g.objs.aliens[idx as usize];
-                al.sflags |= ASF_NOHITAFFECT;
+                al.sflags3 |= ASF3_NOHITAFFECT;
                 al.vel = 0; // s_set_speed x,#0
             }
             bossacupup_srou(g, idx);
@@ -2430,7 +2434,7 @@ pub fn bossa_cup_strat(g: &mut Game, idx: u16) {
             let turret = bossa_linked_turret(g, idx);
             {
                 let al = &mut g.objs.aliens[idx as usize];
-                al.sflags |= ASF_NOHITAFFECT;
+                al.sflags3 |= ASF3_NOHITAFFECT;
             }
             bossacupclose_srou(g, idx);
             bossa_cup_chase_home(g, idx, 15i16 << BOSSA_SCALE);
@@ -2446,7 +2450,7 @@ pub fn bossa_cup_strat(g: &mut Game, idx: u16) {
                 if g.objs.aliens[idx as usize].worldy >= thresh {
                     {
                         let ta = &mut g.objs.aliens[t as usize];
-                        ta.sflags |= ASF_NOHITAFFECT;
+                        ta.sflags3 |= ASF3_NOHITAFFECT;
                         ta.hp = BOSSA_TURRET_HP;
                     }
                     if g.objs.aliens[t as usize].sflags4 & ASF4_INVISIBLE != 0 {
@@ -2657,7 +2661,7 @@ pub fn bossaattack_strat(g: &mut Game, idx: u16) {
         // the 3 husk children remain) the parent dies (s_kill_obj).
         if boss_count_children(g, idx) == 3 {
             let al = &mut g.objs.aliens[idx as usize];
-            al.sflags |= ASF_COLLDISABLE;
+            al.sflags2 |= ASF2_COLLDISABLE;
             al.hp = 0;
         }
     } else if sb3 == 2 {
@@ -2933,7 +2937,7 @@ pub fn spacepilonP_strat(g: &mut Game, idx: u16) {
             g.objs.aliens[idx as usize].relposy = cur;
         }
         1 => {
-            g.objs.aliens[mother_idx as usize].sflags |= ASF_COLLDISABLE;
+            g.objs.aliens[mother_idx as usize].sflags2 |= ASF2_COLLDISABLE;
             {
                 let al = &mut g.objs.aliens[idx as usize];
                 al.relposy = (al.relposy as i8).wrapping_add(SPACEPILON_PILON_EXTEND_STEP) as u8;
@@ -2960,7 +2964,7 @@ pub fn spacepilonP_strat(g: &mut Game, idx: u16) {
                 let al = &mut g.objs.aliens[idx as usize];
                 al.stratstate = 0;
                 al.sbyte3 = SPACEPILON_PILON_SBYTE3_INIT;
-                g.objs.aliens[mother_idx as usize].sflags &= !ASF_COLLDISABLE;
+                g.objs.aliens[mother_idx as usize].sflags2 &= !ASF2_COLLDISABLE;
             }
         }
         _ => {
@@ -3023,7 +3027,7 @@ fn spacepilonexp_init(g: &mut Game, idx: u16) {
 fn spacepilon_strat(g: &mut Game, idx: u16) {
     if g.objs.aliens[idx as usize].stratstate == 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.worldx = strat_chase_proportional(al.worldx, al.vx, 4);
         al.worldy = strat_chase_proportional(al.worldy, al.vy, 4);
         al.worldz = strat_chase_proportional(al.worldz, al.vz, 4);
@@ -3031,7 +3035,7 @@ fn spacepilon_strat(g: &mut Game, idx: u16) {
             al.sbyte2 -= 1;
         }
         if al.sbyte2 == 0 {
-            al.sflags &= !ASF_COLLDISABLE;
+            al.sflags2 &= !ASF2_COLLDISABLE;
             al.stratstate += 1;
             al.sbyte2 = 1;
         }
@@ -3228,7 +3232,7 @@ fn bossfcsmoke_srou(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[smoke as usize];
     set_explosion_envelope(al, ExplosionSize::Large);
     al.count = 10;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.sflags2 |= ASF2_NOEXPSND;
     al.stratptr = Some(s_strat);
     al.expstratptr = Some(s_exp);
@@ -3350,7 +3354,7 @@ pub fn strat_bossf_init(g: &mut Game, idx: u16) {
         al.collflags |= ACF_COLLTYPE3;
         al.stratstate = 0;
         al.animframe = 0;
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
     }
     set_bossmaxhp(g, 0);
     g.vars.meters = 1;
@@ -4017,7 +4021,7 @@ fn bossftur_cont(g: &mut Game, idx: u16) {
 
     if g.objs.aliens[idx as usize].sflags2 & ASF2_SFLAG1 == 0 {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         if g.vars.gameframe & 1 == 0 && al.animframe > 0 {
             al.animframe -= 1;
         }
@@ -4026,7 +4030,7 @@ fn bossftur_cont(g: &mut Game, idx: u16) {
 
     {
         let al = &mut g.objs.aliens[idx as usize];
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
         if g.vars.gameframe & 1 == 0 && al.animframe < 3 {
             al.animframe += 1;
         }
@@ -4076,7 +4080,7 @@ fn bossfexp1_istrat(g: &mut Game, idx: u16) {
     let _ = make_medium_exp_obj(g, idx);
     let al = &mut g.objs.aliens[idx as usize];
     al.hp = HARD_HP;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// C `bossfexp2_Istrat` (strat_enemy.c:8903).
@@ -4089,7 +4093,7 @@ fn bossfexp2_istrat(g: &mut Game, idx: u16) {
     let _ = make_medium_exp_obj(g, idx);
     let al = &mut g.objs.aliens[idx as usize];
     al.hp = HARD_HP;
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 /// C `bossFA_Istrat` (strat_enemy.c:8926).

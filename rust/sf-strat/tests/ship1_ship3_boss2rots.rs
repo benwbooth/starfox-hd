@@ -1,7 +1,7 @@
 //! Tick 80: ship1/ship1a/ship1col + ship3b/c/cont + boss2rots/doboss* leaves.
 
 use sf_core::player_view::PlayerViewMode;
-use sf_game::alien::{ASF_COLLDISABLE, ASF_COLLIDE, ASF_NOHITAFFECT, ATGND};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_COLLIDE, ASF3_NOHITAFFECT, ATGND};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::bosses::{boss2rots_srou, doboss2rot_srou, dobossrot_srou, dobossrotx4_srou};
@@ -98,7 +98,7 @@ fn ship3_b_c_cont_and_boss2rots() {
     let s3 = spawn_obj(&mut g);
     ship3_istrat(&mut g, s3);
     assert_eq!(g.objs.aliens[s3 as usize].hp, HARD_HP);
-    assert_ne!(g.objs.aliens[s3 as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[s3 as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(g.objs.aliens[s3 as usize].type_ & ATGND, 0);
     assert_eq!(g.objs.aliens[s3 as usize].rotz, DEG90);
     assert_eq!(g.objs.aliens[s3 as usize].vy, -40);
@@ -164,5 +164,5 @@ fn ship3_b_c_cont_and_boss2rots() {
     );
 
     // nohitaffect sanity from ship1aexp path already covered elsewhere
-    let _ = ASF_NOHITAFFECT;
+    let _ = ASF3_NOHITAFFECT;
 }

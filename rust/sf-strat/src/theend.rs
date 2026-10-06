@@ -3,7 +3,7 @@
 //! Credits “THE END” letters: zoom in, settle at 0°/180°, flip on hit
 //! (spawn distraction + tumble), then fly away when all six are OK.
 
-use sf_game::alien::{StratId, ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{StratId, ASF2_COLLDISABLE, ATZREMOVE};
 use sf_game::game::{Game, StrategyFn};
 
 use crate::common::{add_player_z, sf_random, strat_make_obj};
@@ -190,7 +190,7 @@ pub fn theend_flyaway_istrat(g: &mut Game, idx: u16) {
     let al = &mut g.objs.aliens[idx as usize];
     al.stratptr = Some(s);
     al.collstratptr = Some(s);
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
     al.type_ |= ATZREMOVE; // s_setremove_behind
     theend_flyaway_strat(g, idx);
 }
@@ -221,7 +221,7 @@ pub fn theend_flip_istrat(g: &mut Game, idx: u16) {
     // .fail path (always): push strat, arm tumble
     g.objs.aliens[idx as usize].tempstratptr = g.objs.aliens[idx as usize].stratptr;
     g.objs.aliens[idx as usize].sbyte1 = 32;
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     let s = sid(g, theend_flip_strat);
     g.objs.aliens[idx as usize].stratptr = Some(s);
     g.objs.aliens[idx as usize].vy = -45;
@@ -280,7 +280,7 @@ pub fn theend_flip_strat(g: &mut Game, idx: u16) {
     g.objs.aliens[idx as usize].sbyte1 = sb;
     if sb == 0 {
         g.objs.aliens[idx as usize].stratptr = g.objs.aliens[idx as usize].tempstratptr;
-        g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+        g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
         keeprel(g, idx);
         return;
     }

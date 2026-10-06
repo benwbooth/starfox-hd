@@ -1,6 +1,6 @@
 //! ROM ships + intro1pfall + speedlines + monolithpart + castbit.hit + lspark + door1 inits.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_HITFLASH};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_HITFLASH};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::bosses::{castbit_hit_istrat, castbit_istrat};
@@ -47,7 +47,7 @@ fn ships_speedlines_intro_fall() {
     g.objs.aliens[ship as usize].sword2 = -5;
     ships_istrat(&mut g, ship);
     assert_eq!(g.objs.aliens[ship as usize].count, 70);
-    assert_ne!(g.objs.aliens[ship as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[ship as usize].sflags2 & ASF2_COLLDISABLE, 0);
     let x0 = g.objs.aliens[ship as usize].worldx;
     let z0 = g.objs.aliens[ship as usize].worldz;
     ships_strat(&mut g, ship);
@@ -155,9 +155,9 @@ fn lspark_and_door1_inits() {
 
     let door = spawn_obj(&mut g);
     door1openwait_init(&mut g, door);
-    assert_eq!(g.objs.aliens[door as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[door as usize].sflags2 & ASF2_COLLDISABLE, 0);
     door1closewait_init(&mut g, door);
-    assert_ne!(g.objs.aliens[door as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[door as usize].sflags2 & ASF2_COLLDISABLE, 0);
 
     // silence unused
     let _ = (bossflags(&g), BF_FLAG1, BF_FLAG3);

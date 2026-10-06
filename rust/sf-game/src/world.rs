@@ -956,7 +956,7 @@ fn istrat_spacebar1_init(g: &mut Game, idx: u16) {
     let sid = g.world.sid_spacebar1;
     let al = &mut g.objs.aliens[idx as usize];
     if al.sbyte2 != 0 {
-        al.sflags |= crate::alien::ASF_COLLDISABLE;
+        al.sflags2 |= crate::alien::ASF2_COLLDISABLE;
     }
     al.stratptr = Some(sid);
 }

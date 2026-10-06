@@ -1,6 +1,6 @@
 //! Tick 84: shiplb1 + shipoutoflb3 + boss1makechild.
 
-use sf_game::alien::{ASF_COLLDISABLE, ATGND, NUMBER_AL};
+use sf_game::alien::{ASF2_COLLDISABLE, ATGND, NUMBER_AL};
 use sf_game::Game;
 use sf_strat::common::StratRam;
 use sf_strat::enemy_a::wm;
@@ -30,7 +30,7 @@ fn shiplb1_start_turn_and_ychase() {
     g.objs.aliens[idx as usize].stratstate = 0;
 
     shiplb1_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].vel, 20);
     assert_eq!(g.objs.aliens[idx as usize].rotz, DEG45);
     assert_eq!(g.objs.aliens[idx as usize].roty, DEG90);
@@ -117,7 +117,7 @@ fn boss1makechild_spawns_family() {
         "cover + 8 turrets, got {}",
         children.len()
     );
-    assert_ne!(g.objs.aliens[boss as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[boss as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[boss as usize].sbyte3, 1);
 
     // Direct makechild on a fresh mother

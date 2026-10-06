@@ -1,6 +1,6 @@
 //! ROM suckbits/cube + lseqdoor + volrock/plasma/down + tree3 leaves.
 
-use sf_game::alien::{ObjectVisualKind, ASF_COLLDISABLE};
+use sf_game::alien::{ObjectVisualKind, ASF2_COLLDISABLE};
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemies_ground::{
@@ -47,7 +47,7 @@ fn suck_bits_cube_and_helpers() {
     let bits = spawn_obj(&mut g);
     suckbits_istrat(&mut g, bits);
     assert_eq!(g.objs.aliens[bits as usize].count, 6);
-    assert_ne!(g.objs.aliens[bits as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[bits as usize].sflags2 & ASF2_COLLDISABLE, 0);
     let x0 = g.objs.aliens[bits as usize].worldx;
     let z0 = g.objs.aliens[bits as usize].worldz;
     suckbits_cont(&mut g, bits);
@@ -98,7 +98,7 @@ fn lseqdoor_and_tree3() {
     g.objs.aliens[d1 as usize].animframe = 5;
     lseqdoor1_istrat(&mut g, d1);
     assert_eq!(g.objs.aliens[d1 as usize].animframe, 0);
-    assert_ne!(g.objs.aliens[d1 as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[d1 as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // Close (|dz|<585): open anim.
     g.objs.aliens[d1 as usize].worldz = 100;
     g.objs.aliens[d1 as usize].animframe = 0;

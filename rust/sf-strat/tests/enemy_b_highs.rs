@@ -1,6 +1,6 @@
 //! Tick 193: AUDIT_ENEMY_B Highs #10–#19 verify (already ported).
 
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::Game;
 use sf_strat::common::{strat_chase_proportional, strat_gen_vecs_3d};
 use sf_strat::enemy_a::{achase_angle, boss_attach_child_to_mother, COLLTYPE_ENEMY1};
@@ -211,7 +211,7 @@ fn bossfb_spawns_live_mines() {
     assert!(al.expstratptr.is_some());
     assert!(al.stratptr.is_none());
     assert_eq!(
-        al.sflags & ASF_COLLDISABLE,
+        al.sflags2 & ASF2_COLLDISABLE,
         0,
         "must not be inert colldisable"
     );

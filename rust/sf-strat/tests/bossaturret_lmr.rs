@@ -1,6 +1,6 @@
 //! Tick 91: bossAturret L/M/R istrat + strat leaves.
 
-use sf_game::alien::{ASF4_INVISIBLE, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ASF4_INVISIBLE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF_SHADOW};
 use sf_game::Game;
 use sf_strat::enemy_a::boss_attach_child_to_mother;
 use sf_strat::enemy_b::{
@@ -45,8 +45,8 @@ fn bossaturret_lmr_init_common() {
     assert_eq!(g.objs.aliens[t_l as usize].hp, BOSSA_TURRET_HP);
     assert_eq!(g.objs.aliens[t_l as usize].sbyte2, 60);
     assert_eq!(g.objs.aliens[t_l as usize].sbyte3, 0);
-    assert_ne!(g.objs.aliens[t_l as usize].sflags & ASF_COLLDISABLE, 0);
-    assert_ne!(g.objs.aliens[t_l as usize].sflags & ASF_NOHITAFFECT, 0);
+    assert_ne!(g.objs.aliens[t_l as usize].sflags2 & ASF2_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[t_l as usize].sflags3 & ASF3_NOHITAFFECT, 0);
     assert_ne!(g.objs.aliens[t_l as usize].sflags & ASF_SHADOW, 0);
     // Offset L: (-85,-50) × bossA_scale via rotate_8xz
     let (lx, ly) = turret_world_xy(-85, -50);
@@ -74,7 +74,7 @@ fn bossaturret_cont_aim_and_lone_sweep() {
     let (mother, turret) = mother_with_turret(&mut g, 1);
     bossaturretl_istrat(&mut g, turret);
     // Clear nohitaffect so fire path is reachable; face player (roty≈180)
-    g.objs.aliens[turret as usize].sflags &= !ASF_NOHITAFFECT;
+    g.objs.aliens[turret as usize].sflags3 &= !ASF3_NOHITAFFECT;
     g.objs.aliens[turret as usize].roty = DEG180;
     g.objs.aliens[turret as usize].sbyte3 = DEG180;
 

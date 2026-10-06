@@ -1,6 +1,6 @@
 //! ROM spacebar2 + starbull / stbfp / stbgo family.
 
-use sf_game::alien::{AFONFIRE, ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{AFONFIRE, ASF2_COLLDISABLE, ATZREMOVE};
 use sf_game::trig8::{strat_roffs_roll, XSPACEBAR_HALF_B};
 use sf_game::vars::{HARD_AP, HARD_HP};
 use sf_game::world::{spacebar2_istrat, spacebar2_strat_pub};
@@ -190,7 +190,7 @@ fn starbull_reaches_face_then_peel() {
     starbull_strat(&mut g, idx);
     // After reach → starbull2 → stbfp_strat, sbyte1=20.
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 20);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 
     // Force face-aligned: set smflag1 + sbyte3/4 = current rots.
     g.objs.aliens[idx as usize].sflags2 |= sf_strat::enemy_a::ASF2_SMFLAG1;

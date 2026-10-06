@@ -7,7 +7,7 @@
 //! `al_stratstate`.
 
 use sf_game::alien::{
-    Alien, StratId, ACF_COLLTYPE2, ASF4_SFLAG8, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW,
+    Alien, StratId, ACF_COLLTYPE2, ASF4_SFLAG8, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF_SHADOW,
 };
 use sf_game::game::{Game, StrategyFn};
 use sf_game::vars::{GF_BOSSDEAD, HARD_AP, HARD_HP};
@@ -300,7 +300,9 @@ pub fn airship_istrat(g: &mut Game, idx: u16) {
         al.expstratptr = Some(exp);
         al.hp = HARD_HP;
         al.ap = HARD_AP;
-        al.sflags |= ASF_SHADOW | ASF_NOHITAFFECT | ASF_COLLDISABLE;
+        al.sflags |= ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.collflags |= ACF_COLLTYPE2;
         al.stratstate = AIR_FLY_UP_TO_FRONT;
     }
@@ -890,7 +892,8 @@ pub fn bossfbody_istrat(g: &mut Game, idx: u16) {
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1
-        al.sflags |= ASF_SHADOW | ASF_NOHITAFFECT;
+        al.sflags |= ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.stratstate = BODY_STAYABOVE;
         init_anim(al, 0);
     }
@@ -1129,12 +1132,12 @@ fn bossffeet_hit(g: &mut Game, idx: u16) {
     let hf = g.objs.aliens[idx as usize].hitflags;
     if anim >= 5 && hf & HF1 != 0 {
         g.objs.aliens[idx as usize].hitflags &= !(HF1 | HF2);
-        g.objs.aliens[idx as usize].sflags &= !ASF_NOHITAFFECT;
+        g.objs.aliens[idx as usize].sflags3 &= !ASF3_NOHITAFFECT;
         g.objs.aliens[idx as usize].sflags3 |= ASF3_SFLAG5;
         strat_trig_se(g, 0x80);
     } else {
         g.objs.aliens[idx as usize].hitflags &= !(HF1 | HF2);
-        g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT;
+        g.objs.aliens[idx as usize].sflags3 |= ASF3_NOHITAFFECT;
         strat_trig_se(g, 0x27);
     }
     strat_hit_flash(g, idx);
@@ -1163,7 +1166,8 @@ pub fn bossfarm_istrat(g: &mut Game, idx: u16) {
         al.expstratptr = Some(exp);
         al.hp = HARD_HP;
         al.ap = HARD_AP;
-        al.sflags |= ASF_NOHITAFFECT | ASF_SHADOW;
+        al.sflags3 |= ASF3_NOHITAFFECT;
+        al.sflags |= ASF_SHADOW;
         al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1
         al.stratstate = ARM_STAYABOVE;
         init_anim(al, 0);
@@ -1324,7 +1328,7 @@ pub fn bossfhead_istrat(g: &mut Game, idx: u16) {
         al.stratptr = Some(tick);
         al.collstratptr = Some(hit);
         al.expstratptr = Some(exp);
-        al.sflags |= ASF_NOHITAFFECT;
+        al.sflags3 |= ASF3_NOHITAFFECT;
         al.hp = HARD_HP;
         al.ap = HARD_AP;
         al.collflags |= ACF_COLLTYPE2; // ROM ENEMY1
@@ -1394,7 +1398,7 @@ fn bossfhead_movetobeginrotate(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.sflags |= ASF_SHADOW;
         al.hp = BOSSF_HEAD_HP2;
-        al.sflags &= !ASF_NOHITAFFECT;
+        al.sflags3 &= !ASF3_NOHITAFFECT;
         let _ = achase_angle(&mut al.childrotx, 0, 4);
         let _ = achase_angle(&mut al.childroty, DEG90, 4);
         let _ = achase_angle(&mut al.childrotz, 0, 4);
@@ -1431,7 +1435,7 @@ fn bossfhead_rotate(g: &mut Game, idx: u16) {
 }
 
 fn bossfhead_hit(g: &mut Game, idx: u16) {
-    if g.objs.aliens[idx as usize].sflags & ASF_NOHITAFFECT == 0 {
+    if g.objs.aliens[idx as usize].sflags3 & ASF3_NOHITAFFECT == 0 {
         strat_trig_se(g, 0x80);
     }
     strat_hit_flash(g, idx);
@@ -1504,7 +1508,7 @@ mod tests {
         let al = &g.objs.aliens[idx as usize];
         assert_eq!(al.hp, HARD_HP);
         assert_ne!(al.sflags & ASF_SHADOW, 0);
-        assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
+        assert_ne!(al.sflags3 & ASF3_NOHITAFFECT, 0);
         assert_eq!(al.stratstate, BODY_STAYABOVE);
         assert!(al.stratptr.is_some());
     }

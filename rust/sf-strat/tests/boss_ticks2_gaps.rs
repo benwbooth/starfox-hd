@@ -6,7 +6,7 @@ use sf_strat::bosses::{
     boss8a_init, boss8b_init, nucleuslauncher_istrat, sea_make_splash, sea_make_splash_surface,
     seamon_strat, strat_boss8_init, strat_bossseamon_init, strat_seamon_init,
 };
-use sf_strat::enemy_a::wm;
+use sf_strat::enemy_a::{wm, ASF2_SFLAG1};
 
 fn spawn_player(g: &mut Game, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -81,7 +81,7 @@ fn seamon_landing_splash_snaps_worldy_zero() {
         .find(|&i| i != 0 && i != fish)
         .expect("splash child");
     assert_eq!(g.objs.aliens[splash as usize].worldy, 0);
-    assert_ne!(g.objs.aliens[fish as usize].sflags2 & 0x20, 0); // SEA_SFLAG1
+    assert_ne!(g.objs.aliens[fish as usize].sflags2 & ASF2_SFLAG1, 0);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn sea_make_splash_surface_forces_y_zero() {
 }
 
 /// Minor #26: boss8 open clears colldisable+sets hitflash; close sets both off.
-/// Port folds ROM s_docoll into coldet, so ASF_COLLDISABLE ≡ collstrat=0.
+/// Port folds ROM s_docoll into coldet, so ASF2_COLLDISABLE ≡ collstrat=0.
 #[test]
 fn boss8_colldisable_tracks_open_close() {
     let mut g = Game::new();
@@ -143,7 +143,7 @@ fn boss8_colldisable_tracks_open_close() {
     );
     assert!(g.objs.aliens[boss as usize].collstratptr.is_none());
 
-    // Coldet skips colldisable objects (ASF_COLLDISABLE gate).
+    // Coldet skips colldisable objects (ASF2_COLLDISABLE gate).
     g.coldet_generate_list();
     assert!(
         !g.coldet.list.iter().any(|e| e.alien == boss),

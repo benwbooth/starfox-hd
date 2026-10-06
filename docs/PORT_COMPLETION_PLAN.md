@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Removed the shared legacy collision-disable, hit-immunity and last-collision
+  aliases and migrated their strategy producers and consumers to the source
+  flag bytes. Collision-disabled meshes no longer alias particle emitters,
+  hit-immune meshes no longer alias text, and tally text no longer sets the
+  polygon-suppression and invisibility bits. Mixed flag writes are split by
+  byte. Original instructions also exposed and verified corrections to the
+  sea-monster's latch/toggle bits, its whole-byte animation test and wing
+  initialization's preservation of inherited visibility. Two new original-code
+  tests cover 1,024 inherited-state cases; the tally constructor is tested
+  through the production draw-list text classification. Seven retained C
+  traces received only explicitly scoped flag-layout edits to 2,659 records;
+  reversible SHA-256 audits preserve every other byte and the genuine particle
+  markers. All 1,585 scoped core/game/strategy/path tests and 31 focused
+  original-code tests pass in debug/release; 13 source/audit checks and the
+  architecture gate pass, and all three application binaries build in both
+  profiles. Nine cartridge-side boss checks also pass, with the boss2 gate
+  strengthened to compare exact flag/collision bytes from equal entry states.
+  This closes the shared flag-alias integration blocker, not the emitter
+  callsite audit: `circdelayexplode_strat` still substitutes a delayed object
+  for the source's newly scheduled `BIGparticleexplode_Istrat`, and its entry
+  fallthrough needs correction. That source-proven producer/lifecycle gap is
+  next, followed by the still-open production timing/frame-ownership work.
+
 - Implemented SF1's 300-slot, object-owned particle pool and connected it to
   completed gameplay/presentation scenes and both render modes. Allocation,
   seeded randomness, retained recycled fields, gravity, fading, clipping,

@@ -1,6 +1,6 @@
 //! ROM chick hatchling + lastb2/3/4 final-base doors + public amoeba aliases.
 
-use sf_game::alien::{ASF4_INVISIBLE, ASF_COLLDISABLE, ASF_SHADOW};
+use sf_game::alien::{ASF4_INVISIBLE, ASF2_COLLDISABLE, ASF_SHADOW};
 use sf_game::vars::{GF_STRATDONE1, PSTF_INSEQ};
 use sf_game::Game;
 use sf_strat::bosses::{
@@ -71,7 +71,7 @@ fn lastb2_visibility_gates() {
     g.vars.write_ext8(WM_GAMEFLAGS2, 0);
     lastb2_istrat(&mut g, idx);
     assert_ne!(g.objs.aliens[idx as usize].sflags4 & ASF4_INVISIBLE, 0);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // In seq + flag1 → visible.
     g.vars.pstratflags |= PSTF_INSEQ;
     g.vars.write_ext8(WM_GAMEFLAGS2, GF2_STRATFLAG1);

@@ -1,7 +1,7 @@
 //! ROM hitflash M/S/L/BOSSd + misscol / mchitflash (GSTRATS.ASM).
 
 use sf_game::alien::{
-    ExplosionSize, ObjectVisualKind, ASF_COLLIDE, ASF_HITFLASH, ASF_NOHITAFFECT, ATMISSILE,
+    ExplosionSize, ObjectVisualKind, ASF_COLLIDE, ASF_HITFLASH, ASF3_NOHITAFFECT, ATMISSILE,
 };
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
@@ -35,7 +35,8 @@ fn hitflash_nohitaffect_skips_damage() {
     let mut g = Game::new();
     let idx = g.objs.alloc().expect("slot");
     g.objs.aliens[idx as usize].hp = 5;
-    g.objs.aliens[idx as usize].sflags |= ASF_NOHITAFFECT | ASF_COLLIDE;
+    g.objs.aliens[idx as usize].sflags3 |= ASF3_NOHITAFFECT;
+    g.objs.aliens[idx as usize].sflags |= ASF_COLLIDE;
     strat_hit_flash(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].hp, 5);
     assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLIDE, 0);
@@ -48,7 +49,8 @@ fn hitflash_tail_calls_the_normal_strategy_on_the_collision_frame() {
     let tick = g.world.register_strategy(mark_normal_strategy);
     let al = &mut g.objs.aliens[idx as usize];
     al.hp = HARD_HP;
-    al.sflags |= ASF_NOHITAFFECT | ASF_COLLIDE;
+    al.sflags3 |= ASF3_NOHITAFFECT;
+    al.sflags |= ASF_COLLIDE;
     al.stratptr = Some(tick);
 
     strat_hit_flash(&mut g, idx);

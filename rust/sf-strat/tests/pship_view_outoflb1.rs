@@ -3,7 +3,7 @@
 use sf_core::screen_fill_circle::{
     ScreenFillCircleCenter, ScreenFillCirclePhase, ScreenFillCircleScope, BOSS_RADIUS_SPEED,
 };
-use sf_game::alien::{ASF_COLLDISABLE, ATZREMOVE};
+use sf_game::alien::{ASF2_COLLDISABLE, ATZREMOVE};
 use sf_game::vars::GF_STRATDONE1;
 use sf_game::Game;
 use sf_strat::common::StratRam;
@@ -40,7 +40,7 @@ fn pshipoutoflb1_init_climb_and_lineup() {
     g.vars.gameflags |= GF_STRATDONE1;
 
     pshipoutoflb1_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].type_ & ATZREMOVE, 0);
     assert_eq!(g.objs.aliens[idx as usize].vel, MED_PSPEED as u8);
     assert_eq!(g.objs.aliens[idx as usize].rotx, 0u8.wrapping_sub(DEG90));
@@ -124,7 +124,7 @@ fn viewoutoflb1_tracks_pship_state() {
 
     let cam = spawn(&mut g);
     viewoutoflb1_istrat(&mut g, cam);
-    assert_ne!(g.objs.aliens[cam as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[cam as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[cam as usize].sword1, 120);
     assert_eq!(g.objs.aliens[cam as usize].rotx, 0u8.wrapping_sub(DEG45));
     assert_eq!(g.vars.sv_u8(sv::VIEWTYPE), VIEWTYPE_FPOS | VIEWTYPE_TOOBJ);

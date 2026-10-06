@@ -1,6 +1,6 @@
 //! ROM fire_bonfire / bonfire_* + fire_ironball4 / ironball_* / ironballmissile.
 
-use sf_game::alien::{ObjectVisualKind, ASF_COLLDISABLE, ASF_NOHITAFFECT, ASF_SHADOW};
+use sf_game::alien::{ObjectVisualKind, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF_SHADOW};
 use sf_game::vars::{HARD_AP, HARD_HP};
 use sf_game::Game;
 use sf_strat::enemy_a::{
@@ -28,7 +28,7 @@ fn fire_bonfire_stats_and_trail() {
         assert_eq!(al.ap, HARD_AP);
         assert_eq!(al.vel, 120);
         assert_eq!(al.worldy, 0);
-        assert_ne!(al.sflags & ASF_NOHITAFFECT, 0);
+        assert_ne!(al.sflags3 & ASF3_NOHITAFFECT, 0);
         assert_ne!(al.collflags & COLLTYPE_ENEMY1, 0);
         assert_eq!(al.visual_kind, ObjectVisualKind::ScaledSprite);
         assert_eq!(al.depthoffset, 0);
@@ -48,7 +48,7 @@ fn bonfire_trail_expires_after_10() {
     let mut g = Game::new();
     let idx = g.objs.alloc().expect("t");
     g.objs.aliens[idx as usize].sbyte1 = 0;
-    g.objs.aliens[idx as usize].sflags |= ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 |= ASF2_COLLDISABLE;
     // Drive via bonfire_istrat path: spawn trail through strat, or call trail strat directly.
     // Use fire_bonfire then tick mother once to get a trail, then age it.
     let firer = g.objs.alloc().expect("f");
@@ -59,7 +59,7 @@ fn bonfire_trail_expires_after_10() {
         .active_indices()
         .into_iter()
         .find(|&i| {
-            i != ball && i != firer && g.objs.aliens[i as usize].sflags & ASF_COLLDISABLE != 0
+            i != ball && i != firer && g.objs.aliens[i as usize].sflags2 & ASF2_COLLDISABLE != 0
         })
         .expect("trail");
     assert_eq!(

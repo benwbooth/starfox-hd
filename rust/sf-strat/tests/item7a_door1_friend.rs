@@ -1,6 +1,6 @@
 //! ROM item7a + door1 + woods + wireman leaves + friend0/1 + minumusi.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_SHADOW};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_SHADOW};
 use sf_game::coldet::PCBOX_WING_HP;
 use sf_game::Game;
 use sf_strat::enemies_ground::{
@@ -80,14 +80,14 @@ fn door1_closes_when_player_near() {
     door1_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].ap, 8);
     assert_eq!(g.objs.aliens[idx as usize].roty, DEG180);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // Far: stay open (anim may decrement).
     door1openwait_strat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // Close when player within 500z.
     g.objs.aliens[idx as usize].worldz = 100;
     door1openwait_strat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // Animate closed frames.
     door1closewait_strat(&mut g, idx);
     assert!(g.objs.aliens[idx as usize].animframe > 0);
@@ -96,7 +96,7 @@ fn door1_closes_when_player_near() {
     door1closewait_init(&mut g, idx);
     g.objs.aliens[idx as usize].animframe = 9;
     door1closewait_strat(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
 }
 
 #[test]

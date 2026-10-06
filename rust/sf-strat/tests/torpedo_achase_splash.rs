@@ -3,7 +3,7 @@
 
 use sf_core::aim_angle::yanglexy;
 use sf_core::snes_trig::achase_angle_8;
-use sf_game::alien::ASF_COLLDISABLE;
+use sf_game::alien::ASF2_COLLDISABLE;
 use sf_game::game::{Game, Hooks, PosSndFamilyId};
 use sf_strat::common::gen_vecs_3d;
 use sf_strat::enemies_ground::{torpedo_istrat, torpedo_strat, torpedoa_strat};
@@ -63,7 +63,7 @@ fn torpedo_yaw_achase_rate3_then_gen3dvecs() {
 
     let me = &g.objs.aliens[t as usize];
     assert_eq!(me.shape, 0, "still submerged");
-    assert_ne!(me.sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(me.sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(me.vel, 30);
 
     // Expected yaw after one Achase rate-3 from roty=0 at the pre-move pose.
@@ -118,7 +118,7 @@ fn torpedo_surface_plays_upsea_and_levels_pitch() {
 
     let al = &g.objs.aliens[t as usize];
     assert_eq!(al.shape, SH_F_FISH);
-    assert_eq!(al.sflags & ASF_COLLDISABLE, 0);
+    assert_eq!(al.sflags2 & ASF2_COLLDISABLE, 0);
     assert!(count_active(&g) > before, "makesplash on surface");
     assert!(
         log.borrow()

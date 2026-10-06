@@ -1,6 +1,6 @@
 //! ROM kami/chick/STB/QH hmissile fire + strat bodies.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_SHADOW};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_SHADOW};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
@@ -133,7 +133,7 @@ fn chick_latches_near_when_close_and_no_joy() {
     chickhmissile1_istrat(&mut g, m);
     chickhmissile1_strat(&mut g, m);
     assert_ne!(g.objs.aliens[m as usize].sflags2 & ASF2_SFLAG2, 0);
-    assert_ne!(g.objs.aliens[m as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[m as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[m as usize].count, 9);
 }
 

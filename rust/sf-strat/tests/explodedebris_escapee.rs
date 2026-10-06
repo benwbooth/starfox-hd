@@ -1,6 +1,6 @@
 //! ROM escapee / explodedebris / exppiece family (EXPSTRAT.ASM).
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_HITFLASH};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_HITFLASH};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
@@ -109,7 +109,7 @@ fn exppiece_lives_then_kills() {
     g.objs.aliens[idx as usize].vz = 0;
     exppiece_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].hp, HARD_HP);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].sflags & ASF_HITFLASH, 0);
     let life = g.objs.aliens[idx as usize].count;
     assert!(life >= 10 && life <= 17);

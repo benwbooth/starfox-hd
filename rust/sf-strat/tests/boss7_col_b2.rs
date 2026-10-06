@@ -1,6 +1,6 @@
 //! Tick 97: boss7 hatch/launcher col, coll, b2, intropart + boss8_strat alias.
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH};
 use sf_game::Game;
 use sf_strat::bosses::boss8_strat;
 use sf_strat::enemy_a::boss_attach_child_to_mother;
@@ -188,7 +188,7 @@ fn boss7intropart_childrelpos() {
     g.objs.aliens[part as usize].relposz = 3;
 
     boss7intropart_istrat(&mut g, part);
-    assert_ne!(g.objs.aliens[part as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[part as usize].sflags2 & ASF2_COLLDISABLE, 0);
     // Identity-ish: scale×4 on (1,2,3) with non-zero mother rots — just check moved + rots copied
     assert_eq!(g.objs.aliens[part as usize].rotx, 10);
     assert_eq!(g.objs.aliens[part as usize].roty, 20);

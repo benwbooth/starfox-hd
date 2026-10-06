@@ -4,7 +4,7 @@
 //! creates three Arwing flyby objects, a paired-laser controller, a fighter
 //! wave, and a lead fighter whose pass requests the return to the title.
 
-use sf_game::alien::{Alien, ASF_COLLDISABLE, ASF_HITFLASH, ATZREMOVE};
+use sf_game::alien::{Alien, ASF2_COLLDISABLE, ASF_HITFLASH, ATZREMOVE};
 use sf_game::game::{Game, StrategyFn};
 use sf_game::vars::HARD_AP;
 
@@ -194,7 +194,7 @@ pub fn player_down_intro_init(game: &mut Game, object: u16) {
     let tick = sid(game, player_down_intro_tick as StrategyFn);
     {
         let craft = &mut game.objs.aliens[object as usize];
-        craft.sflags |= ASF_COLLDISABLE;
+        craft.sflags2 |= ASF2_COLLDISABLE;
         craft.rotx = DEG22;
         craft.type_ &= !ATZREMOVE;
         craft.stratptr = Some(tick);
@@ -268,7 +268,7 @@ fn player_down_wing_init(game: &mut Game, object: u16, direction: WingDirection)
     let tick = sid(game, tick);
     {
         let craft = &mut game.objs.aliens[object as usize];
-        craft.sflags |= ASF_COLLDISABLE;
+        craft.sflags2 |= ASF2_COLLDISABLE;
         craft.rotx = DEG22;
         craft.type_ &= !ATZREMOVE;
         craft.stratptr = Some(tick);
@@ -396,7 +396,7 @@ pub fn zaco_intro_init(game: &mut Game, object: u16) {
     {
         let fighter = &mut game.objs.aliens[object as usize];
         fighter.stratptr = Some(tick);
-        fighter.sflags |= ASF_COLLDISABLE;
+        fighter.sflags2 |= ASF2_COLLDISABLE;
         fighter.rotx = pitch;
         fighter.roty = yaw;
         fighter.rotz = roll;
@@ -444,7 +444,7 @@ pub fn zaco_leader_intro_init(game: &mut Game, object: u16) {
     {
         let leader = &mut game.objs.aliens[object as usize];
         leader.stratptr = Some(tick);
-        leader.sflags |= ASF_COLLDISABLE;
+        leader.sflags2 |= ASF2_COLLDISABLE;
         leader.vel = LEADER_INITIAL_SPEED;
         leader.rotx = DEG90;
         leader.sbyte1 = LEADER_FIRST_PHASE_FRAMES;

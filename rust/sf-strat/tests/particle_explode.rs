@@ -1,6 +1,6 @@
 //! ROM particle/mark explode family (EXPSTRAT.ASM).
 
-use sf_game::alien::{AFEXP, ASF_COLLDISABLE, ASF_PARTOBJ, ASF_SHADOW};
+use sf_game::alien::{AFEXP, ASF2_COLLDISABLE, ASF_PARTOBJ, ASF_SHADOW};
 use sf_game::Game;
 use sf_strat::enemy_a::{
     bigparticleexplode_istrat, bigparticleexplode_strat, circ2particleexplode_istrat,
@@ -17,7 +17,7 @@ fn particleexplode_inits_and_expires_at_40() {
     let idx = g.objs.alloc().expect("slot");
     g.objs.aliens[idx as usize].worldz = 1000;
     particleexplode_istrat(&mut g, idx);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_ne!(g.objs.aliens[idx as usize].flags & AFEXP, 0);
     assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_PARTOBJ, 0);
     assert_eq!(g.objs.aliens[idx as usize].sbyte3, 6);

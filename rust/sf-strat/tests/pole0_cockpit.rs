@@ -1,6 +1,6 @@
 //! ROM pole0 spinner + cockdumpl/cockpit/out props (GA2STRAT / PSTRATS).
 
-use sf_game::alien::{ASF_COLLDISABLE, ASF_HITFLASH};
+use sf_game::alien::{ASF2_COLLDISABLE, ASF_HITFLASH};
 use sf_game::vars::HARD_HP;
 use sf_game::Game;
 use sf_strat::common::{sv, StratRam};
@@ -101,7 +101,7 @@ fn cockdumpl_spawns_cockpit_when_player_close() {
     g.objs.aliens[idx as usize].worldz = 20; // |dz|<50 vs player at 0
     cockdumpl_istrat(&mut g, idx);
     assert_eq!(g.objs.aliens[idx as usize].hp, HARD_HP);
-    assert_ne!(g.objs.aliens[idx as usize].sflags & ASF_COLLDISABLE, 0);
+    assert_ne!(g.objs.aliens[idx as usize].sflags2 & ASF2_COLLDISABLE, 0);
     assert_eq!(g.objs.aliens[idx as usize].count, 8);
     let before = g.objs.aliens.iter().filter(|a| a.active).count();
     cockdumpl_strat(&mut g, idx);

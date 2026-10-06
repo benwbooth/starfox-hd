@@ -6333,7 +6333,7 @@ fn retail_boss8_phase_transitions_vs_port() {
         assert_eq!(pa.sflags2 & B8_SFLAG4, B8_SFLAG4, "port open sets sflag4");
         assert!(pa.collstratptr.is_some(), "port open hitflash collstrat");
         assert_eq!(
-            pa.sflags & sf_game::alien::ASF_COLLDISABLE,
+            pa.sflags2 & sf_game::alien::ASF2_COLLDISABLE,
             0,
             "port open damageable"
         );
@@ -7230,6 +7230,10 @@ fn retail_boss2_init_vs_port() {
     // Dirty the boss fields so the init must actually write them.
     bus.write8(0x7E_0000 | (blk + AL_HP), 0x11);
     bus.write8(0x7E_0000 | (blk + AL_LIFECNT), 0x22);
+    // A free block has not passed initobjvars. Seed the same first-frame
+    // collision marker as native Objects::alloc before comparing the complete
+    // initializer result; it is preserved, not written by boss2_Istrat.
+    bus.write8(0x7E_0000 | (blk + AL_COLLFLAGS), sf_game::alien::ACF_FIRSTFRAME);
     // boss2_Istrat assumes s_start_strat's 8-bit A (p=$20), X = boss block.
     call(
         &mut bus,
@@ -7280,23 +7284,22 @@ fn retail_boss2_init_vs_port() {
     assert_eq!(r_ap, pa.ap, "boss2 AP matches port");
     assert_eq!(r_life, 50, "retail boss2 lifecnt = 50");
     assert_eq!(r_life as u8, pa.count, "boss2 lifecnt matches port count");
-    // colltype (enemy1|enemyweap) set — retail bit layout; port re-derives its own
-    // encoding, so certify the EFFECT (both nonzero), like boss8.
+    // Native strategy and collision bytes retain the original masks.
     assert_eq!(
         r_coll & (0x10 | 0x40),
         0x50,
         "retail boss2 set enemy1|enemyweap"
     );
-    assert_ne!(pa.collflags, 0, "port boss2 set colltype");
-    // sflags: colldisable (sflags2 $01) + shadow (sflags $08) — retail; port sets
-    // its own ASF_COLLDISABLE|ASF_SHADOW.
+    assert_eq!(pa.collflags, r_coll, "boss2 collision categories match");
+    // Colldisable is independent of first-byte particle/text classification.
     assert_eq!(
         r_sf2 & 0x01,
         0x01,
         "retail boss2 set colldisable (sflags2 $01)"
     );
     assert_eq!(r_sf & 0x08, 0x08, "retail boss2 set shadow (sflags $08)");
-    assert_ne!(pa.sflags, 0, "port boss2 set sflags");
+    assert_eq!(pa.sflags, r_sf, "boss2 first flag byte matches");
+    assert_eq!(pa.sflags2, r_sf2, "boss2 second flag byte matches");
     // stratptr installed = boss2_strat.
     assert_eq!(
         r_sptr, RETAIL_BOSS2_STRAT,
@@ -7836,7 +7839,7 @@ fn retail_boss2_states_4_5_vs_port() {
             al.sbyte3 = 0;
             al.sbyte4 = 90;
             al.sflags2 = B2_SFLAG1 | B2_SFLAG3;
-            al.sflags |= sf_game::alien::ASF_COLLDISABLE;
+            al.sflags2 |= sf_game::alien::ASF2_COLLDISABLE;
         }
         g.vars.pviewvelz = 8;
 
@@ -8149,7 +8152,7 @@ fn retail_boss2_fireband_vs_port() {
                 al.sbyte3 = 0;
                 al.sbyte4 = sbyte4;
                 al.sflags2 = B2_SFLAG1 | B2_SFLAG3;
-                al.sflags |= sf_game::alien::ASF_COLLDISABLE;
+                al.sflags2 |= sf_game::alien::ASF2_COLLDISABLE;
             }
             g.vars.pviewvelz = 0;
             g.vars.gameframe = gameframe;

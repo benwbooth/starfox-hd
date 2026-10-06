@@ -180,10 +180,7 @@ pub const ASF_SHADOW: u8 = 0x08;
 pub const ASF_PARTOBJ: u8 = sf_core::particles::PARTICLE_OBJECT_FLAG;
 pub const ASF_SSPRITE: u8 = 0x20;
 pub const ASF_TEXTOBJ: u8 = 0x40;
-pub const ASF_COLLDISABLE: u8 = 0x10;
 pub const ASF_COLLIDE: u8 = 0x80;
-pub const ASF_NOHITAFFECT: u8 = 0x40;
-pub const ASF_LCOLLIDE: u8 = 0x80;
 
 // Source `al_sflags2` byte (STRATEQU.INC bits 8 through 15).
 pub const ASF2_COLLDISABLE: u8 = 0x01;
@@ -210,11 +207,6 @@ pub const ASF4_RELEXPLODE: u8 = 0x04;
 pub const ASF4_INVISIBLE: u8 = 0x08;
 /// Child in a mother/child family (`childobj`).
 pub const ASF4_CHILDOBJ: u8 = 0x10;
-/// HD-side render tag for a MARIO scaled-text carrier. The retained C-style
-/// flag layout places path `textobj` on `sflags3 & 0x40`, which is also used
-/// by its compatibility lock-on remap; this otherwise-unused bit keeps those
-/// two independent ROM concepts distinguishable at the draw boundary.
-pub const ASF4_TEXTOBJ: u8 = 0x08;
 pub const ASF4_SFLAG8: u8 = 0x20;
 /// Mother of a child list (`motherobj`); `al_sword1` is the child-list head.
 pub const ASF4_MOTHEROBJ: u8 = 0x40;

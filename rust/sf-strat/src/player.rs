@@ -38,7 +38,7 @@ use sf_core::screen_fill_circle::ScreenFillCircleCenter;
 use sf_game::alien::{
     ObjectVisualKind, StratId, ACF_COLLTYPE1, ACF_COLLTYPE4, ACF_COLLTYPE5, ACF_FIRSTFRAME,
     ACF_WEAPON, AFONFIRE, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF3_REALOBJ, ASF4_INVISIBLE,
-    ASF4_PLAYEROBJ, ASF_COLLDISABLE, ASF_COLLIDE, ASF_HITFLASH, ASF_SHADOW, ATGND, ATLASER,
+    ASF4_PLAYEROBJ, ASF_COLLIDE, ASF_HITFLASH, ASF_SHADOW, ATGND, ATLASER,
     ATMISSILE, ATZREMOVE, NUMBER_AL,
 };
 use sf_game::coldet::{PcboxKind, PCBOX_HF_BODY, PCBOX_HF_LWING, PCBOX_HF_RWING};
@@ -5726,7 +5726,7 @@ pub fn player_into_cock2_strat(g: &mut Game, idx: u16) -> bool {
         true,
     );
     g.vars.player_view_mode = PlayerViewMode::Cockpit;
-    g.objs.aliens[idx as usize].sflags &= !ASF_COLLDISABLE;
+    g.objs.aliens[idx as usize].sflags2 &= !ASF2_COLLDISABLE;
     g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
     g.vars.pstratflags &= !PSTF_NOVDISTC;
     g.objs.aliens[idx as usize].sbyte2 = 10;
@@ -5749,7 +5749,7 @@ pub fn cockdumpl_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.hp = HARD_HP;
         al.ap = 0;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.stratptr = Some(tick);
         al.sflags2 &= !ASF2_SFLAG1;
         al.count = 8; // lifecnt
@@ -5808,7 +5808,7 @@ pub fn cockpit_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.hp = HARD_HP;
         al.ap = 0;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.stratptr = Some(tick);
     }
 }
@@ -5834,7 +5834,7 @@ pub fn cockshipout_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.hp = HARD_HP;
         al.ap = 0;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.stratptr = Some(tick);
         al.type_ &= !ATZREMOVE;
         al.count = 19;
@@ -5876,7 +5876,7 @@ pub fn cockpitout_istrat(g: &mut Game, idx: u16) {
         let al = &mut g.objs.aliens[idx as usize];
         al.hp = HARD_HP;
         al.ap = 0;
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.stratptr = Some(tick);
         al.type_ &= !ATZREMOVE;
         al.count = 8;
@@ -6073,7 +6073,7 @@ pub fn shrapnel_srou(g: &mut Game, parent: u16) {
                 al.roty = sf_random(&mut g.vars) as u8;
                 al.rotx = sf_random(&mut g.vars) as u8;
                 al.worldz = parent_z.wrapping_add(2000);
-                al.sflags |= ASF_COLLDISABLE;
+                al.sflags2 |= ASF2_COLLDISABLE;
             }
             let s = sid(g, K_SHRAPFALL2);
             g.objs.aliens[y as usize].stratptr = Some(s);
@@ -6529,7 +6529,7 @@ pub fn pshipoutoflb1_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         // This cinematic owns DM_END's completion signal. Its final turn
         // briefly places the ship origin just behind the near plane before
         // the countdown publishes that signal, so retain the object for the
@@ -6658,7 +6658,7 @@ pub fn viewoutoflb1_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.sword1 = outdist; // Z offset
         al.sword2 = 0; // Y offset
         al.ptr = 0; // X offset
@@ -6791,7 +6791,7 @@ pub fn pshipintolb1_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.vel = MED_PSPEED as u8;
         al.sbyte1 = DEG90 / 2; // 32
         al.stratstate = 0;
@@ -6899,7 +6899,7 @@ pub fn viewintolb1_istrat(g: &mut Game, idx: u16) {
     {
         let al = &mut g.objs.aliens[idx as usize];
         al.stratptr = Some(tick);
-        al.sflags |= ASF_COLLDISABLE;
+        al.sflags2 |= ASF2_COLLDISABLE;
         al.vel = MED_PSPEED as u8;
         al.sbyte1 = DEG90 / 3; // 21
         al.sword1 = outdist; // Z offset
@@ -7478,7 +7478,8 @@ fn dupplayer(g: &mut Game, idx: u16) -> Option<u16> {
         d.rotx = src.rotx;
         d.roty = src.roty;
         d.rotz = src.rotz;
-        d.sflags |= ASF_COLLDISABLE | ASF_SHADOW;
+        d.sflags2 |= ASF2_COLLDISABLE;
+        d.sflags |= ASF_SHADOW;
     }
     g.objs.aliens[idx as usize].sflags4 |= ASF4_INVISIBLE;
     Some(dup)
@@ -7705,7 +7706,7 @@ pub fn strat_player_escape_nucleus_init(g: &mut Game, idx: u16) {
     // s_set_alvar B,x,al_roty,#0
     al.roty = 0;
     // s_set_alsflag x,colldisable
-    al.sflags |= ASF_COLLDISABLE;
+    al.sflags2 |= ASF2_COLLDISABLE;
 }
 
 // ============================================================
