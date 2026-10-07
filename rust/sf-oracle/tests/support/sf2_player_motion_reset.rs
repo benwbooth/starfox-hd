@@ -137,6 +137,7 @@ impl Reader<'_> {
             mission: Some(PlayerMissionControl {
                 flags: self.byte(0x6A71),
             }),
+            palette_effects: Some(sf2_game::player_palette::PlayerPaletteControl::from_control(self.byte(0x6BE9))),
             consumable: Some(PlayerConsumableControl {
                 input_control: self.byte(0x6B61),
                 projectile_blockers: TriggeredUseBlockers::from_control(self.byte(0x6BE9)),

@@ -152,6 +152,23 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The primary-player palette dispatcher (`$07:EA67..EACA`) and its three
+complete color loops now use the existing target-transition delay, consumable
+blockers and shared live/saved palette. Branch precedence, transparent-color
+differences, component clamps and full-word restoration completion match
+original execution. Nine native tests and two original-code groups cover all
+color words, flag bytes, timer boundaries, repeated visits, primary selection,
+partial failures and a path-lock/palette/consumable admission lifetime. The
+new progress flags are initialized by full player allocation and retained by
+the partial movement reset. Debug and release pass 1,621 native, 1,629
+compatibility-feature, 35 runtime, 33 path and 264 original-code tests
+(237 player storage), application tests, five real-app smoke tests and builds.
+Static checks pass 882 source tests, 217 lowerer tests, three backlog tests,
+exact regeneration and architecture validation. Logs:
+`/tmp/sf2-player-palette-validation-oct07.log` and
+`/tmp/sf2-player-palette-static-oct07.log`. Enclosing entry/action and
+post-movement callers and shipping integration are still incomplete.
+
 The free-flight caller prefix (`$06:869C..875E`) now composes camera
 installation, contact/event flags, input preparation, shoulder arbitration
 and conditional ground pitch. Its scene wrapper latches partial failures.

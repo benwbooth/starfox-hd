@@ -8,6 +8,9 @@ mod input_tests;
 #[path = "support/sf2_player_action.rs"]
 mod action_tests;
 
+#[path = "support/sf2_player_palette.rs"]
+mod palette_tests;
+
 #[path = "support/sf2_player_mission.rs"]
 mod mission_tests;
 #[path = "support/sf2_player_node_exit.rs"]
@@ -442,6 +445,7 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                         | (u32::from(source.bus.read8(WRAM + slot + 0x6C35)) << 16)
                 );
                 let byte = |field| source.bus.read8(WRAM + slot + field);
+                assert_eq!(records.palette_effects.unwrap().bits(), byte(0x6BE9) & 0xE0);
                 assert_eq!(records.appearance.unwrap().depth_control, byte(0x6AA2));
                 let word = |field| source.bus.read16(WRAM + slot + field);
                 let charge = records.charge.unwrap();

@@ -156,6 +156,7 @@ pub fn replace(
             .expect("fresh player allocation")),
         action: Some(Default::default()),
         mission: Some(Default::default()),
+        palette_effects: Some(Default::default()),
         consumable: Some(Default::default()),
         target_control: Some(Default::default()),
         target_selection: Some(Default::default()),

@@ -120,6 +120,7 @@ pub enum SceneError<E> {
     WeaponAim(super::player_weapon_aim::WeaponAimError),
     PlayerAction(super::player_action::PlayerActionError),
     PlayerMission(super::player_mission::MissionError),
+    PlayerPalette(super::player_palette::PaletteError),
     PlayerNodeExit(super::player_node_exit::NodeExitError),
     PlayerMotionReset(super::player_motion_reset::MotionResetError),
     PlayerEntryReset(super::player_entry_reset::EntryResetError),
@@ -200,6 +201,19 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Palette dispatch resolves the primary player itself, as in the source.
+    pub fn advance_player_palette(&mut self) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_palette::advance_primary(self.objects, self.world)
+            .map_err(SceneError::PlayerPalette);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Source-ordered free-flight preparation, ending before movement.
     pub fn prepare_player_free_flight(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {

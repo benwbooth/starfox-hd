@@ -57,6 +57,7 @@ pub struct PlayerPathRecords {
     pub rapid_rejection_consumes_queue: Option<bool>,
     pub action: Option<super::player_action::PlayerActionState>,
     pub mission: Option<super::player_mission::PlayerMissionControl>,
+    pub palette_effects: Option<super::player_palette::PlayerPaletteControl>,
     pub consumable: Option<super::player_consumable::PlayerConsumableControl>,
     pub target_control: Option<super::path_player_control::PlayerTargetControl>,
     /// Candidate/marker selection, distinct from the scripted follow target.

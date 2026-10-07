@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the primary-player palette dispatcher (`$07:EA67..EACA`) with
+  complete flash, red-pulse and restoration loops. It shares the path-owned
+  transition delay and real consumable blockers; it does not duplicate them.
+  Palette completion observes entering full color words, including the unused
+  high bit, and clears blockers only on the following settled visit. Nine
+  native tests and two original-code groups pass all color words, flag bytes,
+  timer boundaries, repeated visits, primary/secondary routing and partial
+  failure ordering. A real path-lock-to-consumable lifecycle verifies that
+  the palette gates actual projectile admission. Full replacement clears the
+  new progress controls; partial motion reset retains them. Debug and release
+  pass 1,621 native, 1,629 compatibility-feature, 35 runtime, 33 path and 264
+  original-code tests (237 player storage), all application tests, five
+  real-app smoke tests and builds. Static checks pass 882 source tests,
+  217 lowerer tests, three backlog tests, exact regeneration and architecture
+  validation. Logs: `/tmp/sf2-player-palette-validation-oct07.log`
+  and `/tmp/sf2-player-palette-static-oct07.log`. Enclosing entry/action and
+  post-movement callers, plus shipping frame integration, remain open.
+
 - Composed free-flight preparation (`$06:869C..875E`) in the shared scene:
   camera selection, contact/event publication, controller remapping,
   shoulder arbitration and conditional ground pitch now run in source order.
