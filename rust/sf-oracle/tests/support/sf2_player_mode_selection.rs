@@ -35,6 +35,14 @@ impl Fixture {
         .unwrap();
         native.world.player_carry_mode = Some(0);
         native.world.processed_player_input = Some(Default::default());
+        native
+            .world
+            .player_mut(&native.objects, native.owner)
+            .unwrap()
+            .mode_selection
+            .as_mut()
+            .unwrap()
+            .cue_control = 0xAD;
         Self { native }
     }
     fn records(&mut self) -> &mut PlayerPathRecords {
@@ -61,10 +69,7 @@ impl Fixture {
     }
     fn step(&mut self, source: &mut Source, request: ModeRequest) -> bool {
         let state = self.records().mode_selection.unwrap();
-        source.bus.write8(
-            WRAM + SLOT + 0x6B9B,
-            0xAD | u8::from(state.request_inhibited) * 0x40,
-        );
+        source.bus.write8(WRAM + SLOT + 0x6B9B, state.cue_control);
         source
             .bus
             .write8(WRAM + SLOT + 0x6B64, state.surface_control);
@@ -151,7 +156,7 @@ fn pending_mode_selection_matches_original_all_current_modes_control_bytes_and_v
                 let record = f.records();
                 record.auxiliary.as_mut().unwrap().mode = current;
                 let state = record.mode_selection.as_mut().unwrap();
-                state.request_inhibited = true;
+                state.set_request_inhibited(true);
                 state.requested = (control & 0xF0) | pending;
                 state.transition_control = control;
                 record.boundary.as_mut().unwrap().return_position = Vector3 {
@@ -185,7 +190,7 @@ fn new_mode_request_matches_original_all_surface_flags_carry_gates_and_controlle
                         [0x11, 0x12, 0x24, 0x33][usize::from(flags & 3)];
                     let state = record.mode_selection.as_mut().unwrap();
                     state.surface_control = flags;
-                    state.request_inhibited = gates & 1 != 0;
+                    state.set_request_inhibited(gates & 1 != 0);
                     state.requested = (flags & 0xF0) | ((flags >> 4) % 5);
                     state.transition_control = if gates & 8 != 0 {
                         0x18 | (flags & !0x18)
@@ -231,7 +236,7 @@ fn pending_and_new_modes_match_original_continuous_independent_visits() {
             [0x11, 0x12, 0x24, 0x33][usize::from((tick / 19) & 3)];
         let state = record.mode_selection.as_mut().unwrap();
         state.surface_control = (tick / 7) as u8;
-        state.request_inhibited = tick % 13 == 0;
+        state.set_request_inhibited(tick % 13 == 0);
         f.native.world.player_carry_mode = Some(u8::from(tick % 3 == 0));
         f.native
             .objects

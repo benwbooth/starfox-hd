@@ -117,21 +117,35 @@ impl PlayerHitControl {
         &mut self,
         contacts: &mut ActorContacts,
         flags: &mut ObjectFlags,
-        hit_marked: &mut bool,
         strategy_clock: u8,
         paused: bool,
+    ) {
+        self.advance_recovery_filters(contacts, flags, strategy_clock);
+        self.advance_secondary_filter(contacts, paused);
+    }
+
+    /// Split at the original shared-view read so scene diagnostics retain
+    /// the earlier recovery/blink writes when that later input is absent.
+    pub fn advance_recovery_filters(
+        &mut self,
+        contacts: &mut ActorContacts,
+        flags: &mut ObjectFlags,
+        strategy_clock: u8,
     ) {
         let suppress_recovery = if self.recovery & COUNT_MASK == 0 {
             false
         } else {
             if strategy_clock & HIT_BLINK_MASK != 0 {
-                *hit_marked = true;
+                contacts.hit_marked = true;
             }
             self.recovery = self.recovery.wrapping_sub(1) | (self.recovery & TAG_MASK);
             self.recovery != 0
         };
         flags.collision_disabled = suppress_recovery;
         contacts.suppress_contacts_next_epoch = suppress_recovery;
+    }
+
+    pub fn advance_secondary_filter(&mut self, contacts: &mut ActorContacts, paused: bool) {
         if paused {
             contacts.suppress_contacts_next_epoch = true;
         } else if self.secondary_protection & COUNT_MASK != 0 {
@@ -266,16 +280,12 @@ mod tests {
                         recovery: initial,
                         ..PlayerHitControl::default()
                     };
-                    let mut contacts = ActorContacts::default();
+                    let mut contacts = ActorContacts {
+                        hit_marked: marked,
+                        ..Default::default()
+                    };
                     let mut flags = ObjectFlags::default();
-                    let mut hit_marked = marked;
-                    state.advance_contact_filters(
-                        &mut contacts,
-                        &mut flags,
-                        &mut hit_marked,
-                        clock,
-                        false,
-                    );
+                    state.advance_contact_filters(&mut contacts, &mut flags, clock, false);
                     let has_count = initial & COUNT_MASK != 0;
                     let expected = if has_count { initial - 1 } else { initial };
                     assert_eq!(state.recovery, expected);
@@ -284,7 +294,7 @@ mod tests {
                         contacts.suppress_contacts_next_epoch,
                         flags.collision_disabled
                     );
-                    assert_eq!(hit_marked, marked || (has_count && clock & 3 != 0));
+                    assert_eq!(contacts.hit_marked, marked || (has_count && clock & 3 != 0));
                 }
             }
         }
@@ -305,7 +315,7 @@ mod tests {
                         collision_disabled: true,
                         ..ObjectFlags::default()
                     };
-                    state.advance_contact_filters(&mut contacts, &mut flags, &mut false, 0, paused);
+                    state.advance_contact_filters(&mut contacts, &mut flags, 0, paused);
                     let has_count = initial & COUNT_MASK != 0;
                     assert_eq!(
                         state.secondary_protection,
@@ -337,10 +347,10 @@ mod tests {
         };
         let mut contacts = ActorContacts::default();
         let mut flags = ObjectFlags::default();
-        state.advance_contact_filters(&mut contacts, &mut flags, &mut false, 0, false);
+        state.advance_contact_filters(&mut contacts, &mut flags, 0, false);
         assert_eq!(state.recovery, 0x80);
         assert!(flags.collision_disabled);
-        state.advance_contact_filters(&mut contacts, &mut flags, &mut false, 1, false);
+        state.advance_contact_filters(&mut contacts, &mut flags, 1, false);
         assert_eq!(state.recovery, 0x80);
         assert!(!flags.collision_disabled);
         let before = state;

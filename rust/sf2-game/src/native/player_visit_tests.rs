@@ -113,6 +113,92 @@ impl Scene {
 }
 
 #[test]
+fn proximity_warning_reads_the_live_action_byte_for_every_flag_and_raw_pilot() {
+    let mut scene = Scene::new();
+    scene.records().auxiliary.as_mut().unwrap().mode = 0x11;
+    scene.world.fixed_players[0] = Some(scene.owner);
+    let mut obstacle = Object::new(
+        ObjectKind::Enemy,
+        ShapeId::TITLE_CRAFT,
+        Behavior::Unassigned,
+    );
+    obstacle.base.flags.proximity_warning_source = true;
+    obstacle.base.position.z = 70;
+    let obstacle = scene.objects.allocate(obstacle).unwrap();
+    for pilot in 0..=u8::MAX {
+        for flags in 0..=u8::MAX {
+            scene.records().visit.as_mut().unwrap().pilot_code = pilot;
+            scene.records().auxiliary.as_mut().unwrap().action_flags = flags;
+            scene
+                .objects
+                .get_mut(obstacle)
+                .unwrap()
+                .base
+                .flags
+                .proximity_warning_latched = false;
+            scene.visit().unwrap();
+            let admitted = flags & 0x20 == 0 && (pilot & 0xFE != 2 || flags & 0x40 != 0);
+            assert_eq!(
+                scene
+                    .objects
+                    .get(obstacle)
+                    .unwrap()
+                    .base
+                    .flags
+                    .proximity_warning_latched,
+                admitted
+            );
+            assert_eq!(scene.records().auxiliary.unwrap().action_flags, flags);
+            assert_eq!(scene.cues().len(), usize::from(admitted));
+        }
+    }
+}
+
+#[test]
+fn live_brake_and_boost_bits_change_guarded_warning_admission_without_a_second_owner() {
+    let mut scene = Scene::new();
+    scene.records().visit.as_mut().unwrap().pilot_code = 2;
+    scene.records().auxiliary.as_mut().unwrap().mode = 0x11;
+    scene.world.fixed_players[0] = Some(scene.owner);
+    let mut obstacle = Object::new(
+        ObjectKind::Enemy,
+        ShapeId::TITLE_CRAFT,
+        Behavior::Unassigned,
+    );
+    obstacle.base.flags.proximity_warning_source = true;
+    obstacle.base.position.z = 70;
+    let obstacle = scene.objects.allocate(obstacle).unwrap();
+    for (flags, admitted) in [
+        (0, false),
+        (0x40, true),
+        (0x60, false),
+        (0x40, true),
+        (0, false),
+    ] {
+        scene.records().auxiliary.as_mut().unwrap().action_flags = flags;
+        scene
+            .objects
+            .get_mut(obstacle)
+            .unwrap()
+            .base
+            .flags
+            .proximity_warning_latched = false;
+        scene.visit().unwrap();
+        assert_eq!(
+            scene
+                .objects
+                .get(obstacle)
+                .unwrap()
+                .base
+                .flags
+                .proximity_warning_latched,
+            admitted
+        );
+        assert_eq!(scene.cues().len(), usize::from(admitted));
+    }
+}
+
+#[test]
 fn all_pilot_and_shield_bytes_preserve_the_signed_clamp_and_publish_complete_equipment() {
     let mut scene = Scene::new();
     for pilot in 0..=u8::MAX {
@@ -526,7 +612,9 @@ fn following_and_explosion_scrolling_read_publication_but_inheritance_reads_live
             secondary,
             PlayerPathRecords {
                 auxiliary: Some(SelectedAuxiliaryState {
-                    mode: 0, action_flags: 4, stored_world_position: Default::default(),
+                    mode: 0,
+                    action_flags: 4,
+                    stored_world_position: Default::default(),
                     stored_rotation: Default::default(),
                 }),
                 ..Default::default()

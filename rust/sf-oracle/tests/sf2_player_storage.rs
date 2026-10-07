@@ -80,6 +80,12 @@ mod view_blend_tests;
 #[path = "support/sf2_player_view_distance.rs"]
 mod view_distance_tests;
 
+#[path = "support/sf2_player_status.rs"]
+mod status_tests;
+
+#[path = "support/sf2_player_engine_sound.rs"]
+mod engine_sound_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};

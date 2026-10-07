@@ -22,15 +22,14 @@ const LOW_SHIELD_BOUND: u8 = 13;
 const CRITICAL_SHIELD_BOUND: u8 = 5;
 const LOW_SHIELD_CUE: u8 = 22;
 const CRITICAL_SHIELD_CUE: u8 = 23;
+const WARNING_INHIBITED: u8 = 0x20;
+const GUARDED_PILOT_WARNING_READY: u8 = 0x40;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerVisitControl {
     /// Full pilot byte (6BFF). Codes outside the six-entry table use pilot
     /// zero's limits, but the proximity gate still sees the original byte.
     pub pilot_code: u8,
-    /// Distinct 6B77 bits 20/40, not the displacement-suppression bit 04.
-    pub warning_inhibited: bool,
-    pub guarded_pilot_warning_ready: bool,
     /// Low-shield cue delay (6BE8), held at ten but wrapping elsewhere.
     pub shield_warning_clock: u8,
 }
@@ -101,17 +100,16 @@ pub fn begin(
         .scripted_view_active()
         .ok_or(PlayerVisitError::MissingSpawnDefaults)?;
     if !paused {
-        let mode = world
+        let auxiliary = world
             .player(objects, owner)?
             .auxiliary
-            .ok_or(WorldInputError::MissingAuxiliary(owner))?
-            .mode;
+            .ok_or(WorldInputError::MissingAuxiliary(owner))?;
         let warning = WarningControl {
             globally_disabled: false,
-            movement_mode: mode,
-            inhibited: player_control.warning_inhibited,
+            movement_mode: auxiliary.mode,
+            inhibited: auxiliary.action_flags & WARNING_INHIBITED != 0,
             pilot_code: player_control.pilot_code,
-            guarded_pilot_ready: player_control.guarded_pilot_warning_ready,
+            guarded_pilot_ready: auxiliary.action_flags & GUARDED_PILOT_WARNING_READY != 0,
         };
         let view = world.fixed_players[0]
             .and_then(|id| objects.get(id))

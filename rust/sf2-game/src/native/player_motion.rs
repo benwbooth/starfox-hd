@@ -30,6 +30,10 @@ const ORDINARY_VELOCITY_SCALE: i16 = 1;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerMotion {
+    /// Walker turning/stance control (6AE9); engine sound observes bit 08.
+    pub walker_turn_control: u8,
+    /// Walker stride control (6AEA); engine sound observes bit 80.
+    pub walker_stride_control: u8,
     /// Walker surface/stance control (6B94). The low three bits gate its
     /// protected surface effect; remaining bits stay available to movement.
     pub walker_contact_control: u8,

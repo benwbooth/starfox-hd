@@ -96,7 +96,7 @@ impl Fixture {
 #[test]
 fn request_inhibition_does_not_block_pending_transform_or_require_new_input() {
     let mut f = Fixture::new();
-    f.state().request_inhibited = true;
+    f.state().set_request_inhibited(true);
     f.state().requested = 0xA4;
     assert_eq!(f.advance(ModeRequest::RetainedPitch), Ok(true));
     assert_eq!(f.phase(), ENTER_WALKER);
@@ -107,12 +107,12 @@ fn request_inhibition_does_not_block_pending_transform_or_require_new_input() {
 #[test]
 fn absent_pending_request_does_not_require_current_mode_when_gate_is_closed() {
     let mut f = Fixture::new();
-    f.state().request_inhibited = true;
+    f.state().set_request_inhibited(true);
     f.state().requested = 0xD0;
     f.records().auxiliary = None;
     assert_eq!(f.advance(ModeRequest::Walker), Ok(false));
     assert_eq!(f.phase(), 197);
-    f.state().request_inhibited = false;
+    f.state().set_request_inhibited(false);
     f.world.player_carry_mode = Some(1);
     f.objects
         .get_mut(f.owner)
@@ -128,7 +128,7 @@ fn absent_pending_request_does_not_require_current_mode_when_gate_is_closed() {
 #[test]
 fn same_family_selects_initializer_without_transform_cue_or_pending_flags_loss() {
     let mut f = Fixture::new();
-    f.state().request_inhibited = true;
+    f.state().set_request_inhibited(true);
     f.state().requested = 0xB2;
     f.state().transition_control = 0xFF;
     let return_position = f.records().boundary.unwrap().return_position;
@@ -146,7 +146,7 @@ fn same_family_selects_initializer_without_transform_cue_or_pending_flags_loss()
 #[test]
 fn queued_transform_converts_only_control_bits_and_preserves_adjacent_return_position() {
     let mut f = Fixture::new();
-    f.state().request_inhibited = true;
+    f.state().set_request_inhibited(true);
     f.state().requested = 0xC4;
     f.state().transition_control = 0xF7;
     let return_position = f.records().boundary.unwrap().return_position;
@@ -186,7 +186,7 @@ fn admitted_select_replaces_request_before_missing_mode_fault_and_never_replays(
 #[test]
 fn invalid_pending_selector_is_diagnosed_only_when_original_would_index_table() {
     let mut f = Fixture::new();
-    f.state().request_inhibited = true;
+    f.state().set_request_inhibited(true);
     f.state().requested = 0xF7;
     f.records().auxiliary.as_mut().unwrap().mode = 0x17;
     assert_eq!(f.advance(ModeRequest::Walker), Ok(false));

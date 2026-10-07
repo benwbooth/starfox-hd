@@ -154,6 +154,8 @@ pub enum SceneError<E> {
     PlayerCameraSurface(super::player_camera_surface::SurfaceCameraError),
     PlayerCameraAuxiliary(super::player_camera_auxiliary::AuxiliaryCameraError),
     PlayerCameraDispatch(super::player_camera_dispatch::CameraDispatchError),
+    PlayerStatus(super::player_status::StatusError),
+    PlayerEngineSound(super::player_engine_sound::EngineSoundError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -185,6 +187,71 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_engine_sound(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_engine_sound::advance(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerEngineSound);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_shield_status(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_status::advance_shield(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+        )
+        .map_err(SceneError::PlayerStatus);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_status_filters(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_status::advance_filters(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerStatus);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_transform_cues(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_status::advance_transform_cues(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerStatus);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn select_player_free_flight_camera(
         &mut self,
         owner: ObjectId,

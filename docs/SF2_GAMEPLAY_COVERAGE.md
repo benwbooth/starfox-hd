@@ -152,6 +152,26 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Player-frame shield display/warnings, contact filters with heading-bank decay,
+and transformation cues now use the existing live damage/pose/mode owners
+(`$07:AF5B..AFE7`, `$06:9195..9235`, `$06:8FE2..9074`). Pending display updates
+do not suppress shield-loss warnings; death preserves warning history. The
+transformation countdown and request-inhibition bit share one byte. The full
+strategy-entry prefix now reads the real boost/brake warning flags rather than
+duplicate booleans. Engine-sound composition (`$06:9267..9456`) preserves the
+source's wrapped signed motion bands and independent flight/Walker/carry gates.
+Its output is a shared sound request, not an actor's camera counter or immediate
+audio playback. The enclosing sound caller supports currently source-complete
+actions; the unported `$0D:C1C9` stream and its sound exemption remain excluded.
+Seventeen new native tests and eleven original groups cover 2,899,968
+cases/visits, including independently retained state. All 1,499 native tests
+and two architecture checks pass in debug/release; compatibility passes 1,507
+tests and 35 runtime checks. All 180 selected original player/movement groups
+pass in both profiles, plus 803 source checks, 238 extractor/lowerer tests and
+catalog/static/architecture checks. Scene-host wiring is complete for these
+services; enclosing player strategy, surface crossings, other action streams
+and shipping frame/audio ownership still block whole-game certification.
+
 The complete primary-camera dispatcher (`$07:8000..812B`) now calls the real
 common/surface controllers, recoil, view selector and auxiliary tasks in their
 mode-specific order. The paired continuity caller, projection-height update,

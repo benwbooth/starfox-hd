@@ -63,6 +63,7 @@ pub struct PlayerPathRecords {
     pub target_lock: Option<super::player_target_lock::TargetLock>,
     pub reticle_display: Option<super::player_reticle::ReticleDisplay>,
     pub visit: Option<super::player_visit::PlayerVisitControl>,
+    pub status: Option<super::player_status::PlayerStatus>,
     /// Scripted input words (6A88/6A8A), ORed after controller remapping and
     /// the activity mask, then cleared only by an admitted input visit.
     pub injected_input: Option<super::InputState>,
@@ -245,6 +246,8 @@ pub struct ScenePathWorld {
     // the same player. Both stores have one generation-checked owner.
     shots: [Option<BoundShots>; OBJECT_CAPACITY],
     pub audio: AudioState,
+    /// Shared player engine request (1CE5), not an actor extension counter.
+    pub engine_sound_control: Option<super::player_engine_sound::EngineSoundControl>,
     pub audio_routing: Option<AudioRouting>,
     /// Layout values are initializer observations only. Radio uses the live
     /// reticle coordinate and boss-bar maximum once their owners are bound.
@@ -402,6 +405,7 @@ impl ScenePathWorld {
             players: [None; OBJECT_CAPACITY],
             shots: [None; OBJECT_CAPACITY],
             audio: AudioState::default(),
+            engine_sound_control: None,
             audio_routing: None,
             radio: None,
             contacts: ContactStore::default(),

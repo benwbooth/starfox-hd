@@ -113,6 +113,26 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported player-frame shield display/loss warnings, contact-filter and
+  heading-bank decay, and transformation cues (`$07:AF5B..AFE7`,
+  `$06:9195..9235`, `$06:8FE2..9074`). Display acknowledgement stays owned by
+  its separate consumer; warning history survives death. Transformation
+  countdown and input inhibition now share their real byte. The complete
+  strategy-entry prefix also reads boost/brake's actual warning flags rather
+  than duplicated booleans. The engine-sound composer (`$06:9267..9456`) uses
+  live flight/Walker motion, protection and carry state, including wrapped
+  signed thresholds; its gated caller supports the currently implemented
+  action identities. The unported special-scene action `$0D:C1C9` and its
+  sound exemption remain excluded, not represented by an empty action.
+  Seventeen new native tests and eleven original-code groups cover 2,899,968
+  cases/visits. All 1,499 native tests plus two architecture checks pass in
+  debug/release; compatibility passes 1,507 tests plus 35 runtime checks.
+  All 180 selected original player/movement groups pass in both profiles,
+  as do 803 source checks, 238 extractor/lowerer tests and catalog/static/
+  architecture checks. These services are scene-host wired, but the enclosing
+  player strategy, surface crossings, special action streams and shipping
+  frame/audio ownership remain open; this is not a playable-campaign claim.
+
 - Ported the complete primary-camera dispatcher (`$07:8000..812B`), its
   paired continuity caller, projection-height publication, post-blend plane
   clamp and free-flight camera installer. Scripted views, action gates and

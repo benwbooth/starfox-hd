@@ -23,6 +23,7 @@ const ENTER_WALKER: u8 = 9;
 const LEAVE_WALKER: u8 = 11;
 const ENTER_ALTERNATE: u8 = 13;
 const LEAVE_ALTERNATE: u8 = 15;
+const REQUEST_INHIBITED: u8 = 0x40;
 // Original five-row mode-family / entry-phase table ($06:9A10).
 const REQUEST_PROFILES: [(u8, u8); 5] = [(0, 0), (0x10, 5), (0x10, 7), (0x30, 3), (0x20, 0)];
 
@@ -51,9 +52,20 @@ pub struct PlayerModeSelection {
     pub transition_control: u8,
     /// Surface/carry flags (6B64), shared with surface-effect movement.
     pub surface_control: u8,
-    /// Only the new-request gate at 6B9B bit 40. It does not suppress
-    /// already-pending transformation work.
-    pub request_inhibited: bool,
+    /// Transformation cue count/direction and the live new-request gate
+    /// (6B9B). The status service clears bit 40 when its cue is reached.
+    /// That gate does not suppress already-pending transformation work.
+    pub cue_control: u8,
+}
+
+impl PlayerModeSelection {
+    pub const fn request_inhibited(self) -> bool {
+        self.cue_control & REQUEST_INHIBITED != 0
+    }
+    pub fn set_request_inhibited(&mut self, inhibited: bool) {
+        self.cue_control =
+            (self.cue_control & !REQUEST_INHIBITED) | if inhibited { REQUEST_INHIBITED } else { 0 };
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +103,7 @@ pub fn advance(
     request: ModeRequest,
 ) -> Result<bool, ModeSelectionError> {
     let mut state = selection(objects, world, owner)?;
-    if !state.request_inhibited {
+    if !state.request_inhibited() {
         let carried = world
             .player_carry_mode
             .ok_or(ModeSelectionError::MissingCarryMode)?

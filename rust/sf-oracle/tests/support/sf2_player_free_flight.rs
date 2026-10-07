@@ -23,11 +23,7 @@ impl Fixture {
                 true,
             ),
             (WRAM + SLOT + 0x6B64, u16::from(mode.surface_control), true),
-            (
-                WRAM + SLOT + 0x6B9B,
-                u16::from(mode.request_inhibited) * 0x40,
-                true,
-            ),
+            (WRAM + SLOT + 0x6B9B, u16::from(mode.cue_control), true),
             (
                 WRAM + SLOT + 0x6B94,
                 u16::from(motion.walker_contact_control),
@@ -294,7 +290,11 @@ fn complete_free_flight_matches_original_surface_effect_and_mode_transition_hand
         record.mode_selection.as_mut().unwrap().requested = (low & 0xF0) | (seed % 5) as u8;
         record.mode_selection.as_mut().unwrap().transition_control = low;
         record.mode_selection.as_mut().unwrap().surface_control = low.rotate_left(2);
-        record.mode_selection.as_mut().unwrap().request_inhibited = seed % 7 == 0;
+        record
+            .mode_selection
+            .as_mut()
+            .unwrap()
+            .set_request_inhibited(seed % 7 == 0);
         record.vertical.as_mut().unwrap().control_flags = low;
         record.vertical.as_mut().unwrap().limit_flags = !low;
         f.free_seed(&mut source);

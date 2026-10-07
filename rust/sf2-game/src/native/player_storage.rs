@@ -38,7 +38,8 @@ pub struct PlayerStorage {
     pub fine_pitch: u16,
     pub fine_yaw: u16,
     pub bank: Angle,
-    /// Initial retained shield (`6C38`), distinct from live reserve `6C00`.
+    /// Displayed shield and pending-consumption bit (`6C38`), initialized
+    /// from reserve but subsequently distinct from live reserve `6C00`.
     pub retained_shield: u8,
 }
 
@@ -163,6 +164,7 @@ pub fn replace(
             pilot_code: inputs.pilot_code,
             ..Default::default()
         }),
+        status: Some(Default::default()),
         injected_input: Some(Default::default()),
         roll: Some(Default::default()),
         pose: Some(Default::default()),
