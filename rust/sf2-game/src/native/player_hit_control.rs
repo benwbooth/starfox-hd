@@ -12,7 +12,6 @@ const HIT_BLINK_MASK: u8 = 0x03;
 const IMPACT_FEEDBACK_MASK: u8 = 0x70;
 const DEFLECTION_FEEDBACK_MASK: u8 = 0x08;
 const SOUND_RANDOM_MASK: u8 = 0x07;
-const BANK_IMPULSE: i8 = 30;
 const RECOIL_DECAY: i16 = 16;
 const TURN_AWAY: i8 = 64;
 const HEAVY_SOUND_THRESHOLD: u8 = 4;
@@ -56,9 +55,6 @@ pub struct PlayerHitControl {
     pub feedback_flags: u8,
     /// Fine-angle recoil (6B3B), shared by impact and authored path services.
     pub camera_pitch_recoil: i16,
-    pub bank_impulse: i8,
-    pub impact_latched: bool,
-    pub impact_variant: bool,
     pub reserve_shield: u8,
     pub deflection_sound_cooldown: u8,
 }
@@ -149,9 +145,11 @@ impl PlayerHitControl {
         }
     }
 
-    /// Light impacts during recovery have NO effects. Heavy impacts restart
-    /// recovery and replace its tags; neither overwrites nonzero recoil.
-    pub fn impact(&mut self, impact: Impact, strategy_clock: u8) -> bool {
+    /// Hit-owned prefix of the impact service. The complete caller in
+    /// player_impact updates the canonical charge control and pose bank next.
+    /// Light impacts during recovery have no effects; heavy impacts restart
+    /// recovery and replace its tags. Neither overwrites nonzero recoil.
+    pub fn begin_impact(&mut self, impact: Impact) -> bool {
         let (recovery, feedback, recoil) = match impact {
             Impact::Light if self.recovery != 0 => return false,
             Impact::Light => LIGHT_IMPACT_PROFILE,
@@ -161,13 +159,6 @@ impl PlayerHitControl {
         self.feedback_duration = feedback;
         self.feedback_flags |= IMPACT_FEEDBACK_MASK;
         self.initialize_pitch_recoil(recoil);
-        self.impact_latched = true;
-        self.impact_variant = false;
-        self.bank_impulse = if strategy_clock & 1 == 0 {
-            BANK_IMPULSE
-        } else {
-            -BANK_IMPULSE
-        };
         true
     }
 
@@ -208,7 +199,7 @@ pub fn impact_sound(damage: u8) -> ContactSound {
 pub struct ContactTurn {
     pub target_yaw: Angle,
     pub yaw_impulse: i8,
-    pub bank_target: i8,
+    pub lateral_impulse: i8,
 }
 
 /// Invoke after player-mode and other-class suppression gates. Bearing is
@@ -226,7 +217,7 @@ pub fn turn_from_contact(position: Vector3, yaw: Angle, other: Vector3) -> Conta
     ContactTurn {
         target_yaw: Angle::from_units(target),
         yaw_impulse: impulse,
-        bank_target: impulse / 2,
+        lateral_impulse: impulse / 2,
     }
 }
 
@@ -353,40 +344,35 @@ mod tests {
         assert_eq!(state.recovery, 0x80);
         assert!(!flags.collision_disabled);
         let before = state;
-        assert!(!state.impact(Impact::Light, 0));
+        assert!(!state.begin_impact(Impact::Light));
         assert_eq!(state, before);
-        assert!(state.impact(Impact::Heavy, 0));
+        assert!(state.begin_impact(Impact::Heavy));
         assert_eq!(state.recovery, 10);
     }
 
     #[test]
-    fn impact_preserves_existing_recoil_and_uses_shared_clock_parity() {
+    fn impact_prefix_preserves_existing_recoil_and_feedback_bits() {
         for impact in [Impact::Light, Impact::Heavy] {
-            for clock in [0, 1, 254, 255] {
-                for recoil in [0, -37, 79] {
-                    let mut state = PlayerHitControl {
-                        camera_pitch_recoil: recoil,
-                        feedback_flags: 0x89,
-                        impact_variant: true,
-                        ..PlayerHitControl::default()
-                    };
-                    assert!(state.impact(impact, clock));
-                    let (recovery, feedback, new_recoil) = match impact {
-                        Impact::Light => (4, 2, 96),
-                        Impact::Heavy => (10, 8, 128),
-                    };
-                    assert_eq!(
-                        (state.recovery, state.feedback_duration),
-                        (recovery, feedback)
-                    );
-                    assert_eq!(
-                        state.camera_pitch_recoil,
-                        if recoil == 0 { new_recoil } else { recoil }
-                    );
-                    assert_eq!(state.feedback_flags, 0xF9);
-                    assert_eq!(state.bank_impulse, if clock & 1 == 0 { 30 } else { -30 });
-                    assert!(state.impact_latched && !state.impact_variant);
-                }
+            for recoil in [0, -37, 79] {
+                let mut state = PlayerHitControl {
+                    camera_pitch_recoil: recoil,
+                    feedback_flags: 0x89,
+                    ..PlayerHitControl::default()
+                };
+                assert!(state.begin_impact(impact));
+                let (recovery, feedback, new_recoil) = match impact {
+                    Impact::Light => (4, 2, 96),
+                    Impact::Heavy => (10, 8, 128),
+                };
+                assert_eq!(
+                    (state.recovery, state.feedback_duration),
+                    (recovery, feedback)
+                );
+                assert_eq!(
+                    state.camera_pitch_recoil,
+                    if recoil == 0 { new_recoil } else { recoil }
+                );
+                assert_eq!(state.feedback_flags, 0xF9);
             }
         }
     }
@@ -448,7 +434,7 @@ mod tests {
                 turn.yaw_impulse,
                 if yaw.wrapping_sub(192) < 128 { 64 } else { -64 }
             );
-            assert_eq!(turn.bank_target, turn.yaw_impulse / 2);
+            assert_eq!(turn.lateral_impulse, turn.yaw_impulse / 2);
         }
     }
 }

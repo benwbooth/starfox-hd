@@ -16,6 +16,8 @@ const PART_FEEDBACK_REMAP: [(u8, u8); 3] = [(0x02, 0x80), (0x04, 0x40), (0x01, 0
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerContactState {
     pub hit: PlayerHitControl,
+    pub pose: super::player_pose::PlayerPose,
+    pub charge: super::player_charge::PlayerCharge,
     /// Player status 6B77 bit 01.
     pub active: bool,
     /// Player auxiliary 6A72 bit 10.
@@ -56,11 +58,15 @@ pub trait PlayerContactHost: HitResponseHost {
     fn protection(&self, owner: ObjectId) -> Result<DeflectionProtection, Self::Error>;
     fn suppress_contact_turn(&self, owner: ObjectId) -> Result<bool, Self::Error>;
     fn part_feedback(&mut self, owner: ObjectId) -> Result<&mut u8, Self::Error>;
-    fn contact_turn(&mut self, owner: ObjectId) -> Result<&mut Option<ContactTurn>, Self::Error>;
+    fn publish_contact_turn(
+        &mut self,
+        owner: ObjectId,
+        turn: ContactTurn,
+    ) -> Result<(), Self::Error>;
+    fn apply_player_impact(&mut self, owner: ObjectId, impact: Impact) -> Result<(), Self::Error>;
     fn contacts_enabled(&self) -> Result<bool, Self::Error>;
     fn contacts_blocked(&self) -> Result<bool, Self::Error>;
     fn suppress_turn(&self) -> Result<bool, Self::Error>;
-    fn strategy_clock(&self) -> u8;
     fn primary_player(&self) -> Option<ObjectId>;
     /// Other actor flag 25 bit 80, independent of projectile class.
     fn damages_player_parts(&self, other: ObjectId) -> Result<bool, Self::Error>;
@@ -227,14 +233,14 @@ pub fn respond<H: PlayerContactHost>(
             .ok_or(PlayerContactError::MissingActor(other_id))?
             .base
             .position;
-        *host.contact_turn(owner).map_err(PlayerContactError::Host)? = Some(
+        host.publish_contact_turn(
+            owner,
             player_hit_control::turn_from_contact(position, yaw, other_position),
-        );
+        )
+        .map_err(PlayerContactError::Host)?;
     }
-    let clock = host.strategy_clock();
-    host.player_hit_mut(owner)
-        .map_err(PlayerContactError::Host)?
-        .impact(Impact::Heavy, clock);
+    host.apply_player_impact(owner, Impact::Heavy)
+        .map_err(PlayerContactError::Host)?;
     // Cue selection sees original damage, before reserve absorption.
     sound(
         host,
@@ -439,8 +445,24 @@ mod tests {
         fn part_feedback(&mut self, _: ObjectId) -> Result<&mut u8, Self::Error> {
             Ok(&mut self.player.part_feedback)
         }
-        fn contact_turn(&mut self, _: ObjectId) -> Result<&mut Option<ContactTurn>, Self::Error> {
-            Ok(&mut self.player.turn)
+        fn publish_contact_turn(
+            &mut self,
+            _: ObjectId,
+            turn: ContactTurn,
+        ) -> Result<(), Self::Error> {
+            self.player.turn = Some(turn);
+            Ok(())
+        }
+        fn apply_player_impact(&mut self, _: ObjectId, impact: Impact) -> Result<(), Self::Error> {
+            if self.player.hit.begin_impact(impact) {
+                self.player.charge.control = (self.player.charge.control | 0x40) & !0x80;
+                self.player.pose.heading_return_bank = if self.rules.strategy_clock & 1 == 0 {
+                    30
+                } else {
+                    -30
+                };
+            }
+            Ok(())
         }
         fn contacts_enabled(&self) -> Result<bool, Self::Error> {
             Ok(self.rules.enabled)
@@ -450,9 +472,6 @@ mod tests {
         }
         fn suppress_turn(&self) -> Result<bool, Self::Error> {
             Ok(self.rules.suppress_turn)
-        }
-        fn strategy_clock(&self) -> u8 {
-            self.rules.strategy_clock
         }
         fn primary_player(&self) -> Option<ObjectId> {
             self.primary
@@ -583,7 +602,7 @@ mod tests {
                     world.objects.get(world.owner).unwrap().base.hit_flags,
                     flags & 0xF8
                 );
-                assert_eq!(world.player.hit.bank_impulse, -30);
+                assert_eq!(world.player.pose.heading_return_bank, -30);
                 assert!(world.player.turn.is_some());
                 assert!(world.actors[world.owner.index()].hit_marked);
             }

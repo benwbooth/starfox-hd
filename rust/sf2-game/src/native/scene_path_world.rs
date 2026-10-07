@@ -207,6 +207,8 @@ pub struct ScenePathWorld {
     pub player_carry_mode: Option<u8>,
     pub environment_plane_height: Option<i16>,
     pub player_surface_support: Option<super::player_motion::PlayerSurfaceSupport>,
+    /// 1DAE: first post-flight downward probe; the forecast probe does not replace it.
+    pub player_surface_height: Option<i16>,
     pub friend_health: Option<super::path_death::FriendHealth>,
     pub targeting_upgrade: Option<super::path_target::TargetingUpgradeState>,
     pub linked_effect_activity: Option<super::path_protection::LinkedEffectActivity>,
@@ -345,6 +347,7 @@ impl ScenePathWorld {
             player_carry_mode: None,
             environment_plane_height: None,
             player_surface_support: None,
+            player_surface_height: None,
             friend_health: None,
             targeting_upgrade: None,
             linked_effect_activity: None,

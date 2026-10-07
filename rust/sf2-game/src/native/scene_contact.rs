@@ -9,7 +9,7 @@ use super::path_control::PlayerTarget;
 use super::path_protection::DeflectionProtection;
 use super::path_sound::AuthoredCue;
 use super::player_contact::{self, PlayerContactHost};
-use super::player_hit_control::{ContactSound, ContactTurn, PlayerHitControl};
+use super::player_hit_control::{ContactSound, ContactTurn, Impact, PlayerHitControl};
 use super::program_resources::ProgramResources;
 use super::program_state::ProgramData;
 use super::scene_path_world::WorldInputError;
@@ -36,7 +36,6 @@ pub struct PlayerContactControl {
     pub hit: PlayerHitControl,
     /// Auxiliary 6A72 bit 10; independent of controlled flags at 6B65.
     pub ignores_contacts: bool,
-    pub turn: Option<ContactTurn>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,17 +230,18 @@ impl<C: SceneCallbacks> PlayerContactHost for SceneActors<'_, C> {
             )))?
             .flags)
     }
-    fn contact_turn(&mut self, owner: ObjectId) -> Result<&mut Option<ContactTurn>, Self::Error> {
-        Ok(&mut self
-            .world
-            .player_mut(self.objects, owner)
-            .map_err(SceneError::World)?
-            .contact
-            .as_mut()
-            .ok_or(SceneError::World(WorldInputError::MissingPlayerContact(
-                owner,
-            )))?
-            .turn)
+    fn publish_contact_turn(
+        &mut self,
+        owner: ObjectId,
+        turn: ContactTurn,
+    ) -> Result<(), Self::Error> {
+        super::player_impact::publish_turn(self.objects, self.world, owner, turn)
+            .map_err(SceneError::PlayerImpact)
+    }
+    fn apply_player_impact(&mut self, owner: ObjectId, impact: Impact) -> Result<(), Self::Error> {
+        super::player_impact::impact(self.objects, self.world, owner, impact)
+            .map(|_| ())
+            .map_err(SceneError::PlayerImpact)
     }
     fn contacts_enabled(&self) -> Result<bool, Self::Error> {
         self.world
@@ -265,9 +265,6 @@ impl<C: SceneCallbacks> PlayerContactHost for SceneActors<'_, C> {
                 WorldInputError::MissingPlayerConfiguration,
             ))?
             == SPECIAL_PLAYER_CONFIGURATION)
-    }
-    fn strategy_clock(&self) -> u8 {
-        self.world.strategy_clock as u8
     }
     fn primary_player(&self) -> Option<ObjectId> {
         self.world.primary_player

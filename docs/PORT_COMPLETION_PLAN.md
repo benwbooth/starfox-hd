@@ -113,6 +113,26 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the post-flight recoil and complete surface-damage tail
+  (`$06:E273..E2D0`, `$07:E18E..E2F1`) and connected contact-turn/impact
+  publication to their actual pose, charge and translation owners. Removed
+  the detached contact-turn, bank and charge-flag snapshots; the next pose
+  update now consumes those effects. Recoil keeps its one-sample lookup
+  advance, single multiplication, retained vertical integration and signed
+  decay. Surface damage preserves the first probe's group, uses real
+  previous-position/displacement forecasting, updates only specified flags,
+  routes protection sounds/random draws in order, and retains signed shield
+  clamping without spill-through and unsigned sound selection. Six original
+  comparison groups pass 366,624 entry calls, including 4,096 continuous
+  capture/pose/translation/recoil/damage visits and all 577 shape headers.
+  Five native groups exercise real pose consumption, lazy rejection, missing
+  dependencies and fault latching. Final-tree validation passes 1,364 native
+  tests and both architecture checks in debug/release, 1,372 compatibility
+  tests and 35 runtime checks, all 101 player/movement comparison groups in
+  debug/release, 714 source checks, 238 extractor/lowerer checks, exact catalog
+  and architecture checks, and all three application builds. The original player frame's map-boundary
+  correction and enclosing strategy remain the next integration blockers.
+
 - Ported complete flight translation (`$06:EE0A..F00F`), including protected
   flight's carry/clearance rules, the scripted-view gate, both real reserved
   actor vector publications, signed thrust, axis permissions, free-flight

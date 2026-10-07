@@ -53,6 +53,9 @@ mod surface_tests;
 #[path = "support/sf2_player_speed.rs"]
 mod speed_tests;
 
+#[path = "support/sf2_player_impact.rs"]
+mod impact_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};
@@ -385,6 +388,12 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                 });
                 let surface = records.surface.unwrap();
                 let motion = records.motion.unwrap();
+                assert_eq!(motion.lateral_impulse, byte(0x6AAD) as i8);
+                assert_eq!(motion.previous_position, Vector3 {
+                    x: word(0x6AC7) as i16,
+                    y: word(0x6AC9) as i16,
+                    z: word(0x6ACB) as i16,
+                });
                 assert_eq!(motion.surface_velocity, [word(0x6B11) as i16, word(0x6B13) as i16]);
                 assert_eq!(motion.contact_flags, byte(0x6BE6));
                 assert_eq!(surface.plane_height, word(0x6A7D) as i16);

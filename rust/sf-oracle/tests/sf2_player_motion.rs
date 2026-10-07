@@ -460,6 +460,7 @@ fn constrained_flight_matches_original_all_shapes_and_full_retained_words() {
             .motion = Some(PlayerMotion {
             surface_velocity: [value.rotate_left(3) as i16, !value as i16],
             contact_flags: value as u8,
+            ..Default::default()
         });
         native.world.strategy_clock = value;
         native.tilt = SurfaceTilt {

@@ -169,9 +169,6 @@ fn encounter_feedback_gates_full_word_mode_and_preserves_every_other_hit_field()
         reserve_shield: 37,
         secondary_protection: 173,
         hold_secondary_protection: true,
-        impact_latched: true,
-        impact_variant: true,
-        bank_impulse: -119,
         deflection_sound_cooldown: 251,
     };
     for mode in 0..=u16::MAX {

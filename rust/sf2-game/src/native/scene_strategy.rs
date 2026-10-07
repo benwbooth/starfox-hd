@@ -136,6 +136,8 @@ pub enum SceneError<E> {
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
     PlayerMotion(super::player_motion::MotionError),
+    PlayerImpact(super::player_impact::ImpactError),
+    PlayerSurfaceDamage(super::player_surface_damage::SurfaceDamageError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
@@ -165,6 +167,38 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_surface_damage(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_surface_damage::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+        )
+        .map_err(SceneError::PlayerSurfaceDamage);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_recoil(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_impact::advance_recoil(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerImpact);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Full flight translation after pose; the caller retains any surface tilt.
     pub fn advance_player_motion(
         &mut self,

@@ -30,6 +30,10 @@ const ORDINARY_VELOCITY_SCALE: i16 = 1;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerMotion {
+    /// 6AC7/C9/CB, captured before the mode-specific player update.
+    pub previous_position: Vector3,
+    /// 6AAD, signed sideways impulse from contact turn and terrain response.
+    pub lateral_impulse: i8,
     /// Retained horizontal response (6B11/13), not base velocity.
     pub surface_velocity: [i16; 2],
     /// Shared with map-cell/view coverage and contact feedback (6BE6).
@@ -84,6 +88,26 @@ impl From<SurfaceMotionError> for MotionError {
     fn from(value: SurfaceMotionError) -> Self {
         Self::Surface(value)
     }
+}
+
+/// `$06:9E25..9E36`: caller-owned history, not the position after movement.
+pub fn capture_position(
+    objects: &ObjectStore,
+    world: &mut ScenePathWorld,
+    owner: ObjectId,
+) -> Result<(), MotionError> {
+    let position = objects
+        .get(owner)
+        .ok_or(WorldInputError::MissingActor(owner))?
+        .base
+        .position;
+    world
+        .player_mut(objects, owner)?
+        .motion
+        .as_mut()
+        .ok_or(MotionError::MissingMotion(owner))?
+        .previous_position = position;
+    Ok(())
 }
 
 /// Source helper $06:EEEF: publish the unfiltered result on the reserved

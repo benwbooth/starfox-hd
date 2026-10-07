@@ -82,6 +82,9 @@ impl Scene {
                 owner,
                 PlayerPathRecords {
                     contact: Some(PlayerContactControl::default()),
+                    pose: Some(Default::default()),
+                    charge: Some(Default::default()),
+                    motion: Some(Default::default()),
                     protection: Some(DeflectionProtection::default()),
                     auxiliary: Some(SelectedAuxiliaryState {
                         mode: 0x10,
@@ -261,8 +264,10 @@ fn new_and_continuing_contacts_mutate_actual_health_auxiliary_and_shared_particl
     let contact = scene.record().contact.unwrap();
     assert_eq!(contact.hit.reserve_shield, 0);
     assert_eq!(contact.hit.recovery, 10);
-    assert_eq!(contact.hit.bank_impulse, -30);
-    assert!(contact.turn.is_some());
+    assert_eq!(scene.record().pose.unwrap().heading_return_bank, -30);
+    assert_eq!(scene.record().charge.unwrap().control, 0x40);
+    assert_eq!(scene.record().pose.unwrap().yaw_trim.abs(), 64);
+    assert_eq!(scene.record().motion.unwrap().lateral_impulse.abs(), 32);
     assert_eq!(scene.execution.hit_context.other_parameter, 71);
     assert_eq!(
         scene.events(),

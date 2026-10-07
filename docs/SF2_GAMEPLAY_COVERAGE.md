@@ -152,6 +152,23 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The post-flight recoil and full surface-damage tail now share canonical
+state with the other player services. Contact turn writes the actor's motion
+phase, pose yaw trim and translation recoil; impact writes the actual charge
+control and heading-return bank. Former detached response snapshots are
+removed. Recoil preserves the source's advanced lookup sample and extra
+vertical integration. Surface damage preserves group/height publication,
+real proxy forecasting, branch-specific obstruction clearing, protected
+sound/RNG order, reserve shielding and hull death. Six unmodified-original
+groups pass 366,624 entry calls, including 4,096 retained
+position/pose/translation/recoil/damage visits and live shape geometry.
+Five native groups cover consumer integration and failure ordering. Native
+debug/release (1,364 tests), compatibility (1,372 unit/35 runtime), all 101
+player/movement groups in both profiles, 714 source checks, 238 extractor/
+lowerer checks, exact catalog/architecture checks and all three app builds
+pass. This
+does not close the still-unported map-boundary tail or shipping player frame.
+
 The complete flight-translation caller (`$06:EE0A..F00F`) now composes the
 two reserved-actor velocity calls with real surface-constrained movement.
 It preserves protected-flight speed/axis/thrust writes before the view gate,

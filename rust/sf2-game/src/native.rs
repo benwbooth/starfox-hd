@@ -106,6 +106,8 @@ pub mod player_surface_particle;
 pub mod player_surface;
 pub mod player_speed;
 pub mod player_motion;
+pub mod player_impact;
+pub mod player_surface_damage;
 mod player_effect;
 pub mod program_resources;
 pub mod program_state;
