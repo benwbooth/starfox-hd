@@ -113,6 +113,28 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the complete player motion-prefix reset (`$06:DA38..DA53`) and
+  scene-entry movement preparation (`$06:DE7F..DEED`). The reset clears 391
+  bytes' typed meaning while preserving the final 81 bytes, allocation
+  ownership and shot bindings. Mixed service records retain their high
+  fields explicitly; missing retained state fails before the prefix clear.
+  Full preparation clears only the ambient low byte, resets shared steering,
+  restores published equipment, clears actor-relative motion/carry history
+  without changing base velocity, then selects ordinary surface mode. Later
+  missing inputs preserve earlier effects and latch the scene fault. Eight
+  native tests and one original-code group pass every field-byte pattern
+  across seven resource layouts, repeated resets, every ambient word and
+  surface-mode byte, and missing-state ordering. Debug and release pass
+  1,598 native tests, 1,606 compatibility-feature tests, 35 runtime tests,
+  33 path tests and 256 original-code comparisons (229 player storage),
+  all application tests, five real-app smoke tests and builds. Static checks
+  pass 870 source tests, 217 lowerer tests, three backlog tests, exact
+  regeneration and the architecture audit. Logs:
+  `/tmp/sf2-player-motion-reset-validation-oct07.log` and
+  `/tmp/sf2-player-motion-reset-static-oct07.log`. Region/occupancy reset,
+  action termination, remaining transition phases and shipping frame ownership
+  remain open; this is not a complete scene-entry or campaign claim.
+
 - Ported the complete scene-transition actor/proxy clear (`$03:AC81..ACDB`),
   prerequisite to the player's exit-to-entry phase. It releases selected
   actors' proxy handles before marking them, then drains remaining snapshots

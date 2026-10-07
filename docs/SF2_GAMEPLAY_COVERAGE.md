@@ -152,6 +152,24 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The player motion reset (`$06:DA38..DA53`) and full movement preparation
+(`$06:DE7F..DEED`) now preserve the source's partial-clear boundary: 391 bytes
+are cleared and 81 remain. Typed mixed records preserve their retained
+fields, resource and shot ownership stay intact, and scripted action state
+is not stopped by this helper. Preparation clears ambient low-byte control
+and shared steering, restores published equipment, clears relative motion
+and carry history but not base velocity, and replaces only the surface-kind
+bits. Eight native tests and one original-code group pass all field-byte
+patterns, seven allocation layouts, repeat calls, all ambient words and
+surface bytes, and ordered missing-input failures. Debug and release pass
+1,598 native, 1,606 compatibility-feature, 35 runtime, 33 path and 256
+original-code tests (229 player storage), all app tests, five real-app smoke
+tests and builds. Static checks pass 870 source tests, 217 lowerer tests,
+three backlog tests, exact regeneration and the architecture audit. Logs are
+`/tmp/sf2-player-motion-reset-validation-oct07.log` and
+`/tmp/sf2-player-motion-reset-static-oct07.log`. The enclosing scene entry
+and production-frame integration remain incomplete.
+
 Scene-transition cleanup (`$03:AC81..ACDB`) now selects actors by their
 general-search flag, detaches/releases their proxies before marking removal,
 and drains all remaining snapshots in active-list order. It retains actor

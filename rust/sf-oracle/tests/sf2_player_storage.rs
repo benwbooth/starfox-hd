@@ -16,6 +16,9 @@ mod node_exit_admission_tests;
 #[path = "support/sf2_scene_clear.rs"]
 mod scene_clear_tests;
 
+#[path = "support/sf2_player_motion_reset.rs"]
+mod motion_reset_tests;
+
 #[path = "support/sf2_player_format.rs"]
 mod format_tests;
 

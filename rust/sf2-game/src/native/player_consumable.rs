@@ -25,8 +25,8 @@ const RECOVERY_EFFECT_NUMBER: u8 = 22;
 pub struct PlayerConsumableControl {
     /// Packed input delay (6B61); its outer service is independently scheduled.
     pub input_control: u8,
-    /// Only the two triggered-use blockers in 6BE9. Target-control bits
-    /// 80/40 live in PlayerTargetControl, not in a second full-byte copy.
+    /// Only the two triggered-use blockers in 6BE9. Other bits of that byte
+    /// are not owned by the consumable service; target control uses 6A8C.
     pub projectile_blockers: TriggeredUseBlockers,
     /// 6B7D bit 40. Its protection-hold bit 80 has a separate typed owner.
     pub recovery_blocked: bool,
