@@ -717,7 +717,7 @@ fn triggered_item_timeline_drives_real_projectile_lock_recoil_and_full_retiremen
                 if let Some(current) = scene
                     .objects
                     .get(parent)
-                    .and_then(|actor| actor.base.first_child)
+                    .and_then(|actor| actor.base.attachment_next)
                 {
                     assert_eq!(*child.get_or_insert(current), current);
                 }

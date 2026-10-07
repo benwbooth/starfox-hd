@@ -50,9 +50,9 @@ fn all_number_bytes_mark_only_first_match_on_flag_selected_chain_and_preserve_re
                     .get_mut(if owns_chain { mother } else { owner })
                     .unwrap()
                     .base
-                    .first_child = Some(ignored);
-                objects.get_mut(parent).unwrap().base.first_child = Some(first);
-                objects.get_mut(first).unwrap().base.next_sibling = Some(duplicate);
+                    .attachment_next = Some(ignored);
+                objects.get_mut(parent).unwrap().base.attachment_next = Some(first);
+                objects.get_mut(first).unwrap().base.attachment_next = Some(duplicate);
                 for child in [first, duplicate] {
                     objects.get_mut(child).unwrap().base.attachment = Some(parent);
                     runtime
@@ -143,8 +143,8 @@ fn absent_and_malformed_targets_fault_without_mutation_or_cursor_advance() {
             }
             _ => {
                 objects.get_mut(owner).unwrap().base.attachment = Some(mother);
-                objects.get_mut(mother).unwrap().base.first_child = Some(child);
-                objects.get_mut(child).unwrap().base.next_sibling =
+                objects.get_mut(mother).unwrap().base.attachment_next = Some(child);
+                objects.get_mut(child).unwrap().base.attachment_next =
                     Some(if case == 3 { missing } else { child });
                 if case == 3 {
                     RelationshipError::MissingActor(missing)

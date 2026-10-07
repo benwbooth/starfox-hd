@@ -185,7 +185,7 @@ fn player_linked_uses_hit_side_not_selected_slot_and_does_not_create_child_owner
                     .unwrap();
             assert_eq!(created, expected_id);
             assert_eq!(objects, expected);
-            assert_eq!(objects.get(caller).unwrap().base.first_child, None);
+            assert_eq!(objects.get(caller).unwrap().base.attachment_next, None);
             assert_eq!(objects.get(created).unwrap().extension.parent, None);
             assert_eq!(
                 objects.get(created).unwrap().base.contacts.hit_side,

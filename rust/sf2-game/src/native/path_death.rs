@@ -35,8 +35,8 @@ pub enum DeathError {
 }
 
 /// Diagnose invalid native state before changing either actors or health.
-/// Only the direct sibling chain is marked, not grandchildren. The source
-/// owner flag gates traversal independently of the refresh-suppression flag.
+/// The complete linear attachment suffix is marked, including nested
+/// children. The owner flag gates traversal independently of suppression.
 pub fn mark_for_death(
     objects: &mut ObjectStore,
     owner: ObjectId,
@@ -57,7 +57,7 @@ pub fn mark_for_death(
     let mut visited = [false; OBJECT_CAPACITY];
     visited[owner.index()] = true;
     let mut next = if actor.extension.path_state.motion.refresh_child_chain {
-        actor.base.first_child
+        actor.base.attachment_next
     } else {
         None
     };
@@ -69,7 +69,7 @@ pub fn mark_for_death(
         let actor = objects
             .get(child)
             .ok_or_else(|| error(RelationshipError::MissingActor(child)))?;
-        next = actor.base.next_sibling;
+        next = actor.base.attachment_next;
         affected.push(child);
     }
     if selector != 0 {

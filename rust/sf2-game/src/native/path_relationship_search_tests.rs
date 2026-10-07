@@ -35,8 +35,7 @@ fn nearest_shape_filters_differ_and_only_the_attachment_is_replaced() {
     let candidate_before = candidate.clone();
     let owner_actor = objects.get_mut(owner).unwrap();
     owner_actor.base.attachment = Some(old);
-    owner_actor.base.first_child = Some(old);
-    owner_actor.base.next_sibling = Some(general);
+    owner_actor.base.attachment_next = Some(general);
     owner_actor.extension.parent = Some(old);
     owner_actor.extension.relative_position = Vector3 {
         x: 77,

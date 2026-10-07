@@ -121,11 +121,7 @@ fn original_chain_handles_full_pool_linear_parents_and_self_reference_without_sk
             actor.base.pitch = Angle::from_units(value as u8);
             actor.base.yaw = Angle::from_units((value as u8).wrapping_add(index as u8));
             actor.base.roll = Angle::from_units((value as u8).wrapping_neg());
-            if index == 0 || index % 2 == 0 {
-                actor.base.first_child = next;
-            } else {
-                actor.base.next_sibling = next;
-            }
+            actor.base.attachment_next = next;
             actor.base.attachment = Some(parent);
             actor.extension.parent = match (index + value as usize) % 4 {
                 0 => Some(id),

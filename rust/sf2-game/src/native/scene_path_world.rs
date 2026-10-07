@@ -616,6 +616,8 @@ impl InvocationWorld for ScenePathWorld {
         // scene-binding decision at compile time. Player borrows below remain
         // absent only when their actual live owner or record is unavailable.
         let mut world = PathWorld {
+            primary_protection: None,
+            engine_sound_control: self.engine_sound_control.as_mut(),
             scene: self.scene,
             primary_player: self.primary_player,
             secondary_player: self.secondary_player,
@@ -713,6 +715,9 @@ impl InvocationWorld for ScenePathWorld {
                 continue;
             }
             let records = &mut player.records;
+            if self.primary_player == Some(owner) {
+                world.primary_protection = records.protection;
+            }
             if actor.base.attachment == Some(owner) {
                 world.protection.as_mut().expect("bound rules").linked = records
                     .protection

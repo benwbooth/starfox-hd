@@ -89,7 +89,7 @@ mod tests {
             let owner = objects.allocate(effect()).unwrap();
             let other = objects.allocate(effect()).unwrap();
             let child = objects.allocate(effect()).unwrap();
-            objects.get_mut(owner).unwrap().base.first_child = Some(child);
+            crate::path_relationships::attach_fresh_child(&mut objects, owner, child, 1).unwrap();
             let value = objects.get_mut(child).unwrap();
             value.base.attachment = Some(owner);
             value.extension.parent = Some(owner);
@@ -190,7 +190,7 @@ mod tests {
             self.events.push(Event::ReleasePrograms(owner));
             assert!(self.objects.get(owner).is_some());
             assert!(self.contacts.is_empty());
-            assert_eq!(self.objects.get(self.child).unwrap().extension.parent, None);
+            assert_eq!(self.objects.get(self.child).unwrap().extension.parent, Some(owner));
             assert_eq!(
                 self.objects.get(self.other).unwrap().base.linked_object,
                 None

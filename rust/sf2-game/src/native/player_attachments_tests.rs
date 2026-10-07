@@ -139,7 +139,7 @@ fn invalid_child_keeps_walker_override_and_earlier_child_publication() {
             Behavior::Unassigned,
         ))
         .unwrap();
-    objects.get_mut(first).unwrap().base.next_sibling = Some(second);
+    objects.get_mut(first).unwrap().base.attachment_next = Some(second);
     assert_eq!(
         publish(&mut objects, &world, owner),
         Err(PlayerAttachmentError::Attachment(

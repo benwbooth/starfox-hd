@@ -16,7 +16,7 @@ pub fn seed(bus: &mut SnesBus, objects: &ObjectStore) {
             (6, address(actor.base.attachment)),
             (
                 0x29,
-                address(actor.base.first_child.or(actor.base.next_sibling)),
+                address(actor.base.attachment_next),
             ),
             (0x1CD8, address(actor.extension.parent)),
         ] {
@@ -52,7 +52,7 @@ pub fn compare(bus: &SnesBus, objects: &ObjectStore) {
             (6, address(actor.base.attachment)),
             (
                 0x29,
-                address(actor.base.first_child.or(actor.base.next_sibling)),
+                address(actor.base.attachment_next),
             ),
             (0x1CD8, address(actor.extension.parent)),
         ] {

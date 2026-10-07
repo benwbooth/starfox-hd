@@ -69,7 +69,7 @@ fn numbered_sprite_constructors_preserve_parent_arguments_and_wrap_child_numbers
                     let mut expected = before;
                     expected.base.path = Some(caller(2));
                     expected.base.next = objects.get(owner).unwrap().base.next;
-                    expected.base.first_child = objects.get(owner).unwrap().base.first_child;
+                    expected.base.attachment_next = objects.get(owner).unwrap().base.attachment_next;
                     expected.extension.path_state.motion.refresh_child_chain = true;
                     expected.extension.path_state.stack = objects
                         .get(owner)
@@ -87,7 +87,7 @@ fn numbered_sprite_constructors_preserve_parent_arguments_and_wrap_child_numbers
                         Err(super::super::program_state::PathStackError::MissingLoop)
                     );
                     assert_eq!(objects.get(owner), Some(&expected));
-                    let mut child = expected.base.first_child;
+                    let mut child = expected.base.attachment_next;
                     for sequence in 0..count {
                         let id = child.unwrap();
                         let actor = objects.get(id).unwrap();
@@ -106,7 +106,7 @@ fn numbered_sprite_constructors_preserve_parent_arguments_and_wrap_child_numbers
                         if sequence + 1 == count {
                             assert_eq!(runtime.spawns.last_spawn, Some(id));
                         }
-                        child = actor.base.next_sibling;
+                        child = actor.base.attachment_next;
                     }
                     assert_eq!(child, None);
                     assert_eq!(random, before_random);

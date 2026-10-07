@@ -273,7 +273,7 @@ pub enum PathSemantic {
     SetFlag09Bit01,
     ClearFlag09Bit01,
     SetFlag24Bit08,
-    IfExternalC4BitsSet,
+    IfExternalC4BitsClear,
     PositionRelativeToLinkedLiteral,
     PositionRelativeToLinkedVariable,
     PositionExternalObjectAndFaceSelected,
@@ -4250,7 +4250,7 @@ pub static PATH_HANDLERS: [PathHandler; PATH_HANDLER_COUNT] = [
     PathHandler {
         opcode: 0x12D,
         address: 0x7FBD06,
-        semantic: Some(PathSemantic::IfExternalC4BitsSet),
+        semantic: Some(PathSemantic::IfExternalC4BitsClear),
         effects: &PATH_EFFECTS_227,
         instruction_count: 20,
     },

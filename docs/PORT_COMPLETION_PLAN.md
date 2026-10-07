@@ -113,6 +113,41 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the complete special-exit controller (`$44:D27B`), its fresh
+  primary-protection-gated shield installer/strategy, and publication to the
+  existing shared engine-sound control. The complete graph runs independently
+  against original execution for all six pilots, three protection states and
+  both mode/sound branches: 36 retained lifetimes, 7,200 strategy passes, live
+  newborn traversal, random draws, camera aliases, cues and delayed retirement.
+  This exposed two shared defects: the clock-mask command branches on zero,
+  and attachments are one linear chain, not independent child/sibling links.
+  The canonical typed `attachment_next` now serves every native consumer.
+  Retirement unlinks before detaching, honors the owner gate and preserves
+  extension-relative references exactly as the original does. Four additional
+  original-code groups verify mixed-parent append/search, unlink, death and
+  retirement; the clock predicate is checked for all 131,072 mask/clock/invert
+  combinations. The controller's absent child-five retirement is allowed only
+  at its reviewed call site, with original scratch-write liveness checked
+  through the complete continuation; other absent-child retirements still fail
+  closed. The catalog now has 154 roots, nine helpers, 6,356 source commands
+  and 6,297 typed statements. All 855 source checks, 215 lowerer tests, three
+  backlog tests, generated catalogs and architecture checks pass. Full
+  debug/release regression passes 1,567 native tests plus two architecture
+  checks, 1,575 compatibility tests plus 35 runtime checks, 33 path tests and
+  244 original-code groups. All three applications build and each passes 35
+  tests in both profiles; actual app smoke checks pass for SF1 gameplay and
+  SF2 map, opening sortie and laser-render boundaries. The optional C-oracle
+  smoke comparison has no external fixture and does not establish equivalence.
+  Full logs are `/tmp/sf2-special-exit-validation-oct07.log` and
+  `/tmp/sf2-special-exit-static-oct07.log`. Initial failures in
+  `/tmp/sf2-special-exit-native-prechain-oct07.log` and
+  `/tmp/sf2-special-exit-singlechain-native-oct07.log` identified stale clock
+  expectations, invalid split-chain fixtures and incorrect retirement
+  assumptions; the corrected tests are independently source-backed. The
+  remaining ordinary exit controller, player-side creation, mission-tail
+  streams and shipping-frame ownership remain open. This is not campaign
+  completion.
+
 - Ported the complete node-exit presentation (`$44:B8C5`), including its
   child craft, scenery tracking anchor and trailing sprite. Fixed-view
   copies/aiming write the real angle aliases; yaw damping and projection

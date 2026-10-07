@@ -152,6 +152,32 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete special-exit controller (`$44:D27B`) now runs in the shared typed
+path executor, including the primary-protection-gated exit shield and canonical
+engine-sound publication. Its original-code comparison covers 36 independent
+retained lifetimes (7,200 strategy passes), all six pilots, shield admission,
+both sound branches, live newborn traversal, camera aliases, random ordering,
+audio cues and delayed shield retirement. Full clock-mask differential coverage
+corrected an inverted shared predicate. Mixed-parent lifetimes also exposed an
+incorrect tree assumption: all attachment consumers now use one canonical
+linear link. Original append/search, unlink, death and retirement comparisons
+prove that nested and sibling roles share that link, attached-owner retirement
+splices before detachment, the owner flag gates suffix cleanup, and extension
+relative-frame references survive the incoming base-reference sweep. The one
+reviewed absent child-five retirement drops an unobserved scratch write; other
+unreviewed missing-child operations remain explicit errors. Static checks pass
+(855 source tests, 215 lowerer tests, three backlog tests); the catalog contains
+154 complete roots, nine helpers, 6,356 source commands and 6,297 statements.
+Full debug/release regression passes 1,567 native tests plus two architecture
+checks, 1,575 compatibility tests plus 35 runtime checks, 33 path tests and
+244 original-code groups. All three applications build and each passes 35
+tests in both profiles. Actual app smoke checks pass for SF1 gameplay and SF2
+map, opening sortie and laser-render boundaries; the optional C-oracle smoke
+comparison has no external fixture and is not equivalence evidence. Full logs
+are `/tmp/sf2-special-exit-validation-oct07.log` and
+`/tmp/sf2-special-exit-static-oct07.log`. These checks do not close the remaining
+ordinary controller, player mission-tail services or production-frame ownership.
+
 The node-exit presentation (`$44:B8C5`) now executes as a complete typed graph,
 including its craft child, scenery tracking anchor and trailing sprite.
 Fixed-view operations preserve the shared fine-angle aliases, signed pitch

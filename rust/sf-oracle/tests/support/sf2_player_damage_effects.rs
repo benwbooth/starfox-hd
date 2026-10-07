@@ -590,7 +590,7 @@ fn original_puff_and_flame_birth_real_path_motion_animation_and_retirement_compo
                 .get(native.owner)
                 .unwrap()
                 .base
-                .first_child
+                .attachment_next
                 .is_none());
             native.compare_pool(&source);
         }

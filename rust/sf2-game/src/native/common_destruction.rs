@@ -233,8 +233,8 @@ pub fn destroy<H: DestructionHost>(
 }
 
 /// Death's child service ($7F:2AA4) differs from final retirement: gate off
-/// the owner, detach direct children and kill only owned lifetimes. Retain
-/// sibling links, extension parents, health of independent children, incoming
+/// the owner, detach the attachment suffix and kill only owned lifetimes. Retain
+/// chain links, extension parents, health of independent children, incoming
 /// links, contacts and program resources until their respective owners act.
 pub fn detach_dying_children(
     objects: &mut ObjectStore,
@@ -246,7 +246,7 @@ pub fn detach_dying_children(
     if !actor.extension.path_state.motion.refresh_child_chain {
         return Ok(());
     }
-    let mut next = actor.base.first_child;
+    let mut next = actor.base.attachment_next;
     let mut children = Vec::new();
     let mut visited = [false; OBJECT_CAPACITY];
     visited[owner.index()] = true;
@@ -258,7 +258,7 @@ pub fn detach_dying_children(
         let actor = objects
             .get(child)
             .ok_or(RelationshipError::MissingActor(child))?;
-        next = actor.base.next_sibling;
+        next = actor.base.attachment_next;
         children.push(child);
     }
     objects

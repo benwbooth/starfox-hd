@@ -347,7 +347,7 @@ impl Native {
             );
             assert_eq!(
                 source.bus.read16(base + 0x29),
-                address(actor.base.first_child.or(actor.base.next_sibling))
+                address(actor.base.attachment_next)
             );
             if actor.base.child_number == 0 {
                 continue;

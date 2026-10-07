@@ -1667,7 +1667,25 @@ fn comparison_context_and_auxiliary_handlers_match_retail() {
     host.external[0x00C4] = 0x01;
     let mut external = PathVm::new(PathAddress { offset: 0xABA9 });
     run_one(&mut external, &mut host);
-    assert_eq!(external.cursor().offset, 0xABB1);
+    assert_eq!(external.cursor().offset, 0xABAE);
+}
+
+#[test]
+fn clock_mask_branch_takes_authored_target_only_when_masked_bits_are_clear() {
+    let mut host = Host::new();
+    for command in sf2_data::path::PATH_COMMANDS.iter().filter(|command| command.opcode == 0x12D) {
+        let start = usize::from(command.prefix_size);
+        let mask = command.raw[start + 1];
+        let target = u16::from_le_bytes([command.raw[start + 2], command.raw[start + 3]]);
+        for clock in 0..=255u8 {
+            host.external[0xC4] = clock;
+            let mut vm = PathVm::new(command.address);
+            run_one(&mut vm, &mut host);
+            assert_eq!(vm.cursor().offset, if clock & mask == 0 { target } else {
+                command.address.offset.wrapping_add(u16::from(command.raw_len))
+            });
+        }
+    }
 }
 
 #[test]

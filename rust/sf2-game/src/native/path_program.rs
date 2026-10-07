@@ -190,6 +190,10 @@ mod node_exit_tests;
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
+    /// Fresh primary record observation; unrelated to the path-selected
+    /// player and to the attachment owner's mutable protection borrow.
+    pub primary_protection: Option<super::path_protection::DeflectionProtection>,
+    pub engine_sound_control: Option<&'a mut super::player_engine_sound::EngineSoundControl>,
     pub scene: ScenePathInputs,
     pub view_transition_mode: Option<&'a mut super::view_transition::ViewTransitionMode>,
     pub handoff: Option<&'a mut super::path_scene_state::EncounterHandoff>,
@@ -340,6 +344,8 @@ impl PathWorld<'_> {
             selected: None,
             fixed_players: [None; 2],
             primary_motion: None,
+            primary_protection: None,
+            engine_sound_control: None,
             published_motion: None,
             active_charge_threshold: None,
             selected_charge: None,
@@ -739,6 +745,8 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    InstallExitShield { next: PathCursor },
+    AssignEngineSoundControl { value: u8, next: PathCursor },
     ViewTransition { enabled: bool, next: PathCursor },
     MoveFixedView { snap: bool, next: PathCursor },
     FixedView { command: super::view_transition::FixedViewCommand, next: PathCursor },
@@ -881,7 +889,7 @@ pub enum Statement {
         command: super::path_spawn::SpawnParameterCommand,
         next: PathCursor,
     },
-    ClockBitsSet {
+    ClockBitsClear {
         mask: u8,
         taken: PathCursor,
         next: PathCursor,
@@ -1195,6 +1203,8 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramError {
+    ExitShield(super::exit_shield::ExitShieldError),
+    MissingEngineSoundControl,
     MissingViewTransitionMode,
     MissingFixedView,
     MissingSceneMap,
@@ -1416,6 +1426,21 @@ impl PathRuntime {
         let cursor = actor.base.path.ok_or(PathRuntimeError::MissingPath(owner))?;
         let statement = catalog.statement(cursor)?;
         let outcome = match statement {
+            Statement::InstallExitShield { next } => {
+                let primary = world.primary_player.ok_or(ProgramError::MissingPrimaryPlayer)?;
+                objects.get(primary).ok_or(PathRuntimeError::MissingActor(primary))?;
+                super::exit_shield::install(objects, owner, world.primary_protection,
+                    world.spawn_defaults, world.linked_effect_activity.as_deref_mut())
+                    .map_err(ProgramError::ExitShield)?;
+                objects.get_mut(owner).expect("validated shield owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::AssignEngineSoundControl { value, next } => {
+                *world.engine_sound_control.as_deref_mut().ok_or(ProgramError::MissingEngineSoundControl)? =
+                    super::player_engine_sound::EngineSoundControl::from_bits(value);
+                objects.get_mut(owner).expect("validated sound publisher").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
             Statement::SelectActivePilotCraft { appearances, next } => {
                 let pilot = world.scene.active_pilot.ok_or(ProgramError::MissingSceneByte(SceneByte::ActivePilot))?;
                 let actor = objects.get_mut(owner).expect("validated launch actor");
@@ -1841,13 +1866,14 @@ impl PathRuntime {
                 objects.get_mut(owner).expect("validated upgrade collector").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
-            Statement::ClockBitsSet { mask, taken, next } => {
-                // $7F:BD06 takes direct branches: IFNOT is untouched.
+            Statement::ClockBitsClear { mask, taken, next } => {
+                // $7F:BD06 jumps through CAFF on a ZERO masked clock;
+                // nonzero advances through CAA9. IFNOT is untouched.
                 objects
                     .get_mut(owner)
                     .expect("validated clock-gate owner")
                     .base
-                    .path = Some(if world.animation_clock & mask != 0 {
+                    .path = Some(if world.animation_clock & mask == 0 {
                     taken
                 } else {
                     next
@@ -3026,6 +3052,8 @@ mod tests {
             selected: None,
             fixed_players: [None; 2],
             primary_motion: None,
+            primary_protection: None,
+            engine_sound_control: None,
             published_motion: None,
             active_charge_threshold: None,
             selected_charge: None,
@@ -3149,7 +3177,7 @@ mod tests {
     fn clock_mask_branch_samples_live_shared_clock_and_preserves_ifnot() {
         for inverted in [false, true] {
             for mask in 0..=u8::MAX {
-                let catalog = PathCatalog::new(vec![vec![Statement::ClockBitsSet {
+                let catalog = PathCatalog::new(vec![vec![Statement::ClockBitsClear {
                     mask,
                     taken: cursor(0, 2),
                     next: cursor(0, 1),
@@ -3161,7 +3189,7 @@ mod tests {
                 for clock in 0..=u8::MAX {
                     objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
                     let mut expected = objects.clone();
-                    let next = cursor(0, if clock & mask != 0 { 2 } else { 1 });
+                    let next = cursor(0, if clock & mask == 0 { 2 } else { 1 });
                     expected.get_mut(owner).unwrap().base.path = Some(next);
                     let mut inputs = world(&mut random);
                     inputs.animation_clock = clock;
@@ -3454,7 +3482,7 @@ mod tests {
                         if visit >= 29 {
                             assert_eq!(
                                 actor.extension.depth_offset,
-                                if visit <= 37 && (visit + 1) & 1 == 0 {
+                                if visit <= 37 && (visit + 1) & 1 != 0 {
                                     1
                                 } else {
                                     3
@@ -6032,7 +6060,7 @@ mod tests {
                 .allocate(objects.get(owner).unwrap().clone())
                 .unwrap();
             objects.get_mut(owner).unwrap().base.attachment = Some(target);
-            objects.get_mut(target).unwrap().base.first_child = Some(target);
+            objects.get_mut(target).unwrap().base.attachment_next = Some(target);
             objects.get_mut(target).unwrap().base.child_number = 255;
             objects.get_mut(owner).unwrap().extension.parent = Some(owner);
             objects.get_mut(owner).unwrap().base.wait_timer = 99;
@@ -6108,7 +6136,7 @@ mod tests {
             .allocate(objects.get(owner).unwrap().clone())
             .unwrap();
         objects.get_mut(child).unwrap().base.child_number = 128;
-        objects.get_mut(parent).unwrap().base.first_child = Some(child);
+        objects.get_mut(parent).unwrap().base.attachment_next = Some(child);
         runtime.branch.invert_next = true;
         let original_random = random;
         for refresh in [false, true] {
@@ -9558,15 +9586,15 @@ mod tests {
         }
         assert_eq!(children.len(), 3);
         assert_eq!(
-            objects.get(owner).unwrap().base.first_child,
+            objects.get(owner).unwrap().base.attachment_next,
             Some(children[0])
         );
         assert_eq!(
-            objects.get(children[0]).unwrap().base.next_sibling,
+            objects.get(children[0]).unwrap().base.attachment_next,
             Some(children[1])
         );
         assert_eq!(
-            objects.get(children[1]).unwrap().base.next_sibling,
+            objects.get(children[1]).unwrap().base.attachment_next,
             Some(children[2])
         );
         let mut expected_random = random;
@@ -9776,7 +9804,7 @@ mod tests {
         );
         let child = runtime.spawns.last_spawn.unwrap();
         assert_eq!(objects.get(owner).unwrap().base.path, Some(cursor(0, 2)));
-        assert_eq!(objects.get(owner).unwrap().base.first_child, Some(child));
+        assert_eq!(objects.get(owner).unwrap().base.attachment_next, Some(child));
         assert_eq!(objects.get(child).unwrap().base.path, Some(cursor(1, 0)));
         assert_eq!(objects.get(child).unwrap().extension.texture_scroll_x, 0);
         assert_eq!(objects.get(child).unwrap().extension.spawn_group, 45);
@@ -9901,7 +9929,7 @@ mod tests {
             let child = objects.allocate(child).unwrap();
             let actor = objects.get_mut(owner).unwrap();
             actor.base.path = Some(authored_paths::CHILD_DETACHING_SPRITE);
-            actor.base.first_child = Some(child);
+            actor.base.attachment_next = Some(child);
             actor.extension.path_state.motion.refresh_child_chain = true;
             actor.extension.path_state.motion_phase = 0xABCD;
             let catalog = authored_paths::catalog();
@@ -9931,7 +9959,7 @@ mod tests {
                     linked.then_some(owner)
                 );
                 assert_eq!(
-                    objects.get(owner).unwrap().base.first_child,
+                    objects.get(owner).unwrap().base.attachment_next,
                     linked.then_some(child)
                 );
                 assert_eq!(
@@ -10173,6 +10201,8 @@ mod tests {
                 selected: None,
                 fixed_players: [None; 2],
                 primary_motion: None,
+                primary_protection: None,
+                engine_sound_control: None,
                 published_motion: None,
                 active_charge_threshold: None,
                 selected_charge: None,
@@ -14212,10 +14242,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 153);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 154);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6173);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6232);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6297);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6356);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -14400,6 +14430,8 @@ mod tests {
                 selected: None,
                 fixed_players: [None; 2],
                 primary_motion: None,
+                primary_protection: None,
+                engine_sound_control: None,
                 published_motion: None,
                 active_charge_threshold: None,
                 selected_charge: None,
@@ -14562,6 +14594,8 @@ mod tests {
                         selected: None,
                         fixed_players: [None; 2],
                         primary_motion: None,
+                        primary_protection: None,
+                        engine_sound_control: None,
                         published_motion: None,
                         active_charge_threshold: None,
                         selected_charge: None,

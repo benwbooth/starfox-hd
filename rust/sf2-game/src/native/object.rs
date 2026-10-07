@@ -432,6 +432,7 @@ pub enum Behavior {
     /// Source PATHHOLD installs the movement service without path dispatch.
     PathMovement,
     ImpactBurst(super::path_effect::ImpactBurstPhase),
+    ExitShield,
     SurfaceParticle(super::player_surface_particle::SurfaceParticle),
     SurfaceSplash(super::player_surface_splash::SplashPhase),
     SurfaceEffect(super::player_surface_effect::SurfaceEffectPhase),
@@ -1021,8 +1022,9 @@ pub struct ObjectBase {
     pub acceleration: u8,
     pub behavior: Behavior,
     pub linked_object: Option<ObjectId>,
-    pub first_child: Option<ObjectId>,
-    pub next_sibling: Option<ObjectId>,
+    /// One shared, linear attachment chain. Nested children and siblings
+    /// occupy the same link; the attachment parent is independent of it.
+    pub attachment_next: Option<ObjectId>,
     pub wait_timer: u8,
     /// Phase selected by the original shared strategy table (1CC7).
     /// Selection publishes this byte; dispatch owns the subsequent visit.
@@ -1142,8 +1144,7 @@ impl Object {
                 acceleration: 0,
                 behavior,
                 linked_object: None,
-                first_child: None,
-                next_sibling: None,
+                attachment_next: None,
                 wait_timer: 0,
                 behavior_phase: 0,
                 behavior_parameter: 0,
@@ -1317,47 +1318,43 @@ impl ObjectStore {
         Some(object)
     }
 
-    /// Source `$7F:344F..34E6`, expressed using the native split child/sibling
-    /// fields. Removing a child splices it out; removing an owner detaches
-    /// its children and marks only those with the authored lifetime flag.
-    /// Finally clear incoming interaction/attachment references BEFORE the
-    /// slot can be reused. A weapon's reciprocal link is not child ownership.
+    /// Source `$7F:344F..34E6`. Unlink an attached actor FIRST. Successful
+    /// unlinking clears its shared chain link, so even an owner then has no
+    /// remaining chain to detach. An unattached owner instead detaches the
+    /// full linear suffix and marks its dependent lifetimes. Finally clear
+    /// incoming base references; extension-relative references are retained.
     pub(super) fn detach_relationships(&mut self, id: ObjectId) {
-        let object = self.get(id).expect("validated retiring actor");
-        let successor = object.base.next_sibling;
-        let mut child = object.base.first_child;
-        // Valid source chains are acyclic. Bound malformed imported/native
-        // chains by the pool capacity instead of risking an infinite loop.
-        for _ in 0..OBJECT_CAPACITY {
-            let Some(child_id) = child else { break };
-            let object = self
-                .get_mut(child_id)
-                .expect("child chain references a live actor");
-            child = object.base.next_sibling;
-            object.base.attachment = None;
-            object.extension.parent = None;
-            if object.base.flags.remove_with_parent {
-                object.base.flags.remove_after_tick = true;
+        if self.get(id).expect("validated retiring actor")
+            .extension.path_state.motion.attached_coordinates
+        {
+            super::path_relationships::detach(self, id)
+                .expect("valid retiring actor attachment chain");
+        }
+        let object = self.get_mut(id).expect("validated retiring actor");
+        if object.extension.path_state.motion.refresh_child_chain {
+            object.extension.path_state.motion.refresh_child_chain = false;
+            let mut child = object.base.attachment_next;
+            let mut visited = [false; OBJECT_CAPACITY];
+            visited[id.index()] = true;
+            while let Some(child_id) = child {
+                assert!(!visited[child_id.index()], "cyclic attachment chain");
+                visited[child_id.index()] = true;
+                let object = self.get_mut(child_id)
+                    .expect("attachment chain references a live actor");
+                child = object.base.attachment_next;
+                object.extension.path_state.motion.attached_coordinates = false;
+                object.base.attachment = None;
+                if object.base.flags.remove_with_parent {
+                    object.base.flags.remove_after_tick = true;
+                }
             }
         }
-        assert!(child.is_none(), "cyclic child ownership chain");
         for object in self.slots.iter_mut().flatten() {
-            if object.base.first_child == Some(id) {
-                object.base.first_child = successor;
-            }
-            if object.base.next_sibling == Some(id) {
-                object.base.next_sibling = successor;
-            }
             if object.base.linked_object == Some(id) {
                 object.base.linked_object = None;
             }
             if object.base.attachment == Some(id) {
                 object.base.attachment = None;
-            }
-            // Some native authored actors keep their attachment owner in
-            // the extension's named parent field rather than base attachment.
-            if object.extension.parent == Some(id) {
-                object.extension.parent = None;
             }
         }
     }
@@ -1561,7 +1558,7 @@ mod tests {
     }
 
     #[test]
-    fn retirement_clears_incoming_links_before_slot_reuse() {
+    fn retirement_clears_incoming_base_links_but_retains_relative_reference_before_slot_reuse() {
         let mut objects = ObjectStore::new();
         let target = objects.allocate(effect()).unwrap();
         let unrelated = objects.allocate(effect()).unwrap();
@@ -1578,7 +1575,7 @@ mod tests {
         let follower = objects.get(follower).unwrap();
         assert_eq!(follower.base.attachment, None);
         assert_eq!(follower.base.linked_object, None);
-        assert_eq!(follower.extension.parent, None);
+        assert_eq!(follower.extension.parent, Some(target));
         assert_eq!(
             objects.get(preserved).unwrap().base.linked_object,
             Some(unrelated)
@@ -1593,11 +1590,10 @@ mod tests {
             let children: Vec<_> = (0..3)
                 .map(|_| objects.allocate(effect()).unwrap())
                 .collect();
-            objects.get_mut(parent).unwrap().base.first_child = Some(children[0]);
             for (index, child) in children.iter().copied().enumerate() {
+                super::super::path_relationships::attach_fresh_child(&mut objects, parent, child, index as u8).unwrap();
                 let object = objects.get_mut(child).unwrap();
                 object.extension.parent = Some(parent);
-                object.base.next_sibling = children.get(index + 1).copied();
             }
             objects.remove(children[removed_index]).unwrap();
             let expected: Vec<_> = children
@@ -1605,12 +1601,12 @@ mod tests {
                 .enumerate()
                 .filter_map(|(index, child)| (index != removed_index).then_some(child))
                 .collect();
-            let mut cursor = objects.get(parent).unwrap().base.first_child;
+            let mut cursor = objects.get(parent).unwrap().base.attachment_next;
             for child in expected {
                 assert_eq!(cursor, Some(child));
                 let object = objects.get(child).unwrap();
                 assert_eq!(object.extension.parent, Some(parent));
-                cursor = object.base.next_sibling;
+                cursor = object.base.attachment_next;
             }
             assert_eq!(cursor, None);
         }
@@ -1623,8 +1619,9 @@ mod tests {
         let survivor = objects.allocate(effect()).unwrap();
         let dependent = objects.allocate(effect()).unwrap();
         let grandchild = objects.allocate(effect()).unwrap();
-        objects.get_mut(parent).unwrap().base.first_child = Some(survivor);
-        objects.get_mut(survivor).unwrap().base.next_sibling = Some(dependent);
+        objects.get_mut(parent).unwrap().base.attachment_next = Some(survivor);
+        objects.get_mut(parent).unwrap().extension.path_state.motion.refresh_child_chain = true;
+        objects.get_mut(survivor).unwrap().base.attachment_next = Some(dependent);
         for child in [survivor, dependent] {
             let object = objects.get_mut(child).unwrap();
             object.base.attachment = Some(parent);
@@ -1632,7 +1629,7 @@ mod tests {
         }
         let object = objects.get_mut(dependent).unwrap();
         object.base.flags.remove_with_parent = true;
-        object.base.first_child = Some(grandchild);
+        object.base.attachment_next = Some(grandchild);
         objects.get_mut(grandchild).unwrap().extension.parent = Some(dependent);
         objects.remove(parent).unwrap();
         assert_eq!(objects.len(), 3, "marking is not recursive freeing");
@@ -1641,7 +1638,7 @@ mod tests {
         for child in [survivor, dependent] {
             let object = objects.get(child).unwrap();
             assert_eq!(object.base.attachment, None);
-            assert_eq!(object.extension.parent, None);
+            assert_eq!(object.extension.parent, Some(parent));
         }
         assert_eq!(
             objects.get(grandchild).unwrap().extension.parent,

@@ -9,7 +9,6 @@ pub enum AttachmentError {
     MissingActor(ObjectId),
     MissingParent(ObjectId),
     ChildCycle(ObjectId),
-    ConflictingChainLinks(ObjectId),
 }
 
 /// `$03:8C27` / geometry `$01:92C6`: attachment composition differs from
@@ -105,10 +104,8 @@ pub fn refresh_actor(objects: &mut ObjectStore, owner: ObjectId) -> Result<(), A
     Ok(())
 }
 
-/// Follow the source's single attachment-chain link: first child on a
-/// parent, next sibling on a numbered child. Linear nested chains use that
-/// same link and observe each preceding publication. A typed record with
-/// both roles populated cannot represent the original single-link chain.
+/// Follow the source's single attachment-chain link. Nested children and
+/// siblings share this chain and observe each preceding publication.
 pub fn refresh_child_chain(
     objects: &mut ObjectStore,
     owner: ObjectId,
@@ -120,10 +117,7 @@ pub fn refresh_child_chain(
         let actor = objects
             .get(current)
             .ok_or(AttachmentError::MissingActor(current))?;
-        if actor.base.first_child.is_some() && actor.base.next_sibling.is_some() {
-            return Err(AttachmentError::ConflictingChainLinks(current));
-        }
-        let child = actor.base.first_child.or(actor.base.next_sibling);
+        let child = actor.base.attachment_next;
         let Some(child) = child else { return Ok(()) };
         if visited[child.index()] {
             return Err(AttachmentError::ChildCycle(child));
@@ -229,13 +223,13 @@ mod tests {
         let child = objects.allocate(actor()).unwrap();
         let grandchild = objects.allocate(actor()).unwrap();
         objects.get_mut(parent).unwrap().base.position.x = 400;
-        objects.get_mut(parent).unwrap().base.first_child = Some(child);
+        objects.get_mut(parent).unwrap().base.attachment_next = Some(child);
         objects.get_mut(child).unwrap().base.attachment = Some(parent);
-        objects.get_mut(child).unwrap().base.first_child = Some(grandchild);
+        objects.get_mut(child).unwrap().base.attachment_next = Some(grandchild);
         objects.get_mut(grandchild).unwrap().base.attachment = Some(child);
         refresh_child_chain(&mut objects, parent).unwrap();
         assert_eq!(objects.get(grandchild).unwrap().base.position.x, 400);
-        objects.get_mut(grandchild).unwrap().base.first_child = Some(parent);
+        objects.get_mut(grandchild).unwrap().base.attachment_next = Some(parent);
         assert_eq!(
             refresh_child_chain(&mut objects, parent),
             Err(AttachmentError::ChildCycle(parent))
@@ -243,25 +237,25 @@ mod tests {
     }
 
     #[test]
-    fn siblings_follow_self_references_and_invalid_dual_links_fail_after_prior_pose() {
+    fn siblings_follow_self_references_and_cycles_fail_after_prior_pose() {
         let mut objects = ObjectStore::new();
         let parent = objects.allocate(actor()).unwrap();
         let first = objects.allocate(actor()).unwrap();
         let second = objects.allocate(actor()).unwrap();
         objects.get_mut(parent).unwrap().base.position.x = 400;
-        objects.get_mut(parent).unwrap().base.first_child = Some(first);
+        objects.get_mut(parent).unwrap().base.attachment_next = Some(first);
         objects.get_mut(first).unwrap().extension.parent = Some(first);
-        objects.get_mut(first).unwrap().base.next_sibling = Some(second);
+        objects.get_mut(first).unwrap().base.attachment_next = Some(second);
         objects.get_mut(second).unwrap().base.attachment = Some(parent);
         refresh_child_chain(&mut objects, parent).unwrap();
         assert_eq!(objects.get(first).unwrap().base.position.x, 0);
         assert_eq!(objects.get(second).unwrap().base.position.x, 400);
         objects.get_mut(first).unwrap().extension.parent = None;
         objects.get_mut(first).unwrap().base.attachment = Some(parent);
-        objects.get_mut(first).unwrap().base.first_child = Some(second);
+        objects.get_mut(second).unwrap().base.attachment_next = Some(first);
         assert_eq!(
             refresh_child_chain(&mut objects, parent),
-            Err(AttachmentError::ConflictingChainLinks(first))
+            Err(AttachmentError::ChildCycle(first))
         );
         assert_eq!(objects.get(first).unwrap().base.position.x, 400);
     }
@@ -271,7 +265,7 @@ mod tests {
         let mut objects = ObjectStore::new();
         let parent = objects.allocate(actor()).unwrap();
         let child = objects.allocate(actor()).unwrap();
-        objects.get_mut(parent).unwrap().base.first_child = Some(child);
+        objects.get_mut(parent).unwrap().base.attachment_next = Some(child);
         refresh_after_callbacks(&mut objects, parent).unwrap();
         objects
             .get_mut(parent)

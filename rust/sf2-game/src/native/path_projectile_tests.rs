@@ -301,7 +301,7 @@ fn height_staged_projectile_saturates_vertical_drift_until_published_height_is_c
         let actor = objects.get(owner).unwrap();
         assert_eq!(actor.base.position.y, height);
         assert_eq!(actor.extension.relative_position.y, drift);
-        assert_eq!(actor.base.first_child, None);
+        assert_eq!(actor.base.attachment_next, None);
         assert_eq!(actor.base.target_speed, 0);
         if visit >= 10 { assert_eq!(actor.extension.path_state.script_value, 10000); }
     }
@@ -313,7 +313,7 @@ fn height_staged_projectile_saturates_vertical_drift_until_published_height_is_c
         ControlStep::Movement);
     height += 100;
     assert_eq!(objects.get(owner).unwrap().base.position.y, height);
-    assert_eq!(objects.get(owner).unwrap().base.first_child, None);
+    assert_eq!(objects.get(owner).unwrap().base.attachment_next, None);
     assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 20).unwrap().step,
         ControlStep::Movement);
     let actor = objects.get(owner).unwrap();
@@ -321,7 +321,7 @@ fn height_staged_projectile_saturates_vertical_drift_until_published_height_is_c
     assert_eq!(actor.base.target_speed, 45);
     assert_eq!(actor.base.acceleration, 5);
     assert_eq!(actor.extension.path_state.script_value, 1);
-    assert!(actor.base.first_child.is_some());
+    assert!(actor.base.attachment_next.is_some());
     assert_eq!(objects.len(), 3);
     assert_eq!(super::effect_tests::cues(&mut inputs), [116]);
 }
@@ -352,12 +352,12 @@ fn height_staged_projectile_both_launch_routes_guidance_exits_and_independent_ch
                 let actor = objects.get(owner).unwrap();
                 if above {
                     assert_eq!(actor.base.pitch.units(), 192);
-                    assert!(actor.base.first_child.is_some());
+                    assert!(actor.base.attachment_next.is_some());
                 } else {
                     height += 5 + 5 * visit;
                     assert_eq!(actor.base.position.y, height);
                     assert_eq!(actor.extension.relative_position.y, 10 + 5 * visit);
-                    assert_eq!(actor.base.first_child, None);
+                    assert_eq!(actor.base.attachment_next, None);
                 }
                 assert!(actor.extension.path_state.motion.generate_velocity_each_step);
                 assert!(actor.extension.path_state.motion.quadruple_velocity);
@@ -390,7 +390,7 @@ fn height_staged_projectile_both_launch_routes_guidance_exits_and_independent_ch
                 assert_eq!(callbacks(&mut runtime, &catalog, &mut objects, owner, &mut inputs), 1);
                 assert_eq!(objects.get(owner).unwrap().base.roll.units(), 16u8.wrapping_mul(visit as u8));
                 if visit == 1 {
-                    let child = objects.get(owner).unwrap().base.first_child.unwrap();
+                    let child = objects.get(owner).unwrap().base.attachment_next.unwrap();
                     let parent_before = objects.get(owner).unwrap().clone();
                     let spawned = objects.get(child).unwrap();
                     assert_eq!((spawned.base.hit_points, spawned.base.attack_power, spawned.base.child_number), (80, 1, 1));
@@ -408,7 +408,7 @@ fn height_staged_projectile_both_launch_routes_guidance_exits_and_independent_ch
                     assert_eq!(objects.get(owner), Some(&parent_before));
                 }
             }
-            let child = objects.get(owner).unwrap().base.first_child.unwrap();
+            let child = objects.get(owner).unwrap().base.attachment_next.unwrap();
             let parent_before = objects.get(owner).unwrap().clone();
             let spawned = objects.get(child).unwrap();
             assert_eq!(spawned.base.shape, ShapeId::from_catalog_index(19));

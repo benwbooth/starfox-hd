@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("SPECIAL_SCENE_EXIT", PathAddress(0xD27B)),
     ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
     ("NARROWING_CORRIDOR_EXIT", PathAddress(0xD1CB)),
     ("LEVEL_CORRIDOR_EXIT", PathAddress(0xD207)),
@@ -616,6 +617,16 @@ def shape_index(shape: int) -> int:
 
 def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     index = shape_index(shape)
+    # Special-exit controller: the tracking anchor, departing craft, animated
+    # geometry and distant scenery all disable collision before their first
+    # yield. This is not a classification for other uses of these shapes.
+    if (shape, path) in ((0xE808, PathAddress(0xD3B2)),
+                        (0xC63C, PathAddress(0xD36F)),
+                        (0xBC9C, PathAddress(0xD2FB)),
+                        (0xBC9C, PathAddress(0xD332)),
+                        (0xCA2C, PathAddress(0xD399)),
+                        (0xE824, PathAddress(0x7FAA))):
+        return index, "ObjectKind::Effect"
     # Node-exit display: its complete child disables collision before its
     # first wait, then shows the node-selected craft and emits a sprite.
     if (shape, path) in ((0xBC9C, PathAddress(0xB937)),
@@ -1243,6 +1254,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             # The extractor checks the COMPLETE instruction signature and
             # returned continuation before exposing each reviewed action.
             actions = {
+                PathAddress(0xE967): "InstallExitShield",
                 PathAddress(0xB8E4): "InitializeNodeExitCamera",
                 PathAddress(0xB91A): "DampNodeExitCamera",
                 PathAddress(0xE839): "BeginCorridorEntry",
@@ -1535,6 +1547,15 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             else:
                 number, = parameters(1)
                 operation = {"FlagChild": "SignalChild", "UnlinkChild": "UnlinkChild", "RemoveChild": "RetireChild"}[name]
+                # This controller never creates child five. Original lookup
+                # returns null and marks a dead scratch byte; its complete
+                # retained graph is verified to continue without an actor
+                # mutation or a later read of that write. Other absent-child
+                # call sites remain fail-closed until independently reviewed.
+                if name == "RemoveChild" and command.address == PathAddress(0xD2F1):
+                    if number != 5:
+                        raise UnsupportedPath("unreviewed optional special-exit child retirement")
+                    operation = "RetireOptionalChild"
                 command_ = f"RelationshipCommand::{operation} {{ number: {number} }}"
             statement = f"Statement::Relationship {{ command: {command_}, next: {next_cursor()} }}"
         elif name == "Gosub":
@@ -1587,10 +1608,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             taken, next_ = branch_cursors(int.from_bytes(operands[:2], "little"))
             branch = f"HitFlags {{ mask: {operands[2]}," if name == "IfHitFlag" else "HitEvent {"
             statement = f"Statement::Branch(BranchCommand::{branch} taken: {taken}, next: {next_} }})"
-        elif name == "IfExternalC4BitsSet":
+        elif name == "IfExternalC4BitsClear":
             mask, low, high = parameters(3)
             taken, next_ = branch_cursors(low | (high << 8))
-            statement = f"Statement::ClockBitsSet {{ mask: {mask}, taken: {taken}, next: {next_} }}"
+            statement = f"Statement::ClockBitsClear {{ mask: {mask}, taken: {taken}, next: {next_} }}"
         elif name == "IfNot":
             parameters(0)
             statement = f"Statement::Branch(BranchCommand::InvertNext {{ next: {next_cursor()} }})"
@@ -1983,6 +2004,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 if command.address not in (PathAddress(0xD1D4), PathAddress(0xD213)):
                     raise UnsupportedPath(f"unreviewed corridor heading preparation at {command.address.label()}")
                 statements.append(f"Statement::SetRegionHeading {{ heading: Angle::from_units({value}), next: {next_cursor()} }}")
+                continue
+            if address == 0x1CE5 and name == "StoreExternalByte":
+                statements.append(f"Statement::AssignEngineSoundControl {{ value: {value}, next: {next_cursor()} }}")
                 continue
             if address == 0x1D8E and name == "ImportByteAbsolute":
                 statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::CopyHeading({byte_field(variable)}), next: {next_cursor()} }}")

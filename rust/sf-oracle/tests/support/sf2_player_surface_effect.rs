@@ -88,7 +88,7 @@ impl Fixture {
             source.bus.write16(base + 6, address(actor.base.attachment));
             source.bus.write16(
                 base + 0x29,
-                address(actor.base.first_child.or(actor.base.next_sibling)),
+                address(actor.base.attachment_next),
             );
             source.bus.write8(
                 base + 0x23,

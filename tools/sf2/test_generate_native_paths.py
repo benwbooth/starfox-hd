@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 153;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 154;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6232;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6356;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -138,6 +138,37 @@ class NativePathGenerationTests(unittest.TestCase):
             changed[0x3FE51 + index] ^= 1
             with self.assertRaisesRegex(UnsupportedPath, 'node-exit craft table'):
                 lower_graph(PathExtractor(bytes(changed)), root, 0)
+
+    def test_special_exit_controller_closes_all_children_and_primary_shield_installer(self):
+        from extract_path import _PATH_INLINE_BLOCKS
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xD27B)
+        self.assertIn(root, extractor.discover_roots())
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 233)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         'b05e072630c4ac1cf4adeee9218403c56b2e5f3c2a882a4c3542f6d089bcfa50')
+        entry, statements = lower_graph(extractor, root, 0)
+        self.assertEqual((entry, len(statements)), (70, 233))
+        lowered = '\n'.join(statements)
+        for operation in ('InstallExitShield', 'AssignEngineSoundControl { value: 8',
+                          'SelectActivePilotCraft', 'FixedViewCommand::CopyRotation',
+                          'RetireOptionalChild { number: 5'):
+            self.assertIn(operation, lowered)
+        changed = bytearray(self.rom)
+        changed[0x4D2F2] = 6
+        with self.assertRaisesRegex(UnsupportedPath, 'unreviewed optional special-exit child'):
+            lower_graph(PathExtractor(bytes(changed)), root, 0)
+        for index in range(len(_PATH_INLINE_BLOCKS[0xE967][0])):
+            changed = bytearray(self.rom)
+            changed[0x4E968 + index] ^= 1
+            with self.assertRaisesRegex(ValueError, 'path inline signature mismatch'):
+                lower_graph(PathExtractor(bytes(changed)), root, 0)
+
+    def test_engine_control_is_shared_byte_assignment_not_actor_phase_or_audio_cue(self):
+        for value in range(256):
+            self.assertEqual(self.lower_record(f'fbe51c{value:02x}')[0],
+                             f'Statement::AssignEngineSoundControl {{ value: {value}, next: cursor(0, 1) }}')
 
     def test_pulse_attacker_and_periodic_pair_emitter_have_complete_bound_graphs(self):
         extractor = PathExtractor(self.rom)
@@ -2376,7 +2407,7 @@ class NativePathGenerationTests(unittest.TestCase):
             (0xF3F0, "AttachedEffectMotion::Settle"), (0xF3FC, "TriggerKind::Always, 25"),
             (0xF404, "RequestShieldRecovery"), (0xF40A, "RequestShieldRecovery"),
             (0xF410, "RequestShieldRecovery"), (0xF416, "WordField::DepthOffset"),
-            (0xF41A, "ClockBitsSet { mask: 1"), (0xF435, "ImportEnvironmentPlaneHeight"),
+            (0xF41A, "ClockBitsClear { mask: 1"), (0xF435, "ImportEnvironmentPlaneHeight"),
             (0xF441, "UseSelfRelativeFrame"), (0xF45B, "AttachedEffectMotion::Tumble"),
             (0xF46E, "AttachedEffectMotion::Center"), (0xF47C, "ImportActionGate"),
             (0xF484, "ForceAfterCallbacks"), (0xF48A, "ControlCommand::End"),
@@ -2393,7 +2424,7 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn(f"RequestShieldRecovery {{ amount: ByteOperand::Literal({value})",
                           self.lower_record(f"fb 1b 1e {value:02x}")[0])
             self.assertEqual(self.lower_record(f"00 2d {value:02x} 36 f5")[0],
-                f"Statement::ClockBitsSet {{ mask: {value}, taken: cursor(0, 0), next: cursor(0, 1) }}")
+                f"Statement::ClockBitsClear {{ mask: {value}, taken: cursor(0, 0), next: cursor(0, 1) }}")
         self.assertIn("ImportActionGate", self.lower_record("79 a1 72 1d")[0])
         self.assertIn("ImportEnvironmentPlaneHeight", self.lower_record("7c a3 0f 1e")[0])
         for record in ("79 a1 1b 1e", "7c a3 1b 1e", "fb 72 1d 01", "79 a1 0f 1e", "7c a3 10 1e"):

@@ -198,7 +198,7 @@ impl Native {
             assert_eq!(source.bus.read16(base + 6), address(actor.base.attachment));
             assert_eq!(
                 source.bus.read16(base + 0x29),
-                address(actor.base.first_child.or(actor.base.next_sibling))
+                address(actor.base.attachment_next)
             );
             assert_eq!(
                 source.bus.read8(base + 0x25) & 8 != 0,

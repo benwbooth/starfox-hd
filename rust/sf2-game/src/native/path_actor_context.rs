@@ -232,12 +232,12 @@ mod tests {
                 actor.extension.path_state.motion.refresh_child_chain = owns_chain;
                 let root = if owns_chain { caller } else { parent };
                 let ignored = if owns_chain { parent } else { caller };
-                objects.get_mut(root).unwrap().base.first_child = Some(wrong);
-                objects.get_mut(ignored).unwrap().base.first_child = Some(duplicate);
+                objects.get_mut(root).unwrap().base.attachment_next = Some(wrong);
+                objects.get_mut(ignored).unwrap().base.attachment_next = Some(duplicate);
                 objects.get_mut(wrong).unwrap().base.child_number = number.wrapping_add(1);
-                objects.get_mut(wrong).unwrap().base.next_sibling = Some(first_match);
+                objects.get_mut(wrong).unwrap().base.attachment_next = Some(first_match);
                 objects.get_mut(first_match).unwrap().base.child_number = number;
-                objects.get_mut(first_match).unwrap().base.next_sibling = Some(duplicate);
+                objects.get_mut(first_match).unwrap().base.attachment_next = Some(duplicate);
                 objects.get_mut(duplicate).unwrap().base.child_number = number;
                 let mut expected = objects.clone();
                 expected.get_mut(first_match).unwrap().base.path = Some(cursor(66));
@@ -476,8 +476,8 @@ mod tests {
             .path_state
             .motion
             .refresh_child_chain = true;
-        objects.get_mut(caller).unwrap().base.first_child = Some(child);
-        objects.get_mut(child).unwrap().base.next_sibling = Some(child);
+        objects.get_mut(caller).unwrap().base.attachment_next = Some(child);
+        objects.get_mut(child).unwrap().base.attachment_next = Some(child);
         let saved = context;
         let original = objects.clone();
         assert_eq!(
@@ -497,8 +497,8 @@ mod tests {
         );
         assert_eq!(objects, original);
         assert_eq!(context, saved);
-        objects.get_mut(child).unwrap().base.next_sibling = None;
-        objects.get_mut(caller).unwrap().base.first_child = None;
+        objects.get_mut(child).unwrap().base.attachment_next = None;
+        objects.get_mut(caller).unwrap().base.attachment_next = None;
         objects.remove(caller).unwrap();
         let original = objects.clone();
         assert_eq!(

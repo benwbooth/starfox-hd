@@ -275,7 +275,7 @@ fn installers_keep_global_head_order_pilot_pairs_and_exact_fresh_fields() {
             assert!(record.base.contacts.run_when_paused);
         }
         assert_eq!(
-            scene.objects.get(left).unwrap().base.next_sibling,
+            scene.objects.get(left).unwrap().base.attachment_next,
             Some(right)
         );
     }

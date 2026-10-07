@@ -102,7 +102,7 @@ fn every_valid_friend_selector_changes_only_its_health_record_and_death_fields()
 }
 
 #[test]
-fn death_marks_only_the_gated_direct_sibling_chain_without_unlinking_or_retiring() {
+fn death_marks_the_gated_linear_chain_including_nested_children_without_unlinking() {
     for enabled in [false, true] {
         for suppress in [false, true] {
             let (mut runtime, mut objects, owner, mut random) = setup();
@@ -112,11 +112,12 @@ fn death_marks_only_the_gated_direct_sibling_chain_without_unlinking_or_retiring
             let grandchild = objects.allocate(actor()).unwrap();
             let unrelated = objects.allocate(actor()).unwrap();
             let parent = objects.get_mut(owner).unwrap();
-            parent.base.first_child = Some(first);
+            parent.base.attachment_next = Some(first);
             parent.extension.path_state.motion.refresh_child_chain = enabled;
             parent.extension.path_state.motion.suppress_child_refresh = suppress;
-            objects.get_mut(first).unwrap().base.next_sibling = Some(second);
-            objects.get_mut(first).unwrap().base.first_child = Some(grandchild);
+            objects.get_mut(first).unwrap().base.attachment_next = Some(grandchild);
+            objects.get_mut(grandchild).unwrap().base.attachment_next = Some(second);
+            objects.get_mut(grandchild).unwrap().base.attachment = Some(first);
             objects.get_mut(first).unwrap().base.attachment = Some(owner);
             objects.get_mut(second).unwrap().base.attachment = Some(owner);
             runtime
@@ -132,7 +133,7 @@ fn death_marks_only_the_gated_direct_sibling_chain_without_unlinking_or_retiring
                 .unwrap();
             let resources = runtime.resources.clone();
             let mut expected = objects.clone();
-            for id in [owner, first, second] {
+            for id in [owner, first, grandchild, second] {
                 if id == owner || enabled {
                     expected.get_mut(id).unwrap().base.hit_points = 0;
                     expected
@@ -153,7 +154,7 @@ fn death_marks_only_the_gated_direct_sibling_chain_without_unlinking_or_retiring
             );
             assert_eq!(objects, expected);
             assert_eq!(runtime.resources, resources);
-            assert_eq!(objects.get(grandchild).unwrap().base.hit_points, 99);
+            assert_eq!(objects.get(grandchild).unwrap().base.hit_points, if enabled { 0 } else { 99 });
             assert_eq!(objects.get(unrelated).unwrap().base.hit_points, 99);
         }
     }
@@ -226,8 +227,8 @@ fn malformed_child_chains_do_not_partially_mark_actors_or_clear_health() {
         let actor = objects.get_mut(owner).unwrap();
         actor.extension.path_state.friend_health_slot = 1;
         actor.extension.path_state.motion.refresh_child_chain = true;
-        actor.base.first_child = Some(child);
-        objects.get_mut(child).unwrap().base.next_sibling = Some(invalid);
+        actor.base.attachment_next = Some(child);
+        objects.get_mut(child).unwrap().base.attachment_next = Some(invalid);
         let before = objects.clone();
         let mut friends = FriendHealth::default();
         let mut inputs = world(&mut random);
@@ -591,7 +592,7 @@ fn authored_hit_detached_part_spins_selects_speed_bounces_clears_signal_then_die
                 assert_eq!(actor.base.hit_points, if death { 0 } else { 37 });
                 assert_eq!(actor.base.flags.collision_disabled, death);
                 assert!(!actor.base.flags.suppress_death_effects);
-                assert!(objects.get(parent).unwrap().base.first_child.is_none());
+                assert!(objects.get(parent).unwrap().base.attachment_next.is_none());
                 assert_eq!(cues(&mut inputs), expected_cues);
                 let has_callbacks = if death {
                     death_cursor = objects.get(owner).unwrap().base.path;
@@ -725,7 +726,7 @@ fn rotating_controller_spawn_gate_covers_every_part_number_and_pending_inversion
                 assert_eq!(child.base.position, Vector3::default());
                 assert_eq!(child.extension.spawn_group, 255);
                 assert!(child.base.contacts.run_when_paused);
-                assert_eq!(objects.get(owner).unwrap().base.next_sibling, Some(id));
+                assert_eq!(objects.get(owner).unwrap().base.attachment_next, Some(id));
             } else {
                 assert!(runtime.spawns.last_spawn.is_none());
             }

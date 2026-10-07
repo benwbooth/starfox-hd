@@ -125,7 +125,7 @@ pub fn emit_puff(
         .get(owner)
         .ok_or(WorldInputError::MissingActor(owner))?
         .base
-        .first_child;
+        .attachment_next;
     let mut visited = [false; OBJECT_CAPACITY];
     let mut count = 0;
     while let Some(child) = next {
@@ -138,7 +138,7 @@ pub fn emit_puff(
             .get(child)
             .ok_or(WorldInputError::MissingActor(child))?
             .base
-            .next_sibling;
+            .attachment_next;
     }
     if count >= PUFF_CHILD_LIMIT {
         return Ok(None);

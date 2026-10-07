@@ -9176,7 +9176,7 @@ impl Game {
             return Err(Error::ObjectCapacityReached);
         };
         if let Some(frame_object) = self.state.objects.get_mut(frame) {
-            frame_object.base.first_child = Some(core);
+            frame_object.base.attachment_next = Some(core);
         }
         self.eladard_generator_core = Some(core);
         self.state.mission.eladard.generator = EladardGeneratorStatus::Active {
@@ -10418,7 +10418,7 @@ impl Game {
             .fortuna_kick_gunner
             .and_then(|id| self.state.objects.get_mut(id))
         {
-            guardian.base.first_child = None;
+            guardian.base.attachment_next = None;
         }
         for mount in self.fortuna_kick_gunner_mounts.drain(..) {
             self.state.objects.remove(mount.object);
@@ -10997,7 +10997,7 @@ impl Game {
                 (
                     guardian.base.position,
                     guardian.base.yaw,
-                    guardian.base.first_child,
+                    guardian.base.attachment_next,
                 )
             })
         else {
@@ -11024,7 +11024,7 @@ impl Game {
         mount.base.flags.visible = false;
         mount.base.flags.casts_shadow = false;
         mount.base.linked_object = Some(guardian_id);
-        mount.base.next_sibling = previous_child;
+        mount.base.attachment_next = previous_child;
         mount.extension.parent = Some(guardian_id);
         let object = self
             .state
@@ -11032,7 +11032,7 @@ impl Game {
             .allocate(mount)
             .ok_or(Error::ObjectCapacityReached)?;
         if let Some(guardian) = self.state.objects.get_mut(guardian_id) {
-            guardian.base.first_child = Some(object);
+            guardian.base.attachment_next = Some(object);
         }
         self.fortuna_kick_gunner_mounts
             .push(ActiveFortunaKickGunnerMount {
@@ -11110,14 +11110,14 @@ impl Game {
             .collect();
         for (index, object) in active_mounts.iter().copied().enumerate() {
             if let Some(mount) = self.state.objects.get_mut(object) {
-                mount.base.next_sibling = active_mounts.get(index + 1).copied();
+                mount.base.attachment_next = active_mounts.get(index + 1).copied();
             }
         }
         if let Some(guardian) = self
             .fortuna_kick_gunner
             .and_then(|id| self.state.objects.get_mut(id))
         {
-            guardian.base.first_child = active_mounts.first().copied();
+            guardian.base.attachment_next = active_mounts.first().copied();
         }
         for (position, target) in launches {
             self.spawn_fortuna_kick_gunner_projectile(position, target)?;
@@ -36889,7 +36889,8 @@ mod tests {
             let (parent, child) = if parent_first { (first, second) } else { (second, first) };
             let owner = game.state.objects.get_mut(parent).unwrap();
             owner.base.flags.remove_after_tick = true;
-            owner.base.first_child = Some(child);
+            owner.base.attachment_next = Some(child);
+            owner.extension.path_state.motion.refresh_child_chain = true;
             let dependent = game.state.objects.get_mut(child).unwrap();
             dependent.extension.parent = Some(parent);
             dependent.base.flags.remove_with_parent = true;

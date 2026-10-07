@@ -348,9 +348,8 @@ mod tests {
                 assert_eq!(objects.active_ids(), &[parent, caller, second, first]);
                 assert_eq!(objects.get(second).unwrap().base.position.x, 123);
                 assert_eq!(objects.get(second).unwrap().base.path, None);
-                assert_eq!(objects.get(parent).unwrap().base.first_child, Some(caller));
-                assert_eq!(objects.get(caller).unwrap().base.next_sibling, None);
-                assert_eq!(objects.get(caller).unwrap().base.first_child, None);
+                assert_eq!(objects.get(parent).unwrap().base.attachment_next, Some(caller));
+                assert_eq!(objects.get(caller).unwrap().base.attachment_next, None);
                 assert_eq!(spawns.last_spawn, Some(second));
             }
         }
@@ -416,6 +415,9 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(objects.get(created).unwrap().base.attachment, None);
+        // The deliberately missing mother was irrelevant to independent
+        // spawning. Clear that invalid attachment gate before retiring.
+        objects.get_mut(caller).unwrap().extension.path_state.motion.attached_coordinates = false;
         objects.remove(caller).unwrap();
         let before = objects.clone();
         assert_eq!(
@@ -471,8 +473,8 @@ mod tests {
             .unwrap();
         assert_eq!(spawns.last_spawn, Some(child));
         assert_eq!(objects.active_ids(), &[parent, caller, child]);
-        assert_eq!(objects.get(parent).unwrap().base.first_child, Some(caller));
-        assert_eq!(objects.get(caller).unwrap().base.next_sibling, Some(child));
+        assert_eq!(objects.get(parent).unwrap().base.attachment_next, Some(caller));
+        assert_eq!(objects.get(caller).unwrap().base.attachment_next, Some(child));
         let child = objects.get(child).unwrap();
         assert_eq!(child.base.kind, ObjectKind::Effect);
         assert_eq!(child.base.behavior, Behavior::FollowPath);
@@ -535,9 +537,9 @@ mod tests {
             )
             .unwrap();
         assert_eq!(objects.active_ids(), &[parent, second, first]);
-        assert_eq!(objects.get(parent).unwrap().base.first_child, Some(first));
-        assert_eq!(objects.get(first).unwrap().base.next_sibling, Some(second));
-        assert_eq!(objects.get(second).unwrap().base.next_sibling, None);
+        assert_eq!(objects.get(parent).unwrap().base.attachment_next, Some(first));
+        assert_eq!(objects.get(first).unwrap().base.attachment_next, Some(second));
+        assert_eq!(objects.get(second).unwrap().base.attachment_next, None);
         assert_eq!(spawns.last_spawn, Some(second));
         assert_eq!(objects.get(second).unwrap().base.path, None);
         assert_eq!(
@@ -596,7 +598,7 @@ mod tests {
             );
         }
         assert!(!objects.get(child).unwrap().base.flags.remove_after_tick);
-        assert_eq!(objects.get(caller).unwrap().base.first_child, Some(child));
+        assert_eq!(objects.get(caller).unwrap().base.attachment_next, Some(child));
     }
 
     #[test]
@@ -661,7 +663,7 @@ mod tests {
     fn malformed_existing_chain_reports_the_retained_allocation_at_the_error_boundary() {
         let mut objects = ObjectStore::new();
         let caller = objects.allocate(actor()).unwrap();
-        objects.get_mut(caller).unwrap().base.first_child = Some(caller);
+        objects.get_mut(caller).unwrap().base.attachment_next = Some(caller);
         let mut spawns = SpawnState {
             last_spawn: Some(caller),
             ..Default::default()

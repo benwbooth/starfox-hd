@@ -440,7 +440,11 @@ fn death_tail_kills_owned_children_without_retiring_contacts_links_or_programs()
     let contacts_before = pair.map(|id| *world.contacts.get(id).unwrap());
     let active = world.objects.active_ids().to_vec();
     let saved_proxy = proxy(&mut world, owner);
-    let grand_before = world.objects.get(grandchild).unwrap().clone();
+    let mut grand_expected = world.objects.get(grandchild).unwrap().clone();
+    grand_expected.extension.path_state.motion.attached_coordinates = false;
+    grand_expected.base.attachment = None;
+    grand_expected.base.hit_points = 0;
+    grand_expected.base.flags.collision_disabled = true;
     world.inputs = None;
     destroy(&mut world, owner).unwrap();
     assert_eq!(world.objects.active_ids(), active);
@@ -450,7 +454,7 @@ fn death_tail_kills_owned_children_without_retiring_contacts_links_or_programs()
         contacts_before
     );
     assert!(world.proxies.get(saved_proxy).is_none());
-    assert_eq!(world.objects.get(grandchild), Some(&grand_before));
+    assert_eq!(world.objects.get(grandchild), Some(&grand_expected));
     for child in [owned, independent] {
         let actor = world.objects.get(child).unwrap();
         assert_eq!(actor.base.attachment, None);
@@ -474,11 +478,11 @@ fn death_tail_kills_owned_children_without_retiring_contacts_links_or_programs()
         Some(owner)
     );
     assert_eq!(
-        world.objects.get(owner).unwrap().base.first_child,
+        world.objects.get(owner).unwrap().base.attachment_next,
         Some(owned)
     );
     assert_eq!(
-        world.objects.get(owned).unwrap().base.next_sibling,
+        world.objects.get(owned).unwrap().base.attachment_next,
         Some(independent)
     );
     assert!(
@@ -497,7 +501,7 @@ fn death_tail_kills_owned_children_without_retiring_contacts_links_or_programs()
 fn child_gate_and_invalid_chain_preserve_unrelated_state() {
     let mut world = World::new();
     let owner = world.actor(0);
-    world.objects.get_mut(owner).unwrap().base.first_child = Some(owner);
+    world.objects.get_mut(owner).unwrap().base.attachment_next = Some(owner);
     let before = world.objects.clone();
     detach_dying_children(&mut world.objects, owner).unwrap();
     assert_eq!(world.objects, before); // Gate skips even a stale chain.

@@ -1,6 +1,6 @@
 //! Authored child attachment, lookup and detachment (`$7F:2A3D..2A8F`,
 //! `$7F:9435..94D8`).
-//! Detachment changes the sibling chain, not the active object list, world
+//! Detachment changes the attachment chain, not the active object list, world
 //! pose, extension parent, or resources owned by the detached actor.
 
 use super::{ObjectId, ObjectStore, OBJECT_CAPACITY};
@@ -28,6 +28,10 @@ pub enum RelationshipCommand {
     /// Mark the first numbered child for later retirement; do not unlink,
     /// clear health or release its independently owned path resources.
     RetireChild { number: u8 },
+    /// Reviewed optional retirement ($44:D2F1). The absent source child
+    /// writes only an unobserved scratch byte, not an actor. Keep the strict
+    /// form for call sites whose missing-child consequences are unreviewed.
+    RetireOptionalChild { number: u8 },
     SignalLinked,
     SignalChild { number: u8 },
     RefreshLinkedRotation,
@@ -135,7 +139,7 @@ pub fn spawn_parent(
     Ok(parent)
 }
 
-/// Link a freshly allocated child at the END of the authored sibling chain
+/// Link a freshly allocated child at the END of the authored attachment chain
 /// (`$7F:2A3D`). Active-list insertion is a separate allocation operation.
 /// The extension parent is also independent: a child-producing path later
 /// sets that field to its caller, which need not be this attachment parent.
@@ -153,8 +157,7 @@ pub fn attach_fresh_child(
         .ok_or(RelationshipError::MissingActor(child))?;
     if child == parent
         || actor.base.attachment.is_some()
-        || actor.base.next_sibling.is_some()
-        || actor.base.first_child.is_some()
+        || actor.base.attachment_next.is_some()
     {
         return Err(RelationshipError::ChildNotFresh(child));
     }
@@ -162,7 +165,7 @@ pub fn attach_fresh_child(
         .get(parent)
         .ok_or(RelationshipError::MissingActor(parent))?
         .base
-        .first_child;
+        .attachment_next;
     let mut tail = None;
     let mut visited = [false; OBJECT_CAPACITY];
     visited[parent.index()] = true;
@@ -178,14 +181,14 @@ pub fn attach_fresh_child(
             .get(id)
             .ok_or(RelationshipError::MissingActor(id))?
             .base
-            .next_sibling;
+            .attachment_next;
         tail = Some(id);
     }
 
     let actor = objects.get_mut(child).expect("validated fresh child");
     actor.base.child_number = number;
     actor.base.attachment = Some(parent);
-    actor.base.next_sibling = None;
+    actor.base.attachment_next = None;
     actor.extension.path_state.motion.attached_coordinates = true;
     actor.base.flags.remove_with_parent = true;
     if let Some(tail) = tail {
@@ -193,13 +196,13 @@ pub fn attach_fresh_child(
             .get_mut(tail)
             .expect("validated tail")
             .base
-            .next_sibling = Some(child);
+            .attachment_next = Some(child);
     } else {
         objects
             .get_mut(parent)
             .expect("validated parent")
             .base
-            .first_child = Some(child);
+            .attachment_next = Some(child);
     }
     objects
         .get_mut(parent)
@@ -212,7 +215,7 @@ pub fn attach_fresh_child(
 }
 
 /// The source owner flag chooses the caller itself. Otherwise search its
-/// mother, even when the caller happens to retain a first-child pointer.
+/// mother, even when the caller happens to retain an attachment-chain link.
 pub fn find_child(
     objects: &ObjectStore,
     owner: ObjectId,
@@ -244,7 +247,7 @@ pub fn find_direct_child(
         .get(owner)
         .ok_or(RelationshipError::MissingActor(owner))?
         .base
-        .first_child;
+        .attachment_next;
     let mut visited = [false; OBJECT_CAPACITY];
     while let Some(id) = child {
         if visited[id.index()] {
@@ -255,7 +258,7 @@ pub fn find_direct_child(
         if actor.base.child_number == number {
             return Ok(Some(id));
         }
-        child = actor.base.next_sibling;
+        child = actor.base.attachment_next;
     }
     Ok(None)
 }
@@ -276,7 +279,7 @@ pub fn child_missing(
     Ok(find_child(objects, owner, number)?.is_none())
 }
 
-fn detach(objects: &mut ObjectStore, child: ObjectId) -> Result<(), RelationshipError> {
+pub(super) fn detach(objects: &mut ObjectStore, child: ObjectId) -> Result<(), RelationshipError> {
     let actor = objects
         .get_mut(child)
         .ok_or(RelationshipError::MissingActor(child))?;
@@ -288,12 +291,12 @@ fn detach(objects: &mut ObjectStore, child: ObjectId) -> Result<(), Relationship
         .base
         .attachment
         .ok_or(RelationshipError::MissingParent(child))?;
-    let successor = actor.base.next_sibling;
+    let successor = actor.base.attachment_next;
     let mut current = objects
         .get(parent)
         .ok_or(RelationshipError::MissingActor(parent))?
         .base
-        .first_child;
+        .attachment_next;
     let mut previous = None;
     let mut visited = [false; OBJECT_CAPACITY];
     while let Some(id) = current {
@@ -307,17 +310,17 @@ fn detach(objects: &mut ObjectStore, child: ObjectId) -> Result<(), Relationship
                     .get_mut(previous)
                     .expect("validated sibling")
                     .base
-                    .next_sibling = successor;
+                    .attachment_next = successor;
             } else {
                 objects
                     .get_mut(parent)
                     .expect("validated parent")
                     .base
-                    .first_child = successor;
+                    .attachment_next = successor;
             }
             let actor = objects.get_mut(child).expect("validated child");
             actor.base.attachment = None;
-            actor.base.next_sibling = None;
+            actor.base.attachment_next = None;
             actor.base.child_number = 0;
             return Ok(());
         }
@@ -326,7 +329,7 @@ fn detach(objects: &mut ObjectStore, child: ObjectId) -> Result<(), Relationship
             .get(id)
             .ok_or(RelationshipError::MissingActor(id))?
             .base
-            .next_sibling;
+            .attachment_next;
     }
     Ok(())
 }
@@ -370,16 +373,21 @@ pub fn apply(
             objects.get_mut(owner).expect("validated search owner").base.attachment = closest;
             return Ok(());
         }
-        RelationshipCommand::RetireChild { number } => {
+        RelationshipCommand::RetireChild { number }
+        | RelationshipCommand::RetireOptionalChild { number } => {
             let actor = objects.get(owner).ok_or(RelationshipError::MissingActor(owner))?;
             // $7F:8B64 has neither a null-mother guard nor a null-result
-            // guard. Diagnose invalid native links instead of writing flags
-            // through a null source pointer into unrelated global state.
+            // guard. Diagnose invalid parents and unreviewed missing-child
+            // cases rather than writing through a null source pointer. The
+            // optional form has independent dead-store/continuation proof.
             if !actor.extension.path_state.motion.refresh_child_chain && actor.base.attachment.is_none() {
                 return Err(RelationshipError::MissingParent(owner));
             }
-            let child = find_child(objects, owner, number)?
-                .ok_or(RelationshipError::MissingChild { owner, number })?;
+            let child = match find_child(objects, owner, number)? {
+                Some(child) => child,
+                None if matches!(command, RelationshipCommand::RetireOptionalChild { .. }) => return Ok(()),
+                None => return Err(RelationshipError::MissingChild { owner, number }),
+            };
             objects.get_mut(child).expect("validated retirement child").base.flags.remove_after_tick = true;
             return Ok(());
         }
@@ -711,7 +719,7 @@ mod tests {
         let mut objects = ObjectStore::new();
         let parent = objects.allocate(actor()).unwrap();
         let children = std::array::from_fn(|_| objects.allocate(actor()).unwrap());
-        objects.get_mut(parent).unwrap().base.first_child = Some(children[0]);
+        objects.get_mut(parent).unwrap().base.attachment_next = Some(children[0]);
         objects
             .get_mut(parent)
             .unwrap()
@@ -723,7 +731,7 @@ mod tests {
             let actor = objects.get_mut(child).unwrap();
             actor.base.child_number = index as u8 + 1;
             actor.base.attachment = Some(parent);
-            actor.base.next_sibling = children.get(index + 1).copied();
+            actor.base.attachment_next = children.get(index + 1).copied();
             actor.base.flags.remove_with_parent = true;
             actor.extension.path_state.motion.attached_coordinates = true;
             actor.extension.parent = Some(parent);
@@ -819,13 +827,13 @@ mod tests {
                     .motion
                     .refresh_child_chain = refresh;
                 objects.get_mut(owner).unwrap().base.attachment = mother;
-                objects.get_mut(owner).unwrap().base.first_child = Some(children[2]);
+                objects.get_mut(owner).unwrap().base.attachment_next = Some(children[2]);
                 for number in 0..=u8::MAX {
                     let before = objects.clone();
                     let missing = if refresh {
                         number != 3
                     } else if mother.is_some() {
-                        ![1, 2, 3].contains(&number)
+                        ![1, 3].contains(&number)
                     } else {
                         false
                     };
@@ -835,9 +843,8 @@ mod tests {
                     let target = if refresh {
                         (number == 3).then_some(children[2])
                     } else if mother.is_some() {
-                        children
-                            .iter()
-                            .copied()
+                        [children[0], children[2]]
+                            .into_iter()
                             .find(|id| objects.get(*id).unwrap().base.child_number == number)
                     } else {
                         None
@@ -861,14 +868,14 @@ mod tests {
                 }
             }
         }
-        objects.get_mut(parent).unwrap().base.first_child = None;
+        objects.get_mut(parent).unwrap().base.attachment_next = None;
         assert_eq!(child_missing(&objects, parent, 0), Ok(true));
     }
 
     #[test]
     fn signaling_and_missing_child_diagnose_broken_links_without_mutating() {
         let (mut objects, parent, children) = family();
-        objects.get_mut(children[2]).unwrap().base.next_sibling = Some(children[0]);
+        objects.get_mut(children[2]).unwrap().base.attachment_next = Some(children[0]);
         let before = objects.clone();
         assert_eq!(
             child_missing(&objects, parent, 255),
@@ -932,7 +939,7 @@ mod tests {
             assert_eq!(objects.get(unrelated), before.get(unrelated));
             children.push(child);
             assert_eq!(
-                objects.get(parent).unwrap().base.first_child,
+                objects.get(parent).unwrap().base.attachment_next,
                 Some(children[0])
             );
             assert!(
@@ -946,7 +953,7 @@ mod tests {
             );
             for (index, id) in children.iter().copied().enumerate() {
                 assert_eq!(
-                    objects.get(id).unwrap().base.next_sibling,
+                    objects.get(id).unwrap().base.attachment_next,
                     children.get(index + 1).copied()
                 );
             }
@@ -963,7 +970,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            objects.get(children[0]).unwrap().base.next_sibling,
+            objects.get(children[0]).unwrap().base.attachment_next,
             Some(children[2])
         );
     }
@@ -1018,25 +1025,25 @@ mod tests {
             );
             assert_eq!(objects, before);
         }
-        objects.get_mut(children[2]).unwrap().base.next_sibling = Some(children[0]);
+        objects.get_mut(children[2]).unwrap().base.attachment_next = Some(children[0]);
         let before = objects.clone();
         assert_eq!(
             attach_fresh_child(&mut objects, parent, fresh, 9),
             Err(RelationshipError::ChildCycle(children[0]))
         );
         assert_eq!(objects, before);
-        objects.get_mut(children[2]).unwrap().base.next_sibling = Some(fresh);
+        objects.get_mut(children[2]).unwrap().base.attachment_next = Some(fresh);
         let before = objects.clone();
         assert_eq!(
             attach_fresh_child(&mut objects, parent, fresh, 9),
             Err(RelationshipError::ChildNotFresh(fresh))
         );
         assert_eq!(objects, before);
-        objects.get_mut(children[2]).unwrap().base.next_sibling = None;
+        objects.get_mut(children[2]).unwrap().base.attachment_next = None;
         objects.remove(children[2]);
         // Ordinary pool removal repairs references; create the malformed
         // reference explicitly after removal for this diagnostic case.
-        objects.get_mut(children[1]).unwrap().base.next_sibling = Some(children[2]);
+        objects.get_mut(children[1]).unwrap().base.attachment_next = Some(children[2]);
         let before = objects.clone();
         assert_eq!(
             attach_fresh_child(&mut objects, parent, fresh, 9),
@@ -1061,7 +1068,7 @@ mod tests {
             assert_eq!(objects.active_ids(), order);
             let child = objects.get(children[index]).unwrap();
             assert_eq!(child.base.attachment, None);
-            assert_eq!(child.base.next_sibling, None);
+            assert_eq!(child.base.attachment_next, None);
             assert_eq!(child.base.child_number, 0);
             assert_eq!(child.base.position.x, 123);
             assert_eq!(child.extension.parent, Some(parent));
@@ -1072,14 +1079,14 @@ mod tests {
                 .filter(|child| *child != children[index])
                 .collect();
             assert_eq!(
-                objects.get(parent).unwrap().base.first_child,
+                objects.get(parent).unwrap().base.attachment_next,
                 Some(remaining[0])
             );
             assert_eq!(
-                objects.get(remaining[0]).unwrap().base.next_sibling,
+                objects.get(remaining[0]).unwrap().base.attachment_next,
                 Some(remaining[1])
             );
-            assert_eq!(objects.get(remaining[1]).unwrap().base.next_sibling, None);
+            assert_eq!(objects.get(remaining[1]).unwrap().base.attachment_next, None);
             assert!(
                 objects
                     .get(parent)
@@ -1137,11 +1144,11 @@ mod tests {
             .path_state
             .motion
             .attached_coordinates = true;
-        objects.get_mut(parent).unwrap().base.first_child = None;
+        objects.get_mut(parent).unwrap().base.attachment_next = None;
         apply(&mut objects, children[1], RelationshipCommand::UnlinkSelf).unwrap();
         let child = objects.get(children[1]).unwrap();
         assert_eq!(child.base.attachment, Some(parent));
-        assert_eq!(child.base.next_sibling, Some(children[2]));
+        assert_eq!(child.base.attachment_next, Some(children[2]));
         assert_eq!(child.base.child_number, 2);
         assert!(!child.extension.path_state.motion.attached_coordinates);
         assert!(!child.base.flags.remove_with_parent);
@@ -1160,11 +1167,11 @@ mod tests {
         .unwrap();
         assert_eq!(direct, sibling);
         assert_eq!(
-            direct.get(parent).unwrap().base.first_child,
+            direct.get(parent).unwrap().base.attachment_next,
             Some(children[0])
         );
         assert_eq!(
-            direct.get(children[0]).unwrap().base.next_sibling,
+            direct.get(children[0]).unwrap().base.attachment_next,
             Some(children[2])
         );
         assert_eq!(direct.get(children[1]).unwrap().base.attachment, None);
@@ -1173,7 +1180,7 @@ mod tests {
     #[test]
     fn malformed_chains_are_errors_not_silent_success_or_infinite_search() {
         let (mut objects, parent, children) = family();
-        objects.get_mut(children[2]).unwrap().base.next_sibling = Some(children[0]);
+        objects.get_mut(children[2]).unwrap().base.attachment_next = Some(children[0]);
         assert_eq!(
             find_child(&objects, parent, 99),
             Err(RelationshipError::ChildCycle(children[0]))

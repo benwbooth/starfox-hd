@@ -207,7 +207,7 @@ fn extinguishing_preserves_bit_four_and_decrements_tail_on_the_same_visit() {
         assert_eq!(objects.len(), 2);
         assert_eq!(
             objects
-                .get(objects.get(owner).unwrap().base.first_child.unwrap())
+                .get(objects.get(owner).unwrap().base.attachment_next.unwrap())
                 .unwrap()
                 .base
                 .child_number,
@@ -257,8 +257,8 @@ fn ordered_flame_offsets_and_linked_override_are_independent_of_muzzle_disable()
         let center = i16::from(expected_random.next_byte() & 15);
         advance(&mut objects, &mut world, owner).unwrap();
         assert_eq!(world.random, expected_random);
-        let earlier = objects.get(owner).unwrap().base.first_child.unwrap();
-        let latest = objects.get(earlier).unwrap().base.next_sibling.unwrap();
+        let earlier = objects.get(owner).unwrap().base.attachment_next.unwrap();
+        let latest = objects.get(earlier).unwrap().base.attachment_next.unwrap();
         for (id, sample, offset) in [(latest, center, 0), (earlier, left, -25)] {
             let actor = objects.get(id).unwrap();
             assert_eq!(
@@ -406,7 +406,7 @@ fn authored_scenery_trigger_and_damage_consumer_share_the_live_selected_player_r
         }
     );
     assert_eq!(record.contact.unwrap().hit.reserve_shield, 4);
-    let flame = host.objects.get(owner).unwrap().base.first_child.unwrap();
+    let flame = host.objects.get(owner).unwrap().base.attachment_next.unwrap();
     assert_eq!(
         host.objects.get(flame).unwrap().base.path,
         Some(authored_paths::CHILD_DETACHING_SPRITE)

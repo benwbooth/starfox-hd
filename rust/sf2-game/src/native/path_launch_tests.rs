@@ -517,7 +517,7 @@ fn launch_camera_helper_waits_eight_passes_then_publishes_itself_without_resampl
 }
 
 #[test]
-fn shield_callback_restores_saved_phase_and_spawns_only_on_low_even_ticks() {
+fn shield_callback_restores_saved_phase_and_spawns_only_on_low_odd_ticks() {
     let catalog = authored_paths::catalog();
     for shield in 0..=u8::MAX {
         for clock in 0..8 {
@@ -564,7 +564,7 @@ fn shield_callback_restores_saved_phase_and_spawns_only_on_low_even_ticks() {
             );
             assert_eq!(*inputs.random, before_random);
             let child = find_child(&objects, owner, 99).unwrap();
-            assert_eq!(child.is_some(), shield < 13 && clock % 2 == 0);
+            assert_eq!(child.is_some(), shield < 13 && clock % 2 != 0);
             if let Some(child) = child {
                 let actor = objects.get(child).unwrap();
                 assert_eq!(actor.base.shape, ShapeId::from_catalog_index(36));

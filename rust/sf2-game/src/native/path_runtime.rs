@@ -745,7 +745,7 @@ mod tests {
         let child = objects.allocate(actor()).unwrap();
         let parent = objects.get_mut(owner).unwrap();
         parent.base.velocity.x = 10;
-        parent.base.first_child = Some(child);
+        parent.base.attachment_next = Some(child);
         parent.base.contacts.new_contact_latched = true;
         parent.extension.path_state.motion.carry_selected_player = true;
         parent.extension.path_state.motion.refresh_child_chain = true;

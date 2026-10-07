@@ -32,7 +32,7 @@ fn owned_upgrade_ends_without_demanding_skipped_world_inputs_or_spawning() {
             assert!(actor.base.flags.remove_after_tick);
             assert!(actor.base.flags.visible);
             assert_eq!(actor.base.hit_points, 23);
-            assert_eq!(actor.base.first_child, None);
+            assert_eq!(actor.base.attachment_next, None);
             assert_eq!(objects.len(), 1);
             assert_eq!(
                 inputs.targeting_upgrade.as_deref().unwrap().pilot_flags,
@@ -112,8 +112,8 @@ fn targeting_pickup_independent_children_collection_and_both_delayed_messages() 
                     super::super::radar::RadarMarker::from_packed(130)
                 );
                 assert_eq!(actor.base.wait_timer, initial_wait);
-                let scenery = actor.base.first_child.unwrap();
-                let glow = objects.get(scenery).unwrap().base.next_sibling.unwrap();
+                let scenery = actor.base.attachment_next.unwrap();
+                let glow = objects.get(scenery).unwrap().base.attachment_next.unwrap();
                 for (child, number, shape, entry) in [
                     (scenery, 1, 305, authored_paths::SCENE_MATERIAL_SCENERY),
                     (glow, 2, 516, authored_paths::TARGETING_UPGRADE_GLOW),
@@ -236,8 +236,8 @@ fn targeting_pickup_independent_children_collection_and_both_delayed_messages() 
                 assert!(inputs.radio.as_ref().unwrap().request.pending);
                 assert!(objects.get(owner).unwrap().base.flags.remove_after_tick);
                 assert_eq!(objects.get(owner).unwrap().base.wait_timer, 0);
-                assert_eq!(objects.get(owner).unwrap().base.first_child, Some(scenery));
-                assert_eq!(objects.get(scenery).unwrap().base.next_sibling, Some(glow));
+                assert_eq!(objects.get(owner).unwrap().base.attachment_next, Some(scenery));
+                assert_eq!(objects.get(scenery).unwrap().base.attachment_next, Some(glow));
                 assert_eq!(objects.len(), 5);
             }
         }

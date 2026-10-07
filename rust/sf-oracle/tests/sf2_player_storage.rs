@@ -92,6 +92,15 @@ mod corridor_exit_tests;
 #[path = "support/sf2_exit_view.rs"]
 mod exit_view_tests;
 
+#[path = "support/sf2_exit_shield.rs"]
+mod exit_shield_tests;
+
+#[path = "support/sf2_special_exit.rs"]
+mod special_exit_tests;
+
+#[path = "support/sf2_attachment_lifecycle.rs"]
+mod attachment_lifecycle_tests;
+
 #[path = "support/sf2_player_occupancy.rs"]
 mod occupancy_tests;
 
@@ -140,16 +149,28 @@ struct Source {
     bus: SnesBus,
     reset: bool,
     writes: Option<Vec<(u32, u8)>>,
+    byte_accesses: Option<(u16, Vec<(bool, u8)>)>,
     last_carry: bool,
 }
 
 impl System for Source {
     fn read(&mut self, address: u32, kind: AddressType, signals: &Signals) -> u8 {
-        self.bus.read(address, kind, signals)
+        let value = self.bus.read(address, kind, signals);
+        if let Some((watched, accesses)) = &mut self.byte_accesses {
+            if address == u32::from(*watched) || address == WRAM + u32::from(*watched) {
+                accesses.push((false, value));
+            }
+        }
+        value
     }
     fn write(&mut self, address: u32, value: u8, kind: AddressType, signals: &Signals) {
         if let Some(writes) = &mut self.writes {
             writes.push((address, value));
+        }
+        if let Some((watched, accesses)) = &mut self.byte_accesses {
+            if address == u32::from(*watched) || address == WRAM + u32::from(*watched) {
+                accesses.push((true, value));
+            }
         }
         self.bus.write(address, value, kind, signals);
     }
@@ -171,6 +192,7 @@ impl Source {
             bus,
             reset: false,
             writes: None,
+            byte_accesses: None,
             last_carry: false,
         }
     }

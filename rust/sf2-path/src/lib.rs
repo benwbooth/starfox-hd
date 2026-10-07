@@ -2070,10 +2070,10 @@ impl PathVm {
                     .map_err(PathVmError::Host)?;
                 self.advance(command);
             }
-            IfExternalC4BitsSet => {
+            IfExternalC4BitsClear => {
                 if host.read_external_byte(0x00C4).map_err(PathVmError::Host)?
                     & operand_byte(command, 1)
-                    != 0
+                    == 0
                 {
                     self.cursor = PathAddress {
                         offset: operand_word(command, 2),

@@ -300,7 +300,7 @@ fn missing_inherited_wing_number_preserves_fresh_unassigned_allocation_then_latc
     assert_eq!(scene.respond(Some(4)), Err(SceneError::Faulted));
     assert_eq!(scene.objects, before);
     assert_eq!(
-        scene.objects.get(scene.owner).unwrap().base.first_child,
+        scene.objects.get(scene.owner).unwrap().base.attachment_next,
         None
     );
     assert!(scene
@@ -330,7 +330,7 @@ fn full_surface_visit_installs_effects_then_real_scheduler_runs_and_retires_both
             .get(scene.owner)
             .unwrap()
             .base
-            .first_child
+            .attachment_next
             .is_none());
     }
 }

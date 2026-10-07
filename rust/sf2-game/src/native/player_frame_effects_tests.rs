@@ -172,9 +172,9 @@ fn appearance_precedes_damage_and_recovery_and_can_remain_low_for_one_visit() {
     assert_eq!(record.protection.unwrap().control(), 0xE0);
     assert_eq!(objects.get(owner).unwrap().extension.depth_offset, 3);
     assert_eq!(world.shield_recovery.unwrap().amount, 0);
-    let first = objects.get(owner).unwrap().base.first_child.unwrap();
+    let first = objects.get(owner).unwrap().base.attachment_next.unwrap();
     assert_eq!(objects.get(first).unwrap().base.child_number, 18);
-    let next = objects.get(first).unwrap().base.next_sibling.unwrap();
+    let next = objects.get(first).unwrap().base.attachment_next.unwrap();
     assert_eq!(objects.get(next).unwrap().base.child_number, 24);
     advance(&mut objects, &mut world, owner, 99).unwrap();
     assert_eq!(

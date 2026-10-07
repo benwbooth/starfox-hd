@@ -339,7 +339,7 @@ fn charge_effect_uses_direct_chain_global_head_insertion_and_exact_installer_fie
         // inserts after that current head, not necessarily after its player.
         assert_eq!(scene.objects.active_ids(), &[tail, effect, scene.owner]);
         assert_eq!(
-            scene.objects.get(tail).unwrap().base.next_sibling,
+            scene.objects.get(tail).unwrap().base.attachment_next,
             Some(effect)
         );
         let actor = scene.objects.get(effect).unwrap();

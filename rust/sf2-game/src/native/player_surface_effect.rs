@@ -92,7 +92,7 @@ fn child_count(objects: &ObjectStore, owner: ObjectId) -> Result<usize, SurfaceE
         .get(owner)
         .ok_or(WorldInputError::MissingActor(owner))?
         .base
-        .first_child;
+        .attachment_next;
     let mut visited = [false; OBJECT_CAPACITY];
     let mut count = 0;
     while let Some(child) = next {
@@ -105,7 +105,7 @@ fn child_count(objects: &ObjectStore, owner: ObjectId) -> Result<usize, SurfaceE
             .get(child)
             .ok_or(WorldInputError::MissingActor(child))?
             .base
-            .next_sibling;
+            .attachment_next;
     }
     Ok(count)
 }

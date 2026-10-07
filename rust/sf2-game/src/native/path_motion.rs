@@ -631,7 +631,7 @@ mod tests {
         child.base.attachment = Some(owner);
         child.extension.relative_position.x = 100;
         let child = objects.allocate(child).unwrap();
-        objects.get_mut(owner).unwrap().base.first_child = Some(child);
+        objects.get_mut(owner).unwrap().base.attachment_next = Some(child);
         let mut selected = super::super::platform_carry::CarriedPlayer {
             enabled: true,
             carrier: Some(owner),
@@ -660,7 +660,7 @@ mod tests {
         object.extension.path_state.motion.refresh_child_chain = true;
         object.extension.path_state.motion.suppress_child_refresh = true;
         object.extension.path_state.motion.relative_coordinates = true;
-        object.base.first_child = Some(owner); // Would diagnose a cycle if followed.
+        object.base.attachment_next = Some(owner); // Would diagnose a cycle if followed.
         object.base.velocity.x = 7;
         let mut objects = ObjectStore::new();
         assert_eq!(objects.allocate(object), Some(owner));

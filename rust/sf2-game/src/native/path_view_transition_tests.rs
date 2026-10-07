@@ -266,8 +266,7 @@ fn fixed_view_motion_preserves_aliases_targets_identity_and_double_depth_chase()
                 value.extension.path_state.repeat_counter = seed as u8;
                 value.base.wait_timer = (seed as u8).wrapping_add(7);
                 value.base.view_rear_distance = seed as i16;
-                value.base.first_child = Some(other);
-                value.base.next_sibling = Some(owner);
+                value.base.attachment_next = Some(owner);
                 let source = objects.get(owner).unwrap().clone();
                 let before = objects.get(view).unwrap().clone();
                 let mut expected = objects.clone();

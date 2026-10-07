@@ -264,7 +264,7 @@ fn real_scheduler_runs_both_splashes_during_pause_and_retires_with_attachment_cl
             host.clean_epoch().unwrap();
             assert_eq!(host.objects.get(child).is_some(), visit < kind.frames());
         }
-        assert_eq!(host.objects.get(owner).unwrap().base.first_child, None);
+        assert_eq!(host.objects.get(owner).unwrap().base.attachment_next, None);
         assert_eq!(host.objects.len(), 2);
     }
 }

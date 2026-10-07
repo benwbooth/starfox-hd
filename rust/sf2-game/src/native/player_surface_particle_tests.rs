@@ -79,8 +79,8 @@ fn fresh_particles_append_duplicate_numbers_and_keep_independent_transform_paren
     let (mut objects, world, owner) = fixture();
     let first = spawn(&mut objects, &world, owner, SurfaceParticle::Short, input()).unwrap();
     let second = spawn(&mut objects, &world, owner, SurfaceParticle::Long, input()).unwrap();
-    assert_eq!(objects.get(owner).unwrap().base.first_child, Some(first));
-    assert_eq!(objects.get(first).unwrap().base.next_sibling, Some(second));
+    assert_eq!(objects.get(owner).unwrap().base.attachment_next, Some(first));
+    assert_eq!(objects.get(first).unwrap().base.attachment_next, Some(second));
     assert_eq!(objects.get(owner).unwrap().extension.texture_scroll_x, 4);
     for id in [first, second] {
         let actor = objects.get(id).unwrap();
@@ -119,7 +119,7 @@ fn missing_displacement_faults_after_installation_but_pool_exhaustion_precedes_a
         spawn(&mut objects, &world, owner, SurfaceParticle::Short, input()),
         Err(ParticleError::MissingFlightDisplacement(owner))
     );
-    let child = objects.get(owner).unwrap().base.first_child.unwrap();
+    let child = objects.get(owner).unwrap().base.attachment_next.unwrap();
     assert_eq!(objects.get(child).unwrap().extension.parent, Some(child));
     assert_eq!(objects.get(owner).unwrap().extension.texture_scroll_x, 99);
     assert_eq!(
@@ -202,7 +202,7 @@ fn real_scheduler_dispatches_both_lifetimes_during_pause_then_detaches_and_retir
             host.clean_epoch().unwrap();
             assert_eq!(host.objects.get(child).is_some(), visit < kind.frames());
         }
-        assert_eq!(host.objects.get(owner).unwrap().base.first_child, None);
+        assert_eq!(host.objects.get(owner).unwrap().base.attachment_next, None);
         // Detaching the final child clears its link, not the parent's
         // independently retained child-chain update flag.
         assert!(

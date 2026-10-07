@@ -301,7 +301,7 @@ fn child_operand_is_read_before_switch_and_missing_branches_preserve_ifnot_and_w
                 objects.get_mut(child).unwrap().base.child_number = number;
                 let parent = objects.get_mut(owner).unwrap();
                 parent.extension.path_state.motion.refresh_child_chain = true;
-                parent.base.first_child = present.then_some(child);
+                parent.base.attachment_next = present.then_some(child);
                 parent.base.hit_points = number;
                 parent.base.wait_timer = 231;
                 runtime.branch.invert_next = true;

@@ -106,6 +106,7 @@ impl SceneExecution {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SceneError<E> {
+    ExitShield(super::exit_shield::ExitShieldError),
     Faulted,
     MissingActor(ObjectId),
     MissingPrimaryPlayer,
@@ -1672,6 +1673,11 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
             Behavior::ImpactBurst(_) => {
                 super::path_effect::step(self.objects.get_mut(owner).expect("live impact actor"))
                     .expect("validated impact behavior");
+                Ok(owner)
+            }
+            Behavior::ExitShield => {
+                super::exit_shield::step(self.objects, owner, self.world.action_gate.map(|gate| gate.code))
+                    .map_err(SceneError::ExitShield)?;
                 Ok(owner)
             }
             Behavior::SurfaceParticle(_) => {

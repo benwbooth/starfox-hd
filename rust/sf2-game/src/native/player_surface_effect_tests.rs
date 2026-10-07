@@ -184,7 +184,7 @@ fn missing_origin_keeps_formatted_attached_child_and_scene_retry_does_not_alloca
             SurfaceEffectError::MissingOrigin
         ))
     );
-    let child = host.objects.get(f.owner).unwrap().base.first_child.unwrap();
+    let child = host.objects.get(f.owner).unwrap().base.attachment_next.unwrap();
     let actor = host.objects.get(child).unwrap();
     assert_eq!(actor.base.child_number, EFFECT_NUMBER);
     assert_eq!(
@@ -275,7 +275,7 @@ fn scheduler_runs_first_visit_then_lifetime_during_pause_and_retires_the_real_ch
         host.clean_epoch().unwrap();
         assert_eq!(host.objects.get(effect).is_some(), visit != EFFECT_LIFETIME);
     }
-    assert_eq!(host.objects.get(f.owner).unwrap().base.first_child, None);
+    assert_eq!(host.objects.get(f.owner).unwrap().base.attachment_next, None);
     assert_eq!(host.objects.len(), 2);
 }
 

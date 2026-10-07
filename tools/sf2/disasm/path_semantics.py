@@ -291,7 +291,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x129, "SetFlag09Bit01", 0x7FBCF4, None, "sf2_handler"),
     PathSemanticSpec(0x12A, "ClearFlag09Bit01", 0x7FBCFD, None, "sf2_handler"),
     PathSemanticSpec(0x12C, "SetFlag24Bit08", 0x7F8538, None, "sf2_handler"),
-    PathSemanticSpec(0x12D, "IfExternalC4BitsSet", 0x7FBD06, None, "sf2_handler"),
+    PathSemanticSpec(0x12D, "IfExternalC4BitsClear", 0x7FBD06, None, "sf2_handler"),
     PathSemanticSpec(0x12E, "PositionRelativeToLinkedLiteral", 0x7FBD1E, None, "sf2_handler"),
     PathSemanticSpec(0x12F, "PositionRelativeToLinkedVariable", 0x7FBD13, None, "sf2_handler"),
     PathSemanticSpec(0x130, "PositionExternalObjectAndFaceSelected", 0x7FC1B8, None, "sf2_handler"),

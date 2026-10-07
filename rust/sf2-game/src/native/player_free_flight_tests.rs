@@ -96,7 +96,7 @@ fn free_flight_rejected_plane_preserves_effect_input_and_effect_supplies_steerin
     f.free_flight(context).unwrap();
     assert_eq!(f.world.surface_clipping_plane_height, Some(71));
     assert_eq!(f.records().steering.unwrap().turn_response, 4);
-    let child = f.objects.get(f.owner).unwrap().base.first_child.unwrap();
+    let child = f.objects.get(f.owner).unwrap().base.attachment_next.unwrap();
     let effect = f.objects.get(child).unwrap();
     assert!((16..=23).contains(&effect.base.position.y));
     assert_eq!(effect.base.target_speed, 10);
@@ -124,7 +124,7 @@ fn free_flight_zero_height_support_replaces_missing_effect_input_and_caller_resp
     f.free_flight(context).unwrap();
     assert_eq!(f.world.surface_clipping_plane_height, Some(0));
     assert_eq!(f.records().steering.unwrap().turn_response, 0);
-    assert!(f.objects.get(f.owner).unwrap().base.first_child.is_some());
+    assert!(f.objects.get(f.owner).unwrap().base.attachment_next.is_some());
 }
 
 #[test]

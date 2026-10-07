@@ -537,7 +537,7 @@ fn original_damage_particle_birth_real_path_jitter_animation_and_retirement_comp
             .get(native.owner)
             .unwrap()
             .base
-            .first_child
+            .attachment_next
             .is_none());
         assert_eq!(host.execution.paths.runtime.resources.owner_count(child), 0);
         native.compare_pool(&source);
