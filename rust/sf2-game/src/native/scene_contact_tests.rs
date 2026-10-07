@@ -92,7 +92,10 @@ impl Scene {
                         stored_world_position: Vector3::default(),
                         stored_rotation: Default::default(),
                     }),
-                    particles: Some(SelectedParticleEffects { flags: 0x0D }),
+                    particles: Some(SelectedParticleEffects {
+                        flags: 0x0D,
+                        ..Default::default()
+                    }),
                     ..PlayerPathRecords::default()
                 },
             )

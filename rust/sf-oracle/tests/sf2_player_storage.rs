@@ -56,6 +56,9 @@ mod surface_render_tests;
 #[path = "support/sf2_player_appearance.rs"]
 mod appearance_tests;
 
+#[path = "support/sf2_player_damage_effects.rs"]
+mod damage_effects_tests;
+
 #[path = "support/sf2_player_surface.rs"]
 mod surface_tests;
 
@@ -413,6 +416,7 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                 );
                 assert_eq!(records.visit.unwrap().shield_warning_clock, byte(0x6BE8));
                 assert_eq!(records.particles.unwrap().flags, byte(0x6BE4));
+                assert_eq!(records.particles.unwrap().age, byte(0x6BE5));
                 assert_eq!(records.yaw_motion.unwrap(), word(0x6ACD));
                 assert_eq!(records.consumable.unwrap().input_control, byte(0x6B61));
                 assert_eq!(records.rapid_aim.unwrap().roll_step.units(), byte(0x6ADD));

@@ -361,7 +361,7 @@ fn selected_particle_mask_ors_every_byte_without_touching_action_flags_mode_or_i
                 mode: !flags,
                 action_flags: flags,
             };
-            let mut particles = SelectedParticleEffects { flags };
+            let mut particles = SelectedParticleEffects { flags, age: !flags };
             let before = objects.clone();
             let random_before = random;
             let mut inputs = world(&mut random);
@@ -388,6 +388,7 @@ fn selected_particle_mask_ors_every_byte_without_touching_action_flags_mode_or_i
                 }
             );
             assert_eq!(particles.flags, flags | mask);
+            assert_eq!(particles.age, !flags);
             assert_eq!(objects, before);
             assert_eq!(random, random_before);
             assert_eq!(runtime.branch.invert_next, flags & 1 != 0);

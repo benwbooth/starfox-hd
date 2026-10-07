@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported SF2's complete sustained-damage/particle service (`$07:D1A8`),
+  countdown-puff installer (`$07:D048`) and flame emitter (`$07:D2DD`).
+  Authored scenery flags and their age share one player record; roll, impact,
+  recovery, shield, mode and charge use their existing owners. Expiration,
+  roll and Walker surface extinction preserve the low metadata bit and run
+  the countdown in the same visit. Damage tests recovery count bits while
+  feedback tests the entire byte, and zero shield kills only on a later
+  admitted damage tick. Puffs retain the signed half-plus-quarter speed,
+  five-child gate and primary sound; flames retain ordered random draws,
+  relative offsets and unlimited fresh child creation. Both run the actual
+  authored paths through native strategy visits and resource retirement.
+  Nine focused native tests pass, including the actual scenery path feeding
+  the same player record and the fail-stop scene wrapper. Seven unmodified
+  original-code groups pass across five exhaustive byte-pair matrices,
+  admission gates, child pressure/fatal allocation, and both full particle
+  lifetimes. All 1,528 native tests plus two architecture checks and 1,536
+  compatibility tests plus 35 runtime checks pass in debug/release. All 207
+  selected original-code groups pass in both profiles, as do 824 source
+  checks, 241 extractor/lowerer checks, catalogs and static audit. All three
+  application binaries build and each passes 35 tests in both profiles.
+  The enclosing surface transition, complete player strategy and shipping
+  frame owner remain open; this is not a campaign-completion claim.
+
 - Ported SF2's pilot materials/low-shield appearance (`$06:AA1A`), complete
   damage-particle installer (`$07:CFB1`), shared surface-depth arbitration
   (`$07:C32F..C354`) and final depth publication (`$06:9F21..9F35`). The

@@ -136,6 +136,7 @@ pub enum SceneError<E> {
     PlayerSurfaceSplash(super::player_surface_splash::SplashError),
     PlayerSurfaceRender(super::player_surface_render::SurfaceRenderError),
     PlayerAppearance(super::player_appearance::AppearanceError),
+    PlayerDamageEffects(super::player_damage_effects::DamageEffectsError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
@@ -1444,6 +1445,21 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         let result =
             super::player_surface_splash::spawn(self.objects, self.world, owner, kind, input)
                 .map_err(SceneError::PlayerSurfaceSplash);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_damage_effects(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_damage_effects::advance(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerDamageEffects);
         if result.is_err() {
             self.execution.faulted = true;
         }

@@ -152,6 +152,29 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete sustained-damage service (`$07:D1A8..D3B1`) and countdown-puff
+installer (`$07:D048..D0C5`) now consume the same particle flags that authored
+scenery writes. The real player allocator initializes the added age byte;
+mode, roll, surface contact, shield, hit feedback and charge retain their
+existing canonical owners. Extinction and countdown order, recovery-tag
+versus recovery-count gates, shield exhaustion, signed puff speed, primary
+sound routing, flame jitter/relative offsets and fatal allocation order are
+ported. Fresh children execute their actual generated paths through native
+scene strategy visits and ordered resource cleanup. Nine focused native tests
+pass, including an actual scenery path producing the flags consumed by this
+service, absent-input ordering, stale storage and fail-stop retry protection.
+Seven unmodified-original groups cover 327,680 byte-pair cases, all admission
+gate combinations, repeated child allocation and fatal pressure, plus 18
+composed puff/flame path lifetimes. Validation passes all 1,528 native tests
+plus two architecture checks and 1,536 compatibility tests plus 35 runtime
+checks in both profiles, all 207 selected original-code groups in debug and
+release, 824 source checks, 241 extractor/lowerer checks, catalogs and static
+audit. All three application binaries build and each passes 35 tests in both
+profiles. Logs: `/tmp/sf2-player-damage-effects-validation-oct06.log` and
+`/tmp/sf2-player-damage-effects-static-oct06.log`. The enclosing player
+strategy and production frame connection remain incomplete; isolated and
+composed service equivalence does not establish campaign parity.
+
 Player appearance (`$06:AA1A`), the complete low-shield damage-particle
 installer (`$07:CFB1`), surface-depth arbitration (`$07:C32F..C354`) and
 whole-word depth publication (`$06:9F21..9F35`) now share one typed player

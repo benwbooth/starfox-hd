@@ -489,6 +489,8 @@ pub struct SelectedAuxiliaryState {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SelectedParticleEffects {
     pub flags: u8,
+    /// Sustained-emission age (6BE5), advanced only while a high flag is set.
+    pub age: u8,
 }
 
 /// Shared authored guidance history ($D792). Paths copy and replace the
