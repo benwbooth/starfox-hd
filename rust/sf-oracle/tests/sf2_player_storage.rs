@@ -87,6 +87,8 @@ mod frame_effects_tests;
 
 #[path = "support/sf2_player_post_motion.rs"]
 mod post_motion_tests;
+#[path = "support/sf2_player_action_wait.rs"]
+mod action_wait_tests;
 
 #[path = "support/sf2_attachment_pose.rs"]
 mod attachment_poses;

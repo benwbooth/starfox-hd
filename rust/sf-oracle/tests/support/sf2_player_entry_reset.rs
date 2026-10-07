@@ -9,19 +9,19 @@ use sf2_game::positional_audio::{LoopListener, LoopSelection, PositionalAudio};
 use sf2_game::scene_path_world::ScenePathWorld;
 use sf2_game::{Angle, ObjectId, ObjectSpawnDefaults, ObjectStore, ShapeId, SpatialLoop, Vector3};
 
-struct Fixture {
-    source: Source,
-    objects: ObjectStore,
-    world: ScenePathWorld,
-    runtime: PathRuntime,
-    audio: PositionalAudio,
-    owner: ObjectId,
-    other: ObjectId,
-    slot: u32,
+pub(super) struct Fixture {
+    pub(super) source: Source,
+    pub(super) objects: ObjectStore,
+    pub(super) world: ScenePathWorld,
+    pub(super) runtime: PathRuntime,
+    pub(super) audio: PositionalAudio,
+    pub(super) owner: ObjectId,
+    pub(super) other: ObjectId,
+    pub(super) slot: u32,
 }
 
 impl Fixture {
-    fn new(rom: &[u8], seed: u8) -> Self {
+    pub(super) fn new(rom: &[u8], seed: u8) -> Self {
         let mut source = Source::new(rom, 0);
         source.run(0x7F1737, None, 0, OWNER, true);
         source.run(0x0DD5B7, None, 0, OWNER, true);
@@ -147,7 +147,7 @@ impl Fixture {
         }
     }
 
-    fn select(&mut self, z: i16) -> LoopSelection {
+    pub(super) fn select(&mut self, z: i16) -> LoopSelection {
         let actor = self.objects.get_mut(self.owner).unwrap();
         actor.base.position.z = z;
         actor.extension.spatial_loop = SpatialLoop::from_authored_control(5);
@@ -171,7 +171,7 @@ impl Fixture {
         selection
     }
 
-    fn compare(&self) {
+    pub(super) fn compare(&self) {
         let reader = Reader {
             source: &self.source,
             slot: self.slot,

@@ -113,6 +113,26 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Added the two real action-only player strategies to the shared scheduler
+  (`$06:8362..83F0`, `$06:84BE..84EE`). One clears only action elapsed time
+  and installs its active successor; the other retains its strategy and
+  repeats movement preparation followed by action and primary-palette work.
+  Both sample the visiting player's raw controller, preserving remapped and
+  injected input ownership. Positional silence, handoff masks and retained
+  action clocks differ exactly as in the source. Eight native tests and
+  three original-code groups pass all controller/elapsed words, both player
+  sides, dirty reset state, live actions, palettes, repeated visits and
+  source-ordered failures. Native schedule tests use both portions of the
+  actual scheduler and forbid callback fallback. Debug and release pass
+  1,636 native, 1,644 compatibility-feature, 35 runtime, 33 path and 270
+  original-code tests (243 player storage), all application tests, five
+  real-app smoke tests and builds. Static checks pass 890 source tests,
+  218 lowerer tests, three backlog tests, exact regeneration and architecture
+  validation. Logs:
+  `/tmp/sf2-player-action-wait-validation-oct07.log` and
+  `/tmp/sf2-player-action-wait-static-oct07.log`. Installer actions, remaining
+  player phases and shipping frame ownership remain open.
+
 - Composed the continuous post-mode publication (`$06:9DBA..9FAC`):
   cooldown, numbered-child pose, progress palette request, position history,
   one-time music admission, surface-contact edge feedback, effects, recovery

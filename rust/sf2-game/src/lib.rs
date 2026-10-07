@@ -59,6 +59,7 @@ pub use native::player_attachments;
 pub use native::player_damage_effects;
 pub use native::player_frame_effects;
 pub use native::player_post_motion;
+pub use native::player_action_wait;
 pub use native::player_surface_effect;
 pub use native::player_surface;
 pub use native::player_speed;

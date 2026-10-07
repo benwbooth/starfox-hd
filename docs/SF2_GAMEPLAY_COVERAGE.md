@@ -152,6 +152,24 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The real action-only player strategies (`$06:8362..83F0`, `$06:84BE..84EE`)
+now dispatch directly from the shared native scheduler. The first resets
+movement once, clears only action elapsed time and installs its active phase;
+the other repeats movement preparation and runs the primary palette after
+the visiting player's action. Raw controller routing, partial initialization,
+positional-sound retention/silence, handoff masks and action clocks are distinct
+source contracts. Eight native tests and three original-code groups pass
+retained visits, all controller/elapsed words, both player sides, dirty reset
+records, live streams and primary-palette effects. Both scheduler portions and
+fault latching are exercised without a callback fallback. Debug and release
+pass 1,636 native, 1,644 compatibility-feature, 35 runtime, 33 path and 270
+original-code tests (243 player storage), all application tests, five real-app
+smoke tests and builds. Static checks pass 890 source tests, 218 lowerer tests,
+three backlog tests, exact regeneration and architecture validation. Logs:
+`/tmp/sf2-player-action-wait-validation-oct07.log` and
+`/tmp/sf2-player-action-wait-static-oct07.log`. These strategies do not yet close
+their installer actions, the remaining player phases or shipping frame ownership.
+
 The continuous post-mode service (`$06:9DBA..9FAC`) now joins cooldown,
 numbered-child pose, progress-palette requests, completed-position history,
 music admission and terrain-contact feedback to the existing effects/recovery/

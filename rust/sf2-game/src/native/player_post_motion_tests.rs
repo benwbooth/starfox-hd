@@ -389,9 +389,11 @@ fn post_motion_authored_readiness_reaches_the_same_music_gate_without_prior_publ
             executed: 0
         })
     );
-    runtime
+    let exit = runtime
         .resume_program(&catalog, &mut objects, owner, &mut inputs, 2)
         .unwrap();
+    assert_eq!(exit.actor, owner);
+    assert_eq!(exit.step, crate::path_commands::ControlStep::Movement);
     assert_eq!(world.interception_music_ready, Some(true));
     prepare(&mut objects, &mut world, &runtime.resources, owner).unwrap();
     assert_eq!(

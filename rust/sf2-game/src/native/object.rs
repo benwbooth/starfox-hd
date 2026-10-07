@@ -428,6 +428,7 @@ pub enum Behavior {
     MissionEntryFlyby,
     PlayerSelection,
     PlayerFlight,
+    PlayerActionWait(super::player_action_wait::ActionWaitPhase),
     FollowPath,
     /// Source PATHHOLD installs the movement service without path dispatch.
     PathMovement,
