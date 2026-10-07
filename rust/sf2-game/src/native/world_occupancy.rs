@@ -103,6 +103,13 @@ impl Default for WorldOccupancy {
 }
 
 impl WorldOccupancy {
+    /// Transition initialization (`$0D:DA5F..DA79`) blocks the entire plane.
+    /// Later map markers erase traversable cells. This is deliberately not
+    /// the empty plane used by callers that build occupancy by marking it.
+    pub fn fully_occupied() -> Self {
+        Self { rows: [u128::MAX; CELLS_PER_AXIS] }
+    }
+
     pub fn apply(&mut self, marker: &MarkerCoverage, change: OccupancyChange) {
         for (row, coverage) in self.rows.iter_mut().zip(marker.rows) {
             match change {

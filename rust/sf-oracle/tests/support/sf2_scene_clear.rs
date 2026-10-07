@@ -10,7 +10,7 @@ fn proxy_address(id: Option<SceneProxyId>) -> u16 {
     id.map_or(0, |id| 0x342E + id.index() as u16 * 25)
 }
 
-fn setup(source: &mut Source, count: usize, seed: u8) -> Native {
+pub(super) fn setup(source: &mut Source, count: usize, seed: u8) -> Native {
     let mut native = Native::new(source, count, seed, seed.rotate_left(2), 0xCAFE);
     let rom = rom();
     for (offset, &byte) in rom[0x50000..0x54E00].iter().enumerate() {
@@ -50,7 +50,7 @@ fn setup(source: &mut Source, count: usize, seed: u8) -> Native {
     native
 }
 
-fn compare(source: &Source, native: &Native) {
+pub(super) fn compare(source: &Source, native: &Native) {
     native.compare_pool(source);
     let proxies = &native.world.proxies;
     assert_eq!(
@@ -130,7 +130,7 @@ fn compare_free(source: &Source, proxies: &SceneProxyStore) {
     assert_eq!(free_count + proxies.len(), SCENE_PROXY_CAPACITY);
 }
 
-fn capture(source: &mut Source, native: &mut Native, owner: ObjectId, continuation: u16) {
+pub(super) fn capture(source: &mut Source, native: &mut Native, owner: ObjectId, continuation: u16) {
     let base = u32::from(address(Some(owner)));
     source
         .bus

@@ -248,6 +248,12 @@ pub struct ScenePathWorld {
     pub countdown: Option<super::path_countdown::PathCountdown>,
     pub impact: Option<super::path_impact::ImpactState>,
     pub occupancy: Option<super::world_occupancy::WorldOccupancy>,
+    /// Number of map-region registrations ($1910). Zero disables region
+    /// scanning; clearing it does not erase authored region definitions.
+    pub region_registration_count: Option<u8>,
+    /// Retained second region group ($190F). The first/current allocation
+    /// group is owned only by spawn_defaults.group, never copied here.
+    pub secondary_region_group: Option<u8>,
     players: [Option<BoundPlayer>; OBJECT_CAPACITY],
     // Separate borrows of selected equipment and linked shot counts can name
     // the same player. Both stores have one generation-checked owner.
@@ -417,6 +423,8 @@ impl ScenePathWorld {
             countdown: None,
             impact: None,
             occupancy: None,
+            region_registration_count: None,
+            secondary_region_group: None,
             players: [None; OBJECT_CAPACITY],
             shots: [None; OBJECT_CAPACITY],
             audio: AudioState::default(),

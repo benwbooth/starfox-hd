@@ -361,6 +361,31 @@ fn scene_clear_keeps_contacts_programs_and_slots_until_normal_epoch_retirement()
 }
 
 #[test]
+fn scene_world_reset_latches_a_partial_failure_against_outer_retry() {
+    use crate::scene_world_reset::{RegionSelection, WorldResetError};
+    let mut scene = Scene::new();
+    let owner = scene.actor(Behavior::Unassigned);
+    scene.objects.get_mut(owner).unwrap().base.flags.general_search_eligible = true;
+    scene.world.region_registration_count = Some(13);
+    scene.world.secondary_region_group = Some(17);
+    scene.world.spawn_defaults = None;
+    scene.world.occupancy = None;
+    assert_eq!(scene.host().clear_scene_world(RegionSelection::Clear), Err(SceneError::WorldReset(WorldResetError::MissingSpawnDefaults)));
+    assert!(scene.execution.is_faulted());
+    assert!(scene.objects.get(owner).unwrap().base.flags.remove_after_tick);
+    assert_eq!(scene.world.region_registration_count, Some(0));
+    assert_eq!(scene.world.secondary_region_group, Some(17));
+    assert_eq!(scene.world.occupancy, None);
+    scene.world.spawn_defaults = Some(ObjectSpawnDefaults { group: 19, run_when_paused: true });
+    scene.world.region_registration_count = Some(23);
+    assert_eq!(scene.host().clear_scene_world(RegionSelection::Clear), Err(SceneError::Faulted));
+    assert_eq!(scene.world.spawn_defaults.unwrap().group, 19);
+    assert_eq!(scene.world.region_registration_count, Some(23));
+    assert_eq!(scene.world.secondary_region_group, Some(17));
+    assert_eq!(scene.world.occupancy, None);
+}
+
+#[test]
 fn destruction_runs_map_accounting_then_full_contact_program_and_slot_retirement() {
     let mut scene = Scene::new();
     let owner = scene.actor(Behavior::FollowPath);

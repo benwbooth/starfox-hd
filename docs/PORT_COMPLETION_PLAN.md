@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the world-reset wrapper (`$0D:C956..C96B`) and player-entry prefix
+  (`$06:83F1..840F`) around the verified actor/proxy clear. Both disable
+  region scanning and refill the complete occupancy plane; only player entry
+  clears both selected region groups. Region definitions, map continuation,
+  allocation mode, actor slots and owned resources are retained. Fully
+  written state needs no prior publication, while missing retained allocation
+  mode fails at its source position and latches the scene against replay.
+  Five native tests and two original-code groups pass repeated calls, every
+  count/group byte and all 16,384 occupancy cells, including exact write
+  boundaries and real proxy reuse order. Debug and release pass 1,603 native,
+  1,611 compatibility-feature, 35 runtime, 33 path and 258 original-code
+  tests (231 player storage), all application tests, five real-app smoke
+  tests and builds. Static checks pass 873 source tests, 217 lowerer tests,
+  three backlog tests, exact regeneration and architecture checks. Logs:
+  `/tmp/sf2-scene-world-reset-validation-oct07.log` and
+  `/tmp/sf2-scene-world-reset-static-oct07.log`. Region registration/scanning,
+  enclosing action/entry phases and shipping frame integration remain open.
+
 - Ported the complete player motion-prefix reset (`$06:DA38..DA53`) and
   scene-entry movement preparation (`$06:DE7F..DEED`). The reset clears 391
   bytes' typed meaning while preserving the final 81 bytes, allocation

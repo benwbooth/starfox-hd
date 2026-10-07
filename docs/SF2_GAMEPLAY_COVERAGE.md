@@ -152,6 +152,23 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+World reset (`$0D:C956..C96B`) now composes verified actor/proxy teardown,
+region-count clearing and the complete occupied-plane publisher
+(`$0D:DA5F..DA79`). The player-entry prefix (`$06:83F1..840F`) additionally
+clears both region selections while preserving allocation mode. Region
+definitions are not erased, map continuation is not advanced, and actor
+retirement remains deferred. Five native tests and two original-code groups
+pass all count/group bytes, repeat calls, every occupancy cell and exact
+write boundaries. Missing retained state preserves earlier effects and
+latches the scene fault. Debug and release pass 1,603 native, 1,611
+compatibility-feature, 35 runtime, 33 path and 258 original-code tests
+(231 player storage), all application tests, five real-app smoke tests and
+builds. Static checks pass 873 source tests, 217 lowerer tests, three backlog
+tests, exact regeneration and architecture checks. Logs are
+`/tmp/sf2-scene-world-reset-validation-oct07.log` and
+`/tmp/sf2-scene-world-reset-static-oct07.log`. Region activation and full
+player transitions remain open; this is not production-frame integration.
+
 The player motion reset (`$06:DA38..DA53`) and full movement preparation
 (`$06:DE7F..DEED`) now preserve the source's partial-clear boundary: 391 bytes
 are cleared and 81 remain. Typed mixed records preserve their retained

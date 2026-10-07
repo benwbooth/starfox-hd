@@ -123,6 +123,7 @@ pub enum SceneError<E> {
     PlayerNodeExit(super::player_node_exit::NodeExitError),
     PlayerMotionReset(super::player_motion_reset::MotionResetError),
     SceneClear(super::scene_proxy::SceneProxyError),
+    WorldReset(super::scene_world_reset::WorldResetError),
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerStorage(super::player_storage::PlayerStorageError),
@@ -231,6 +232,21 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         }
         let result = super::scene_clear::clear(self.objects, &mut self.world.proxies)
             .map_err(SceneError::SceneClear);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn clear_scene_world(
+        &mut self,
+        selection: super::scene_world_reset::RegionSelection,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::scene_world_reset::clear(self.objects, self.world, selection)
+            .map_err(SceneError::WorldReset);
         if result.is_err() {
             self.execution.faulted = true;
         }

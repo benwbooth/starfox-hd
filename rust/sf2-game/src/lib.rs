@@ -30,6 +30,7 @@ pub use native::player_action;
 pub use native::player_mission;
 pub use native::player_node_exit;
 pub use native::player_motion_reset;
+pub use native::scene_world_reset;
 pub use native::{path_equipment, path_player_control};
 pub use native::scene_clear;
 pub use native::player_consumable;
