@@ -85,6 +85,8 @@ fn setup(
         }
     }
     source.bus.write16(WRAM + 0x1E0F, 1931);
+    source.bus.write16(WRAM + 0x1D6F, OWNER);
+    source.bus.write8(WRAM + 0x1D71, shield);
     world.processed_player_input = Some(input(0x5AA5, 0xA55A));
     world.scene.player_configuration = Some(9);
     world.scene.active_shield = Some(shield);
@@ -118,6 +120,7 @@ fn setup(
         delta: position,
     });
     world.environment_plane_height = Some(1931);
+    world.player_surface_support = Some(sf2_game::player_motion::PlayerSurfaceSupport { object: Some(owner), group: shield });
 }
 
 fn compare(source: &mut Source, world: &ScenePathWorld, owner: ObjectId) {
@@ -179,6 +182,9 @@ fn compare(source: &mut Source, world: &ScenePathWorld, owner: ObjectId) {
         world.environment_plane_height.unwrap() as u16,
         source.bus.read16(WRAM + 0x1E0F)
     );
+    let support = world.player_surface_support.unwrap();
+    assert_eq!(support.object.map_or(0, |_| OWNER), source.bus.read16(WRAM + 0x1D6F));
+    assert_eq!(support.group, source.bus.read8(WRAM + 0x1D71));
 }
 
 #[test]

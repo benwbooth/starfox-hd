@@ -135,6 +135,7 @@ pub enum SceneError<E> {
     PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
+    PlayerMotion(super::player_motion::MotionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
@@ -164,6 +165,29 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Full flight translation after pose; the caller retains any surface tilt.
+    pub fn advance_player_motion(
+        &mut self,
+        owner: ObjectId,
+        context: super::player_motion::MotionContext,
+    ) -> Result<Option<super::surface_motion::SurfaceMotionResult>, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_motion::advance(
+            self.objects,
+            self.world,
+            &self.execution.paths.runtime.resources,
+            owner,
+            context,
+        )
+        .map_err(SceneError::PlayerMotion);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Shared constrained movement, with the caller's real gravity mode and tilt.
     pub fn advance_surface_motion(
         &mut self,

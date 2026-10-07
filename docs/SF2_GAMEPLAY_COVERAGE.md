@@ -152,6 +152,20 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete flight-translation caller (`$06:EE0A..F00F`) now composes the
+two reserved-actor velocity calls with real surface-constrained movement.
+It preserves protected-flight speed/axis/thrust writes before the view gate,
+fine-pitch-high selection, negative-thrust vertical suppression, independent
+base/summed/sliding velocities and the exact shared-support copy boundary.
+Free flight clears carried/pending motion; constrained flight preserves its
+vertical pending delta and restores base velocity after saving the response.
+Missing dependencies preserve completed writes and fault the scene. Five
+unmodified-original groups pass 335,872 calls, with all speed/thrust and angle
+pairs, full-word boundaries, all shape headers and 8,192 continuous live
+geometry visits. Four native groups cover fault boundaries. The shared
+support has the real scene-reset producer. This is scene-service integration,
+not yet shipping `Game::tick` ownership or a complete player strategy.
+
 The complete collision-constrained movement service (`$0D:B282..B6B7`) now
 uses live actors and decoded shape geometry. Surface selection exposes the
 winning normal and exact rectangle/polygon footprint, without address-based

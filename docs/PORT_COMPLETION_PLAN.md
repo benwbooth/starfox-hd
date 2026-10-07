@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported complete flight translation (`$06:EE0A..F00F`), including protected
+  flight's carry/clearance rules, the scripted-view gate, both real reserved
+  actor vector publications, signed thrust, axis permissions, free-flight
+  cleanup and configuration-nine collision response. Base velocity, summed
+  displacement, retained sliding and shared support have distinct canonical
+  owners; partial errors fault the scene. Five unmodified-original groups
+  cover 335,872 calls, including every speed/thrust pair, all angle pairs,
+  full-word clearance/sliding boundaries, all 577 shape headers and 8,192
+  continuous visits with live geometry and mode changes. Four native groups
+  cover lazy dependencies, prefix preservation and fault latching. The
+  near-call oracle harness now honors its declared data bank at either
+  accumulator width; a synthetic regression independently checks the harness.
+  Validation passes 1,359 native tests and both architecture checks in
+  debug/release, 1,367 compatibility unit tests and 35 runtime tests, all
+  95 player/movement/harness groups in debug/release, 704 source checks,
+  238 extractor/lowerer checks, exact catalog/architecture checks and all
+  three application builds. Existing near-call consumers and cinematic/view
+  regressions also pass. A reset-prefix fixture's newly compared support
+  state was corrected to seed both sides equally before the final rerun.
+  Shipping integration still requires the enclosing recoil, surface-damage,
+  map-boundary and player-strategy sequence; these are the next blockers,
+  not an invitation to substitute neutral state for missing caller outputs.
+
 - Ported the complete shared collision-constrained movement service
   (`$0D:B282..B6B7`), using live surface candidates, authored polygons and
   their normals/footprints. It retains the asymmetric velocity dead zone,

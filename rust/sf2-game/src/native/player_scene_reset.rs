@@ -90,6 +90,7 @@ pub fn reset_services(
     world.camera_focus = Some(Default::default());
     world.published_motion = Some(Default::default());
     world.environment_plane_height = Some(0);
+    world.player_surface_support = Some(Default::default());
     Ok(())
 }
 

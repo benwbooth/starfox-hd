@@ -844,11 +844,18 @@ pub fn call_near(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
 
     let mx = entry.p & 0x30;
     let return_address = trap_pc.wrapping_sub(1);
-    let stub: [u8; 19] = [
+    let mut stub: Vec<u8> = vec![
         0x18, // CLC
         0xFB, // XCE
         0xC2,
         0x30, // REP #$30
+    ];
+    if entry.dbr != 0 {
+        // Set the data bank with an explicitly byte-wide push regardless
+        // of the requested entry accumulator width, then restore that width.
+        stub.extend_from_slice(&[0xE2, 0x20, 0xA9, entry.dbr, 0x48, 0xAB, 0xC2, 0x20]);
+    }
+    stub.extend_from_slice(&[
         0xE2,
         mx, // SEP #mx
         0xA5,
@@ -864,7 +871,7 @@ pub fn call_near(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
         target as u8,
         (target >> 8) as u8,
         (target >> 16) as u8, // JML target
-    ];
+    ]);
     for (i, b) in stub.iter().enumerate() {
         bus.write8(0x00_0000 + STUB_PC as u32 + i as u32, *b);
     }

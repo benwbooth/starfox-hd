@@ -78,6 +78,7 @@ pub struct PlayerPathRecords {
     pub flight_displacement: Option<super::Vector3>,
     pub surface: Option<super::player_surface::PlayerSurface>,
     pub speed: Option<super::player_speed::PlayerSpeed>,
+    pub motion: Option<super::player_motion::PlayerMotion>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -205,6 +206,7 @@ pub struct ScenePathWorld {
     /// This is distinct from the general collision-mode byte at 1B4D.
     pub player_carry_mode: Option<u8>,
     pub environment_plane_height: Option<i16>,
+    pub player_surface_support: Option<super::player_motion::PlayerSurfaceSupport>,
     pub friend_health: Option<super::path_death::FriendHealth>,
     pub targeting_upgrade: Option<super::path_target::TargetingUpgradeState>,
     pub linked_effect_activity: Option<super::path_protection::LinkedEffectActivity>,
@@ -342,6 +344,7 @@ impl ScenePathWorld {
             surface_mode: None,
             player_carry_mode: None,
             environment_plane_height: None,
+            player_surface_support: None,
             friend_health: None,
             targeting_upgrade: None,
             linked_effect_activity: None,

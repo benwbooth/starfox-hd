@@ -42,6 +42,7 @@ pub use native::player_ambient;
 pub use native::player_surface_particle;
 pub use native::player_surface;
 pub use native::player_speed;
+pub use native::player_motion;
 pub use native::path_target;
 pub use native::target_search;
 pub use native::scene_strategy;

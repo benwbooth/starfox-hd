@@ -68,6 +68,7 @@ fn fixture() -> (ObjectStore, ScenePathWorld, ObjectId) {
         delta: position,
     });
     world.environment_plane_height = Some(1789);
+    world.player_surface_support = Some(crate::player_motion::PlayerSurfaceSupport { object: Some(owner), group: 197 });
     (objects, world, owner)
 }
 
@@ -134,6 +135,7 @@ fn reset_publishes_only_owned_fields_and_keeps_other_owners_and_reticle_axis() {
         Some(PublishedPlayerMotion::default())
     );
     assert_eq!(world.environment_plane_height, Some(0));
+    assert_eq!(world.player_surface_support, Some(Default::default()));
     assert_eq!(world.targeting_upgrade.unwrap().pilot_flags, 0xB6);
     assert_eq!(world.published_homing_target.unwrap().object, Some(owner));
     assert_eq!(world.audio.take_events()[0], Some(SoundEvent::RapidLaser));
