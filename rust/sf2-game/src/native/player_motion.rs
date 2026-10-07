@@ -46,7 +46,8 @@ pub struct PlayerMotion {
     /// Last walker collision-query height (6AF7). Flight translation does
     /// not replace it; the free-flight surface prefix consumes it later.
     pub surface_height: i16,
-    /// 6AC7/C9/CB, captured before the mode-specific player update.
+    /// 6AC7/C9/CB, captured after the mode-specific player update and
+    /// retained as the previous position during the next movement visit.
     pub previous_position: Vector3,
     /// 6AAD, signed sideways impulse from contact turn and terrain response.
     pub lateral_impulse: i8,
@@ -106,7 +107,7 @@ impl From<SurfaceMotionError> for MotionError {
     }
 }
 
-/// `$06:9E25..9E36`: caller-owned history, not the position after movement.
+/// `$06:9E25..9E36`: publish the completed mode position for the next visit.
 pub fn capture_position(
     objects: &ObjectStore,
     world: &mut ScenePathWorld,

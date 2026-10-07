@@ -22,6 +22,13 @@ class NativePathGenerationTests(unittest.TestCase):
         from generate_native_paths import generate_reviewed_catalog
         self.assertEqual(OUTPUT.read_text(), generate_reviewed_catalog(self.rom))
 
+    def test_interception_readiness_stores_keep_the_source_nonzero_test(self):
+        for value in range(256):
+            self.assertEqual(self.lower_record(f'fbde1d{value:02x}')[0],
+                f'Statement::PublishInterceptionMusicReady {{ ready: {str(value != 0).lower()}, next: cursor(0, 1) }}')
+        for offset in [0x0456, 0x048F]:
+            self.assertEqual(self.rom[0x40000 + offset:0x40000 + offset + 4], bytes.fromhex('fbde1d01'))
+
     def test_completion_helpers_are_complete_callable_graphs_not_actor_roots(self):
         from generate_native_paths import SUBROUTINES, generate_reviewed_catalog
         extractor = PathExtractor(self.rom)

@@ -5,7 +5,6 @@ use super::surface_particle_tests::{address, Native, OWNER, SLOT};
 use super::{rom, Source, WRAM};
 use sf2_game::path_control::PlayerTarget;
 use sf2_game::path_program::{SelectedAuxiliaryState, SelectedParticleEffects};
-use sf2_game::path_sound::AuthoredCue;
 use sf2_game::player_damage_effects::{self, DamageEffectsError};
 use sf2_game::scene_path_world::PlayerPathRecords;
 use sf2_game::{authored_paths, Behavior, ObjectId, ShapeId, SoundEvent};
@@ -118,6 +117,22 @@ pub(super) fn seed(source: &mut Source, native: &mut Native) {
     }
 }
 
+/// Compare the shared ordered cue queue, including earlier post-mode cues
+/// when this damage service is reached through the continuous caller.
+pub(super) fn compare_cues(source: &Source, native: &mut Native) {
+    let events: Vec<_> = native.world.audio.take_events().into_iter().flatten().collect();
+    assert!(events.len() < 16);
+    assert_eq!(source.bus.read16(0x1D16) as usize, events.len() * 2);
+    for slot in 0..16 {
+        let expected = if let Some(event) = events.get(slot) {
+            let SoundEvent::Authored(cue) = event else { panic!("unexpected cue {event:?}"); };
+            u16::from(cue.id) | u16::from(cue.parameter()) << 8
+                | if cue.target == PlayerTarget::Secondary { 0x8000 } else { 0 }
+        } else { 0xACE0 + slot as u16 };
+        assert_eq!(source.bus.read16(0x1CF6 + slot as u32 * 2), expected, "cue slot {slot}");
+    }
+}
+
 pub(super) fn compare(source: &Source, native: &mut Native, mut before: PlayerPathRecords) {
     let byte = |offset| source.bus.read8(WRAM + SLOT + offset);
     before.particles.as_mut().unwrap().flags = byte(0x6BE4);
@@ -141,31 +156,7 @@ pub(super) fn compare(source: &Source, native: &mut Native, mut before: PlayerPa
     for (index, byte) in native.world.random.bytes().into_iter().enumerate() {
         assert_eq!(source.bus.read8(0xE0 + index as u32), byte);
     }
-    let events: Vec<_> = native
-        .world
-        .audio
-        .take_events()
-        .into_iter()
-        .flatten()
-        .collect();
-    assert!(events.len() <= 1);
-    assert_eq!(source.bus.read16(0x1D16) as usize, events.len() * 2);
-    for slot in 0..16 {
-        assert_eq!(
-            source.bus.read16(0x1CF6 + slot * 2),
-            if slot == 0 && !events.is_empty() {
-                109
-            } else {
-                0xACE0 + slot as u16
-            }
-        );
-    }
-    for event in events {
-        assert_eq!(
-            event,
-            SoundEvent::Authored(AuthoredCue::new(109, 0, PlayerTarget::Primary))
-        );
-    }
+    compare_cues(source, native);
     native.compare_pool(source);
     for (id, actor) in native.objects.active_objects() {
         if actor.base.behavior != Behavior::FollowPath {

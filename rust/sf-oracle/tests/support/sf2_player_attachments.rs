@@ -6,7 +6,7 @@ use sf2_game::{
     path_relationships, player_attachments, player_frame_effects, Angle, Rotation, Vector3,
 };
 
-fn prepare(native: &mut Native, mode: u8, ignored: bool, value: u16) {
+pub(super) fn prepare(native: &mut Native, mode: u8, ignored: bool, value: u16) {
     let ids: Vec<_> = native
         .objects
         .active_ids()
@@ -52,7 +52,7 @@ fn prepare(native: &mut Native, mode: u8, ignored: bool, value: u16) {
     record.motion.as_mut().unwrap().walker_attachment_yaw = value as u8;
 }
 
-fn seed(source: &mut Source, native: &Native) {
+pub(super) fn seed(source: &mut Source, native: &Native) {
     poses::seed(&mut source.bus, &native.objects);
     for (id, actor) in native.objects.active_objects() {
         let flags = u32::from(poses::address(Some(id))) + 0x23;

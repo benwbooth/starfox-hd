@@ -54,6 +54,8 @@ pub fn reset_services(
     );
     world.processed_player_input = Some(InputState::default());
     world.scene.player_configuration = Some(0);
+    world.interception_music_ready = Some(false);
+    world.linked_effect_activity = Some(Default::default());
 
     let capacity = world
         .active_shield_capacity

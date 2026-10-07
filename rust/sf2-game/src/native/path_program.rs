@@ -230,6 +230,7 @@ pub struct PathWorld<'a> {
     pub environment_plane_height: Option<i16>,
     pub projectile_trigger: Option<&'a mut ProjectileTrigger>,
     pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
+    pub interception_music_ready: Option<&'a mut Option<bool>>,
     pub protection: Option<super::path_protection::PathProtection<'a>>,
     pub linked_shot_count: Option<super::path_shots::LinkedShotCount<'a>>,
     pub projectile_flight_override: Option<&'a mut super::path_shots::ProjectileFlightOverride>,
@@ -327,6 +328,7 @@ impl PathWorld<'_> {
             environment_plane_height: None,
             projectile_trigger: None,
             linked_effect_activity: None,
+            interception_music_ready: None,
             protection: None,
             linked_shot_count: None,
             projectile_flight_override: None,
@@ -941,6 +943,8 @@ pub enum Statement {
         command: super::path_protection::ActivityCommand,
         next: PathCursor,
     },
+    /// Full authored readiness store; no retained value is read.
+    PublishInterceptionMusicReady { ready: bool, next: PathCursor },
     UpdateProtectionEffect {
         ordinary_return: PathCursor,
         flicker: PathCursor,
@@ -1253,6 +1257,7 @@ pub enum ProgramError {
     MissingPrimaryPitchRecoil,
     MissingPrimaryLinkedMode,
     MissingLinkedEffectActivity,
+    MissingInterceptionMusicReadiness,
     MissingProtection,
     Protection(super::path_protection::ProtectionError),
     MissingPrimaryPlayer,
@@ -2030,6 +2035,12 @@ impl PathRuntime {
                     .expect("validated effect-activity owner");
                 activity.apply(actor, command);
                 actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::PublishInterceptionMusicReady { ready, next } => {
+                *world.interception_music_ready.as_deref_mut()
+                    .ok_or(ProgramError::MissingInterceptionMusicReadiness)? = Some(ready);
+                objects.get_mut(owner).expect("validated music readiness owner").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
             Statement::ViewTransition { enabled, next } =>
@@ -3055,6 +3066,7 @@ mod tests {
             environment_plane_height: None,
             projectile_trigger: None,
             linked_effect_activity: None,
+            interception_music_ready: None,
             protection: None,
             linked_shot_count: None,
             projectile_flight_override: None,
@@ -10202,6 +10214,7 @@ mod tests {
                 environment_plane_height: None,
                 projectile_trigger: None,
                 linked_effect_activity: None,
+                interception_music_ready: None,
                 protection: None,
                 linked_shot_count: None,
                 projectile_flight_override: None,
@@ -14431,6 +14444,7 @@ mod tests {
                 environment_plane_height: None,
                 projectile_trigger: None,
                 linked_effect_activity: None,
+                interception_music_ready: None,
                 protection: None,
                 linked_shot_count: None,
                 projectile_flight_override: None,
@@ -14595,6 +14609,7 @@ mod tests {
                         environment_plane_height: None,
                         projectile_trigger: None,
                         linked_effect_activity: None,
+                        interception_music_ready: None,
                         protection: None,
                         linked_shot_count: None,
                         projectile_flight_override: None,

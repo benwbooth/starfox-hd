@@ -152,6 +152,25 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The continuous post-mode service (`$06:9DBA..9FAC`) now joins cooldown,
+numbered-child pose, progress-palette requests, completed-position history,
+music admission and terrain-contact feedback to the existing effects/recovery/
+attachment tail. Original execution verifies all branches and repeated visits
+without synchronizing outputs between implementations. The readiness path
+store uses the same scene publication as the music gate; reset clears that
+publication and linked-effect activity but preserves the campaign gate.
+Seven native tests, three original-code groups and four shared-reset groups
+pass, including all cooldown/contact bytes, full location words, all
+configuration/progress pairs and real effect/child creation. Debug and release
+pass 1,628 native, 1,636 compatibility-feature, 35 runtime, 33 path and 267
+original-code tests (240 player storage), all application tests, five real-app
+smoke tests and builds. Static checks pass 887 source tests, 218 lowerer tests,
+three backlog tests, exact regeneration and architecture validation. Logs:
+`/tmp/sf2-player-post-motion-validation-oct07.log` and
+`/tmp/sf2-player-post-motion-static-oct07.log`. This closes the post-mode
+publication caller, not mode execution, all mission/exit routing or shipping
+frame ownership.
+
 The primary-player palette dispatcher (`$07:EA67..EACA`) and its three
 complete color loops now use the existing target-transition delay, consumable
 blockers and shared live/saved palette. Branch precedence, transparent-color

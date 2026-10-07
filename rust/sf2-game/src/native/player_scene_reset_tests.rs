@@ -36,6 +36,9 @@ fn fixture() -> (ObjectStore, ScenePathWorld, ObjectId) {
     world.processed_player_input = world.controller_inputs[1];
     world.unmasked_player_input = world.controller_inputs[1];
     world.scene.player_configuration = Some(9);
+    world.interception_active = Some(true);
+    world.interception_music_ready = Some(true);
+    world.linked_effect_activity = Some(crate::path_protection::LinkedEffectActivity { recent_spawn: 173 });
     world.scene.active_shield = Some(42);
     world.active_shield_capacity = Some(32);
     world.weapons = Some(WeaponState {
@@ -111,6 +114,9 @@ fn reset_publishes_only_owned_fields_and_keeps_other_owners_and_reticle_axis() {
     assert_eq!(world.unmasked_player_input, sampled[1]);
     assert_eq!(world.processed_player_input, Some(InputState::default()));
     assert_eq!(world.scene.player_configuration, Some(0));
+    assert_eq!(world.interception_active, Some(true));
+    assert_eq!(world.interception_music_ready, Some(false));
+    assert_eq!(world.linked_effect_activity, Some(Default::default()));
     assert_eq!(world.scene.active_shield, Some(32));
     assert_eq!(world.scene.active_pilot, Some(5));
     assert_eq!(world.scene.active_weapon_level, Some(4));
@@ -243,6 +249,9 @@ fn missing_owners_keep_the_exact_completed_service_prefix() {
         assert_eq!(reset_services(&objects, &mut world, owner), Err(expected));
         assert_eq!(world.processed_player_input, Some(InputState::default()));
         assert_eq!(world.scene.player_configuration, Some(0));
+        assert_eq!(world.interception_music_ready, Some(false));
+        assert_eq!(world.linked_effect_activity, Some(Default::default()));
+        assert_eq!(world.interception_active, Some(true));
         assert_eq!(
             world.scene.active_shield,
             match stage {

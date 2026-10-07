@@ -113,6 +113,25 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Composed the continuous post-mode publication (`$06:9DBA..9FAC`):
+  cooldown, numbered-child pose, progress palette request, position history,
+  one-time music admission, surface-contact edge feedback, effects, recovery
+  and attachment publication. Fine heading and history retain their real
+  owners; Walker feedback, pending-removal children and per-player music
+  latches follow source order. Added the authored readiness store, scene
+  binding and source-ordered reset of readiness/linked-effect activity.
+  Seven native tests, three original-code groups and four reset groups pass,
+  including retained visits, every cooldown/contact byte, all configuration/
+  progress pairs, full location words and real child/effect creation. The
+  scene wrapper latches partial failures. Debug and release pass 1,628 native,
+  1,636 compatibility-feature, 35 runtime, 33 path and 267 original-code tests
+  (240 player storage), all application tests, five real-app smoke tests and
+  builds. Static checks pass 887 source tests, 218 lowerer tests, three
+  backlog tests, exact regeneration and architecture validation. Logs:
+  `/tmp/sf2-player-post-motion-validation-oct07.log` and
+  `/tmp/sf2-player-post-motion-static-oct07.log`. Mode execution,
+  remaining mission/exit branches and shipping frame ownership remain open.
+
 - Ported the primary-player palette dispatcher (`$07:EA67..EACA`) with
   complete flash, red-pulse and restoration loops. It shares the path-owned
   transition delay and real consumable blockers; it does not duplicate them.

@@ -237,6 +237,12 @@ pub struct ScenePathWorld {
     pub friend_health: Option<super::path_death::FriendHealth>,
     pub targeting_upgrade: Option<super::path_target::TargetingUpgradeState>,
     pub linked_effect_activity: Option<super::path_protection::LinkedEffectActivity>,
+    /// Campaign interception gate (1B8A bit 0020). The campaign owner sets
+    /// it at $02:E52E and clears it at $04:BE54, not at player reset.
+    pub interception_active: Option<bool>,
+    /// Path-owned readiness byte (1DDE, nonzero) for the one-time music
+    /// request. Authored stores publish it; shared player reset clears it.
+    pub interception_music_ready: Option<bool>,
     /// Retained homing publication, independent of fresh target selection.
     pub published_homing_target: Option<super::path_target::PublishedHomingTarget>,
     pub target_reticle: super::player_target_lock::TargetReticle,
@@ -416,6 +422,8 @@ impl ScenePathWorld {
             friend_health: None,
             targeting_upgrade: None,
             linked_effect_activity: None,
+            interception_active: None,
+            interception_music_ready: None,
             published_homing_target: None,
             target_reticle: Default::default(),
             reticle_enabled: None,
@@ -677,6 +685,7 @@ impl InvocationWorld for ScenePathWorld {
             friend_health: self.friend_health.as_mut(),
             targeting_upgrade: self.targeting_upgrade.as_mut(),
             linked_effect_activity: self.linked_effect_activity.as_mut(),
+            interception_music_ready: Some(&mut self.interception_music_ready),
             published_homing_target: self.published_homing_target,
             countdown: self.countdown.as_mut(),
             button_layout: self

@@ -85,6 +85,9 @@ mod damage_effects_tests;
 #[path = "support/sf2_player_frame_effects.rs"]
 mod frame_effects_tests;
 
+#[path = "support/sf2_player_post_motion.rs"]
+mod post_motion_tests;
+
 #[path = "support/sf2_attachment_pose.rs"]
 mod attachment_poses;
 

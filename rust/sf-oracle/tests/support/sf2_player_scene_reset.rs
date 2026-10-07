@@ -87,8 +87,12 @@ fn setup(
     source.bus.write16(WRAM + 0x1E0F, 1931);
     source.bus.write16(WRAM + 0x1D6F, OWNER);
     source.bus.write8(WRAM + 0x1D71, shield);
+    source.bus.write16(WRAM + 0x1B8A, 0xA5A5);
     world.processed_player_input = Some(input(0x5AA5, 0xA55A));
     world.scene.player_configuration = Some(9);
+    world.interception_music_ready = Some(shield ^ 0xA7 != 0);
+    world.interception_active = Some(true);
+    world.linked_effect_activity = Some(sf2_game::path_protection::LinkedEffectActivity { recent_spawn: shield ^ 0xA7 });
     world.scene.active_shield = Some(shield);
     world.active_shield_capacity = Some(capacity);
     world.weapons = Some(WeaponState {
@@ -133,6 +137,8 @@ fn compare(source: &mut Source, world: &ScenePathWorld, owner: ObjectId) {
     assert_eq!(processed.pressed.bits(), source.bus.read16(WRAM + 0x1936));
     for (address, value) in [
         (0x1DE2, world.scene.player_configuration.unwrap()),
+        (0x1DDE, u8::from(world.interception_music_ready.unwrap())),
+        (0x1DDF, world.linked_effect_activity.unwrap().recent_spawn),
         (0x1DD1, world.scene.active_shield.unwrap()),
         (0x1DD5, world.active_shield_capacity.unwrap()),
         (0x1B4D, world.surface_mode.unwrap().flags),
@@ -150,6 +156,8 @@ fn compare(source: &mut Source, world: &ScenePathWorld, owner: ObjectId) {
             "service {address:04X}"
         );
     }
+    assert_eq!(world.interception_active, Some(true));
+    assert_eq!(source.bus.read16(WRAM + 0x1B8A), 0xA5A5);
     if let Some(weapons) = world.weapons {
         assert_eq!(
             weapons.published_pitch.unwrap().units(),

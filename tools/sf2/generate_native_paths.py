@@ -2160,6 +2160,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::LinkedEffectActivity {{ command: super::path_protection::ActivityCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address == 0x1DDE and name == "StoreExternalByte":
+                statements.append(f"Statement::PublishInterceptionMusicReady {{ ready: {str(value != 0).lower()}, next: {next_cursor()} }}")
+                continue
             if address == 0x1DD0 and name == "ImportByteAbsolute":
                 statement = f"Statement::ImportButtonLayout {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)

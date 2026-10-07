@@ -146,6 +146,7 @@ pub enum SceneError<E> {
     PlayerAppearance(super::player_appearance::AppearanceError),
     PlayerDamageEffects(super::player_damage_effects::DamageEffectsError),
     PlayerFrameEffects(super::player_frame_effects::FrameEffectsError),
+    PlayerPostMotion(super::player_post_motion::PostMotionError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
@@ -1596,6 +1597,29 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         }
         let result = super::player_mission::consume_layout_advance(self.world)
             .map_err(SceneError::PlayerMission);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Continuous post-mode publication, through effects and attachments.
+    /// The mode and inherited particle number remain caller-owned inputs.
+    pub fn advance_player_post_motion(
+        &mut self,
+        owner: ObjectId,
+        damage_particle_number: u8,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_post_motion::advance(
+            self.objects,
+            self.world,
+            &self.execution.paths.runtime.resources,
+            owner,
+            damage_particle_number,
+        ).map_err(SceneError::PlayerPostMotion);
         if result.is_err() {
             self.execution.faulted = true;
         }

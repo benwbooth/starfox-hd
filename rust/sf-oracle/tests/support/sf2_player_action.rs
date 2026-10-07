@@ -233,6 +233,7 @@ impl Fixture {
         match self.world.audio.pending_music_control() {
             Some(request) => {
                 let value = match request {
+                    MusicControlRequest::InterceptionReady => 1,
                     MusicControlRequest::ForcedRetreat => 5,
                     MusicControlRequest::EncounterExit => 2,
                     MusicControlRequest::EncounterProgressTransition => 7,

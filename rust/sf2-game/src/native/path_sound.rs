@@ -14,6 +14,8 @@ use super::path_control::PlayerTarget;
 /// playback acknowledges it without reproducing sound-port handshaking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MusicControlRequest {
+    /// Authored control 1, requested once after interception readiness.
+    InterceptionReady,
     /// Authored control 2, shared by encounter-exit actions/controllers.
     EncounterExit,
     /// Authored control 5, requested by the forced-retreat action ($0D:CBBB).
