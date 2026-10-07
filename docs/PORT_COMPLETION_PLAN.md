@@ -113,6 +113,30 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the complete node-exit presentation (`$44:B8C5`), including its
+  child craft, scenery tracking anchor and trailing sprite. Fixed-view
+  copies/aiming write the real angle aliases; yaw damping and projection
+  bias use the canonical camera publications. Map restoration redirects
+  the actual typed map owner without consuming its saved continuation.
+  Three original-code groups pass: 16,384 randomized copy/aim cases with
+  aliasing, every roll word and every coordinate/yaw word, plus 16 complete
+  retained lifetimes over 2,560 update passes with live newborn traversal,
+  both gate branches, all four craft variants, animation, callbacks,
+  radio/audio requests, mode publication and full attachment/resource
+  retirement. Four new native failure-order tests and a real map-dispatch
+  continuation test pass. The catalog contains 153 roots, nine helpers,
+  6,232 source commands and 6,173 typed statements. Debug/release regression
+  passes 1,560 native tests plus two architecture checks, 1,568 compatibility
+  tests plus 35 runtime checks, and 236 original-code groups. All three
+  applications build and each passes 35 tests in both profiles. All 851
+  source checks, 213 lowerer tests, three backlog tests, generated catalogs
+  and the architecture audit pass. Full logs are
+  `/tmp/sf2-node-exit-validation2-oct07.log` and
+  `/tmp/sf2-node-exit-static-oct07.log`. Player-side mission creation, two
+  other controller graphs, eleven mission-tail action streams, campaign
+  variant production and complete shipping-frame ownership remain open.
+  These tests do not establish a shipping campaign exit.
+
 - Ported both complete corridor exit controllers (`$44:D1CB`, `$44:D207`)
   through the shared native path dispatcher and live scene/player records.
   They reuse the original-tested corridor kernel, preserve destructive proxy

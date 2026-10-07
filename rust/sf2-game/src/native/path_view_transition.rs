@@ -2,7 +2,9 @@
 //! view is independent of both the live player pointer and path selection.
 
 use super::super::actor_auxiliary::AuxiliaryKind;
-use super::super::view_transition::{disable_projectiles, restore_view, save_view, FixedViewAngles};
+use super::super::view_transition::{
+    disable_projectiles, restore_view, save_view, FixedViewAngles,
+};
 use super::*;
 
 const BEGIN_CUE: u8 = 248;
@@ -16,10 +18,99 @@ fn view_angles(view: &Object) -> [u16; 3] {
 }
 
 fn set_view_angles(view: &mut Object, angles: [u16; 3]) {
-    FixedViewAngles { pitch: angles[0], yaw: angles[1], roll: angles[2] }.write_to(view);
+    FixedViewAngles {
+        pitch: angles[0],
+        yaw: angles[1],
+        roll: angles[2],
+    }
+    .write_to(view);
 }
 
 impl PathRuntime {
+    /// $7F:BFF6/C005 and BE38/BE8C. These write the live view aliases, so
+    /// path repetition and wait state share the angle high bytes as before.
+    pub(super) fn execute_fixed_view_command(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+        world: &PathWorld<'_>,
+        command: super::super::view_transition::FixedViewCommand,
+        next: PathCursor,
+    ) -> Result<ControlStep, ProgramError> {
+        use super::super::player_pose::quarter_word;
+        use super::super::view_transition::FixedViewCommand;
+        use sf_core::aim_angle::{sf2_atan16, sf2_xz_angle_distance};
+        const FINE_ANGLE_SHIFT: u32 = 8;
+        const PITCH_SHIFT_MASK: u8 = 7;
+        if matches!(command, FixedViewCommand::AimTracking { .. }) {
+            self.steering.unchanged_axes = 0;
+        }
+        let view = world.fixed_players[0].ok_or(ProgramError::MissingFixedView)?;
+        objects
+            .get(view)
+            .ok_or(PathRuntimeError::MissingActor(view))?;
+        match command {
+            FixedViewCommand::CopyPosition => {
+                let position = objects
+                    .get(owner)
+                    .expect("validated view source")
+                    .base
+                    .position;
+                objects.get_mut(view).expect("validated view").base.position = position;
+            }
+            FixedViewCommand::CopyRotation => {
+                let source = objects.get(owner).expect("validated view source");
+                let angles = [source.base.pitch, source.base.yaw, source.base.roll]
+                    .map(|angle| u16::from(angle.units()) << FINE_ANGLE_SHIFT);
+                set_view_angles(objects.get_mut(view).expect("validated view"), angles);
+            }
+            FixedViewCommand::AimTracking { pitch_shift, chase } => {
+                let tracking = world
+                    .camera_tracking
+                    .as_ref()
+                    .ok_or(ProgramError::MissingCameraTrackingTarget)?
+                    .actor
+                    .ok_or(ProgramError::MissingCameraTrackingTarget)?;
+                let center = objects
+                    .get(tracking)
+                    .ok_or(PathRuntimeError::MissingActor(tracking))?
+                    .base
+                    .position;
+                let camera = objects.get(view).expect("validated view");
+                let delta = super::super::Vector3 {
+                    x: center.x.wrapping_sub(camera.base.position.x),
+                    y: center.y.wrapping_sub(camera.base.position.y),
+                    z: center.z.wrapping_sub(camera.base.position.z),
+                };
+                let current = view_angles(camera);
+                let pitch = (sf2_atan16(delta.y, sf2_xz_angle_distance(delta.x, delta.z))
+                    .wrapping_neg() as i16)
+                    >> (pitch_shift & PITCH_SHIFT_MASK);
+                let yaw = sf2_atan16(delta.x, delta.z);
+                let angles = [
+                    if chase {
+                        quarter_word(current[0], pitch as u16)
+                    } else {
+                        pitch as u16
+                    },
+                    if chase {
+                        quarter_word(current[1], yaw)
+                    } else {
+                        yaw
+                    },
+                    quarter_word(current[2], 0),
+                ];
+                set_view_angles(objects.get_mut(view).expect("validated view"), angles);
+            }
+        }
+        objects
+            .get_mut(owner)
+            .expect("validated view source")
+            .base
+            .path = Some(next);
+        Ok(ControlStep::Continue)
+    }
+
     /// Source $7F:B376/$7F:B43B: fixed primary view, not selected/live player.
     pub(super) fn execute_fixed_view_motion(
         &mut self,

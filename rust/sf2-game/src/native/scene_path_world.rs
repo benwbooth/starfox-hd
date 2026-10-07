@@ -177,6 +177,8 @@ pub enum WorldInputError {
 /// Additional source services can be bound as their canonical owners migrate.
 pub struct ScenePathWorld {
     pub random: RandomState,
+    /// The real decoded scene-map owner, shared with actor-side redirects.
+    pub map: Option<super::scene_map::SceneMap>,
     pub strategy_clock: u16,
     pub scene: ScenePathInputs,
     pub primary_player: Option<ObjectId>,
@@ -279,6 +281,9 @@ pub struct ScenePathWorld {
     /// Camera-height contribution to projection (1E52); inhibited updates
     /// preserve the previous contribution rather than resetting it.
     pub camera_projection_offset: Option<i16>,
+    /// Authored vertical projection bias (1E44), added with the camera-height
+    /// contribution by $07:9527..9531. It is not a camera angle or distance.
+    pub camera_projection_base: Option<i16>,
     /// Shared 1D9D bit 80 selects a zero-filled horizon table. Camera modes
     /// can set it, while map controls own its separate clear operation.
     pub horizon_disabled: Option<bool>,
@@ -370,6 +375,7 @@ impl ScenePathWorld {
     pub fn new(random: RandomState) -> Self {
         Self {
             random,
+            map: None,
             strategy_clock: 0,
             scene: ScenePathInputs::default(),
             primary_player: None,
@@ -426,6 +432,7 @@ impl ScenePathWorld {
             published_camera_roll: None,
             camera_height_limits: None,
             camera_projection_offset: None,
+            camera_projection_base: None,
             horizon_disabled: None,
             spawn_defaults: None,
             published_motion: None,
@@ -668,6 +675,9 @@ impl InvocationWorld for ScenePathWorld {
             campaign: self.campaign,
             camera_heading: self.camera_heading,
             published_camera_roll: Some(&mut self.published_camera_roll),
+            camera_projection_base: Some(&mut self.camera_projection_base),
+            camera_projection_offset: Some(&mut self.camera_projection_offset),
+            map: self.map.as_mut(),
             spawn_defaults: self.spawn_defaults,
             view_transition_mode: self.view_transition_mode.as_mut(),
             handoff: self.handoff.as_mut(),

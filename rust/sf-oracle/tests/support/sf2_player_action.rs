@@ -234,6 +234,7 @@ impl Fixture {
             Some(request) => {
                 let value = match request {
                     MusicControlRequest::ForcedRetreat => 5,
+                    MusicControlRequest::EncounterExit => 2,
                     MusicControlRequest::EncounterProgressTransition => 7,
                     MusicControlRequest::EncounterProgressComplete => 3,
                 };

@@ -152,6 +152,37 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The node-exit presentation (`$44:B8C5`) now executes as a complete typed graph,
+including its craft child, scenery tracking anchor and trailing sprite.
+Fixed-view operations preserve the shared fine-angle aliases, signed pitch
+attenuation, wrapped geometry and roll chase. The source's unconditional
+projection reset and floor-rounded yaw damping are preserved. The saved map
+continuation redirects the actual `SceneMap`; its selected actor, last yield
+marker and saved target survive. Music uses the same semantic control owner
+as player actions. The four-entry craft table is signature-checked; variants
+outside that reviewed domain fail explicitly rather than interpreting the
+following coordinate data as more shapes.
+
+Three original-code groups pass: randomized copy/aim geometry and aliasing,
+exhaustive roll/coordinate/yaw words, and 16 retained lifetimes across all four
+craft variants and both exit branches. The lifetime comparison follows live
+newborn links, original suspension/pause gates and deferred cleanup; it checks
+poses, velocities, animation, callbacks, radio/cues, map redirects, shared mode
+and completion publications, object links and resource capacity throughout
+2,560 update passes. Four new native tests check missing-service publication
+order, with another test confirming dispatch from the restored map cursor.
+The catalog now has 153 roots, nine helpers, 6,232 source commands and 6,173
+typed statements. Debug/release regression passes 1,560 native tests plus two
+architecture checks, 1,568 compatibility tests plus 35 runtime checks, and
+236 original-code groups. All three applications build and each passes 35
+tests in both profiles. All 851 source checks, 213 lowerer tests, three backlog
+tests, generated catalogs and the architecture audit pass. Full logs are
+`/tmp/sf2-node-exit-validation2-oct07.log` and
+`/tmp/sf2-node-exit-static-oct07.log`. Player-side mission creation, two more
+controller graphs, eleven mission-tail actions, campaign variant production
+and shipping-frame integration remain open. This is not a campaign-playability
+or complete mission-exit claim.
+
 Both corridor exit controllers (`$44:D1CB` and `$44:D207`) now lower and execute
 completely through the typed path dispatcher and actual scene borrows. Their
 boundary producer reuses the independently tested geometry kernel, including

@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 152;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 153;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6155;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6232;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -96,6 +96,48 @@ class NativePathGenerationTests(unittest.TestCase):
                 changed[0x40000 + address + 1 + offset] ^= 1
                 with self.assertRaisesRegex(ValueError, 'path inline signature mismatch'):
                     lower_graph(PathExtractor(bytes(changed)), PathAddress(0xD1CB), 0)
+
+    def test_fixed_view_commands_reject_other_destinations_and_keep_pitch_shift(self):
+        for opcode, name in [('4c', 'CopyPosition'), ('4d', 'CopyRotation')]:
+            self.assertEqual(self.lower_record('00' + opcode + '3f03')[0],
+                f'Statement::FixedView {{ command: super::view_transition::FixedViewCommand::{name}, next: cursor(0, 1) }}')
+            with self.assertRaisesRegex(UnsupportedPath, 'fixed-view destination'):
+                self.lower_record('00' + opcode + '7e03')
+        for opcode, chase in [('38', 'false'), ('39', 'true')]:
+            for shift in range(256):
+                self.assertEqual(self.lower_record(f'00{opcode}3f03{shift:02x}')[0],
+                    f'Statement::FixedView {{ command: super::view_transition::FixedViewCommand::AimTracking {{ pitch_shift: {shift}, chase: {chase} }}, next: cursor(0, 1) }}')
+            with self.assertRaisesRegex(UnsupportedPath, 'fixed-view destination'):
+                self.lower_record('00' + opcode + '000001')
+
+    def test_node_exit_controller_includes_both_spawn_generations_and_every_inline_body(self):
+        from extract_path import _PATH_INLINE_BLOCKS
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xB8C5)
+        self.assertIn(root, extractor.discover_roots())
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 113)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '522676971add3a910049da2add366257c9b91d7d4571da0941fdbb6af882af1f')
+        entry, statements = lower_graph(extractor, root, 0)
+        self.assertEqual((entry, len(statements)), (25, 113))
+        lowered = '\n'.join(statements)
+        for operation in ('RestoreMapContinuation', 'SetCameraProjectionBase', 'InitializeNodeExitCamera',
+                          'DampNodeExitCamera', 'NodePresentationVariant', 'FixedViewCommand::CopyRotation',
+                          'MusicControlRequest::EncounterExit'):
+            self.assertIn(operation, lowered)
+        self.assertEqual(lowered.count('Statement::SpawnChild'), 3)
+        for address in (0xB8C5, 0xB8E4, 0xB91A):
+            for index in range(len(_PATH_INLINE_BLOCKS[address][0])):
+                changed = bytearray(self.rom)
+                changed[0x40000 + address + 1 + index] ^= 1
+                with self.assertRaisesRegex(ValueError, 'path inline signature mismatch'):
+                    lower_graph(PathExtractor(bytes(changed)), root, 0)
+        for index in range(8):
+            changed = bytearray(self.rom)
+            changed[0x3FE51 + index] ^= 1
+            with self.assertRaisesRegex(UnsupportedPath, 'node-exit craft table'):
+                lower_graph(PathExtractor(bytes(changed)), root, 0)
 
     def test_pulse_attacker_and_periodic_pair_emitter_have_complete_bound_graphs(self):
         extractor = PathExtractor(self.rom)

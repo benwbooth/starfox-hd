@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
     ("NARROWING_CORRIDOR_EXIT", PathAddress(0xD1CB)),
     ("LEVEL_CORRIDOR_EXIT", PathAddress(0xD207)),
     ("OBJECTIVE_GATED_PULSE_PATROL", PathAddress(0x2BE9)),
@@ -615,6 +616,12 @@ def shape_index(shape: int) -> int:
 
 def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     index = shape_index(shape)
+    # Node-exit display: its complete child disables collision before its
+    # first wait, then shows the node-selected craft and emits a sprite.
+    if (shape, path) in ((0xBC9C, PathAddress(0xB937)),
+                        (0xBC9C, PathAddress(0x7FAA)),
+                        (0xBEE8, PathAddress(0xF32F))):
+        return index, "ObjectKind::Effect"
     # Empty-shape encounter exit anchors/controllers. The short anchor waits
     # then ends; its creator hides it and suppresses contacts before yielding.
     # The paired camera controller immediately hides itself. Their authored
@@ -1236,6 +1243,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             # The extractor checks the COMPLETE instruction signature and
             # returned continuation before exposing each reviewed action.
             actions = {
+                PathAddress(0xB8E4): "InitializeNodeExitCamera",
+                PathAddress(0xB91A): "DampNodeExitCamera",
                 PathAddress(0xE839): "BeginCorridorEntry",
                 PathAddress(0xB129): "MarkRemoval",
                 PathAddress(0xF348): "LatchPrimaryViewFilter",
@@ -1253,6 +1262,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if command.address == PathAddress(0xD253):
                 parameters(0)
                 statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::RequestCorridorExit, next: {next_cursor()} }}")
+                continue
+            if command.address == PathAddress(0xB8C5):
+                parameters(0)
+                statements.append(f"Statement::RequestMusicControl {{ request: super::path_sound::MusicControlRequest::EncounterExit, next: {next_cursor()} }}")
                 continue
             if command.address == PathAddress(0xB0CB):
                 parameters(0)
@@ -1649,9 +1662,25 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "CopySelectedSlotWorldPosition":
             parameters(0)
             statement = f"Statement::CopySelectedStoredPosition {{ next: {next_cursor()} }}"
+        elif name == "RestoreMapCursorPair":
+            parameters(0)
+            statement = f"Statement::RestoreMapContinuation {{ next: {next_cursor()} }}"
         elif name == "CopySelectedAuxRotation":
             parameters(0)
             statement = f"Statement::CopySelectedStoredRotation {{ next: {next_cursor()} }}"
+        elif name in ("CopyPositionToObject", "CopyRotationToObjectFixed",
+                      "SetObjectRotationTowardTarget", "ChaseObjectRotationTowardTarget"):
+            aim = name in ("SetObjectRotationTowardTarget", "ChaseObjectRotationTowardTarget")
+            operand = parameters(3 if aim else 2)
+            target = int.from_bytes(operand[:2], "little")
+            if target != 0x033F:
+                raise UnsupportedPath(f"unreviewed fixed-view destination {target:04X}")
+            if aim:
+                operation = (f"AimTracking {{ pitch_shift: {operand[2]}, "
+                           f"chase: {str(name == 'ChaseObjectRotationTowardTarget').lower()} }}")
+            else:
+                operation = "CopyPosition" if name == "CopyPositionToObject" else "CopyRotation"
+            statement = f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::{operation}, next: {next_cursor()} }}"
         elif name in ("ChasePlayerTowardObject", "SnapPlayerToObject"):
             parameters(0)
             statement = f"Statement::MoveFixedView {{ snap: {str(name == 'SnapPlayerToObject').lower()}, next: {next_cursor()} }}"
@@ -1816,6 +1845,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if address == 0x1E0B and (value_low, value_high) == (0, 0):
                 statements.append(f"Statement::ClearPublishedCameraRoll {{ next: {next_cursor()} }}")
+                continue
+            if address == 0x1E44:
+                value = int.from_bytes(bytes((value_low, value_high)), "little", signed=True)
+                statements.append(f"Statement::SetCameraProjectionBase {{ value: {value}, next: {next_cursor()} }}")
                 continue
             if (low | high << 8) == 0xD777:
                 label_pointer = value_low | value_high << 8
@@ -2033,9 +2066,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f'Statement::ObjectiveCounts {{ field: super::path_scene_state::ObjectiveCountField::{field}, command: super::path_scene_state::CoordinationCommand::{operation}, next: {next_cursor()} }}'
                 statements.append(statement)
                 continue
-            if address in (0xD79B, 0x1DE0, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B) and name.startswith("Import"):
+            if address in (0xD79B, 0x1DE0, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B, 0x1E09) and name.startswith("Import"):
                 source = {0xD79B: "EncounterNodeMode", 0x1DE0: "PlayerViewControl", 0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
-                          0x1E70: "WingmatePilot", 0xDB5B: "MapRegion"}[address]
+                          0x1E70: "WingmatePilot", 0xDB5B: "MapRegion", 0x1E09: "NodePresentationVariant"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
@@ -2124,7 +2157,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if wide and destination == 0x04:
                 address = low | (high << 8) | (bank << 16)
-                if selector == 0xA1 and address == 0x06FC69:
+                if selector == 0x2E and address == 0x07FE51 and command.address == PathAddress(0xB976):
+                    # Four authored node-presentation craft entries, followed
+                    # immediately by coordinate data, not more shape handles.
+                    # Native SelectShape rejects an out-of-domain variant.
+                    start = source_offset(address)
+                    table = extractor.rom[start:start + 8]
+                    if table != bytes.fromhex('48e664c364c364c3'):
+                        raise UnsupportedPath('unexpected node-exit craft table')
+                    values = tuple(shape_index(int.from_bytes(table[i:i + 2], 'little'))
+                                   for i in range(0, 8, 2))
+                elif selector == 0xA1 and address == 0x06FC69:
                     values = encounter_gate_shapes(extractor.rom)
                 elif selector == 0xA2 and address == 0x06FC4D:
                     values = node_reveal_shapes(extractor.rom)

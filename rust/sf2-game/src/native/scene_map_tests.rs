@@ -117,6 +117,47 @@ fn phase_hold_is_a_per_visit_yield_and_release_preserves_its_last_marker() {
 }
 
 #[test]
+fn authored_continuation_restore_retains_current_actor_marker_and_saved_target() {
+    let program: [Instruction; 4] = [
+        Instruction::Spawn {
+            specification: spawn(123),
+            marker: 77,
+            next: cursor(1),
+        },
+        Instruction::Stop,
+        Instruction::ApplyToCurrent {
+            effect: Effect::Health(61),
+            next: cursor(3),
+        },
+        Instruction::Stop,
+    ];
+    let catalog = MapCatalog::new(&program, &[]).unwrap();
+    let mut map = SceneMap::new(&catalog, cursor(0)).unwrap();
+    assert_eq!(
+        map.restore_continuation(),
+        Err(MapRestoreError::MissingContinuation)
+    );
+    assert_eq!(map.cursor(), cursor(0));
+    map.save_continuation(&catalog, cursor(2)).unwrap();
+    assert!(map.save_continuation(&catalog, cursor(4)).is_err());
+    let mut host = Host::default();
+    visit(&mut map, &catalog, &mut host).unwrap();
+    let selected = map.current_object().unwrap();
+    for _ in 0..3 {
+        map.restore_continuation().unwrap();
+        assert_eq!(map.saved_continuation(), Some(cursor(2)));
+        assert_eq!(map.cursor(), cursor(2));
+        assert_eq!(map.current_object(), Some(selected));
+        assert_eq!(map.yield_marker(), 77);
+        visit(&mut map, &catalog, &mut host).unwrap();
+        assert_eq!(host.actors.get(selected).unwrap().base.hit_points, 61);
+    }
+    map.faulted = true;
+    assert_eq!(map.restore_continuation(), Err(MapRestoreError::Faulted));
+    assert_eq!(map.cursor(), cursor(3));
+}
+
+#[test]
 fn zero_delay_falls_through_without_erasing_a_preceding_marker() {
     let program: [Instruction; 4] = [
         Instruction::Yield {

@@ -183,6 +183,10 @@ mod scene_event_tests;
 #[path = "path_corridor_exit_tests.rs"]
 mod corridor_exit_tests;
 
+#[cfg(test)]
+#[path = "path_node_exit_tests.rs"]
+mod node_exit_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -195,6 +199,9 @@ pub struct PathWorld<'a> {
     pub camera_heading: Option<super::Angle>,
     /// The real camera publication, including its not-yet-published state.
     pub published_camera_roll: Option<&'a mut Option<u16>>,
+    pub camera_projection_base: Option<&'a mut Option<i16>>,
+    pub camera_projection_offset: Option<&'a mut Option<i16>>,
+    pub map: Option<&'a mut super::scene_map::SceneMap>,
     pub reflection: Option<super::weapon_reflection::ReflectionRules>,
     pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
     pub primary_feedback: Option<super::player_hit_control::PrimaryFeedback<'a>>,
@@ -291,6 +298,9 @@ impl PathWorld<'_> {
             camera_tracking: None,
             camera_heading: None,
             published_camera_roll: None,
+            camera_projection_base: None,
+            camera_projection_offset: None,
+            map: None,
             reflection: None,
             health_display: None,
             primary_feedback: None,
@@ -398,6 +408,9 @@ pub struct ScenePathInputs {
     /// Encounter layout byte ($1BA5), copied from the campaign node's
     /// layout field at $04:B20C and retained independently of location.
     pub encounter_layout: Option<u8>,
+    /// Selected campaign node's presentation variant (1E09), copied from
+    /// its field 3E at $04:B26E and used for the exit craft and radio line.
+    pub node_presentation_variant: Option<u8>,
     /// Active player's published weapon level ($1DD4), copied from its
     /// per-player weapon record at $06:9CE1. This is not a fresh lookup of
     /// the path-selected actor; pilot exchange updates the published byte.
@@ -464,6 +477,7 @@ pub enum SceneByte {
     PlayerViewControl,
     EncounterLocation,
     EncounterLayout,
+    NodePresentationVariant,
     ActiveWeaponLevel,
 }
 
@@ -480,6 +494,7 @@ impl SceneByte {
             Self::PlayerViewControl => input.player_view_control,
             Self::EncounterLocation => input.encounter_location.map(|word| word as u8),
             Self::EncounterLayout => input.encounter_layout,
+            Self::NodePresentationVariant => input.node_presentation_variant,
             Self::ActiveWeaponLevel => input.active_weapon_level,
         }
     }
@@ -726,6 +741,12 @@ impl ActorCondition {
 pub enum Statement {
     ViewTransition { enabled: bool, next: PathCursor },
     MoveFixedView { snap: bool, next: PathCursor },
+    FixedView { command: super::view_transition::FixedViewCommand, next: PathCursor },
+    RestoreMapContinuation { next: PathCursor },
+    SetCameraProjectionBase { value: i16, next: PathCursor },
+    InitializeNodeExitCamera { next: PathCursor },
+    DampNodeExitCamera { next: PathCursor },
+    RequestMusicControl { request: super::path_sound::MusicControlRequest, next: PathCursor },
     CopySelectedStoredPosition { next: PathCursor },
     CopySelectedStoredRotation { next: PathCursor },
     Placement { command: super::path_scene_state::PlacementCommand, next: PathCursor },
@@ -1176,6 +1197,10 @@ pub enum Statement {
 pub enum ProgramError {
     MissingViewTransitionMode,
     MissingFixedView,
+    MissingSceneMap,
+    MapRestore(super::scene_map::MapRestoreError),
+    MissingCameraProjectionBase,
+    MissingCameraProjectionOffset,
     InvalidSavedViewPath(Option<PathCursor>),
     ViewSave(super::view_transition::ViewSaveError),
     Auxiliary(super::actor_auxiliary::AuxiliaryError),
@@ -1961,6 +1986,56 @@ impl PathRuntime {
                 Ok(self.execute_view_transition(catalog, objects, owner, world, enabled, next)?),
             Statement::MoveFixedView { snap, next } =>
                 Ok(self.execute_fixed_view_motion(objects, owner, world, snap, next)?),
+            Statement::FixedView { command, next } =>
+                Ok(self.execute_fixed_view_command(objects, owner, world, command, next)?),
+            Statement::RestoreMapContinuation { next } => {
+                world.map.as_deref_mut().ok_or(ProgramError::MissingSceneMap)?
+                    .restore_continuation().map_err(ProgramError::MapRestore)?;
+                objects.get_mut(owner).expect("validated exit owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SetCameraProjectionBase { value, next } => {
+                *world.camera_projection_base.as_deref_mut()
+                    .ok_or(ProgramError::MissingCameraProjectionBase)? = Some(value);
+                objects.get_mut(owner).expect("validated exit owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::InitializeNodeExitCamera { next } => {
+                // $06:FA66: move all three coordinates by half the wrapped
+                // world, then set the authored orbit's pitch/yaw/roll.
+                const HALF_WORLD: i16 = i16::MIN;
+                const EXIT_PITCH: u8 = 26;
+                const EXIT_YAW: u8 = 64;
+                let actor = objects.get_mut(owner).expect("validated exit owner");
+                actor.base.position.x = actor.base.position.x.wrapping_add(HALF_WORLD);
+                actor.base.position.y = actor.base.position.y.wrapping_add(HALF_WORLD);
+                actor.base.position.z = actor.base.position.z.wrapping_add(HALF_WORLD);
+                actor.base.pitch = super::Angle::from_units(EXIT_PITCH);
+                actor.base.yaw = super::Angle::from_units(EXIT_YAW);
+                actor.base.roll = super::Angle::ZERO;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::DampNodeExitCamera { next } => {
+                // $07:F501 clears the height contribution even when it was
+                // already positive. Its yaw halves round down, not to zero.
+                *world.camera_projection_offset.as_deref_mut()
+                    .ok_or(ProgramError::MissingCameraProjectionOffset)? = Some(0);
+                let view = world.fixed_players[0].ok_or(ProgramError::MissingFixedView)?;
+                let camera = objects.get_mut(view).ok_or(PathRuntimeError::MissingActor(view))?;
+                let mut angles = super::view_transition::FixedViewAngles::capture(camera);
+                let half = (angles.yaw as i16) >> 1;
+                angles.yaw = half.wrapping_add(half >> 2) as u16;
+                angles.write_to(camera);
+                objects.get_mut(owner).expect("validated exit owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RequestMusicControl { request, next } => {
+                world.audio.as_mut().ok_or(ProgramError::MissingAudio)?
+                    .events.request_music_control(request);
+                objects.get_mut(owner).expect("validated exit owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
             Statement::CopySelectedStoredPosition { next } => {
                 let position = world.selected_auxiliary.as_deref()
                     .ok_or(ProgramError::MissingSelectedAuxiliary)?.stored_world_position;
@@ -2901,6 +2976,9 @@ mod tests {
         PathWorld {
             selected_mode_selection: None,
             published_camera_roll: None,
+            camera_projection_base: None,
+            camera_projection_offset: None,
+            map: None,
             selected_boundary: None,
             selected_steering: None,
             scene: ScenePathInputs::default(),
@@ -8590,6 +8668,7 @@ mod tests {
                     SceneByte::PlayerViewControl => inputs.scene.player_view_control = Some(value),
                     SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(0xAF00 | u16::from(value)),
                     SceneByte::EncounterLayout => inputs.scene.encounter_layout = Some(value),
+                    SceneByte::NodePresentationVariant => inputs.scene.node_presentation_variant = Some(value),
                     SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
                 }
                 assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
@@ -10042,6 +10121,9 @@ mod tests {
             let mut inputs = PathWorld {
                 selected_mode_selection: None,
                 published_camera_roll: None,
+                camera_projection_base: None,
+                camera_projection_offset: None,
+                map: None,
                 selected_boundary: None,
                 selected_steering: None,
                 scene: ScenePathInputs::default(),
@@ -14130,10 +14212,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 152);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 153);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6096);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6155);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6173);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6232);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -14266,6 +14348,9 @@ mod tests {
             let mut inputs = PathWorld {
                 selected_mode_selection: None,
                 published_camera_roll: None,
+                camera_projection_base: None,
+                camera_projection_offset: None,
+                map: None,
                 selected_boundary: None,
                 selected_steering: None,
                 scene: ScenePathInputs::default(),
@@ -14425,6 +14510,9 @@ mod tests {
                     &mut PathWorld {
                         selected_mode_selection: None,
                         published_camera_roll: None,
+                        camera_projection_base: None,
+                        camera_projection_offset: None,
+                        map: None,
                         selected_boundary: None,
                         selected_steering: None,
                         scene: ScenePathInputs::default(),

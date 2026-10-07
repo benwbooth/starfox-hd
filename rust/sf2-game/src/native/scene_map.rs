@@ -239,6 +239,7 @@ impl MapFramePolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SceneMap {
     cursor: MapCursor,
+    saved_continuation: Option<MapCursor>,
     marker: u16,
     current: Option<ObjectId>,
     faulted: bool,
@@ -252,6 +253,7 @@ impl SceneMap {
         catalog.check(entry)?;
         Ok(Self {
             cursor: entry,
+            saved_continuation: None,
             marker: 0,
             current: None,
             faulted: false,
@@ -269,6 +271,38 @@ impl SceneMap {
     }
     pub fn is_faulted(&self) -> bool {
         self.faulted
+    }
+
+    /// The authored map publishes this continuation before entering a
+    /// mission. Actor-side restoration changes only the live cursor: marker,
+    /// current actor and the saved continuation itself all survive.
+    pub fn save_continuation<Effect, Spawn>(
+        &mut self,
+        catalog: &MapCatalog<'_, Effect, Spawn>,
+        target: MapCursor,
+    ) -> Result<(), MapError<std::convert::Infallible>> {
+        if self.faulted {
+            return Err(MapError::Faulted);
+        }
+        catalog.check(target).map_err(MapError::Catalog)?;
+        self.saved_continuation = Some(target);
+        Ok(())
+    }
+
+    pub fn saved_continuation(&self) -> Option<MapCursor> {
+        self.saved_continuation
+    }
+
+    /// $7F:BF3D. The continuation is a validated native catalog identity,
+    /// never the source bank/address pair used to encode that identity.
+    pub fn restore_continuation(&mut self) -> Result<(), MapRestoreError> {
+        if self.faulted {
+            return Err(MapRestoreError::Faulted);
+        }
+        self.cursor = self
+            .saved_continuation
+            .ok_or(MapRestoreError::MissingContinuation)?;
+        Ok(())
     }
 
     /// An outer scene transition replaces only the cursor. It does not erase
@@ -412,6 +446,12 @@ impl SceneMap {
         }
         Err(MapError::BudgetExhausted)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapRestoreError {
+    MissingContinuation,
+    Faulted,
 }
 
 #[cfg(test)]

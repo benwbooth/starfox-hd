@@ -21,6 +21,18 @@ const HOSTILE_PROJECTILE_CLASSES: ExclusionGroups = ExclusionGroups::from_author
 const VIEW_BASE_COST: u16 = 63;
 const SCRIPTED_VIEW_MODE: u16 = 0x0002;
 
+/// Authored operations on the fixed primary view, not on the selected player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixedViewCommand {
+    CopyPosition,
+    CopyRotation,
+    /// Aim at the shared tracking actor, with signed fine-pitch attenuation.
+    AimTracking {
+        pitch_shift: u8,
+        chase: bool,
+    },
+}
+
 /// Full fixed-view angles share base storage with ordinary actor fields.
 /// Read and write those aliases directly so camera motion, view save/restore,
 /// target projection and warning bearings always observe the same state.
