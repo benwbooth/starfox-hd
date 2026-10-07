@@ -113,6 +113,30 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Fixed the source-proven attachment-chain defect: `$7F:2319` follows the
+  same source link through numbered siblings, not only first-child links.
+  Linear nested chains observe freshly published parent poses; extension
+  self-reference does not suppress later siblings. Invalid dual-role links
+  and cycles fail explicitly after completed publications. Ported the full
+  player attachment wrapper (`$06:9F54..9FAC`): contact-disabled players
+  still refresh; ordinary modes use the live pose; Walker modes temporarily
+  use the retained ground height and wrapping attachment yaw, then restore
+  the player's height/yaw. The real player allocator initializes the new
+  typed yaw field. Composed effects/recovery/attachments through `$06:9FAC`
+  with a fail-stop scene entry. Six new native tests and four original-code
+  groups pass, including 256 full-pool chains, 3,328 wrapper cases and 2,048
+  continuous effects/publication visits with newly allocated children.
+  All four new source-byte checks pass. Debug/release validation passes
+  1,541 native tests plus two architecture checks, 1,549 compatibility tests
+  plus 35 runtime checks, and 221 original-code groups. All three applications
+  build and each passes 35 tests in both profiles. The 833 source checks,
+  209 lowerer tests, three backlog tests, generated catalogs and architecture
+  audit pass. Full logs: `/tmp/sf2-player-attachment-validation-oct07.log`
+  and `/tmp/sf2-player-attachment-static-oct07.log`. Mission transitions, full
+  player strategy and shipping-frame integration remain open. Next dependencies
+  are seven mission-tail action streams and five real exit/controller path
+  graphs, not replacement schedule recordings.
+
 - Composed the complete post-movement effects tail (`$06:9EE8..9F53`):
   appearance, sustained damage, protection installation/countdown, depth
   publication and shield recovery run in their original order on the same
@@ -130,12 +154,10 @@ running; scheduled work is not a guarantee of a completion date.
   pass in debug/release, as do 829 source checks, 241 extractor/lowerer checks,
   catalogs and the static audit. All three applications build and each passes
   35 tests in both profiles. The enclosing
-  surface transition, attachment/mission transitions, complete player strategy
+  surface transition, mission transitions, complete player strategy
   and shipping frame integration remain open; no campaign claim is implied.
-  Next-integration regression: the existing attachment-chain publisher skips
-  numbered siblings after the first child. An unmodified `$7F:2319` test
-  reproduces the mismatch; fixing that chain and the Walker publication
-  wrapper is the next batch, not covered by the effects-tail pass above.
+  The additional original-code attachment-chain regression found after this
+  batch is resolved by the attachment/publication checkpoint above.
 
 - Ported SF2's complete sustained-damage/particle service (`$07:D1A8`),
   countdown-puff installer (`$07:D048`) and flame emitter (`$07:D2DD`).

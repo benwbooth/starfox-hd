@@ -152,6 +152,31 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Attachment publication now follows the original single link through every
+numbered sibling (`$7F:2319`), fixing the source-tested defect that left later
+children at stale poses. Nested linear chains use updated parent poses;
+extension self-references still permit subsequent children. Conflicting
+native link roles and cycles are explicit errors, not silently skipped
+branches. The complete player wrapper (`$06:9F54..9FAC`) always refreshes
+attachments: contact suppression bypasses only the Walker pose override.
+Walker children see the retained ground target height and wrapping facing
+offset; the player's original height/yaw are restored afterward. The new
+yaw field is initialized by the existing real player allocator. A composed
+scene service now runs the continuous effects/recovery/publication tail
+(`$06:9EE8..9FAC`) and preserves prefixes on failure. Six new native tests
+pass. Four original-code groups pass: the regression, 256 full-size chains,
+3,328 mode/contact/height/yaw cases, and 2,048 continuous effects/attachment
+visits with new children. Four new source-byte checks pass. Debug/release
+validation passes all 1,541 native tests plus two architecture checks,
+1,549 compatibility tests plus 35 runtime checks, and 221 original-code groups.
+All three applications build and each passes 35 tests in both profiles.
+All 833 source checks, 209 lowerer and three backlog tests, generated catalogs
+and architecture/static audits pass. Full logs:
+`/tmp/sf2-player-attachment-validation-oct07.log` and
+`/tmp/sf2-player-attachment-static-oct07.log`. Mission transitions and
+their action/path dependencies, the full player strategy and shipping frame
+ownership remain incomplete; this is not a campaign-completion claim.
+
 The ordered player effects tail (`$06:9EE8..9F53`) now composes appearance,
 sustained damage, linked protection, countdown, depth and recovery using the
 existing live owners. The complete protection installer (`$07:CD70..CDC4`)
@@ -170,10 +195,9 @@ code groups in both profiles; all 829 source checks, 241 extractor/lowerer
 checks, catalogs and the static audit pass. All three applications build and
 each passes 35 tests in both profiles. Full log:
 `/tmp/sf2-player-frame-effects-validation-oct07.log`. The enclosing surface
-transition, attachment publication and mission tail, full player strategy,
-shipping frame ownership and general campaign remain open. An additional
-original-code attachment-chain regression exposes a skipped-sibling defect
-in the existing publisher; that next integration fix is not included here.
+transition and mission tail, full player strategy, shipping frame ownership
+and general campaign remain open. The subsequently discovered skipped-sibling
+defect and player attachment wrapper are covered by the checkpoint above.
 
 The complete sustained-damage service (`$07:D1A8..D3B1`) and countdown-puff
 installer (`$07:D048..D0C5`) now consume the same particle flags that authored

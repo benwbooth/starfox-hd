@@ -62,6 +62,12 @@ mod damage_effects_tests;
 #[path = "support/sf2_player_frame_effects.rs"]
 mod frame_effects_tests;
 
+#[path = "support/sf2_attachment_pose.rs"]
+mod attachment_poses;
+
+#[path = "support/sf2_player_attachments.rs"]
+mod attachment_tests;
+
 #[path = "support/sf2_player_surface.rs"]
 mod surface_tests;
 
@@ -435,6 +441,7 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                 });
                 let surface = records.surface.unwrap();
                 let motion = records.motion.unwrap();
+                assert_eq!(motion.walker_attachment_yaw, byte(0x6AEE));
                 assert_eq!(motion.lateral_impulse, byte(0x6AAD) as i8);
                 assert_eq!(motion.previous_position, Vector3 {
                     x: word(0x6AC7) as i16,

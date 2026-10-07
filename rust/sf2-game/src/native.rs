@@ -108,6 +108,7 @@ pub mod player_surface_particle;
 pub mod player_surface_splash;
 pub mod player_surface_render;
 pub mod player_appearance;
+pub mod player_attachments;
 pub mod player_damage_effects;
 pub mod player_frame_effects;
 pub mod player_surface_effect;

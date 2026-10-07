@@ -11,7 +11,7 @@ use sf2_game::player_hit_control::ShieldRecoveryRequest;
 use sf2_game::scene_path_world::PlayerPathRecords;
 use sf2_game::{authored_paths, ShapeId};
 
-fn fixture(source: &mut Source, count: usize, value: u16) -> Native {
+pub(super) fn fixture(source: &mut Source, count: usize, value: u16) -> Native {
     let mut native = damage_effects_tests::fixture(source, count, value);
     let record = native
         .world
@@ -29,7 +29,7 @@ fn fixture(source: &mut Source, count: usize, value: u16) -> Native {
     native
 }
 
-fn seed(source: &mut Source, native: &mut Native, child_number: u8) {
+pub(super) fn seed(source: &mut Source, native: &mut Native, child_number: u8) {
     damage_effects_tests::seed(source, native);
     let record = native.world.player(&native.objects, native.owner).unwrap();
     for (offset, value) in [
@@ -78,7 +78,7 @@ fn seed(source: &mut Source, native: &mut Native, child_number: u8) {
     );
 }
 
-fn compare(source: &Source, native: &mut Native, mut before: PlayerPathRecords) {
+pub(super) fn compare(source: &Source, native: &mut Native, mut before: PlayerPathRecords) {
     before.appearance.as_mut().unwrap().depth_control = source.bus.read8(WRAM + SLOT + 0x6AA2);
     before.protection = Some(DeflectionProtection::from_control(
         source.bus.read8(WRAM + SLOT + 0x6C02),

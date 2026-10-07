@@ -45,6 +45,7 @@ pub use native::player_surface_particle;
 pub use native::player_surface_splash;
 pub use native::player_surface_render;
 pub use native::player_appearance;
+pub use native::player_attachments;
 pub use native::player_damage_effects;
 pub use native::player_frame_effects;
 pub use native::player_surface_effect;

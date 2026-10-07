@@ -1,9 +1,10 @@
 //! Ordered post-movement effects ($06:9EE8..9F53) and the complete linked
-//! protection installer ($07:CD70). Attachment and mission transitions follow
-//! this service and remain separate responsibilities of the player strategy.
+//! protection installer ($07:CD70). The composed publication service also
+//! includes attachments through $06:9FAC; mission transitions remain separate.
 
 use super::path_relationships::{self, RelationshipError};
 use super::player_appearance::{self, AppearanceError};
+use super::player_attachments::{self, PlayerAttachmentError};
 use super::player_damage_effects::{self, DamageEffectsError};
 use super::player_recovery::{self, RecoveryError};
 use super::scene_path_world::{ScenePathWorld, WorldInputError};
@@ -25,6 +26,7 @@ pub enum FrameEffectsError {
     Appearance(AppearanceError),
     Damage(DamageEffectsError),
     Recovery(RecoveryError),
+    Attachments(PlayerAttachmentError),
     MissingSpawnDefaults,
     ObjectPoolExhausted,
 }
@@ -123,4 +125,16 @@ pub fn advance(
         .map_err(FrameEffectsError::Appearance)?;
     player_recovery::consume(objects, world, owner).map_err(FrameEffectsError::Recovery)?;
     Ok(())
+}
+
+/// Continuous player tail ($06:9EE8..9FAC): effects and recovery finish
+/// before linked objects sample the final ordinary or temporary Walker pose.
+pub fn advance_with_attachments(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    owner: ObjectId,
+    damage_particle_number: u8,
+) -> Result<(), FrameEffectsError> {
+    advance(objects, world, owner, damage_particle_number)?;
+    player_attachments::publish(objects, world, owner).map_err(FrameEffectsError::Attachments)
 }

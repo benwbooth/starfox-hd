@@ -34,6 +34,9 @@ pub struct PlayerMotion {
     pub walker_turn_control: u8,
     /// Walker stride control (6AEA); engine sound observes bit 80.
     pub walker_stride_control: u8,
+    /// Walker attachment-facing offset (6AEE), temporarily added to the
+    /// player's yaw while publishing linked-object poses.
+    pub walker_attachment_yaw: u8,
     /// Walker surface/stance control (6B94). The low three bits gate its
     /// protected surface effect; remaining bits stay available to movement.
     pub walker_contact_control: u8,

@@ -276,6 +276,53 @@ fn fatal_protection_keeps_appearance_but_precedes_countdown_depth_and_request_co
     );
 }
 
+#[test]
+fn composed_attachment_failure_keeps_effects_and_latches_scene_fault() {
+    let (mut objects, mut world, owner) = fixture();
+    world
+        .player_mut(&objects, owner)
+        .unwrap()
+        .auxiliary
+        .as_mut()
+        .unwrap()
+        .mode = 0x2F;
+    let catalog = authored_paths::catalog();
+    let mut execution = SceneExecution::default();
+    let mut callbacks = Callbacks;
+    let mut host = SceneActors {
+        objects: &mut objects,
+        world: &mut world,
+        execution: &mut execution,
+        catalog: &catalog,
+        callbacks: &mut callbacks,
+        statement_budget: 256,
+    };
+    assert_eq!(
+        host.advance_player_frame_publication(owner, 77),
+        Err(SceneError::PlayerFrameEffects(
+            FrameEffectsError::Attachments(PlayerAttachmentError::MissingGround(owner))
+        ))
+    );
+    assert!(
+        path_relationships::find_direct_child(host.objects, owner, 18)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        host.world
+            .player(host.objects, owner)
+            .unwrap()
+            .protection
+            .unwrap()
+            .remaining(),
+        0
+    );
+    assert_eq!(
+        host.advance_player_frame_publication(owner, 77),
+        Err(SceneError::Faulted)
+    );
+}
+
 struct Callbacks;
 impl SceneCallbacks for Callbacks {
     type Error = &'static str;

@@ -1474,6 +1474,29 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         result
     }
 
+    /// Ordered effects, recovery and attachment publication; mission routing
+    /// remains the next distinct step of the player strategy.
+    pub fn advance_player_frame_publication(
+        &mut self,
+        owner: ObjectId,
+        damage_particle_number: u8,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_frame_effects::advance_with_attachments(
+            self.objects,
+            self.world,
+            owner,
+            damage_particle_number,
+        )
+        .map_err(SceneError::PlayerFrameEffects);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_damage_effects(
         &mut self,
         owner: ObjectId,
