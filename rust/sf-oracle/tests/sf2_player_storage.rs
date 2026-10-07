@@ -59,6 +59,9 @@ mod appearance_tests;
 #[path = "support/sf2_player_damage_effects.rs"]
 mod damage_effects_tests;
 
+#[path = "support/sf2_player_frame_effects.rs"]
+mod frame_effects_tests;
+
 #[path = "support/sf2_player_surface.rs"]
 mod surface_tests;
 

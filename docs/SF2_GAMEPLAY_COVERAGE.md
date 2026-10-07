@@ -152,6 +152,29 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The ordered player effects tail (`$06:9EE8..9F53`) now composes appearance,
+sustained damage, linked protection, countdown, depth and recovery using the
+existing live owners. The complete protection installer (`$07:CD70..CDC4`)
+preserves pending numbered children and defers real path initialization;
+it neither consumes randomness nor writes shared spawn activity. Action and
+contact gates have different countdown behavior. Damage death does not skip
+healing or protection, and healing does not retroactively replace the prior
+low-shield appearance. Seven focused native tests pass, including fail-stop
+scene entry and partial publications. Unmodified original-code tests cover
+131,072 combined control/activity and control/clock cases, 4,096 retained
+visits, all four fatal allocation stages and 80 protection lifetimes through
+the real authored path and resource retirement. Five added source checks
+pass. Validation passes all 1,535 native tests plus two architecture checks,
+1,543 compatibility tests plus 35 runtime checks, and 212 selected original-
+code groups in both profiles; all 829 source checks, 241 extractor/lowerer
+checks, catalogs and the static audit pass. All three applications build and
+each passes 35 tests in both profiles. Full log:
+`/tmp/sf2-player-frame-effects-validation-oct07.log`. The enclosing surface
+transition, attachment publication and mission tail, full player strategy,
+shipping frame ownership and general campaign remain open. An additional
+original-code attachment-chain regression exposes a skipped-sibling defect
+in the existing publisher; that next integration fix is not included here.
+
 The complete sustained-damage service (`$07:D1A8..D3B1`) and countdown-puff
 installer (`$07:D048..D0C5`) now consume the same particle flags that authored
 scenery writes. The real player allocator initializes the added age byte;

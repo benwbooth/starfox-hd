@@ -137,6 +137,7 @@ pub enum SceneError<E> {
     PlayerSurfaceRender(super::player_surface_render::SurfaceRenderError),
     PlayerAppearance(super::player_appearance::AppearanceError),
     PlayerDamageEffects(super::player_damage_effects::DamageEffectsError),
+    PlayerFrameEffects(super::player_frame_effects::FrameEffectsError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
@@ -1445,6 +1446,28 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         let result =
             super::player_surface_splash::spawn(self.objects, self.world, owner, kind, input)
                 .map_err(SceneError::PlayerSurfaceSplash);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Complete ordered effects tail, before attachment and mission transitions.
+    pub fn advance_player_frame_effects(
+        &mut self,
+        owner: ObjectId,
+        damage_particle_number: u8,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_frame_effects::advance(
+            self.objects,
+            self.world,
+            owner,
+            damage_particle_number,
+        )
+        .map_err(SceneError::PlayerFrameEffects);
         if result.is_err() {
             self.execution.faulted = true;
         }

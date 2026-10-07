@@ -109,6 +109,7 @@ pub mod player_surface_splash;
 pub mod player_surface_render;
 pub mod player_appearance;
 pub mod player_damage_effects;
+pub mod player_frame_effects;
 pub mod player_surface_effect;
 pub mod player_surface;
 pub mod player_speed;

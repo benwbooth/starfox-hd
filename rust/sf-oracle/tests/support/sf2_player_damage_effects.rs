@@ -10,7 +10,7 @@ use sf2_game::player_damage_effects::{self, DamageEffectsError};
 use sf2_game::scene_path_world::PlayerPathRecords;
 use sf2_game::{authored_paths, Behavior, ObjectId, ShapeId, SoundEvent};
 
-fn fixture(source: &mut Source, count: usize, value: u16) -> Native {
+pub(super) fn fixture(source: &mut Source, count: usize, value: u16) -> Native {
     let mut native = Native::new(source, count, value as u8, (value >> 8) as u8, value);
     let actor = native.objects.get_mut(native.owner).unwrap();
     actor.base.shape = ShapeId::from_catalog_index(2);
@@ -47,7 +47,7 @@ fn fixture(source: &mut Source, count: usize, value: u16) -> Native {
     native
 }
 
-fn seed(source: &mut Source, native: &mut Native) {
+pub(super) fn seed(source: &mut Source, native: &mut Native) {
     let record = native.world.player(&native.objects, native.owner).unwrap();
     let hit = record.contact.unwrap().hit;
     for (offset, value) in [
@@ -118,7 +118,7 @@ fn seed(source: &mut Source, native: &mut Native) {
     }
 }
 
-fn compare(source: &Source, native: &mut Native, mut before: PlayerPathRecords) {
+pub(super) fn compare(source: &Source, native: &mut Native, mut before: PlayerPathRecords) {
     let byte = |offset| source.bus.read8(WRAM + SLOT + offset);
     before.particles.as_mut().unwrap().flags = byte(0x6BE4);
     before.particles.as_mut().unwrap().age = byte(0x6BE5);
@@ -181,14 +181,13 @@ fn compare(source: &Source, native: &mut Native, mut before: PlayerPathRecords) 
         assert!(actor.extension.path_state.needs_path_initialization);
         assert_eq!(
             source.bus.read16(base + 0x2B),
-            if actor.base.path == Some(authored_paths::RANDOMIZED_COLOR_PARTICLE) {
-                0xF294
-            } else {
-                assert_eq!(
-                    actor.base.path,
-                    Some(authored_paths::CHILD_DETACHING_SPRITE)
-                );
-                0xF540
+            match actor.base.path.unwrap() {
+                authored_paths::RANDOMIZED_COLOR_PARTICLE => 0xF294,
+                authored_paths::CHILD_DETACHING_SPRITE => 0xF540,
+                authored_paths::LOCAL_JITTER_SPRITE => 0xF521,
+                authored_paths::LINKED_PROTECTION_EFFECT => 0xF2B9,
+                authored_paths::PRIMARY_TARGET_FOLLOWER => 0xF38A,
+                other => panic!("unexpected effect path {other:?}"),
             }
         );
         assert_eq!(

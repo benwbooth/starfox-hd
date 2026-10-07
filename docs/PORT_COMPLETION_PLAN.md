@@ -1,6 +1,6 @@
 # SF1 and SF2 completion plan
 
-Updated 2026-10-06. Status: implementation in progress; neither game is certified.
+Updated 2026-10-07. Status: implementation in progress; neither game is certified.
 
 This is the execution plan for the user's request to finish both Rust ports.
 It supersedes the sequencing restriction in `RETAIL_PARITY_PLAN.md` that deferred
@@ -111,7 +111,31 @@ The hourly same-task continuation `finish-sf1-and-sf2-rust-ports` was activated
 on 2026-10-05. Local continuation requires the computer and desktop app to remain
 running; scheduled work is not a guarantee of a completion date.
 
-### Current execution checkpoint — 2026-10-06
+### Current execution checkpoint — 2026-10-07
+
+- Composed the complete post-movement effects tail (`$06:9EE8..9F53`):
+  appearance, sustained damage, protection installation/countdown, depth
+  publication and shield recovery run in their original order on the same
+  player/world records. The protection installer (`$07:CD70..CDC4`) reuses
+  its numbered child even when removal is pending, without publishing false
+  spawn activity. Action gating skips birth and countdown; contact gating
+  skips only birth. Death does not bypass the remaining services, healing
+  does not resurrect, and low-shield appearance persists until the next
+  visit. Seven focused native tests pass. Original-code checks cover two
+  exhaustive byte-pair matrices, retained visits, each fatal allocation
+  prefix, and 80 full protection lifetimes through the actual authored path,
+  countdown, spin/flicker, sound and resource retirement. All 1,535 native
+  tests plus two architecture checks and 1,543 compatibility tests plus 35
+  runtime checks pass in both profiles. All 212 selected original-code groups
+  pass in debug/release, as do 829 source checks, 241 extractor/lowerer checks,
+  catalogs and the static audit. All three applications build and each passes
+  35 tests in both profiles. The enclosing
+  surface transition, attachment/mission transitions, complete player strategy
+  and shipping frame integration remain open; no campaign claim is implied.
+  Next-integration regression: the existing attachment-chain publisher skips
+  numbered siblings after the first child. An unmodified `$7F:2319` test
+  reproduces the mismatch; fixing that chain and the Walker publication
+  wrapper is the next batch, not covered by the effects-tail pass above.
 
 - Ported SF2's complete sustained-damage/particle service (`$07:D1A8`),
   countdown-puff installer (`$07:D048`) and flame emitter (`$07:D2DD`).
