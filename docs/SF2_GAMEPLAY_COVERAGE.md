@@ -152,6 +152,17 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Fixed-view continuity (`$07:97FB..9AAA`) now captures, decays and applies real
+camera offsets, with shared motion-control flags and whole fine-angle history.
+Position blending uses the actual proxy, including its alias with the view;
+settled offsets do not require a proxy. Six native tests and three original
+groups pass 204,800 calls, covering every position word, all heading pairs and
+8,192 independently retained transitions. Native debug/release, compatibility,
+all 131 original player/movement groups in both profiles,
+source/catalog/architecture checks and all three application builds pass.
+The camera modes and enclosing player strategy
+are not yet production frame owners.
+
 The complete free-flight mode (`$06:E32C..E399`) now connects its surface
 prefix, optional effect and inherited steering response to input-history,
 vertical control, the shared movement frame and pending Walker selection.

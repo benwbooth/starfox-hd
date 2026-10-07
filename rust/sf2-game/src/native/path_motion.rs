@@ -67,6 +67,9 @@ pub struct MotionSettings {
     pub generate_velocity_each_step: bool,
     /// Source 21 bit 40 applies the bank-derived yaw step.
     pub bank_turn: bool,
+    /// Fixed-view meaning of source 21 bit 80: retained angular continuity
+    /// is active. This base flag also survives ordinary view save/restore.
+    pub view_rotation_blend: bool,
     /// Source 23 bit 04: integration uses retained attachment coordinates.
     pub attached_coordinates: bool,
     /// Source 25 bit 04: integration uses retained relative coordinates.

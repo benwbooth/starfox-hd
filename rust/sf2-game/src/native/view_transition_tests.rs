@@ -149,6 +149,7 @@ fn snapshot_restores_base_fields_but_preserves_live_extensions_and_allocations()
         follow_player_displacement: true,
         generate_velocity_each_step: true,
         bank_turn: true,
+        view_rotation_blend: true,
         attached_coordinates: true,
         relative_coordinates: true,
         quadruple_velocity: true,

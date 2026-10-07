@@ -144,6 +144,7 @@ pub enum SceneError<E> {
     PlayerFlight(super::player_flight::FlightError),
     PlayerFlightMode(super::player_flight_mode::FlightModeError),
     PlayerFreeFlight(super::player_free_flight::FreeFlightError),
+    ViewBlend(super::view_blend::ViewBlendError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -175,6 +176,18 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_view_blend(&mut self) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result =
+            super::view_blend::advance(self.objects, self.world).map_err(SceneError::ViewBlend);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_free_flight(
         &mut self,
         owner: ObjectId,
