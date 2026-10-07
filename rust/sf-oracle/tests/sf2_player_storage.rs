@@ -53,6 +53,9 @@ mod surface_splash_tests;
 #[path = "support/sf2_player_surface_render.rs"]
 mod surface_render_tests;
 
+#[path = "support/sf2_player_appearance.rs"]
+mod appearance_tests;
+
 #[path = "support/sf2_player_surface.rs"]
 mod surface_tests;
 
@@ -368,6 +371,7 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                         | (u32::from(source.bus.read8(WRAM + slot + 0x6C35)) << 16)
                 );
                 let byte = |field| source.bus.read8(WRAM + slot + field);
+                assert_eq!(records.appearance.unwrap().depth_control, byte(0x6AA2));
                 let word = |field| source.bus.read16(WRAM + slot + field);
                 let charge = records.charge.unwrap();
                 assert_eq!(charge.progress, word(0x6C07));

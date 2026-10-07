@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported SF2's pilot materials/low-shield appearance (`$06:AA1A`), complete
+  damage-particle installer (`$07:CFB1`), shared surface-depth arbitration
+  (`$07:C32F..C354`) and final depth publication (`$06:9F21..9F35`). The
+  player allocator initializes the single appearance owner; contact reserve
+  shield, pilot identity, linked-mode gates and carry flags are read from
+  their existing live records. Low-shield overrides survive surface updates
+  until recovery. Damage particles retain the caller's child number, allocate
+  fresh siblings without a five-child limit, and begin their authored jitter
+  path only on a later strategy visit. Seven native tests cover shared-state
+  sequencing, missing-input ordering, allocation failure, real path entry,
+  stale records and fail-stop scene wrappers. Six original-code groups cover
+  65,536 pilot/shield pairs, 131,072 control/mode/carry combinations, 2,048
+  emission gate cases, 4,096 retained appearance/surface/recovery visits, all
+  59 available particle births and the fatal full-pool path, plus composed
+  particle initialization, jitter, animation and retirement. All 1,519 native
+  tests plus two architecture checks and all 1,527 compatibility tests plus
+  35 runtime checks pass in debug/release. All 200 selected original-code
+  groups pass in both profiles, as do 818 source checks, 241 extractor/lowerer
+  checks, generated catalogs and the static audit. All three application
+  binaries build and each passes 35 tests in both profiles. The enclosing
+  surface transition and complete player strategy/shipping frame ownership
+  are still required; this does not establish campaign completion.
+
 - Ported SF2's surface-crossing polygon-palette entries (`$07:EB78/EB94`)
   and complete lighting/ambient publication tail (`$07:C355..C440`). The
   live and saved polygon rows share their real palette owner; only the

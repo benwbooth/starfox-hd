@@ -152,6 +152,35 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Player appearance (`$06:AA1A`), the complete low-shield damage-particle
+installer (`$07:CFB1`), surface-depth arbitration (`$07:C32F..C354`) and
+whole-word depth publication (`$06:9F21..9F35`) now share one typed player
+appearance record, initialized by the real player-storage service. Material
+selection precedes the reserve-shield read; admitted particle allocation
+precedes the low-shield control write, including on fatal pool exhaustion.
+The surface service preserves a low-shield override and recovery clears that
+entire control byte. Emission reads actual visibility/health, contact-ignore,
+linked-mode and strategy-clock gates; no random draw or path step occurs at
+birth. Each admitted birth is a fresh numbered child, even after five existing
+siblings. The authored local-jitter path runs through the existing native
+scene strategy and retirement services. Seven native tests cover missing
+inputs, retained shared state, stale records, real path initialization and
+scene error latching. Six unmodified-original groups cover all pilot/shield
+byte pairs, all appearance/carry-mode bytes with both carry flags, 2,048
+particle gating cases, 4,096 retained service sequences, 59 consecutive
+births/full-pool failure and composed jitter/animation/resource cleanup.
+The enclosing surface transition and player strategy are not yet complete
+or connected to the production frame owner. Shipping/campaign closure stays
+open rather than being inferred from these source-bound service tests.
+Validation passes 1,519 native tests plus two architecture checks and 1,527
+compatibility tests plus 35 runtime checks in debug/release, all 200 selected
+original-code groups in both profiles, 818 source checks, 241 extractor/lowerer
+checks, generated catalogs and the static audit. All three application
+binaries build and each passes 35 tests in both profiles. Detailed local logs:
+`/tmp/sf2-player-appearance-validation-oct06.log`,
+`/tmp/sf2-player-appearance-static-oct06.log` and
+`/tmp/sf2-player-appearance-other-extractors-oct06.log`.
+
 Surface palette entries (`$07:EB78/EB94`) and the complete environment
 publication tail (`$07:C355..C440`) now use canonical typed scene owners.
 Both live/saved 16-color polygon rows change without modifying the other

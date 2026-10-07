@@ -135,6 +135,7 @@ pub enum SceneError<E> {
     PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
     PlayerSurfaceSplash(super::player_surface_splash::SplashError),
     PlayerSurfaceRender(super::player_surface_render::SurfaceRenderError),
+    PlayerAppearance(super::player_appearance::AppearanceError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
@@ -1443,6 +1444,54 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         let result =
             super::player_surface_splash::spawn(self.objects, self.world, owner, kind, input)
                 .map_err(SceneError::PlayerSurfaceSplash);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn update_player_appearance(
+        &mut self,
+        owner: ObjectId,
+        child_number: u8,
+    ) -> Result<Option<ObjectId>, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result =
+            super::player_appearance::update(self.objects, self.world, owner, child_number)
+                .map_err(SceneError::PlayerAppearance);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn update_player_surface_depth(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result =
+            super::player_appearance::update_surface_depth(self.objects, self.world, owner)
+                .map_err(SceneError::PlayerAppearance);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn publish_player_depth(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_appearance::publish_depth(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerAppearance);
         if result.is_err() {
             self.execution.faulted = true;
         }

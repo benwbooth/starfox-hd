@@ -64,6 +64,7 @@ pub struct PlayerPathRecords {
     pub reticle_display: Option<super::player_reticle::ReticleDisplay>,
     pub visit: Option<super::player_visit::PlayerVisitControl>,
     pub status: Option<super::player_status::PlayerStatus>,
+    pub appearance: Option<super::player_appearance::PlayerAppearance>,
     /// Scripted input words (6A88/6A8A), ORed after controller remapping and
     /// the activity mask, then cleared only by an admitted input visit.
     pub injected_input: Option<super::InputState>,

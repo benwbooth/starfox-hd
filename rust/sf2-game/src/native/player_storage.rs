@@ -165,6 +165,7 @@ pub fn replace(
             ..Default::default()
         }),
         status: Some(Default::default()),
+        appearance: Some(Default::default()),
         injected_input: Some(Default::default()),
         roll: Some(Default::default()),
         pose: Some(Default::default()),
