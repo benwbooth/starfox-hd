@@ -39,11 +39,10 @@ fn selected_player_and_linked_shot_count_resolve_independent_live_owners() {
                 PlayerPathRecords {
                     auxiliary: Some(SelectedAuxiliaryState {
                         mode,
-                        action_flags: 0,
+                        action_flags: 4,
                         stored_world_position: Vector3::default(),
                         stored_rotation: Rotation::default(),
                     }),
-                    suppress_horizontal_follow: Some(true),
                     equipment: Some(SelectedEquipment::default()),
                     ..PlayerPathRecords::default()
                 },
@@ -113,7 +112,10 @@ fn recycled_slots_cannot_inherit_auxiliary_shots_displacement_or_carry() {
             player,
             PlayerPathRecords {
                 equipment: Some(SelectedEquipment::default()),
-                suppress_horizontal_follow: Some(false),
+                auxiliary: Some(SelectedAuxiliaryState {
+                    mode: 0, action_flags: 0, stored_world_position: Default::default(),
+                    stored_rotation: Default::default(),
+                }),
                 carried: Some(CarriedPlayer::default()),
                 ..PlayerPathRecords::default()
             },

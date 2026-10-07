@@ -138,6 +138,7 @@ pub enum SceneError<E> {
     PlayerMotion(super::player_motion::MotionError),
     PlayerImpact(super::player_impact::ImpactError),
     PlayerSurfaceDamage(super::player_surface_damage::SurfaceDamageError),
+    PlayerBoundary(super::player_boundary::BoundaryError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
@@ -167,6 +168,44 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_corridor(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<bool, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_boundary::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+        )
+        .map_err(SceneError::PlayerBoundary);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn install_player_corridor(
+        &mut self,
+        anchor: ObjectId,
+        owner: ObjectId,
+        inputs: super::player_boundary::RegionInputs,
+    ) -> Result<bool, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result =
+            super::player_boundary::install_region(self.objects, self.world, anchor, owner, inputs)
+                .map_err(SceneError::PlayerBoundary);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_surface_damage(
         &mut self,
         owner: ObjectId,

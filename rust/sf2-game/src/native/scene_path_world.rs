@@ -79,6 +79,7 @@ pub struct PlayerPathRecords {
     pub surface: Option<super::player_surface::PlayerSurface>,
     pub speed: Option<super::player_speed::PlayerSpeed>,
     pub motion: Option<super::player_motion::PlayerMotion>,
+    pub boundary: Option<super::player_boundary::PlayerBoundary>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -88,9 +89,6 @@ pub struct PlayerPathRecords {
     pub score: Option<PlayerScore>,
     pub particles: Option<SelectedParticleEffects>,
     pub controlled_flags: Option<ControlledAuxFlags>,
-    /// Selected-player 6B77 bit 04. Motion itself belongs to the shared
-    /// publication, not to a second per-player displacement copy.
-    pub suppress_horizontal_follow: Option<bool>,
     pub carried: Option<CarriedPlayer>,
 }
 
@@ -684,8 +682,9 @@ impl InvocationWorld for ScenePathWorld {
             .ok_or(WorldInputError::MissingSelectedPlayer(selected))?;
         let suppress_horizontal = self
             .player(objects, owner)?
-            .suppress_horizontal_follow
-            .ok_or(WorldInputError::MissingDisplacement(selected))?;
+            .auxiliary
+            .ok_or(WorldInputError::MissingDisplacement(selected))?
+            .action_flags & 0x04 != 0;
         let world_delta = self
             .published_motion
             .ok_or(WorldInputError::MissingPublishedMotion)?

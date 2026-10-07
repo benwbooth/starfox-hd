@@ -342,7 +342,7 @@ fn recovery_heals_actual_caller_but_feedback_path_targets_primary_and_retires() 
 #[test]
 fn healing_emitter_and_consumer_compose_all_three_pulses_with_real_feedback_lifetimes() {
     let mut scene = Scene::new(0);
-    scene.records().suppress_horizontal_follow = Some(false);
+    scene.records().auxiliary.as_mut().unwrap().action_flags &= !0x04;
     scene.records().charge = Some(crate::player_charge::PlayerCharge::default());
     scene.world.published_motion = Some(Default::default());
     assert!(scene.use_item().unwrap());
@@ -643,7 +643,7 @@ fn missing_trigger_fault_preserves_installed_path_and_action_but_prevents_duplic
 fn healing_paths_publish_real_shared_requests_and_release_all_children_and_program_resources() {
     let mut scene = Scene::new(0);
     // This scenario keeps the player stationary throughout the effect.
-    scene.records().suppress_horizontal_follow = Some(false);
+    scene.records().auxiliary.as_mut().unwrap().action_flags &= !0x04;
     scene.world.published_motion = Some(Default::default());
     assert!(scene.use_item().unwrap());
     let effect = scene.effect().unwrap();

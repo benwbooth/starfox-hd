@@ -113,6 +113,27 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete player corridor correction/admission and live region
+  installer (`$07:E2F3..E5C7`, `$07:F893..F95E`). The source's wrapped signed
+  octant tests, unequal boundary inclusivity, diagonal half rounding, level
+  pitch/height order, proxy marker clearing and horizontal-only history writes
+  are preserved. Heading uses the actual steering owner. Removed the separate
+  displacement-suppression snapshot: authored action flags, corridor admission
+  and path movement now share the same state. Five unmodified-original groups
+  pass 331,776 calls, covering every heading, all word values, every action/mode
+  pair, all heading/offset pairs and 4,096 independently retained two-service
+  visits. The continuous fixture explicitly requires both repeated admissions
+  and corrections. Four native groups cover lazy dependencies, real movement
+  consumers, preserved prefixes and scene fault latching. The oracle now exposes
+  returned predicate status, with an independent near/far carry self-test.
+  Final-tree validation passes 1,368 native tests and both architecture checks
+  in debug/release, 1,376 compatibility tests and 35 runtime checks, all 106
+  original player/movement groups in both profiles, both return-harness tests,
+  724 source tests, 238 extractor/lowerer checks, exact catalog/architecture
+  checks, and all three application builds.
+  Occupancy-grid response and the enclosing source player frame remain open;
+  this does not establish shipping flight or campaign completion.
+
 - Ported the post-flight recoil and complete surface-damage tail
   (`$06:E273..E2D0`, `$07:E18E..E2F1`) and connected contact-turn/impact
   publication to their actual pose, charge and translation owners. Removed

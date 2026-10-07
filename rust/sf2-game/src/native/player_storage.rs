@@ -174,13 +174,13 @@ pub fn replace(
         surface: Some(Default::default()),
         speed: Some(Default::default()),
         motion: Some(Default::default()),
+        boundary: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),
         score: Some(inputs.score),
         particles: Some(Default::default()),
         controlled_flags: Some(Default::default()),
-        suppress_horizontal_follow: Some(false),
         carried: Some(Default::default()),
     };
     world.bind_player(objects, owner, records)?;

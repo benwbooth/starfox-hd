@@ -731,6 +731,8 @@ pub struct Exit {
     pub c: u16,
     pub x: u16,
     pub y: u16,
+    /// Returned status, including predicate carry from original routines.
+    pub p: u8,
     /// The routine reached the harness's return trap, rather than the cycle
     /// guard or an unrelated stop instruction. Differential tests must check
     /// this before treating memory left by a partial call as reference output.
@@ -813,6 +815,7 @@ pub fn call(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
         c: cpu.c(),
         x: cpu.x(),
         y: cpu.y(),
+        p: cpu.p(),
         returned: started
             && cpu.stopped()
             && cpu.pbr() == 0
@@ -897,6 +900,7 @@ pub fn call_near(bus: &mut SnesBus, target: u32, entry: &Entry) -> Exit {
         c: cpu.c(),
         x: cpu.x(),
         y: cpu.y(),
+        p: cpu.p(),
         returned: started
             && cpu.stopped()
             && u32::from(cpu.pbr()) == target_bank
@@ -996,6 +1000,25 @@ mod tests {
             .returned
         );
         assert!(!call_near(&mut SnesBus::new(stopped_rom), 0x008000, &Entry::default()).returned);
+    }
+
+    #[test]
+    fn call_results_preserve_returned_carry_for_near_and_far_predicates() {
+        for carry in [false, true] {
+            for near in [false, true] {
+                let mut rom = vec![0; 0x8000];
+                rom[0] = if carry { 0x38 } else { 0x18 }; // SEC / CLC
+                rom[1] = if near { 0x60 } else { 0x6B }; // RTS / RTL
+                let mut bus = SnesBus::new(rom);
+                let result = if near {
+                    call_near(&mut bus, 0x008000, &Entry::default())
+                } else {
+                    call(&mut bus, 0x008000, &Entry::default())
+                };
+                assert!(result.returned);
+                assert_eq!(result.p & 1 != 0, carry);
+            }
+        }
     }
 
     /// The retail ROM is present, headerless, and LoROM ("STAR FOX" @ $00:FFC0).

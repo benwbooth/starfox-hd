@@ -152,6 +152,20 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Player corridor correction, admission and the live region installer now use
+canonical state, including the heading consumed by steering and action flag
+consumed by path displacement. The duplicate movement-suppression snapshot is
+removed. Wrapped octant geometry, diagonal rounding, exact-edge rejection,
+fixed-height leveling, shared-proxy mutation and horizontal history are covered
+by five original comparison groups (331,776 calls), including 4,096 continuous
+installer/correction visits. Four native groups cover real consumers, lazy
+gates, error prefixes and fault latching. Validation passes native debug/release
+(1,368 tests), compatibility (1,376 unit/35 runtime), all 106 player/movement
+groups in both profiles, both return-harness tests, 724 source tests, 238
+extractor/lowerer checks, exact catalog/architecture checks and all app builds.
+The occupancy-grid boundary response
+and enclosing shipping player frame still need completion.
+
 The post-flight recoil and full surface-damage tail now share canonical
 state with the other player services. Contact turn writes the actor's motion
 phase, pose yaw trim and translation recoil; impact writes the actual charge

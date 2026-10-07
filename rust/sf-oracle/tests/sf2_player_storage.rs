@@ -56,6 +56,9 @@ mod speed_tests;
 #[path = "support/sf2_player_impact.rs"]
 mod impact_tests;
 
+#[path = "support/sf2_player_boundary.rs"]
+mod boundary_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};
@@ -396,6 +399,15 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                 });
                 assert_eq!(motion.surface_velocity, [word(0x6B11) as i16, word(0x6B13) as i16]);
                 assert_eq!(motion.contact_flags, byte(0x6BE6));
+                let boundary = records.boundary.unwrap();
+                assert_eq!(boundary.center, Vector3 {
+                    x: word(0x6AAF) as i16, y: word(0x6AB1) as i16, z: word(0x6AB3) as i16,
+                });
+                assert_eq!(boundary.half_width, word(0x6AB5) as i16);
+                assert_eq!(boundary.half_height, word(0x6AB7) as i16);
+                assert_eq!(boundary.return_position, Vector3 {
+                    x: word(0x6BED) as i16, y: word(0x6BEF) as i16, z: word(0x6BF1) as i16,
+                });
                 assert_eq!(surface.plane_height, word(0x6A7D) as i16);
                 assert_eq!(surface.material, byte(0x6A82));
                 assert_eq!(

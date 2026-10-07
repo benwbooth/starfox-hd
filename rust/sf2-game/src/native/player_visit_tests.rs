@@ -72,7 +72,6 @@ impl Scene {
                         consumable_type: 129,
                         weapon_level: 7,
                     }),
-                    suppress_horizontal_follow: Some(false),
                     ..Default::default()
                 },
             )
@@ -526,7 +525,10 @@ fn following_and_explosion_scrolling_read_publication_but_inheritance_reads_live
             &scene.objects,
             secondary,
             PlayerPathRecords {
-                suppress_horizontal_follow: Some(true),
+                auxiliary: Some(SelectedAuxiliaryState {
+                    mode: 0, action_flags: 4, stored_world_position: Default::default(),
+                    stored_rotation: Default::default(),
+                }),
                 ..Default::default()
             },
         )
