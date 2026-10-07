@@ -145,6 +145,7 @@ pub mod scene_frame;
 pub mod scene_contact;
 pub mod scene_strategy;
 pub mod scene_proxy;
+pub mod scene_clear;
 mod state;
 pub mod strategy_schedule;
 pub mod target_search;

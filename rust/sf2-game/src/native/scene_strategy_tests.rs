@@ -315,6 +315,52 @@ fn paused_hit_response_uses_live_callback_health_and_still_samples_positional_so
 }
 
 #[test]
+fn scene_clear_keeps_contacts_programs_and_slots_until_normal_epoch_retirement() {
+    let mut scene = Scene::new();
+    let survivor = scene.actor(Behavior::Unassigned);
+    let child = scene.actor(Behavior::Unassigned);
+    let owner = scene.actor(Behavior::FollowPath);
+    for id in [owner, child] {
+        scene.objects.get_mut(id).unwrap().base.flags.general_search_eligible = true;
+    }
+    super::super::path_relationships::attach_fresh_child(&mut scene.objects, owner, child, 1).unwrap();
+    scene.objects.get_mut(child).unwrap().base.flags.remove_with_parent = true;
+    scene.objects.get_mut(survivor).unwrap().base.linked_object = Some(owner);
+    let cursor = PathCursor { path: PathId::from_catalog_index(0), command_index: 0 };
+    scene.execution.paths.runtime.add_trigger(
+        &mut scene.objects, owner,
+        Trigger { path: cursor, kind: TriggerKind::Always, timer: 0 },
+    ).unwrap();
+    let pair = scene.world.contacts.record_pair(owner, survivor, [None, None]).unwrap();
+    scene.world.proxies.capture_actor(
+        &mut scene.objects, owner, cursor, &scene.execution.paths.runtime.resources,
+    ).unwrap().unwrap();
+    let allocations = scene.execution.paths.runtime.resources.owner_count(owner);
+    let contacts = pair.map(|id| scene.world.contacts.get(id).copied().unwrap());
+    let resources = scene.execution.paths.runtime.resources.clone();
+    let old_lifetime = scene.objects.lifetime_id(owner).unwrap();
+    scene.host().clear_scene_actors().unwrap();
+    assert_eq!(scene.objects.len(), 3);
+    assert!(scene.world.proxies.is_empty());
+    assert_eq!(scene.world.contacts.len(), 2);
+    assert_eq!(pair.map(|id| scene.world.contacts.get(id).copied().unwrap()), contacts);
+    assert_eq!(scene.execution.paths.runtime.resources, resources);
+    assert!(scene.callbacks.events.is_empty());
+    assert_eq!(scene.objects.get(survivor).unwrap().base.linked_object, Some(owner));
+    assert_eq!(scene.objects.get(child).unwrap().base.attachment, Some(owner));
+    scene.host().clean_epoch().unwrap();
+    assert_eq!(scene.objects.active_ids(), &[survivor]);
+    assert!(scene.world.contacts.is_empty());
+    assert_eq!(scene.execution.paths.runtime.resources.owner_count(owner), 0);
+    assert_eq!(scene.objects.get(survivor).unwrap().base.linked_object, None);
+    assert_eq!(scene.callbacks.events, [Event::Separate(owner, allocations), Event::Separate(survivor, 0)]);
+    let reused = scene.actor(Behavior::Unassigned);
+    assert_eq!(reused, child);
+    assert_eq!(scene.actor(Behavior::Unassigned), owner);
+    assert_ne!(scene.objects.lifetime_id(owner), Some(old_lifetime));
+}
+
+#[test]
 fn destruction_runs_map_accounting_then_full_contact_program_and_slot_retirement() {
     let mut scene = Scene::new();
     let owner = scene.actor(Behavior::FollowPath);

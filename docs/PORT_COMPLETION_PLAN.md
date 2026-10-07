@@ -113,6 +113,25 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the complete scene-transition actor/proxy clear (`$03:AC81..ACDB`),
+  prerequisite to the player's exit-to-entry phase. It releases selected
+  actors' proxy handles before marking them, then drains remaining snapshots
+  from the active head while preserving free-list reuse order. Actor slots,
+  contacts, attachment chains and owned programs remain live until the normal
+  epoch retirement service; an integration test verifies that later lifecycle.
+  Excluded actor handles are not silently repaired, and scene faults retain
+  their partial effects without retry. Seven native tests and three original
+  execution groups pass, covering all selection/removal flag bytes, repeated
+  captures, retired snapshots, no actors, 60 actors, 512-proxy exhaustion and
+  every reclaimed slot. Debug and release pass 1,590 native tests, 1,598
+  compatibility-feature tests, 35 runtime tests, 33 path tests and 255
+  original-code comparisons (228 player storage), plus all app tests, five
+  real-app smoke tests and builds. Static validation passes 866 source tests,
+  217 lowerer tests, three backlog tests, exact regeneration and architecture
+  checks. Logs: `/tmp/sf2-scene-clear-validation-oct07.log` and
+  `/tmp/sf2-scene-clear-static-oct07.log`. This closes the cleanup dependency,
+  not the remaining player reset/action phases or shipping frame integration.
+
 - Ported the player-side node-exit birth and objective clearing
   (`$06:A045..A0A5`) into the shared scene owner. Creation samples live
   allocation defaults, inserts after the active head, publishes the one-shot

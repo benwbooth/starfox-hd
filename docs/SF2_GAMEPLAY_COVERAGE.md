@@ -152,6 +152,23 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Scene-transition cleanup (`$03:AC81..ACDB`) now selects actors by their
+general-search flag, detaches/releases their proxies before marking removal,
+and drains all remaining snapshots in active-list order. It retains actor
+slots, contacts, attachment chains and program resources until normal epoch
+retirement; integration tests verify that lifecycle, and partial failures
+latch in the scene host. Free-list order survives repeated captures and
+retired snapshots rather than resetting the proxy pool. Seven native tests
+and three original-code groups pass all selection/removal byte values,
+empty/full actor cases, 512-proxy exhaustion and actual slot reuse. Debug and
+release pass 1,590 native, 1,598 compatibility-feature, 35 runtime, 33 path and
+255 original-code tests (228 player storage), all app tests, five real-app
+smoke tests and builds. Static checks pass 866 source, 217 lowerer and three
+backlog tests, exact regeneration and architecture checks. Logs:
+`/tmp/sf2-scene-clear-validation-oct07.log` and
+`/tmp/sf2-scene-clear-static-oct07.log`. Player reset/action phases and shipping
+frame ownership remain open; scene cleanup alone is not campaign integration.
+
 The player-side node-exit admission (`$06:A045..A0A5`) now owns actual
 presentation creation and the following objective clear. It creates at the
 active-head insertion point, samples live allocation defaults, does not copy

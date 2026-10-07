@@ -121,6 +121,7 @@ pub enum SceneError<E> {
     PlayerAction(super::player_action::PlayerActionError),
     PlayerMission(super::player_mission::MissionError),
     PlayerNodeExit(super::player_node_exit::NodeExitError),
+    SceneClear(super::scene_proxy::SceneProxyError),
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerStorage(super::player_storage::PlayerStorageError),
@@ -195,6 +196,20 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Scene entry marks selected actors and releases proxies. Normal epoch
+    /// cleanup still owns contacts, attachments, resources and actor slots.
+    pub fn clear_scene_actors(&mut self) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::scene_clear::clear(self.objects, &mut self.world.proxies)
+            .map_err(SceneError::SceneClear);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_engine_sound(
         &mut self,
         owner: ObjectId,
