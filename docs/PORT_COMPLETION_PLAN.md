@@ -113,6 +113,21 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported all map-installed auxiliary-camera tasks and their complete footer
+  (`$07:9DF6..A325`, installers `$0D:C75C..C831`). Typed task transitions
+  preserve first-visit execution, fixed-view counter reset/increment, real
+  tracking/focus targets, published motion, copied velocity and previous view
+  history. Handoff retains the full heading companion and uses the saved view
+  position; retreat continues accumulating in ground modes even while their
+  fixed offset overrides placement. Eight native tests and four original
+  groups cover 796,160 cases/visits, including 8,192 independent transitions
+  through real installers and continuity. All 1,472 native tests and two
+  architecture checks pass in debug/release; compatibility passes 1,480 tests
+  plus 35 runtime checks. All 163 original player/movement groups pass in both
+  profiles, and 786 source checks, 238 extractor/lowerer tests, catalog,
+  architecture/static checks and all three app builds pass. Primary camera
+  dispatch and enclosing player strategy still precede production integration.
+
 - Ported the complete surface-camera placement and height controller
   (`$07:812C..81F0`, `$07:90A3..9487`). The retained height is distinct from
   the prepared return position; carried following, plane crossing, protection,

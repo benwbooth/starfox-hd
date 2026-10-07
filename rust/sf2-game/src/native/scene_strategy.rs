@@ -152,6 +152,7 @@ pub enum SceneError<E> {
     PlayerCameraGround(super::player_camera_ground::GroundCameraError),
     PlayerCameraCommon(super::player_camera_common::CommonCameraError),
     PlayerCameraSurface(super::player_camera_surface::SurfaceCameraError),
+    PlayerCameraAuxiliary(super::player_camera_auxiliary::AuxiliaryCameraError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -183,6 +184,42 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn install_player_camera_auxiliary(
+        &mut self,
+        owner: ObjectId,
+        task: super::player_camera_auxiliary::AuxiliaryCameraTask,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_auxiliary::install(self.objects, self.world, owner, task)
+            .map_err(SceneError::PlayerCameraAuxiliary);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_camera_auxiliary(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_auxiliary::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime,
+            owner,
+        )
+        .map_err(SceneError::PlayerCameraAuxiliary);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_camera_surface_height(
         &mut self,
         owner: ObjectId,

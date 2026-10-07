@@ -88,6 +88,7 @@ pub struct PlayerPathRecords {
     pub camera_position: Option<super::player_camera_position::PlayerCameraPosition>,
     pub camera_ground: Option<super::player_camera_ground::PlayerCameraGround>,
     pub camera_surface: Option<super::player_camera_surface::PlayerCameraSurface>,
+    pub camera_auxiliary: Option<super::player_camera_auxiliary::PlayerCameraAuxiliary>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -270,6 +271,10 @@ pub struct ScenePathWorld {
     pub handoff: Option<EncounterHandoff>,
     pub camera_focus: Option<EncounterCameraFocus>,
     pub camera_tracking: Option<CameraTrackingTarget>,
+    /// Shared encounter timer (1C0A), advanced by the scene clock and observed
+    /// by focus-camera framing. The source tests the complete word, not a
+    /// boolean inferred from frame count or current camera state.
+    pub encounter_timer_steps: Option<u16>,
     pub health_display: Option<EncounterHealthDisplay>,
     pub coordination: Option<EncounterCoordination>,
     pub objective_counts: Option<EncounterObjectiveCounts>,
@@ -402,6 +407,7 @@ impl ScenePathWorld {
             handoff: None,
             camera_focus: None,
             camera_tracking: None,
+            encounter_timer_steps: None,
             health_display: None,
             coordination: None,
             objective_counts: None,

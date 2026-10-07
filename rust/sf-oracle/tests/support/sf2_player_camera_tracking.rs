@@ -91,6 +91,11 @@ impl HeightFixture {
         if !self.check_prepared {
             values.retain(|(field, _, _)| *field != WRAM + 0x1DC4);
         }
+        if records.camera_auxiliary.is_some() {
+            // The full-task fixture seeds and checks the actual installed
+            // selector; this helper-only fixture supplies just its predicate.
+            values.retain(|(field, _, _)| *field != WRAM + SLOT + 0x6A9D);
+        }
         values
     }
     fn seed(&self, source: &mut Source) {

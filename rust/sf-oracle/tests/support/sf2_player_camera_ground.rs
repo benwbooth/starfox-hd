@@ -1,6 +1,8 @@
 //! Ground pitch, the real aiming proxy, and complete common-camera caller.
 #[path = "sf2_player_camera_surface.rs"]
 mod surface_tests;
+#[path = "sf2_player_camera_auxiliary.rs"]
+mod auxiliary_tests;
 use super::super::super::super::VIEW;
 use super::{rom, CameraFixture, PositionFixture, Source, OWNER, SLOT, WRAM};
 use sf2_game::path_appearance::AnimationControl;

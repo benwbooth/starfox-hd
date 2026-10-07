@@ -152,6 +152,19 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+All five auxiliary camera kinds now execute as typed tasks with the original
+initialization/active states and all six map installers (`$07:9DF6..A325`,
+`$0D:C75C..C831`). Their footer counter, first-visit reset, focus/tracking
+owners, published versus live player positions, velocity copying and saved
+view histories remain distinct. Eight native tests and four original groups
+cover 796,160 cases/visits, including independent retained installer/task/blend
+sequences. All 1,472 native tests and two architecture checks pass in both
+profiles; compatibility passes 1,480 tests plus 35 runtime checks. All 163
+original player/movement groups pass in debug/release; 786 source checks,
+238 extractor/lowerer tests, catalog/architecture/static checks and all three
+app builds pass. Primary camera dispatch, the enclosing player strategy and
+production frame ownership remain open; this does not certify a playable port.
+
 The complete surface-camera placement and height controller
 (`$07:812C..81F0`, `$07:90A3..9487`) now use the real retained height,
 camera fractions, shared ground/recovery/protection controls and environment.
