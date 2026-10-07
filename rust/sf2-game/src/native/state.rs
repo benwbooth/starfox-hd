@@ -38,9 +38,25 @@ pub struct AudioState {
     next_event_write: usize,
     next_event_read: usize,
     spatial_listener_yaw: Option<Angle>,
+    pending_music_control: Option<super::path_sound::MusicControlRequest>,
 }
 
 impl AudioState {
+    /// Replace the unconsumed music/control publication, independently of
+    /// the one-shot ring. Repeated requests remain real new publications.
+    pub fn request_music_control(&mut self, request: super::path_sound::MusicControlRequest) {
+        self.pending_music_control = Some(request);
+    }
+
+    pub const fn pending_music_control(&self) -> Option<super::path_sound::MusicControlRequest> {
+        self.pending_music_control
+    }
+
+    /// Native playback handoff; game ticks do not discard a pending request.
+    pub fn take_music_control(&mut self) -> Option<super::path_sound::MusicControlRequest> {
+        self.pending_music_control.take()
+    }
+
     /// Source producers wrap without a full-ring check. Exactly sixteen
     /// unconsumed writes make the cursors equal and therefore appear empty;
     /// a seventeenth write exposes that new event, not the older sixteen.

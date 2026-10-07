@@ -99,6 +99,7 @@ impl Fixture {
                 match r.action.unwrap().action {
                     None => 0,
                     Some(PlayerAction::TriggeredProjectile) => 0xBDDA,
+                    Some(PlayerAction::ForcedRetreat) => 0xBF63,
                 },
             ),
             (
@@ -248,8 +249,11 @@ fn engine_sound_retains_independent_state_across_objective_gates_and_live_motion
             r.contact.as_mut().unwrap().hit.hold_secondary_protection = visit % 13 == 0;
             r.motion.as_mut().unwrap().walker_turn_control = word.rotate_left(3) as u8;
             r.motion.as_mut().unwrap().walker_stride_control = word.rotate_right(5) as u8;
-            r.action.as_mut().unwrap().action =
-                (visit % 3 == 0).then_some(PlayerAction::TriggeredProjectile);
+            r.action.as_mut().unwrap().action = match visit % 3 {
+                0 => Some(PlayerAction::TriggeredProjectile),
+                1 => Some(PlayerAction::ForcedRetreat),
+                _ => None,
+            };
             f.world.objective_counts.as_mut().unwrap().remaining_word =
                 if visit % 5 == 0 { 0xDE00 } else { word | 1 };
             f.objects.get_mut(f.owner).unwrap().base.velocity.y = word as i16;

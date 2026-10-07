@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the complete forced-retreat parallel action (`$0D:BF63`) and
+  encounter-progress/retreat admission (`$06:9FAD..A044`). Protection refresh
+  runs every admitted action visit, including saturated time; first-visit
+  view/trigger/transition/music publications retain their original order, and
+  the retreat camera requests both continuity captures at time eight. Mission
+  progress uses independent per-player music latches and the full location
+  word; authored paths still import only its low byte. A newly installed
+  action runs on the next visit, and the shared semantic music/control owner
+  preserves last-writer behavior without emulating audio-port handshakes.
+  Nine new native tests and seven full original-runner groups pass, including
+  every timer/location/transition/objective word and retained cross-service
+  visits. Debug/release regression passes all 1,550 native tests plus two
+  architecture checks, 1,558 compatibility tests plus 35 runtime checks, and
+  228 original-code groups. All three applications build and each passes
+  35 tests in both profiles. All 840 source checks, 209 lowerer tests, three
+  backlog tests, catalogs and architecture audit pass. Full logs are
+  `/tmp/sf2-player-mission-validation-oct07.log` and
+  `/tmp/sf2-player-mission-static-oct07.log`. The scene-transition
+  consumer, PCM control consumption, six other mission-tail action streams,
+  five exit/controller path graphs, complete player strategy and production
+  frame ownership remain open. These semantic producers are not a claim of
+  shipping mission-exit or music-playback completion.
+
 - Fixed the source-proven attachment-chain defect: `$7F:2319` follows the
   same source link through numbered siblings, not only first-child links.
   Linear nested chains observe freshly published parent poses; extension

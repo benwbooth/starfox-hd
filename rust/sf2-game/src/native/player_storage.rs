@@ -155,6 +155,7 @@ pub fn replace(
             .owned_payload_is_page_aligned(owner, resource)
             .expect("fresh player allocation")),
         action: Some(Default::default()),
+        mission: Some(Default::default()),
         consumable: Some(Default::default()),
         target_control: Some(Default::default()),
         target_selection: Some(Default::default()),

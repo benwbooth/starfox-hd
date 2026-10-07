@@ -88,6 +88,7 @@ pub mod player_charge;
 pub mod player_rapid;
 pub mod player_weapon_aim;
 pub mod player_action;
+pub mod player_mission;
 pub mod player_consumable;
 pub mod player_visit;
 pub mod player_recovery;

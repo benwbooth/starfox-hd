@@ -380,7 +380,9 @@ pub struct ScenePathInputs {
     /// Shared player-view control byte ($1DE0). Menu and flight services
     /// update separate bits; the exit path reads the complete published byte.
     pub player_view_control: Option<u8>,
-    pub encounter_location: Option<u8>,
+    /// Shared location word ($1BB5). Authored path imports read its low byte,
+    /// while mission progress compares the complete word with Astropolis.
+    pub encounter_location: Option<u16>,
     /// Encounter layout byte ($1BA5), copied from the campaign node's
     /// layout field at $04:B20C and retained independently of location.
     pub encounter_layout: Option<u8>,
@@ -464,7 +466,7 @@ impl SceneByte {
             Self::EntryHeading => input.entry_heading,
             Self::PlayerConfiguration => input.player_configuration,
             Self::PlayerViewControl => input.player_view_control,
-            Self::EncounterLocation => input.encounter_location,
+            Self::EncounterLocation => input.encounter_location.map(|word| word as u8),
             Self::EncounterLayout => input.encounter_layout,
             Self::ActiveWeaponLevel => input.active_weapon_level,
         }
@@ -8512,7 +8514,7 @@ mod tests {
                     SceneByte::EntryHeading => inputs.scene.entry_heading = Some(value),
                     SceneByte::PlayerConfiguration => inputs.scene.player_configuration = Some(value),
                     SceneByte::PlayerViewControl => inputs.scene.player_view_control = Some(value),
-                    SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(value),
+                    SceneByte::EncounterLocation => inputs.scene.encounter_location = Some(0xAF00 | u16::from(value)),
                     SceneByte::EncounterLayout => inputs.scene.encounter_layout = Some(value),
                     SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
                 }
@@ -8554,7 +8556,7 @@ mod tests {
                 inputs.scene.player_configuration = Some(configuration);
                 // The early branch must never demand the skipped observation.
                 if configuration == 9 {
-                    inputs.scene.encounter_location = Some(location);
+                    inputs.scene.encounter_location = Some(u16::from(location));
                 }
                 assert_eq!(runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 30).map(|exit| { assert_eq!(exit.actor, owner); exit.step }), Ok(ControlStep::Movement));
                 let actor = objects.get(owner).unwrap();

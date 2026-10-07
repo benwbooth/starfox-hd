@@ -3,6 +3,7 @@
 //! Only source-complete streams have native identities; scene entry must not
 //! replace other streams with an empty or assumed-success action.
 
+use super::player_camera_auxiliary::{self, AuxiliaryCameraError, AuxiliaryCameraTask, OrbitStyle};
 use super::scene_path_world::{ScenePathWorld, WorldInputError};
 use super::{Button, InputState, ObjectId, ObjectStore};
 
@@ -16,12 +17,17 @@ const DETONATION_TIME: u16 = 12;
 const RESTORATION_TIME: u16 = 14;
 const COMPLETION_TIME: u16 = 40;
 const SPECIAL_CONFIGURATION: u8 = 9;
+const RETREAT_CAMERA_TIME: u16 = 8;
+const SCRIPTED_PROTECTION: u8 = 63;
+const ACTION_TRIGGER: u8 = 0x01;
 pub const SCENE_PALETTE_COLORS: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerAction {
     /// `$0D:BDDA`, installed by the triggered consumable.
     TriggeredProjectile,
+    /// `$0D:BF63`, forced retreat when the scene inhibits ordinary play.
+    ForcedRetreat,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -39,8 +45,12 @@ pub struct PlayerActionState {
 impl PlayerActionState {
     /// The original installer resets only when the selected stream changes.
     pub fn install_triggered_projectile(&mut self) {
-        if self.action != Some(PlayerAction::TriggeredProjectile) {
-            self.action = Some(PlayerAction::TriggeredProjectile);
+        self.install(PlayerAction::TriggeredProjectile);
+    }
+
+    pub fn install(&mut self, action: PlayerAction) {
+        if self.action != Some(action) {
+            self.action = Some(action);
             self.elapsed = 0;
             self.auxiliary_counter = 0;
         }
@@ -99,6 +109,7 @@ pub struct ScenePalette {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActionTiming {
+    Always,
     At(u16),
     Interval { start: u16, end: u16 },
 }
@@ -106,6 +117,7 @@ enum ActionTiming {
 impl ActionTiming {
     fn applies(self, elapsed: u16) -> bool {
         match self {
+            Self::Always => true,
             Self::At(at) => elapsed == at,
             Self::Interval { start, end } => (start..end).contains(&elapsed),
         }
@@ -119,6 +131,12 @@ enum ActionService {
     Stop,
     RequestRestoration,
     Detonate,
+    DisableViewOptions,
+    RefreshProtection,
+    ClearActionTrigger,
+    RequestRetreatTransition,
+    RequestRetreatAudio,
+    InstallRetreatCamera,
 }
 
 // Preserve the source order, including Stop before the earlier-time events.
@@ -139,15 +157,29 @@ const TRIGGERED_SERVICES: [(ActionTiming, ActionService); 5] = [
     (ActionTiming::At(DETONATION_TIME), ActionService::Detonate),
 ];
 
+const RETREAT_SERVICES: [(ActionTiming, ActionService); 6] = [
+    (ActionTiming::At(0), ActionService::DisableViewOptions),
+    (ActionTiming::Always, ActionService::RefreshProtection),
+    (ActionTiming::At(0), ActionService::ClearActionTrigger),
+    (ActionTiming::At(0), ActionService::RequestRetreatTransition),
+    (ActionTiming::At(0), ActionService::RequestRetreatAudio),
+    (
+        ActionTiming::At(RETREAT_CAMERA_TIME),
+        ActionService::InstallRetreatCamera,
+    ),
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerActionError {
     World(WorldInputError),
+    Camera(AuxiliaryCameraError),
     MissingSpawnDefaults,
     MissingPlayerAction(ObjectId),
     MissingConfiguration,
     MissingPalette,
     MissingProjectileTrigger,
     MissingServiceFlags,
+    MissingSceneTransition,
 }
 
 impl From<WorldInputError> for PlayerActionError {
@@ -169,7 +201,7 @@ fn state<'a>(
 }
 
 pub fn advance(
-    objects: &ObjectStore,
+    objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
     owner: ObjectId,
     input: InputState,
@@ -185,8 +217,9 @@ pub fn advance(
     let Some(action) = player.action else {
         return Ok(());
     };
-    let services = match action {
+    let services: &[_] = match action {
         PlayerAction::TriggeredProjectile => &TRIGGERED_SERVICES,
+        PlayerAction::ForcedRetreat => &RETREAT_SERVICES,
     };
     for &(timing, service) in services {
         if !timing.applies(decision_time) {
@@ -232,6 +265,39 @@ pub fn advance(
                     .ok_or(PlayerActionError::MissingProjectileTrigger)?
                     .activation = 1
             }
+            ActionService::DisableViewOptions => world.player_view_options_enabled = Some(false),
+            ActionService::RefreshProtection => {
+                world
+                    .player_mut(objects, owner)?
+                    .contact
+                    .as_mut()
+                    .ok_or(WorldInputError::MissingPlayerContact(owner))?
+                    .hit
+                    .secondary_protection = SCRIPTED_PROTECTION;
+            }
+            ActionService::ClearActionTrigger => {
+                world
+                    .player_mut(objects, owner)?
+                    .auxiliary
+                    .as_mut()
+                    .ok_or(WorldInputError::MissingAuxiliary(owner))?
+                    .action_flags &= !ACTION_TRIGGER;
+            }
+            ActionService::RequestRetreatTransition => world
+                .scene_transition
+                .as_mut()
+                .ok_or(PlayerActionError::MissingSceneTransition)?
+                .request_forced_retreat(),
+            ActionService::RequestRetreatAudio => world
+                .audio
+                .request_music_control(super::path_sound::MusicControlRequest::ForcedRetreat),
+            ActionService::InstallRetreatCamera => player_camera_auxiliary::install(
+                objects,
+                world,
+                owner,
+                AuxiliaryCameraTask::Initialize(OrbitStyle::Retreat),
+            )
+            .map_err(PlayerActionError::Camera)?,
         }
     }
     // A stop service clears the stored time, not this visit's decision time.

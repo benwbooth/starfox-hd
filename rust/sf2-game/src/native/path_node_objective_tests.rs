@@ -587,7 +587,7 @@ fn node_exit_publishes_once_and_its_detached_service_disables_only_the_nearest_s
             };
             let mut inputs = world(&mut random);
             inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
-            inputs.scene.encounter_location = Some(location);
+            inputs.scene.encounter_location = Some(u16::from(location));
             inputs.handoff = Some(&mut handoff);
             assert_eq!(
                 runtime

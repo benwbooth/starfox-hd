@@ -5,6 +5,12 @@
 #[path = "support/sf2_player_input.rs"]
 mod input_tests;
 
+#[path = "support/sf2_player_action.rs"]
+mod action_tests;
+
+#[path = "support/sf2_player_mission.rs"]
+mod mission_tests;
+
 #[path = "support/sf2_player_format.rs"]
 mod format_tests;
 
@@ -424,6 +430,7 @@ fn replacement_matches_original_zeroing_inputs_publication_and_shared_allocation
                     [byte(0x6C2A), byte(0x6C2B), byte(0x6C2C)]
                 );
                 assert_eq!(records.visit.unwrap().shield_warning_clock, byte(0x6BE8));
+                assert_eq!(records.mission.unwrap().flags, byte(0x6A71));
                 assert_eq!(records.particles.unwrap().flags, byte(0x6BE4));
                 assert_eq!(records.particles.unwrap().age, byte(0x6BE5));
                 assert_eq!(records.yaw_motion.unwrap(), word(0x6ACD));

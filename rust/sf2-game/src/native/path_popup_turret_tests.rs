@@ -567,7 +567,7 @@ fn location_and_layout_gate_waits_only_for_the_exact_pair_and_shared_message_sig
             let mut shared = EncounterCoordination::default();
             let mut inputs = world(&mut random);
             inputs.coordination = Some(&mut shared);
-            inputs.scene.encounter_location = Some(location);
+            inputs.scene.encounter_location = Some(u16::from(location));
             if location == 8 {
                 inputs.scene.encounter_layout = Some(layout);
             }

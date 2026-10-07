@@ -3,6 +3,22 @@
 use super::path_fields::{ByteField, ByteOperand};
 use super::Object;
 
+/// Shared scene-transition selector ($1B78), dispatched as a complete word
+/// by $03:C529. Player action $0D:CA08 replaces only its low byte; the scene
+/// dispatcher subsequently owns the timed transition and its continuation.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SceneTransitionControl {
+    pub phase_word: u16,
+}
+
+impl SceneTransitionControl {
+    pub fn request_forced_retreat(&mut self) {
+        const COMPANION_BYTE: u16 = 0xFF00;
+        const FORCED_RETREAT_PHASE: u16 = 6;
+        self.phase_word = (self.phase_word & COMPANION_BYTE) | FORCED_RETREAT_PHASE;
+    }
+}
+
 /// Shared placement arguments used by exits, scenery and child constructors.
 /// The primary scalar is lateral position for exits, height for scenery or a
 /// child-relative offset (source D767); all observe the same last publication.

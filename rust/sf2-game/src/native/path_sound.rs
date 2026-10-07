@@ -9,6 +9,19 @@ use super::{path_math, Angle, StereoPosition, Vector3};
 
 use super::path_control::PlayerTarget;
 
+/// Semantic music/control publication, separate from one-shot cues and sound
+/// bank selection. $7F:6DF8 replaces the previous unconsumed request; native
+/// playback acknowledges it without reproducing sound-port handshaking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MusicControlRequest {
+    /// Authored control 5, requested by the forced-retreat action ($0D:CBBB).
+    ForcedRetreat,
+    /// Authored control 7, progress-transition sentinel outside Astropolis.
+    EncounterProgressTransition,
+    /// Authored control 3, encounter-completion sentinel ($06:9FDC).
+    EncounterProgressComplete,
+}
+
 /// Identity classification of the currently selected sound listener. The
 /// fallback listener is outside the ordinary actor pool in the source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

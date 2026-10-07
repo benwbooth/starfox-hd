@@ -118,6 +118,7 @@ pub enum SceneError<E> {
     Rapid(super::player_rapid::RapidError),
     WeaponAim(super::player_weapon_aim::WeaponAimError),
     PlayerAction(super::player_action::PlayerActionError),
+    PlayerMission(super::player_mission::MissionError),
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerStorage(super::player_storage::PlayerStorageError),
@@ -1446,6 +1447,23 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         let result =
             super::player_surface_splash::spawn(self.objects, self.world, owner, kind, input)
                 .map_err(SceneError::PlayerSurfaceSplash);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Mission progress/retreat admission only; the returned branch must still
+    /// execute its exit controller or retained-aim continuation.
+    pub fn advance_player_mission_admission(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<super::player_mission::MissionAdmission, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_mission::advance_admission(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerMission);
         if result.is_err() {
             self.execution.faulted = true;
         }

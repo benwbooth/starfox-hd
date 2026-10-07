@@ -24,6 +24,20 @@ class PlayerActionStaticTests(unittest.TestCase):
     def test_complete_authored_stream_keeps_unsorted_order(self):
         self.assert_source(0x0DBDDA, "03 02 00 0B 00 79 C6 00 00 00 C8 CF 00 28 00 63 C6 00 0E 00 24 D4 00 0C 00 9D C6 FF FF")
 
+    def test_complete_retreat_stream_and_unconditional_protection(self):
+        self.assert_source(0x0DBF63, "0000008cc8040000c6c800000076c800000008ca000000bbcb00080095c7ffff")
+        self.assert_source(0x0DC8C6, "08a93f99e26b2860")
+
+    def test_retreat_transition_changes_only_low_byte_and_music_replaces_request(self):
+        self.assert_source(0x0DCA08, "08a9068d781b2860")
+        self.assert_source(0x0DCBBB, "08a90522f86d7f2860")
+        self.assert_source(0x7F6DF8, "da08e2308dda1c9cd91c28fa6b")
+
+    def test_retreat_clears_only_owned_bits_and_installs_camera_with_continuity(self):
+        self.assert_source(0x0DC88C, "08ade11d297f8de11d2860")
+        self.assert_source(0x0DC876, "08b9776b29fe99776b2860")
+        self.assert_source(0x0DC795, "08a907999f6ac220a9449f999d6ae2205aa03f03b921000908992100b9210009109921007a2860")
+
     def test_timing_reads_live_decision_time_and_iteration_does_not_reload_action(self):
         self.assert_source(0x0DBD58, "A9 05 00 8D A1 1D AD A5 1D C7 02 D0 4F 4C A0 BD")
         self.assert_source(0x0DBD88, "A9 07 00 8D A1 1D AD A5 1D C7 02 90 1F E6 02 E6 02 C7 02 B0 17 4C A0 BD")

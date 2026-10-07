@@ -56,6 +56,7 @@ pub struct PlayerPathRecords {
     /// by its active-shot limit. Linked-view firing has a separate policy.
     pub rapid_rejection_consumes_queue: Option<bool>,
     pub action: Option<super::player_action::PlayerActionState>,
+    pub mission: Option<super::player_mission::PlayerMissionControl>,
     pub consumable: Option<super::player_consumable::PlayerConsumableControl>,
     pub target_control: Option<super::path_player_control::PlayerTargetControl>,
     /// Candidate/marker selection, distinct from the scripted follow target.
@@ -298,6 +299,7 @@ pub struct ScenePathWorld {
     pub objective_counts: Option<EncounterObjectiveCounts>,
     pub objective_completion: Option<ObjectiveCompletion>,
     pub scene_events: Option<SceneEventFlags>,
+    pub scene_transition: Option<super::path_scene_state::SceneTransitionControl>,
     pub path_latches: Option<PathLatches>,
     pub sound_bank_request: Option<SoundBankRequest>,
     pub encounter_signals: Option<EncounterSignals>,
@@ -437,6 +439,7 @@ impl ScenePathWorld {
             objective_counts: None,
             objective_completion: None,
             scene_events: None,
+            scene_transition: None,
             path_latches: None,
             sound_bank_request: None,
             encounter_signals: None,

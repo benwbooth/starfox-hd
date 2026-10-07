@@ -11,6 +11,9 @@ use crate::{
 };
 
 struct Callbacks;
+
+#[path = "player_action_retreat_tests.rs"]
+mod retreat;
 impl SceneCallbacks for Callbacks {
     type Error = &'static str;
     fn assigned(

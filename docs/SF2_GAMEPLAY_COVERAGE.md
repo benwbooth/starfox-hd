@@ -152,6 +152,30 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The forced-retreat parallel action (`$0D:BF63`) and the mission-progress /
+retreat-admission prefix (`$06:9FAD..A044`) now have typed implementations.
+Retreat refreshes secondary protection on every admitted visit, preserves
+the companion transition byte and unrelated action bits, publishes its shared
+music/control request at time zero, and installs the retreat camera with both
+continuity captures at time eight. Saturated action time still runs the always
+service. Progress music uses independent per-player latches, and the existing
+location owner is now a full word while path byte imports retain low-byte
+semantics. Admission installs without running the action until the next visit;
+the explicit result distinguishes exit-controller continuation from retained
+aim continuation. Scene wrappers latch missing-input failures after preceding
+source-ordered writes. Nine new native tests and seven original-runner groups
+pass, including exhaustive words and continuous admission/action visits.
+Debug/release regression passes all 1,550 native tests plus two architecture
+checks, 1,558 compatibility tests plus 35 runtime checks, and 228 original-code
+groups. All three applications build and each passes 35 tests in both profiles.
+All 840 source checks, 209 lowerer tests, three backlog tests, generated catalogs
+and architecture audit pass. Logs are in
+`/tmp/sf2-player-mission-validation-oct07.log` and
+`/tmp/sf2-player-mission-static-oct07.log`. Scene-transition execution and PCM
+control consumption are not yet connected, and six other mission-tail actions,
+five exit/controller graphs, the full player strategy and shipping-frame owner
+remain open. No actual music-playback or campaign-exit completion is implied.
+
 Attachment publication now follows the original single link through every
 numbered sibling (`$7F:2319`), fixing the source-tested defect that left later
 children at stale poses. Nested linear chains use updated parent poses;
