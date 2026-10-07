@@ -152,6 +152,18 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete free-flight mode (`$06:E32C..E399`) now connects its surface
+prefix, optional effect and inherited steering response to input-history,
+vertical control, the shared movement frame and pending Walker selection.
+The retained-pitch mode shares only the common controls/movement sequence;
+its different suffix and sound routing remain separate. Seven new native
+tests and two original groups pass 16,384 mode calls, covering a varied
+handoff matrix and retained visits with actual effect retirement and pool
+reuse. Final-tree native debug/release, compatibility, all 128 original
+player/movement groups in both profiles, source/catalog/architecture checks
+and all three application builds pass. Enclosing player strategy/camera ownership
+and production frame integration remain unclosed.
+
 The complete protected surface effect (`$07:C475..C6E7`) now uses real child
 allocation and scheduled initialization, movement and retirement. Ownership,
 transform origin and relative parent remain distinct; lifetime identities

@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Implemented the complete free-flight mode (`$06:E32C..E399`), preserving
+  plane/effect preparation before input history, the effect-to-steering
+  handoff, live vertical controls, the entire shared flight frame and the
+  pending Walker request. Only an admitted transformation queues the
+  side-specific cue; it does not reuse retained-pitch mode's Select cue.
+  Seven new native tests cover source-ordered failures, exact-zero support
+  planes, skipped effects and scene retry prevention. Two original groups
+  pass 16,384 calls: an 8,192-case surface/control/transition matrix and
+  8,192 retained visits with independent pose, input history, random state,
+  children and pool reuse. Final-tree verification passes 1,407 native tests
+  and two architecture checks in debug/release, 1,415 compatibility tests
+  and 35 runtime checks, all 128 original player/movement groups in both
+  profiles, 751 source tests, 238 extractor/lowerer tests, exact catalog and
+  architecture checks and all three application builds. Production
+  ownership still requires the enclosing strategy, camera and mode phases.
+
 - Ported the complete protected surface-effect creator and both scheduled
   strategies (`$07:C475..C6E7`). Real pool allocation, child limits, distinct
   transform-origin lifetimes, inherited steering response, three ordered

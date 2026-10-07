@@ -1,4 +1,7 @@
 use super::*;
+
+#[path = "player_free_flight_tests.rs"]
+mod free_flight_tests;
 use crate::collision_surface::SurfaceMode;
 use crate::path_program::PathCatalog;
 use crate::player_motion::PlayerSurfaceSupport;

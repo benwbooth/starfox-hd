@@ -2,6 +2,9 @@
 //! collision, sound, corridor and grid calls. No expected result is patched
 //! into the source, and continuous visits never copy source state to Rust.
 
+#[path = "sf2_player_free_flight.rs"]
+mod free_flight_tests;
+
 use super::surface_particle_tests::{address, Native, OWNER, SLOT};
 use super::{rom, Source, WRAM};
 use sf2_game::collision_surface::SurfaceMode;
@@ -416,14 +419,15 @@ impl Fixture {
     }
 
     fn plane(&mut self, source: &mut Source) {
-        let mut grid = WorldOccupancy::default();
-        for z in 0..128_u16 {
-            for group in 0..16_u16 {
-                let mut byte = 0;
-                for bit in 0..8 {
-                    let x = group * 8 + bit;
+        // Fixed caller input, independent of either implementation's output.
+        // Building thousands of complete row masks per case obscures the
+        // original-code comparison's cost; construct it once, then clone.
+        static GRID: std::sync::OnceLock<WorldOccupancy> = std::sync::OnceLock::new();
+        let grid = GRID.get_or_init(|| {
+            let mut grid = WorldOccupancy::default();
+            for z in 0..128_u16 {
+                for x in 0..128_u16 {
                     if (x + z) % 3 == 2 {
-                        byte |= 1 << bit;
                         grid.apply(
                             &MarkerCoverage::from_rectangle(WorldRectangle {
                                 x: (x * 512) as i16,
@@ -436,12 +440,24 @@ impl Fixture {
                         );
                     }
                 }
+            }
+            grid
+        });
+        for z in 0..128_u16 {
+            for group in 0..16_u16 {
+                let mut byte = 0;
+                for bit in 0..8 {
+                    let x = group * 8 + bit;
+                    if (x + z) % 3 == 2 {
+                        byte |= 1 << bit;
+                    }
+                }
                 source
                     .bus
                     .write8(WRAM + 0xCF36 + u32::from(z * 16 + group), byte);
             }
         }
-        self.native.world.occupancy = Some(grid);
+        self.native.world.occupancy = Some(grid.clone());
     }
 
     fn step(&mut self, source: &mut Source) -> FlightResult {

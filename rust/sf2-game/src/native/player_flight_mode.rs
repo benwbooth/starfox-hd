@@ -34,15 +34,15 @@ pub enum FlightModeError {
     MissingProcessedInput,
 }
 
-/// $06:E2EE uses the held/fine-pitch controller and hard limits. The adjacent
-/// $06:E32C mode has additional surface/protection/transition owners and is
-/// not represented by a guessed choice of the other vertical controller.
-pub fn advance_retained_pitch(
+/// Shared control/movement sequence, after each mode's distinct prefix.
+/// This does not run either mode's request or sound suffix.
+pub(crate) fn advance_controls(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
     resources: &mut ProgramResources<ProgramData>,
     owner: ObjectId,
     context: FlightModeContext,
+    vertical: VerticalMode,
 ) -> Result<FlightResult, FlightModeError> {
     player_vertical::retain_input(objects, world, owner).map_err(FlightModeError::Vertical)?;
     world
@@ -59,16 +59,29 @@ pub fn advance_retained_pitch(
     world.player_roll_increment = Some(0);
     player_steering::advance(objects, world, resources, owner, context.steering)
         .map_err(FlightModeError::Steering)?;
-    player_vertical::advance(
+    player_vertical::advance(objects, world, resources, owner, vertical)
+        .map_err(FlightModeError::Vertical)?;
+    player_flight::advance(objects, world, resources, owner, context.flight)
+        .map_err(FlightModeError::Flight)
+}
+
+/// $06:E2EE uses held/fine pitch and hard limits. Its unsided Select cue is
+/// deliberately separate from free-flight mode's pending Walker request.
+pub fn advance_retained_pitch(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    resources: &mut ProgramResources<ProgramData>,
+    owner: ObjectId,
+    context: FlightModeContext,
+) -> Result<FlightResult, FlightModeError> {
+    let result = advance_controls(
         objects,
         world,
         resources,
         owner,
+        context,
         VerticalMode::RetainedPitch,
-    )
-    .map_err(FlightModeError::Vertical)?;
-    let result = player_flight::advance(objects, world, resources, owner, context.flight)
-        .map_err(FlightModeError::Flight)?;
+    )?;
     if world
         .processed_player_input
         .ok_or(FlightModeError::MissingProcessedInput)?

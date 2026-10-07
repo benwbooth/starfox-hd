@@ -143,6 +143,7 @@ pub enum SceneError<E> {
     PlayerOccupancy(super::player_occupancy::OccupancyError),
     PlayerFlight(super::player_flight::FlightError),
     PlayerFlightMode(super::player_flight_mode::FlightModeError),
+    PlayerFreeFlight(super::player_free_flight::FreeFlightError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -174,11 +175,34 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_free_flight(
+        &mut self,
+        owner: ObjectId,
+        context: super::player_free_flight::FreeFlightContext,
+    ) -> Result<super::player_flight::FlightResult, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_free_flight::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+            context,
+        )
+        .map_err(SceneError::PlayerFreeFlight);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn spawn_player_surface_effect(
         &mut self,
         owner: ObjectId,
         input: super::player_surface_effect::SurfaceEffectInputs,
-    ) -> Result<Option<super::player_surface_effect::SurfaceEffectResult>, SceneError<C::Error>> {
+    ) -> Result<Option<super::player_surface_effect::SurfaceEffectResult>, SceneError<C::Error>>
+    {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
@@ -198,8 +222,9 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
-        let result = super::player_mode_selection::advance(self.objects, self.world, owner, request)
-            .map_err(SceneError::PlayerModeSelection);
+        let result =
+            super::player_mode_selection::advance(self.objects, self.world, owner, request)
+                .map_err(SceneError::PlayerModeSelection);
         if result.is_err() {
             self.execution.faulted = true;
         }
@@ -279,7 +304,8 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
             &mut self.execution.paths.runtime.resources,
             owner,
             context,
-        ).map_err(SceneError::PlayerOccupancy);
+        )
+        .map_err(SceneError::PlayerOccupancy);
         if result.is_err() {
             self.execution.faulted = true;
         }
