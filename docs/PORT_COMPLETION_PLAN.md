@@ -113,6 +113,23 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Composed free-flight preparation (`$06:869C..875E`) in the shared scene:
+  camera selection, contact/event publication, controller remapping,
+  shoulder arbitration and conditional ground pitch now run in source order.
+  The pitch gate observes the newly installed camera, protected input keeps
+  queued injection, and partial failures latch the scene. Four native tests
+  and two original-code groups pass every controller word, all primary and
+  auxiliary camera tasks, dirty control bytes and consecutive visits without
+  copying output between implementations. Debug and release pass 1,612 native,
+  1,620 compatibility-feature, 35 runtime, 33 path and 262 original-code tests
+  (235 player storage), all application tests, five real-app smoke tests and
+  builds. Static checks pass 878 source, 217 lowerer and three backlog tests,
+  exact regeneration and the architecture audit. Logs:
+  `/tmp/sf2-player-flight-prepare-validation-oct07.log` and
+  `/tmp/sf2-player-flight-prepare-static-oct07.log`. This ends before the
+  movement call; movement invocation inputs, surface crossing, the mode
+  suffix and shipping frame ownership remain open.
+
 - Composed the player-entry reset through its action-gate boundary
   (`$06:83F1..846B`): world and motion reset, action termination, hidden
   craft, engine/positional control, handoff flags, collision suppression,

@@ -126,6 +126,7 @@ pub mod player_boundary;
 pub mod player_occupancy;
 pub mod player_flight;
 pub mod player_flight_mode;
+pub mod player_flight_prepare;
 pub mod player_free_flight;
 pub mod player_surface_prepare;
 pub mod player_mode_selection;

@@ -152,6 +152,22 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The free-flight caller prefix (`$06:869C..875E`) now composes camera
+installation, contact/event flags, input preparation, shoulder arbitration
+and conditional ground pitch. Its scene wrapper latches partial failures.
+Four native tests and two original-code groups pass all controller words,
+all primary/auxiliary task selections, dirty control bytes and repeated
+visits. The tests stop at the real movement-call boundary and retain the
+native/original state independently. Debug and release pass 1,612 native,
+1,620 compatibility-feature, 35 runtime, 33 path and 262 original-code tests
+(235 player storage), all application tests, five real-app smoke tests and
+builds. Static validation passes 878 source, 217 lowerer and three backlog
+tests, exact regeneration and architecture checks. Logs:
+`/tmp/sf2-player-flight-prepare-validation-oct07.log` and
+`/tmp/sf2-player-flight-prepare-static-oct07.log`. This is preparation only:
+movement invocation inputs, surface crossing, the mode suffix and shipping
+integration remain open.
+
 The composed player-entry reset (`$06:83F1..846B`) now includes world and
 motion reset, action termination, shape/audio/handoff/collision changes,
 camera clearing and hostile-launch counter clearing. It retains action age

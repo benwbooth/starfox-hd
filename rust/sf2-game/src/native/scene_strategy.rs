@@ -155,6 +155,7 @@ pub enum SceneError<E> {
     PlayerOccupancy(super::player_occupancy::OccupancyError),
     PlayerFlight(super::player_flight::FlightError),
     PlayerFlightMode(super::player_flight_mode::FlightModeError),
+    PlayerFlightPreparation(super::player_flight_prepare::FlightPreparationError),
     PlayerFreeFlight(super::player_free_flight::FreeFlightError),
     ViewBlend(super::view_blend::ViewBlendError),
     PlayerViewDistance(super::player_view_distance::ViewDistanceError),
@@ -199,6 +200,20 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Source-ordered free-flight preparation, ending before movement.
+    pub fn prepare_player_free_flight(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_flight_prepare::prepare(
+            self.objects, self.world, &mut self.execution.paths.runtime, owner,
+        ).map_err(SceneError::PlayerFlightPreparation);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Reset through the entry action-gate boundary. Dispatch and strategy
     /// installation belong to the next phase; do not replay a partial reset.
     pub fn reset_player_entry(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {

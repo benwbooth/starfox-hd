@@ -1,5 +1,7 @@
 //! Full original dispatcher, all three primary modes, and real auxiliary and
 //! continuity consumers. Native/original outputs remain independently retained.
+#[path = "sf2_player_flight_prepare.rs"]
+mod flight_prepare_tests;
 use super::{rom, AuxiliaryFixture, Source, Task, OWNER, SLOT, TASKS, WRAM};
 use sf2_game::player_camera_dispatch::{self, PlayerCameraDispatch};
 use sf2_game::player_camera_tracking::TrackingStyle as Style;

@@ -1,4 +1,6 @@
 use super::super::{Callbacks, Fixture};
+#[path = "player_flight_prepare_tests.rs"]
+mod flight_prepare_tests;
 use crate::path_program::PathCatalog;
 use crate::player_camera_auxiliary::AuxiliaryCameraTask;
 use crate::player_camera_dispatch::{self as camera, CameraDispatchError as Error};
