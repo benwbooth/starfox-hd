@@ -13,7 +13,9 @@ const PROBE_PRECISION_SHIFT: u32 = 2;
 /// Rotate a world probe into a collider's local yaw frame (`$01:FD62`,
 /// `$01:FE74`). The host bypasses the kernel at exactly zero yaw.
 /// Input words are multiplied by four *before* the signed wide products;
-/// the products are combined before their high-word/half truncation.
+/// the products are combined before their high-word/half truncation. The
+/// horizontal subtraction uses the opposite low-word borrow from an ordinary
+/// wide subtraction; preserving it matters at rotated footprint boundaries.
 pub fn local_probe(yaw: Angle, x: i16, z: i16) -> (i16, i16) {
     if yaw == Angle::ZERO {
         return (x, z);
@@ -23,12 +25,16 @@ pub fn local_probe(yaw: Angle, x: i16, z: i16) -> (i16, i16) {
     let cos = i16::from(sf_core::snes_trig::COSTAB[angle]) << COEFFICIENT_SHIFT;
     let x = i32::from(x.wrapping_shl(PROBE_PRECISION_SHIFT));
     let z = i32::from(z.wrapping_shl(PROBE_PRECISION_SHIFT));
-    let local_x = (x * i32::from(cos)).wrapping_sub(z * i32::from(sin));
+    let x_cos = x * i32::from(cos);
+    let z_sin = z * i32::from(sin);
+    // $01:FEA8 subtracts low(x*cos) from low(z*sin), then subtracts
+    // high(z*sin) and that borrow from high(x*cos), not vice versa.
+    let reversed_borrow = i16::from((z_sin as u16) < (x_cos as u16));
+    let local_x = ((x_cos >> WORD_BITS) as i16)
+        .wrapping_sub((z_sin >> WORD_BITS) as i16)
+        .wrapping_sub(reversed_borrow);
     let local_z = (x * i32::from(sin)).wrapping_add(z * i32::from(cos));
-    (
-        (local_x >> (WORD_BITS + 1)) as i16,
-        (local_z >> (WORD_BITS + 1)) as i16,
-    )
+    (local_x >> 1, (local_z >> (WORD_BITS + 1)) as i16)
 }
 
 /// Closed, clockwise convex footprint (`$01:FCD7`). Edges are inclusive.

@@ -13,6 +13,7 @@ pub mod collision_contacts;
 pub mod collision_math;
 pub mod collision_pass;
 pub mod collision_surface;
+pub mod surface_motion;
 pub mod common_destruction;
 mod game;
 pub mod hit_response;

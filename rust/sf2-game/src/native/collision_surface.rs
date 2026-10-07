@@ -91,6 +91,53 @@ pub struct ObjectSurfaceContact {
     pub contact: ActorSurfaceContact,
 }
 
+/// Footprint feedback used by the full movement response. Rectangle exits
+/// intentionally preserve the source's negative/positive edge asymmetry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceFootprint {
+    Rectangle {
+        negative_x: i16,
+        negative_z: i16,
+        positive_x: i16,
+        positive_z: i16,
+    },
+    Polygon {
+        polygon: &'static sf2_data::collision_data::CollisionPolygon,
+        origin: Vector3,
+        yaw: Angle,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SurfaceGeometry {
+    pub normal: Vector3,
+    pub footprint: SurfaceFootprint,
+}
+
+impl Default for SurfaceGeometry {
+    fn default() -> Self {
+        Self {
+            normal: Vector3 {
+                x: 0,
+                y: i16::MIN,
+                z: 0,
+            },
+            footprint: SurfaceFootprint::Rectangle {
+                negative_x: 0,
+                negative_z: 0,
+                positive_x: 0,
+                positive_z: 0,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectSurfaceGeometry {
+    pub surface: ObjectSurfaceContact,
+    pub geometry: SurfaceGeometry,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SurfaceQueryError {
     MissingOwner(ObjectId),
@@ -107,6 +154,15 @@ pub fn query_object_surface(
     strategy_tick: u8,
     search: SurfaceSearch,
 ) -> Result<ObjectSurfaceContact, SurfaceQueryError> {
+    Ok(query_object_surface_geometry(objects, owner, strategy_tick, search)?.surface)
+}
+
+pub fn query_object_surface_geometry(
+    objects: &ObjectStore,
+    owner: ObjectId,
+    strategy_tick: u8,
+    search: SurfaceSearch,
+) -> Result<ObjectSurfaceGeometry, SurfaceQueryError> {
     let position = objects
         .get(owner)
         .ok_or(SurfaceQueryError::MissingOwner(owner))?
@@ -135,14 +191,17 @@ pub fn query_object_surface(
         identities.push(id);
         colliders.push(collider);
     }
-    let result = query_surface(position, &colliders, strategy_tick, search);
-    Ok(ObjectSurfaceContact {
-        height: result.height,
-        contact: ActorSurfaceContact {
-            supporting_object: result.collider_index.map(|index| identities[index]),
-            group: result.group,
-            flags: result.flags,
+    let (result, geometry) = query_surface_geometry(position, &colliders, strategy_tick, search);
+    Ok(ObjectSurfaceGeometry {
+        surface: ObjectSurfaceContact {
+            height: result.height,
+            contact: ActorSurfaceContact {
+                supporting_object: result.collider_index.map(|index| identities[index]),
+                group: result.group,
+                flags: result.flags,
+            },
         },
+        geometry,
     })
 }
 
@@ -167,6 +226,25 @@ pub fn query_surface(
     strategy_tick: u8,
     search: SurfaceSearch,
 ) -> SurfaceContact {
+    query_surface_geometry(position, colliders, strategy_tick, search).0
+}
+
+fn rectangle(negative_x: i16, negative_z: i16, width: u16, depth: u16) -> SurfaceFootprint {
+    SurfaceFootprint::Rectangle {
+        negative_x,
+        negative_z,
+        positive_x: negative_x.wrapping_add(width as i16).wrapping_add(1),
+        positive_z: negative_z.wrapping_add(depth as i16).wrapping_add(1),
+    }
+}
+
+fn query_surface_geometry(
+    position: Vector3,
+    colliders: &[SurfaceCollider<'_>],
+    strategy_tick: u8,
+    search: SurfaceSearch,
+) -> (SurfaceContact, SurfaceGeometry) {
+    let mut geometry = SurfaceGeometry::default();
     let mut nearest = SurfaceContact {
         height: match search {
             SurfaceSearch::Full => FULL_SEARCH_HEIGHT,
@@ -206,6 +284,29 @@ pub fn query_surface(
                     }) {
                         return None;
                     }
+                    let footprint = if let Some(polygon) = record.polygon {
+                        SurfaceFootprint::Polygon {
+                            polygon,
+                            origin: collider.position,
+                            yaw: collider.yaw,
+                        }
+                    } else {
+                        rectangle(
+                            record
+                                .center_x
+                                .wrapping_add((record.width >> 1) as i16)
+                                .wrapping_sub(x)
+                                .wrapping_sub(record.width as i16),
+                            record
+                                .center_z
+                                .wrapping_add((record.depth >> 1) as i16)
+                                .wrapping_sub(z)
+                                .wrapping_sub(record.depth as i16),
+                            record.width,
+                            record.depth,
+                        )
+                    };
+                    let [nx, ny, nz] = record.plane_normal.map(|axis| i16::from(axis) << u8::BITS);
                     Some((
                         collider
                             .position
@@ -218,12 +319,41 @@ pub fn query_surface(
                             )),
                         (profile.groups.len() - group_index) as u8,
                         record.box_flags,
+                        SurfaceGeometry {
+                            normal: Vector3 {
+                                x: nx,
+                                y: ny,
+                                z: nz,
+                            },
+                            footprint,
+                        },
                     ))
                 })
         } else {
-            Some((collider.position.y.wrapping_sub(height as i16), 0, 0))
+            Some((
+                collider.position.y.wrapping_sub(height as i16),
+                0,
+                0,
+                SurfaceGeometry {
+                    footprint: rectangle(
+                        collider
+                            .position
+                            .x
+                            .wrapping_sub(width as i16)
+                            .wrapping_sub(position.x),
+                        collider
+                            .position
+                            .z
+                            .wrapping_sub(depth as i16)
+                            .wrapping_sub(position.z),
+                        width.wrapping_mul(2),
+                        depth.wrapping_mul(2),
+                    ),
+                    ..Default::default()
+                },
+            ))
         };
-        let Some((surface, group, flags)) = surface else {
+        let Some((surface, group, flags, candidate_geometry)) = surface else {
             continue;
         };
         // Only the first containing compound record is considered, even if
@@ -241,11 +371,24 @@ pub fn query_surface(
             group,
             flags,
         };
+        geometry = candidate_geometry;
     }
     if nearest.height == REDUCED_SEARCH_HEIGHT {
         nearest.height = 0;
     }
-    nearest
+    if let Some(index) = nearest.collider_index {
+        let yaw = colliders[index].yaw;
+        if yaw != Angle::ZERO {
+            let (x, z) = collision_math::local_probe(
+                Angle::from_units(yaw.units().wrapping_neg()),
+                geometry.normal.x >> 2,
+                geometry.normal.z >> 2,
+            );
+            geometry.normal.x = x.wrapping_mul(4);
+            geometry.normal.z = z.wrapping_mul(4);
+        }
+    }
+    (nearest, geometry)
 }
 
 #[cfg(test)]

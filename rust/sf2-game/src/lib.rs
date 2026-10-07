@@ -5,6 +5,7 @@
 //! for differential verification; it is not part of [`Game`].
 
 mod native;
+pub use native::surface_motion;
 
 pub use native::actor_auxiliary;
 pub use native::common_destruction;

@@ -113,6 +113,28 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete shared collision-constrained movement service
+  (`$0D:B282..B6B7`), using live surface candidates, authored polygons and
+  their normals/footprints. It retains the asymmetric velocity dead zone,
+  gravity-after-integration order, word-scaled response, previous-support
+  motion, bounded penetration escape/retry/restoration, signed damping,
+  carried displacement and one's-complement final length. The scene wrapper
+  latches partial failures. All 577 shape headers, 273 collision polygons,
+  full-word arithmetic and 16,384 continuous visits are covered by seven
+  unmodified-original groups (382,352 calls in total). Explicit eligibility
+  assertions prevent excluded fresh colliders from silently weakening these
+  checks. The comparisons found and corrected the source's reversed low-word
+  borrow in the existing yaw-probe rotation; 43,095 direct original rotations
+  verify that correction. Four native groups cover carry rounding, lazy
+  errors and fault latching. The caller's inherited tilt remains explicit;
+  no normal-derived or neutral tilt is invented. This closes the collision
+  dependency of configuration-nine flight, not shipping flight integration.
+  Final-tree verification passes 1,355 native tests and both architecture
+  checks in debug/release; compatibility mode passes 1,363 unit tests and
+  35 runtime tests. All 89 original player/movement groups pass in both
+  profiles, along with 698 source tests, 238 extractor/lowerer tests, exact
+  catalog/architecture checks and all three application builds.
+
 - Ported the complete flight speed/thrust service (`$06:F05D..F1FB`),
   including all seven pilot tables, boost-before-brake selection, forced
   speed gates, submode selection and inherited surface targets. Directional

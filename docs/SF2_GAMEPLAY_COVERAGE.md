@@ -152,6 +152,23 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete collision-constrained movement service (`$0D:B282..B6B7`) now
+uses live actors and decoded shape geometry. Surface selection exposes the
+winning normal and exact rectangle/polygon footprint, without address-based
+gameplay state. Movement preserves the source dead zone, gravity order,
+previous supporting actor's vertical motion, escape/retry/restoration flags,
+word-scaled normal response and damping, carried displacement and final
+one's-complement distance measurement. The inherited surface tilt is an
+explicit caller input; missing geometry errors preserve the completed prefix
+and fault the scene. The original yaw-probe's reversed low-word subtraction
+borrow is preserved, not replaced by mathematically equivalent-looking wide
+arithmetic. Seven unmodified-original groups cover 382,352 calls: all 577
+shape headers, all 273 polygons, every arithmetic input word, all yaw
+boundaries and 16,384 continuous movement visits. Collider eligibility and
+actual contact coverage are asserted. Four native groups cover rounding,
+dependency errors and retry prevention. Flight's enclosing caller and
+shipping `Game::tick` ownership remain open.
+
 Reticle mode preparation (`$07:B038..B0CD`) and the complete position producer
 (`$07:A418..A504`) now use live scene/player owners. Preparation is independently
 scheduled by the actual player-mode caller; display positioning and target

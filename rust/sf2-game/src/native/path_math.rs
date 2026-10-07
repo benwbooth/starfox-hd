@@ -66,6 +66,23 @@ fn normalization_quotient(numerator: u32, mut denominator: u16) -> u16 {
     quotient
 }
 
+/// Quantized unit vector from `$01:FBD2`. Zero-length inputs return zero;
+/// wrapped square accumulation and reciprocal precision remain bounded.
+pub fn normalized_direction(delta: Vector3) -> Vector3 {
+    let radius = vector_length(delta);
+    if radius == 0 {
+        return Vector3::default();
+    }
+    let precision = u16::BITS - 1 - radius.leading_zeros();
+    let reciprocal = normalization_quotient(NORMALIZED_UNIT << precision, radius) as i16;
+    let component = |value| ((i32::from(value) * i32::from(reciprocal)) >> precision) as i16;
+    Vector3 {
+        x: component(delta.x),
+        y: component(delta.y),
+        z: component(delta.z),
+    }
+}
+
 /// Change the radius around the selected target (`$7F:ADC7` calling
 /// `$01:FB72`, `$01:FBD2` and `$01:FC5A`). Positive amounts contract.
 ///

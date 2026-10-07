@@ -135,6 +135,7 @@ pub enum SceneError<E> {
     PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
+    SurfaceMotion(super::surface_motion::SurfaceMotionError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
     NestedPathInvocation,
@@ -163,6 +164,23 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Shared constrained movement, with the caller's real gravity mode and tilt.
+    pub fn advance_surface_motion(
+        &mut self,
+        owner: ObjectId,
+        inputs: super::surface_motion::SurfaceMotionInputs,
+    ) -> Result<super::surface_motion::SurfaceMotionResult, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::surface_motion::advance(self.objects, owner, inputs)
+            .map_err(SceneError::SurfaceMotion);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Speed follows surface response and precedes pose and displacement.
     pub fn advance_player_speed(
         &mut self,
@@ -181,10 +199,7 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
     }
 
     /// Retained ambient terms, after roll input and before boost/brake.
-    pub fn advance_player_ambient(
-        &mut self,
-        owner: ObjectId,
-    ) -> Result<(), SceneError<C::Error>> {
+    pub fn advance_player_ambient(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
@@ -197,10 +212,7 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
     }
 
     /// Boost/brake service after roll/ambient and before surface/speed work.
-    pub fn advance_player_throttle(
-        &mut self,
-        owner: ObjectId,
-    ) -> Result<(), SceneError<C::Error>> {
+    pub fn advance_player_throttle(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
@@ -220,7 +232,10 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
-        let result = self.world.primary_player.ok_or(SceneError::MissingPrimaryPlayer)
+        let result = self
+            .world
+            .primary_player
+            .ok_or(SceneError::MissingPrimaryPlayer)
             .and_then(|owner| {
                 super::player_vertical::configure(self.objects, self.world, owner, profile)
                     .map_err(SceneError::PlayerVertical)
@@ -311,7 +326,10 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
     }
 
     /// The mode runs this after input preparation and before steering.
-    pub fn prepare_player_shoulders(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+    pub fn prepare_player_shoulders(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
@@ -431,7 +449,10 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
 
     /// Reticle positioning tail after the actual point projector completes.
     /// The display caller supplies that result and owns update ordering.
-    pub fn track_target_reticle(&mut self, projected: [i16; 2]) -> Result<(), SceneError<C::Error>> {
+    pub fn track_target_reticle(
+        &mut self,
+        projected: [i16; 2],
+    ) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
@@ -468,7 +489,10 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
             return Err(SceneError::Faulted);
         }
         let result = (|| {
-            let owner = self.world.primary_player.ok_or(SceneError::MissingPrimaryPlayer)?;
+            let owner = self
+                .world
+                .primary_player
+                .ok_or(SceneError::MissingPrimaryPlayer)?;
             super::player_reticle::position(self.objects, self.world, owner)
                 .map_err(SceneError::Reticle)?;
             self.retain_primary_target()
@@ -508,7 +532,10 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
     }
     /// Consume the actual shared recovery request and install visual feedback.
     /// The surrounding player mode owns this service's position in the visit.
-    pub fn consume_player_recovery(&mut self, owner: ObjectId) -> Result<bool, SceneError<C::Error>> {
+    pub fn consume_player_recovery(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<bool, SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
@@ -573,12 +600,9 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
-        let result = super::player_weapon_aim::retain_forward_point(
-            self.objects,
-            self.world,
-            owner,
-        )
-        .map_err(SceneError::WeaponAim);
+        let result =
+            super::player_weapon_aim::retain_forward_point(self.objects, self.world, owner)
+                .map_err(SceneError::WeaponAim);
         if result.is_err() {
             self.execution.faulted = true;
         }
@@ -655,11 +679,20 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         owner: ObjectId,
         context: super::player_surface::SurfaceContext,
     ) -> Result<super::player_surface::SurfaceResponse, SceneError<C::Error>> {
-        if self.execution.faulted { return Err(SceneError::Faulted); }
-        let result = super::player_surface::respond(self.objects, self.world,
-            &mut self.execution.paths.runtime.resources, owner, context)
-            .map_err(SceneError::PlayerSurface);
-        if result.is_err() { self.execution.faulted = true; }
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_surface::respond(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+            context,
+        )
+        .map_err(SceneError::PlayerSurface);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
         result
     }
 
@@ -674,8 +707,9 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
-        let result = super::player_surface_particle::spawn(self.objects, self.world, owner, kind, input)
-            .map_err(SceneError::PlayerSurfaceParticle);
+        let result =
+            super::player_surface_particle::spawn(self.objects, self.world, owner, kind, input)
+                .map_err(SceneError::PlayerSurfaceParticle);
         if result.is_err() {
             self.execution.faulted = true;
         }
@@ -745,8 +779,10 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                 Ok(owner)
             }
             Behavior::SurfaceParticle(_) => {
-                super::player_surface_particle::step(self.objects.get_mut(owner).expect("live surface particle"))
-                    .expect("validated surface particle behavior");
+                super::player_surface_particle::step(
+                    self.objects.get_mut(owner).expect("live surface particle"),
+                )
+                .expect("validated surface particle behavior");
                 Ok(owner)
             }
             Behavior::Destruction(phase) => {
@@ -766,7 +802,8 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                         )))?
                         .mode;
                     let displacement = if mode & 0xF0 == 0x10 {
-                        self.world.published_motion
+                        self.world
+                            .published_motion
                             .ok_or(SceneError::World(WorldInputError::MissingPublishedMotion))?
                             .delta
                     } else {
