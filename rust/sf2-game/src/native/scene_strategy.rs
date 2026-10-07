@@ -153,6 +153,7 @@ pub enum SceneError<E> {
     PlayerCameraCommon(super::player_camera_common::CommonCameraError),
     PlayerCameraSurface(super::player_camera_surface::SurfaceCameraError),
     PlayerCameraAuxiliary(super::player_camera_auxiliary::AuxiliaryCameraError),
+    PlayerCameraDispatch(super::player_camera_dispatch::CameraDispatchError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -184,6 +185,75 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn select_player_free_flight_camera(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_dispatch::select_free_flight_camera(
+            self.objects,
+            self.world,
+            owner,
+        )
+        .map_err(SceneError::PlayerCameraDispatch);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_camera(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_dispatch::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime,
+            owner,
+        )
+        .map_err(SceneError::PlayerCameraDispatch);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_view(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_dispatch::advance_with_continuity(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime,
+            owner,
+        )
+        .map_err(SceneError::PlayerCameraDispatch);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn clamp_player_view_to_plane(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result =
+            super::player_camera_dispatch::clamp_normal_to_plane(self.objects, self.world, owner)
+                .map_err(SceneError::PlayerCameraDispatch);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn install_player_camera_auxiliary(
         &mut self,
         owner: ObjectId,

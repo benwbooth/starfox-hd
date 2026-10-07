@@ -96,6 +96,13 @@ impl HeightFixture {
             // selector; this helper-only fixture supplies just its predicate.
             values.retain(|(field, _, _)| *field != WRAM + SLOT + 0x6A9D);
         }
+        if records.camera_dispatch.is_some() {
+            // The complete dispatcher fixture checks its exact live task,
+            // including None and installers that replace it during a visit.
+            values.retain(|(field, _, _)| {
+                ![WRAM + SLOT + 0x6A9A, WRAM + SLOT + 0x6A9C].contains(field)
+            });
+        }
         values
     }
     fn seed(&self, source: &mut Source) {

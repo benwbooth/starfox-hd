@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete primary-camera dispatcher (`$07:8000..812B`), its
+  paired continuity caller, projection-height publication, post-blend plane
+  clamp and free-flight camera installer. Scripted views, action gates and
+  absent tasks keep their different footer behavior. All three modes retain
+  source ordering of view selection, recoil, obstruction, publication and
+  auxiliary tasks. Camera obstruction now uses the existing player/projectile
+  exemption owner rather than a duplicate flag. Ten native tests and six
+  original groups cover 946,176 cases/visits, including 8,192 independent
+  retained whole-caller visits. All 1,482 native tests and two architecture
+  checks pass in debug/release; compatibility passes 1,490 tests plus 35
+  runtime checks. All 169 original player/movement groups pass in both
+  profiles; 794 source checks, 238 extractor/lowerer tests, catalog/static/
+  architecture checks and all three app builds pass. The enclosing player
+  strategy, surface-crossing services and production frame ownership remain
+  open. These results do not establish a playable, source-complete campaign.
+
 - Ported all map-installed auxiliary-camera tasks and their complete footer
   (`$07:9DF6..A325`, installers `$0D:C75C..C831`). Typed task transitions
   preserve first-visit execution, fixed-view counter reset/increment, real

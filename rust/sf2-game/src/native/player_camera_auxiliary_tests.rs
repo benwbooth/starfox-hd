@@ -1,4 +1,6 @@
 use super::{Callbacks, Fixture};
+#[path = "player_camera_dispatch_tests.rs"]
+mod dispatch_tests;
 use crate::path_motion::PublishedPlayerMotion;
 use crate::path_program::PathCatalog;
 use crate::path_scene_state::{EncounterCameraFocus, EncounterHandoff};

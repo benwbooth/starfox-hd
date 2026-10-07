@@ -89,10 +89,12 @@ pub struct PlayerPathRecords {
     pub camera_ground: Option<super::player_camera_ground::PlayerCameraGround>,
     pub camera_surface: Option<super::player_camera_surface::PlayerCameraSurface>,
     pub camera_auxiliary: Option<super::player_camera_auxiliary::PlayerCameraAuxiliary>,
+    pub camera_dispatch: Option<super::player_camera_dispatch::PlayerCameraDispatch>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
-    /// Selected auxiliary map flag bit 80, read by occupancy checks.
+    /// Shared map-controlled 6BEB bit 80. Player/projectile occupancy,
+    /// camera distance and surface-camera visibility all read this owner.
     pub occupancy_exempt: Option<bool>,
     pub equipment: Option<SelectedEquipment>,
     pub score: Option<PlayerScore>,
@@ -263,6 +265,15 @@ pub struct ScenePathWorld {
     /// Full camera-roll publication (1E0B), sampled before view blending.
     /// Scripted views publish their existing roll without player storage.
     pub published_camera_roll: Option<u16>,
+    /// Map-authored top/bottom heights (1E32/34), used as a wrapped midpoint
+    /// by the projection-corrected camera. Distinct from the terrain plane.
+    pub camera_height_limits: Option<(i16, i16)>,
+    /// Camera-height contribution to projection (1E52); inhibited updates
+    /// preserve the previous contribution rather than resetting it.
+    pub camera_projection_offset: Option<i16>,
+    /// Shared 1D9D bit 80 selects a zero-filled horizon table. Camera modes
+    /// can set it, while map controls own its separate clear operation.
+    pub horizon_disabled: Option<bool>,
     /// Published allocation group and initializer observation. Consumers use
     /// spawn_defaults() to resample the live mode after scripted-view changes.
     pub spawn_defaults: Option<ObjectSpawnDefaults>,
@@ -401,6 +412,9 @@ impl ScenePathWorld {
             player_view_options_enabled: None,
             published_linked_view: None,
             published_camera_roll: None,
+            camera_height_limits: None,
+            camera_projection_offset: None,
+            horizon_disabled: None,
             spawn_defaults: None,
             published_motion: None,
             active_charge_threshold: None,

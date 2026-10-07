@@ -101,11 +101,14 @@ impl Fixture {
         let view = self.objects.get(self.view).unwrap();
         let control = ViewBlendControl::capture(view);
         let angles = FixedViewAngles::capture(view);
-        let flags = self.unowned_linked_flags
+        let mut flags = self.unowned_linked_flags
             | u8::from(charge.linked_mode) * 0x80
             | u8::from(charge.linked_muzzle_disabled) * 0x40
             | u8::from(state.capture_pending) * 0x20
             | u8::from(state.switch_requested) * 0x04;
+        if let Some(dispatch) = records.camera_dispatch {
+            flags = (flags & !0x02) | u8::from(dispatch.outside_occupied_world) * 0x02;
+        }
         let mut values = vec![];
         for (address, value) in [
             (WRAM + SLOT + 0x6B63, flags),

@@ -60,6 +60,7 @@ impl Fixture {
                         },
                     }),
                     camera_position: Some(Default::default()),
+                    occupancy_exempt: Some(false),
                     camera_tracking: Some(Default::default()),
                     charge: Some(Default::default()),
                     contact: Some(Default::default()),
@@ -134,8 +135,8 @@ fn linked_lateral_clears_three_retained_fields_without_reading_auxiliary_or_inpu
         secondary_lateral_offset: -17,
         lateral_accumulator: 77,
         longitudinal_offset: 53,
-        suppress_obstruction_response: true,
     });
+    f.records().occupancy_exempt = Some(true);
     f.records().charge.as_mut().unwrap().linked_muzzle_disabled = true;
     f.records().auxiliary = None;
     f.records().motion = None;
@@ -150,10 +151,10 @@ fn linked_lateral_clears_three_retained_fields_without_reading_auxiliary_or_inpu
         f.records().camera_position.unwrap(),
         PlayerCameraPosition {
             longitudinal_offset: 53,
-            suppress_obstruction_response: true,
             ..Default::default()
         }
     );
+    assert_eq!(f.records().occupancy_exempt, Some(true));
 }
 
 #[test]

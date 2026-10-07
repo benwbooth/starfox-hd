@@ -17,6 +17,7 @@ impl PositionFixture {
         let mut height = HeightFixture::new();
         let f = &mut height.camera.inner;
         f.records().camera_position = Some(Default::default());
+        f.records().occupancy_exempt = Some(false);
         f.records().motion = Some(Default::default());
         f.records().steering = Some(Default::default());
         f.records().ambient = Some(Default::default());
@@ -45,7 +46,7 @@ impl PositionFixture {
         for (field, value) in [
             (
                 0x6BEB,
-                0x57 | u8::from(state.suppress_obstruction_response) * 0x80,
+                0x57 | u8::from(records.occupancy_exempt.unwrap()) * 0x80,
             ),
             (
                 0x6B7D,
@@ -203,8 +204,8 @@ fn camera_lateral_matches_original_all_modes_linked_gates_and_contact_recovery_b
                 secondary_lateral_offset: 719,
                 lateral_accumulator: mode.wrapping_mul(977).wrapping_sub(gates) as i16,
                 longitudinal_offset: -2319,
-                suppress_obstruction_response: true,
             });
+            inner.records().occupancy_exempt = Some(true);
             f.prepared = Vector3 {
                 x: 31991,
                 y: -73,
@@ -283,12 +284,7 @@ fn camera_distance_matches_original_every_pitch_yaw_pair_and_all_camera_styles()
                 .as_mut()
                 .unwrap()
                 .longitudinal_offset = word.rotate_left(9) as i16;
-            inner
-                .records()
-                .camera_position
-                .as_mut()
-                .unwrap()
-                .suppress_obstruction_response = word & 1 != 0;
+            inner.records().occupancy_exempt = Some(word & 1 != 0);
             inner
                 .records()
                 .contact

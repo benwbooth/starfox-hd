@@ -152,6 +152,20 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete primary-camera dispatcher (`$07:8000..812B`) now calls the real
+common/surface controllers, recoil, view selector and auxiliary tasks in their
+mode-specific order. The paired continuity caller, projection-height update,
+post-blend plane clamp and free-flight installer are also source-bound. The
+camera now reads the same obstruction-exemption owner as player and projectile
+movement. Ten native tests and six original groups cover 946,176 cases/visits,
+including independently retained whole-caller sequences. All 1,482 native tests
+and two architecture checks pass in debug/release; compatibility passes 1,490
+tests plus 35 runtime checks, and all 169 original player/movement groups pass
+in both profiles. The 794 source checks, 238 extractor/lowerer tests,
+catalog/static/architecture checks and all three application builds pass.
+The enclosing player strategy, surface crossings and shipping frame ownership
+remain open; this is not whole-game or controller-driven campaign certification.
+
 All five auxiliary camera kinds now execute as typed tasks with the original
 initialization/active states and all six map installers (`$07:9DF6..A325`,
 `$0D:C75C..C831`). Their footer counter, first-visit reset, focus/tracking

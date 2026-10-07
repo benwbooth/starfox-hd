@@ -48,8 +48,6 @@ pub struct PlayerCameraPosition {
     pub lateral_accumulator: i16,
     /// Shared surface-distance and boost/brake response (6B52).
     pub longitudinal_offset: i16,
-    /// Map-controlled 6BEB bit 80 suppresses the close-obstruction branch.
-    pub suppress_obstruction_response: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +55,7 @@ pub enum CameraPositionError {
     World(WorldInputError),
     Tracking(super::player_camera_tracking::CameraTrackingError),
     MissingPosition(ObjectId),
+    MissingExemption(ObjectId),
     MissingTracking(ObjectId),
     MissingDistance(ObjectId),
     MissingMotion(ObjectId),
@@ -223,7 +222,10 @@ pub fn advance_distance(
             distance.distance =
                 quarter_word(distance.distance as u16, PROTECTED_DISTANCE as u16) as i16;
         } else {
-            let suppressed = position_mut(objects, world, owner)?.suppress_obstruction_response;
+            let suppressed = world
+                .player(objects, owner)?
+                .occupancy_exempt
+                .ok_or(CameraPositionError::MissingExemption(owner))?;
             let linked = if suppressed {
                 false
             } else {

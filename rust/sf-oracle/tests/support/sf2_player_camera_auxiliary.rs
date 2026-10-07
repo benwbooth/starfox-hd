@@ -1,4 +1,6 @@
 //! Unmodified auxiliary task dispatch, real installers and view continuity.
+#[path = "sf2_player_camera_dispatch.rs"]
+mod dispatch_tests;
 use super::super::PROXY;
 use super::{rom, GroundFixture, Source, OWNER, SLOT, VIEW, WRAM};
 use sf2_game::path_motion::PublishedPlayerMotion;

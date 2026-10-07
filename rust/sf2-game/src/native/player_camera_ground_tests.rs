@@ -86,6 +86,7 @@ impl Fixture {
                     camera_ground: Some(Default::default()),
                     camera_tracking: Some(Default::default()),
                     camera_position: Some(Default::default()),
+                    occupancy_exempt: Some(false),
                     contact: Some(Default::default()),
                     charge: Some(Default::default()),
                     consumable: Some(Default::default()),
