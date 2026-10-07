@@ -563,7 +563,7 @@ pub fn register_all(g: &mut Game) {
         (CB_SET_PLAYER_DIVE, player::player_dive_istrat),
         (
             CB_SET_PLAYER_CLEAR_BRIDGE,
-            player::strat_player_clear_bridge_init,
+            player::set_player_clear_bridge,
         ),
         (CB_SET_PLAYER_CLEAR_TURN, player::player_clear_turn_istrat),
         (CB_SET_PLAYER_WARPOUT, player::player_warp_out_istrat),

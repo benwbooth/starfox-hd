@@ -2459,6 +2459,9 @@ fn playermove_srou(g: &mut Game, idx: u16) {
     g.vars.set_sv_u8(sv::PLAYER_ZTILT, ztilt);
     let plroty = strat_chase_proportional(g.vars.sv_i16(sv::PLROTY), 0, 3);
     g.vars.set_sv_i16(sv::PLROTY, plroty);
+    // The non-debug playermove body re-enables host collision even when input
+    // is locked. Cutscene/player initialization may have disabled it earlier.
+    g.objs.aliens[i].sflags2 &= !ASF2_COLLDISABLE;
     let mut plrotz = strat_chase_proportional(g.vars.sv_i16(sv::PLROTZ), 0, 4);
     let plrotx = strat_chase_proportional(g.vars.sv_i16(sv::PLROTX), 0, 3);
     g.vars.set_sv_i16(sv::PLROTX, plrotx);
@@ -7492,6 +7495,9 @@ pub fn player_clear_demo2_init(g: &mut Game, idx: u16) {
 /// the player goes invisible, the duplicate gets colldisable+shadow.
 fn dupplayer(g: &mut Game, idx: u16) -> Option<u16> {
     let dup = strat_make_obj(g, 0)?;
+    // Source s_make_obj inserts after the current ship, so its newly assigned
+    // duplicate strategy runs later in this same active-list pass.
+    g.objs.active_move_after(dup, idx);
     let src = g.objs.aliens[idx as usize];
     {
         let d = &mut g.objs.aliens[dup as usize];
@@ -7509,15 +7515,15 @@ fn dupplayer(g: &mut Game, idx: u16) -> Option<u16> {
     Some(dup)
 }
 
-/// C `playeronbridge_strat` (PSTRATS.ASM:1002-1027): resumes normal bridge
-/// control: do_player_bridge, vy/=2, perc62 view, viewmove.
+/// PSTRATS `playeronbridge_strat`: preserve the caller's control/sequence
+/// locks, move, retain an additional half vertical velocity, then update view.
 fn playeronbridge_strat(g: &mut Game, idx: u16) {
-    // Restore player control and fly mode (bridge).
-    g.vars.pshipflags &= !(PSF_NOCTRL | PSF_NOFIRE);
-    g.vars.pstratflags &= !(PSTF_INSEQ | PSTF_NOVDISTC);
-
-    // do_player_bridge -> same as do_player_yvelD2
+    // The original do_player_bridge and do_playerYvelD2 bodies are identical.
     do_player_yvel_d2(g, idx);
+
+    // This second adiv2 is AFTER framescalevecs and add_vecs2pos. It changes
+    // the velocity read by the next collision pass, not this tick's position.
+    g.objs.aliens[idx as usize].vy = signed_half(g.objs.aliens[idx as usize].vy);
 
     // view X = perc62(worldx), view Y = viewCY
     let wx = g.objs.aliens[idx as usize].worldx;
@@ -7610,6 +7616,14 @@ pub fn strat_player_clear_bridge_init(g: &mut Game, idx: u16) {
 
     // s_set_var B,psvar_byte1,#125+38
     g.vars.set_sv_u8(sv::PSVAR_BYTE1, 125 + 38);
+    // The initializer continues directly into the centering/countdown body.
+    playerclearbridge_strat(g, idx);
+}
+
+/// PCSTRATS `set_playerClearbridge_l` installs the initializer without moving
+/// the ship or changing controls until the player's next strategy visit.
+pub fn set_player_clear_bridge(g: &mut Game, idx: u16) {
+    g.objs.aliens[idx as usize].stratptr = Some(sid(g, K_CLEARBRIDGE_INIT));
 }
 
 // ============================================================

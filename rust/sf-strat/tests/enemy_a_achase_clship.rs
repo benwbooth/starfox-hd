@@ -2,11 +2,12 @@
 //! parajump, clship) + clship_chase → general clshipboost on sword1==0.
 
 use sf_game::alien::ASF3_REALOBJ;
-use sf_game::Game;
+use sf_game::{Game, Hooks};
 use sf_strat::common::chase_proportional;
 use sf_strat::enemy_a::{
     strat_clship_chasea_init, strat_para_init, strat_zaco3_init, strat_zaco4_init,
 };
+use std::{cell::RefCell, rc::Rc};
 
 fn spawn_player(g: &mut Game, x: i16, y: i16, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -169,23 +170,33 @@ fn clship_chase_worldy_is_proportional() {
     );
 }
 
-/// High #9: sword1==0 → general clshipboost (vel 120, snd2 $32), not chaseboost.
+/// GCSTRATS: sword1==0 → general clshipboost (speed 120, immediate trigse 50).
 #[test]
 fn clship_chase_expires_into_general_boost() {
-    let mut g = Game::new();
+    struct Sounds(Rc<RefCell<Vec<u8>>>);
+    impl Hooks for Sounds {
+        fn play_se(&mut self, sound: u8) {
+            self.0.borrow_mut().push(sound);
+        }
+    }
+    let sounds = Rc::new(RefCell::new(Vec::new()));
+    let mut g = Game::with_hooks(Box::new(Sounds(sounds.clone())));
     spawn_player(&mut g, 0, -40, 0);
     let idx = spawn(&mut g);
     strat_clship_chasea_init(&mut g, idx);
     let chase = g.objs.aliens[idx as usize].stratptr;
     g.objs.aliens[idx as usize].sword1 = 0;
     g.objs.aliens[idx as usize].vel = 40;
+    g.objs.aliens[idx as usize].snd2 = 7;
+    sounds.borrow_mut().clear();
 
     run_strat(&mut g, idx);
 
     assert_ne!(g.objs.aliens[idx as usize].stratptr, chase);
     assert_eq!(g.objs.aliens[idx as usize].vel, 120, "general boost speed");
+    assert_eq!(*sounds.borrow(), [50]);
     assert_eq!(
-        g.objs.aliens[idx as usize].snd2, 0x32,
-        "trigse $32 via snd2 latch"
+        g.objs.aliens[idx as usize].snd2, 7,
+        "positional channel is retained"
     );
 }

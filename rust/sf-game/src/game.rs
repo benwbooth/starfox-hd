@@ -1093,13 +1093,10 @@ impl Game {
                 self.call_registered_player_init(id);
                 true
             }
-            // world_cb_set_player_clear_bridge_l (world.c:720).
+            // PCSTRATS set_playerClearbridge_l only installs the initializer.
+            // Its control locks, countdown and movement belong to the next
+            // player visit, not the map callback that schedules it.
             _ if id == cb::SET_PLAYER_CLEAR_BRIDGE_L => {
-                self.vars.pshipflags |= PSF_NOCTRL | PSF_NOFIRE;
-                self.vars.pstratflags |= PSTF_NOVDISTC | PSTF_INSEQ;
-                self.vars.minpmove_y = -10000;
-                self.vars.game_mode = SPACE_MODE;
-                self.splayer_tonorm();
                 self.call_registered_player_init(id);
                 true
             }

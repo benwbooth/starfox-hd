@@ -113,6 +113,25 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Restored SF1's bridge-clear lifecycle from PSTRATS/PCSTRATS/GCSTRATS.
+  The map callback only schedules entry; that entry then falls through into
+  centering/countdown on the next player visit. Movement retains caller-owned
+  control/sequence locks, re-enables host collision, and publishes its second
+  vertical half-step after movement. The duplicate joins after its parent and
+  runs in its birth pass; boost sound is an immediate event, not a positional
+  latch, and every signed flame offset (including zero) remains caller-owned.
+  Four original-code groups cover 35 movement inputs, 978 centering visits,
+  five 224-visit clear sequences including ordered duplicate/flame dispatch,
+  real sound queues and flame retirement, plus deferred map entry. Native
+  production-map/scheduler tests reach the same transitions without manual
+  child dispatch. The obsolete 220-row C bridge expectation is replaced by
+  these independent original-code and scheduler gates; its archived bytes
+  remain unchanged and all five other trace scenarios remain checked. All
+  1,317 strategy tests, 212 game tests and 48 selected original-code groups
+  pass in debug/release, along with 78 SF1 Python tests, architecture, unchanged
+  release Training and all three app builds in both profiles. The whole-game
+  timing, route/front-end failures and broader campaign contract remain open.
+
 - Replaced SF1's simplified live space/water camera anchors with the active
   PSTRATS routines. Space uses separately rounded 75%/62% shifts around the
   fixed -60 vertical center; only the completed cockpit mode copies ship X/Y.

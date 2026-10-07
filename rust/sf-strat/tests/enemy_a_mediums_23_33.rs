@@ -4,12 +4,13 @@
 
 use sf_game::alien::{ASF2_COLLDISABLE, ASF3_REALOBJ};
 use sf_game::vars::{PFM_SHADOWS, PSF2_PLAYERHP0};
-use sf_game::Game;
+use sf_game::{Game, Hooks};
 use sf_strat::common::{sv, StratRam};
 use sf_strat::enemy_a::{
     strat_clship_eartha_init, strat_clship_warpa_init, strat_friendexitbase_init, strat_gate2_init,
     strat_item5_init, strat_skillfly_init, strat_up1man_init, strat_zaco1l_init, wm,
 };
+use std::{cell::RefCell, rc::Rc};
 
 fn spawn_player(g: &mut Game, x: i16, y: i16, z: i16) {
     let p = g.objs.alloc().expect("player");
@@ -121,17 +122,26 @@ fn clship_cont_countdown_skips_chase() {
     assert_eq!(g.objs.aliens[idx as usize].sbyte1, 4);
 }
 
-/// Medium #28: warp boost plays snd2=$32.
+/// GCSTRATS: warp boost queues trigse 50, retaining its positional channel.
 #[test]
 fn clship_warp_boost_plays_sound() {
-    let mut g = Game::new();
+    struct Sounds(Rc<RefCell<Vec<u8>>>);
+    impl Hooks for Sounds {
+        fn play_se(&mut self, sound: u8) {
+            self.0.borrow_mut().push(sound);
+        }
+    }
+    let sounds = Rc::new(RefCell::new(Vec::new()));
+    let mut g = Game::with_hooks(Box::new(Sounds(sounds.clone())));
     spawn_player(&mut g, 0, -40, 0);
     let idx = spawn(&mut g);
     strat_clship_warpa_init(&mut g, idx);
     g.objs.aliens[idx as usize].sword1 = 0;
-    g.objs.aliens[idx as usize].snd2 = 0;
+    g.objs.aliens[idx as usize].snd2 = 7;
+    sounds.borrow_mut().clear();
     run(&mut g, idx);
-    assert_eq!(g.objs.aliens[idx as usize].snd2, 0x32);
+    assert_eq!(*sounds.borrow(), [50]);
+    assert_eq!(g.objs.aliens[idx as usize].snd2, 7);
     assert_eq!(g.objs.aliens[idx as usize].vel, 120);
 }
 

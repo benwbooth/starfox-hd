@@ -517,6 +517,44 @@ Training check and all three app binaries in both profiles. Focused log:
 baseline above predates this camera change; the three failing targets and the
 larger source-derived timing replacement remain open.
 
+### Bridge-clear source and scheduler correction — 2026-10-06
+
+PSTRATS and PCSTRATS do not unlock controls during bridge clear. They preserve
+sequence flags, let the shared movement body clear host collision-disable,
+and halve the retained vertical velocity again after applying motion. The
+map callback only installs the initializer; its next visit initializes and
+immediately executes the centering/countdown body. The old native callback
+also changed mode/view and controls prematurely. These behaviors are corrected.
+
+The source allocator inserts the duplicate after its player, enabling a birth-
+pass visit. Its fifty-visit drift hands off to the general boost entry, which
+queues sound 50 immediately and preserves the caller's signed flame offset.
+The old native entry wrote the positional sound latch and replaced offset zero
+with -30. The new gate executes the original allocator, strategies, sound
+queue and removal routine without replacing their bodies. It compares five
+224-visit sequences, including both list links, duplicate motion, all ten flame
+visits and retirement. Separate native tests use the actual map dispatcher
+and active-list scheduler. Additional groups cover 35 movement inputs, 978
+centering visits and deferred callback entry; native offset tests cover all
+256 byte values in both sounded and silent entry modes.
+
+The historical C bridge trace is not a valid expected result: among other
+differences it permits firing during the clear. Its 220 rows remain archived
+and hash-audited, but are explicitly superseded by the original-code and
+production-scheduler tests. The other five scenarios remain gated, and no
+expected output was regenerated from Rust. Existing chase/warp sound tests now
+assert the immediate event and preservation of a nonzero positional channel.
+
+Validation passes all 1,317 strategy tests, 212 game tests and 48 selected
+original-code groups in both debug and release, plus 78 Python checks and the
+architecture audit. The unchanged release Training gate still passes 1,758
+semantic/draw/audio updates and 1,752 bitmap comparisons; all three app binaries
+build in both profiles. Detailed local logs: `/tmp/sf1-player-bridge-broad4-oct06.log`,
+`/tmp/sf1-player-bridge-game-oct06.log`, and
+`/tmp/sf1-player-bridge-original-app-oct06.log`. These are routine/scheduler
+checks, not a bridge-level playthrough or general timing/campaign certification.
+The preceding full-workspace baseline and its failures remain recorded above.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from

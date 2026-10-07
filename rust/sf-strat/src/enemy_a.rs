@@ -15425,23 +15425,23 @@ pub fn clshipboost_strat(g: &mut Game, idx: u16) {
     al.worldz = al.worldz.wrapping_add(w2);
 }
 
-/// C `clshipboost_enter` (strat_enemy.c:6454).
+const CLEAR_SHIP_BOOST_SOUND: u8 = 50;
+const CLEAR_SHIP_BOOST_SPEED: u8 = 120;
+
+/// GCSTRATS `clshipboost_Istrat` / `clshipboostnosnd_Istrat`.
 fn clshipboost_enter(g: &mut Game, idx: u16, play_sound: bool) {
+    if play_sound {
+        g.hooks.play_se(CLEAR_SHIP_BOOST_SOUND);
+    }
     let s = sid(g, clshipboost_strat);
     {
         let al = &mut g.objs.aliens[idx as usize];
-        if play_sound {
-            al.snd2 = 0x32;
-        }
         al.stratptr = Some(s);
-        al.vel = 120;
+        al.vel = CLEAR_SHIP_BOOST_SPEED;
     }
     // ROM: s_set_vartobeobj boostobj,x ; boost_sprite
     g.vars.set_sv_i16(crate::common::sv::BOOSTOBJ, idx as i16);
-    // Default flame Z if unset (PSTRATS uses #-30; GCSTRATS some paths #-80).
-    if g.vars.sv_u8(crate::common::sv::BOOSTZOFF) == 0 {
-        crate::common::set_boost_zoff(g, -30);
-    }
+    // The caller owns boostZoff. Zero is a valid retained offset, not unset.
     let _ = crate::common::boost_sprite(g, None);
 }
 

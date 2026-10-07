@@ -1,5 +1,9 @@
-//! Scripted-input trace parity for the sf-strat player lane against the C
-//! oracle.
+//! Five retained scripted-input regressions against the historical C trace.
+//! The obsolete bridge scenario is replaced by original-instruction parity in
+//! sf-oracle/tests/sf1_player_bridge.rs and the production scheduler test in
+//! player_bridge_clear.rs. That source-backed gate covers callback deferral,
+//! retained control locks, same-pass duplicate/flame dispatch and retirement,
+//! and actual sound events. The archived fixture remains byte-for-byte intact.
 //!
 //! NOTE: the fixture intentionally DIVERGES from the frozen C oracle in several
 //! places that fix player-facing bugs present in the C port:
@@ -103,9 +107,9 @@
 //!   2. opening — playeropening_Istrat + viewopening camera chain
 //!   3. exitbase — hangar wait/Go/Follow launch + friendstart3 wingman
 //!   4. nucleus — playerEscapeNucleus chain
-//!   5. bridge  — playerclearbridge chain (incl. dupplayer + resumed fire)
+//!   5. bridge  — historical only: incorrectly resumes fire during the clear
 //!   6. shipintro — MAP1_1A flyby object
-//! Every tick both sides dump the player alien, the shared globals, every
+//! For the five retained scenarios, every tick dumps the player, globals, every
 //! active alien (slot order) and the sounds triggered; the texts must be
 //! byte-identical.
 //!
@@ -124,8 +128,8 @@ use sf_game::vars::{GameVars, GF_STRATDONE2, SPACE_MODE, WATER_MODE};
 use sf_game::{Game, Hooks};
 use sf_strat::common::{strat_make_obj, sv, StratRam};
 use sf_strat::player::{
-    strat_player_clear_bridge_init, strat_player_escape_nucleus_init, strat_player_exit_base,
-    strat_player_opening_init, strat_ship_intro_init, strat_spawn_player,
+    strat_player_escape_nucleus_init, strat_player_exit_base, strat_player_opening_init,
+    strat_ship_intro_init, strat_spawn_player,
 };
 use std::cell::RefCell;
 use std::fmt::Write;
@@ -358,7 +362,10 @@ fn generate() -> String {
     out.push_str("== flight ==\n");
     let mut g = new_game(&sounds);
     let p = strat_spawn_player(&mut g).unwrap();
-    assert_eq!(g.vars.playerflymode, 0, "legacy flight has no death-Y chase");
+    assert_eq!(
+        g.vars.playerflymode, 0,
+        "legacy flight has no death-Y chase"
+    );
     for t in 0..230 {
         if t == 150 {
             g.objs.aliens[p as usize].sflags |= ASF_COLLIDE;
@@ -397,15 +404,8 @@ fn generate() -> String {
         tick(&mut g, t, 0, &sounds, &mut out);
     }
 
-    // ---- Scenario 5: bridge ----
-    out.push_str("== bridge ==\n");
-    let mut g = new_game(&sounds);
-    let p = strat_spawn_player(&mut g).unwrap();
-    strat_player_clear_bridge_init(&mut g, p);
-    for t in 0..220 {
-        let padv = if (180..200).contains(&t) { pad::Y } else { 0 };
-        tick(&mut g, t, padv, &sounds, &mut out);
-    }
+    // Scenario 5's inaccurate clear is replaced by sf1_player_bridge's live
+    // original-code execution plus player_bridge_clear's scheduler assertions.
 
     // ---- Scenario 6: shipintro ----
     out.push_str("== shipintro ==\n");
@@ -439,6 +439,9 @@ fn source_corrected_trace(fixture: &str) -> String {
     const SOURCE_SPACE_CENTER: i16 = -60;
     const LETHAL_TICK: usize = 165;
     let mut flight = false;
+    let mut superseded_bridge = false;
+    let mut bridge_rows = 0;
+    let mut scenarios = Vec::new();
     let mut old_anchor = 0;
     let mut corrected_anchor = 0;
     let mut corrected_rows = 0;
@@ -446,6 +449,12 @@ fn source_corrected_trace(fixture: &str) -> String {
     for line in fixture.lines() {
         if line.starts_with("== ") {
             flight = line == "== flight ==";
+            superseded_bridge = line == "== bridge ==";
+            scenarios.push(line);
+        }
+        if superseded_bridge {
+            bridge_rows += usize::from(line.starts_with('T'));
+            continue;
         }
         if flight && line.starts_with('T') {
             let mut fields: Vec<String> = line.split(' ').map(str::to_owned).collect();
@@ -469,11 +478,26 @@ fn source_corrected_trace(fixture: &str) -> String {
         result.push('\n');
     }
     assert_eq!(corrected_rows, 230);
+    assert_eq!(
+        bridge_rows, 220,
+        "only the explicitly replaced bridge may be excluded"
+    );
+    assert_eq!(
+        scenarios,
+        [
+            "== flight ==",
+            "== opening ==",
+            "== exitbase ==",
+            "== nucleus ==",
+            "== bridge ==",
+            "== shipintro =="
+        ]
+    );
     result
 }
 
 #[test]
-fn player_trace_matches_c_oracle() {
+fn five_retained_player_scenarios_match_historical_trace() {
     let fixture = source_corrected_trace(include_str!("fixtures/sp_player_trace.txt"));
     let ours = generate();
 
