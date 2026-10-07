@@ -145,6 +145,7 @@ pub enum SceneError<E> {
     PlayerFlightMode(super::player_flight_mode::FlightModeError),
     PlayerFreeFlight(super::player_free_flight::FreeFlightError),
     ViewBlend(super::view_blend::ViewBlendError),
+    PlayerViewDistance(super::player_view_distance::ViewDistanceError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -176,6 +177,36 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn initialize_player_view_distance(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_view_distance::initialize(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerViewDistance);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_view_distance(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_view_distance::advance(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerViewDistance);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_view_blend(&mut self) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);

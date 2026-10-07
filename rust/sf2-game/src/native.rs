@@ -138,6 +138,7 @@ pub mod strategy_schedule;
 pub mod target_search;
 pub mod view_transition;
 pub mod view_blend;
+pub mod player_view_distance;
 pub mod weapon_creation;
 pub mod weapon_dispatch;
 pub mod weapon_launch;

@@ -177,6 +177,7 @@ pub fn replace(
         boundary: Some(Default::default()),
         occupancy: Some(Default::default()),
         mode_selection: Some(Default::default()),
+        view_distance: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),

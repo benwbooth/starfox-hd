@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete linked/external view-distance service and mode profile
+  initializer (`$07:9AEF..9D35`). View changes update the same linked-mode and
+  transition bits used by charged/rapid fire and muzzle placement. Pending
+  requests survive active transitions, side filtering samples the pre-move
+  distance, and settling requests the real continuity capture on the next
+  visit. All authored profiles and wrapped distance comparisons are preserved.
+  Six native tests and four original groups pass, including 4,096 profile
+  cases, 262,144 control/word cases and 8,192 retained menu transitions with
+  the original/native continuity consumers and no replayed state. Native
+  debug/release passes 1,419 tests and both architecture checks; compatibility
+  passes 1,427 tests and 35 runtime checks. All 757 source tests, 238
+  extractor/lowerer tests and catalog/architecture checks pass. All 135 original
+  player/movement groups pass in both profiles, and all three app builds pass.
+  The camera pitch/tracking owner
+  and enclosing player strategy remain necessary for production integration.
+
 - Implemented the complete fixed-view continuity service
   (`$07:97FB..9AAA`), including request/discard handling, wrapped slow and
   fast position recovery, signed angular decay, real proxy rotation and final

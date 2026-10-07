@@ -82,6 +82,7 @@ pub struct PlayerPathRecords {
     pub boundary: Option<super::player_boundary::PlayerBoundary>,
     pub occupancy: Option<super::player_occupancy::PlayerOccupancy>,
     pub mode_selection: Option<super::player_mode_selection::PlayerModeSelection>,
+    pub view_distance: Option<super::player_view_distance::PlayerViewDistance>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,
@@ -247,6 +248,12 @@ pub struct ScenePathWorld {
     /// Live shared execution-mode word. When bound, its scripted-view bit
     /// supersedes the initializer observation in spawn_defaults everywhere.
     pub view_transition_mode: Option<super::view_transition::ViewTransitionMode>,
+    /// View preference gate (1DE1 bit 80). The request/control byte remains
+    /// scene.player_view_control so authored paths and menus share it.
+    pub player_view_options_enabled: Option<bool>,
+    /// View selector publication (F542), replaced with zero/one only when
+    /// linked/external view actually toggles, not on every camera visit.
+    pub published_linked_view: Option<u8>,
     /// Published allocation group and initializer observation. Consumers use
     /// spawn_defaults() to resample the live mode after scripted-view changes.
     pub spawn_defaults: Option<ObjectSpawnDefaults>,
@@ -378,6 +385,8 @@ impl ScenePathWorld {
             campaign: None,
             camera_heading: None,
             view_transition_mode: None,
+            player_view_options_enabled: None,
+            published_linked_view: None,
             spawn_defaults: None,
             published_motion: None,
             active_charge_threshold: None,

@@ -152,6 +152,18 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Linked/external view-distance control and its mode-entry profiles
+(`$07:9AEF..9D35`) now share the live weapon/muzzle flags, consume the existing
+menu request byte and schedule real continuity captures. Delayed requests,
+pre-move view-side filtering, wrapped distance chase and all three profile
+families retain source order. Six native tests and four original groups pass
+4,096 profile cases, 262,144 control/word cases and 8,192 independently retained
+transitions through the original/native continuity services. Native debug/release,
+compatibility, all 135 original player/movement groups in both profiles,
+source/catalog/architecture checks and all three application builds pass.
+Complete camera tracking and
+the enclosing player strategy still precede production frame integration.
+
 Fixed-view continuity (`$07:97FB..9AAA`) now captures, decays and applies real
 camera offsets, with shared motion-control flags and whole fine-angle history.
 Position blending uses the actual proxy, including its alias with the view;
