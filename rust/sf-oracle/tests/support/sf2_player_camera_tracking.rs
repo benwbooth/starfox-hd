@@ -11,6 +11,7 @@ struct HeightFixture {
     prepared: i16,
     style: TrackingStyle,
     auxiliary_camera: bool,
+    check_prepared: bool,
 }
 impl HeightFixture {
     fn new() -> Self {
@@ -24,6 +25,7 @@ impl HeightFixture {
             prepared: -317,
             style: TrackingStyle::Normal,
             auxiliary_camera: false,
+            check_prepared: true,
         }
     }
     fn values(&self) -> Vec<(u32, u16, bool)> {
@@ -31,7 +33,7 @@ impl HeightFixture {
         let records = f.world.player(&f.objects, f.owner).unwrap();
         let tracking = records.camera_tracking.unwrap();
         let actor = f.objects.get(f.owner).unwrap();
-        vec![
+        let mut values = vec![
             (WRAM + SLOT + 0x6B45, tracking.anchor_height as u16, false),
             (
                 WRAM + SLOT + 0x6B47,
@@ -85,7 +87,11 @@ impl HeightFixture {
                 0xC7 | u16::from(actor.extension.path_state.motion.carry_selected_player) * 0x20,
                 true,
             ),
-        ]
+        ];
+        if !self.check_prepared {
+            values.retain(|(field, _, _)| *field != WRAM + 0x1DC4);
+        }
+        values
     }
     fn seed(&self, source: &mut Source) {
         self.camera.seed(source);

@@ -152,6 +152,22 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete common-camera caller (`$07:84EC..86B6`) now owns its real
+position, selected pitch controller, heading lean, fine yaw and roll sequence.
+Ground pitch and target geometry (`$07:81F1..84DB`, `$07:9721..97F4`) read
+the live fixed view and actual proxy, keep carried height distinct from return
+height, and preserve the exact animation-bias indexing and wrapped arithmetic.
+The new scene wrappers preserve completed mutation prefixes when later services
+are missing. Twelve native tests and six original groups cover 1,024,000
+cases/retained visits, including 8,192 independent whole-caller updates with
+real view-selection/continuity consumers. All 1,457 native tests pass in both
+profiles, compatibility passes 1,465 tests plus 35 runtime checks, and all
+155 original player/movement groups pass in debug/release. The 773 source
+checks, 238 extractor/lowerer tests, catalog/architecture/static checks and
+all three app builds pass. Surface-camera placement, mode dispatch, auxiliary
+camera tasks and enclosing player strategy remain integration blockers;
+this is not yet shipping camera/frame ownership or campaign completion.
+
 The common-camera position prefix (`$07:84EC..852F`) now runs real height,
 distance, lateral, ambient and boost/brake services in source order. All
 three offset helpers (`$07:88BF..8D65`) preserve shared longitudinal response,

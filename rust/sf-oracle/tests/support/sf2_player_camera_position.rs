@@ -1,4 +1,6 @@
 //! Position helpers and their unmodified common-camera caller prefix.
+#[path = "sf2_player_camera_ground.rs"]
+mod ground_tests;
 use super::super::super::PROXY;
 use super::super::CameraFixture;
 use super::{rom, HeightFixture, Source, OWNER, SLOT, WRAM};
@@ -47,7 +49,15 @@ impl PositionFixture {
             ),
             (
                 0x6B7D,
-                0x53 | u8::from(records.contact.unwrap().hit.hold_secondary_protection) * 0x80,
+                records
+                    .camera_ground
+                    .map(|ground| {
+                        3 | u8::from(ground.hold_pitch) * 0x10
+                            | u8::from(ground.follow_environment_plane) * 8
+                            | u8::from(records.consumable.unwrap().recovery_blocked) * 0x40
+                    })
+                    .unwrap_or(0x53)
+                    | u8::from(records.contact.unwrap().hit.hold_secondary_protection) * 0x80,
             ),
             (0x6BE6, records.motion.unwrap().contact_flags),
             (0x6AAD, records.motion.unwrap().lateral_impulse as u8),
@@ -80,6 +90,9 @@ impl PositionFixture {
             },
             false,
         ));
+        if !self.height.check_prepared {
+            values.retain(|(field, _, _)| ![WRAM + 0x1DC2, WRAM + 0x1DC6].contains(field));
+        }
         values
     }
     fn seed(&mut self, source: &mut Source) {

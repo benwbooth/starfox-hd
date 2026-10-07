@@ -142,6 +142,8 @@ pub mod player_view_distance;
 pub mod player_camera_angles;
 pub mod player_camera_tracking;
 pub mod player_camera_position;
+pub mod player_camera_ground;
+pub mod player_camera_common;
 pub mod weapon_creation;
 pub mod weapon_dispatch;
 pub mod weapon_launch;

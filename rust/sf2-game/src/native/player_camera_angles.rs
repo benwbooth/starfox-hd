@@ -50,6 +50,8 @@ pub struct PlayerCameraAngles {
     pub pitch_increment: i16,
     /// Heading lean added at publication (6B3D), not the stored view yaw.
     pub yaw_offset: i16,
+    /// Difference publication (6B39) written by common orientation.
+    pub yaw_difference: i16,
     pub profile: CameraPitchProfile,
 }
 

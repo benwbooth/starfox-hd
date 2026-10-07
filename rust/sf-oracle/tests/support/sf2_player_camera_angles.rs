@@ -48,6 +48,7 @@ impl CameraFixture {
             (0x6B35, angles.roll),
             (0x6B3F, camera.pitch_increment as u16),
             (0x6B3D, camera.yaw_offset as u16),
+            (0x6B39, camera.yaw_difference as u16),
             (
                 0x6B3B,
                 records.contact.unwrap().hit.camera_pitch_recoil as u16,

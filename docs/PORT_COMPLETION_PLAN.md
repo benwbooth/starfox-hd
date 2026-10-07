@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported terrain/Walker camera pitch and its real aiming-proxy helper
+  (`$07:81F1..84DB`, `$07:9721..97F4`), plus the complete common-camera
+  position/orientation caller (`$07:84EC..86B6`). Ground pitch observes the
+  live fixed view, preserves distinct carried/return heights, shares contact
+  and recovery flags, and retains the source's seven-bit animation-bias
+  domain. Common yaw reads the real player allocation; fine-angle fractions,
+  heading lean and roll retain their existing shared owners. Twelve native
+  tests and six original groups pass 1,024,000 cases/retained visits, including
+  8,192 unmodified original caller/view-consumer updates. All 1,457 native
+  tests and both architecture checks pass in debug/release; compatibility
+  passes 1,465 tests and 35 runtime checks. All 155 original player/movement
+  groups pass in both profiles, as do 773 source checks, 238 extractor/lowerer
+  tests, catalog/architecture/static checks and all three application builds.
+  Surface-camera placement, mode dispatch, auxiliary-camera tasks and the
+  enclosing player strategy still precede production frame ownership.
+
 - Ported the lateral, distance and boost/brake camera-position helpers
   (`$07:88BF..8D65`) and their complete common-camera position prefix
   (`$07:84EC..852F`). Heading locks, linked-mode suppression, contact/shoulder

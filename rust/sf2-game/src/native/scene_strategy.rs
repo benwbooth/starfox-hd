@@ -149,6 +149,8 @@ pub enum SceneError<E> {
     PlayerCameraAngles(super::player_camera_angles::CameraAnglesError),
     PlayerCameraTracking(super::player_camera_tracking::CameraTrackingError),
     PlayerCameraPosition(super::player_camera_position::CameraPositionError),
+    PlayerCameraGround(super::player_camera_ground::GroundCameraError),
+    PlayerCameraCommon(super::player_camera_common::CommonCameraError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -180,6 +182,70 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_camera_ground(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_ground::advance_pitch(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime,
+            owner,
+        )
+        .map_err(SceneError::PlayerCameraGround);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_camera_orientation(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_common::advance_yaw_roll(
+            self.objects,
+            self.world,
+            &self.execution.paths.runtime,
+            owner,
+        )
+        .map_err(SceneError::PlayerCameraCommon);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_camera_common(
+        &mut self,
+        owner: ObjectId,
+        style: super::player_camera_tracking::TrackingStyle,
+        auxiliary_camera: bool,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_common::advance(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime,
+            owner,
+            style,
+            auxiliary_camera,
+        )
+        .map_err(SceneError::PlayerCameraCommon);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn prepare_player_camera_position(
         &mut self,
         owner: ObjectId,
