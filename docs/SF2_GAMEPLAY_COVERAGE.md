@@ -152,6 +152,30 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Surface-crossing splash installers (`$07:CBD3/CBFD`), shared placement
+(`$07:CCC3..CD6F`) and both lifetime phases (`$07:CC6E..CCC2`) now use real
+native actors. Their distinct origin, attachment, random child number,
+wrapped/clamped plane offset and roll/yaw-only placement follow the source.
+The first scheduled visit copies only the live parent's horizontal velocity
+into position once; later visits animate in place. The high byte of the
+ordinary motion-phase field supplies the live frame limit; terminal frames
+remain manual. Short/long entries differ in their inherited frame/size policy.
+Six new native tests include real paused scheduling and ordered retirement;
+three original-code groups cover 32,768 placement cases, all 131,072
+frame/limit/phase combinations, independently retained allocation/lifetimes
+and real source retirement/full-pool failure. The scene wrapper and native
+scheduler are wired, but the enclosing `$07:BF42` surface transition, generic
+`$07:CB33` contact particle and shipping player/frame owner remain open.
+The checkpoint passes 1,505 native tests plus two architecture checks and
+1,513 compatibility tests plus 35 runtime checks in both profiles; all 187
+selected original player/camera/movement groups pass in debug/release.
+Also green: 809 source checks, 238 extractor/lowerer tests, catalog and static
+audits, and all three application binaries build and pass tests in both
+profiles. Detailed local logs: `/tmp/sf2-player-splash-broad-oct06.log`,
+`/tmp/sf2-player-splash-original-app-oct06.log`,
+`/tmp/sf2-player-splash-static-oct06.log` and
+`/tmp/sf2-player-splash-extractors-oct06.log`.
+
 Player-frame shield display/warnings, contact filters with heading-bank decay,
 and transformation cues now use the existing live damage/pose/mode owners
 (`$07:AF5B..AFE7`, `$06:9195..9235`, `$06:8FE2..9074`). Pending display updates

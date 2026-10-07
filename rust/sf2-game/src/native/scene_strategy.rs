@@ -133,6 +133,7 @@ pub enum SceneError<E> {
     PlayerThrottle(super::player_throttle::ThrottleError),
     PlayerAmbient(super::player_ambient::AmbientError),
     PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
+    PlayerSurfaceSplash(super::player_surface_splash::SplashError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
@@ -1429,6 +1430,24 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         result
     }
 
+    pub fn spawn_player_surface_splash(
+        &mut self,
+        owner: ObjectId,
+        kind: super::player_surface_splash::SurfaceSplash,
+        input: super::player_surface_splash::SplashInputs,
+    ) -> Result<ObjectId, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result =
+            super::player_surface_splash::spawn(self.objects, self.world, owner, kind, input)
+                .map_err(SceneError::PlayerSurfaceSplash);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     /// Publish the shared clock even for an empty or entirely suspended pass.
     /// Render readiness and positional-accumulator reset are separate owners.
     pub fn begin_strategy_epoch(
@@ -1496,6 +1515,11 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                     self.objects.get_mut(owner).expect("live surface particle"),
                 )
                 .expect("validated surface particle behavior");
+                Ok(owner)
+            }
+            Behavior::SurfaceSplash(_) => {
+                super::player_surface_splash::step(self.objects, owner)
+                    .map_err(SceneError::PlayerSurfaceSplash)?;
                 Ok(owner)
             }
             Behavior::SurfaceEffect(_) => {

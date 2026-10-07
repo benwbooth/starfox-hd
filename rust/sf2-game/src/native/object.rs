@@ -433,6 +433,7 @@ pub enum Behavior {
     PathMovement,
     ImpactBurst(super::path_effect::ImpactBurstPhase),
     SurfaceParticle(super::player_surface_particle::SurfaceParticle),
+    SurfaceSplash(super::player_surface_splash::SplashPhase),
     SurfaceEffect(super::player_surface_effect::SurfaceEffectPhase),
     /// Common death sprite/companion strategy ($03:A279/$03:A30B).
     Destruction(super::common_destruction::EffectPhase),

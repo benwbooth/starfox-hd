@@ -47,6 +47,9 @@ mod ambient_tests;
 #[path = "support/sf2_player_surface_particle.rs"]
 mod surface_particle_tests;
 
+#[path = "support/sf2_player_surface_splash.rs"]
+mod surface_splash_tests;
+
 #[path = "support/sf2_player_surface.rs"]
 mod surface_tests;
 

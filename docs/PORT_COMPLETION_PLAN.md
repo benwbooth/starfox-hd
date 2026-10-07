@@ -113,6 +113,26 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported SF2's two surface-crossing splash installers and their complete
+  placement/lifetime (`$07:CBD3/CBFD..CD6F`). These are not the moving
+  wing-contact particles: they use a separately supplied placement origin,
+  clamp wrapped plane distance before roll/yaw rotation, inherit the live
+  attachment's X/Z velocity only on their first scheduled visit, and retain
+  the manual-animation bit at retirement. Attachment precedes the random
+  child-number overwrite; the short entry clears inherited frame/size while
+  the long entry retains both. The frame limit shares the real motion-phase
+  high byte instead of a duplicate counter. Six new native tests cover the
+  scheduler, pause, cleanup and fail-stop wrapper. Original-code tests cover
+  32,768 placement cases, every frame/limit byte in both phases, retained
+  allocation/random/lifetime sequences and the actual fatal full-pool path.
+  All 1,505 native tests plus two architecture checks and all 1,513
+  compatibility tests plus 35 runtime checks pass in debug/release, as do
+  187 selected original player/camera/movement groups, 809 source checks,
+  238 extractor/lowerer tests, generated catalogs and the static audit.
+  The enclosing surface-crossing routine, its generic contact-particle entry,
+  and shipping player/frame ownership remain open. This is one dependency
+  of that coherent player slice, not controller-driven campaign completion.
+
 - Restored SF1's bridge-clear lifecycle from PSTRATS/PCSTRATS/GCSTRATS.
   The map callback only schedules entry; that entry then falls through into
   centering/countdown on the next player visit. Movement retains caller-owned
