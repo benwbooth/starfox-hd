@@ -56,7 +56,7 @@ impl PlayerActionState {
         }
     }
 
-    fn stop(&mut self) {
+    pub(super) fn stop(&mut self) {
         self.action = None;
         self.elapsed = 0;
         self.auxiliary_counter = 0;

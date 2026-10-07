@@ -113,6 +113,25 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Composed the player-entry reset through its action-gate boundary
+  (`$06:83F1..846B`): world and motion reset, action termination, hidden
+  craft, engine/positional control, handoff flags, collision suppression,
+  camera selector and hostile-launch counters. Action age and published
+  movement survive. Positional output can now be silenced independently of
+  retained sound identity/distance and the pending nearest-actor selection;
+  frozen publication preserves that silence. Five native tests and two
+  original-code groups pass all action-clock values, all camera selectors,
+  dirty records, repeated calls, real proxy cleanup and audio republishing.
+  Missing retained inputs preserve source-ordered effects and latch the
+  scene fault. Debug and release pass 1,608 native, 1,616 compatibility-
+  feature, 35 runtime, 33 path and 260 original-code tests (233 player
+  storage), all application tests, five real-app smoke tests and builds.
+  Static validation passes 876 source tests, 217 lowerer tests, three
+  backlog tests, exact regeneration and architecture checks. Logs:
+  `/tmp/sf2-player-entry-reset-validation-oct07.log` and
+  `/tmp/sf2-player-entry-reset-static-oct07.log`. Action-gate dispatch,
+  mode entry/strategy installation and shipping integration remain open.
+
 - Ported the world-reset wrapper (`$0D:C956..C96B`) and player-entry prefix
   (`$06:83F1..840F`) around the verified actor/proxy clear. Both disable
   region scanning and refill the complete occupancy plane; only player entry

@@ -22,6 +22,9 @@ mod scene_world_reset_tests;
 #[path = "support/sf2_player_motion_reset.rs"]
 mod motion_reset_tests;
 
+#[path = "support/sf2_player_entry_reset.rs"]
+mod entry_reset_tests;
+
 #[path = "support/sf2_player_format.rs"]
 mod format_tests;
 

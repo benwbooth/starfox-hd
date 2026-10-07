@@ -39,6 +39,9 @@ pub struct MissingLoopListener;
 pub struct PositionalAudio {
     nearest: Option<LoopSelection>,
     published: Option<LoopSelection>,
+    /// Output gate is independent from the retained identity/distance. Entry
+    /// reset silences this byte alone; a frozen publication preserves silence.
+    published_control: u8,
 }
 
 impl PositionalAudio {
@@ -53,7 +56,25 @@ impl PositionalAudio {
     }
 
     pub fn published(&self) -> Option<LoopSelection> {
+        if self.published_control == 0 {
+            None
+        } else {
+            self.published
+        }
+    }
+
+    pub fn retained_selection(&self) -> Option<LoopSelection> {
         self.published
+    }
+
+    pub fn published_control(&self) -> u8 {
+        self.published_control
+    }
+
+    /// Source $06:843A preserves selected sound, owner and distance, as well
+    /// as the independent nearest-actor accumulator for the next publication.
+    pub fn silence_published(&mut self) {
+        self.published_control = 0;
     }
 
     pub fn observe(
@@ -102,6 +123,7 @@ impl PositionalAudio {
     pub fn publish(&mut self, frozen: bool) {
         if !frozen {
             self.published = self.nearest;
+            self.published_control = self.nearest.map_or(0, |selection| selection.control);
         }
     }
 }
@@ -156,6 +178,51 @@ mod tests {
         LoopListener {
             position: Vector3::default(),
             bearing: Angle::ZERO,
+        }
+    }
+
+    #[test]
+    fn silencing_retains_identity_and_pending_candidate_across_frozen_publication() {
+        let mut objects = ObjectStore::new();
+        let owner = objects
+            .allocate(Object::new(
+                ObjectKind::Effect,
+                ShapeId::EMPTY,
+                Behavior::Effect,
+            ))
+            .unwrap();
+        for control in 1..=u8::MAX {
+            let mut audio = PositionalAudio::default();
+            let actor = objects.get_mut(owner).unwrap();
+            actor.extension.spatial_loop = SpatialLoop::from_authored_control(control);
+            actor.base.position.z = 100;
+            audio
+                .observe(owner, actor, false, Some(listener()))
+                .unwrap();
+            audio.publish(false);
+            let selected = audio.published().unwrap();
+            audio.begin_epoch();
+            actor.base.position.z = 4000;
+            audio
+                .observe(owner, actor, false, Some(listener()))
+                .unwrap();
+            let pending = audio.pending().unwrap();
+            audio.silence_published();
+            assert_eq!(audio.published(), None);
+            assert_eq!(audio.published_control(), 0);
+            assert_eq!(audio.retained_selection(), Some(selected));
+            assert_eq!(audio.pending(), Some(pending));
+            audio.publish(true);
+            assert_eq!(audio.published(), None);
+            assert_eq!(audio.retained_selection(), Some(selected));
+            audio.publish(false);
+            assert_eq!(audio.published(), Some(pending));
+            assert_eq!(audio.published_control(), pending.control);
+            audio.begin_epoch();
+            audio.silence_published();
+            audio.publish(false);
+            assert_eq!(audio.retained_selection(), None);
+            assert_eq!(audio.published_control(), 0);
         }
     }
 

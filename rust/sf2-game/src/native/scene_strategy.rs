@@ -122,6 +122,7 @@ pub enum SceneError<E> {
     PlayerMission(super::player_mission::MissionError),
     PlayerNodeExit(super::player_node_exit::NodeExitError),
     PlayerMotionReset(super::player_motion_reset::MotionResetError),
+    PlayerEntryReset(super::player_entry_reset::EntryResetError),
     SceneClear(super::scene_proxy::SceneProxyError),
     WorldReset(super::scene_world_reset::WorldResetError),
     Consumable(super::player_consumable::ConsumableError),
@@ -198,6 +199,22 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    /// Reset through the entry action-gate boundary. Dispatch and strategy
+    /// installation belong to the next phase; do not replay a partial reset.
+    pub fn reset_player_entry(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_entry_reset::reset(
+            self.objects, self.world, &mut self.execution.paths.runtime.resources,
+            &mut self.execution.positional, owner,
+        ).map_err(SceneError::PlayerEntryReset);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn reset_player_motion(&mut self, owner: ObjectId) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);

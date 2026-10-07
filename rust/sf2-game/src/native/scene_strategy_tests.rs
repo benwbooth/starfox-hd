@@ -361,6 +361,34 @@ fn scene_clear_keeps_contacts_programs_and_slots_until_normal_epoch_retirement()
 }
 
 #[test]
+fn player_entry_reset_latches_after_world_clear_without_replaying_earlier_effects() {
+    use crate::player_entry_reset::EntryResetError;
+    use crate::player_motion_reset::MotionResetError;
+    let mut scene = Scene::new();
+    let owner = scene.actor(Behavior::Unassigned);
+    scene.objects.get_mut(owner).unwrap().base.flags.general_search_eligible = true;
+    scene.world.spawn_defaults = Some(ObjectSpawnDefaults { group: 17, run_when_paused: true });
+    scene.world.region_registration_count = Some(13);
+    scene.world.secondary_region_group = Some(7);
+    scene.world.render_environment.ambient_control = None;
+    assert_eq!(scene.host().reset_player_entry(owner), Err(SceneError::PlayerEntryReset(EntryResetError::Motion(MotionResetError::MissingAmbientControl))));
+    assert!(scene.execution.is_faulted());
+    assert!(scene.objects.get(owner).unwrap().base.flags.remove_after_tick);
+    assert_eq!(scene.world.region_registration_count, Some(0));
+    assert_eq!(scene.world.spawn_defaults.unwrap().group, 255);
+    assert_eq!(scene.world.secondary_region_group, Some(255));
+    assert_eq!(scene.world.occupancy, Some(crate::world_occupancy::WorldOccupancy::fully_occupied()));
+    assert_eq!(scene.world.engine_sound_control, None);
+    assert_eq!(scene.objects.get(owner).unwrap().base.shape, ShapeId::TITLE_CRAFT);
+    scene.world.region_registration_count = Some(19);
+    scene.world.render_environment.ambient_control = Some(crate::player_surface_render::AmbientParticleControl::from_bits(0xABCD));
+    assert_eq!(scene.host().reset_player_entry(owner), Err(SceneError::Faulted));
+    assert_eq!(scene.world.region_registration_count, Some(19));
+    assert_eq!(scene.world.render_environment.ambient_control.unwrap().bits(), 0xABCD);
+    assert!(scene.callbacks.events.is_empty());
+}
+
+#[test]
 fn scene_world_reset_latches_a_partial_failure_against_outer_retry() {
     use crate::scene_world_reset::{RegionSelection, WorldResetError};
     let mut scene = Scene::new();

@@ -48,10 +48,10 @@ use sf2_game::scene_contact::PlayerContactControl;
 use sf2_game::scene_path_world::{PlayerPathRecords, ScenePathWorld};
 use sf2_game::{Angle, Buttons, InputState, ObjectId, ObjectStore, Rotation, Vector3};
 
-struct Reader<'a> {
-    source: &'a Source,
-    slot: u32,
-    other: ObjectId,
+pub(super) struct Reader<'a> {
+    pub(super) source: &'a Source,
+    pub(super) slot: u32,
+    pub(super) other: ObjectId,
 }
 
 impl Reader<'_> {
@@ -75,7 +75,7 @@ impl Reader<'_> {
             value => panic!("unexpected original actor identity {value:04X} at {field:04X}"),
         }
     }
-    fn storage(&self) -> PlayerStorage {
+    pub(super) fn storage(&self) -> PlayerStorage {
         PlayerStorage {
             fine_pitch: self.word(0x6AB9),
             fine_yaw: self.word(0x6ABB),
@@ -83,7 +83,7 @@ impl Reader<'_> {
             retained_shield: self.byte(0x6C38),
         }
     }
-    fn records(&self) -> PlayerPathRecords {
+    pub(super) fn records(&self) -> PlayerPathRecords {
         PlayerPathRecords {
             contact: Some(PlayerContactControl {
                 hit: PlayerHitControl {
@@ -340,6 +340,8 @@ impl Reader<'_> {
                 style: match (self.word(0x6A9A), self.byte(0x6A9C)) {
                     (0, 0) => None,
                     (0x8048, 7) => Some(TrackingStyle::Normal),
+                    (0x8089, 7) => Some(TrackingStyle::ProjectionCorrected),
+                    (0x80B3, 7) => Some(TrackingStyle::Surface),
                     value => panic!("unexpected primary camera {value:?}"),
                 },
                 projection_correction_disabled: self.byte(0x6B65) & 0x40 != 0,

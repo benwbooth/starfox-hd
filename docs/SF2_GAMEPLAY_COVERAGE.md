@@ -152,6 +152,23 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The composed player-entry reset (`$06:83F1..846B`) now includes world and
+motion reset, action termination, shape/audio/handoff/collision changes,
+camera clearing and hostile-launch counter clearing. It retains action age
+and published player motion. Positional sound output is independently gated
+from retained identity/distance and pending selection, including frozen and
+resumed publication. Five native tests and two original-code groups pass
+every action-clock value, all primary camera selectors, varied dirty records,
+real proxy cleanup and repeated entry. Partial failures latch at the scene
+owner. Debug and release pass 1,608 native, 1,616 compatibility-feature,
+35 runtime, 33 path and 260 original-code tests (233 player storage), all
+application tests, five real-app smoke tests and builds. Static checks pass
+876 source tests, 217 lowerer tests, three backlog tests, exact regeneration
+and the architecture audit. Logs:
+`/tmp/sf2-player-entry-reset-validation-oct07.log` and
+`/tmp/sf2-player-entry-reset-static-oct07.log`. The next action-gate/entry
+dispatch and production-frame integration remain unclosed.
+
 World reset (`$0D:C956..C96B`) now composes verified actor/proxy teardown,
 region-count clearing and the complete occupied-plane publisher
 (`$0D:DA5F..DA79`). The player-entry prefix (`$06:83F1..840F`) additionally
