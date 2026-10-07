@@ -90,6 +90,10 @@ mod guidance_controller_tests;
 mod impact_tests;
 
 #[cfg(test)]
+#[path = "path_scene_publication_tests.rs"]
+mod scene_publication_tests;
+
+#[cfg(test)]
 #[path = "path_bounded_lookup_tests.rs"]
 mod bounded_lookup_tests;
 
@@ -236,6 +240,9 @@ pub struct PathWorld<'a> {
     pub action_gate: Option<&'a mut ActionGate>,
     /// Shared environmental reference plane (1E0F), in world-Y coordinates.
     pub environment_plane_height: Option<i16>,
+    /// Shared projected-camera word (1E3C = 1E52 + 1E44 + the camera's
+    /// recomputed term, `$07:9527..9531`), read-only to paths.
+    pub published_camera_projection: Option<i16>,
     pub projectile_trigger: Option<&'a mut ProjectileTrigger>,
     pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
     pub interception_music_ready: Option<&'a mut Option<bool>>,
@@ -334,6 +341,7 @@ impl PathWorld<'_> {
             shield_recovery: None,
             action_gate: None,
             environment_plane_height: None,
+            published_camera_projection: None,
             projectile_trigger: None,
             linked_effect_activity: None,
             interception_music_ready: None,
@@ -810,6 +818,10 @@ pub enum Statement {
     },
     IncludeSelectedParticleFlags { mask: u8, next: PathCursor },
     SetSceneryPlacementHeight { height: i16, next: PathCursor },
+    /// Immediate store to the background horizontal scroll word ($1E4E).
+    SetBackgroundHorizontal { value: i16, next: PathCursor },
+    /// Export a variable word to the background scroll shadow (193A).
+    PublishBackgroundScrollShadow { source: super::path_fields::WordField, next: PathCursor },
     CaptureWorldPosition { next: PathCursor },
     RestoreWorldPosition { next: PathCursor },
     ImportSceneryPlacementHeight { next: PathCursor },
@@ -940,6 +952,7 @@ pub enum Statement {
         destination: super::path_fields::WordField,
         next: PathCursor,
     },
+    ImportCameraProjection { destination: super::path_fields::WordField, next: PathCursor },
     ImportEnvironmentPlaneHeight {
         destination: super::path_fields::WordField,
         next: PathCursor,
@@ -1274,6 +1287,7 @@ pub enum ProgramError {
     MissingShieldRecovery,
     MissingActionGate,
     MissingEnvironmentPlaneHeight,
+    MissingCameraProjection,
     MissingProjectileTrigger,
     MissingPrimaryPitchRecoil,
     MissingPrimaryLinkedMode,
@@ -1765,6 +1779,17 @@ impl PathRuntime {
                 objects.get_mut(owner).expect("validated placement writer").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
+            Statement::PublishBackgroundScrollShadow { source, next } => {
+                let actor = objects.get_mut(owner).expect("validated scroll writer");
+                self.background_scroll_shadow = Some(source.read(actor));
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SetBackgroundHorizontal { value, next } => {
+                self.background_horizontal = Some(value);
+                objects.get_mut(owner).expect("validated background writer").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
             Statement::CaptureWorldPosition { next } => {
                 let actor = objects.get_mut(owner).expect("validated position publisher");
                 self.captured_world_position = Some(actor.base.position);
@@ -1983,6 +2008,17 @@ impl PathRuntime {
                     SceneryDistanceCommand::CopyTo(field) => field.write(actor, scenery.near_mask),
                     SceneryDistanceCommand::Assign(value) => scenery.near_mask = value.read(actor),
                 }
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportCameraProjection { destination, next } => {
+                let value = world
+                    .published_camera_projection
+                    .ok_or(ProgramError::MissingCameraProjection)?;
+                let actor = objects
+                    .get_mut(owner)
+                    .expect("validated camera projection reader");
+                destination.write(actor, value as u16);
                 actor.base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
@@ -3116,6 +3152,7 @@ mod tests {
             shield_recovery: None,
             action_gate: None,
             environment_plane_height: None,
+            published_camera_projection: None,
             projectile_trigger: None,
             linked_effect_activity: None,
             interception_music_ready: None,
@@ -10264,6 +10301,7 @@ mod tests {
                 shield_recovery: None,
                 action_gate: None,
                 environment_plane_height: None,
+                published_camera_projection: None,
                 projectile_trigger: None,
                 linked_effect_activity: None,
                 interception_music_ready: None,
@@ -14494,6 +14532,7 @@ mod tests {
                 shield_recovery: None,
                 action_gate: None,
                 environment_plane_height: None,
+                published_camera_projection: None,
                 projectile_trigger: None,
                 linked_effect_activity: None,
                 interception_music_ready: None,
@@ -14659,6 +14698,7 @@ mod tests {
                         shield_recovery: None,
                         action_gate: None,
                         environment_plane_height: None,
+                        published_camera_projection: None,
                         projectile_trigger: None,
                         linked_effect_activity: None,
                         interception_music_ready: None,

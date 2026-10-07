@@ -126,6 +126,13 @@ pub struct PathRuntime {
     /// Complete transform mailbox used by the reviewed capture/restore
     /// helpers. A missing linked actor leaves the previous publication intact.
     pub captured_world_position: Option<super::Vector3>,
+    /// Background horizontal scroll word ($1E4E), last published by a path
+    /// scene presentation. The renderer/background owner consumes it; `None`
+    /// until some path has stored it.
+    pub background_horizontal: Option<i16>,
+    /// Background scroll shadow word (193A), written by scene paths and copied
+    /// into the scroll tables by `$7F:0B3F`. Its screen axis is not asserted.
+    pub background_scroll_shadow: Option<u16>,
     pub steering: super::path_steering::SteeringState,
     pub branch: super::path_conditions::BranchState,
     calls: PathCalls,
@@ -145,6 +152,8 @@ impl Default for PathRuntime {
             placement: super::path_scene_state::PlacementCoordinates::default(),
             region: super::player_boundary::RegionInputs::default(),
             captured_world_position: None,
+            background_horizontal: None,
+            background_scroll_shadow: None,
             steering: super::path_steering::SteeringState::default(),
             branch: super::path_conditions::BranchState::default(),
             calls: PathCalls::default(),

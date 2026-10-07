@@ -27,6 +27,9 @@ pub enum FixedViewCommand {
     CopyPosition,
     ChasePosition,
     CopyRotation,
+    /// Reverse of `CopyRotation` (`$7F:C0BF`): the owner's rotation bytes take
+    /// the view's three angle HIGH bytes (0x13/0x15/0x17), dropping fine bits.
+    CopyRotationFromView,
     /// Aim at the shared tracking actor, with signed fine-pitch attenuation.
     AimTracking {
         pitch_shift: u8,

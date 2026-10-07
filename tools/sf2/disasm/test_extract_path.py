@@ -263,11 +263,12 @@ class RetailPathExtractionTests(unittest.TestCase):
         # are not installed by the discovered retail root graphs: action-gate
         # clear/zero, proximity-warning disable and the independently proven
         # carry-off handler ($7F:BAEE; test_path_movement_static.py), plus
-        # scene cue 149 used by the independently indexed scene-nine root.
-        reviewed_without_retail_use = {0x118, 0x13D, 0x13F, 0x149, 0x168}
-        self.assertEqual(len(PATH_SEMANTICS), 284)
-        self.assertEqual(len({spec.opcode for spec in PATH_SEMANTICS}), 284)
-        self.assertEqual(len({spec.rust_name for spec in PATH_SEMANTICS}), 284)
+        # scene cue 149 used by the independently indexed scene-nine root, and the
+        # view-rotation copy 151 used by the independently indexed scene-five root.
+        reviewed_without_retail_use = {0x118, 0x13D, 0x13F, 0x149, 0x151, 0x168}
+        self.assertEqual(len(PATH_SEMANTICS), 285)
+        self.assertEqual(len({spec.opcode for spec in PATH_SEMANTICS}), 285)
+        self.assertEqual(len({spec.rust_name for spec in PATH_SEMANTICS}), 285)
         for spec in PATH_SEMANTICS:
             self.assertEqual(
                 self.extractor.handler_entry(spec.opcode).handler_address,

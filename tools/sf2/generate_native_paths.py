@@ -678,6 +678,19 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
             (0xC7A8, 0xE8D1), (0xC7E0, 0xE8D1), (0xC6E4, 0xE8D1), (0xC700, 0xE8D1),
             (0xC818, 0xE8CF), (0xC850, 0xE8D1), (0xC770, 0xE8D1), (0xC738, 0xE8D1))):
         return index, "ObjectKind::Effect"
+    # Indexed scene five also reuses the scene-three children above. The
+    # shared-tail pair (0xBC9C, 0xB825) and the two C380/C86C placeholders
+    # disable collision on every route to their first yield. The remaining
+    # children do NOT: they keep ordinary contacts through their first yield
+    # (the 10/10 hittable BC9C part waits with no collision change). The
+    # native kind is only a label today; nothing branches on it.
+    if (shape, path) in tuple((s, PathAddress(p)) for s, p in (
+            (0xBC9C, 0xB825), (0xC86C, 0xB73C), (0xC380, 0xB73C))):
+        return index, "ObjectKind::Effect"
+    if (shape, path) in tuple((s, PathAddress(p)) for s, p in (
+            (0xBC9C, 0xB746), (0xBC9C, 0xB68B), (0xBC9C, 0xB807),
+            (0xBC9C, 0xB85A), (0xC984, 0xB862))):
+        return index, "ObjectKind::Enemy"
     # Special-exit controller: the tracking anchor, departing craft, animated
     # geometry and distant scenery all disable collision before their first
     # yield. This is not a classification for other uses of these shapes.
@@ -1784,6 +1797,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "CopySelectedAuxRotation":
             parameters(0)
             statement = f"Statement::CopySelectedStoredRotation {{ next: {next_cursor()} }}"
+        elif name == "CopyRotationFromViewObject":
+            parameters(0)  # the handler loads the fixed view (033F) itself
+            statement = f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::CopyRotationFromView, next: {next_cursor()} }}"
         elif name in ("CopyPositionToObject", "CopyRotationToObjectFixed", "ChaseObjectPositionTowardCurrent",
                       "SetObjectRotationTowardTarget", "ChaseObjectRotationTowardTarget"):
             aim = name in ("SetObjectRotationTowardTarget", "ChaseObjectRotationTowardTarget")
@@ -1963,6 +1979,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if address == 0x1E0B and (value_low, value_high) == (0, 0):
                 statements.append(f"Statement::ClearPublishedCameraRoll {{ next: {next_cursor()} }}")
                 continue
+            if address == 0x1E4E:
+                value = int.from_bytes(bytes((value_low, value_high)), "little", signed=True)
+                statements.append(f"Statement::SetBackgroundHorizontal {{ value: {value}, next: {next_cursor()} }}")
+                continue
             if address == 0x1E44:
                 value = int.from_bytes(bytes((value_low, value_high)), "little", signed=True)
                 statements.append(f"Statement::SetCameraProjectionBase {{ value: {value}, next: {next_cursor()} }}")
@@ -2033,6 +2053,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::SceneEvent {{ command: super::path_scene_state::SceneEventCommand::Assign(WordOperand::Actor({word_field(variable)})), next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address == 0x193A:
+                statements.append(f"Statement::PublishBackgroundScrollShadow {{ source: {word_field(variable)}, next: {next_cursor()} }}")
+                continue
             if address not in (0x1D88, 0x1D8C):
                 raise UnsupportedPath(f"unreviewed handoff coordinate {address:04X}")
             operation = 'StoreX' if address == 0x1D88 else 'StoreZ'
@@ -2058,6 +2081,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if address == 0x12C3 and variable == 0x1C:
                 statement = f"Statement::LinkPrimaryCollisionExclusion {{ next: {next_cursor()} }}"
                 statements.append(statement)
+                continue
+            if address == 0x1E3C:
+                statements.append(f"Statement::ImportCameraProjection {{ destination: {word_field(variable)}, next: {next_cursor()} }}")
                 continue
             if address == 0x1E0F:
                 statement = f"Statement::ImportEnvironmentPlaneHeight {{ destination: {word_field(variable)}, next: {next_cursor()} }}"

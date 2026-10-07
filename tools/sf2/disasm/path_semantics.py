@@ -319,6 +319,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x14D, "CopyRotationToObjectFixed", 0x7FC005, None, "sf2_handler"),
     PathSemanticSpec(0x14E, "CopySelectedSlotWorldPosition", 0x7FC107, None, "sf2_handler"),
     PathSemanticSpec(0x14F, "CopySelectedAuxRotation", 0x7FC0ED, None, "sf2_handler"),
+    PathSemanticSpec(0x151, "CopyRotationFromViewObject", 0x7FC0BF, None, "sf2_handler"),
     PathSemanticSpec(0x153, "IfCurrentAtOrAboveCollisionTarget", 0x7FBF86, None, "sf2_handler"),
     PathSemanticSpec(0x154, "ShiftByteRight", 0x7FA5EC, None, "sf2_handler"),
     PathSemanticSpec(0x156, "RefreshOwnedPlayerAuxiliaryOrigin", 0x7FC189, None, "sf2_handler"),

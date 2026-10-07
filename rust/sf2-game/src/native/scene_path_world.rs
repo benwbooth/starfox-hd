@@ -235,6 +235,9 @@ pub struct ScenePathWorld {
     /// This is distinct from the general collision-mode byte at 1B4D.
     pub player_carry_mode: Option<u8>,
     pub environment_plane_height: Option<i16>,
+    /// Projected-camera word (1E3C), produced by the camera pass. Not yet
+    /// computed by a native owner; absent until one publishes it.
+    pub published_camera_projection: Option<i16>,
     /// Last selected free-flight clipping plane (7024E0). Rejected planes
     /// clear the player's height but preserve this scene publication.
     pub surface_clipping_plane_height: Option<i16>,
@@ -428,6 +431,7 @@ impl ScenePathWorld {
             surface_mode: None,
             player_carry_mode: None,
             environment_plane_height: None,
+            published_camera_projection: None,
             surface_clipping_plane_height: None,
             player_surface_support: None,
             player_surface_height: None,
@@ -694,6 +698,7 @@ impl InvocationWorld for ScenePathWorld {
             contacts: Some(&self.contacts),
             surface_mode: self.surface_mode,
             environment_plane_height: self.environment_plane_height,
+            published_camera_projection: self.published_camera_projection,
             friend_health: self.friend_health.as_mut(),
             targeting_upgrade: self.targeting_upgrade.as_mut(),
             linked_effect_activity: self.linked_effect_activity.as_mut(),

@@ -72,6 +72,13 @@ impl PathRuntime {
                     .map(|angle| u16::from(angle.units()) << FINE_ANGLE_SHIFT);
                 set_view_angles(objects.get_mut(view).expect("validated view"), angles);
             }
+            FixedViewCommand::CopyRotationFromView => {
+                let angles = FixedViewAngles::capture(objects.get(view).expect("validated view"));
+                let actor = objects.get_mut(owner).expect("validated view reader");
+                actor.base.pitch = super::super::Angle::from_units((angles.pitch >> FINE_ANGLE_SHIFT) as u8);
+                actor.base.yaw = super::super::Angle::from_units((angles.yaw >> FINE_ANGLE_SHIFT) as u8);
+                actor.base.roll = super::super::Angle::from_units((angles.roll >> FINE_ANGLE_SHIFT) as u8);
+            }
             FixedViewCommand::AimTracking { pitch_shift, chase } => {
                 let tracking = world
                     .camera_tracking
