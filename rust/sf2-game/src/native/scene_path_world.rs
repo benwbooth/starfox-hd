@@ -209,6 +209,9 @@ pub struct ScenePathWorld {
     /// This is distinct from the general collision-mode byte at 1B4D.
     pub player_carry_mode: Option<u8>,
     pub environment_plane_height: Option<i16>,
+    /// Last selected free-flight clipping plane (7024E0). Rejected planes
+    /// clear the player's height but preserve this scene publication.
+    pub surface_clipping_plane_height: Option<i16>,
     pub player_surface_support: Option<super::player_motion::PlayerSurfaceSupport>,
     /// 1DAE: first post-flight downward probe; the forecast probe does not replace it.
     pub player_surface_height: Option<i16>,
@@ -350,6 +353,7 @@ impl ScenePathWorld {
             surface_mode: None,
             player_carry_mode: None,
             environment_plane_height: None,
+            surface_clipping_plane_height: None,
             player_surface_support: None,
             player_surface_height: None,
             friend_health: None,

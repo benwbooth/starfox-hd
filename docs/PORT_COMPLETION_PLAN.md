@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete free-flight plane/material preparation
+  (`$07:E5C8..E684`), using live contact ownership, the retained walker query
+  height, environment material and authored support offsets. Zero-height
+  support planes still publish and return success; rejected planes clear only
+  the player's height, preserving the renderer's last clipping plane and the
+  caller's inherited effect offset. Missing inputs preserve source-ordered
+  prefixes and fault the scene against retries. Three unmodified-original
+  groups pass 273,920 calls, covering every material, all wrapped height words
+  and 8,192 independently retained plane/clipping transitions. The collision
+  movement result now exposes its final query height for the real walker
+  producer; flight does not overwrite the retained walker height. Final-tree
+  verification passes 1,387 native tests and both architecture checks in
+  debug/release, 1,395 compatibility tests and 35 runtime checks, all 119
+  original player/movement groups in both profiles, 742 source tests, 238
+  extractor/lowerer tests, exact catalog/architecture checks and all three
+  application builds. The protected effect, transformation
+  and outer strategy still precede production frame integration.
+
 - Connected the complete retained-pitch flight mode (`$06:E2EE..E32B`) to
   retained input history, camera-bank/shared-target resets, live horizontal
   steering, held/fine-pitch control, hard terrain limits and the complete

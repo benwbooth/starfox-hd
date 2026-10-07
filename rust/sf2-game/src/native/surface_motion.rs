@@ -41,6 +41,9 @@ pub struct SurfaceMotionInputs {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SurfaceMotionResult {
+    /// Final query height, including the last escape/restoration retry.
+    /// The walker caller retains this separately from its moved position.
+    pub surface_height: i16,
     pub retried: bool,
     pub restored_horizontal_position: bool,
     pub obstructed: bool,
@@ -266,6 +269,7 @@ pub fn advance(
             inputs.search,
         )?;
         result.broad_candidate_seen |= query.broad_candidate_seen;
+        result.surface_height = query.surface.height;
         objects.get_mut(owner).unwrap().extension.surface_contact = query.surface.contact;
         if query.surface.contact.supporting_object.is_none() {
             // A missed query publishes the cleared tilt before either the

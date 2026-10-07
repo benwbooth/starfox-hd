@@ -152,6 +152,17 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete free-flight plane/material preparation (`$07:E5C8..E684`) now
+uses live support actors, authored offsets and the retained walker query
+height. It keeps player-plane clearing distinct from renderer publication and
+the caller's inherited effect offset, including successful zero-height support
+planes. Three original groups pass 273,920 calls with independent retained
+state, full-word boundaries and all materials. Final-tree native debug/release,
+compatibility, all 119 original player/movement groups in both profiles,
+source/catalog/architecture checks and application builds pass. Protected
+effects, transformation and the outer player
+strategy still block production flight handoff.
+
 The complete retained-pitch mode (`$06:E2EE..E32B`) now composes input-history
 retention, live steering, held/fine pitch, hard limits and the shared flight
 frame. It resets all three shared steering publications, preserves caller-owned

@@ -121,6 +121,7 @@ fn compare_motion(
     );
     assert!(result.returned, "surface movement did not return");
     let actual = sf2_game::surface_motion::advance(objects, owner, inputs).unwrap();
+    assert_eq!(actual.surface_height, source.read16(8) as i16);
     assert_eq!(source.read8(0x3F), if actual.broad_candidate_seen { 0 } else { 0xA5 });
     let actor = objects.get(owner).unwrap();
     let saved = actor.extension.path_state.platform_carry.saved_position;
