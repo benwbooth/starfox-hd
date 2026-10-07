@@ -2,6 +2,9 @@
 //! (`$0D:BCD0..BDD9`). This is distinct from the player's actor path.
 //! Only source-complete streams have native identities; scene entry must not
 //! replace other streams with an empty or assumed-success action.
+//! The interpreter's globals 1D9E/1DA0 (stream pointer), 1DA1, 1DA3 (slot)
+//! and 1DA5 (copy of 6C16) are per-visit scratch, reloaded at
+//! `$0D:BCEA..BD08` before any read, so they carry no state between visits.
 
 use super::player_camera_auxiliary::{self, AuxiliaryCameraError, AuxiliaryCameraTask, OrbitStyle};
 use super::scene_path_world::{ScenePathWorld, WorldInputError};

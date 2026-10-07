@@ -2,6 +2,8 @@
 //! Child ownership, transform origin and relative parent are three distinct
 //! relationships. The effect is a real scheduled actor with a deferred first
 //! visit, live movement and ordinary ordered retirement.
+//! 14A3/14A4 are routine-local scratch: written before every read here, and
+//! read by no other 65816 code.
 
 use super::path_relationships::{self, RelationshipError};
 use super::scene_path_world::{ScenePathWorld, WorldInputError};

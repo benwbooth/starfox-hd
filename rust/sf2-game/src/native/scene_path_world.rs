@@ -240,6 +240,9 @@ pub struct ScenePathWorld {
     pub surface_clipping_plane_height: Option<i16>,
     pub player_surface_support: Option<super::player_motion::PlayerSurfaceSupport>,
     /// 1DAE: first post-flight downward probe; the forecast probe does not replace it.
+    /// 1DAE..1DB1 is also shared scratch: the camera routines ($07:81F1..8D65)
+    /// and $06:EA98 overwrite it during the player update. Its unported reader $06:B7F1
+    /// must observe the last writer in frame order, not this retained probe.
     pub player_surface_height: Option<i16>,
     pub friend_health: Option<super::path_death::FriendHealth>,
     pub targeting_upgrade: Option<super::path_target::TargetingUpgradeState>,
