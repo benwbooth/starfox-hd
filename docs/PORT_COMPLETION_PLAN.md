@@ -113,6 +113,23 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Closed indexed scene three as a second complete path/action pair. Its
+  path and every child now lower, and the installer is a table of verified
+  rows (scenes 3 and 9) rather than a scene-nine special case. Path lookups
+  whose 256-entry window crosses a bank end (`$06:FFCA`, `$06:FFDC`) are now
+  bounded tables: the source adds the index to the pointer's low word with no
+  bank carry, so past-the-end selectors read mutable low-bank memory. Those
+  selectors fault instead of being guessed (wingmate pilot 255 therefore
+  faults in scene three until its real domain is proven). The whole scene
+  matches the original code over 450 visits for six pilots, both protection
+  states and three gate-release times with varying wingmates. Spawn kinds
+  come from an interprocedural walk requiring collision to be disabled on
+  every route to a child's first yield. Scenes 4, 5 and 25 remain blocked
+  (scene 5: an external word store and five undecided spawns; scene 4: shared
+  byte 1C06; scene 25: about 50 unreviewed children). Also added
+  `tools/sf2/audit_memory_footprint.py`, a static RAM read/write audit of
+  every address-annotated routine against the Rust port.
+
 - Added indexed scene entry (`$06:A8D2..A987`) as a typed installer and
   closed scene nine as a complete pair: its path now lowers fully (direct
   scene cue `$7F:BF66`, reviewed child spawn kinds) and the installer creates

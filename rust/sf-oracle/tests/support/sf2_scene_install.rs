@@ -8,8 +8,11 @@ use sf2_game::player_action::{AuthoredSceneAction, PlayerAction, PlayerActionSta
 use sf2_game::scene_install::{self, SceneInstallError};
 use sf2_game::Behavior;
 
-const SCENE_NINE_PATH: u16 = 0xD40E;
-const SCENE_NINE_ACTION: (u16, u8) = (0xC191, 0x0D);
+/// Installed scenes: (selection, path root, action script, action, companion seed).
+const SCENES: [(u8, u16, u16, AuthoredSceneAction, u16); 2] = [
+    (9, 0xD40E, 0xC191, AuthoredSceneAction::Scene9, 0x1000),
+    (3, 0xD9D6, 0xC4F3, AuthoredSceneAction::Scene3, 0x0000),
+];
 
 fn run_case(count: usize, selection: u8, saved: u8, seed: u16) {
     let bytes = rom();
@@ -72,7 +75,7 @@ fn run_case(count: usize, selection: u8, saved: u8, seed: u16) {
             return;
         }
         Ok(Some(created)) => {
-            assert_eq!(effective, 9, "{context}");
+            assert!(SCENES.iter().any(|scene| scene.0 == effective), "{context}");
             created
         }
         Err(SceneInstallError::UnsupportedScene {
@@ -82,7 +85,7 @@ fn run_case(count: usize, selection: u8, saved: u8, seed: u16) {
         }) => {
             assert_eq!(s, effective, "{context}");
             assert_eq!(table_index, if effective < 30 { effective } else { 0 });
-            assert_ne!(table_index, 9);
+            assert!(SCENES.iter().all(|scene| scene.0 != table_index));
             // Ownership stays with the faulted scene; nothing was assumed.
             assert_eq!(
                 native.world.player(&native.objects, player).unwrap().action,
@@ -98,8 +101,17 @@ fn run_case(count: usize, selection: u8, saved: u8, seed: u16) {
     assert_eq!(actor.base.behavior, Behavior::FollowPath);
     assert_eq!(source.bus.read16(base + 0x19), 0x7E1E);
     assert_eq!(source.bus.read8(base + 0x1B), 0x7F);
-    assert_eq!(source.bus.read16(base + 0x2B), SCENE_NINE_PATH);
-    assert_eq!(actor.base.path, Some(sf2_game::authored_paths::SCENE_NINE));
+    let (_, path_root, script, scene_action, seed) =
+        *SCENES.iter().find(|scene| scene.0 == effective).unwrap();
+    assert_eq!(source.bus.read16(base + 0x2B), path_root);
+    assert_eq!(
+        actor.base.path,
+        Some(if effective == 9 {
+            sf2_game::authored_paths::SCENE_NINE
+        } else {
+            sf2_game::authored_paths::SCENE_THREE
+        })
+    );
     super::special_exit_tests::compare_actor(&source, &native, created, 0);
     let action = native
         .world
@@ -112,17 +124,15 @@ fn run_case(count: usize, selection: u8, saved: u8, seed: u16) {
             source.bus.read16(WRAM + SLOT + 0x6C13),
             source.bus.read8(WRAM + SLOT + 0x6C15)
         ),
-        SCENE_NINE_ACTION
+        (script, 0x0D)
     );
-    assert_eq!(
-        action.action,
-        Some(PlayerAction::Scene(AuthoredSceneAction::Scene9))
-    );
+    assert_eq!(action.action, Some(PlayerAction::Scene(scene_action)));
     assert_eq!(source.bus.read16(WRAM + SLOT + 0x6C16), action.elapsed);
     assert_eq!(
         source.bus.read16(WRAM + SLOT + 0x6C18),
         action.auxiliary_counter
     );
+    assert_eq!(action.auxiliary_counter, seed);
     assert_eq!(
         source.bus.read16(WRAM + SLOT + 0x6C1A),
         action.total_updates

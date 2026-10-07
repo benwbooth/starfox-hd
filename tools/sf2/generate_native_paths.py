@@ -26,6 +26,7 @@ OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
     ("SCENE_NINE", PathAddress(0xD40E)),
+    ("SCENE_THREE", PathAddress(0xD9D6)),
     ("ORDINARY_SCENE_EXIT", PathAddress(0xCF18)),
     ("SPECIAL_SCENE_EXIT", PathAddress(0xD27B)),
     ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
@@ -665,6 +666,17 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
                         (0xBC9C, PathAddress(0xD469)),
                         (0xBC9C, PathAddress(0xD452)),
                         (0xE8B0, PathAddress(0x7FA1))):
+        return index, "ObjectKind::Effect"
+    # Indexed scene three (and the shared tail children of scene five): an
+    # interprocedural walk of each child path, through every branch and
+    # subroutine return, reaches DisableCollision on every route before the
+    # first yield. Bound to complete (shape, path) identities.
+    if (shape, path) in tuple((s, PathAddress(p)) for s, p in (
+            (0xBC9C, 0xDA06), (0xBC9C, 0xDA90), (0xBC9C, 0xDA2B), (0xBC9C, 0xDBDC),
+            (0xC604, 0xDB35), (0xC604, 0xDB50), (0xC1DC, 0xDB5E), (0xBC9C, 0xDB7C),
+            (0xBC9C, 0xDB62), (0xC380, 0xDB0B), (0xC86C, 0xDB08), (0xBC9C, 0xDBC8),
+            (0xC7A8, 0xE8D1), (0xC7E0, 0xE8D1), (0xC6E4, 0xE8D1), (0xC700, 0xE8D1),
+            (0xC818, 0xE8CF), (0xC850, 0xE8D1), (0xC770, 0xE8D1), (0xC738, 0xE8D1))):
         return index, "ObjectKind::Effect"
     # Special-exit controller: the tracking anchor, departing craft, animated
     # geometry and distant scenery all disable collision before their first
@@ -2306,7 +2318,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                     # Material-set word 1CCD: the table is the final 18 words
                     # of the bank, one per selector 0..17.
                     materials = ', '.join(f'super::render::MaterialSetId::from_catalog_token({v})' for v in values)
-                    statement = f"Statement::SelectMaterialSet {{ selector: {byte_field(selector)}, materials: &[{materials}], next: {next_cursor()} }}"
+                    statement = f"Statement::SelectMaterialSet {{ selector: {byte_field(selector)}, materials: const {{ &[{materials}] }}, next: {next_cursor()} }}"
                     statements.append(statement)
                     continue
                 field = (word_field if wide else byte_field)(destination)
@@ -2450,18 +2462,30 @@ def verified_map_spawn_installer(rom: bytes, root: PathAddress) -> bool:
     return True
 
 
+# Indexed scene table rows ($06:D4C7 + 8 * index): path root, action stream and
+# companion seed. A scene is admitted only with its complete source record,
+# and only where the paired native action stream is implemented.
+INDEXED_SCENES = {
+    # root: (index, action script, record bytes, controller stream is empty)
+    0xD40E: (9, 0x0DC191, '0ed491c10d001000', True),
+    0xD9D6: (3, 0x0DC4F3, 'd6d9f3c40d000000', False),
+}
+
+
 def verified_indexed_scene_installer(rom: bytes, root: PathAddress) -> bool:
     # Indexed entries do not occur in discover_roots' immediate stores. Keep
     # the complete paired path/action/companion record source-bound, rather
     # than admitting every table address as an implemented scene.
-    if root != PathAddress(0xD40E):
+    if root.offset not in INDEXED_SCENES:
         return False
+    index, script, record_hex, empty = INDEXED_SCENES[root.offset]
     from extract_intro_controller import authored_scene_controller
-    scene = authored_scene_controller(rom, 9)
-    record = 0x06D4C7 + 9 * 8
-    if (scene.path_root != root.offset or scene.script != 0x0DC191
-            or scene.commands or rom[record:record + 8] != bytes.fromhex('0ed491c10d001000')):
-        raise UnsupportedPath('unverified indexed scene-nine installer')
+    scene = authored_scene_controller(rom, index)
+    record = 0x06D4C7 + index * 8
+    if (scene.path_root != root.offset or scene.script != script
+            or bool(scene.commands) == empty
+            or rom[record:record + 8] != bytes.fromhex(record_hex)):
+        raise UnsupportedPath(f'unverified indexed scene-{index} installer')
     return True
 
 

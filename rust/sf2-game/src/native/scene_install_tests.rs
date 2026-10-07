@@ -82,6 +82,26 @@ fn sentinels_allocate_nothing_even_with_a_full_pool() {
 }
 
 #[test]
+fn scene_three_installs_its_path_action_and_zero_companion_seed() {
+    let mut f = fixture(3, SCENE_THREE, 0);
+    let created = f.install().unwrap().unwrap();
+    let actor = f.objects.get(created).unwrap();
+    assert_eq!(
+        actor.base.path,
+        Some(super::super::authored_paths::SCENE_THREE)
+    );
+    assert_eq!(
+        f.action(),
+        PlayerActionState {
+            action: Some(PlayerAction::Scene(AuthoredSceneAction::Scene3)),
+            elapsed: 0,
+            auxiliary_counter: 0,
+            total_updates: PRIOR.total_updates,
+        }
+    );
+}
+
+#[test]
 fn scene_nine_installs_follow_path_actor_and_resets_both_counters() {
     let mut f = fixture(3, SCENE_NINE, 0);
     let created = f.install().unwrap().unwrap();
@@ -128,7 +148,7 @@ fn restore_selector_substitutes_saved_scene_without_retesting_sentinels() {
 
 #[test]
 fn unsupported_scenes_fault_after_allocation_without_touching_the_action() {
-    for selection in [0, 3, 25, 29, 30, 200] {
+    for selection in [0, 4, 25, 29, 30, 200] {
         let mut f = fixture(3, selection, 0);
         let Err(SceneInstallError::UnsupportedScene { actor, .. }) = f.install() else {
             panic!("selection {selection} must fault");

@@ -10,6 +10,8 @@ const SKIP_SECOND: u8 = 255;
 const RESTORE_SAVED_SCENE: u8 = 22;
 const AUTHORED_SCENE_COUNT: u8 = 30;
 const SCENE_NINE: u8 = 9;
+const SCENE_THREE: u8 = 3;
+const SCENE_THREE_COMPANION_SEED: u16 = 0;
 const SCENE_NINE_COMPANION_SEED: u16 = 4096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,13 +78,26 @@ pub fn install(
     } else {
         0
     };
-    if table_index != SCENE_NINE {
-        return Err(SceneInstallError::UnsupportedScene {
-            selection,
-            table_index,
-            actor: created,
-        });
-    }
+    // Complete path/action/companion rows only (`$0D:D4C7 + 8 * index`).
+    let (path, scene_action, companion_seed) = match table_index {
+        SCENE_NINE => (
+            super::authored_paths::SCENE_NINE,
+            AuthoredSceneAction::Scene9,
+            SCENE_NINE_COMPANION_SEED,
+        ),
+        SCENE_THREE => (
+            super::authored_paths::SCENE_THREE,
+            AuthoredSceneAction::Scene3,
+            SCENE_THREE_COMPANION_SEED,
+        ),
+        _ => {
+            return Err(SceneInstallError::UnsupportedScene {
+                selection,
+                table_index,
+                actor: created,
+            })
+        }
+    };
     let action = world
         .player_mut(objects, player)?
         .action
@@ -92,11 +107,11 @@ pub fn install(
     // these two counters, even when the action identity did not change.
     // The source also zeroes 1DA5, but that is only the interpreter's
     // per-visit scratch copy of 6C16 ($0D:BCF4), reloaded before any read.
-    action.action = Some(PlayerAction::Scene(AuthoredSceneAction::Scene9));
+    action.action = Some(PlayerAction::Scene(scene_action));
     action.elapsed = 0;
-    action.auxiliary_counter = SCENE_NINE_COMPANION_SEED;
+    action.auxiliary_counter = companion_seed;
     let actor = objects.get_mut(created).expect("fresh scene actor");
-    actor.base.path = Some(super::authored_paths::SCENE_NINE);
+    actor.base.path = Some(path);
     actor.base.hit_points = 1;
     actor.base.attack_power = 1;
     actor.base.flags.collision_disabled = true;

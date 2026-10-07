@@ -42,9 +42,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 156;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 157;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6632;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6835;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -83,6 +83,21 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(spawn_shape(shape, PathAddress(path))[1], 'ObjectKind::Effect')
             with self.assertRaises(UnsupportedPath):
                 spawn_shape(shape, PathAddress(path + 1))
+
+    def test_indexed_scene_three_is_admitted_only_with_its_complete_table_row(self):
+        from generate_native_paths import verified_indexed_scene_installer
+        self.assertTrue(verified_indexed_scene_installer(self.rom, PathAddress(0xD9D6)))
+        self.assertFalse(verified_indexed_scene_installer(self.rom, PathAddress(0xD48C)))
+        record = 0x06D4C7 + 3 * 8
+        for offset in range(8):
+            changed = bytearray(self.rom)
+            changed[record + offset] ^= 1
+            with self.assertRaises((UnsupportedPath, ValueError)):
+                verified_indexed_scene_installer(bytes(changed), PathAddress(0xD9D6))
+        text = generate(self.rom, roots=(("SCENE_THREE", PathAddress(0xD9D6)),))
+        self.assertIn('pub const SCENE_THREE', text)
+        self.assertIn('Statement::SelectMaterialSet', text)
+        self.assertIn('Statement::SelectShape', text)
 
     def test_bank_end_lookups_keep_only_the_entries_the_source_cannot_alias(self):
         # The handler adds the index to the pointer's low word without a carry
