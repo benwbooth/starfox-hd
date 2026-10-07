@@ -21,6 +21,7 @@ import extract_map
 import extract_palettes
 import extract_path
 import extract_shapes
+import extract_surface_particles
 import extract_text
 import extract_textures
 from rom import load_rom
@@ -37,6 +38,7 @@ def main() -> int:
     extract_text.extract(d)
     extract_shapes.extract(d)
     extract_palettes.extract(d)
+    extract_surface_particles.extract(d)
     extract_textures.extract(d)
     extract_map.extract(d)
     extract_path.extract(d)

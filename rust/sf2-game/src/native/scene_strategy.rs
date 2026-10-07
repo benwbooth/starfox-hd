@@ -134,6 +134,7 @@ pub enum SceneError<E> {
     PlayerAmbient(super::player_ambient::AmbientError),
     PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
     PlayerSurfaceSplash(super::player_surface_splash::SplashError),
+    PlayerSurfaceRender(super::player_surface_render::SurfaceRenderError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
@@ -1442,6 +1443,40 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         let result =
             super::player_surface_splash::spawn(self.objects, self.world, owner, kind, input)
                 .map_err(SceneError::PlayerSurfaceSplash);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn publish_player_surface_environment(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_surface_render::publish_environment(
+            self.objects,
+            self.world,
+            owner,
+        )
+        .map_err(SceneError::PlayerSurfaceRender);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn replace_player_surface_palette(
+        &mut self,
+        side: super::player_surface_render::SurfaceViewSide,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_surface_render::replace_polygon_palette(self.world, side)
+            .map_err(SceneError::PlayerSurfaceRender);
         if result.is_err() {
             self.execution.faulted = true;
         }

@@ -193,6 +193,9 @@ pub struct ScenePathWorld {
     pub reflect_all_contacts: Option<bool>,
     pub weapons: Option<super::weapon_dispatch::WeaponState>,
     pub palette: Option<super::player_action::ScenePalette>,
+    /// Palette display request (1E58 bit 80), separate from action flags.
+    pub palette_refresh_requested: Option<bool>,
+    pub render_environment: super::player_surface_render::SceneRenderEnvironment,
     pub player_service_flags: Option<super::player_action::PlayerServiceFlags>,
     /// Display-sampled held/pressed snapshots (1292/1296 and 1294/1298).
     /// Actor input preparation never computes fresh edges from these words.
@@ -374,6 +377,8 @@ impl ScenePathWorld {
             reflect_all_contacts: None,
             weapons: None,
             palette: None,
+            palette_refresh_requested: None,
+            render_environment: Default::default(),
             player_service_flags: None,
             controller_inputs: [None; 2],
             player_input_settings: None,

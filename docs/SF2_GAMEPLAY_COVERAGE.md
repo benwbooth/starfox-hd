@@ -152,6 +152,32 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Surface palette entries (`$07:EB78/EB94`) and the complete environment
+publication tail (`$07:C355..C440`) now use canonical typed scene owners.
+Both live/saved 16-color polygon rows change without modifying the other
+112 colors; the negative-side entry alone requests refresh. Independent carry
+and view-side bits select the existing native depth-lighting tables and the
+render plane, ambient height gate, particle flags, color-pair palette and size.
+Negative-side publication clears the entire ambient-control word, while the
+other side preserves unrelated flags and the height gate. The two ambient
+palettes are exact generated data; their source addresses are not native
+state. Seven native tests exercise the material resolver, missing-input write
+order and latched scene failures. Four unmodified-original groups cover
+65,536 mode/flag combinations, every inherited ambient-control word, all
+refresh bytes across three retained palette entries, and 4,096 interleaved
+render/palette visits with scene-mode changes. This closes the rendering tail,
+not `$07:BF42`'s whole surface transition, `$07:CB33`'s allocation-storage alias,
+the ambient-particle renderer or the production player/frame owner.
+Validation passes 1,512 native tests plus two architecture checks and 1,520
+compatibility tests plus 35 runtime checks in debug/release, 194 selected
+original-code groups in both profiles, 813 source checks, 241 extractor/lowerer
+checks, generated catalogs and the static audit. All three application
+binaries build and pass tests in both profiles. Detailed local logs:
+`/tmp/sf2-surface-render-validation-oct06.log`,
+`/tmp/sf2-surface-render-final-builds-oct06.log`,
+`/tmp/sf2-surface-render-static-oct06.log` and
+`/tmp/sf2-surface-render-other-extractors-oct06.log`.
+
 Surface-crossing splash installers (`$07:CBD3/CBFD`), shared placement
 (`$07:CCC3..CD6F`) and both lifetime phases (`$07:CC6E..CCC2`) now use real
 native actors. Their distinct origin, attachment, random child number,

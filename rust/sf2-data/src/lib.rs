@@ -74,5 +74,6 @@ pub mod point_program_data;
 pub mod shape_data;
 pub mod shape_program;
 pub mod shape_program_data;
+pub mod surface_particles;
 pub mod text;
 pub mod textures;

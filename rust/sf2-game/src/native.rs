@@ -106,6 +106,7 @@ pub mod player_throttle;
 pub mod player_ambient;
 pub mod player_surface_particle;
 pub mod player_surface_splash;
+pub mod player_surface_render;
 pub mod player_surface_effect;
 pub mod player_surface;
 pub mod player_speed;

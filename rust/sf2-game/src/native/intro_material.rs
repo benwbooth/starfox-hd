@@ -10,6 +10,7 @@ pub struct DepthColorFamily(usize);
 
 impl DepthColorFamily {
     pub const STANDARD: Self = Self(0);
+    pub const SURFACE_UNCARRIED: Self = Self(1);
 
     pub fn from_catalog_index(index: usize) -> Option<Self> {
         (index < DEPTH_PAIRS.len()).then_some(Self(index))
@@ -27,6 +28,8 @@ pub struct DepthThresholdTable(usize);
 impl DepthThresholdTable {
     pub const NORMAL: Self = Self(4);
     pub const OPENING: Self = Self(9);
+    pub const SURFACE_UNCARRIED: Self = Self(7);
+    pub const SURFACE_CARRIED: Self = Self(8);
 
     pub fn from_catalog_index(index: usize) -> Option<Self> {
         (index < DEPTH_THRESHOLDS.len()).then_some(Self(index))

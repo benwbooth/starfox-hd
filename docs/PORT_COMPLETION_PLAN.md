@@ -113,6 +113,26 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported SF2's surface-crossing polygon-palette entries (`$07:EB78/EB94`)
+  and complete lighting/ambient publication tail (`$07:C355..C440`). The
+  live and saved polygon rows share their real palette owner; only the
+  negative-side entry requests refresh. Carry and view-side bits independently
+  select shading and ambient behavior. The negative-side branch replaces the
+  render plane, height gate and entire ambient-control word; the other branch
+  preserves the gate and unrelated flags. Ambient palette selections are
+  decoded color-pair assets, not source addresses in native state. Seven new
+  native tests cover partial publications, absent-input ordering, fail-stop
+  scene wrappers and the existing material resolver. Four original-code
+  groups cover all mode/flag bytes, every inherited ambient-control word,
+  palette preservation/refresh and 4,096 retained visits across scene modes.
+  All 1,512 native tests plus two architecture checks and all 1,520
+  compatibility tests plus 35 runtime checks pass in debug/release. The 194
+  selected original-code groups, 813 source checks, 241 extractor/lowerer
+  checks, generated catalogs and static audit pass. All three applications
+  build and pass their tests in both profiles.
+  The enclosing crossing, generic contact-particle entry, ambient renderer
+  and shipping frame integration remain open; no campaign claim is implied.
+
 - Ported SF2's two surface-crossing splash installers and their complete
   placement/lifetime (`$07:CBD3/CBFD..CD6F`). These are not the moving
   wing-contact particles: they use a separately supplied placement origin,

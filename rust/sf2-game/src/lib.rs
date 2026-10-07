@@ -43,6 +43,7 @@ pub use native::player_throttle;
 pub use native::player_ambient;
 pub use native::player_surface_particle;
 pub use native::player_surface_splash;
+pub use native::player_surface_render;
 pub use native::player_surface_effect;
 pub use native::player_surface;
 pub use native::player_speed;
