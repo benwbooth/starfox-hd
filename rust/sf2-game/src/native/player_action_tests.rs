@@ -14,6 +14,8 @@ struct Callbacks;
 
 #[path = "player_action_retreat_tests.rs"]
 mod retreat;
+#[path = "player_scene_action_tests.rs"]
+mod scenes;
 impl SceneCallbacks for Callbacks {
     type Error = &'static str;
     fn assigned(

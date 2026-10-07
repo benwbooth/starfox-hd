@@ -22,6 +22,11 @@ class PathSoundStaticTests(unittest.TestCase):
         self.assert_source(0x7FA412, "20 BC C4 8D 31 1C 9C 32 1C AC 1F CF 20 39 A4 4C D3 CA")
         self.assert_source(0x7FA424, "20 BC C4 8D 31 1C 20 E0 C4 8D 32 1C AC 1F CF 20 39 A4 4C BE CA")
 
+    def test_scene_cue_retains_complete_literal_before_unrouted_shared_enqueue(self):
+        self.assert_source(0x7FBF66, "C2 20 20 20 C7 8D E1 1C 22 09 6E 7F 4C BE CA")
+        self.assert_source(0x7F6E09, "DA AE 16 1D 9D F6 1C E2 20 8A 1A 1A 29 1F 8D 16 1D C2 20 FA 6B")
+        self.assert_source(0x7FCABE, "E2 20 C2 20 B5 2B 18 69 03 00 95 2B E2 20 4C 75 7E")
+
     def test_retained_control_is_positional_sound_not_a_trail_or_immediate_cue(self):
         self.assert_source(0x7FA5B6, "20 BC C4 9D CC 1C 4C D3 CA")
         # The draw pass admits a nonzero control to the nearest-sound

@@ -39,9 +39,23 @@ pub struct AudioState {
     next_event_read: usize,
     spatial_listener_yaw: Option<Angle>,
     pending_music_control: Option<super::path_sound::MusicControlRequest>,
+    /// Last direct scene cue ($1CE1), retained independently of queue
+    /// consumption and ordinary player-routed sound publications.
+    retained_scene_cue: Option<super::path_sound::AuthoredCue>,
 }
 
 impl AudioState {
+    /// `$7F:BF66`: retain and enqueue the authored cue without resolving or
+    /// changing its listener. Ordinary path sounds use a different producer.
+    pub fn publish_scene_cue(&mut self, cue: super::path_sound::AuthoredCue) {
+        self.retained_scene_cue = Some(cue);
+        self.queue(SoundEvent::Authored(cue));
+    }
+
+    pub const fn retained_scene_cue(&self) -> Option<super::path_sound::AuthoredCue> {
+        self.retained_scene_cue
+    }
+
     /// Replace the unconsumed music/control publication, independently of
     /// the one-shot ring. Repeated requests remain real new publications.
     pub fn request_music_control(&mut self, request: super::path_sound::MusicControlRequest) {

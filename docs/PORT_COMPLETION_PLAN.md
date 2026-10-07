@@ -113,6 +113,37 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Added indexed scene entry (`$06:A8D2..A987`) as a typed installer and
+  closed scene nine as a complete pair: its path now lowers fully (direct
+  scene cue `$7F:BF66`, reviewed child spawn kinds) and the installer creates
+  its follow-path root, resets action time and seeds the `$1000` companion
+  counter from the source table. Selector 22 substitutes the saved scene
+  (6AE6, cleared by the partial motion reset) without re-testing sentinels,
+  exactly as the source does. Every other table entry faults after the same
+  allocation instead of becoming an empty scene. A new original-code test
+  compares sentinels, substitution, pool pressure/exhaustion and the full
+  actor/action record; the full scene-nine comparison now passes all six
+  pilots, both protection states and three gate-release times. That
+  comparison exposed a real gap: a retained extension-relative child can
+  outlive its parent, and the source keeps reading the freed record's last
+  pose until reallocation. Retired slots now keep that pose. Scenes 3, 4, 5
+  and 25 still have path blockers, and the installer is not yet called from
+  shipping progression.
+
+- Added the complete parallel actions for authored scenes 3, 4, 5, 9 and
+  25, including their exact exit times, scene-five projection-control change
+  and scene-nine's non-null empty stream. The shared scheduler publishes
+  canonical cinematic signals; the outer exit consumer waits for separately
+  scheduled display work, preserving input readiness and action clocks.
+  Four native tests and two original-code groups pass every elapsed word,
+  paused/unpaused execution and retained repeated visits. Existing action,
+  action-wait and cinematic-exit original-code tests also pass. Broader
+  debug/release and static verification passed with the scene-entry batch. The indexed installer and paired
+  actor paths remain separate blockers; these actions are not proof of
+  playable scene or campaign completion. A fresh SF1 controller-only Corneria
+  check still fails when the player dies at update 1,499; its inputs and
+  expectations were not changed (`/tmp/sf1-corneria-live-resume-oct07.log`).
+
 - Added the two real action-only player strategies to the shared scheduler
   (`$06:8362..83F0`, `$06:84BE..84EE`). One clears only action elapsed time
   and installs its active successor; the other retains its strategy and

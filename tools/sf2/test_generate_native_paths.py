@@ -42,15 +42,53 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 155;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 156;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6571;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6632;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
                 changed[0x40000 + callsite.offset + delta] ^= 1
                 with self.assertRaises(UnsupportedPath):
                     generate_reviewed_catalog(bytes(changed))
+
+    def test_indexed_scene_nine_includes_all_children_callbacks_and_paired_empty_action(self):
+        from generate_native_paths import verified_indexed_scene_installer
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xD40E)
+        self.assertNotIn(root, extractor.discover_roots())
+        self.assertTrue(verified_indexed_scene_installer(self.rom, root))
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 115)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '861990d496110b17df1adbf40a63c953dc62a86f606a93e9811cc9b1c53840d9')
+        entry, statements = lower_graph(extractor, root, 0)
+        self.assertEqual((entry, len(statements)), (30, 115))
+        lowered = '\n'.join(statements)
+        for operation in ('SceneSound', 'SetActionGate { value: 100', 'InstallExitShield',
+                          'PublishCameraTrackingTarget', 'SelectActivePilotCraft',
+                          'UpdateLowShieldVisual', 'FixedViewCommand::AimTracking',
+                          'ForceAfterCallbacks'):
+            self.assertIn(operation, lowered)
+        self.assertEqual(lowered.count('Statement::SpawnChild'), 5)
+        self.assertEqual(lowered.count('Statement::SpawnIndependent'), 1)
+        record = 0x06D4C7 + 9 * 8
+        for index in range(8):
+            changed = bytearray(self.rom)
+            changed[record + index] ^= 1
+            with self.assertRaises((ValueError, UnsupportedPath)):
+                verified_indexed_scene_installer(bytes(changed), root)
+        for shape, path in [(0xDD88, 0xD9A3), (0xDDA4, 0x7FAA),
+                            (0xBC9C, 0xD469), (0xBC9C, 0xD452), (0xE8B0, 0x7FA1)]:
+            self.assertEqual(spawn_shape(shape, PathAddress(path))[1], 'ObjectKind::Effect')
+            with self.assertRaises(UnsupportedPath):
+                spawn_shape(shape, PathAddress(path + 1))
+
+    def test_scene_cue_decodes_all_parameter_bytes_without_listener_routing(self):
+        for parameter in range(256):
+            target = 'Secondary' if parameter & 0x80 else 'Primary'
+            self.assertEqual(self.lower_record(f'0049fa{parameter:02x}')[0],
+                f'Statement::SceneSound {{ cue: super::path_sound::AuthoredCue::new(250, {parameter & 0x7F}, super::path_control::PlayerTarget::{target}), next: cursor(0, 1) }}')
 
     def test_target_proxy_callback_is_a_complete_registered_graph(self):
         extractor = PathExtractor(self.rom)

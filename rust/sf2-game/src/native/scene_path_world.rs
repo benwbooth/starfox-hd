@@ -56,6 +56,8 @@ pub struct PlayerPathRecords {
     /// by its active-shot limit. Linked-view firing has a separate policy.
     pub rapid_rejection_consumes_queue: Option<bool>,
     pub action: Option<super::player_action::PlayerActionState>,
+    /// Saved indexed scene (6AE6), substituted only by selector 22.
+    pub saved_scene_selection: Option<u8>,
     pub mission: Option<super::player_mission::PlayerMissionControl>,
     pub palette_effects: Option<super::player_palette::PlayerPaletteControl>,
     pub consumable: Option<super::player_consumable::PlayerConsumableControl>,
@@ -182,6 +184,8 @@ pub struct ScenePathWorld {
     pub map: Option<super::scene_map::SceneMap>,
     pub strategy_clock: u16,
     pub scene: ScenePathInputs,
+    /// Live indexed scene request (1D73), separate from the map and action gate.
+    pub scene_selection: Option<u8>,
     pub primary_player: Option<ObjectId>,
     pub secondary_player: Option<ObjectId>,
     pub fixed_players: [Option<ObjectId>; 2],
@@ -202,6 +206,9 @@ pub struct ScenePathWorld {
     pub palette_refresh_requested: Option<bool>,
     pub render_environment: super::player_surface_render::SceneRenderEnvironment,
     pub player_service_flags: Option<super::player_action::PlayerServiceFlags>,
+    /// Shared cinematic exit/readiness signals (1B96 bits 10/20). Parallel
+    /// actions and the outer cinematic loop operate on this same publication.
+    pub cinematic_signals: Option<super::cinematic_exit::CinematicSignals>,
     /// Display-sampled held/pressed snapshots (1292/1296 and 1294/1298).
     /// Actor input preparation never computes fresh edges from these words.
     pub controller_inputs: [Option<super::InputState>; 2],
@@ -403,6 +410,8 @@ impl ScenePathWorld {
             palette_refresh_requested: None,
             render_environment: Default::default(),
             player_service_flags: None,
+            cinematic_signals: None,
+            scene_selection: None,
             controller_inputs: [None; 2],
             player_input_settings: None,
             processed_player_input: None,

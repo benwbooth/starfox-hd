@@ -96,11 +96,7 @@ impl Fixture {
             (SLOT + 0x6ACD, r.yaw_motion.unwrap()),
             (
                 SLOT + 0x6C13,
-                match r.action.unwrap().action {
-                    None => 0,
-                    Some(PlayerAction::TriggeredProjectile) => 0xBDDA,
-                    Some(PlayerAction::ForcedRetreat) => 0xBF63,
-                },
+                super::action_tests::action_address(r.action.unwrap().action),
             ),
             (
                 u32::from(OWNER) + 0x34,

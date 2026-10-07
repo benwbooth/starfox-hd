@@ -312,6 +312,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x144, "CopySelectedRotation", 0x7FBF4E, None, "sf2_handler"),
     PathSemanticSpec(0x147, "IfVariableEqualsExternal1dd4", 0x7FBF58, None, "sf2_handler"),
     PathSemanticSpec(0x148, "CallExternalStrategy1e14", 0x7FBE19, None, "sf2_handler"),
+    PathSemanticSpec(0x149, "PublishSceneCue", 0x7FBF66, None, "sf2_handler"),
     PathSemanticSpec(0x14A, "SpawnLinkedObjectEffects", 0x7FBF75, None, "sf2_handler"),
     PathSemanticSpec(0x14B, "FacePlayer", 0x7F8755, 9, "sf2_handler"),
     PathSemanticSpec(0x14C, "CopyPositionToObject", 0x7FBFF6, None, "sf2_handler"),

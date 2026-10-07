@@ -61,14 +61,12 @@ pub fn refresh_actor(objects: &mut ObjectStore, owner: ObjectId) -> Result<(), A
     let offset = actor.extension.relative_position;
     let local_rotation = actor.extension.relative_rotation;
     let base_self_reference = parent == owner;
-    let parent = objects
-        .get(parent)
+    // A retained extension-relative parent may already be retired; the
+    // source then reads the freed record's last pose.
+    let (parent_position, [pitch, yaw, roll]) = objects
+        .attachment_parent_pose(parent)
         .ok_or(AttachmentError::MissingActor(parent))?;
-    let rotation = Rotation {
-        pitch: parent.base.pitch,
-        yaw: parent.base.yaw,
-        roll: parent.base.roll,
-    };
+    let rotation = Rotation { pitch, yaw, roll };
     let published_rotation = Rotation {
         pitch: rotation
             .pitch
@@ -92,9 +90,9 @@ pub fn refresh_actor(objects: &mut ObjectStore, owner: ObjectId) -> Result<(), A
         offset.z,
     );
     let position = Vector3 {
-        x: parent.base.position.x.wrapping_add(x),
-        y: parent.base.position.y.wrapping_add(y),
-        z: parent.base.position.z.wrapping_add(z),
+        x: parent_position.x.wrapping_add(x),
+        y: parent_position.y.wrapping_add(y),
+        z: parent_position.z.wrapping_add(z),
     };
     let actor = objects.get_mut(owner).expect("validated attachment actor");
     actor.base.position = position;
@@ -176,6 +174,26 @@ mod tests {
         let before = objects.get(child).unwrap().clone();
         refresh_actor(&mut objects, child).unwrap();
         assert_eq!(objects.get(child).unwrap(), &before);
+    }
+
+    #[test]
+    fn retired_extension_parent_supplies_last_pose_until_slot_reuse() {
+        let mut objects = ObjectStore::new();
+        let mut parent = actor();
+        parent.base.position.x = 200;
+        let parent = objects.allocate(parent).unwrap();
+        let mut child = actor();
+        child.extension.parent = Some(parent);
+        child.extension.relative_position.x = 100;
+        let child = objects.allocate(child).unwrap();
+        objects.remove(parent).unwrap();
+        refresh_actor(&mut objects, child).unwrap();
+        assert_eq!(objects.get(child).unwrap().base.position.x, 299);
+        // Reallocation replaces the freed record and its pose.
+        let reused = objects.allocate(actor()).unwrap();
+        assert_eq!(reused, parent);
+        refresh_actor(&mut objects, child).unwrap();
+        assert_eq!(objects.get(child).unwrap().base.position.x, 99);
     }
 
     #[test]

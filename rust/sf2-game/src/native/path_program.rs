@@ -191,6 +191,10 @@ mod node_exit_tests;
 #[path = "path_ordinary_exit_tests.rs"]
 mod ordinary_exit_tests;
 
+#[cfg(test)]
+#[path = "path_scene_sound_tests.rs"]
+mod scene_sound_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -1021,6 +1025,11 @@ pub enum Statement {
         next: PathCursor,
     },
     Sound {
+        cue: super::path_sound::AuthoredCue,
+        next: PathCursor,
+    },
+    /// Retained scene cue with authored routing, unlike selected-player sound.
+    SceneSound {
         cue: super::path_sound::AuthoredCue,
         next: PathCursor,
     },
@@ -2466,6 +2475,12 @@ impl PathRuntime {
                     .expect("validated sound owner")
                     .base
                     .path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SceneSound { cue, next } => {
+                world.audio.as_mut().ok_or(ProgramError::MissingAudio)?
+                    .events.publish_scene_cue(cue);
+                objects.get_mut(owner).expect("validated sound owner").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
             Statement::SpatialLoop { sound, next } => {
@@ -14279,10 +14294,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 155);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 156);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6512);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6571);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6573);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6632);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

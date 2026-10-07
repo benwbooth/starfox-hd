@@ -205,7 +205,8 @@ pub fn advance(
         .ok_or(EngineSoundError::MissingAction(owner))?
         .action;
     match action {
-        None | Some(PlayerAction::TriggeredProjectile | PlayerAction::ForcedRetreat) => {}
+        None | Some(PlayerAction::TriggeredProjectile | PlayerAction::ForcedRetreat
+            | PlayerAction::Scene(_)) => {}
     }
     if !world
         .contacts_enabled()

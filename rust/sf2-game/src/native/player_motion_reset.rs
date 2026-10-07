@@ -171,6 +171,8 @@ pub fn clear(
         rapid_aim: Some(Default::default()),
         rapid_rejection_consumes_queue: records.rapid_rejection_consumes_queue,
         action: records.action,
+        // 6AE6 lies inside the cleared 391-byte prefix.
+        saved_scene_selection: Some(0),
         mission: Some(Default::default()),
         palette_effects: records.palette_effects,
         consumable: Some(super::player_consumable::PlayerConsumableControl {

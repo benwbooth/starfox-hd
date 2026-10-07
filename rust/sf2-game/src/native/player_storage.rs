@@ -155,6 +155,7 @@ pub fn replace(
             .owned_payload_is_page_aligned(owner, resource)
             .expect("fresh player allocation")),
         action: Some(Default::default()),
+        saved_scene_selection: Some(0),
         mission: Some(Default::default()),
         palette_effects: Some(Default::default()),
         consumable: Some(Default::default()),

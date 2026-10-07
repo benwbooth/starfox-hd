@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("SCENE_NINE", PathAddress(0xD40E)),
     ("ORDINARY_SCENE_EXIT", PathAddress(0xCF18)),
     ("SPECIAL_SCENE_EXIT", PathAddress(0xD27B)),
     ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
@@ -633,6 +634,15 @@ def shape_index(shape: int) -> int:
 
 def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     index = shape_index(shape)
+    # Indexed scene nine's flight presentation. Its held scenery, rotating
+    # backdrop, view anchor and pilot craft all disable collision before
+    # yielding. Bind this classification to complete reviewed path identities.
+    if (shape, path) in ((0xDD88, PathAddress(0xD9A3)),
+                        (0xDDA4, PathAddress(0x7FAA)),
+                        (0xBC9C, PathAddress(0xD469)),
+                        (0xBC9C, PathAddress(0xD452)),
+                        (0xE8B0, PathAddress(0x7FA1))):
+        return index, "ObjectKind::Effect"
     # Special-exit controller: the tracking anchor, departing craft, animated
     # geometry and distant scenery all disable collision before their first
     # yield. This is not a classification for other uses of these shapes.
@@ -1151,6 +1161,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if command.successors:
                 raise UnsupportedPath(f"unexpected death-path successor at {command.address.label()}")
             statement = "Statement::MarkForDeath"
+        elif name == "PublishSceneCue":
+            cue, parameter = parameters(2)
+            target = 'Secondary' if parameter & 0x80 else 'Primary'
+            statement = f"Statement::SceneSound {{ cue: super::path_sound::AuthoredCue::new({cue}, {parameter & 0x7F}, super::path_control::PlayerTarget::{target}), next: {next_cursor()} }}"
         elif name in ("SetExternal1d72", "ClearExternal1d72"):
             if name == "SetExternal1d72":
                 value, = parameters(1)
@@ -2395,6 +2409,21 @@ def verified_map_spawn_installer(rom: bytes, root: PathAddress) -> bool:
     return True
 
 
+def verified_indexed_scene_installer(rom: bytes, root: PathAddress) -> bool:
+    # Indexed entries do not occur in discover_roots' immediate stores. Keep
+    # the complete paired path/action/companion record source-bound, rather
+    # than admitting every table address as an implemented scene.
+    if root != PathAddress(0xD40E):
+        return False
+    from extract_intro_controller import authored_scene_controller
+    scene = authored_scene_controller(rom, 9)
+    record = 0x06D4C7 + 9 * 8
+    if (scene.path_root != root.offset or scene.script != 0x0DC191
+            or scene.commands or rom[record:record + 8] != bytes.fromhex('0ed491c10d001000')):
+        raise UnsupportedPath('unverified indexed scene-nine installer')
+    return True
+
+
 def generate(rom: bytes, roots=ROOTS, *, subroutines=()) -> str:
     extractor = PathExtractor(rom)
     discovered = set(extractor.discover_roots())
@@ -2413,7 +2442,9 @@ def generate(rom: bytes, roots=ROOTS, *, subroutines=()) -> str:
     indices = {address: index for index, address in enumerate(addresses)}
     unique_statements = {}
     for entry_index, (name, root) in enumerate(entries):
-        if entry_index < len(roots) and root not in discovered and not verified_map_spawn_installer(rom, root):
+        if (entry_index < len(roots) and root not in discovered
+                and not verified_map_spawn_installer(rom, root)
+                and not verified_indexed_scene_installer(rom, root)):
             installer = CHILD_INSTALLERS.get(root)
             if installer is None or installer[0] not in discovered:
                 raise UnsupportedPath(f"{name} has no verified source installer")

@@ -152,6 +152,20 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Authored scene actions 3, 4, 5, 9 and 25 now have complete typed timelines,
+including their exit publications and scene-five projection-control change.
+Scene nine's genuinely non-null empty stream still advances its clocks;
+unsupported streams are not replaced with that behavior. Actions and the
+outer cinematic exit loop share canonical readiness/exit signals, and only
+independent display work completes the requested fade. Four native tests and
+two original-code groups pass all elapsed words, both pause states and retained
+multi-visit execution; existing action/action-wait/exit tests also pass.
+Indexed scene entry (`$06:A8D2..A987`) is now typed and original-code
+checked; scene nine is the only complete path/action pair it installs, and
+its whole path matches the original for all pilots. Scenes 3, 4, 5 and 25
+keep explicit path-lowering blockers and fault rather than installing an
+empty scene. Shipping frame ownership is not closed by these tests.
+
 The real action-only player strategies (`$06:8362..83F0`, `$06:84BE..84EE`)
 now dispatch directly from the shared native scheduler. The first resets
 movement once, clears only action elapsed time and installs its active phase;

@@ -89,6 +89,13 @@ mod frame_effects_tests;
 mod post_motion_tests;
 #[path = "support/sf2_player_action_wait.rs"]
 mod action_wait_tests;
+#[path = "support/sf2_player_scene_actions.rs"]
+mod scene_action_tests;
+
+#[path = "support/sf2_scene_nine.rs"]
+mod scene_nine_tests;
+#[path = "support/sf2_scene_install.rs"]
+mod scene_install_tests;
 
 #[path = "support/sf2_attachment_pose.rs"]
 mod attachment_poses;

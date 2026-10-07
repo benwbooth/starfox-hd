@@ -20,7 +20,28 @@ const SPECIAL_CONFIGURATION: u8 = 9;
 const RETREAT_CAMERA_TIME: u16 = 8;
 const SCRIPTED_PROTECTION: u8 = 63;
 const ACTION_TRIGGER: u8 = 0x01;
+const SCENE_THREE_EXIT_TIME: u16 = 180;
+const SCENE_FOUR_EXIT_TIME: u16 = 144;
+const SCENE_FIVE_EXIT_TIME: u16 = 227;
+const SCENE_TWENTY_FIVE_EXIT_TIME: u16 = 124;
 pub const SCENE_PALETTE_COLORS: usize = 128;
+
+/// Source-complete entries of the indexed scene/controller table. The scene
+/// numbers identify authored records, not inferred cinematic roles. Other
+/// entries cannot be substituted with Scene9's genuinely empty stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthoredSceneAction {
+    /// Record 3, `$0D:C4F3`: request the next scene at update 180.
+    Scene3,
+    /// Record 4, `$0D:BEB4`: request the next scene at update 144.
+    Scene4,
+    /// Record 5, `$0D:BED3`: disable projection correction, then exit at 227.
+    Scene5,
+    /// Record 9, `$0D:C191`: a non-null, empty action that still advances time.
+    Scene9,
+    /// Record 25, `$0D:BEBB`: request the next scene at update 124.
+    Scene25,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerAction {
@@ -28,6 +49,7 @@ pub enum PlayerAction {
     TriggeredProjectile,
     /// `$0D:BF63`, forced retreat when the scene inhibits ordinary play.
     ForcedRetreat,
+    Scene(AuthoredSceneAction),
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +159,8 @@ enum ActionService {
     RequestRetreatTransition,
     RequestRetreatAudio,
     InstallRetreatCamera,
+    RequestSceneExit,
+    DisableProjectionCorrection,
 }
 
 // Preserve the source order, including Stop before the earlier-time events.
@@ -169,6 +193,20 @@ const RETREAT_SERVICES: [(ActionTiming, ActionService); 6] = [
     ),
 ];
 
+const SCENE_THREE_SERVICES: [(ActionTiming, ActionService); 1] = [(
+    ActionTiming::At(SCENE_THREE_EXIT_TIME), ActionService::RequestSceneExit,
+)];
+const SCENE_FOUR_SERVICES: [(ActionTiming, ActionService); 1] = [(
+    ActionTiming::At(SCENE_FOUR_EXIT_TIME), ActionService::RequestSceneExit,
+)];
+const SCENE_FIVE_SERVICES: [(ActionTiming, ActionService); 2] = [
+    (ActionTiming::At(0), ActionService::DisableProjectionCorrection),
+    (ActionTiming::At(SCENE_FIVE_EXIT_TIME), ActionService::RequestSceneExit),
+];
+const SCENE_TWENTY_FIVE_SERVICES: [(ActionTiming, ActionService); 1] = [(
+    ActionTiming::At(SCENE_TWENTY_FIVE_EXIT_TIME), ActionService::RequestSceneExit,
+)];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerActionError {
     World(WorldInputError),
@@ -180,6 +218,8 @@ pub enum PlayerActionError {
     MissingProjectileTrigger,
     MissingServiceFlags,
     MissingSceneTransition,
+    MissingCinematicSignals,
+    MissingCameraDispatch(ObjectId),
 }
 
 impl From<WorldInputError> for PlayerActionError {
@@ -220,6 +260,13 @@ pub fn advance(
     let services: &[_] = match action {
         PlayerAction::TriggeredProjectile => &TRIGGERED_SERVICES,
         PlayerAction::ForcedRetreat => &RETREAT_SERVICES,
+        PlayerAction::Scene(scene) => match scene {
+            AuthoredSceneAction::Scene3 => &SCENE_THREE_SERVICES,
+            AuthoredSceneAction::Scene4 => &SCENE_FOUR_SERVICES,
+            AuthoredSceneAction::Scene5 => &SCENE_FIVE_SERVICES,
+            AuthoredSceneAction::Scene9 => &[],
+            AuthoredSceneAction::Scene25 => &SCENE_TWENTY_FIVE_SERVICES,
+        },
     };
     for &(timing, service) in services {
         if !timing.applies(decision_time) {
@@ -298,6 +345,17 @@ pub fn advance(
                 AuxiliaryCameraTask::Initialize(OrbitStyle::Retreat),
             )
             .map_err(PlayerActionError::Camera)?,
+            ActionService::RequestSceneExit => world
+                .cinematic_signals
+                .as_mut()
+                .ok_or(PlayerActionError::MissingCinematicSignals)?
+                .exit_requested = true,
+            ActionService::DisableProjectionCorrection => world
+                .player_mut(objects, owner)?
+                .camera_dispatch
+                .as_mut()
+                .ok_or(PlayerActionError::MissingCameraDispatch(owner))?
+                .projection_correction_disabled = true,
         }
     }
     // A stop service clears the stored time, not this visit's decision time.

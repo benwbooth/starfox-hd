@@ -1186,6 +1186,9 @@ pub struct ObjectStore {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RetiredAttachmentLink {
     next: Option<ObjectId>,
+    /// The freed record keeps its last pose until reallocation clears it.
+    /// Retained extension-relative children still read it (`$7F:2229`).
+    pose: (Vector3, [Angle; 3]),
 }
 
 impl ObjectStore {
@@ -1315,6 +1318,10 @@ impl ObjectStore {
         let object = self.slots.get_mut(id.index())?.take()?;
         self.retired_attachment_links[id.index()] = Some(RetiredAttachmentLink {
             next: object.base.attachment_next,
+            pose: (
+                object.base.position,
+                [object.base.pitch, object.base.yaw, object.base.roll],
+            ),
         });
         let previous = object.base.previous;
         let next = object.base.next;
@@ -1409,6 +1416,14 @@ impl ObjectStore {
     pub(super) fn attachment_chain_next(&self, id: ObjectId) -> Option<Option<ObjectId>> {
         self.get(id).map(|object| object.base.attachment_next)
             .or_else(|| self.retired_attachment_links.get(id.index())?.map(|link| link.next))
+    }
+
+    /// Attachment parent pose: a live actor, or a slot retired earlier
+    /// whose record has not yet been reallocated.
+    pub(super) fn attachment_parent_pose(&self, id: ObjectId) -> Option<(Vector3, [Angle; 3])> {
+        self.get(id)
+            .map(|parent| (parent.base.position, [parent.base.pitch, parent.base.yaw, parent.base.roll]))
+            .or_else(|| self.retired_attachment_links.get(id.index())?.map(|link| link.pose))
     }
 
     pub(super) fn set_attachment_chain_next(&mut self, id: ObjectId, next: Option<ObjectId>) -> bool {

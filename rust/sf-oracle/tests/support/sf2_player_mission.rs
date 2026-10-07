@@ -16,6 +16,10 @@ fn fixture() -> Fixture {
     f.world.coordination = Some(EncounterCoordination::default());
     f.world.objective_counts = Some(EncounterObjectiveCounts::default());
     f.world.reticle_inhibited = Some(false);
+    f.retained_scene_flags = 0xFECF;
+    f.world.cinematic_signals = Some(sf2_game::cinematic_exit::CinematicSignals {
+        exit_requested: true, skip_ready: true,
+    });
     f
 }
 

@@ -5,7 +5,7 @@ use sf2_game::path_program::{ProjectileTrigger, SelectedAuxiliaryState};
 use sf2_game::path_scene_state::SceneTransitionControl;
 use sf2_game::path_sound::MusicControlRequest;
 use sf2_game::player_action::{
-    self, PlayerAction, PlayerActionState, PlayerServiceFlags, ScenePalette,
+    self, AuthoredSceneAction, PlayerAction, PlayerActionState, PlayerServiceFlags, ScenePalette,
 };
 use sf2_game::player_camera_auxiliary::{AuxiliaryCameraTask, OrbitStyle, PlayerCameraAuxiliary};
 use sf2_game::scene_path_world::{PlayerPathRecords, ScenePathWorld};
@@ -20,11 +20,18 @@ const OWNER: u16 = 0x0500;
 const SLOT: u32 = 64;
 const VIEW: u32 = 0x033F;
 
-fn action_address(action: Option<PlayerAction>) -> u16 {
+pub(super) fn action_address(action: Option<PlayerAction>) -> u16 {
     match action {
         None => 0,
         Some(PlayerAction::TriggeredProjectile) => 0xBDDA,
         Some(PlayerAction::ForcedRetreat) => 0xBF63,
+        Some(PlayerAction::Scene(scene)) => match scene {
+            AuthoredSceneAction::Scene3 => 0xC4F3,
+            AuthoredSceneAction::Scene4 => 0xBEB4,
+            AuthoredSceneAction::Scene5 => 0xBED3,
+            AuthoredSceneAction::Scene9 => 0xC191,
+            AuthoredSceneAction::Scene25 => 0xBEBB,
+        },
     }
 }
 
@@ -32,6 +39,9 @@ pub(super) struct Fixture {
     pub(super) objects: ObjectStore,
     pub(super) world: ScenePathWorld,
     pub(super) owner: ObjectId,
+    /// Unmodeled bits seeded equally in both test owners, never read back
+    /// from source results to repair a native expectation.
+    pub(super) retained_scene_flags: u16,
     view: ObjectId,
 }
 
@@ -68,6 +78,7 @@ impl Fixture {
                         stored_rotation: Default::default(),
                     }),
                     camera_auxiliary: Some(PlayerCameraAuxiliary::default()),
+                    camera_dispatch: Some(Default::default()),
                     ..Default::default()
                 },
             )
@@ -78,6 +89,8 @@ impl Fixture {
         world.player_view_options_enabled = Some(true);
         world.projectile_trigger = Some(ProjectileTrigger::default());
         world.player_service_flags = Some(PlayerServiceFlags::default());
+        world.cinematic_signals = Some(Default::default());
+        world.reticle_inhibited = Some(true);
         world.scene.player_configuration = Some(0);
         world.palette = Some(ScenePalette {
             colors: std::array::from_fn(|i| (i as u16 * 251) | 0x8000),
@@ -87,6 +100,7 @@ impl Fixture {
             objects,
             world,
             owner,
+            retained_scene_flags: 0xAACF,
             view,
         }
     }
@@ -95,12 +109,20 @@ impl Fixture {
         self.world.player_mut(&self.objects, self.owner).unwrap()
     }
 
+    pub(super) fn scene_flags(&self) -> u16 {
+        self.retained_scene_flags
+            | u16::from(self.world.cinematic_signals.unwrap().exit_requested) * 0x10
+            | u16::from(self.world.cinematic_signals.unwrap().skip_ready) * 0x20
+            | u16::from(self.world.reticle_inhibited.unwrap()) * 0x100
+    }
+
     pub(super) fn seed(&self, source: &mut Source, pressed: bool) {
         let r = self.world.player(&self.objects, self.owner).unwrap();
         let action = r.action.unwrap();
         source.bus.write16(u32::from(OWNER) + 0x2B, SLOT as u16);
         for (address, value) in [
             (0x1B84, self.world.view_transition_mode.unwrap().flags),
+            (0x1B96, self.scene_flags()),
             (0x1B78, self.world.scene_transition.unwrap().phase_word),
             (SLOT + 0x6C13, action_address(action.action)),
             (SLOT + 0x6C16, action.elapsed),
@@ -122,6 +144,8 @@ impl Fixture {
                 if action.action.is_some() { 0x0D } else { 0 },
             ),
             (SLOT + 0x6A9F, 7),
+            (SLOT + 0x6B65, 0xBF | u8::from(r.camera_dispatch.unwrap()
+                .projection_correction_disabled) * 0x40),
             (SLOT + 0x6B77, r.auxiliary.unwrap().action_flags),
             (SLOT + 0x6BE2, r.contact.unwrap().hit.secondary_protection),
             (SLOT + 0x6BE3, r.contact.unwrap().hit.recovery),
@@ -181,6 +205,7 @@ impl Fixture {
         let action = r.action.unwrap();
         for (address, value) in [
             (0x1B84, self.world.view_transition_mode.unwrap().flags),
+            (0x1B96, self.scene_flags()),
             (0x1B78, self.world.scene_transition.unwrap().phase_word),
             (SLOT + 0x6C13, action_address(action.action)),
             (SLOT + 0x6C16, action.elapsed),
@@ -200,6 +225,8 @@ impl Fixture {
                 if action.action.is_some() { 0x0D } else { 0 },
             ),
             (SLOT + 0x6B77, r.auxiliary.unwrap().action_flags),
+            (SLOT + 0x6B65, 0xBF | u8::from(r.camera_dispatch.unwrap()
+                .projection_correction_disabled) * 0x40),
             (SLOT + 0x6BE2, r.contact.unwrap().hit.secondary_protection),
             (SLOT + 0x6BE3, r.contact.unwrap().hit.recovery),
             (

@@ -110,6 +110,8 @@ pub enum SceneError<E> {
     Faulted,
     MissingActor(ObjectId),
     MissingPrimaryPlayer,
+    MissingCinematicSignals,
+    SceneInstall(super::scene_install::SceneInstallError),
     MissingDeathInputs,
     MissingMapCounts,
     MissingContactCallback(ObjectId),
@@ -1403,6 +1405,38 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         }
         result
     }
+    /// The outer cinematic loop consumes the same live scene signals as the
+    /// player action. Display visits remain independent: this request cannot
+    /// finish a fade by advancing display intensity on the actor's behalf.
+    pub fn visit_cinematic_exit(
+        &mut self,
+        exit: &mut super::cinematic_exit::CinematicExit,
+        policy: super::cinematic_exit::CinematicExitPolicy,
+        pressed: super::Buttons,
+        alternate_destination: bool,
+        display: &mut super::scene_display::SceneDisplay,
+    ) -> Result<super::cinematic_exit::CinematicExitVisit, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let Some(signals) = self.world.cinematic_signals.as_mut() else {
+            self.execution.faulted = true;
+            return Err(SceneError::MissingCinematicSignals);
+        };
+        Ok(exit.visit(policy, signals, pressed, alternate_destination, display,
+            &mut self.world.audio))
+    }
+
+    pub fn install_authored_scene(&mut self, player: ObjectId)
+        -> Result<Option<ObjectId>, SceneError<C::Error>>
+    {
+        if self.execution.faulted { return Err(SceneError::Faulted); }
+        let result = super::scene_install::install(self.objects, self.world, player)
+            .map_err(SceneError::SceneInstall);
+        if result.is_err() { self.execution.faulted = true; }
+        result
+    }
+
     /// Parallel action stream, independently scheduled by player control.
     pub fn advance_player_action(
         &mut self,

@@ -93,6 +93,7 @@ pub mod player_action;
 pub mod player_mission;
 pub mod player_palette;
 pub mod player_node_exit;
+pub mod scene_install;
 pub mod player_motion_reset;
 pub mod player_entry_reset;
 pub mod scene_world_reset;
