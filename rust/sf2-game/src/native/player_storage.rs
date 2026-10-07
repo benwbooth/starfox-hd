@@ -175,6 +175,7 @@ pub fn replace(
         speed: Some(Default::default()),
         motion: Some(Default::default()),
         boundary: Some(Default::default()),
+        occupancy: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),

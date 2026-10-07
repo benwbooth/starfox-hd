@@ -113,6 +113,27 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the full live occupancy-grid response (`$07:E685..EA14`). It queries
+  the actual reserved view and player, preserves ordered gates and contact
+  transitions, publishes neighbor probes on the real shared actor, updates
+  only changed cell-history axes, and shares heading/lean/return position
+  with flight. The source's diagonal comparison is intentionally asymmetric:
+  it compares absolute Z cell center with a retained caller bias, not the
+  unused X-distance calculation. The bias and actual camera-task gate remain
+  explicit caller inputs; they are never replaced by neutral defaults.
+  Five original comparison groups pass 272,384 calls covering all mode/contact
+  pairs, full-word position/yaw, every diagonal bias and 8,192 independent
+  continuous visits. Both tie outcomes and repeated blocked/open visits are
+  explicitly required by the fixtures.
+  Four native groups cover lazy dependencies, state sharing, partial effects
+  and scene fault latching. Final-tree verification passes 1,372 native tests
+  and both architecture checks in debug/release, 1,380 compatibility tests
+  and 35 runtime checks, all 111 original player/movement groups in both
+  profiles, 733 source tests, 238 extractor/lowerer tests, exact catalog and
+  architecture checks, and all three application builds.
+  The next closure is the enclosing flight frame and its real caller outputs;
+  this service is not a claim of production-frame or campaign completion.
+
 - Ported the complete player corridor correction/admission and live region
   installer (`$07:E2F3..E5C7`, `$07:F893..F95E`). The source's wrapped signed
   octant tests, unequal boundary inclusivity, diagonal half rounding, level

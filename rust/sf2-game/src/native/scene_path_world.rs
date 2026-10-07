@@ -80,6 +80,7 @@ pub struct PlayerPathRecords {
     pub speed: Option<super::player_speed::PlayerSpeed>,
     pub motion: Option<super::player_motion::PlayerMotion>,
     pub boundary: Option<super::player_boundary::PlayerBoundary>,
+    pub occupancy: Option<super::player_occupancy::PlayerOccupancy>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,

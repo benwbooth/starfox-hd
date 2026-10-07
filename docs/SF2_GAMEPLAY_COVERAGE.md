@@ -152,6 +152,21 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete player occupancy response (`$07:E685..EA14`) is now a typed
+service over the real world grid, reserved view and shared proxy. It preserves
+contact transition bits, signed cell coordinates, axis-specific history,
+neighbor probe side effects, heading/lean response and retained displacement.
+The original's unusual diagonal tie compares absolute Z cell center with an
+upstream bias; it does not choose the nearest axis. The actual camera-task
+gate and that bias are explicit caller dependencies pending enclosing-frame
+integration. Five unmodified-original comparison groups pass 272,384 calls,
+including 8,192 independently retained visits; four native failure/order
+groups cover dependency and mutation order. Debug/release pass 1,372 native
+tests and 111 original player/movement groups; compatibility passes 1,380
+tests and 35 runtime checks. All 733 source tests, 238 extractor/lowerer
+checks, exact catalog/architecture checks and all three app builds pass.
+This is service-level closure, not a switch of production flight ownership.
+
 Player corridor correction, admission and the live region installer now use
 canonical state, including the heading consumed by steering and action flag
 consumed by path displacement. The duplicate movement-suppression snapshot is
