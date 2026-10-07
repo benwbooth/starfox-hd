@@ -177,7 +177,8 @@ pub struct ScenePathWorld {
     /// Initializer observation of the contact gate. Once objective_counts is
     /// present, contacts_enabled() reads its live low byte instead.
     pub contacts_enabled: Option<bool>,
-    /// Shared 1AA6 bit 02 for reflection-list traversal.
+    /// Shared 1AA6 bit 02 for reflection-list traversal and the flight
+    /// corridor/world-cell tail. These consumers use the same scene owner.
     pub reflect_all_contacts: Option<bool>,
     pub weapons: Option<super::weapon_dispatch::WeaponState>,
     pub palette: Option<super::player_action::ScenePalette>,

@@ -152,6 +152,21 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The shared flight frame (`$06:E258..E2ED`) now calls the real native roll,
+ambient, throttle, surface, speed, pose, translation, recoil, damage, corridor
+and occupancy services in their original order. Surface effects feed speed
+directly. Collision traversal publishes rejected broad candidates and all
+movement retries, preserving the later grid tie's actual upstream bias instead
+of deriving it from the final contact. Three whole-original groups pass 12,548
+calls, including 8,192 independently retained visits, all 577 shape headers
+and nested effects, sound and damage. Four native groups cover real cross-stage
+effects, lazy failure order and fault latching. Debug/release pass 1,376 native
+tests, both architecture checks and 114 original player/movement groups;
+compatibility passes 1,384 tests and 35 runtime checks. All 736 source tests,
+238 extractor/lowerer checks, exact catalog/architecture checks and all three
+application builds pass. This has not yet replaced the production
+encounter-driven flight owner. Input/mode dispatch remains open.
+
 The complete player occupancy response (`$07:E685..EA14`) is now a typed
 service over the real world grid, reserved view and shared proxy. It preserves
 contact transition bits, signed cell coordinates, axis-specific history,

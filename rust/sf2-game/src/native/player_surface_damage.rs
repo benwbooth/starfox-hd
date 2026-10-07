@@ -24,6 +24,13 @@ const HEAVY_CUE: u8 = 18;
 const LIGHT_CUE: u8 = 19;
 const DEFLECTION_CUE: u8 = 24;
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SurfaceDamageObservation {
+    /// Either downward probe traversed a broadly admitted collider. This
+    /// includes rejected polygons/heights, not only a supporting object.
+    pub broad_candidate_seen: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SurfaceDamageError {
     World(WorldInputError),
@@ -57,14 +64,21 @@ fn probe(
     world: &ScenePathWorld,
     actor: ObjectId,
     preserve_group: bool,
+    observation: &mut SurfaceDamageObservation,
 ) -> Result<ObjectSurfaceContact, SurfaceDamageError> {
     let search = world
         .surface_mode
         .ok_or(SurfaceDamageError::MissingSurfaceMode)?
         .search();
-    let result =
-        collision_surface::query_object_surface(objects, actor, world.strategy_clock as u8, search)
-            .map_err(SurfaceDamageError::Query)?;
+    let query = collision_surface::query_object_surface_geometry(
+        objects,
+        actor,
+        world.strategy_clock as u8,
+        search,
+    )
+    .map_err(SurfaceDamageError::Query)?;
+    observation.broad_candidate_seen |= query.broad_candidate_seen;
+    let result = query.surface;
     let contact = &mut objects
         .get_mut(actor)
         .expect("queried actor")
@@ -95,7 +109,30 @@ pub fn advance(
     resources: &mut ProgramResources<ProgramData>,
     owner: ObjectId,
 ) -> Result<(), SurfaceDamageError> {
-    let surface = probe(objects, world, owner, true)?;
+    advance_observed(objects, world, resources, owner).map(|_| ())
+}
+
+/// Same damage visit with the traversal observation required by the
+/// enclosing flight frame. No second query is run to reconstruct it.
+pub fn advance_observed(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    resources: &mut ProgramResources<ProgramData>,
+    owner: ObjectId,
+) -> Result<SurfaceDamageObservation, SurfaceDamageError> {
+    let mut observation = SurfaceDamageObservation::default();
+    advance_inner(objects, world, resources, owner, &mut observation)?;
+    Ok(observation)
+}
+
+fn advance_inner(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    resources: &mut ProgramResources<ProgramData>,
+    owner: ObjectId,
+    observation: &mut SurfaceDamageObservation,
+) -> Result<(), SurfaceDamageError> {
+    let surface = probe(objects, world, owner, true, observation)?;
     world.player_surface_height = Some(surface.height);
     let height = objects.get(owner).expect("queried player").base.position.y;
     if surface.contact.flags == NON_DAMAGING_MATERIAL || height.wrapping_sub(surface.height) <= 0 {
@@ -126,7 +163,7 @@ pub fn advance(
             .ok_or(WorldInputError::MissingActor(proxy))?
             .base
             .position = forecast;
-        let projected = probe(objects, world, proxy, false)?;
+        let projected = probe(objects, world, proxy, false, observation)?;
         if height.wrapping_sub(projected.height) < 0
             || projected.contact.flags == NON_DAMAGING_MATERIAL
         {

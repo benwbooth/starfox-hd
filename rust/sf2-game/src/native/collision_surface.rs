@@ -136,6 +136,10 @@ impl Default for SurfaceGeometry {
 pub struct ObjectSurfaceGeometry {
     pub surface: ObjectSurfaceContact,
     pub geometry: SurfaceGeometry,
+    /// At least one eligible actor passed the broad X/Z bounds. The source
+    /// publishes this traversal even when no polygon or height is accepted;
+    /// the following player-grid arbitration observes that distinction.
+    pub broad_candidate_seen: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -191,7 +195,8 @@ pub fn query_object_surface_geometry(
         identities.push(id);
         colliders.push(collider);
     }
-    let (result, geometry) = query_surface_geometry(position, &colliders, strategy_tick, search);
+    let (result, geometry, broad_candidate_seen) =
+        query_surface_geometry(position, &colliders, strategy_tick, search);
     Ok(ObjectSurfaceGeometry {
         surface: ObjectSurfaceContact {
             height: result.height,
@@ -202,6 +207,7 @@ pub fn query_object_surface_geometry(
             },
         },
         geometry,
+        broad_candidate_seen,
     })
 }
 
@@ -243,8 +249,9 @@ fn query_surface_geometry(
     colliders: &[SurfaceCollider<'_>],
     strategy_tick: u8,
     search: SurfaceSearch,
-) -> (SurfaceContact, SurfaceGeometry) {
+) -> (SurfaceContact, SurfaceGeometry, bool) {
     let mut geometry = SurfaceGeometry::default();
+    let mut broad_candidate_seen = false;
     let mut nearest = SurfaceContact {
         height: match search {
             SurfaceSearch::Full => FULL_SEARCH_HEIGHT,
@@ -261,6 +268,7 @@ fn query_surface_geometry(
         {
             continue;
         }
+        broad_candidate_seen = true;
         let surface = if let Some(profile) = collider.profile {
             let (x, z) = collision_math::local_probe(
                 collider.yaw,
@@ -388,7 +396,7 @@ fn query_surface_geometry(
             geometry.normal.z = z.wrapping_mul(4);
         }
     }
-    (nearest, geometry)
+    (nearest, geometry, broad_candidate_seen)
 }
 
 #[cfg(test)]

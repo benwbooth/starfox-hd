@@ -108,6 +108,7 @@ pub mod player_speed;
 pub mod player_motion;
 pub mod player_boundary;
 pub mod player_occupancy;
+pub mod player_flight;
 pub mod player_impact;
 pub mod player_surface_damage;
 mod player_effect;

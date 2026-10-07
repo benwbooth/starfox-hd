@@ -48,6 +48,9 @@ pub struct SurfaceMotionResult {
     /// ordinary displacement. Preserve that observable measurement.
     pub travel_measure: u16,
     pub inherited_tilt: SurfaceTilt,
+    /// Includes rejected candidates and every escape/restoration retry,
+    /// not merely the final selected support.
+    pub broad_candidate_seen: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,6 +265,7 @@ pub fn advance(
             inputs.strategy_tick,
             inputs.search,
         )?;
+        result.broad_candidate_seen |= query.broad_candidate_seen;
         objects.get_mut(owner).unwrap().extension.surface_contact = query.surface.contact;
         if query.surface.contact.supporting_object.is_none() {
             // A missed query publishes the cleared tilt before either the

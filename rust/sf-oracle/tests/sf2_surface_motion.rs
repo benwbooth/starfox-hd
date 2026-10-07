@@ -97,6 +97,7 @@ fn compare_motion(
     source.write16(0x1B4D, u16::from(inputs.search == SurfaceSearch::Reduced));
     source.write8(0xC4, inputs.strategy_tick);
     source.write16(0x1DAB, inputs.gravity.unwrap_or(0) as u16);
+    source.write8(0x3F, 0xA5);
     if initialize {
         source.write16(
             0x700020,
@@ -120,6 +121,7 @@ fn compare_motion(
     );
     assert!(result.returned, "surface movement did not return");
     let actual = sf2_game::surface_motion::advance(objects, owner, inputs).unwrap();
+    assert_eq!(source.read8(0x3F), if actual.broad_candidate_seen { 0 } else { 0xA5 });
     let actor = objects.get(owner).unwrap();
     let saved = actor.extension.path_state.platform_carry.saved_position;
     let delta = actor.extension.path_state.motion_delta;

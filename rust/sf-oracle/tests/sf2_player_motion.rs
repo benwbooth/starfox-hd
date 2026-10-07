@@ -229,6 +229,7 @@ impl Native {
     }
 
     fn step(&mut self, source: &mut SnesBus) -> Option<SurfaceMotionResult> {
+        source.write8(0x3F, 0xA5);
         let result = call_near(
             source,
             0x06EE0A,
@@ -250,6 +251,7 @@ impl Native {
             },
         )
         .unwrap();
+        assert_eq!(source.read8(0x3F), if response.is_some_and(|value| value.broad_candidate_seen) { 0 } else { 0xA5 });
         if let Some(response) = response {
             self.tilt = response.inherited_tilt;
         }

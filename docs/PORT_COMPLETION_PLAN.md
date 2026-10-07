@@ -113,6 +113,25 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Connected the entire shared flight update (`$06:E258..E2ED`), including
+  roll, ambient motion, throttle effects, surface response, speed, pose,
+  translation, recoil, damage, corridor and occupancy response in source
+  order. Surface effects supply the actual speed targets. Collision queries
+  now publish whether a candidate passed the broad bounds, including rejected
+  polygons/heights and earlier movement retries; that observation clears the
+  subsequent grid tie bias exactly where the original does. No query is replayed
+  and missing caller inputs are not replaced by neutral guesses. Native tests
+  cover lazy failure order, fault latching and live cross-stage effects.
+  Three unmodified-original groups pass 12,548 whole-routine calls, including
+  8,192 independently retained visits, all 577 shape headers, nested effect
+  creation, sound order and damage forecasts. Final-tree verification passes
+  1,376 native tests and both architecture checks in debug/release, 1,384
+  compatibility tests and 35 runtime checks, all 114 original player/movement
+  groups in both profiles, 736 source tests, 238 extractor/lowerer tests,
+  exact catalog/architecture checks and all three application builds.
+  The enclosing input/mode strategy and production frame owner remain the
+  next integration blockers.
+
 - Ported the full live occupancy-grid response (`$07:E685..EA14`). It queries
   the actual reserved view and player, preserves ordered gates and contact
   transitions, publishes neighbor probes on the real shared actor, updates
