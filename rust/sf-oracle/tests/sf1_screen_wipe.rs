@@ -15,7 +15,13 @@ const SCREEN_RIGHT_X: i16 = 223;
 const STAR_X_STEP: i16 = 7;
 const STAR_Y_STEP: i16 = 6;
 
-fn draw_retail_line(oracle: &mut Gsu, start_x: i16, start_y: i16, end_x: i16, end_y: i16) {
+fn draw_retail_line(
+    oracle: &mut Gsu,
+    start_x: i16,
+    start_y: i16,
+    end_x: i16,
+    end_y: i16,
+) {
     oracle.r[1] = start_x as u16;
     oracle.r[2] = start_y as u16;
     oracle.r[3] = end_x as u16;

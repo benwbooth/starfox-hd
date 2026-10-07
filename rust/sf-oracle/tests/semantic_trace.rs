@@ -7,10 +7,7 @@ use sf_difftest::{
     NonStrictEvidence, ScenarioClock, ScenarioEvidence, ScenarioInputRun, ScenarioManifest,
     SemanticEvent, SemanticFrame, SemanticObject, EVIDENCE_SCHEMA_VERSION, SCENARIO_SCHEMA_VERSION,
 };
-use sf_game::alien::{
-    ExplosionSize, ObjectVisualKind, ASF2_COLLDISABLE, ASF3_NOHITAFFECT, ASF4_RELEXPLODE,
-    ASF_COLLIDE,
-};
+use sf_game::alien::{ExplosionSize, ObjectVisualKind, ASF2_COLLDISABLE, ASF3_NOHITAFFECT};
 use sf_game::camera::{VIEWTYPE_FPOS, VIEWTYPE_TOOBJ};
 use sf_game::shell::{GameState, GameplayEntryPhase, Shell};
 use sf_oracle::{
@@ -65,9 +62,6 @@ const RETAIL_PLAYER_VIEW_Y: u32 = 0x14F8;
 const RETAIL_PLAYER_VIEW_Z: u32 = 0x14FA;
 const RETAIL_PLAYER_FLY_MODE: u32 = 0x14DA;
 const RETAIL_PLAYER_DEPTH_TILT: u32 = 0x1507;
-const RETAIL_PLAYER_DEPTH_SHAKE: u32 = 0x1503;
-const RETAIL_PLAYER_DEPTH_SHAKE_VELOCITY: u32 = 0x1505;
-const RETAIL_PLAYER_ROTATION_X: u32 = 0x1230;
 const RETAIL_VIEW_FLOAT_X: u32 = 0x14E6;
 const RETAIL_VIEW_FLOAT_Y: u32 = 0x14E8;
 const RETAIL_VIEW_KIND: u32 = 0x15CA;
@@ -78,7 +72,6 @@ const RETAIL_VIEW_DISTANCE: u32 = 0x18CB;
 const RETAIL_OBJECT_LIFETIME_OFFSET: u32 = 0x0A;
 const RETAIL_OBJECT_DELAY_OFFSET: u32 = 0x22;
 const RETAIL_OBJECT_HIT_FLAGS_OFFSET: u32 = 0x35;
-const RETAIL_OBJECT_EXPLOSION_FLAGS_OFFSET: u32 = 0x20;
 const RETAIL_SHAPE_COORDINATE_SHIFT_OFFSET: u32 = 7;
 const RETAIL_SHAPE_VISUAL_EXTENT_OFFSET: u32 = 16;
 const RETAIL_ATTRACT_BACKGROUND: u16 = 243;
@@ -285,10 +278,8 @@ struct LevelObjectSnapshot {
     explosion_size: Option<ExplosionSize>,
     durability: u8,
     hit_flags: u8,
-    colliding: bool,
     collision_disabled: bool,
     damage_immune: bool,
-    relative_explosion: bool,
     departure_lifetime: Option<u8>,
     departure_delay: Option<u8>,
     path_wait: Option<u8>,
@@ -322,11 +313,6 @@ struct LevelSnapshot {
     player_fly_mode: u8,
     player_object: u16,
     map_countdown: u16,
-    frame_rate: u8,
-    player_rotation: [i16; 3],
-    player_depth_shake: i16,
-    player_depth_shake_velocity: i16,
-    player_depth_tilt: i8,
     view_kind: u8,
     player_view_position: Position,
     view_float: [i16; 2],
@@ -372,16 +358,6 @@ impl ObjectIdentityTracker {
             .with_field("player.fly_mode", snapshot.player_fly_mode)
             .with_field("player.object", snapshot.player_object)
             .with_field("map.countdown", snapshot.map_countdown)
-            .with_field("timing.motion_refreshes", snapshot.frame_rate)
-            .with_field("player.rotation.x", snapshot.player_rotation[0])
-            .with_field("player.rotation.y", snapshot.player_rotation[1])
-            .with_field("player.rotation.z", snapshot.player_rotation[2])
-            .with_field("player.depth_shake", snapshot.player_depth_shake)
-            .with_field(
-                "player.depth_shake_velocity",
-                snapshot.player_depth_shake_velocity,
-            )
-            .with_field("player.depth_tilt", snapshot.player_depth_tilt)
             .with_field("view.kind", snapshot.view_kind)
             .with_field("view.player_position.x", snapshot.player_view_position.0)
             .with_field("view.player_position.y", snapshot.player_view_position.1)
@@ -483,10 +459,8 @@ impl ObjectIdentityTracker {
             semantic = semantic
                 .with_field("collision.durability", object.durability)
                 .with_field("collision.hit_flags", object.hit_flags)
-                .with_field("collision.current", object.colliding)
                 .with_field("collision.disabled", object.collision_disabled)
-                .with_field("collision.damage_immune", object.damage_immune)
-                .with_field("explosion.relative_to_player", object.relative_explosion);
+                .with_field("collision.damage_immune", object.damage_immune);
             if let Some(lifetime) = object.departure_lifetime {
                 semantic = semantic.with_field("departure.lifetime", lifetime);
             }
@@ -1249,16 +1223,6 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
         player_fly_mode: retail.peek8(WORK_RAM | RETAIL_PLAYER_FLY_MODE),
         player_object: retail_object_slot(retail.peek16(WORK_RAM | RETAIL_PLAYPT)),
         map_countdown: retail.peek16(WORK_RAM | RETAIL_MAPCNT),
-        frame_rate: retail.peek8(WORK_RAM | sf_oracle::RETAIL_FRAMERATE),
-        player_rotation: [
-            retail.peek16(WORK_RAM | RETAIL_PLAYER_ROTATION_X) as i16,
-            retail.peek16(WORK_RAM | sf_oracle::RETAIL_PLROTY) as i16,
-            retail.peek16(WORK_RAM | sf_oracle::RETAIL_PLROTZ) as i16,
-        ],
-        player_depth_shake: retail.peek16(WORK_RAM | RETAIL_PLAYER_DEPTH_SHAKE) as i16,
-        player_depth_shake_velocity: retail.peek16(WORK_RAM | RETAIL_PLAYER_DEPTH_SHAKE_VELOCITY)
-            as i16,
-        player_depth_tilt: retail.peek8(WORK_RAM | RETAIL_PLAYER_DEPTH_TILT) as i8,
         view_kind: retail.peek8(WORK_RAM | RETAIL_VIEW_KIND),
         player_view_position: Position(
             retail.peek16(WORK_RAM | RETAIL_PLAYER_VIEW_X) as i16,
@@ -1331,18 +1295,11 @@ fn retail_level_snapshot(retail: &RetailMachine) -> LevelSnapshot {
                     durability: retail.peek8(WORK_RAM | object_base + AL_HP),
                     hit_flags: retail
                         .peek8(WORK_RAM | object_base + RETAIL_OBJECT_HIT_FLAGS_OFFSET),
-                    colliding: retail.peek8(WORK_RAM | object_base + sf_oracle::AL_SFLAGS)
-                        & ASF_COLLIDE
-                        != 0,
                     collision_disabled: retail.peek8(WORK_RAM | object_base + AL_SFLAGS2)
                         & ASF2_COLLDISABLE
                         != 0,
                     damage_immune: retail.peek8(WORK_RAM | object_base + AL_SFLAGS3)
                         & ASF3_NOHITAFFECT
-                        != 0,
-                    relative_explosion: retail
-                        .peek8(WORK_RAM | object_base + RETAIL_OBJECT_EXPLOSION_FLAGS_OFFSET)
-                        & ASF4_RELEXPLODE
                         != 0,
                     departure_lifetime: departure.then(|| {
                         retail.peek8(WORK_RAM | object_base + RETAIL_OBJECT_LIFETIME_OFFSET)
@@ -1404,11 +1361,6 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
         player_fly_mode: native.game.vars.playerflymode,
         player_object: native.game.vars.player_object as u16,
         map_countdown: native.game.vars.mapcnt,
-        frame_rate: native.game.vars.strategy.frame_rate,
-        player_rotation: native.game.vars.strategy.player_rotation,
-        player_depth_shake: native.game.vars.strategy.player_depth_shake,
-        player_depth_shake_velocity: native.game.vars.strategy.player_depth_shake_velocity,
-        player_depth_tilt: native.game.vars.strategy.player_depth_tilt,
         view_kind: native.game.vars.strategy.view_kind,
         player_view_position: Position(
             native.game.vars.strategy.player_view_position[0],
@@ -1473,10 +1425,8 @@ fn native_level_snapshot(native: &Shell) -> LevelSnapshot {
                     explosion_size,
                     durability: object.hp,
                     hit_flags: object.hitflags,
-                    colliding: object.sflags & ASF_COLLIDE != 0,
                     collision_disabled: object.sflags2 & ASF2_COLLDISABLE != 0,
                     damage_immune: object.sflags3 & ASF3_NOHITAFFECT != 0,
-                    relative_explosion: object.sflags4 & ASF4_RELEXPLODE != 0,
                     departure_lifetime: departure.then_some(object.count),
                     departure_delay: departure.then_some(object.sbyte1),
                     path_wait: path_driven.then_some(object.sbyte3),
