@@ -2,6 +2,9 @@
 //! initializer. Retained tests also run the real continuity consumer; neither
 //! side is reseeded from the other's camera, request, or muzzle state.
 
+#[path = "sf2_player_camera_angles.rs"]
+mod camera_angle_tests;
+
 use super::{rom, Source, WRAM};
 use sf2_game::path_program::SelectedAuxiliaryState;
 use sf2_game::player_view_distance::{self, PlayerViewDistance};

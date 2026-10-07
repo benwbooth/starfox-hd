@@ -152,6 +152,18 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Retained camera pitch and pose publication (`$07:86B7..88BE`,
+`$07:968B..9720`) now share full fine angles with the existing auxiliary
+rotation bytes. The controller preserves distinct linked-view rounding,
+wrapped increments and unsigned target comparisons. Publication uses real
+recoil, yaw lean, retained position and the pre-continuity roll. Seven native
+tests and four original groups pass 729,088 cases/retained visits, including
+8,192 independent sequences through the actual view-switching and continuity
+consumers. Native debug/release, compatibility and source/catalog/architecture
+checks pass, along with all 139 original player/movement groups in both
+profiles and all three application builds. Camera height/lateral tracking
+and enclosing strategy integration remain open.
+
 Linked/external view-distance control and its mode-entry profiles
 (`$07:9AEF..9D35`) now share the live weapon/muzzle flags, consume the existing
 menu request byte and schedule real continuity captures. Delayed requests,

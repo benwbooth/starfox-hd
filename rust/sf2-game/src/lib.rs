@@ -59,6 +59,7 @@ pub use native::scene_strategy;
 pub use native::view_transition;
 pub use native::view_blend;
 pub use native::player_view_distance;
+pub use native::player_camera_angles;
 pub use native::weapon_rapid;
 pub use native::{
     attachments, collision_boxes, collision_contacts, collision_math, collision_pass,

@@ -113,6 +113,23 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the full retained camera-pitch controller (`$07:86B7..88BE`)
+  and camera-pose/roll publications (`$07:968B..9720`). Fine-angle fractions
+  extend the existing auxiliary byte-angle owner instead of duplicating it;
+  authored paths and player pose still see the same live high bytes. Linked
+  controls retain their different limit rounding and unsigned target tests.
+  Pose publication adds real recoil and yaw lean, saves the full roll and
+  resets rear distance before copying the retained camera position.
+  Seven native tests and four original groups pass 729,088 cases and retained
+  visits, including full-word boundaries and 8,192 independent transitions
+  through recoil, pose publication, view selection and real continuity.
+  Native debug/release passes 1,426 tests and both architecture checks;
+  compatibility passes 1,434 tests and 35 runtime checks. All 760 source
+  tests, 238 extractor/lowerer tests and catalog/architecture checks pass.
+  All 139 original player/movement groups pass in debug and release, as do
+  all three application builds. Height/lateral tracking and the enclosing
+  camera/strategy still block production ownership.
+
 - Ported the complete linked/external view-distance service and mode profile
   initializer (`$07:9AEF..9D35`). View changes update the same linked-mode and
   transition bits used by charged/rapid fire and muzzle placement. Pending

@@ -146,6 +146,7 @@ pub enum SceneError<E> {
     PlayerFreeFlight(super::player_free_flight::FreeFlightError),
     ViewBlend(super::view_blend::ViewBlendError),
     PlayerViewDistance(super::player_view_distance::ViewDistanceError),
+    PlayerCameraAngles(super::player_camera_angles::CameraAnglesError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -177,6 +178,36 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_camera_pitch(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_angles::advance_pitch(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerCameraAngles);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn publish_player_camera_pose(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_angles::publish(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerCameraAngles);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn initialize_player_view_distance(
         &mut self,
         owner: ObjectId,
