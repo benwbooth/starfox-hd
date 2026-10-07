@@ -113,6 +113,37 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the complete ordinary exit controller (`$44:CF18`) and all its
+  craft, scenery, camera and trailing-effect children. Immutable direction
+  records drive the source craft pose and the two-stage camera placement;
+  shared handoff publications retain their exact byte/bit ownership. The
+  original-code comparison passes 96 retained lifetimes (23,040 scene-update
+  passes), all six pilots, eight exit directions and both shield states,
+  including newborn traversal, random order, audio, camera aliases and
+  retirement. Two independent helper groups pass 196,608 initial states,
+  including every direction byte, coordinate word, yaw and owner/view alias.
+  The fixed-view position chase also has exhaustive wrapped-delta coverage.
+  Source-only continuation checks prove the reviewed absent child-sixty
+  retirement writes no live state; discarded bus cycles are not program
+  reads. Other unreviewed missing-parent retirements remain explicit errors.
+  Full lifetimes exposed retained attachment links through already retired
+  slots; those semantic links now survive until reuse without retaining a
+  dead actor. Original cleanup passes all 720 retirement orders with three
+  lifetime masks (12,960 retirements), including orphaned attachment gates
+  and splicing through inactive predecessor links. Full debug/release checks
+  pass: 1,573 native tests, 1,581 compatibility tests plus 35 runtime tests,
+  33 path tests and 249 original-code comparison groups (222 player-storage
+  groups), along with app tests, actual-app smoke checks and app builds in
+  both profiles. All 859 source checks, 217 lowerer tests, three backlog tests,
+  exact generators and the architecture audit pass. Results are retained in
+  `/tmp/sf2-ordinary-exit-validation-oct07.log` and
+  `/tmp/sf2-ordinary-exit-static-oct07.log`. The catalog has 155 roots, nine
+  helpers, 6,571 source commands and 6,512 typed statements. Initial failures
+  and their source evidence are retained in the `sf2-ordinary-exit-*` logs
+  in `/tmp`. Player-side creation, mission-tail action services and production
+  frame ownership remain open; these kernel lifetimes supply the external
+  player-action gate input explicitly and are not shipping campaign proof.
+
 - Ported the complete special-exit controller (`$44:D27B`), its fresh
   primary-protection-gated shield installer/strategy, and publication to the
   existing shared engine-sound control. The complete graph runs independently

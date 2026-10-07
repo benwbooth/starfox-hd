@@ -92,6 +92,7 @@ impl Fixture {
         source.bus.write16(0x1001, VIEW);
         let (entry, stop) = match command {
             FixedViewCommand::CopyPosition => (0x7FBFF6, 0x7FCABE),
+            FixedViewCommand::ChasePosition => (0x7FC028, 0x7FCABE),
             FixedViewCommand::CopyRotation => (0x7FC005, 0x7FCABE),
             FixedViewCommand::AimTracking { pitch_shift, chase } => {
                 source.bus.write8(0x1003, pitch_shift);
@@ -188,9 +189,10 @@ fn exit_view_copy_and_tracking_aim_match_original_including_aliases_and_wrapped_
             }
             .write_to(actor);
         }
-        let command = match case % 4 {
+        let command = match case % 5 {
             0 => FixedViewCommand::CopyPosition,
             1 => FixedViewCommand::CopyRotation,
+            4 => FixedViewCommand::ChasePosition,
             mode => FixedViewCommand::AimTracking {
                 pitch_shift: (case / 4) as u8,
                 chase: mode == 3,
@@ -218,6 +220,17 @@ fn exit_view_copy_and_tracking_aim_match_original_including_aliases_and_wrapped_
         );
     }
     assert_eq!(source.bus.read16(WRAM + 0x1001), VIEW);
+    // Every wrapped position delta, including the half-turn tie. This form
+    // chases Z only once and never alters the view's fine-angle aliases.
+    for word in 0..=u16::MAX {
+        f.objects.get_mut(f.view).unwrap().base.position = Vector3::default();
+        f.objects.get_mut(f.owner).unwrap().base.position = Vector3 {
+            x: word as i16,
+            y: word.rotate_left(5) as i16,
+            z: word.wrapping_neg() as i16,
+        };
+        f.run(&mut source, FixedViewCommand::ChasePosition, false, false);
+    }
 }
 
 #[test]

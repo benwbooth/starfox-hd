@@ -50,13 +50,21 @@ impl PathRuntime {
             .get(view)
             .ok_or(PathRuntimeError::MissingActor(view))?;
         match command {
-            FixedViewCommand::CopyPosition => {
+            FixedViewCommand::CopyPosition | FixedViewCommand::ChasePosition => {
                 let position = objects
                     .get(owner)
                     .expect("validated view source")
                     .base
                     .position;
-                objects.get_mut(view).expect("validated view").base.position = position;
+                let destination = &mut objects.get_mut(view).expect("validated view").base.position;
+                if command == FixedViewCommand::CopyPosition {
+                    *destination = position;
+                } else {
+                    use super::super::path_fields::chase_word;
+                    destination.x = chase_word(destination.x as u16, position.x as u16) as i16;
+                    destination.y = chase_word(destination.y as u16, position.y as u16) as i16;
+                    destination.z = chase_word(destination.z as u16, position.z as u16) as i16;
+                }
             }
             FixedViewCommand::CopyRotation => {
                 let source = objects.get(owner).expect("validated view source");

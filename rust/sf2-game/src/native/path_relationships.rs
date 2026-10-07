@@ -28,10 +28,10 @@ pub enum RelationshipCommand {
     /// Mark the first numbered child for later retirement; do not unlink,
     /// clear health or release its independently owned path resources.
     RetireChild { number: u8 },
-    /// Reviewed optional retirement ($44:D2F1). The absent source child
+    /// Reviewed optional retirements ($44:D2F1, $44:CF3D). The absent source child
     /// writes only an unobserved scratch byte, not an actor. Keep the strict
     /// form for call sites whose missing-child consequences are unreviewed.
-    RetireOptionalChild { number: u8 },
+    RetireOptionalChild { number: u8, allow_absent_parent: bool },
     SignalLinked,
     SignalChild { number: u8 },
     RefreshLinkedRotation,
@@ -306,11 +306,7 @@ pub(super) fn detach(objects: &mut ObjectStore, child: ObjectId) -> Result<(), R
         visited[id.index()] = true;
         if id == child {
             if let Some(previous) = previous {
-                objects
-                    .get_mut(previous)
-                    .expect("validated sibling")
-                    .base
-                    .attachment_next = successor;
+                assert!(objects.set_attachment_chain_next(previous, successor), "validated predecessor slot");
             } else {
                 objects
                     .get_mut(parent)
@@ -325,11 +321,8 @@ pub(super) fn detach(objects: &mut ObjectStore, child: ObjectId) -> Result<(), R
             return Ok(());
         }
         previous = Some(id);
-        current = objects
-            .get(id)
-            .ok_or(RelationshipError::MissingActor(id))?
-            .base
-            .attachment_next;
+        current = objects.attachment_chain_next(id)
+            .ok_or(RelationshipError::MissingActor(id))?;
     }
     Ok(())
 }
@@ -374,13 +367,18 @@ pub fn apply(
             return Ok(());
         }
         RelationshipCommand::RetireChild { number }
-        | RelationshipCommand::RetireOptionalChild { number } => {
+        | RelationshipCommand::RetireOptionalChild { number, .. } => {
             let actor = objects.get(owner).ok_or(RelationshipError::MissingActor(owner))?;
             // $7F:8B64 has neither a null-mother guard nor a null-result
             // guard. Diagnose invalid parents and unreviewed missing-child
             // cases rather than writing through a null source pointer. The
             // optional form has independent dead-store/continuation proof.
             if !actor.extension.path_state.motion.refresh_child_chain && actor.base.attachment.is_none() {
+                // Only CF3D has independent complete-continuation proof for
+                // the null-parent lookup as well as the missing child result.
+                if matches!(command, RelationshipCommand::RetireOptionalChild { allow_absent_parent: true, .. }) {
+                    return Ok(());
+                }
                 return Err(RelationshipError::MissingParent(owner));
             }
             let child = match find_child(objects, owner, number)? {

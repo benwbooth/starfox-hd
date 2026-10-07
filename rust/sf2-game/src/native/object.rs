@@ -1173,9 +1173,18 @@ impl Object {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectStore {
     slots: Vec<Option<Object>>,
+    /// The source keeps the attachment successor in a retired slot until
+    /// reuse. Later nested-owner cleanup can traverse that slot in the same
+    /// retirement pass. Keep this domain link, not a dead actor or byte arena.
+    retired_attachment_links: Vec<Option<RetiredAttachmentLink>>,
     free: Vec<ObjectId>,
     active: Vec<ObjectId>,
     generations: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RetiredAttachmentLink {
+    next: Option<ObjectId>,
 }
 
 impl ObjectStore {
@@ -1183,6 +1192,7 @@ impl ObjectStore {
         let free = (0..OBJECT_CAPACITY).rev().map(ObjectId).collect();
         Self {
             slots: vec![None; OBJECT_CAPACITY],
+            retired_attachment_links: vec![None; OBJECT_CAPACITY],
             free,
             active: Vec::with_capacity(OBJECT_CAPACITY),
             generations: vec![0; OBJECT_CAPACITY],
@@ -1243,6 +1253,7 @@ impl ObjectStore {
         *generation = generation.wrapping_add(1).max(1);
         let next = self.active.get(position).copied();
         self.slots[id.index()] = Some(object);
+        self.retired_attachment_links[id.index()] = None;
         if let Some(value) = self.slots[id.index()].as_mut() {
             value.base.previous = after;
             value.base.next = next;
@@ -1301,6 +1312,9 @@ impl ObjectStore {
     pub(super) fn remove_detached(&mut self, id: ObjectId) -> Option<Object> {
         let position = self.active.iter().position(|candidate| *candidate == id)?;
         let object = self.slots.get_mut(id.index())?.take()?;
+        self.retired_attachment_links[id.index()] = Some(RetiredAttachmentLink {
+            next: object.base.attachment_next,
+        });
         let previous = object.base.previous;
         let next = object.base.next;
         if let Some(previous) = previous {
@@ -1327,8 +1341,18 @@ impl ObjectStore {
         if self.get(id).expect("validated retiring actor")
             .extension.path_state.motion.attached_coordinates
         {
-            super::path_relationships::detach(self, id)
-                .expect("valid retiring actor attachment chain");
+            if self.get(id).expect("validated retiring actor").base.attachment.is_none() {
+                // A prior retirement's incoming-reference sweep can clear
+                // the parent without clearing this gate. The source clears
+                // both attachment lifetime flags, finds no parent chain and
+                // retains this actor's own chain and child number.
+                let actor = self.get_mut(id).expect("validated orphaned actor");
+                actor.extension.path_state.motion.attached_coordinates = false;
+                actor.base.flags.remove_with_parent = false;
+            } else {
+                super::path_relationships::detach(self, id)
+                    .expect("valid retiring actor attachment chain");
+            }
         }
         let object = self.get_mut(id).expect("validated retiring actor");
         if object.extension.path_state.motion.refresh_child_chain {
@@ -1339,8 +1363,13 @@ impl ObjectStore {
             while let Some(child_id) = child {
                 assert!(!visited[child_id.index()], "cyclic attachment chain");
                 visited[child_id.index()] = true;
-                let object = self.get_mut(child_id)
-                    .expect("attachment chain references a live actor");
+                let Some(object) = self.get_mut(child_id) else {
+                    child = self.retired_attachment_links[child_id.index()]
+                        .expect("attachment chain references an initialized actor slot").next;
+                    // Source writes to this inactive record cannot affect
+                    // another actor; allocation clears them before slot reuse.
+                    continue;
+                };
                 child = object.base.attachment_next;
                 object.extension.path_state.motion.attached_coordinates = false;
                 object.base.attachment = None;
@@ -1372,6 +1401,24 @@ impl ObjectStore {
 
     pub fn get_mut(&mut self, id: ObjectId) -> Option<&mut Object> {
         self.slots.get_mut(id.index())?.as_mut()
+    }
+
+    /// Relationship cleanup follows and may splice a link in a slot retired
+    /// earlier in the pass. Ordinary actor lookup still excludes that slot.
+    pub(super) fn attachment_chain_next(&self, id: ObjectId) -> Option<Option<ObjectId>> {
+        self.get(id).map(|object| object.base.attachment_next)
+            .or_else(|| self.retired_attachment_links.get(id.index())?.map(|link| link.next))
+    }
+
+    pub(super) fn set_attachment_chain_next(&mut self, id: ObjectId, next: Option<ObjectId>) -> bool {
+        if let Some(object) = self.get_mut(id) {
+            object.base.attachment_next = next;
+        } else if let Some(Some(link)) = self.retired_attachment_links.get_mut(id.index()) {
+            link.next = next;
+        } else {
+            return false;
+        }
+        true
     }
 
     pub fn active_ids(&self) -> &[ObjectId] {
@@ -1498,6 +1545,30 @@ mod tests {
             assert_eq!(objects.allocate(effect()).unwrap().index(), expected);
         }
         assert!(objects.allocate(effect()).is_none());
+    }
+
+    #[test]
+    fn retired_attachment_link_is_not_a_live_actor_and_slot_reuse_replaces_it() {
+        let mut objects = ObjectStore::new();
+        let first = objects.allocate(effect()).unwrap();
+        let second = objects.allocate(effect()).unwrap();
+        // A detached owner can retain this chain after its parent dies.
+        objects.get_mut(first).unwrap().base.attachment_next = Some(second);
+        objects.remove(first).unwrap();
+        assert!(objects.get(first).is_none());
+        assert!(objects.lifetime_id(first).is_none());
+        assert_eq!(objects.attachment_chain_next(first), Some(Some(second)));
+        assert!(objects.set_attachment_chain_next(first, None));
+        assert_eq!(objects.attachment_chain_next(first), Some(None));
+        assert!(objects.set_attachment_chain_next(first, Some(second)));
+        assert_eq!(objects.allocate(effect()), Some(first));
+        assert_eq!(objects.attachment_chain_next(first), Some(None));
+        assert!(objects.retired_attachment_links[first.index()].is_none());
+        objects.remove(first).unwrap();
+        assert_eq!(objects.attachment_chain_next(first), Some(None));
+        let unused = ObjectId(OBJECT_CAPACITY - 1);
+        assert_eq!(objects.attachment_chain_next(unused), None);
+        assert!(!objects.set_attachment_chain_next(unused, Some(second)));
     }
 
     #[test]

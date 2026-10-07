@@ -187,6 +187,10 @@ mod corridor_exit_tests;
 #[path = "path_node_exit_tests.rs"]
 mod node_exit_tests;
 
+#[cfg(test)]
+#[path = "path_ordinary_exit_tests.rs"]
+mod ordinary_exit_tests;
+
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
 pub struct PathWorld<'a> {
@@ -745,6 +749,9 @@ impl ActorCondition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statement {
+    InitializeExitCraft { poses: &'static [super::path_exit::ExitCraftPose; 8], next: PathCursor },
+    PositionExitView { depths: &'static [i8; 8], next: PathCursor },
+    AttachCameraTrackingTarget { next: PathCursor },
     InstallExitShield { next: PathCursor },
     AssignEngineSoundControl { value: u8, next: PathCursor },
     ViewTransition { enabled: bool, next: PathCursor },
@@ -1426,6 +1433,23 @@ impl PathRuntime {
         let cursor = actor.base.path.ok_or(PathRuntimeError::MissingPath(owner))?;
         let statement = catalog.statement(cursor)?;
         let outcome = match statement {
+            Statement::InitializeExitCraft { poses, next } => {
+                super::path_exit::initialize_craft(objects, owner, world, poses)?;
+                objects.get_mut(owner).expect("validated exit craft").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::PositionExitView { depths, next } => {
+                super::path_exit::position_view(objects, owner, self.spawns.last_spawn, world, depths)?;
+                objects.get_mut(owner).expect("validated exit view owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::AttachCameraTrackingTarget { next } => {
+                let target = world.camera_tracking.as_ref().ok_or(ProgramError::MissingCameraTrackingTarget)?.actor;
+                let actor = objects.get_mut(owner).expect("validated tracking importer");
+                actor.base.attachment = target;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
             Statement::InstallExitShield { next } => {
                 let primary = world.primary_player.ok_or(ProgramError::MissingPrimaryPlayer)?;
                 objects.get(primary).ok_or(PathRuntimeError::MissingActor(primary))?;
@@ -14242,10 +14266,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 154);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 155);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6297);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6356);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6512);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6571);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

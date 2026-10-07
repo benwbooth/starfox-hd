@@ -25,6 +25,7 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("ORDINARY_SCENE_EXIT", PathAddress(0xCF18)),
     ("SPECIAL_SCENE_EXIT", PathAddress(0xD27B)),
     ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
     ("NARROWING_CORRIDOR_EXIT", PathAddress(0xD1CB)),
@@ -459,6 +460,21 @@ def rapid_shot_shapes(rom: bytes, address: int) -> tuple[int, ...]:
                  for index in range(0, len(data), 2))
 
 
+def exit_craft_poses(rom: bytes) -> tuple[str, ...]:
+    """Eight direction-masked records consumed by the complete F808 helper."""
+    start = source_offset(0x07FD6E)
+    data = rom[start:start + 104]
+    expected = bytes.fromhex('96003efe3efe9cff6400c201c2016aff3200ceff00006aff6aff0000ceff3200b004c80070fe44fd44fd70fec800b0040c100c0c0c0c100c80a8e0000020588000ece2d8281e14000c1012202012100c00fefcfc040402000000000000000000140c070808070c14')
+    if data != expected:
+        raise UnsupportedPath('unexpected ordinary-exit craft pose table')
+    rows = []
+    for i in range(8):
+        xyz = [int.from_bytes(data[axis * 16 + i * 2:axis * 16 + i * 2 + 2], 'little', signed=True) for axis in range(3)]
+        pitch, yaw, roll, relative_pitch, turn_rate, relative_roll, speed = [data[48 + column * 8 + i] for column in range(7)]
+        rows.append(f'super::path_exit::ExitCraftPose {{ offset: Vector3 {{ x: {xyz[0]}, y: {xyz[1]}, z: {xyz[2]} }}, rotation: Rotation {{ pitch: Angle::from_units({pitch}), yaw: Angle::from_units({yaw}), roll: Angle::from_units({roll}) }}, relative_pitch: Angle::from_units({relative_pitch}), turn_rate: {turn_rate}, relative_roll: Angle::from_units({relative_roll}), target_speed: {speed} }}')
+    return tuple(rows)
+
+
 def pilot_craft_appearances(rom: bytes) -> tuple[tuple[int, int], ...]:
     """Six decoded shape/material pairs; no runtime source table lookup."""
     leaf = bytes.fromhex('da5a08c2309b290f00c906009003a905000a0aaabf358106990400bf37810699cd1c287afa6b')
@@ -626,6 +642,14 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
                         (0xBC9C, PathAddress(0xD332)),
                         (0xCA2C, PathAddress(0xD399)),
                         (0xE824, PathAddress(0x7FAA))):
+        return index, "ObjectKind::Effect"
+    # Ordinary exit graph: craft, scenery and view actors disable collision
+    # before their first yield. Numbered scene parts use the same reviewed
+    # noncolliding CFD4 path, regardless of their render-shape identity.
+    if (shape == 0xBC9C and path in tuple(PathAddress(p) for p in (
+            0xCF5A, 0xD0A8, 0xCFE1, 0xCF67, 0xCF96, 0xD062,
+            0xD0EC, 0xD14F, 0xD186, 0xD118, 0xD16C))) or (
+            path == PathAddress(0xCFD4) and shape in (0xE744, 0xE69C, 0xE6F0, 0xE798, 0xCA10)):
         return index, "ObjectKind::Effect"
     # Node-exit display: its complete child disables collision before its
     # first wait, then shows the node-selected craft and emits a sprite.
@@ -1271,9 +1295,25 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF9A1): "LinkLastSpawnToSelf",
                 PathAddress(0xFDDC): "LinkLastSpawnToSelf",
             }
-            if command.address == PathAddress(0xD253):
+            if command.address == PathAddress(0xD024):
                 parameters(0)
-                statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::RequestCorridorExit, next: {next_cursor()} }}")
+                entries = ', '.join(exit_craft_poses(extractor.rom))
+                statements.append(f"Statement::InitializeExitCraft {{ poses: &const {{ [{entries}] }}, next: {next_cursor()} }}")
+                continue
+            if command.address == PathAddress(0xD0DE):
+                parameters(0)
+                start = source_offset(0x07F4F9)
+                data = extractor.rom[start:start + 8]
+                if data != bytes.fromhex('f1f6000a140a00f6'):
+                    raise UnsupportedPath('unexpected ordinary-exit view depth table')
+                depths = ', '.join(str(int.from_bytes(bytes([value]), 'little', signed=True)) for value in data)
+                statements.append(f"Statement::PositionExitView {{ depths: &[{depths}], next: {next_cursor()} }}")
+                continue
+            handoff_actions = {0xD253: 'RequestCorridorExit', 0xD098: 'RequestCorridorExit',
+                               0xCFF8: 'PublishExitViewReady', 0xE845: 'RequestLayoutAdvance'}
+            if command.address.offset in handoff_actions:
+                parameters(0)
+                statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::{handoff_actions[command.address.offset]}, next: {next_cursor()} }}")
                 continue
             if command.address == PathAddress(0xB8C5):
                 parameters(0)
@@ -1556,7 +1596,13 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                     if number != 5:
                         raise UnsupportedPath("unreviewed optional special-exit child retirement")
                     operation = "RetireOptionalChild"
-                command_ = f"RelationshipCommand::{operation} {{ number: {number} }}"
+                if name == "RemoveChild" and command.address == PathAddress(0xCF3D):
+                    if number != 60:
+                        raise UnsupportedPath("unreviewed optional ordinary-exit child retirement")
+                    operation = "RetireOptionalChild"
+                policy = (f", allow_absent_parent: {str(command.address == PathAddress(0xCF3D)).lower()}"
+                          if operation == "RetireOptionalChild" else "")
+                command_ = f"RelationshipCommand::{operation} {{ number: {number}{policy} }}"
             statement = f"Statement::Relationship {{ command: {command_}, next: {next_cursor()} }}"
         elif name == "Gosub":
             low, high = parameters(2)
@@ -1689,7 +1735,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "CopySelectedAuxRotation":
             parameters(0)
             statement = f"Statement::CopySelectedStoredRotation {{ next: {next_cursor()} }}"
-        elif name in ("CopyPositionToObject", "CopyRotationToObjectFixed",
+        elif name in ("CopyPositionToObject", "CopyRotationToObjectFixed", "ChaseObjectPositionTowardCurrent",
                       "SetObjectRotationTowardTarget", "ChaseObjectRotationTowardTarget"):
             aim = name in ("SetObjectRotationTowardTarget", "ChaseObjectRotationTowardTarget")
             operand = parameters(3 if aim else 2)
@@ -1700,7 +1746,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 operation = (f"AimTracking {{ pitch_shift: {operand[2]}, "
                            f"chase: {str(name == 'ChaseObjectRotationTowardTarget').lower()} }}")
             else:
-                operation = "CopyPosition" if name == "CopyPositionToObject" else "CopyRotation"
+                operation = {"CopyPositionToObject": "CopyPosition", "CopyRotationToObjectFixed": "CopyRotation",
+                             "ChaseObjectPositionTowardCurrent": "ChasePosition"}[name]
             statement = f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::{operation}, next: {next_cursor()} }}"
         elif name in ("ChasePlayerTowardObject", "SnapPlayerToObject"):
             parameters(0)
@@ -1944,6 +1991,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
+            if address == 0x1DFF and variable == 0x06:
+                statements.append(f"Statement::AttachCameraTrackingTarget {{ next: {next_cursor()} }}")
+                continue
             if address in (0x1D88, 0x1D8C):
                 operation = "CopyX" if address == 0x1D88 else "CopyZ"
                 statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::{operation}({word_field(variable)}), next: {next_cursor()} }}")
@@ -2008,8 +2058,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             if address == 0x1CE5 and name == "StoreExternalByte":
                 statements.append(f"Statement::AssignEngineSoundControl {{ value: {value}, next: {next_cursor()} }}")
                 continue
-            if address == 0x1D8E and name == "ImportByteAbsolute":
-                statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::CopyHeading({byte_field(variable)}), next: {next_cursor()} }}")
+            if address in (0x1D8E, 0x1D8F) and name == "ImportByteAbsolute":
+                operation = 'CopyHeading' if address == 0x1D8E else 'CopyExitDirection'
+                statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::{operation}({byte_field(variable)}), next: {next_cursor()} }}")
                 continue
             if name == "ImportByteAbsolute" and 0x1E1C <= address <= 0x1E21:
                 axis = ("X", "Y", "Z")[(address - 0x1E1C) // 2]

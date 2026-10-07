@@ -25,6 +25,7 @@ const SCRIPTED_VIEW_MODE: u16 = 0x0002;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FixedViewCommand {
     CopyPosition,
+    ChasePosition,
     CopyRotation,
     /// Aim at the shared tracking actor, with signed fine-pitch attenuation.
     AimTracking {

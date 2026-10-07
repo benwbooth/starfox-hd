@@ -11,6 +11,7 @@ pub use native::actor_auxiliary;
 pub use native::common_destruction;
 pub use native::cinematic_exit;
 pub use native::exit_shield;
+pub use native::path_exit;
 pub use native::path_invocation;
 pub use native::{path_countdown, path_death, path_protection, weapon_reflection};
 pub use native::path_shots;

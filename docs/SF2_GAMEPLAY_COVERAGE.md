@@ -152,6 +152,33 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete ordinary exit controller (`$44:CF18`) now runs in the typed path
+executor with its craft, camera, scenery and effect children. Direction tables
+are immutable decoded records; camera placement preserves both heading-based
+offsets and partial publication on missing later inputs. Handoff flags and the
+full direction byte use the existing shared records. Original execution passes
+96 retained lifetimes (23,040 scene-update passes), all six pilots, eight directions
+and both shield states, plus 196,608 independent geometry initial states and
+exhaustive fixed-view chase deltas. Original-only continuations establish that
+the reviewed absent child-sixty retirement has no later live scratch read;
+discarded address-calculation bus cycles are excluded from data liveness.
+
+Nested cleanup exposed links through slots retired earlier in the pass. A
+typed retained successor survives until slot reuse; ordinary actor access
+still excludes the retired slot. Original-code checks pass all 720 retirement
+orders with three lifetime masks, including splicing inactive predecessors and
+clearing orphaned attachment gates. The catalog has 155 roots, nine helpers,
+6,571 source commands and 6,512 statements. Full debug/release regression and
+static audits pass: 1,573 native tests, 1,581 compatibility tests plus 35 runtime
+tests, 33 path tests and 249 original-code groups (222 player-storage groups)
+in both profiles; app tests, actual-app smoke checks and app builds also pass.
+All 859 source checks, 217 lowerer tests, three backlog tests, exact generators
+and the architecture audit pass. Results are in `/tmp/sf2-ordinary-exit-validation-oct07.log` and
+`/tmp/sf2-ordinary-exit-static-oct07.log`. Player creation, remaining mission-tail
+actions and shipping-frame ownership remain open. The lifetime tests supply
+the separately owned player-action gate input; they do not prove its producer
+or a controller-driven campaign exit.
+
 The complete special-exit controller (`$44:D27B`) now runs in the shared typed
 path executor, including the primary-protection-gated exit shield and canonical
 engine-sound publication. Its original-code comparison covers 36 independent

@@ -98,6 +98,15 @@ mod exit_shield_tests;
 #[path = "support/sf2_special_exit.rs"]
 mod special_exit_tests;
 
+#[path = "support/sf2_ordinary_exit.rs"]
+mod ordinary_exit_tests;
+
+#[path = "support/sf2_ordinary_exit_geometry.rs"]
+mod ordinary_exit_geometry_tests;
+
+#[path = "support/sf2_ordinary_exit_scratch.rs"]
+mod ordinary_exit_scratch_tests;
+
 #[path = "support/sf2_attachment_lifecycle.rs"]
 mod attachment_lifecycle_tests;
 
@@ -149,6 +158,8 @@ struct Source {
     bus: SnesBus,
     reset: bool,
     writes: Option<Vec<(u32, u8)>>,
+    /// Valid data accesses only. Discarded indexed-address bus cycles do not
+    /// constitute a live read of a scratch value by the original program.
     byte_accesses: Option<(u16, Vec<(bool, u8)>)>,
     last_carry: bool,
 }
@@ -157,7 +168,7 @@ impl System for Source {
     fn read(&mut self, address: u32, kind: AddressType, signals: &Signals) -> u8 {
         let value = self.bus.read(address, kind, signals);
         if let Some((watched, accesses)) = &mut self.byte_accesses {
-            if address == u32::from(*watched) || address == WRAM + u32::from(*watched) {
+            if kind != AddressType::Invalid && (address == u32::from(*watched) || address == WRAM + u32::from(*watched)) {
                 accesses.push((false, value));
             }
         }

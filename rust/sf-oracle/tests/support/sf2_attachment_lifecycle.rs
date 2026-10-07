@@ -197,6 +197,54 @@ fn original_mixed_attachment_retirement_splices_before_detach_and_retains_relati
 }
 
 #[test]
+fn original_nested_attachment_cleanup_matches_all_retirement_orders_including_retired_links() {
+    fn permutations(prefix: &mut Vec<usize>, rest: &mut Vec<usize>, output: &mut Vec<Vec<usize>>) {
+        if rest.is_empty() {
+            output.push(prefix.clone());
+            return;
+        }
+        for index in 0..rest.len() {
+            let value = rest.remove(index);
+            prefix.push(value);
+            permutations(prefix, rest, output);
+            prefix.pop();
+            rest.insert(index, value);
+        }
+    }
+    let mut orders = Vec::new();
+    permutations(&mut Vec::new(), &mut (0..6).collect(), &mut orders);
+    assert_eq!(orders.len(), 720);
+    let mut source = source(&rom());
+    for order in orders {
+        for mask in [0, 0x15, 0x3F] {
+            let (mut native, ids) = mixed_chain(&mut source, 250, mask);
+            for index in &order {
+                let owner = ids[*index];
+                assert!(
+                    call_near(
+                        &mut source.bus,
+                        0x7F335A,
+                        &Entry {
+                            x: address(Some(owner)),
+                            dbr: 0x7E,
+                            p: 0x20,
+                            ..Default::default()
+                        }
+                    )
+                    .returned
+                );
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    native.objects.remove(owner)
+                }))
+                .unwrap_or_else(|_| panic!("retirement order {order:?} mask {mask} actor {index}"))
+                .unwrap();
+                compare(&source, &native);
+            }
+        }
+    }
+}
+
+#[test]
 fn original_mixed_attachment_death_services_visit_nested_and_sibling_links_identically() {
     let mut source = source(&rom());
     for owner_index in 0..6 {

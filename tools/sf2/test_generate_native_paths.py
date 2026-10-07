@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 154;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 155;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6356;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6571;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -164,6 +164,49 @@ class NativePathGenerationTests(unittest.TestCase):
             changed[0x4E968 + index] ^= 1
             with self.assertRaisesRegex(ValueError, 'path inline signature mismatch'):
                 lower_graph(PathExtractor(bytes(changed)), root, 0)
+
+    def test_ordinary_exit_controller_closes_all_craft_view_and_scene_parts(self):
+        from extract_path import _PATH_INLINE_BLOCKS
+        extractor = PathExtractor(self.rom)
+        root = PathAddress(0xCF18)
+        self.assertIn(root, extractor.discover_roots())
+        commands = graph(extractor, root)
+        self.assertEqual(len(commands), 270)
+        self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(),
+                         '6dccfd12aed50f75f2b2e7f6abdbddd65bf9932afd082b05dc02e828d73d13a5')
+        entry, statements = lower_graph(extractor, root, 0)
+        self.assertEqual((entry, len(statements)), (2, 270))
+        lowered = '\n'.join(statements)
+        for operation in ('InitializeExitCraft', 'PositionExitView', 'AttachCameraTrackingTarget',
+                          'CopyExitDirection', 'RequestLayoutAdvance', 'PublishExitViewReady',
+                          'RequestCorridorExit', 'FixedViewCommand::ChasePosition',
+                          'RetireOptionalChild { number: 60, allow_absent_parent: true'):
+            self.assertIn(operation, lowered)
+        changed = bytearray(self.rom)
+        changed[0x4CF3E] = 59
+        with self.assertRaisesRegex(UnsupportedPath, 'unreviewed optional ordinary-exit child'):
+            lower_graph(PathExtractor(bytes(changed)), root, 0)
+        for address in (0xCFF8, 0xD024, 0xD098, 0xD0DE, 0xE845):
+            for index in range(len(_PATH_INLINE_BLOCKS[address][0])):
+                changed = bytearray(self.rom)
+                changed[0x40000 + address + 1 + index] ^= 1
+                with self.assertRaisesRegex(ValueError, 'path inline signature mismatch'):
+                    lower_graph(PathExtractor(bytes(changed)), root, 0)
+        for address, length in ((0x3FD6E, 104), (0x3F4F9, 8)):
+            for index in range(length):
+                changed = bytearray(self.rom)
+                changed[address + index] ^= 1
+                with self.assertRaisesRegex(UnsupportedPath, 'ordinary-exit'):
+                    lower_graph(PathExtractor(bytes(changed)), root, 0)
+
+    def test_exit_tracking_import_and_fixed_view_destination_stay_typed_and_fail_closed(self):
+        self.assertIn('AttachCameraTrackingTarget', self.lower_record('7c06ff1d')[0])
+        self.assertIn('FixedViewCommand::ChasePosition', self.lower_record('00423f03')[0])
+        for record in ('7c0cff1d', '00424003'):
+            with self.assertRaises(UnsupportedPath):
+                self.lower_record(record)
+        for field, expected in [('8e', 'CopyHeading'), ('8f', 'CopyExitDirection')]:
+            self.assertIn(expected, self.lower_record('792e' + field + '1d')[0])
 
     def test_engine_control_is_shared_byte_assignment_not_actor_phase_or_audio_cue(self):
         for value in range(256):
@@ -2894,7 +2937,7 @@ class NativePathGenerationTests(unittest.TestCase):
 
     def test_unported_or_changed_inline_actions_are_rejected(self):
         with self.assertRaisesRegex(UnsupportedPath, "unported inline action"):
-            lower_graph(PathExtractor(self.rom), PathAddress(0xE845), 0)
+            lower_graph(PathExtractor(self.rom), PathAddress(0x4B4D), 0)
         changed = bytearray(self.rom)
         changed[0x4F350] = 0x40  # change the primary flag mask inside the action
         with self.assertRaisesRegex(ValueError, "inline signature mismatch"):

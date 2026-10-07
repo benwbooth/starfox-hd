@@ -59,6 +59,7 @@ pub mod path_countdown;
 pub mod path_death;
 pub mod path_effect;
 pub mod path_equipment;
+pub mod path_exit;
 pub mod path_fields;
 pub mod path_impact;
 pub mod path_invocation;

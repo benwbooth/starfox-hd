@@ -189,9 +189,12 @@ pub struct EncounterHandoff {
 pub enum HandoffCommand {
     Request,
     RequestCorridorExit,
+    RequestLayoutAdvance,
+    PublishExitViewReady,
     CopyX(super::path_fields::WordField),
     CopyZ(super::path_fields::WordField),
     CopyHeading(ByteField),
+    CopyExitDirection(ByteField),
     StoreX(super::path_fields::WordOperand),
     StoreZ(super::path_fields::WordOperand),
     StoreHeading(ByteOperand),
@@ -201,14 +204,21 @@ impl EncounterHandoff {
     pub fn apply(&mut self, actor: &mut Object, command: HandoffCommand) {
         const HANDOFF_REQUEST: u8 = 0x40;
         const CORRIDOR_EXIT_REQUEST: u8 = 0x08;
+        const LAYOUT_ADVANCE_REQUEST: u8 = 0x01;
+        const EXIT_VIEW_READY: u8 = 0x04;
         const HEADING_COMPANION: u16 = 0xFF00;
         match command {
             HandoffCommand::Request => self.player_flags |= HANDOFF_REQUEST,
             HandoffCommand::RequestCorridorExit => self.player_flags |= CORRIDOR_EXIT_REQUEST,
+            HandoffCommand::RequestLayoutAdvance => self.player_flags |= LAYOUT_ADVANCE_REQUEST,
+            HandoffCommand::PublishExitViewReady => self.player_flags |= EXIT_VIEW_READY,
             HandoffCommand::CopyX(destination) => destination.write(actor, self.x as u16),
             HandoffCommand::CopyZ(destination) => destination.write(actor, self.z as u16),
             HandoffCommand::CopyHeading(destination) => {
                 destination.write(actor, self.heading_word as u8)
+            }
+            HandoffCommand::CopyExitDirection(destination) => {
+                destination.write(actor, self.heading_word.to_le_bytes()[1])
             }
             HandoffCommand::StoreX(source) => self.x = source.read(actor) as i16,
             HandoffCommand::StoreZ(source) => self.z = source.read(actor) as i16,

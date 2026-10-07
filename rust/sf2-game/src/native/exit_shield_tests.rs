@@ -244,7 +244,7 @@ fn optional_child_retirement_preserves_absent_chain_without_relaxing_other_calle
     apply(
         &mut objects,
         owner,
-        RelationshipCommand::RetireOptionalChild { number: 5 },
+        RelationshipCommand::RetireOptionalChild { number: 5, allow_absent_parent: false },
     )
     .unwrap();
     assert_eq!(objects, original);
@@ -268,7 +268,7 @@ fn optional_child_retirement_preserves_absent_chain_without_relaxing_other_calle
     apply(
         &mut objects,
         owner,
-        RelationshipCommand::RetireOptionalChild { number: 5 },
+        RelationshipCommand::RetireOptionalChild { number: 5, allow_absent_parent: false },
     )
     .unwrap();
     assert_eq!(objects, expected);
