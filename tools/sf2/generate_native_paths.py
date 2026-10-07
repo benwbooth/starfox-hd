@@ -28,6 +28,8 @@ ROOTS = (
     ("SCENE_NINE", PathAddress(0xD40E)),
     ("SCENE_THREE", PathAddress(0xD9D6)),
     ("SCENE_FIVE", PathAddress(0xB65B)),
+    ("SCENE_FOUR", PathAddress(0xD48C)),
+    ("SCENE_TWENTY_FIVE", PathAddress(0xD490)),
     ("ORDINARY_SCENE_EXIT", PathAddress(0xCF18)),
     ("SPECIAL_SCENE_EXIT", PathAddress(0xD27B)),
     ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
@@ -691,6 +693,24 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     if (shape, path) in tuple((s, PathAddress(p)) for s, p in (
             (0xBC9C, 0xB746), (0xBC9C, 0xB68B), (0xBC9C, 0xB807),
             (0xBC9C, 0xB85A), (0xC984, 0xB862))):
+        return index, "ObjectKind::Enemy"
+    # Indexed scene twenty-five (and four, which stores the encounter variant
+    # then enters it). Same interprocedural walk as scene three: every route
+    # to the first yield passes DisableCollision for these children.
+    if (shape, path) in tuple((s, PathAddress(p)) for s, p in (
+            (0xBC9C, 0xD4A9), (0xBC9C, 0xD5FE), (0xBC9C, 0xD61B), (0xBC9C, 0xD622),
+            (0xBC9C, 0xD6C4), (0xBC9C, 0xD6E9), (0xC620, 0xD58D), (0xC9F4, 0xD5F8),
+            (0xCFDC, 0xD7ED), (0xD014, 0xD83C), (0xD500, 0xD93B), (0xD538, 0xD8E2),
+            (0xD570, 0xD93F), (0xD5A8, 0xD93B), (0xE098, 0xD7C6), (0xE0D0, 0xD751),
+            (0xE0EC, 0xD784), (0xE108, 0xD7C2), (0xE124, 0xD7C2), (0xE1B0, 0xD86E),
+            (0xE680, 0xD5F8), (0xE6D4, 0xD5F8), (0xE728, 0xD587), (0xE77C, 0xD5F8),
+            (0xEA38, 0xD672))):
+        return index, "ObjectKind::Effect"
+    # Scene twenty-five children not proven noncolliding on every route (some
+    # become another strategy before yielding). The native kind is a label.
+    if (shape, path) in tuple((s, PathAddress(p)) for s, p in (
+            (0xBC9C, 0xD640), (0xCFDC, 0xD7DD), (0xE1B0, 0xD84B),
+            (0xE1E8, 0xF837), (0xE1E8, 0xF84D), (0xEA38, 0xD660))):
         return index, "ObjectKind::Enemy"
     # Special-exit controller: the tracking anchor, departing craft, animated
     # geometry and distant scenery all disable collision before their first
@@ -1357,6 +1377,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0x91DA): "LinkLastSpawnToSelf",
                 PathAddress(0xF9A1): "LinkLastSpawnToSelf",
                 PathAddress(0xFDDC): "LinkLastSpawnToSelf",
+                PathAddress(0xE690): "LinkLastSpawnToSelf",
             }
             if command.address == PathAddress(0xD024):
                 parameters(0)
@@ -1686,7 +1707,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                     if number != 60:
                         raise UnsupportedPath("unreviewed optional ordinary-exit child retirement")
                     operation = "RetireOptionalChild"
-                policy = (f", allow_absent_parent: {str(command.address == PathAddress(0xCF3D)).lower()}"
+                if name == "RemoveChild" and command.address == PathAddress(0xD5F4):
+                    # Scenes four/twenty-five: the numbered-part controller
+                    # never creates child twenty and its retained graph is
+                    # END, so the null-lookup scratch write is never read.
+                    if number != 20:
+                        raise UnsupportedPath("unreviewed optional part-controller child retirement")
+                    operation = "RetireOptionalChild"
+                policy = (f", allow_absent_parent: {str(command.address in (PathAddress(0xCF3D), PathAddress(0xD5F4))).lower()}"
                           if operation == "RetireOptionalChild" else "")
                 command_ = f"RelationshipCommand::{operation} {{ number: {number}{policy} }}"
             statement = f"Statement::Relationship {{ command: {command_}, next: {next_cursor()} }}"
@@ -2277,6 +2305,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ImportSurfaceMode {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address == 0x0002 and command.address == PathAddress(0xF9BD) and name == "ExportByteAbsolute":
+                statements.append(f"Statement::ExportScratchByte {{ source: {byte_field(variable)}, next: {next_cursor()} }}")
+                continue
+            if address == 0x0002 and command.address == PathAddress(0xF9C2) and name == "ImportByteAbsolute":
+                statements.append(f"Statement::ImportScratchByte {{ destination: {byte_field(variable)}, next: {next_cursor()} }}")
+                continue
             if address == 0x0002 and name == "ImportByteAbsolute" and command.address in (PathAddress(0xE7DF), PathAddress(0xE826)):
                 statement = f"Statement::ImportImpactMaterial {{ destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
@@ -2290,8 +2324,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::ProjectileFlightOverride {{ command: super::path_shots::FlightOverrideCommand::{operation}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address in (0xD7F2, 0x1C06) and name.startswith("Import"):
-                source = "Difficulty" if address == 0xD7F2 else "EncounterVariant"
+            if address == 0x1C06 and name == "StoreExternalByte":
+                statements.append(f"Statement::StoreEncounterVariant {{ value: {value}, next: {next_cursor()} }}")
+                continue
+            if address in (0xD7F2, 0x1C06, 0x1C07) and name.startswith("Import"):
+                source = {0xD7F2: "Difficulty", 0x1C06: "EncounterVariant", 0x1C07: "SecondaryVariant"}[address]
                 statement = f"Statement::ImportCampaignByte {{ source: CampaignByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
@@ -2522,6 +2559,8 @@ INDEXED_SCENES = {
     0xD40E: (9, 0x0DC191, '0ed491c10d001000', True),
     0xD9D6: (3, 0x0DC4F3, 'd6d9f3c40d000000', False),
     0xB65B: (5, 0x0DBED3, '5bb6d3be0d000000', False),
+    0xD48C: (4, 0x0DBEB4, '8cd4b4be0d000000', False),
+    0xD490: (25, 0x0DBEBB, '90d4bbbe0d000000', False),
 }
 
 

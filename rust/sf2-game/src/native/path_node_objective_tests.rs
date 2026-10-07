@@ -106,6 +106,7 @@ fn node_entry_captures_initial_count_heading_and_completed_state() {
                 inputs.campaign = Some(CampaignPathInputs {
                     difficulty,
                     encounter_variant: 0,
+                    secondary_variant: 0,
                 });
                 let exit = runtime
                     .enter_program(&catalog, &mut objects, owner, &mut inputs, 120)
@@ -185,6 +186,7 @@ fn direct_node_entry_preserves_all_part_bytes_and_needs_no_visibility_snapshot()
                 inputs.campaign = Some(CampaignPathInputs {
                     difficulty: Difficulty::Normal,
                     encounter_variant: 0,
+                    secondary_variant: 0,
                 });
                 assert_eq!(
                     runtime
@@ -362,6 +364,7 @@ fn node_completion_observes_live_bits_then_publishes_without_losing_unrelated_bi
         inputs.campaign = Some(CampaignPathInputs {
             difficulty: Difficulty::Expert,
             encounter_variant: 0,
+            secondary_variant: 0,
         });
         assert_eq!(
             runtime

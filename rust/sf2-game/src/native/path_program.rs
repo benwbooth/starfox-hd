@@ -224,6 +224,9 @@ pub struct PathWorld<'a> {
     /// Owner cell of the active pilot selector (1E14), mutated by the scene
     /// pilot-advance service. `scene.active_pilot` is kept in step.
     pub active_pilot_slot: Option<&'a mut Option<u8>>,
+    /// Owner cell of the campaign observations, written by the encounter
+    /// variant store (1C06). `campaign` is kept in step for later imports.
+    pub campaign_slot: Option<&'a mut Option<CampaignPathInputs>>,
     pub map: Option<&'a mut super::scene_map::SceneMap>,
     pub reflection: Option<super::weapon_reflection::ReflectionRules>,
     pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
@@ -331,6 +334,7 @@ impl PathWorld<'_> {
             camera_projection_base: None,
             camera_projection_offset: None,
             active_pilot_slot: None,
+            campaign_slot: None,
             map: None,
             reflection: None,
             health_display: None,
@@ -653,18 +657,23 @@ pub struct PrimaryMotionInput {
 pub struct CampaignPathInputs {
     pub difficulty: super::Difficulty,
     pub encounter_variant: u8,
+    /// Second variant byte (1C07), written by `$04:C352` only on the hardest
+    /// difficulty; otherwise it keeps whatever an earlier encounter left.
+    pub secondary_variant: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CampaignByte {
     Difficulty,
     EncounterVariant,
+    SecondaryVariant,
 }
 
 impl CampaignByte {
     fn read(self, input: CampaignPathInputs) -> u8 {
         match self {
             Self::EncounterVariant => input.encounter_variant,
+            Self::SecondaryVariant => input.secondary_variant,
             Self::Difficulty => match input.difficulty {
                 super::Difficulty::Normal => 0,
                 super::Difficulty::Hard => 1,
@@ -819,6 +828,12 @@ pub enum Statement {
     IfProtectionOverride { taken: PathCursor, next: PathCursor },
     /// `$07:F3D1`: step the active pilot through the six craft, wrapping.
     AdvanceActivePilot { next: PathCursor },
+    /// Immediate store to the encounter variant byte (1C06).
+    StoreEncounterVariant { value: u8, next: PathCursor },
+    /// Carry a variable through the direct-page scratch byte ($0002) between
+    /// two actor identities: export under one, import under the other.
+    ExportScratchByte { source: super::path_fields::ByteField, next: PathCursor },
+    ImportScratchByte { destination: super::path_fields::ByteField, next: PathCursor },
     /// Inline phase tests (`$09:B796`, `$09:B869`): compare the phase byte
     /// (1BE0) with a literal; the outcome picks one of two literal
     /// continuations. No IFNOT state is read or consumed.
@@ -1328,6 +1343,7 @@ pub enum ProgramError {
     MissingCameraProjection,
     MissingCampaignPhase,
     MissingActivePilot,
+    MissingScratchByte,
     MissingProjectileTrigger,
     MissingPrimaryPitchRecoil,
     MissingPrimaryLinkedMode,
@@ -2211,6 +2227,31 @@ impl PathRuntime {
                 actor.base.yaw = rotation.yaw;
                 actor.base.roll = rotation.roll;
                 actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ExportScratchByte { source, next } => {
+                let actor = objects.get_mut(owner).expect("validated scratch exporter");
+                self.scratch_byte_02 = Some(source.read(actor));
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportScratchByte { destination, next } => {
+                let value = self.scratch_byte_02.ok_or(ProgramError::MissingScratchByte)?;
+                let actor = objects.get_mut(owner).expect("validated scratch importer");
+                destination.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::StoreEncounterVariant { value, next } => {
+                let slot = world
+                    .campaign_slot
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingCampaign)?;
+                let mut campaign = slot.ok_or(ProgramError::MissingCampaign)?;
+                campaign.encounter_variant = value;
+                *slot = Some(campaign);
+                world.campaign = Some(campaign);
+                objects.get_mut(owner).expect("validated variant store").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
             Statement::AdvanceActivePilot { next } => {
@@ -3189,6 +3230,7 @@ mod tests {
             camera_projection_base: None,
             camera_projection_offset: None,
             active_pilot_slot: None,
+            campaign_slot: None,
             map: None,
             selected_boundary: None,
             selected_steering: None,
@@ -10341,6 +10383,7 @@ mod tests {
                 camera_projection_base: None,
                 camera_projection_offset: None,
                 active_pilot_slot: None,
+                campaign_slot: None,
                 map: None,
                 selected_boundary: None,
                 selected_steering: None,
@@ -11392,6 +11435,7 @@ mod tests {
                 inputs.campaign = Some(CampaignPathInputs {
                     difficulty: Difficulty::Expert,
                     encounter_variant: 0,
+                    secondary_variant: 0,
                 });
                 inputs.surface_mode = Some(SurfaceMode { flags: 0 });
                 inputs.audio = Some(PathAudio {
@@ -11610,6 +11654,7 @@ mod tests {
                                 inputs.campaign = Some(CampaignPathInputs {
                                     difficulty,
                                     encounter_variant: 0,
+                                    secondary_variant: 0,
                                 });
                                 inputs.selected_auxiliary = Some(&mut auxiliary);
                                 inputs.audio = Some(PathAudio {
@@ -12270,6 +12315,7 @@ mod tests {
                     inputs.campaign = Some(CampaignPathInputs {
                         difficulty: Difficulty::Expert,
                         encounter_variant: 0,
+                        secondary_variant: 0,
                     });
                     let result =
                         runtime.enter_program(&catalog, &mut objects, owner, &mut inputs, 40).map(|exit| { assert_eq!(exit.actor, owner); exit.step });
@@ -12379,6 +12425,7 @@ mod tests {
                     inputs.campaign = Some(CampaignPathInputs {
                         difficulty: Difficulty::Normal,
                         encounter_variant: 0,
+                        secondary_variant: 0,
                     });
                     inputs.surface_mode = Some(SurfaceMode { flags: 0 });
                     inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
@@ -12583,6 +12630,7 @@ mod tests {
                                 inputs.campaign = Some(CampaignPathInputs {
                                     difficulty,
                                     encounter_variant: 0,
+                                    secondary_variant: 0,
                                 });
                                 if inherits {
                                     inputs.primary_player = Some(player);
@@ -12887,6 +12935,7 @@ mod tests {
                             inputs.campaign = Some(CampaignPathInputs {
                                 difficulty,
                                 encounter_variant: 0,
+                                secondary_variant: 0,
                             });
                             inputs.selected_auxiliary = Some(&mut auxiliary);
                             inputs.spawn_defaults = Some(ObjectSpawnDefaults {
@@ -13753,6 +13802,7 @@ mod tests {
                             inputs.campaign = Some(CampaignPathInputs {
                                 difficulty,
                                 encounter_variant: 0,
+                                secondary_variant: 0,
                             });
                         }
                         if visit == 16 {
@@ -13876,6 +13926,7 @@ mod tests {
                     inputs.campaign = Some(CampaignPathInputs {
                         difficulty,
                         encounter_variant,
+                        secondary_variant: encounter_variant ^ 0xA5,
                     });
                     assert_eq!(
                         runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
@@ -13932,6 +13983,7 @@ mod tests {
                         inputs.campaign = Some(CampaignPathInputs {
                             difficulty,
                             encounter_variant,
+                            secondary_variant: 0,
                         });
                         inputs.radio = Some(PathRadio {
                             request: &mut request,
@@ -13996,6 +14048,7 @@ mod tests {
             inputs.campaign = Some(CampaignPathInputs {
                 difficulty,
                 encounter_variant: 0,
+                secondary_variant: 0,
             });
             let Err(ProgramError::BudgetExceeded {
                 cursor: late_import,
@@ -14435,10 +14488,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 158);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 160);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6934);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6993);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 7400);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 7459);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -14574,6 +14627,7 @@ mod tests {
                 camera_projection_base: None,
                 camera_projection_offset: None,
                 active_pilot_slot: None,
+                campaign_slot: None,
                 map: None,
                 selected_boundary: None,
                 selected_steering: None,
@@ -14742,6 +14796,7 @@ mod tests {
                         camera_projection_base: None,
                         camera_projection_offset: None,
                         active_pilot_slot: None,
+                        campaign_slot: None,
                         map: None,
                         selected_boundary: None,
                         selected_steering: None,

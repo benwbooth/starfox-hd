@@ -724,6 +724,7 @@ impl InvocationWorld for ScenePathWorld {
             camera_projection_base: Some(&mut self.camera_projection_base),
             camera_projection_offset: Some(&mut self.camera_projection_offset),
             active_pilot_slot: Some(&mut self.scene.active_pilot),
+            campaign_slot: Some(&mut self.campaign),
             map: self.map.as_mut(),
             spawn_defaults: self.spawn_defaults,
             view_transition_mode: self.view_transition_mode.as_mut(),

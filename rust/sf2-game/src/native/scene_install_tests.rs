@@ -168,7 +168,7 @@ fn restore_selector_substitutes_saved_scene_without_retesting_sentinels() {
 
 #[test]
 fn unsupported_scenes_fault_after_allocation_without_touching_the_action() {
-    for selection in [0, 4, 25, 29, 30, 200] {
+    for selection in [0, 6, 7, 29, 30, 200] {
         let mut f = fixture(3, selection, 0);
         let Err(SceneInstallError::UnsupportedScene { actor, .. }) = f.install() else {
             panic!("selection {selection} must fault");

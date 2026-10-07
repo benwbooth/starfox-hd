@@ -42,9 +42,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 158;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 160;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6993;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 7459;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -87,7 +87,7 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_indexed_scene_three_is_admitted_only_with_its_complete_table_row(self):
         from generate_native_paths import verified_indexed_scene_installer
         self.assertTrue(verified_indexed_scene_installer(self.rom, PathAddress(0xD9D6)))
-        self.assertFalse(verified_indexed_scene_installer(self.rom, PathAddress(0xD48C)))
+        self.assertFalse(verified_indexed_scene_installer(self.rom, PathAddress(0xD9D7)))
         record = 0x06D4C7 + 3 * 8
         for offset in range(8):
             changed = bytearray(self.rom)
@@ -114,6 +114,24 @@ class NativePathGenerationTests(unittest.TestCase):
                          'Statement::SetBackgroundHorizontal', 'Statement::PublishBackgroundScrollShadow',
                          'FixedViewCommand::CopyRotationFromView', 'FixedViewCommand::ChaseRotation',
                          'FixedViewCommand::EaseYawTowardThreeQuarterTurn'):
+            self.assertIn(expected, text)
+
+    def test_indexed_scenes_four_and_twenty_five_are_admitted_only_with_their_table_rows(self):
+        from generate_native_paths import verified_indexed_scene_installer
+        for root, index in ((0xD48C, 4), (0xD490, 25)):
+            self.assertTrue(verified_indexed_scene_installer(self.rom, PathAddress(root)))
+            record = 0x06D4C7 + index * 8
+            for offset in range(8):
+                changed = bytearray(self.rom)
+                changed[record + offset] ^= 1
+                with self.assertRaises((UnsupportedPath, ValueError)):
+                    verified_indexed_scene_installer(bytes(changed), PathAddress(root))
+        text = generate(self.rom, roots=(("SCENE_FOUR", PathAddress(0xD48C)),
+                                         ("SCENE_TWENTY_FIVE", PathAddress(0xD490))))
+        for expected in ('pub const SCENE_FOUR', 'pub const SCENE_TWENTY_FIVE',
+                         'Statement::StoreEncounterVariant',
+                         'Statement::ExportScratchByte', 'Statement::ImportScratchByte',
+                         'CampaignByte::SecondaryVariant'):
             self.assertIn(expected, text)
 
     def test_bank_end_lookups_keep_only_the_entries_the_source_cannot_alias(self):
@@ -3634,7 +3652,9 @@ class NativePathGenerationTests(unittest.TestCase):
         for record, source in [("79 a1 f2 d7", "Difficulty"), ("7a a1 96", "Difficulty"), ("79 a1 06 1c", "EncounterVariant")]:
             self.assertEqual(self.lower_record(record)[0],
                 f"Statement::ImportCampaignByte {{ source: CampaignByte::{source}, destination: {byte_field(0xA1)}, next: cursor(0, 1) }}")
-        for record in ["7d a1 f2 d7", "7f a1 96", "7d a1 06 1c", "fb 06 1c 04", "e5 f2 d7", "7b a3 96", "7c a3 06 1c"]:
+        self.assertIn("Statement::StoreEncounterVariant", self.lower_record("fb 06 1c 04")[0])
+        self.assertIn("value: 4", self.lower_record("fb 06 1c 04")[0])
+        for record in ["7d a1 f2 d7", "7f a1 96", "7d a1 06 1c", "e5 f2 d7", "7b a3 96", "7c a3 06 1c"]:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 

@@ -61,6 +61,7 @@ fn death_drop_selects_all_five_pickups_and_consumes_only_the_reached_random_draw
             inputs.campaign = Some(CampaignPathInputs {
                 difficulty,
                 encounter_variant: 0,
+                secondary_variant: 0,
             });
             inputs.audio = Some(audio(&mut events));
             assert_eq!(

@@ -61,6 +61,7 @@ impl Services {
         inputs.campaign = Some(CampaignPathInputs {
             difficulty: self.difficulty,
             encounter_variant: 0,
+            secondary_variant: 0,
         });
         inputs.button_layout = Some(u8::from(matches!(self.style, FlightControlStyle::TypeB)));
         inputs.deferred_message = Some(&mut self.deferred);

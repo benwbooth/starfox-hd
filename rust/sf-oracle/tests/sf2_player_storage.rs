@@ -100,6 +100,12 @@ mod scene_three_tests;
 #[path = "support/sf2_scene_five.rs"]
 mod scene_five_tests;
 
+#[path = "support/sf2_scene_twentyfive.rs"]
+mod scene_twentyfive_tests;
+
+#[path = "support/sf2_scene_four.rs"]
+mod scene_four_tests;
+
 #[path = "support/sf2_scene_install.rs"]
 mod scene_install_tests;
 

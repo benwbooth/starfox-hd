@@ -113,6 +113,23 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Closed indexed scenes four and twenty-five, completing the five authored
+  scenes whose actions were already implemented (3, 4, 5, 9, 25). Scene four
+  stores encounter variant 4 and enters scene twenty-five's path, so the two
+  share one graph. Each matches the original over 450 visits for all pilots,
+  protection states, gate-release times and varying difficulty, variants,
+  encounter signals, campaign phase, wingmate and projection inputs. New
+  services: the encounter-variant store and secondary variant byte (1C06 and
+  1C07), a direct-page scratch byte used to carry a variable between two
+  actor identities, and the shared inline pilot thunk at `$09:E690`. The
+  part controller's removal of child twenty is treated as the reviewed
+  optional form: that child is never created and the continuation is END.
+  Remaining shipping inputs to publish: campaign byte writes through the
+  owner cells, encounter signals, and the earlier list. Source coverage of
+  the indexed scene table is now five of thirty entries; the other twenty-five
+  still fault after allocation. This is path-level fidelity only: SF2's real
+  game loop does not yet run any of it.
+
 - Closed indexed scene five as the third complete path/action pair, with the
   installer's table now covering scenes 3, 5 and 9. Its path matches the
   original over 450 visits for six pilots, both protection states, three
