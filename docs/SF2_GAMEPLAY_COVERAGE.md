@@ -152,6 +152,17 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete retained-pitch mode (`$06:E2EE..E32B`) now composes input-history
+retention, live steering, held/fine pitch, hard limits and the shared flight
+frame. It resets all three shared steering publications, preserves caller-owned
+shoulder arbitration/position capture and sends the original unsided Select
+cue. Two unmodified-original groups pass 73,728 mode calls, including every
+controller word and 8,192 independently retained control visits. Final-tree
+native debug/release, compatibility, all 116 original player/movement groups
+in both profiles, source/catalog/architecture checks and application builds
+pass. The adjacent mode and outer player
+strategy remain open; production flight ownership has not switched.
+
 The shared flight frame (`$06:E258..E2ED`) now calls the real native roll,
 ambient, throttle, surface, speed, pose, translation, recoil, damage, corridor
 and occupancy services in their original order. Surface effects feed speed

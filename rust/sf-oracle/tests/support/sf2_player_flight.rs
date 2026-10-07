@@ -9,8 +9,10 @@ use sf2_game::path_control::PlayerTarget;
 use sf2_game::path_protection::DeflectionProtection;
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::player_flight::{self, FlightContext, FlightResult};
+use sf2_game::player_flight_mode::{self, FlightModeContext};
 use sf2_game::player_motion::{self, PlayerSurfaceSupport};
-use sf2_game::player_roll::ShoulderControl;
+use sf2_game::player_roll::{self, ShoulderControl};
+use sf2_game::player_steering::SteeringContext;
 use sf2_game::player_storage::{self, PlayerStorageInputs};
 use sf2_game::scene_path_world::PlayerPathRecords;
 use sf2_game::surface_motion::SurfaceTilt;
@@ -18,7 +20,7 @@ use sf2_game::view_transition::ViewTransitionMode;
 use sf2_game::weapon_dispatch::WeaponState;
 use sf2_game::world_occupancy::{MarkerCoverage, OccupancyChange, WorldOccupancy, WorldRectangle};
 use sf2_game::{Angle, Buttons, InputState, ObjectId, RandomState, ShapeId, SoundEvent, Vector3};
-use sf_oracle::{call_near, Entry};
+use sf_oracle::{call, call_near, Entry};
 
 struct Fixture {
     native: Native,
@@ -68,6 +70,7 @@ impl Fixture {
         world.player_surface_height = Some(0);
         world.player_pitch_target = Some(0);
         world.player_yaw_increment = Some(0);
+        world.player_roll_increment = Some(0x5A93);
         world.processed_player_input = Some(Default::default());
         world.contacts_enabled = Some(true);
         world.reflect_all_contacts = Some(false);
@@ -147,6 +150,8 @@ impl Fixture {
         let throttle = records.throttle.unwrap();
         let roll = records.roll.unwrap();
         let ambient = records.ambient.unwrap();
+        let steering = records.steering.unwrap();
+        let vertical = records.vertical.unwrap();
         let mut values = Vec::new();
         for (offset, value) in [
             (
@@ -158,6 +163,8 @@ impl Fixture {
             (0x6AAD, motion.lateral_impulse as u8),
             (0x6AAE, records.steering.unwrap().locked_heading.units()),
             (0x6ABD, storage.bank.units()),
+            (0x6ABF, vertical.pitch_adjustment),
+            (0x6AC0, steering.camera_bank_target as u8),
             (0x6ACF, pose.pitch_lean as u8),
             (0x6AD4, pose.yaw_trim as u8),
             (0x6AD5, pose.ambient_bank as u8),
@@ -168,6 +175,7 @@ impl Fixture {
             (0x6ADC, roll.tap_window),
             (0x6ADD, roll.impulse as u8),
             (0x6ADE, pose.yaw_offset as u8),
+            (0x6B17, steering.direction_age),
             (0x6B29, grid.current_cell[0] as u8),
             (0x6B2A, grid.current_cell[1] as u8),
             (0x6B2C, grid.previous_cell[0] as u8),
@@ -189,12 +197,16 @@ impl Fixture {
             (0x6B7D, u8::from(hit.hold_secondary_protection) * 0x80),
             (0x6B7E, roll.shoulders.bits()),
             (0x6B7F, throttle.entry_marker),
+            (0x6B81, vertical.limit_flags),
+            (0x6B82, vertical.control_flags),
             (0x6B84, records.vertical.unwrap().motion_axes),
             (0x6BE3, hit.recovery),
             (0x6BE6, motion.contact_flags),
             (0x6BE7, hit.deflection_sound_cooldown),
             (0x6BEB, u8::from(records.occupancy_exempt.unwrap()) * 0x80),
             (0x6BFF, records.visit.unwrap().pilot_code),
+            (0x6BF9, vertical.profile.up_pitch),
+            (0x6BFA, vertical.profile.down_pitch),
             (0x6C00, hit.reserve_shield),
             (0x6C02, records.protection.unwrap().control()),
             (0x6C09, records.charge.unwrap().control),
@@ -217,6 +229,7 @@ impl Fixture {
             (0x6ACB, motion.previous_position.z),
             (0x6ACD, records.yaw_motion.unwrap() as i16),
             (0x6AD0, pose.turning_lean as i16),
+            (0x6AD2, steering.turn_response as i16),
             (0x6AD8, pose.shoulder_bank),
             (0x6AE2, ambient.retained_offset),
             (0x6AF9, grid.displacement[0]),
@@ -226,7 +239,10 @@ impl Fixture {
             (0x6B0F, records.flight_displacement.unwrap().z),
             (0x6B11, motion.surface_velocity[0]),
             (0x6B13, motion.surface_velocity[1]),
+            (0x6B15, steering.lateral_offset),
             (0x6B3B, hit.camera_pitch_recoil),
+            (0x6B87, vertical.latched_input as i16),
+            (0x6B89, vertical.previous_held as i16),
             (0x6BED, boundary.return_position.x),
             (0x6BEF, boundary.return_position.y),
             (0x6BF1, boundary.return_position.z),
@@ -234,6 +250,7 @@ impl Fixture {
                 0x6BF5,
                 records.vertical.unwrap().profile.upper_height_offset,
             ),
+            (0x6BF7, vertical.profile.lower_height_offset),
         ] {
             values.push((WRAM + SLOT + offset, value as u16, false));
         }
@@ -244,6 +261,7 @@ impl Fixture {
             (0x1E0F, world.environment_plane_height.unwrap() as u16),
             (0x1E36, world.player_pitch_target.unwrap()),
             (0x1E38, world.player_yaw_increment.unwrap()),
+            (0x1E3A, world.player_roll_increment.unwrap()),
             (0x1DAE, world.player_surface_height.unwrap() as u16),
             (
                 0x1D6F,
@@ -447,6 +465,45 @@ impl Fixture {
             self.context,
         )
         .unwrap();
+        self.compare(source);
+        result
+    }
+
+    fn mode_step(&mut self, source: &mut Source, steering_target: u16) -> FlightResult {
+        source.bus.write16(0x1D16, 0);
+        source.bus.write16(0x0A, steering_target);
+        let original = call(
+            &mut source.bus,
+            0x06E2EE,
+            &Entry {
+                x: OWNER,
+                dbr: 0x7E,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        assert!(
+            original.returned,
+            "original retained-pitch mode failed to return"
+        );
+        let result = player_flight_mode::advance_retained_pitch(
+            &mut self.native.objects,
+            &mut self.native.world,
+            &mut self.runtime.resources,
+            self.native.owner,
+            FlightModeContext {
+                steering: SteeringContext {
+                    inherited_response_target: Some(steering_target),
+                },
+                flight: self.context,
+            },
+        )
+        .unwrap();
+        self.compare(source);
+        result
+    }
+
+    fn compare(&mut self, source: &Source) {
         for (field, value, byte) in self.values() {
             let original = if byte {
                 u16::from(source.bus.read8(field))
@@ -496,7 +553,6 @@ impl Fixture {
         for (index, event) in events.into_iter().enumerate() {
             assert_eq!(source.bus.read16(0x1CF6 + index as u32 * 2), event);
         }
-        result
     }
 }
 
@@ -683,4 +739,129 @@ fn complete_flight_matches_original_independently_retained_live_visits() {
     }
     assert!(constrained > 4000);
     assert!(obstructed > 1000);
+}
+
+#[test]
+fn complete_retained_pitch_mode_matches_original_all_controller_words_and_live_outputs() {
+    let mut source = Source::new(&rom(), 0);
+    source.bus.enable_gsu();
+    for input in 0..=u16::MAX {
+        let mut f = Fixture::new(&mut source);
+        let low = input as u8;
+        f.native.world.processed_player_input = Some(InputState {
+            held: Buttons::from_bits(input),
+            pressed: Buttons::from_bits(input.rotate_left(5)),
+        });
+        f.native.world.strategy_clock = input;
+        f.native.world.primary_player = (input & 1 != 0).then_some(f.native.owner);
+        f.native.world.scene.player_configuration = Some(if input % 3 == 0 { 9 } else { 0 });
+        f.native.world.reflect_all_contacts = Some(input & 2 != 0);
+        f.native.world.player_pitch_target = Some(!input);
+        f.native.world.player_yaw_increment = Some(input.rotate_left(3));
+        f.native.world.player_roll_increment = Some(input.rotate_left(7));
+        let record = f.records();
+        record.auxiliary.as_mut().unwrap().mode = [0x10, 0x11, 0x20, 0x30][usize::from(input & 3)];
+        record.auxiliary.as_mut().unwrap().action_flags = low;
+        record.visit.as_mut().unwrap().pilot_code = (input % 6) as u8;
+        record.steering.as_mut().unwrap().turn_response = input.rotate_left(3);
+        record.pose.as_mut().unwrap().turning_lean = input.rotate_left(5);
+        record.vertical.as_mut().unwrap().previous_held = !input;
+        record.vertical.as_mut().unwrap().latched_input = input.rotate_left(7);
+        record
+            .vertical
+            .as_mut()
+            .unwrap()
+            .profile
+            .upper_height_offset = input as i16;
+        record
+            .vertical
+            .as_mut()
+            .unwrap()
+            .profile
+            .lower_height_offset = input.rotate_left(5) as i16;
+        record.vertical.as_mut().unwrap().profile.up_pitch = low;
+        record.vertical.as_mut().unwrap().profile.down_pitch = !low;
+        record.vertical.as_mut().unwrap().control_flags = low;
+        record.vertical.as_mut().unwrap().limit_flags = !low;
+        record.roll.as_mut().unwrap().shoulders = ShoulderControl::from_bits(low.rotate_left(4));
+        let storage =
+            player_storage::get_mut(&f.native.objects, &mut f.runtime.resources, f.native.owner)
+                .unwrap();
+        storage.fine_pitch = input.rotate_left(9);
+        storage.fine_yaw = input.rotate_left(11);
+        f.seed(&mut source);
+        f.mode_step(&mut source, input.rotate_left(13));
+    }
+}
+
+#[test]
+fn complete_retained_pitch_mode_matches_original_independent_input_and_motion_history() {
+    let mut source = Source::new(&rom(), 0);
+    source.bus.enable_gsu();
+    let mut f = Fixture::new(&mut source);
+    f.native.world.reflect_all_contacts = Some(true);
+    f.records().auxiliary.as_mut().unwrap().action_flags = 1;
+    f.records().vertical.as_mut().unwrap().profile.up_pitch = 16;
+    f.records().vertical.as_mut().unwrap().profile.down_pitch = 240;
+    f.records()
+        .vertical
+        .as_mut()
+        .unwrap()
+        .profile
+        .upper_height_offset = 300;
+    f.records()
+        .vertical
+        .as_mut()
+        .unwrap()
+        .profile
+        .lower_height_offset = -300;
+    f.seed(&mut source);
+    f.plane(&mut source);
+    let mut rolled = 0;
+    let mut moved = 0;
+    for visit in 0..8192_u16 {
+        let held = (visit.wrapping_mul(19) & 0x0F00) | if visit % 9 < 4 { 0x10 } else { 0x20 };
+        let pressed = if visit % 37 == 0 { 0x2000 } else { held & 0x30 };
+        f.native.world.processed_player_input = Some(InputState {
+            held: Buttons::from_bits(held),
+            pressed: Buttons::from_bits(pressed),
+        });
+        source.bus.write16(0x1938, held);
+        source.bus.write16(0x1936, pressed);
+        f.native.world.strategy_clock = visit;
+        source.bus.write8(0xC4, visit as u8);
+        let configuration = if visit % 17 < 9 { 9 } else { 0 };
+        f.native.world.scene.player_configuration = Some(configuration);
+        source.bus.write8(0x1DE2, configuration);
+        let result = call(
+            &mut source.bus,
+            0x069075,
+            &Entry {
+                x: OWNER,
+                dbr: 0x7E,
+                p: 0x20,
+                ..Default::default()
+            },
+        );
+        assert!(result.returned);
+        player_roll::prepare_shoulders(&f.native.objects, &mut f.native.world, f.native.owner)
+            .unwrap();
+        player_motion::capture_position(&f.native.objects, &mut f.native.world, f.native.owner)
+            .unwrap();
+        for (position, previous) in [(12, 0x6AC7), (14, 0x6AC9), (16, 0x6ACB)] {
+            source.bus.write16(
+                WRAM + SLOT + previous,
+                source.bus.read16(u32::from(OWNER) + position),
+            );
+        }
+        f.seed_context(&mut source);
+        let before = f.native.objects.get(f.native.owner).unwrap().base.position;
+        f.mode_step(&mut source, visit.rotate_left(7));
+        rolled += usize::from(f.records().roll.unwrap().impulse != 0);
+        moved += usize::from(f.native.objects.get(f.native.owner).unwrap().base.position != before);
+    }
+    assert!(
+        rolled > 1000 && moved > 1000,
+        "real retained barrel rolls and movement required: {rolled}, {moved}"
+    );
 }

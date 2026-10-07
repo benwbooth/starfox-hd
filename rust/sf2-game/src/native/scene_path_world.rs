@@ -196,6 +196,9 @@ pub struct ScenePathWorld {
     /// Pose consumes them; it does not invent neutral steering on absence.
     pub player_pitch_target: Option<u16>,
     pub player_yaw_increment: Option<u16>,
+    /// Shared roll publication (1E3A), reset alongside pitch/yaw by each
+    /// complete flight mode. It is distinct from the retained bank byte.
+    pub player_roll_increment: Option<u16>,
     /// Published active shield capacity (1DD5), not current active shield.
     pub active_shield_capacity: Option<u8>,
     /// Shared equipment publications (1DD2/3), separate from live equipment.
@@ -340,6 +343,7 @@ impl ScenePathWorld {
             unmasked_player_input: None,
             player_pitch_target: None,
             player_yaw_increment: None,
+            player_roll_increment: None,
             active_shield_capacity: None,
             active_consumables: None,
             shield_recovery: None,

@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Connected the complete retained-pitch flight mode (`$06:E2EE..E32B`) to
+  retained input history, camera-bank/shared-target resets, live horizontal
+  steering, held/fine-pitch control, hard terrain limits and the complete
+  flight frame. Its Select cue preserves the original unsided channel, even
+  for the secondary player. Shoulder arbitration and position capture remain
+  at their real caller boundaries. Two original groups pass 73,728 mode calls,
+  covering every controller word and 8,192 independently retained visits with
+  genuine barrel rolls and movement. Native tests cover prefix preservation
+  and scene retry prevention. Final-tree verification passes 1,381 native tests
+  and both architecture checks in debug/release, 1,389 compatibility tests and
+  35 runtime checks, all 116 original player/movement groups in both profiles,
+  739 source tests, 238 extractor/lowerer tests, exact catalog/architecture
+  checks and all three application builds.
+  The adjacent free-flight mode's surface/protection/transition prefix and
+  the enclosing source strategy remain open before production frame handoff.
+
 - Connected the entire shared flight update (`$06:E258..E2ED`), including
   roll, ambient motion, throttle effects, surface response, speed, pose,
   translation, recoil, damage, corridor and occupancy response in source

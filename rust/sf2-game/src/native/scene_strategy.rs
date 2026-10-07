@@ -141,6 +141,7 @@ pub enum SceneError<E> {
     PlayerBoundary(super::player_boundary::BoundaryError),
     PlayerOccupancy(super::player_occupancy::OccupancyError),
     PlayerFlight(super::player_flight::FlightError),
+    PlayerFlightMode(super::player_flight_mode::FlightModeError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
@@ -170,6 +171,28 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_retained_pitch_flight(
+        &mut self,
+        owner: ObjectId,
+        context: super::player_flight_mode::FlightModeContext,
+    ) -> Result<super::player_flight::FlightResult, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_flight_mode::advance_retained_pitch(
+            self.objects,
+            self.world,
+            &mut self.execution.paths.runtime.resources,
+            owner,
+            context,
+        )
+        .map_err(SceneError::PlayerFlightMode);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_flight(
         &mut self,
         owner: ObjectId,
