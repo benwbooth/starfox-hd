@@ -113,6 +113,23 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the lateral, distance and boost/brake camera-position helpers
+  (`$07:88BF..8D65`) and their complete common-camera position prefix
+  (`$07:84EC..852F`). Heading locks, linked-mode suppression, contact/shoulder
+  recovery, signed impulses, rotated offsets and shared surface/boost response
+  preserve source order and use the real actor/proxy owners. The target reads
+  entering charge impulse, while projection reads its updated value. Prepared
+  position and the later boosted retained position stay distinct. Eleven
+  native tests and six original groups cover 1,032,192 cases/retained visits,
+  including all pitch/yaw pairs for three camera styles and 16,384 independent
+  visits through the unmodified original position caller, pitch, view selection
+  and continuity. All 1,445 native tests and both architecture checks pass in
+  debug/release; compatibility passes 1,453 tests and 35 runtime checks. All
+  149 original player/movement groups pass in both profiles, as do 767 source
+  checks, 238 extractor/lowerer tests, catalog/architecture/static checks and
+  all three application builds. Full mode-specific orientation, camera dispatch
+  and enclosing player strategy still block production ownership.
+
 - Ported the complete retained camera-height helper (`$07:8D66..90A2`),
   including mode/carry gates, linked-view and auxiliary-camera anchor resets,
   direction-tag retention, terrain-clearance recovery, wrapped height tracking

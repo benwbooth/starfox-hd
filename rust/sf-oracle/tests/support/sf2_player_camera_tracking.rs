@@ -1,4 +1,7 @@
 //! Complete original height tracking with real retained pitch/view consumers.
+#[path = "sf2_player_camera_position.rs"]
+mod position_tests;
+
 use super::{rom, CameraFixture, Source, OWNER, SLOT, WRAM};
 use sf2_game::player_camera_tracking::{self, PlayerCameraTracking, TrackingStyle};
 use sf2_game::{Angle, Button, Buttons, InputState};

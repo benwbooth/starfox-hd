@@ -148,6 +148,7 @@ pub enum SceneError<E> {
     PlayerViewDistance(super::player_view_distance::ViewDistanceError),
     PlayerCameraAngles(super::player_camera_angles::CameraAnglesError),
     PlayerCameraTracking(super::player_camera_tracking::CameraTrackingError),
+    PlayerCameraPosition(super::player_camera_position::CameraPositionError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -179,6 +180,88 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn prepare_player_camera_position(
+        &mut self,
+        owner: ObjectId,
+        style: super::player_camera_tracking::TrackingStyle,
+        auxiliary_camera: bool,
+    ) -> Result<super::Vector3, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_position::prepare(
+            self.objects,
+            self.world,
+            owner,
+            style,
+            auxiliary_camera,
+        )
+        .map_err(SceneError::PlayerCameraPosition);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_camera_lateral(
+        &mut self,
+        owner: ObjectId,
+        prepared: super::Vector3,
+    ) -> Result<super::Vector3, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_position::advance_lateral(
+            self.objects,
+            self.world,
+            owner,
+            prepared,
+        )
+        .map_err(SceneError::PlayerCameraPosition);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_camera_distance(
+        &mut self,
+        owner: ObjectId,
+        prepared: super::Vector3,
+        style: super::player_camera_tracking::TrackingStyle,
+    ) -> Result<super::Vector3, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_position::advance_distance(
+            self.objects,
+            self.world,
+            owner,
+            prepared,
+            style,
+        )
+        .map_err(SceneError::PlayerCameraPosition);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn advance_player_camera_boost(
+        &mut self,
+        owner: ObjectId,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_position::advance_boost(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerCameraPosition);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_camera_height(
         &mut self,
         owner: ObjectId,

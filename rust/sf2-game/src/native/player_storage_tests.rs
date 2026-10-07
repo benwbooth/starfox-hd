@@ -131,6 +131,7 @@ fn replacement_initializes_every_supported_player_record_without_initializing_th
     assert_eq!(records.view_distance, Some(Default::default()));
     assert_eq!(records.camera_angles, Some(Default::default()));
     assert_eq!(records.camera_tracking, Some(Default::default()));
+    assert_eq!(records.camera_position, Some(Default::default()));
     assert_eq!(
         world.shots(&objects, primary),
         Some(ActiveShots::from_count(0))

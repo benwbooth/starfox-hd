@@ -120,7 +120,10 @@ impl Fixture {
             ),
             (
                 WRAM + SLOT + 0x6B94,
-                records.auxiliary.unwrap().mode.rotate_left(3),
+                records
+                    .motion
+                    .map(|motion| motion.walker_contact_control)
+                    .unwrap_or(records.auxiliary.unwrap().mode.rotate_left(3)),
             ),
             (WRAM + 0x1DE0, self.world.scene.player_view_control.unwrap()),
             (

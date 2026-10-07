@@ -152,6 +152,19 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The common-camera position prefix (`$07:84EC..852F`) now runs real height,
+distance, lateral, ambient and boost/brake services in source order. All
+three offset helpers (`$07:88BF..8D65`) preserve shared longitudinal response,
+linked/heading locks, signed impulse arithmetic, two rotation stages and
+the actual proxy copy. Eleven native tests and six original groups cover
+1,032,192 cases/retained visits, including the unmodified caller and 16,384
+independent transitions through real pitch/view/continuity consumers. Native
+debug/release and compatibility pass, along with all 149 original player/
+movement groups in both profiles, 767 source checks, 238 extractor/lowerer
+tests, catalog/architecture/static checks and all three application builds.
+The complete mode-specific orientation, camera dispatcher and player strategy
+remain open; this prefix does not yet replace the production camera.
+
 Retained camera-height tracking (`$07:8D66..90A2`) now uses the same
 height-control flags as the native pitch controller. Mode/carry gates,
 linked/auxiliary anchor resets, direction tags, ground-clearance recovery,

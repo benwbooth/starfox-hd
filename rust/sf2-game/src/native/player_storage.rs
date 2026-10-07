@@ -180,6 +180,7 @@ pub fn replace(
         view_distance: Some(Default::default()),
         camera_angles: Some(Default::default()),
         camera_tracking: Some(Default::default()),
+        camera_position: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),
