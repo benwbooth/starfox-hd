@@ -1,4 +1,6 @@
 use super::*;
+#[path = "player_camera_surface_tests.rs"]
+mod surface_tests;
 use crate::path_program::{PathCatalog, SelectedAuxiliaryState};
 use crate::player_storage::PlayerStorage;
 use crate::program_state::ProgramData;

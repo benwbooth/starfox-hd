@@ -182,6 +182,7 @@ pub fn replace(
         camera_tracking: Some(Default::default()),
         camera_position: Some(Default::default()),
         camera_ground: Some(Default::default()),
+        camera_surface: Some(Default::default()),
         yaw_motion: Some(0),
         occupancy_exempt: Some(false),
         equipment: Some(Default::default()),

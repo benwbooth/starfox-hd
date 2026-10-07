@@ -144,6 +144,7 @@ pub mod player_camera_tracking;
 pub mod player_camera_position;
 pub mod player_camera_ground;
 pub mod player_camera_common;
+pub mod player_camera_surface;
 pub mod weapon_creation;
 pub mod weapon_dispatch;
 pub mod weapon_launch;

@@ -64,6 +64,7 @@ pub use native::player_camera_tracking;
 pub use native::player_camera_position;
 pub use native::player_camera_ground;
 pub use native::player_camera_common;
+pub use native::player_camera_surface;
 pub use native::weapon_rapid;
 pub use native::{
     attachments, collision_boxes, collision_contacts, collision_math, collision_pass,

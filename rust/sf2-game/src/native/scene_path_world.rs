@@ -87,6 +87,7 @@ pub struct PlayerPathRecords {
     pub camera_tracking: Option<super::player_camera_tracking::PlayerCameraTracking>,
     pub camera_position: Option<super::player_camera_position::PlayerCameraPosition>,
     pub camera_ground: Option<super::player_camera_ground::PlayerCameraGround>,
+    pub camera_surface: Option<super::player_camera_surface::PlayerCameraSurface>,
     /// Turning increment (6ACD/E). Flight integrates the full fine-angle
     /// word; Walker control updates its low byte. Aim lead reads the high.
     pub yaw_motion: Option<u16>,

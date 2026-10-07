@@ -151,6 +151,7 @@ pub enum SceneError<E> {
     PlayerCameraPosition(super::player_camera_position::CameraPositionError),
     PlayerCameraGround(super::player_camera_ground::GroundCameraError),
     PlayerCameraCommon(super::player_camera_common::CommonCameraError),
+    PlayerCameraSurface(super::player_camera_surface::SurfaceCameraError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -182,6 +183,53 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_camera_surface_height(
+        &mut self,
+        owner: ObjectId,
+        style: super::player_camera_tracking::TrackingStyle,
+        auxiliary_camera: bool,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_surface::advance_height(
+            self.objects,
+            self.world,
+            owner,
+            style,
+            auxiliary_camera,
+        )
+        .map_err(SceneError::PlayerCameraSurface);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn prepare_player_camera_surface(
+        &mut self,
+        owner: ObjectId,
+        style: super::player_camera_tracking::TrackingStyle,
+        auxiliary_camera: bool,
+    ) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_surface::prepare(
+            self.objects,
+            self.world,
+            &self.execution.paths.runtime,
+            owner,
+            style,
+            auxiliary_camera,
+        )
+        .map_err(SceneError::PlayerCameraSurface);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_camera_ground(
         &mut self,
         owner: ObjectId,

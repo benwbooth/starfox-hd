@@ -113,6 +113,20 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete surface-camera placement and height controller
+  (`$07:812C..81F0`, `$07:90A3..9487`). The retained height is distinct from
+  the prepared return position; carried following, plane crossing, protection,
+  recovery and pitch-hold flags keep their existing owners and source ordering.
+  Seven native tests and four original groups cover 991,232 cases/visits,
+  including 8,192 independent common/surface camera switches through the real
+  view-selection and continuity consumers. All 1,464 native tests and both
+  architecture checks pass in debug/release; compatibility passes 1,472 tests
+  and 35 runtime checks. All 159 original player/movement groups pass in both
+  profiles, along with 779 source checks, 238 extractor/lowerer tests,
+  catalog/architecture/static checks and all three app builds. Camera task
+  dispatch, auxiliary cameras and the enclosing player strategy remain
+  prerequisites to production frame ownership; this does not certify gameplay.
+
 - Ported terrain/Walker camera pitch and its real aiming-proxy helper
   (`$07:81F1..84DB`, `$07:9721..97F4`), plus the complete common-camera
   position/orientation caller (`$07:84EC..86B6`). Ground pitch observes the

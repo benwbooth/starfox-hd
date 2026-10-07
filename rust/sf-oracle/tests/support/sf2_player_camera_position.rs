@@ -55,6 +55,12 @@ impl PositionFixture {
                         3 | u8::from(ground.hold_pitch) * 0x10
                             | u8::from(ground.follow_environment_plane) * 8
                             | u8::from(records.consumable.unwrap().recovery_blocked) * 0x40
+                            | u8::from(
+                                records
+                                    .camera_surface
+                                    .map(|surface| surface.returning_below_plane)
+                                    .unwrap_or(false),
+                            ) * 0x20
                     })
                     .unwrap_or(0x53)
                     | u8::from(records.contact.unwrap().hit.hold_secondary_protection) * 0x80,

@@ -152,6 +152,20 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete surface-camera placement and height controller
+(`$07:812C..81F0`, `$07:90A3..9487`) now use the real retained height,
+camera fractions, shared ground/recovery/protection controls and environment.
+Placement publishes prepared horizontal coordinates but does not substitute the
+return-position height for retained camera height. Seven native tests and four
+original groups cover 991,232 cases/visits, including 8,192 independent switches
+between common and surface cameras with real view selection and continuity.
+All 1,464 native tests pass in debug/release; compatibility passes 1,472 tests
+plus 35 runtime checks, and all 159 original player/movement groups pass in
+both profiles. The 779 source checks, 238 extractor/lowerer tests,
+catalog/architecture/static checks and three app builds pass. Camera dispatch,
+auxiliary tasks and the enclosing player strategy still block production
+ownership. This is routine/caller verification, not campaign completion.
+
 The complete common-camera caller (`$07:84EC..86B6`) now owns its real
 position, selected pitch controller, heading lean, fine yaw and roll sequence.
 Ground pitch and target geometry (`$07:81F1..84DB`, `$07:9721..97F4`) read
