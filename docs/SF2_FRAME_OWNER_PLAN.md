@@ -45,6 +45,26 @@ player, and expose it through `Game`:
 4. Replace the matching recorded-cutscene branch in `Game` and delete the
    recording it used.
 
+## The original frame order (bank 03, `$03:8040..8160`)
+
+The mission frame is a fixed call sequence; a native `SceneFrame` must follow
+it. Normal path, in order: `$07:BD46`, `$07:EA67` (player palette, ported),
+`$03:B0C3`, `$07:AA8C`, `$07:A326`, `$7F:539C` (radar region), `$04:8301`,
+`$03:8FC9`, `$0D:D5FA`, then the strategy epoch `$7F:34E7` (overlapping half,
+ported in `strategy_schedule.rs`) and `$7F:354A` (remainder, ported), then
+`$7F:11BC`, `$7F:7B33` and a bank-03 service at `$03:820C`. The alternate paths
+(`$03:809F` and `$03:80D5`) add `$7F:32A1`, `$7F:7980`, `$07:A337`, `$03:D87D`,
+`$7F:1118`, `$04:FCC8`, `$07:950E`, `$7F:79F8`, `$7F:148D`, `$7F:7918` and
+`$7F:11C6` around the same epoch. Entries with no Rust annotation at their
+address (several may be ported under another name; confirm before porting):
+`$07:BD46 $03:B0C3 $07:AA8C $07:A326 $04:8301 $03:8FC9 $0D:D5FA $7F:11BC
+$7F:7B33 $03:820C $7F:32A1 $7F:7980 $07:A337 $03:D87D $7F:1118 $04:FCC8
+$07:950E $7F:79F8 $7F:148D $7F:7918 $7F:11C6`.
+
+During cutscenes the player runs the action-only strategies
+(`Behavior::PlayerActionWait`, ported), so a first scene runner does not need
+the flight-mode dispatcher (`$06:9D09`, mode table at `$06:9D1A`).
+
 ## Inputs the shipping game must start publishing
 
 Campaign phase (1BE0), encounter signals (D77D), projected-camera word (1E3C),
