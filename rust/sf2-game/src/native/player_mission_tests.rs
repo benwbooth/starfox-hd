@@ -1,4 +1,60 @@
 use super::*;
+
+#[test]
+fn layout_advance_preserves_all_handoff_bits_and_increments_each_layout_byte_once() {
+    use crate::path_scene_state::EncounterHandoff;
+    for flags in 0..=u8::MAX {
+        for layout in 0..=u8::MAX {
+            let mut world = ScenePathWorld::new(crate::RandomState::default());
+            let handoff = EncounterHandoff {
+                player_flags: flags,
+                x: -3131,
+                z: 17771,
+                heading_word: 0xCDEF,
+            };
+            world.handoff = Some(handoff);
+            world.scene.encounter_layout = Some(layout);
+            consume_layout_advance(&mut world).unwrap();
+            assert_eq!(
+                world.handoff,
+                Some(EncounterHandoff {
+                    player_flags: flags & 0xFE,
+                    ..handoff
+                })
+            );
+            assert_eq!(
+                world.scene.encounter_layout,
+                Some(layout.wrapping_add(flags & 1))
+            );
+            consume_layout_advance(&mut world).unwrap();
+            assert_eq!(
+                world.scene.encounter_layout,
+                Some(layout.wrapping_add(flags & 1))
+            );
+        }
+    }
+}
+
+#[test]
+fn layout_advance_clears_the_bit_before_diagnosing_a_missing_counter() {
+    let mut world = ScenePathWorld::new(crate::RandomState::default());
+    assert_eq!(
+        consume_layout_advance(&mut world),
+        Err(MissionError::MissingHandoff)
+    );
+    world.handoff = Some(crate::path_scene_state::EncounterHandoff {
+        player_flags: 0xFE,
+        ..Default::default()
+    });
+    assert_eq!(consume_layout_advance(&mut world), Ok(()));
+    world.handoff.as_mut().unwrap().player_flags = 0xFF;
+    assert_eq!(
+        consume_layout_advance(&mut world),
+        Err(MissionError::MissingLayout)
+    );
+    assert_eq!(world.handoff.unwrap().player_flags, 0xFE);
+    assert_eq!(world.scene.encounter_layout, None);
+}
 use crate::path_program::SelectedAuxiliaryState;
 use crate::path_scene_state::{EncounterCoordination, EncounterObjectiveCounts};
 use crate::player_action::PlayerActionState;

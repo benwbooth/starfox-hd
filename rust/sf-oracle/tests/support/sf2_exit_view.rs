@@ -340,16 +340,18 @@ impl sf2_game::scene_strategy::SceneCallbacks for Callbacks {
 #[test]
 fn complete_node_exit_keeps_original_camera_children_callbacks_and_map_continuation() {
     use super::surface_particle_tests::{address, Native};
+    use sf2_game::authored_paths;
     use sf2_game::path_program::ActionGate;
     use sf2_game::path_radio::RadioLayout;
-    use sf2_game::path_scene_state::{EncounterCoordination, SceneEventFlags};
+    use sf2_game::path_scene_state::{
+        EncounterCoordination, EncounterObjectiveCounts, SceneEventFlags,
+    };
     use sf2_game::path_sound::CueListener;
     use sf2_game::scene_map::{MapCatalog, MapCursor, MapInstruction, SceneMap};
     use sf2_game::scene_path_world::AudioRouting;
     use sf2_game::scene_strategy::{SceneActors, SceneExecution};
     use sf2_game::strategy_schedule::StrategyHost;
     use sf2_game::view_transition::ViewTransitionMode;
-    use sf2_game::{authored_paths, Behavior};
     use sf_oracle::{call_near, Entry};
     let rom = rom();
     let catalog = authored_paths::catalog();
@@ -369,10 +371,9 @@ fn complete_node_exit_keeps_original_camera_children_callbacks_and_map_continuat
                 super::surface_particle_tests::OWNER,
                 true,
             );
-            let mut native = Native::new(&mut source, 3, 87, 193, 0xEF73);
+            let mut native = Native::new(&mut source, 2, 87, 193, 0xEF73);
             let ids = native.objects.active_ids().to_vec();
             let player = native.owner;
-            let owner = ids[1];
             let view = ids[0];
             native
                 .objects
@@ -383,20 +384,43 @@ fn complete_node_exit_keeps_original_camera_children_callbacks_and_map_continuat
             source
                 .bus
                 .write8(WRAM + u32::from(address(Some(player))) + 0x1CDA, 0);
-            let root = native.objects.get_mut(owner).unwrap();
-            root.base.behavior = Behavior::FollowPath;
-            root.base.path = Some(authored_paths::NODE_EXIT_PRESENTATION);
-            root.base.hit_points = 1;
-            root.base.attack_power = 1;
-            root.base.flags.reclaim_on_pool_pressure = false;
-            root.extension.path_state.needs_path_initialization = true;
+            native.world.objective_counts = Some(EncounterObjectiveCounts {
+                remaining_word: 0xAB01,
+                ..Default::default()
+            });
+            native.world.node_exit = sf2_game::player_node_exit::NodeExitState {
+                presentation_flags: Some(0xA7),
+                completion_code: Some(u8::from(gate == 0)),
+            };
+            source.bus.write16(WRAM + 0xD7F4, 0xAB01);
+            source.bus.write8(0x1E08, 0xA7);
+            source.bus.write8(0x1E17, u8::from(gate == 0));
+            source.run(
+                0x06A045,
+                Some(0x06A0A5),
+                0,
+                super::surface_particle_tests::OWNER,
+                true,
+            );
+            let mut execution = SceneExecution::default();
+            let mut callbacks = Callbacks;
+            let owner = SceneActors {
+                objects: &mut native.objects,
+                world: &mut native.world,
+                execution: &mut execution,
+                catalog: &catalog,
+                callbacks: &mut callbacks,
+                statement_budget: 256,
+            }
+            .advance_player_node_exit()
+            .unwrap()
+            .unwrap();
             let root_address = u32::from(address(Some(owner)));
-            source.bus.write16(root_address + 0x2B, 0xB8C5);
-            source.bus.write16(root_address + 0x19, 0x7E1E);
-            source.bus.write8(root_address + 0x1B, 0x7F);
-            source.bus.write8(root_address + 0x20, 8);
-            source.bus.write8(root_address + 0x2D, 1);
-            source.bus.write8(root_address + 0x2E, 1);
+            assert_eq!(source.bus.read16(root_address + 0x2B), 0xB8C5);
+            assert_eq!(source.bus.read16(root_address + 0x19), 0x7E1E);
+            assert_eq!(source.bus.read8(root_address + 0x1B), 0x7F);
+            super::special_exit_tests::compare_actor(&source, &native, owner, 0);
+            native.compare_pool(&source);
             let position = Vector3 {
                 x: -31111,
                 y: 29876,
@@ -450,8 +474,6 @@ fn complete_node_exit_keeps_original_camera_children_callbacks_and_map_continuat
             source.bus.write8(0x192E, 0x06);
             source.bus.write16(0x1657, 0xFACE);
             source.bus.write8(0x1E31, 80);
-            let mut execution = SceneExecution::default();
-            let mut callbacks = Callbacks;
             let mut root_retired = false;
             let mut most_actors = native.objects.len();
             let mut cue_read = 0u16;
@@ -462,6 +484,32 @@ fn complete_node_exit_keeps_original_camera_children_callbacks_and_map_continuat
                 // inserted after the current actor run during this same pass.
                 let mut pending = native.objects.active_ids().first().copied();
                 while let Some(id) = pending {
+                    if id == player {
+                        source.run(
+                            0x06A045,
+                            Some(0x06A0A5),
+                            0,
+                            super::surface_particle_tests::OWNER,
+                            true,
+                        );
+                        let mut host = SceneActors {
+                            objects: &mut native.objects,
+                            world: &mut native.world,
+                            execution: &mut execution,
+                            catalog: &catalog,
+                            callbacks: &mut callbacks,
+                            statement_budget: 256,
+                        };
+                        assert_eq!(host.advance_player_node_exit().unwrap(), None);
+                        assert_eq!(
+                            source.bus.read8(0x1E08),
+                            host.world.node_exit.presentation_flags.unwrap()
+                        );
+                        assert_eq!(
+                            source.bus.read16(WRAM + 0xD7F4),
+                            host.world.objective_counts.unwrap().remaining_word
+                        );
+                    }
                     if id == player || id == view {
                         pending = native.objects.get(id).unwrap().base.next;
                         continue;

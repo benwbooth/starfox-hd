@@ -152,6 +152,28 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The player-side node-exit admission (`$06:A045..A0A5`) now owns actual
+presentation creation and the following objective clear. It creates at the
+active-head insertion point, samples live allocation defaults, does not copy
+the player or run a path immediately, and publishes its creation bit only
+after successful allocation. Completion code one clears only the objective
+low byte; pool exhaustion stops before the clear. Shared entry reset clears
+the request and completion fields at their separate source positions.
+The layout consumer (`$06:A0F9..A108`) clears the handoff bit before incrementing
+the layout byte, and both services latch partial failures in the scene host.
+Focused original-code checks pass every request/completion pair and objective
+word, near-full/full pools, and all 65,536 handoff/layout pairs. The complete
+16 node-exit lifetimes now begin with this birth, and all 96 ordinary-exit
+lifetimes include the layout consumer at the player's live list position.
+Debug and release pass 1,583 native, 1,591 compatibility-feature, 35 runtime,
+33 path and 252 original-code tests (225 player storage), plus all app tests,
+five real-app smoke tests and builds. Static checks pass 863 source, 217 lowerer
+and three backlog tests, exact regeneration and architecture checks. Logs:
+`/tmp/sf2-node-exit-admission-validation-oct07.log`
+and `/tmp/sf2-node-exit-admission-static-oct07.log`. Mission-completion action
+selection, remaining exit-action streams, player transition phases and shipping
+frame ownership remain open. No arbitrary campaign completion is inferred.
+
 The complete ordinary exit controller (`$44:CF18`) now runs in the typed path
 executor with its craft, camera, scenery and effect children. Direction tables
 are immutable decoded records; camera placement preserves both heading-based

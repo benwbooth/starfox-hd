@@ -1,4 +1,5 @@
-//! Encounter progress and forced-retreat admission ($06:9FAD..A044).
+//! Encounter progress/forced-retreat admission ($06:9FAD..A044) and the
+//! later layout-advance consumer ($06:A0F9..A108).
 //! This runs after player effects/attachment publication, not before the
 //! parallel action's visit. Exit-controller creation remains the next branch;
 //! admission does not run a newly installed action or the final aim update.
@@ -46,6 +47,8 @@ pub enum MissionError {
     MissingObjectiveState,
     MissingSceneInhibition,
     MissingAction(ObjectId),
+    MissingHandoff,
+    MissingLayout,
 }
 
 impl From<WorldInputError> for MissionError {
@@ -126,4 +129,26 @@ pub fn advance_admission(
         .ok_or(WorldInputError::MissingAuxiliary(owner))?
         .action_flags &= !ACTION_TRIGGER;
     Ok(MissionAdmission::ForcedRetreatInstalled)
+}
+
+/// Consume the path-owned layout-advance bit ($06:A0F9..A108), after mission
+/// completion selection and before exit-controller handoff. Clearing precedes
+/// the wrapped byte increment; no other handoff bits or layout bytes change.
+pub fn consume_layout_advance(world: &mut ScenePathWorld) -> Result<(), MissionError> {
+    const ADVANCE_LAYOUT: u8 = 0x01;
+    let flags = &mut world
+        .handoff
+        .as_mut()
+        .ok_or(MissionError::MissingHandoff)?
+        .player_flags;
+    if *flags & ADVANCE_LAYOUT != 0 {
+        *flags &= !ADVANCE_LAYOUT;
+        let layout = world
+            .scene
+            .encounter_layout
+            .as_mut()
+            .ok_or(MissionError::MissingLayout)?;
+        *layout = layout.wrapping_add(1);
+    }
+    Ok(())
 }

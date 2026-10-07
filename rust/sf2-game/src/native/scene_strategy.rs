@@ -120,6 +120,7 @@ pub enum SceneError<E> {
     WeaponAim(super::player_weapon_aim::WeaponAimError),
     PlayerAction(super::player_action::PlayerActionError),
     PlayerMission(super::player_mission::MissionError),
+    PlayerNodeExit(super::player_node_exit::NodeExitError),
     Consumable(super::player_consumable::ConsumableError),
     PlayerVisit(super::player_visit::PlayerVisitError),
     PlayerStorage(super::player_storage::PlayerStorageError),
@@ -1464,6 +1465,32 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
             return Err(SceneError::Faulted);
         }
         let result = super::player_mission::advance_admission(self.objects, self.world, owner)
+            .map_err(SceneError::PlayerMission);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    /// Node-exit creation and objective clearing follow mission admission.
+    /// A fresh actor remains pending until live traversal reaches its slot.
+    pub fn advance_player_node_exit(&mut self) -> Result<Option<ObjectId>, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_node_exit::advance(self.objects, self.world)
+            .map_err(SceneError::PlayerNodeExit);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
+    pub fn consume_player_layout_advance(&mut self) -> Result<(), SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_mission::consume_layout_advance(self.world)
             .map_err(SceneError::PlayerMission);
         if result.is_err() {
             self.execution.faulted = true;

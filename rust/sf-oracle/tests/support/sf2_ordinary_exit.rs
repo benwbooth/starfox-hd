@@ -100,6 +100,11 @@ fn complete_ordinary_exit_matches_original_all_pilots_directions_and_shield_stat
                     .write8(0x1BA9, native.world.scene.entry_heading.unwrap());
                 native.world.scene.player_configuration = Some(if pilot & 1 == 0 { 9 } else { 3 });
                 native.world.scene.encounter_location = Some(if pilot & 2 == 0 { 2 } else { 5 });
+                native.world.scene.encounter_layout = Some(255u8.wrapping_add(direction));
+                source.bus.write16(
+                    0x1BA5,
+                    0xA700 | u16::from(native.world.scene.encounter_layout.unwrap()),
+                );
                 native.world.random = RandomState::new([
                     pilot.wrapping_add(1),
                     protection.wrapping_add(31),
@@ -173,6 +178,24 @@ fn complete_ordinary_exit_matches_original_all_pilots_directions_and_shield_stat
                     }
                     let mut pending = native.objects.active_ids().first().copied();
                     while let Some(id) = pending {
+                        // The real player-owned consumer sees this pass's path
+                        // publication at the player's actual list position.
+                        if id == player {
+                            source.run(0x06A0F9, Some(0x06A108), 0, OWNER, true);
+                            let mut host = SceneActors {
+                                objects: &mut native.objects,
+                                world: &mut native.world,
+                                execution: &mut execution,
+                                catalog: &catalog,
+                                callbacks: &mut callbacks,
+                                statement_budget: 512,
+                            };
+                            host.consume_player_layout_advance().unwrap();
+                            assert_eq!(
+                                source.bus.read16(0x1BA5),
+                                0xA700 | u16::from(host.world.scene.encounter_layout.unwrap())
+                            );
+                        }
                         if id == player || id == view {
                             pending = native.objects.get(id).unwrap().base.next;
                             continue;
@@ -368,7 +391,7 @@ fn complete_ordinary_exit_matches_original_all_pilots_directions_and_shield_stat
                     Behavior::PathMovement
                 );
                 assert_eq!(native.world.engine_sound_control.unwrap().bits(), 0xED);
-                assert_eq!(native.world.handoff.unwrap().player_flags & 13, 13);
+                assert_eq!(native.world.handoff.unwrap().player_flags & 13, 12);
                 assert!(native
                     .objects
                     .active_objects()

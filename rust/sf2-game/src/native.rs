@@ -91,6 +91,7 @@ pub mod player_rapid;
 pub mod player_weapon_aim;
 pub mod player_action;
 pub mod player_mission;
+pub mod player_node_exit;
 pub mod player_consumable;
 pub mod player_visit;
 pub mod player_recovery;

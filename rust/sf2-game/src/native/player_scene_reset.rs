@@ -73,6 +73,7 @@ pub fn reset_services(
         .as_mut()
         .ok_or(PlayerSceneResetError::MissingWeaponState)?
         .published_pitch = Some(Angle::ZERO);
+    world.node_exit.presentation_flags = Some(0);
     world.surface_mode = Some(Default::default());
     world.reticle_enabled = Some(false);
     world.action_gate = Some(Default::default());
@@ -82,6 +83,7 @@ pub fn reset_services(
         .as_mut()
         .ok_or(PlayerSceneResetError::MissingHandoff)?
         .player_flags = 0;
+    world.node_exit.completion_code = Some(0);
     world.shield_recovery = Some(Default::default());
     world.player_service_flags = Some(Default::default());
     // Original code stores horizontal twice and does not touch vertical.

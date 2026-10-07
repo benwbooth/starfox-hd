@@ -113,6 +113,29 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported the player-side node-exit birth and objective clearing
+  (`$06:A045..A0A5`) into the shared scene owner. Creation samples live
+  allocation defaults, inserts after the active head, publishes the one-shot
+  flag only after allocation, and leaves path execution to live traversal.
+  Exactly completion code one clears only the objective low byte, after
+  creation; full-pool failure preserves both publications. The shared player
+  reset now owns these two fields in their separate source positions. Native
+  admission and layout-acknowledgement tests pass, with faults latched against
+  replay. Original execution matches every request/completion-byte pair,
+  every objective word, allocator boundaries and all 65,536 handoff/layout
+  pairs. The complete 16 node-exit lifetimes now start from actual allocation,
+  not a preinstalled root; the 96 ordinary-exit lifetimes now execute the
+  player-owned layout acknowledgement at the player's live list position.
+  Debug and release pass 1,583 native tests, 1,591 compatibility-feature tests,
+  35 runtime tests, 33 path tests and 252 original-code comparisons (225 player
+  storage). Both profiles pass all app tests, five real-app smoke tests and
+  builds. Static validation passes 863 source tests, 217 lowerer tests, three
+  backlog tests, exact regeneration and architecture checks. Logs:
+  `/tmp/sf2-node-exit-admission-validation-oct07.log` and
+  `/tmp/sf2-node-exit-admission-static-oct07.log`. Mission-completion action
+  selection, the remaining exit-action streams and player transition phases
+  still precede production-frame integration; this is not campaign proof.
+
 - Ported the complete ordinary exit controller (`$44:CF18`) and all its
   craft, scenery, camera and trailing-effect children. Immutable direction
   records drive the source craft pose and the two-stage camera placement;

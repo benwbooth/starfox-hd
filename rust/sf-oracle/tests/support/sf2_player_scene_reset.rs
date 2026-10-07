@@ -96,6 +96,10 @@ fn setup(
         ..Default::default()
     });
     world.surface_mode = Some(SurfaceMode { flags: 213 });
+    world.node_exit = sf2_game::player_node_exit::NodeExitState {
+        presentation_flags: Some(shield ^ 0xA7),
+        completion_code: Some(shield ^ 0xA7),
+    };
     world.reticle_enabled = Some(true);
     world.action_gate = Some(ActionGate { code: 73 });
     world.handoff = Some(EncounterHandoff {
@@ -132,6 +136,8 @@ fn compare(source: &mut Source, world: &ScenePathWorld, owner: ObjectId) {
         (0x1DD1, world.scene.active_shield.unwrap()),
         (0x1DD5, world.active_shield_capacity.unwrap()),
         (0x1B4D, world.surface_mode.unwrap().flags),
+        (0x1E08, world.node_exit.presentation_flags.unwrap()),
+        (0x1E17, world.node_exit.completion_code.unwrap()),
         (0x1D72, world.action_gate.unwrap().code),
         (0x1E1B, world.shield_recovery.unwrap().amount),
         (0x1E0D, world.player_service_flags.unwrap().bits()),

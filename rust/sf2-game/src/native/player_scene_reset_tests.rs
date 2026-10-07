@@ -50,6 +50,10 @@ fn fixture() -> (ObjectStore, ScenePathWorld, ObjectId) {
         heading_word: 0xABCD,
     });
     world.surface_mode = Some(SurfaceMode { flags: 255 });
+    world.node_exit = crate::player_node_exit::NodeExitState {
+        presentation_flags: Some(0xC7),
+        completion_code: Some(255),
+    };
     world.action_gate = Some(ActionGate { code: 231 });
     world.shield_recovery = Some(ShieldRecoveryRequest { amount: 76 });
     world.player_service_flags = Some(PlayerServiceFlags::from_bits(255));
@@ -115,6 +119,10 @@ fn reset_publishes_only_owned_fields_and_keeps_other_owners_and_reticle_axis() {
     assert_eq!(world.weapons, Some(expected_weapons));
     assert_eq!(world.handoff, Some(expected_handoff));
     assert_eq!(world.surface_mode, Some(SurfaceMode::default()));
+    assert_eq!(world.node_exit, crate::player_node_exit::NodeExitState {
+        presentation_flags: Some(0),
+        completion_code: Some(0),
+    });
     assert_eq!(world.action_gate, Some(ActionGate::default()));
     assert_eq!(
         world.shield_recovery,
@@ -248,6 +256,8 @@ fn missing_owners_keep_the_exact_completed_service_prefix() {
             if stage == 3 { 0 } else { 255 }
         );
         assert_eq!(world.reticle_enabled, Some(stage != 3));
+        assert_eq!(world.node_exit.presentation_flags, Some(if stage == 3 { 0 } else { 0xC7 }));
+        assert_eq!(world.node_exit.completion_code, Some(255));
         assert_eq!(
             world.action_gate.unwrap().code,
             if stage == 3 { 0 } else { 231 }

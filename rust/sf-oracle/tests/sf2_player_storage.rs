@@ -10,6 +10,8 @@ mod action_tests;
 
 #[path = "support/sf2_player_mission.rs"]
 mod mission_tests;
+#[path = "support/sf2_player_node_exit.rs"]
+mod node_exit_admission_tests;
 
 #[path = "support/sf2_player_format.rs"]
 mod format_tests;
