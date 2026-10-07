@@ -48,6 +48,7 @@ pub use native::player_occupancy;
 pub use native::player_flight;
 pub use native::player_flight_mode;
 pub use native::player_surface_prepare;
+pub use native::player_mode_selection;
 pub use native::player_impact;
 pub use native::player_surface_damage;
 pub use native::path_target;

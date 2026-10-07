@@ -152,6 +152,17 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete mode selector (`$06:98CD..9A0F`) now separates new controller
+requests from pending transformations, preserves source gates and neighboring
+fields, and publishes actual strategy-entry phases without changing the
+current mode early. Three original groups pass 360,448 calls, including all
+current-mode/control bytes, supported pending selectors, carry/input gates
+and 8,192 independent retained visits. Final-tree native debug/release,
+compatibility, all 122 original player/movement groups in both profiles,
+source/catalog/architecture checks and application builds pass. The protected
+surface effect and outer strategy still block free-flight
+production ownership.
+
 The complete free-flight plane/material preparation (`$07:E5C8..E684`) now
 uses live support actors, authored offsets and the retained walker query
 height. It keeps player-plane clearing distinct from renderer publication and

@@ -1022,6 +1022,8 @@ pub struct ObjectBase {
     pub first_child: Option<ObjectId>,
     pub next_sibling: Option<ObjectId>,
     pub wait_timer: u8,
+    /// Phase selected by the original shared strategy table (1CC7).
+    /// Selection publishes this byte; dispatch owns the subsequent visit.
     pub behavior_phase: u8,
     pub behavior_parameter: i16,
     pub path: Option<PathCursor>,

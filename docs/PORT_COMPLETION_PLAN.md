@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete new/pending mode-request selector
+  (`$06:98CD..9A0F`). Inhibiting a new Select request does not discard an
+  existing request; carry parity, transition gates, same-family initializer
+  selection and transformation-entry cue decisions retain source order.
+  Current mode is not speculatively changed. The original strategy-phase byte
+  has a single native owner, and writes preserve adjacent return-position and
+  mode-depth bytes. Six native tests cover lazy gates, partial errors, scene
+  retry prevention and invalid authored requests. Three original groups pass
+  360,448 calls, including every current mode/control byte, valid pending
+  selector, all carry/input gates and 8,192 independent retained visits.
+  Final-tree verification passes 1,393 native tests and both architecture
+  checks in debug/release, 1,401 compatibility tests and 35 runtime checks,
+  all 122 original player/movement groups in both profiles, 745 source tests,
+  238 extractor/lowerer tests, exact catalog/architecture checks and all three
+  application builds. The protected surface
+  effect remains the next free-flight-mode dependency before outer strategy
+  and production integration.
+
 - Ported the complete free-flight plane/material preparation
   (`$07:E5C8..E684`), using live contact ownership, the retained walker query
   height, environment material and authored support offsets. Zero-height

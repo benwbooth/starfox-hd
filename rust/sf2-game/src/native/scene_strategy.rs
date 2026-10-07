@@ -143,6 +143,7 @@ pub enum SceneError<E> {
     PlayerFlight(super::player_flight::FlightError),
     PlayerFlightMode(super::player_flight_mode::FlightModeError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
+    PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
     Recovery(super::player_recovery::RecoveryError),
     PlayerContact(Box<super::player_contact::PlayerContactError<SceneError<E>>>),
@@ -172,6 +173,22 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn select_player_mode(
+        &mut self,
+        owner: ObjectId,
+        request: super::player_mode_selection::ModeRequest,
+    ) -> Result<bool, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_mode_selection::advance(self.objects, self.world, owner, request)
+            .map_err(SceneError::PlayerModeSelection);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn prepare_player_surface(
         &mut self,
         owner: ObjectId,
