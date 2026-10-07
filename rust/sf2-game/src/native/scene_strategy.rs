@@ -147,6 +147,7 @@ pub enum SceneError<E> {
     ViewBlend(super::view_blend::ViewBlendError),
     PlayerViewDistance(super::player_view_distance::ViewDistanceError),
     PlayerCameraAngles(super::player_camera_angles::CameraAnglesError),
+    PlayerCameraTracking(super::player_camera_tracking::CameraTrackingError),
     PlayerSurfacePreparation(super::player_surface_prepare::SurfacePreparationError),
     PlayerModeSelection(super::player_mode_selection::ModeSelectionError),
     SurfaceMotion(super::surface_motion::SurfaceMotionError),
@@ -178,6 +179,31 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn advance_player_camera_height(
+        &mut self,
+        owner: ObjectId,
+        prepared_height: i16,
+        style: super::player_camera_tracking::TrackingStyle,
+        auxiliary_camera: bool,
+    ) -> Result<i16, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_camera_tracking::advance_height(
+            self.objects,
+            self.world,
+            owner,
+            prepared_height,
+            style,
+            auxiliary_camera,
+        )
+        .map_err(SceneError::PlayerCameraTracking);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn advance_player_camera_pitch(
         &mut self,
         owner: ObjectId,

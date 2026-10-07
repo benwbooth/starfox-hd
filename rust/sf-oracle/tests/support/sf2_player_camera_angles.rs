@@ -1,4 +1,7 @@
 //! Original pitch controller, fine-pose publication and retained view changes.
+#[path = "sf2_player_camera_tracking.rs"]
+mod height_tracking_tests;
+
 use super::{rom, Fixture, Source, OWNER, SLOT, VIEW, WRAM};
 use sf2_game::player_camera_angles::{self, CameraPitchProfile};
 use sf2_game::view_blend;

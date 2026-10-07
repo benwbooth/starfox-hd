@@ -152,6 +152,19 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Retained camera-height tracking (`$07:8D66..90A2`) now uses the same
+height-control flags as the native pitch controller. Mode/carry gates,
+linked/auxiliary anchor resets, direction tags, ground-clearance recovery,
+wrapped differences and signed-floor offsets retain source behavior. Eight
+native tests and four original groups pass 1,335,296 cases/retained visits;
+the continuous gate drives the real pitch, view-selection and continuity
+consumers without replaying their outputs. Native debug/release and
+compatibility pass, along with all 143 original player/movement groups in
+both profiles, 763 source checks, 238 extractor/lowerer tests, catalog/static/
+architecture checks and all three application builds. Lateral/distance
+offsets and the enclosing camera/strategy still need integration before
+this is a production camera.
+
 Retained camera pitch and pose publication (`$07:86B7..88BE`,
 `$07:968B..9720`) now share full fine angles with the existing auxiliary
 rotation bytes. The controller preserves distinct linked-view rounding,

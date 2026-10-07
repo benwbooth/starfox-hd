@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete retained camera-height helper (`$07:8D66..90A2`),
+  including mode/carry gates, linked-view and auxiliary-camera anchor resets,
+  direction-tag retention, terrain-clearance recovery, wrapped height tracking
+  and signed-floor vertical offsets. It produces the existing camera-pitch
+  flags rather than a second copy. Eight native tests and four original groups
+  pass 1,335,296 cases/retained visits, including every height-control/pitch
+  byte pair for all directions and styles, full-word arithmetic boundaries,
+  and 8,192 independent height/pitch/view-selection/continuity visits. Missing
+  services preserve the completed reset prefix and fault the scene. All
+  1,434 native tests and both architecture checks pass in debug/release;
+  compatibility passes 1,442 tests and 35 runtime checks. All 143 original
+  player/movement groups pass in both profiles, as do 763 source checks,
+  238 extractor/lowerer tests, catalog/architecture/static checks and all
+  three application builds. Position offsets and the enclosing camera/strategy
+  remain production blockers.
+
 - Ported the full retained camera-pitch controller (`$07:86B7..88BE`)
   and camera-pose/roll publications (`$07:968B..9720`). Fine-angle fractions
   extend the existing auxiliary byte-angle owner instead of duplicating it;
