@@ -433,6 +433,7 @@ pub enum Behavior {
     PathMovement,
     ImpactBurst(super::path_effect::ImpactBurstPhase),
     SurfaceParticle(super::player_surface_particle::SurfaceParticle),
+    SurfaceEffect(super::player_surface_effect::SurfaceEffectPhase),
     /// Common death sprite/companion strategy ($03:A279/$03:A30B).
     Destruction(super::common_destruction::EffectPhase),
     EnemyFlight,
@@ -1030,6 +1031,10 @@ pub struct ObjectBase {
     /// Player use of the source path field. Player initialization replaces
     /// an imported path with this allocation; base-view snapshots retain it.
     pub player_storage: Option<super::program_resources::ProgramResourceId>,
+    /// Surface-effect use of the original path/auxiliary field (base 2B).
+    /// Retirement does not clear that source field. Retain the exact actor
+    /// lifetime so an invalid origin cannot silently become a recycled slot.
+    pub effect_origin: Option<ObjectLifetimeId>,
     pub hit_points: u8,
     pub attack_power: u8,
     pub weapon: WeaponKind,
@@ -1143,6 +1148,7 @@ impl Object {
                 behavior_parameter: 0,
                 path: None,
                 player_storage: None,
+                effect_origin: None,
                 hit_points: 0,
                 attack_power: 0,
                 weapon: WeaponKind::None,

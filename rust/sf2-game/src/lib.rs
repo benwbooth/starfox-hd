@@ -40,6 +40,7 @@ pub use native::player_vertical;
 pub use native::player_throttle;
 pub use native::player_ambient;
 pub use native::player_surface_particle;
+pub use native::player_surface_effect;
 pub use native::player_surface;
 pub use native::player_speed;
 pub use native::player_motion;

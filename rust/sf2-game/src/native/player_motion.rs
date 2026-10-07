@@ -30,6 +30,12 @@ const ORDINARY_VELOCITY_SCALE: i16 = 1;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerMotion {
+    /// Walker surface/stance control (6B94). The low three bits gate its
+    /// protected surface effect; remaining bits stay available to movement.
+    pub walker_contact_control: u8,
+    /// Walker movement control (6AA4). The surface effect tests the whole
+    /// byte when deciding whether to chase its distinct transform origin.
+    pub walker_motion_control: u8,
     /// Last walker collision-query height (6AF7). Flight translation does
     /// not replace it; the free-flight surface prefix consumes it later.
     pub surface_height: i16,

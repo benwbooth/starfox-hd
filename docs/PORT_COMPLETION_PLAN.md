@@ -113,6 +113,22 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Ported the complete protected surface-effect creator and both scheduled
+  strategies (`$07:C475..C6E7`). Real pool allocation, child limits, distinct
+  transform-origin lifetimes, inherited steering response, three ordered
+  random draws, surface carry/chase, deferred initialization and retirement
+  all follow the source. Scene dispatch runs the effects while paused, and
+  partial failures prevent duplicate allocation on retry. Seven native tests
+  and four original groups pass, including all 65,536 pitch/yaw pairs,
+  131,072 height/carry cases and 8,192 independent retained lifetime visits
+  with real original retirement. Final-tree verification passes 1,400 native
+  tests and two architecture checks in debug/release, 1,408 compatibility
+  tests and 35 runtime checks, all 126 original player/movement groups in
+  both profiles, 748 source tests, 238 extractor/lowerer tests, exact catalog
+  and architecture checks and all three application builds.
+  The next integration is the complete free-flight mode, followed by its
+  enclosing player strategy and production frame ownership.
+
 - Ported the complete new/pending mode-request selector
   (`$06:98CD..9A0F`). Inhibiting a new Select request does not discard an
   existing request; carry parity, transition gates, same-family initializer

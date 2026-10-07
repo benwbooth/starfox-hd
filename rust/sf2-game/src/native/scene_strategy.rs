@@ -133,6 +133,7 @@ pub enum SceneError<E> {
     PlayerThrottle(super::player_throttle::ThrottleError),
     PlayerAmbient(super::player_ambient::AmbientError),
     PlayerSurfaceParticle(super::player_surface_particle::ParticleError),
+    PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
     PlayerMotion(super::player_motion::MotionError),
@@ -173,6 +174,22 @@ pub struct SceneActors<'a, C: SceneCallbacks> {
 }
 
 impl<C: SceneCallbacks> SceneActors<'_, C> {
+    pub fn spawn_player_surface_effect(
+        &mut self,
+        owner: ObjectId,
+        input: super::player_surface_effect::SurfaceEffectInputs,
+    ) -> Result<Option<super::player_surface_effect::SurfaceEffectResult>, SceneError<C::Error>> {
+        if self.execution.faulted {
+            return Err(SceneError::Faulted);
+        }
+        let result = super::player_surface_effect::spawn(self.objects, self.world, owner, input)
+            .map_err(SceneError::PlayerSurfaceEffect);
+        if result.is_err() {
+            self.execution.faulted = true;
+        }
+        result
+    }
+
     pub fn select_player_mode(
         &mut self,
         owner: ObjectId,
@@ -981,6 +998,11 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                     self.objects.get_mut(owner).expect("live surface particle"),
                 )
                 .expect("validated surface particle behavior");
+                Ok(owner)
+            }
+            Behavior::SurfaceEffect(_) => {
+                super::player_surface_effect::step(self.objects, self.world, owner)
+                    .map_err(SceneError::PlayerSurfaceEffect)?;
                 Ok(owner)
             }
             Behavior::Destruction(phase) => {

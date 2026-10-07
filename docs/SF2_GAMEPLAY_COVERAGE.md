@@ -152,6 +152,19 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+The complete protected surface effect (`$07:C475..C6E7`) now uses real child
+allocation and scheduled initialization, movement and retirement. Ownership,
+transform origin and relative parent remain distinct; lifetime identities
+diagnose retired origins without silently following reused slots. Four
+original groups pass all angle pairs, wrapped height/carry cases and 8,192
+independently retained visits with original retirement. Seven native tests
+include scene dispatch while paused, pool exhaustion and partial-failure
+retry prevention. Final-tree native debug/release, compatibility, all 126
+original player/movement groups in both profiles, source/catalog/architecture
+checks and all three application builds pass. The complete free-flight mode
+and enclosing player strategy remain integration blockers;
+this does not establish production frame ownership.
+
 The complete mode selector (`$06:98CD..9A0F`) now separates new controller
 requests from pending transformations, preserves source gates and neighboring
 fields, and publishes actual strategy-entry phases without changing the

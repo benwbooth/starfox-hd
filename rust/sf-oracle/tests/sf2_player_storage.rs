@@ -71,6 +71,9 @@ mod surface_prepare_tests;
 #[path = "support/sf2_player_mode_selection.rs"]
 mod mode_selection_tests;
 
+#[path = "support/sf2_player_surface_effect.rs"]
+mod surface_effect_tests;
+
 use sf2_game::path_runtime::PathRuntime;
 use sf2_game::path_target::TargetSelection;
 use sf2_game::player_storage::{self, PlayerScore, PlayerStorage, PlayerStorageInputs};
