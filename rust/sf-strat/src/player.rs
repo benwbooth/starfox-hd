@@ -21,7 +21,7 @@
 use crate::common::{
     add_colanim_wrap, boost_sprite, flat_billboard_rotation, init_colanim, kill_obj,
     set_boost_zoff, sf_random, strat_apply_velocity, strat_chase, strat_chase_proportional,
-    strat_gen_vecs_3d, strat_make_obj, strat_perc62, strat_perc75, strat_perc87, strat_perc93,
+    strat_gen_vecs_3d, strat_make_obj, strat_perc62, strat_perc87, strat_perc93,
     strat_remove_obj, strat_speed_to, sv, StratRam,
 };
 use crate::enemy_a::{
@@ -31,6 +31,9 @@ use crate::enemy_a::{
 };
 /// ROM `sflag4` — sflags2 bit 7 (STRATEQU.INC make_sflag after sflag3).
 const ASF2_SFLAG4: u8 = 0x80;
+use crate::player_view_anchor::{
+    apply_flight_view_anchor, FlightViewAnchor, SPACE_VIEW_CENTER_Y as SPACE_VIEWCY,
+};
 use crate::snes_trig::{mulslog_mac8, COSTAB, SINTAB};
 use sf_core::pad;
 use sf_core::player_view::{PlayerViewMode, PlayerViewOptions};
@@ -3148,30 +3151,14 @@ fn viewmove_srou(g: &mut Game, idx: u16) {
     g.vars.set_sv_i16(sv::BGSSCROLLZ, z);
 }
 
-/// C `update_viewxy_for_mode` (strat_player.c:682).
+/// Choose the original strategy's lateral camera calculation.
 fn update_viewxy_for_mode(g: &mut Game, idx: u16) {
-    let al = g.objs.aliens[idx as usize];
-    let view_cy = g.vars.sv_i16(sv::VIEWCY);
-    if g.vars.game_mode == SPACE_MODE {
-        if g.vars.player_view_mode == PlayerViewMode::Cockpit {
-            g.vars.set_sv_i16(sv::PVIEWPOSX, al.worldx);
-            g.vars.set_sv_i16(sv::PVIEWPOSY, al.worldy);
-            return;
-        }
-
-        g.vars.set_sv_i16(sv::PVIEWPOSX, strat_perc75(al.worldx));
-        g.vars.set_sv_i16(
-            sv::PVIEWPOSY,
-            strat_perc62(al.worldy.wrapping_sub(view_cy)).wrapping_add(view_cy),
-        );
-        return;
-    }
-
-    g.vars.set_sv_i16(sv::PVIEWPOSX, strat_perc87(al.worldx));
-    g.vars.set_sv_i16(
-        sv::PVIEWPOSY,
-        strat_perc75(al.worldy.wrapping_sub(view_cy)).wrapping_add(view_cy),
-    );
+    let flight = if g.vars.game_mode == SPACE_MODE {
+        FlightViewAnchor::Space
+    } else {
+        FlightViewAnchor::Surface
+    };
+    apply_flight_view_anchor(g, idx, flight);
 }
 
 // ============================================================
@@ -4762,7 +4749,7 @@ const PLANET_VIEWCY: i16 = -50;
 /// Planet-mode body used by ClearDemo (do_player_Yvel125 + view + viewmove).
 fn player_on_planet_body(g: &mut Game, idx: u16) {
     do_player_yvel125(g, idx);
-    update_viewxy_for_mode(g, idx);
+    apply_flight_view_anchor(g, idx, FlightViewAnchor::Surface);
     viewmove_srou(g, idx);
 }
 
@@ -5509,9 +5496,7 @@ pub fn set_player_on_water(g: &mut Game, idx: u16) {
 /// ROM `playeronwater_strat` — live path uses Yvel125 (ifeq 1 block is dead).
 pub fn player_on_water_strat(g: &mut Game, idx: u16) {
     do_player_yvel125(g, idx);
-    let wx = g.objs.aliens[idx as usize].worldx;
-    g.vars.set_sv_i16(sv::PVIEWPOSX, wx >> 1);
-    g.vars.set_sv_i16(sv::PVIEWPOSY, -50); // water / planet_ViewCY style
+    apply_flight_view_anchor(g, idx, FlightViewAnchor::Surface);
     viewmove_srou(g, idx);
 }
 
@@ -5573,11 +5558,7 @@ pub fn set_player_undergnd(g: &mut Game, idx: u16) {
 /// ROM `playerundergnd_strat`.
 pub fn player_undergnd_strat(g: &mut Game, idx: u16) {
     do_player_yvel_d2(g, idx);
-    let wx = g.objs.aliens[idx as usize].worldx;
-    // view X = perc87-ish / asra chain — undergnd uses same as tunnel 0.875
-    let pview_x = (wx >> 1).wrapping_add(wx >> 2).wrapping_add(wx >> 3);
-    g.vars.set_sv_i16(sv::PVIEWPOSX, pview_x);
-    g.vars.set_sv_i16(sv::PVIEWPOSY, g.vars.sv_i16(sv::VIEWCY));
+    apply_flight_view_anchor(g, idx, FlightViewAnchor::Underground);
     viewmove_srou(g, idx);
 }
 
@@ -5599,11 +5580,7 @@ pub fn set_player_in_space(g: &mut Game, idx: u16) {
 /// ROM `playerinspace_strat`.
 pub fn player_in_space_strat(g: &mut Game, idx: u16) {
     do_player_limit_x(g, idx);
-    let wx = g.objs.aliens[idx as usize].worldx;
-    let wy = g.objs.aliens[idx as usize].worldy;
-    // Typical space: pview tracks player (simplified; ROM uses viewmove after limitX)
-    g.vars.set_sv_i16(sv::PVIEWPOSX, wx);
-    g.vars.set_sv_i16(sv::PVIEWPOSY, wy);
+    apply_flight_view_anchor(g, idx, FlightViewAnchor::Space);
     viewmove_srou(g, idx);
 }
 
@@ -5627,7 +5604,6 @@ pub fn set_player_escape_nucleus(g: &mut Game, idx: u16) {
 // Cockpit enter / exit (PSTRATS.ASM)
 // ============================================================
 
-const SPACE_VIEWCY: i16 = -60;
 const SPACE_MIN_X: i16 = -240;
 const SPACE_MAX_X: i16 = 240;
 const SPACE_MIN_Y: i16 = -190;

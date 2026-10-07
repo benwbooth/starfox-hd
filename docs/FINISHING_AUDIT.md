@@ -469,6 +469,54 @@ The unchanged full Training replay also passes its 1,758 semantic/draw/audio
 updates and 1,752 bitmap updates. As before, workspace results include the
 preserved pre-existing dirty changes rather than certifying a clean revision.
 
+## Refreshed workspace and live camera source audit (2026-10-06)
+
+The full release workspace at `d0c9c9a`, including preserved pre-existing
+working-tree changes, completes with 4,342 passing tests, three failing tests,
+one ignored test and one failing executable example. No expected fingerprints
+or assertions were changed. The failures remain:
+
+- `semantic_trace`: the retained native fingerprint differs at tick 1,500;
+  live front-end comparison first differs at sequence 126, with the original
+  still in the intro and native already at the title.
+- `sf1_corneria_route`: the controller tape loses the ship at level frame
+  1,499. The tape was originally selected using a native search, so its asserted
+  survival is not by itself independent evidence of original-game survival.
+- `sf1_title_trace`: setup takes 127 native sampled ticks versus 128 original;
+  its separate 96 source-bound semantic/object/draw updates still agree.
+
+The unchanged Training check still passes 1,758 semantic/draw/audio updates
+and 1,752 scene-region bitmap updates. The first-laser executable also passes
+its existing source-bound and composed-video checks. These results are not
+whole-game certification. Full baseline log:
+`/tmp/starfox-workspace-status-engine-oct06.log`.
+
+The subsequent camera audit found two actual shipping shortcuts: the space
+strategy copied ship X/Y in exterior mode, and water used the disabled
+half-width/fixed-height branch. Both now use typed source-level camera
+anchors. The generic space anchor also now uses `Space_ViewCY`, not the live
+`viewCY`. Planet-specific callers select their actual surface formula, and
+underground reuses its independently checked fixed-center anchor.
+
+`sf1_player_view_anchor` executes unmodified camera tails from the pinned
+source-built ROM, after movement and before `viewmove_srou`. Across four
+groups, 1,703,936 cases cover every coordinate word, every camera mode and
+center/overflow boundaries, preserving camera Z, ship position and the live
+center. This checks lateral anchoring, not movement, depth chase, hardware
+timing or complete retail camera behavior. Seven native tests also check the
+shipping strategy call order, disabled depth motion and engine publication.
+The legacy C fixture is preserved byte-for-byte; its obsolete space-camera Y
+expectation is corrected explicitly from its own recorded coordinates, then
+retained through its non-rotating death sequence. No expected field comes from
+the native execution under test.
+
+All 1,314 strategy tests and the four new original-code groups pass in debug
+and release, along with 73 SF1 Python tests, architecture, the unchanged release
+Training check and all three app binaries in both profiles. Focused log:
+`/tmp/sf1-player-view-anchor-final-validation-oct06.log`. The whole-workspace
+baseline above predates this camera change; the three failing targets and the
+larger source-derived timing replacement remain open.
+
 ## Work order
 
 1. **Establish trustworthy boundaries.** Split simulation snapshots from

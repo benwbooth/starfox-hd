@@ -1,7 +1,7 @@
 //! Scripted-input trace parity for the sf-strat player lane against the C
 //! oracle.
 //!
-//! NOTE: the fixture intentionally DIVERGES from the frozen C oracle in eleven
+//! NOTE: the fixture intentionally DIVERGES from the frozen C oracle in several
 //! places that fix player-facing bugs present in the C port:
 //!   * barrel roll now triggers on the L/R shoulder buttons only (the C port
 //!     wrongly also rolled on dpad LEFT/RIGHT steering), so the flight scenario
@@ -81,6 +81,13 @@
 //!     but separately assert that these exterior-only scenarios leave the
 //!     high byte disabled. Original-code tests in `weapon_strategy_entry`
 //!     cover both byte writers and all five camera modes without a fixture.
+//!   * Space camera Y uses the fixed Space_ViewCY (-60), not the live center
+//!     left at zero by this legacy harness. The original-instruction tests in
+//!     `sf-oracle/tests/sf1_player_view_anchor.rs` verify every word input and
+//!     every camera mode. `source_corrected_trace` derives this one expected
+//!     column from the retained fixture's player position, then retains it
+//!     during this scenario's non-rotating crash. The fixture is not rewritten
+//!     and no value is obtained from the native execution being checked.
 //! The nucleus sequence's flag layout is corrected against the source macros;
 //! `tools/sf1/test_strategy_flag_layout.py` recovers the preceding file hash
 //! after reversing exactly those 100 first-byte changes. Native-output blessing
@@ -351,6 +358,7 @@ fn generate() -> String {
     out.push_str("== flight ==\n");
     let mut g = new_game(&sounds);
     let p = strat_spawn_player(&mut g).unwrap();
+    assert_eq!(g.vars.playerflymode, 0, "legacy flight has no death-Y chase");
     for t in 0..230 {
         if t == 150 {
             g.objs.aliens[p as usize].sflags |= ASF_COLLIDE;
@@ -423,9 +431,50 @@ fn generate() -> String {
     out
 }
 
+/// Source-authoritative correction of just the legacy flight camera column.
+/// Preserve every other byte, including the original fixture on disk. The
+/// original playerdead_strat gates camera-Y chasing on pfm_dieYrot, which is
+/// clear in this trace; its terminal and retired phases retain the same Y.
+fn source_corrected_trace(fixture: &str) -> String {
+    const SOURCE_SPACE_CENTER: i16 = -60;
+    const LETHAL_TICK: usize = 165;
+    let mut flight = false;
+    let mut old_anchor = 0;
+    let mut corrected_anchor = 0;
+    let mut corrected_rows = 0;
+    let mut result = String::new();
+    for line in fixture.lines() {
+        if line.starts_with("== ") {
+            flight = line == "== flight ==";
+        }
+        if flight && line.starts_with('T') {
+            let mut fields: Vec<String> = line.split(' ').map(str::to_owned).collect();
+            let tick: usize = fields[0][1..].parse().unwrap();
+            assert_eq!(tick, corrected_rows);
+            assert_eq!(fields[1], "P");
+            assert_eq!(fields[22], "G");
+            let player_y: i16 = fields[3].parse().unwrap();
+            if tick < LETHAL_TICK {
+                old_anchor = (player_y >> 1) + (player_y >> 3);
+                let delta = player_y.wrapping_sub(SOURCE_SPACE_CENTER);
+                corrected_anchor = ((delta >> 1) + (delta >> 3)).wrapping_add(SOURCE_SPACE_CENTER);
+            }
+            assert_eq!(fields[27].parse::<i16>().unwrap(), old_anchor);
+            fields[27] = corrected_anchor.to_string();
+            result.push_str(&fields.join(" "));
+            corrected_rows += 1;
+        } else {
+            result.push_str(line);
+        }
+        result.push('\n');
+    }
+    assert_eq!(corrected_rows, 230);
+    result
+}
+
 #[test]
 fn player_trace_matches_c_oracle() {
-    let fixture = include_str!("fixtures/sp_player_trace.txt");
+    let fixture = source_corrected_trace(include_str!("fixtures/sp_player_trace.txt"));
     let ours = generate();
 
     let mut mismatches = 0;

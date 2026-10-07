@@ -31,6 +31,7 @@ pub mod intro;
 pub mod mother;
 pub mod path_adapter;
 pub mod player;
+pub mod player_view_anchor;
 pub mod snes_trig;
 pub mod table;
 pub mod theend;

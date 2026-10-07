@@ -113,6 +113,24 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-06
 
+- Replaced SF1's simplified live space/water camera anchors with the active
+  PSTRATS routines. Space uses separately rounded 75%/62% shifts around the
+  fixed -60 vertical center; only the completed cockpit mode copies ship X/Y.
+  Water and planet use 87%/75% around the live center, while underground keeps
+  that center fixed. Shared depth movement still owns its later cockpit
+  override and sound publication. Four original-code groups execute unchanged
+  source-built camera tails across 1,703,936 cases, and seven new native tests
+  cover arithmetic and production strategy wiring. All 1,314 strategy tests
+  and four original-code groups pass in both profiles; 73 SF1 source/tool
+  tests, architecture, unchanged release Training and all three app builds in
+  both profiles pass. The legacy C trace remains untouched: its one incorrect
+  space-camera column is explicitly adapted from retained player coordinates
+  using the independently verified source formula. The preceding whole release
+  baseline records 4,342 passing tests, three failing tests, one ignored test
+  and one failing executable example. The same three failing targets remain
+  `semantic_trace`, `sf1_corneria_route` and `sf1_title_trace`; this camera slice
+  does not close general timing, full camera/movement or campaign correctness.
+
 - Ported player-frame shield display/loss warnings, contact-filter and
   heading-bank decay, and transformation cues (`$07:AF5B..AFE7`,
   `$06:9195..9235`, `$06:8FE2..9074`). Display acknowledgement stays owned by
