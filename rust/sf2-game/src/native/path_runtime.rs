@@ -121,6 +121,8 @@ pub struct PathRuntime {
     pub actor_context: super::path_actor_context::ActorContextState,
     pub spawns: super::path_spawn::SpawnState,
     pub placement: super::path_scene_state::PlacementCoordinates,
+    /// Authored corridor producer arguments, retained between path visits.
+    pub region: super::player_boundary::RegionInputs,
     /// Complete transform mailbox used by the reviewed capture/restore
     /// helpers. A missing linked actor leaves the previous publication intact.
     pub captured_world_position: Option<super::Vector3>,
@@ -141,6 +143,7 @@ impl Default for PathRuntime {
             actor_context: super::path_actor_context::ActorContextState::default(),
             spawns: super::path_spawn::SpawnState::default(),
             placement: super::path_scene_state::PlacementCoordinates::default(),
+            region: super::player_boundary::RegionInputs::default(),
             captured_world_position: None,
             steering: super::path_steering::SteeringState::default(),
             branch: super::path_conditions::BranchState::default(),

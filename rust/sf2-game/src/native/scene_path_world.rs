@@ -624,6 +624,9 @@ impl InvocationWorld for ScenePathWorld {
                 linked: None,
             }),
             selected_auxiliary: None,
+            selected_boundary: None,
+            selected_steering: None,
+            selected_mode_selection: None,
             selected_charge: None,
             selected_occupancy_exempt: None,
             selected_equipment: None,
@@ -664,6 +667,7 @@ impl InvocationWorld for ScenePathWorld {
             scene_proxies: Some(&mut self.proxies),
             campaign: self.campaign,
             camera_heading: self.camera_heading,
+            published_camera_roll: Some(&mut self.published_camera_roll),
             spawn_defaults: self.spawn_defaults,
             view_transition_mode: self.view_transition_mode.as_mut(),
             handoff: self.handoff.as_mut(),
@@ -707,6 +711,9 @@ impl InvocationWorld for ScenePathWorld {
             }
             if selected == Some(owner) {
                 world.selected_auxiliary = records.auxiliary.as_mut();
+                world.selected_boundary = records.boundary.as_mut();
+                world.selected_steering = records.steering.as_mut();
+                world.selected_mode_selection = records.mode_selection.as_mut();
                 world.selected_charge = records.charge.map(|charge| charge.path_input());
                 world.selected_occupancy_exempt = records.occupancy_exempt;
                 world.selected_equipment = records.equipment.as_mut();

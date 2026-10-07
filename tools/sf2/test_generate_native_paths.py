@@ -35,9 +35,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 150;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 152;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6099;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 6155;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -57,6 +57,45 @@ class NativePathGenerationTests(unittest.TestCase):
                                       'Statement::Control(ControlCommand::Return)'])
         self.assertIn('Statement::ConsiderPrimaryTarget {', self.lower_record('c7')[0])
         self.assertIn('Statement::ConsiderPrimaryTargetAndMarkSceneProxy {', self.lower_record('c6')[0])
+
+    def test_both_corridor_exit_controllers_have_complete_source_owned_graphs(self):
+        extractor = PathExtractor(self.rom)
+        for root, count, digest in [
+            (0xD1CB, 32, '047a7cbd89f4e089d5f906ca09c6df84a130458d31b5b7aae502518f4cfd141f'),
+            (0xD207, 36, '8767d100a699f043ca20fd35f3333788e910b9f3905926ea0371d4349571c47a'),
+        ]:
+            address = PathAddress(root)
+            self.assertIn(address, extractor.discover_roots())
+            commands = graph(extractor, address)
+            self.assertEqual(len(commands), count)
+            self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
+            statements = lower_graph(extractor, address, 0)[1]
+            self.assertEqual(len(statements), count)
+            lowered = '\n'.join(statements)
+            for action in ['SetRegionHeading', 'SetRegionParameter', 'InstallSelectedRegion',
+                           'ResetSelectedRegion', 'BeginCorridorEntry', 'ClearPublishedCameraRoll',
+                           'HandoffCommand::CopyX', 'HandoffCommand::CopyZ',
+                           'HandoffCommand::CopyHeading', 'HandoffCommand::RequestCorridorExit']:
+                self.assertIn(action, lowered)
+        # Numeric preparation is admitted only at the reviewed call sites,
+        # not as a new general-purpose mapping of processor scratch storage.
+        for raw in ['fba70080', 'fce400e803', '7ea30400', '7ea30a00']:
+            with self.assertRaisesRegex(UnsupportedPath, 'unreviewed corridor'):
+                self.lower_record(raw)
+        with self.assertRaises(UnsupportedPath):
+            self.lower_record('fc0b1e0100')
+
+    def test_corridor_inline_helpers_require_the_full_original_instruction_signatures(self):
+        from extract_path import _PATH_INLINE_BLOCKS
+        for address in [0xD253, 0xE839]:
+            # Every byte of executable payload, including the continuation,
+            # belongs to the extractor's immutable signature.
+            signature = _PATH_INLINE_BLOCKS[address][0]
+            for offset in range(len(signature)):
+                changed = bytearray(self.rom)
+                changed[0x40000 + address + 1 + offset] ^= 1
+                with self.assertRaisesRegex(ValueError, 'path inline signature mismatch'):
+                    lower_graph(PathExtractor(bytes(changed)), PathAddress(0xD1CB), 0)
 
     def test_pulse_attacker_and_periodic_pair_emitter_have_complete_bound_graphs(self):
         extractor = PathExtractor(self.rom)
@@ -2782,7 +2821,7 @@ class NativePathGenerationTests(unittest.TestCase):
 
     def test_unported_or_changed_inline_actions_are_rejected(self):
         with self.assertRaisesRegex(UnsupportedPath, "unported inline action"):
-            lower_graph(PathExtractor(self.rom), PathAddress(0xD253), 0)
+            lower_graph(PathExtractor(self.rom), PathAddress(0xE845), 0)
         changed = bytearray(self.rom)
         changed[0x4F350] = 0x40  # change the primary flag mask inside the action
         with self.assertRaisesRegex(ValueError, "inline signature mismatch"):
@@ -3471,9 +3510,11 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(extractor.decode_command(PathAddress(address)).raw_hex, expected)
 
     def test_selected_auxiliary_updates_are_distinct_from_other_auxiliary_storage(self):
-        for opcode, operation in [(0x6E, "SetModeLowNibbleOne"), (0x6F, "SetModeLowNibbleFour"), (0x62, "ClearActionBit01")]:
+        for opcode, request in [(0x6E, "FreeFlight"), (0x6F, "Walker")]:
             self.assertEqual(self.lower_record(f"00 {opcode:02x}")[0],
-                f"Statement::SelectedAuxiliary {{ command: SelectedAuxiliaryCommand::{operation}, next: cursor(0, 1) }}")
+                f"Statement::RequestSelectedMode {{ request: super::player_mode_selection::ModeRequest::{request}, next: cursor(0, 1) }}")
+        self.assertEqual(self.lower_record('00 62')[0],
+            'Statement::SelectedAuxiliary { command: SelectedAuxiliaryCommand::ClearActionBit01, next: cursor(0, 1) }')
         # The similarly named OR operation targets a different field.
         self.assertEqual(self.lower_record("00 16 ff")[0],
             "Statement::IncludeSelectedParticleFlags { mask: 255, next: cursor(0, 1) }")
@@ -3546,7 +3587,7 @@ class NativePathGenerationTests(unittest.TestCase):
         mapped = dict(zip((c.address.offset for c in commands), statements))
         self.assertIn("CampaignByte::Difficulty", mapped[0x04B9])
         self.assertIn("InvertNext", mapped[0x04BC])
-        self.assertIn("SetModeLowNibbleFour", mapped[0x04C4])
+        self.assertIn("ModeRequest::Walker", mapped[0x04C4])
         self.assertIn("GuidanceCommand::CopyTo", mapped[0x04C6])
         self.assertIn("GuidanceCommand::Assign", mapped[0x04D4])
         self.assertIn("iterations: 5", mapped[0x04DD])

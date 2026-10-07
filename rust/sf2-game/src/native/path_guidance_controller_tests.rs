@@ -20,6 +20,7 @@ struct Services {
     guidance: GuidanceHistory,
     countdown: PathCountdown,
     auxiliary: SelectedAuxiliaryState,
+    mode_selection: super::super::player_mode_selection::PlayerModeSelection,
 }
 
 impl Default for Services {
@@ -43,6 +44,7 @@ impl Default for Services {
             request: RadioRequest::default(),
             guidance: GuidanceHistory::default(),
             countdown: PathCountdown::default(),
+            mode_selection: Default::default(),
             auxiliary: SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
                 mode: 0x10,
                 action_flags: 0,
@@ -73,6 +75,7 @@ impl Services {
         inputs.guidance = Some(&mut self.guidance);
         inputs.countdown = Some(&mut self.countdown);
         inputs.selected_auxiliary = Some(&mut self.auxiliary);
+        inputs.selected_mode_selection = Some(&mut self.mode_selection);
         inputs.selected = Some(selected);
         inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
         inputs

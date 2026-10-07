@@ -179,6 +179,9 @@ mod numbered_sprite_tests;
 #[cfg(test)]
 #[path = "path_scene_event_tests.rs"]
 mod scene_event_tests;
+#[cfg(test)]
+#[path = "path_corridor_exit_tests.rs"]
+mod corridor_exit_tests;
 
 /// Shared world inputs, borrowed rather than duplicated per actor or path.
 /// The caller owns clock advancement and random state across every service.
@@ -190,6 +193,8 @@ pub struct PathWorld<'a> {
     pub camera_tracking: Option<&'a mut super::path_scene_state::CameraTrackingTarget>,
     /// High byte of the camera orientation word, not an actor counter.
     pub camera_heading: Option<super::Angle>,
+    /// The real camera publication, including its not-yet-published state.
+    pub published_camera_roll: Option<&'a mut Option<u16>>,
     pub reflection: Option<super::weapon_reflection::ReflectionRules>,
     pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
     pub primary_feedback: Option<super::player_hit_control::PrimaryFeedback<'a>>,
@@ -254,6 +259,9 @@ pub struct PathWorld<'a> {
     /// Shared selected-player auxiliary state. Commands and branches borrow
     /// the same live record; a missing record faults only when needed.
     pub selected_auxiliary: Option<&'a mut SelectedAuxiliaryState>,
+    pub selected_boundary: Option<&'a mut super::player_boundary::PlayerBoundary>,
+    pub selected_steering: Option<&'a mut super::player_steering::PlayerSteering>,
+    pub selected_mode_selection: Option<&'a mut super::player_mode_selection::PlayerModeSelection>,
     pub selected_particle_effects: Option<&'a mut SelectedParticleEffects>,
     /// Fresh path-selected equipment, not the published active-pilot snapshot.
     pub selected_equipment: Option<&'a mut super::path_equipment::SelectedEquipment>,
@@ -282,6 +290,7 @@ impl PathWorld<'_> {
             camera_focus: None,
             camera_tracking: None,
             camera_heading: None,
+            published_camera_roll: None,
             reflection: None,
             health_display: None,
             primary_feedback: None,
@@ -331,6 +340,9 @@ impl PathWorld<'_> {
             active_node_flags: None,
             countdown: None,
             selected_auxiliary: None,
+            selected_boundary: None,
+            selected_steering: None,
+            selected_mode_selection: None,
             selected_particle_effects: None,
             selected_equipment: None,
             selected_score: None,
@@ -539,24 +551,15 @@ pub enum GuidanceCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectedAuxiliaryCommand {
-    SetModeLowNibbleOne,
-    SetModeLowNibbleFour,
     ClearActionBit01,
 }
 
 impl SelectedAuxiliaryCommand {
-    /// Selected-slot handlers at $7F:B081, $7F:B04D, and $7F:B77A.
-    /// The mode class (high nibble) is independent of the low-nibble state.
+    /// Selected action flag handler at $7F:B77A. Mode requests have their
+    /// own record; neither this command nor a request changes current mode.
     fn apply(self, state: &mut SelectedAuxiliaryState) {
-        const MODE_CLASS_MASK: u8 = 0xF0;
-        const LOW_MODE_ONE: u8 = 1;
-        const LOW_MODE_FOUR: u8 = 4;
         const ACTION_BIT_01: u8 = 0x01;
         match self {
-            Self::SetModeLowNibbleOne => state.mode = (state.mode & MODE_CLASS_MASK) | LOW_MODE_ONE,
-            Self::SetModeLowNibbleFour => {
-                state.mode = (state.mode & MODE_CLASS_MASK) | LOW_MODE_FOUR
-            }
             Self::ClearActionBit01 => state.action_flags &= !ACTION_BIT_01,
         }
     }
@@ -732,6 +735,17 @@ pub enum Statement {
         command: super::path_scene_state::HandoffCommand,
         next: PathCursor,
     },
+    SetRegionHeading { heading: super::Angle, next: PathCursor },
+    SetRegionParameter {
+        parameter: super::player_boundary::RegionParameter,
+        value: WordOperand,
+        next: PathCursor,
+    },
+    InstallSelectedRegion { next: PathCursor },
+    ResetSelectedRegion { next: PathCursor },
+    RequestSelectedMode { request: super::player_mode_selection::ModeRequest, next: PathCursor },
+    BeginCorridorEntry { next: PathCursor },
+    ClearPublishedCameraRoll { next: PathCursor },
     SelectActivePilotCraft { appearances: &'static [super::path_launch::PilotCraftAppearance; 6], next: PathCursor },
     AlignCameraHeading { next: PathCursor },
     PublishCameraTrackingTarget { next: PathCursor },
@@ -1167,6 +1181,8 @@ pub enum ProgramError {
     Auxiliary(super::actor_auxiliary::AuxiliaryError),
     MissingEncounterHandoff,
     MissingCameraHeading,
+    MissingCameraRollPublication,
+    Boundary(super::player_boundary::BoundaryError),
     MissingCameraTrackingTarget,
     Reflection(super::weapon_reflection::ReflectionError),
     MissingEncounterCameraFocus,
@@ -1242,6 +1258,8 @@ pub enum ProgramError {
     WeaponLaunch(super::weapon_dispatch::LaunchError),
     Relationship(super::path_relationships::RelationshipError),
     MissingSelectedAuxiliary,
+    MissingSelectedPlayer,
+    MissingSelectedModeSelection,
     MissingSelectedEquipment,
     MissingSelectedScore,
     Runtime(PathRuntimeError),
@@ -1573,6 +1591,58 @@ impl PathRuntime {
                 let actor = objects.get_mut(owner).expect("validated handoff publisher");
                 handoff.apply(actor, command);
                 actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SetRegionHeading { heading, next } => {
+                self.region.heading_offset = heading;
+                objects.get_mut(owner).expect("validated corridor parameter actor").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RequestSelectedMode { request, next } => {
+                world.selected_mode_selection.as_deref_mut().ok_or(ProgramError::MissingSelectedModeSelection)?
+                    .request_mode(request);
+                objects.get_mut(owner).expect("validated mode requester").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SetRegionParameter { parameter, value, next } => {
+                let actor = objects.get_mut(owner).expect("validated corridor parameter actor");
+                self.region.assign(parameter, value.read(actor) as i16);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::InstallSelectedRegion { next } | Statement::ResetSelectedRegion { next } => {
+                let selected = world.selected.ok_or(ProgramError::MissingSelectedPlayer)?;
+                objects.get(selected).ok_or(PathRuntimeError::MissingActor(selected))?;
+                let player = super::player_boundary::RegionPlayer {
+                    owner: selected,
+                    auxiliary: world.selected_auxiliary.as_deref_mut(),
+                    steering: world.selected_steering.as_deref_mut(),
+                    boundary: world.selected_boundary.as_deref_mut(),
+                };
+                if matches!(statement, Statement::InstallSelectedRegion { .. }) {
+                    let proxy = world.weapons.as_ref().and_then(|weapons| weapons.fallback);
+                    super::player_boundary::install_region_records(objects, owner, &mut self.region, proxy, player)
+                        .map_err(ProgramError::Boundary)?;
+                } else {
+                    super::player_boundary::reset_region(player).map_err(ProgramError::Boundary)?;
+                }
+                objects.get_mut(owner).expect("validated corridor owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::BeginCorridorEntry { next } => {
+                const ENTRY_PROTECTION: u8 = 63;
+                let primary = world.primary_player.ok_or(ProgramError::MissingPrimaryPlayer)?;
+                objects.get(primary).ok_or(PathRuntimeError::MissingActor(primary))?;
+                world.primary_feedback.as_mut().ok_or(ProgramError::MissingPrimaryFeedback)?
+                    .hit.secondary_protection = ENTRY_PROTECTION;
+                world.handoff.as_deref_mut().ok_or(ProgramError::MissingEncounterHandoff)?
+                    .latch_corridor_entry();
+                objects.get_mut(owner).expect("validated corridor entry actor").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ClearPublishedCameraRoll { next } => {
+                *world.published_camera_roll.as_deref_mut().ok_or(ProgramError::MissingCameraRollPublication)? = Some(0);
+                objects.get_mut(owner).expect("validated camera roll publisher").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
             Statement::SpawnParameter { argument, command, next } => {
@@ -2829,6 +2899,10 @@ mod tests {
 
     pub(super) fn world(random: &mut RandomState) -> PathWorld<'_> {
         PathWorld {
+            selected_mode_selection: None,
+            published_camera_roll: None,
+            selected_boundary: None,
+            selected_steering: None,
             scene: ScenePathInputs::default(),
                 view_transition_mode: None,
             health_display: None,
@@ -9966,6 +10040,10 @@ mod tests {
                 action_flags: 0x20,
             };
             let mut inputs = PathWorld {
+                selected_mode_selection: None,
+                published_camera_roll: None,
+                selected_boundary: None,
+                selected_steering: None,
                 scene: ScenePathInputs::default(),
                 view_transition_mode: None,
                 health_display: None,
@@ -10334,20 +10412,6 @@ mod tests {
                 let original = SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position, mode, action_flags };
                 for (command, expected) in [
                     (
-                        SetModeLowNibbleOne,
-                        SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position,
-                            mode: mode / 16 * 16 + 1,
-                            action_flags,
-                        },
-                    ),
-                    (
-                        SetModeLowNibbleFour,
-                        SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position,
-                            mode: mode / 16 * 16 + 4,
-                            action_flags,
-                        },
-                    ),
-                    (
                         ClearActionBit01,
                         SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position,
                             mode,
@@ -10368,18 +10432,19 @@ mod tests {
     #[test]
     fn selected_auxiliary_commands_share_live_state_without_actor_or_control_side_effects() {
         use super::super::path_conditions::AuxiliaryModeClass;
+        use super::super::player_mode_selection::{ModeRequest, PlayerModeSelection};
         use SelectedAuxiliaryCommand::*;
         let catalog = PathCatalog::new(vec![vec![
-            Statement::SelectedAuxiliary {
-                command: SetModeLowNibbleFour,
+            Statement::RequestSelectedMode {
+                request: ModeRequest::Walker,
                 next: cursor(0, 1),
             },
             Statement::SelectedAuxiliary {
                 command: ClearActionBit01,
                 next: cursor(0, 2),
             },
-            Statement::SelectedAuxiliary {
-                command: SetModeLowNibbleOne,
+            Statement::RequestSelectedMode {
+                request: ModeRequest::FreeFlight,
                 next: cursor(0, 3),
             },
             Statement::SelectedAuxiliaryBranch {
@@ -10404,6 +10469,8 @@ mod tests {
                 };
                 let mut inputs = world(&mut random);
                 inputs.selected_auxiliary = Some(&mut auxiliary);
+                let mut selection = PlayerModeSelection { requested: !mode, ..Default::default() };
+                inputs.selected_mode_selection = Some(&mut selection);
                 assert_eq!(
                     runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded {
@@ -10418,10 +10485,10 @@ mod tests {
                         action_flags: !mode
                     })
                 );
-                for (index, expected_mode, expected_flags) in [
-                    (1, mode / 16 * 16 + 4, !mode),
-                    (2, mode / 16 * 16 + 4, !mode / 2 * 2),
-                    (3, mode / 16 * 16 + 1, !mode / 2 * 2),
+                for (index, expected_request, expected_flags) in [
+                    (1, !mode / 16 * 16 + 4, !mode),
+                    (2, !mode / 16 * 16 + 4, !mode / 2 * 2),
+                    (3, !mode / 16 * 16 + 1, !mode / 2 * 2),
                 ] {
                     assert_eq!(
                         runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
@@ -10433,10 +10500,11 @@ mod tests {
                     assert_eq!(
                         inputs.selected_auxiliary.as_deref(),
                         Some(&SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
-                            mode: expected_mode,
+                            mode,
                             action_flags: expected_flags
                         })
                     );
+                    assert_eq!(inputs.selected_mode_selection.as_deref().unwrap().requested, expected_request);
                     let mut expected_objects = initial_objects.clone();
                     expected_objects.get_mut(owner).unwrap().base.path = Some(cursor(0, index));
                     assert_eq!(objects, expected_objects);
@@ -10461,7 +10529,7 @@ mod tests {
                 assert_eq!(
                     auxiliary,
                     SelectedAuxiliaryState { stored_rotation: Default::default(), stored_world_position: Default::default(),
-                        mode: mode / 16 * 16 + 1,
+                        mode,
                         action_flags: !mode / 2 * 2
                     }
                 );
@@ -10475,7 +10543,7 @@ mod tests {
             let before_random = random;
             assert_eq!(
                 runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
-                Err(ProgramError::MissingSelectedAuxiliary)
+                Err(if index == 1 { ProgramError::MissingSelectedAuxiliary } else { ProgramError::MissingSelectedModeSelection })
             );
             assert_eq!(objects, before);
             assert!(runtime.branch.invert_next);
@@ -13337,6 +13405,7 @@ mod tests {
 
     #[test]
     fn first_control_guidance_preserves_history_difficulty_layout_and_all_waits() {
+        use super::super::player_mode_selection::PlayerModeSelection;
         use super::super::path_countdown::PathCountdown;
         use super::super::path_radio::{PathRadio, RadioLayout, RadioRequest};
         use super::super::{authored_paths, Difficulty, FlightControlStyle};
@@ -13360,6 +13429,7 @@ mod tests {
                         action_flags: 0xFF,
                     };
                     let mut request = RadioRequest::default();
+                    let mut mode_selection = PlayerModeSelection { requested: 0xD2, ..Default::default() };
                     let mut countdown = PathCountdown { remaining: 17 };
                     let final_visit = if difficulty != Difficulty::Normal {
                         0
@@ -13383,6 +13453,7 @@ mod tests {
                         if visit == 16 {
                             inputs.guidance = Some(&mut history);
                             inputs.selected_auxiliary = Some(&mut auxiliary);
+                            inputs.selected_mode_selection = Some(&mut mode_selection);
                         }
                         if [46, 112, 178, 244, 310].contains(&visit) {
                             inputs.countdown = Some(&mut countdown);
@@ -13409,7 +13480,8 @@ mod tests {
                             history.flags,
                             if visit >= 16 { flags | 0x0100 } else { flags }
                         );
-                        assert_eq!(auxiliary.mode, if visit >= 16 { 0xA4 } else { 0xA2 });
+                        assert_eq!(auxiliary.mode, 0xA2);
+                        assert_eq!(mode_selection.requested, if visit >= 16 { 0xD4 } else { 0xD2 });
                         assert_eq!(auxiliary.action_flags, 0xFF);
                         assert_eq!(random, before_random);
                         let actor = objects.get(owner).unwrap();
@@ -14058,10 +14130,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 150);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 152);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6040);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6099);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6096);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6155);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -14192,6 +14264,10 @@ mod tests {
         let catalog = authored_paths::catalog();
         for phase in 1..=7 {
             let mut inputs = PathWorld {
+                selected_mode_selection: None,
+                published_camera_roll: None,
+                selected_boundary: None,
+                selected_steering: None,
                 scene: ScenePathInputs::default(),
                 view_transition_mode: None,
                 health_display: None,
@@ -14347,6 +14423,10 @@ mod tests {
                     &mut objects,
                     owner,
                     &mut PathWorld {
+                        selected_mode_selection: None,
+                        published_camera_roll: None,
+                        selected_boundary: None,
+                        selected_steering: None,
                         scene: ScenePathInputs::default(),
                 view_transition_mode: None,
                         health_display: None,

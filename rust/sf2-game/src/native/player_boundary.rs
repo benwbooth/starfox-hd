@@ -29,6 +29,9 @@ const DIFFERENCE_REVERSE: u8 = 96;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PlayerBoundary {
+    /// Retained control byte cleared by the corridor-reset command (6A61).
+    /// Its other consumers remain unidentified; do not alias it to motion.
+    pub reset_control: u8,
     /// Region center and half extents (6AAF..6AB8), installed by live actors.
     /// Heading is shared with steering.locked_heading, not duplicated here.
     pub center: Vector3,
@@ -54,6 +57,32 @@ pub struct RegionInputs {
     pub half_width: i16,
     pub half_height: i16,
     pub activation_radius: i16,
+}
+
+/// Borrow the actual selected player's records, independently of the primary
+/// player. Missing records are diagnosed only at their source-ordered access.
+pub struct RegionPlayer<'a> {
+    pub owner: ObjectId,
+    pub auxiliary: Option<&'a mut super::path_program::SelectedAuxiliaryState>,
+    pub steering: Option<&'a mut super::player_steering::PlayerSteering>,
+    pub boundary: Option<&'a mut PlayerBoundary>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionParameter {
+    HalfWidth,
+    HalfHeight,
+    ActivationRadius,
+}
+
+impl RegionInputs {
+    pub fn assign(&mut self, parameter: RegionParameter, value: i16) {
+        match parameter {
+            RegionParameter::HalfWidth => self.half_width = value,
+            RegionParameter::HalfHeight => self.half_height = value,
+            RegionParameter::ActivationRadius => self.activation_radius = value,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +240,20 @@ pub fn contains(
     owner: ObjectId,
     corridor: Corridor,
 ) -> Result<bool, BoundaryError> {
+    contains_with_proxy(
+        objects,
+        world.weapons.as_ref().and_then(|w| w.fallback),
+        owner,
+        corridor,
+    )
+}
+
+fn contains_with_proxy(
+    objects: &mut ObjectStore,
+    proxy: Option<ObjectId>,
+    owner: ObjectId,
+    corridor: Corridor,
+) -> Result<bool, BoundaryError> {
     let height = objects
         .get(owner)
         .ok_or(WorldInputError::MissingActor(owner))?
@@ -233,7 +276,7 @@ pub fn contains(
     {
         return Ok(false);
     }
-    let proxy = proxy(world)?;
+    let proxy = proxy.ok_or(BoundaryError::MissingProxy)?;
     copy_to_proxy(objects, owner, proxy)?;
     Ok(!correct_proxy(objects, proxy, corridor)?)
 }
@@ -314,7 +357,32 @@ pub fn install_region(
     world: &mut ScenePathWorld,
     anchor: ObjectId,
     owner: ObjectId,
-    inputs: RegionInputs,
+    mut inputs: RegionInputs,
+) -> Result<bool, BoundaryError> {
+    let proxy = world.weapons.as_ref().and_then(|w| w.fallback);
+    let record = world.player_mut(objects, owner)?;
+    install_region_records(
+        objects,
+        anchor,
+        &mut inputs,
+        proxy,
+        RegionPlayer {
+            owner,
+            auxiliary: record.auxiliary.as_mut(),
+            steering: record.steering.as_mut(),
+            boundary: record.boundary.as_mut(),
+        },
+    )
+}
+
+/// The path producer shares its retained parameters across invocations.
+/// Heading is overwritten before admission, including rejected probes.
+pub fn install_region_records(
+    objects: &mut ObjectStore,
+    anchor: ObjectId,
+    inputs: &mut RegionInputs,
+    proxy: Option<ObjectId>,
+    player: RegionPlayer<'_>,
 ) -> Result<bool, BoundaryError> {
     let actor = objects
         .get(anchor)
@@ -323,17 +391,19 @@ pub fn install_region(
     let heading = Angle::from_units(
         (actor.base.yaw.units() & OCTANT_MASK).wrapping_add(inputs.heading_offset.units()),
     );
-    let active = world
-        .player(objects, owner)?
+    inputs.heading_offset = heading;
+    let owner = player.owner;
+    objects
+        .get(owner)
+        .ok_or(WorldInputError::MissingActor(owner))?;
+    let auxiliary = player
         .auxiliary
-        .ok_or(WorldInputError::MissingAuxiliary(owner))?
-        .action_flags
-        & CORRIDOR_ACTIVE
-        != 0;
+        .ok_or(WorldInputError::MissingAuxiliary(owner))?;
+    let active = auxiliary.action_flags & CORRIDOR_ACTIVE != 0;
     if !active
-        && !contains(
+        && !contains_with_proxy(
             objects,
-            world,
+            proxy,
             owner,
             Corridor {
                 center,
@@ -361,23 +431,30 @@ pub fn install_region(
     {
         return Ok(false);
     }
-    let record = world.player_mut(objects, owner)?;
-    record
-        .auxiliary
-        .as_mut()
-        .expect("validated auxiliary")
-        .action_flags |= CORRIDOR_ACTIVE;
-    record
+    auxiliary.action_flags |= CORRIDOR_ACTIVE;
+    player
         .steering
-        .as_mut()
         .ok_or(BoundaryError::MissingSteering(owner))?
         .locked_heading = heading;
-    let boundary = record
+    let boundary = player
         .boundary
-        .as_mut()
         .ok_or(BoundaryError::MissingBoundary(owner))?;
     boundary.center = center;
     boundary.half_width = inputs.half_width;
     boundary.half_height = inputs.half_height;
     Ok(true)
+}
+
+/// $7F:B660: clear only the corridor flag and its distinct reset control.
+/// Extents, heading, retained position and all other action bits survive.
+pub fn reset_region(player: RegionPlayer<'_>) -> Result<(), BoundaryError> {
+    player
+        .auxiliary
+        .ok_or(WorldInputError::MissingAuxiliary(player.owner))?
+        .action_flags &= !CORRIDOR_ACTIVE;
+    player
+        .boundary
+        .ok_or(BoundaryError::MissingBoundary(player.owner))?
+        .reset_control = 0;
+    Ok(())
 }

@@ -86,6 +86,9 @@ mod impact_tests;
 #[path = "support/sf2_player_boundary.rs"]
 mod boundary_tests;
 
+#[path = "support/sf2_corridor_exit.rs"]
+mod corridor_exit_tests;
+
 #[path = "support/sf2_player_occupancy.rs"]
 mod occupancy_tests;
 

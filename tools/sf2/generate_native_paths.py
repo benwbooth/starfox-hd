@@ -25,6 +25,8 @@ REPO = Path(__file__).resolve().parents[2]
 OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 # Independently installed by source actor strategies, not a scanned candidate.
 ROOTS = (
+    ("NARROWING_CORRIDOR_EXIT", PathAddress(0xD1CB)),
+    ("LEVEL_CORRIDOR_EXIT", PathAddress(0xD207)),
     ("OBJECTIVE_GATED_PULSE_PATROL", PathAddress(0x2BE9)),
     ("TARGET_GATED_PULSE_ATTACKER", PathAddress(0x6550)),
     ("PERIODIC_PULSE_PAIR_EMITTER", PathAddress(0x82A5)),
@@ -1234,6 +1236,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             # The extractor checks the COMPLETE instruction signature and
             # returned continuation before exposing each reviewed action.
             actions = {
+                PathAddress(0xE839): "BeginCorridorEntry",
                 PathAddress(0xB129): "MarkRemoval",
                 PathAddress(0xF348): "LatchPrimaryViewFilter",
                 PathAddress(0xE78A): "InheritPrimaryHorizontalMotion",
@@ -1247,6 +1250,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 PathAddress(0xF9A1): "LinkLastSpawnToSelf",
                 PathAddress(0xFDDC): "LinkLastSpawnToSelf",
             }
+            if command.address == PathAddress(0xD253):
+                parameters(0)
+                statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::RequestCorridorExit, next: {next_cursor()} }}")
+                continue
             if command.address == PathAddress(0xB0CB):
                 parameters(0)
                 statements.append(f"Statement::CopySelectedTransform {{ command: SelectedTransformCommand::WorldPosition, next: {next_cursor()} }}")
@@ -1468,14 +1475,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "OrSelectedAuxFlags":
             mask, = parameters(1)
             statement = f"Statement::IncludeSelectedParticleFlags {{ mask: {mask}, next: {next_cursor()} }}"
-        elif name in ("SetSelectedSlotLowNibble1", "SetSelectedSlotLowNibble4", "ClearSelectedAuxiliaryFlag01"):
+        elif name in ("SetSelectedSlotLowNibble1", "SetSelectedSlotLowNibble4"):
             parameters(0)
-            operation = {
-                "SetSelectedSlotLowNibble1": "SetModeLowNibbleOne",
-                "SetSelectedSlotLowNibble4": "SetModeLowNibbleFour",
-                "ClearSelectedAuxiliaryFlag01": "ClearActionBit01",
-            }[name]
-            statement = f"Statement::SelectedAuxiliary {{ command: SelectedAuxiliaryCommand::{operation}, next: {next_cursor()} }}"
+            request = "FreeFlight" if name.endswith("1") else "Walker"
+            statement = f"Statement::RequestSelectedMode {{ request: super::player_mode_selection::ModeRequest::{request}, next: {next_cursor()} }}"
+        elif name == "ClearSelectedAuxiliaryFlag01":
+            parameters(0)
+            statement = f"Statement::SelectedAuxiliary {{ command: SelectedAuxiliaryCommand::ClearActionBit01, next: {next_cursor()} }}"
+        elif name in ("CaptureSelectedAuxiliaryMotion", "ResetSelectedAuxiliaryMotion"):
+            parameters(0)
+            operation = "InstallSelectedRegion" if name.startswith("Capture") else "ResetSelectedRegion"
+            statement = f"Statement::{operation} {{ next: {next_cursor()} }}"
         elif name in ("MessageLiteral", "MessageVariable"):
             value, = parameters(1)
             number = f"ByteOperand::Literal({value})" if name == "MessageLiteral" else f"ByteOperand::Actor({byte_field(value)})"
@@ -1796,6 +1806,17 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             statement = f"Statement::CountCompletion {{ kind: super::path_scene_state::CompletionKind::{kind}, next: {next_cursor()} }}"
         elif name == "StoreExternalWord":
             low, high, value_low, value_high = parameters(4)
+            address = low | high << 8
+            if address == 0x00E4:
+                if command.address not in (PathAddress(0xD1E0), PathAddress(0xD21F)):
+                    raise UnsupportedPath(f"unreviewed corridor radius preparation at {command.address.label()}")
+                value = value_low | value_high << 8
+                statement = f"Statement::SetRegionParameter {{ parameter: super::player_boundary::RegionParameter::ActivationRadius, value: WordOperand::Literal({value}), next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1E0B and (value_low, value_high) == (0, 0):
+                statements.append(f"Statement::ClearPublishedCameraRoll {{ next: {next_cursor()} }}")
+                continue
             if (low | high << 8) == 0xD777:
                 label_pointer = value_low | value_high << 8
                 # All sixteen authored boss/Star Wolf labels, kept as immutable
@@ -1852,6 +1873,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "ExportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | high << 8
+            if address in (0x0004, 0x000A):
+                if command.address not in (PathAddress(0xD1D8), PathAddress(0xD1DC), PathAddress(0xD217), PathAddress(0xD21B)):
+                    raise UnsupportedPath(f"unreviewed corridor extent preparation at {command.address.label()}")
+                parameter = "HalfWidth" if address == 0x0004 else "HalfHeight"
+                statements.append(f"Statement::SetRegionParameter {{ parameter: super::player_boundary::RegionParameter::{parameter}, value: WordOperand::Actor({word_field(variable)}), next: {next_cursor()} }}")
+                continue
             if address == 0x1B88:
                 statement = f"Statement::SceneEvent {{ command: super::path_scene_state::SceneEventCommand::Assign(WordOperand::Actor({word_field(variable)})), next: {next_cursor()} }}"
                 statements.append(statement)
@@ -1863,6 +1890,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
+            if address in (0x1D88, 0x1D8C):
+                operation = "CopyX" if address == 0x1D88 else "CopyZ"
+                statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::{operation}({word_field(variable)}), next: {next_cursor()} }}")
+                continue
             if address == 0x1B88:
                 statement = f"Statement::SceneEvent {{ command: super::path_scene_state::SceneEventCommand::CopyTo({word_field(variable)}), next: {next_cursor()} }}"
                 statements.append(statement)
@@ -1915,6 +1946,14 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             else:
                 low, high = parameters(2)
                 address = low | (high << 8)
+            if address == 0x00A7 and name == "StoreExternalByte":
+                if command.address not in (PathAddress(0xD1D4), PathAddress(0xD213)):
+                    raise UnsupportedPath(f"unreviewed corridor heading preparation at {command.address.label()}")
+                statements.append(f"Statement::SetRegionHeading {{ heading: Angle::from_units({value}), next: {next_cursor()} }}")
+                continue
+            if address == 0x1D8E and name == "ImportByteAbsolute":
+                statements.append(f"Statement::EncounterHandoff {{ command: super::path_scene_state::HandoffCommand::CopyHeading({byte_field(variable)}), next: {next_cursor()} }}")
+                continue
             if name == "ImportByteAbsolute" and 0x1E1C <= address <= 0x1E21:
                 axis = ("X", "Y", "Z")[(address - 0x1E1C) // 2]
                 part = "High" if address & 1 else "Low"

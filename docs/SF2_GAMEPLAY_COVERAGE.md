@@ -152,6 +152,39 @@ behavior, not an unassisted campaign.
 
 ## Static port implementation checkpoints
 
+Both corridor exit controllers (`$44:D1CB` and `$44:D207`) now lower and execute
+completely through the typed path dispatcher and actual scene borrows. Their
+boundary producer reuses the independently tested geometry kernel, including
+proxy writes on rejected probes, heading publication before admission, and
+source-ordered partial writes on missing inputs. Reset preserves geometry and
+clears only its action bit and the distinct owned reset-control byte. The
+shared entry helper protects the primary player, independently of path-selected
+geometry, and does not reassert a consumed start bit after entry is latched.
+Camera-roll publication and handoff coordinate imports use their existing
+canonical records. The level controller's consecutive chases really do write
+the same width word; its one-time entry helper is not repeated by the loop.
+
+Original-code comparison found a previous shared-command error: `006E/006F`
+must replace the low nibble of the pending mode request (`6AA1`), not current
+mode (`6AA0`). Paths now borrow the mode arbiter's real pending record; current
+mode remains unchanged until its actual consumer runs. Updated guidance and
+callback tests retain their scheduling checks while testing the correct owner.
+Five new native tests and five original-code groups pass: exhaustive reset,
+handoff/protection and current/pending mode bytes; 24,576 complete authored
+controller entries across every heading, either selected player, and admission
+edges; and 5,120 full movement visits with retained continuations and live
+player selection. Static verification passes 845 source checks, 211 lowerer
+tests, three backlog tests, generated catalogs and the architecture audit.
+Debug/release regression passes 1,555 native tests plus two architecture checks,
+1,563 compatibility tests plus 35 runtime checks, and 233 original-code groups.
+All three applications build and each passes 35 tests in both profiles, logged in
+`/tmp/sf2-corridor-exit-validation-oct07.log`; static results are in
+`/tmp/sf2-corridor-exit-static-oct07.log`. Catalog totals are 152 actor roots,
+nine helpers, 6,155 source commands and 6,096 typed statements. The player-side
+mission-tail creator, three other exit/controller graphs, remaining action
+streams and shipping-frame owner are not yet complete. These tests do not
+establish campaign-exit integration or a playable general campaign.
+
 The forced-retreat parallel action (`$0D:BF63`) and the mission-progress /
 retreat-admission prefix (`$06:9FAD..A044`) now have typed implementations.
 Retreat refreshes secondary protection on every admitted visit, preserves

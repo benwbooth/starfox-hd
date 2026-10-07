@@ -113,6 +113,31 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Ported both complete corridor exit controllers (`$44:D1CB`, `$44:D207`)
+  through the shared native path dispatcher and live scene/player records.
+  They reuse the original-tested corridor kernel, preserve destructive proxy
+  probes and heading publication on rejection, reset the two distinct owned
+  fields, and publish camera/handoff changes in source order. Entry protection
+  belongs to the primary player even when the path selects the secondary.
+  Original execution exposed and now verifies a shared-command correction:
+  `006E/006F` write the pending mode request (`6AA1`), not current mode (`6AA0`).
+  The mode arbiter and authored paths now share that single pending record;
+  prior guidance/callback tests were corrected rather than preserving the bug.
+  Five new native tests and five original-code groups pass, covering every
+  reset/flag/request byte, 24,576 complete controller entries and 5,120 complete
+  movement visits with retained state and changing selected players. The
+  catalog contains 152 roots, nine helpers, 6,155 source commands and 6,096
+  typed statements. All 845 static-source checks, 211 lowerer tests, three
+  backlog tests, regeneration and architecture checks pass. Debug/release
+  regression passes 1,555 native tests plus two architecture checks, 1,563
+  compatibility tests plus 35 runtime checks, and 233 original-code groups.
+  All three applications build and each passes 35 tests in both profiles.
+  Full logs are
+  `/tmp/sf2-corridor-exit-validation-oct07.log` and
+  `/tmp/sf2-corridor-exit-static-oct07.log`. Player-side creation/mission-tail
+  integration, three other exit controllers, the remaining parallel actions
+  and full shipping-frame ownership are still open.
+
 - Ported the complete forced-retreat parallel action (`$0D:BF63`) and
   encounter-progress/retreat admission (`$06:9FAD..A044`). Protection refresh
   runs every admitted action visit, including saturated time; first-visit

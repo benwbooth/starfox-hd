@@ -6,6 +6,7 @@ use super::super::path_motion::PlayerDisplacement;
 use super::super::path_runtime::TriggerWorldInputs;
 use super::super::path_scene_state::{SceneEventCommand, SceneEventFlags};
 use super::super::path_triggers::{Trigger, TriggerKind};
+use super::super::player_mode_selection::{ModeRequest, PlayerModeSelection};
 use super::super::platform_carry::CarriedPlayer;
 use super::super::{
     authored_paths, Behavior, ObjectKind, ObjectSpawnDefaults, PathId, Rotation, ShapeId, Vector3,
@@ -31,6 +32,7 @@ fn slot(selected: super::super::path_control::PlayerTarget) -> usize {
 struct Services {
     random: RandomState,
     auxiliary: [SelectedAuxiliaryState; 2],
+    mode_selection: [PlayerModeSelection; 2],
     carried: [Option<CarriedPlayer>; 2],
     events: Option<SceneEventFlags>,
     statement_selections: Vec<usize>,
@@ -64,6 +66,10 @@ impl Default for Services {
                 },
             ],
             carried: [None; 2],
+            mode_selection: [
+                PlayerModeSelection { requested: 0xC0, ..Default::default() },
+                PlayerModeSelection { requested: 0xD0, ..Default::default() },
+            ],
             events: None,
             statement_selections: Vec::new(),
             statement_actors: Vec::new(),
@@ -96,6 +102,7 @@ impl InvocationWorld for Services {
         self.statement_actors.push(actor);
         let mut inputs = world(&mut self.random);
         inputs.selected_auxiliary = Some(&mut self.auxiliary[slot]);
+        inputs.selected_mode_selection = Some(&mut self.mode_selection[slot]);
         inputs.scene_events = self.events.as_mut();
         inputs.spawn_defaults = Some(ObjectSpawnDefaults::default());
         if let Some(linked) = objects.get(actor).and_then(|actor| actor.base.attachment) {
@@ -231,8 +238,8 @@ fn callback_fixture() -> (PathInvocation, ObjectStore, ObjectId, Services, PathC
             Statement::Control(ControlCommand::End),
         ],
         vec![
-            Statement::SelectedAuxiliary {
-                command: SelectedAuxiliaryCommand::SetModeLowNibbleOne,
+            Statement::RequestSelectedMode {
+                request: ModeRequest::FreeFlight,
                 next: cursor(1, 1),
             },
             Statement::Mutate {
@@ -283,7 +290,9 @@ fn complete_invocation_uses_entry_motion_then_live_callbacks_then_selected_carry
     assert!(!actor.base.contacts.hit_by_secondary);
     assert_eq!(services.displacement_selections, [0]);
     assert_eq!(services.auxiliary[0].mode, 0xA0);
-    assert_eq!(services.auxiliary[1].mode, 0xB1);
+    assert_eq!(services.auxiliary[1].mode, 0xB0);
+    assert_eq!(services.mode_selection[0].requested, 0xC0);
+    assert_eq!(services.mode_selection[1].requested, 0xD1);
     assert_eq!(services.carried[0].unwrap().origin.x, 1000);
     assert_eq!(services.carried[1].unwrap().origin.x, 116);
     assert_eq!(services.carry_visits, 1);
@@ -475,8 +484,8 @@ fn borrowed_actor_immediate_next_refreshes_world_selection_before_the_next_state
             iterations: 2,
             next: cursor(0, 2),
         }),
-        Statement::SelectedAuxiliary {
-            command: SelectedAuxiliaryCommand::SetModeLowNibbleOne,
+        Statement::RequestSelectedMode {
+            request: ModeRequest::FreeFlight,
             next: cursor(0, 3),
         },
         Statement::Control(ControlCommand::Next {
@@ -503,8 +512,9 @@ fn borrowed_actor_immediate_next_refreshes_world_selection_before_the_next_state
     assert!(!invocation.is_active());
     assert_eq!(
         (services.auxiliary[0].mode, services.auxiliary[1].mode),
-        (0xA1, 0xB1)
+        (0xA0, 0xB0)
     );
+    assert_eq!((services.mode_selection[0].requested, services.mode_selection[1].requested), (0xC1, 0xD1));
     assert_eq!(services.statement_selections, [0, 0, 0, 0, 1, 1, 1]);
     assert_eq!(
         services.statement_actors,

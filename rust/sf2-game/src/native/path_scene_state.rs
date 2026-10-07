@@ -188,23 +188,44 @@ pub struct EncounterHandoff {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandoffCommand {
     Request,
+    RequestCorridorExit,
+    CopyX(super::path_fields::WordField),
+    CopyZ(super::path_fields::WordField),
+    CopyHeading(ByteField),
     StoreX(super::path_fields::WordOperand),
     StoreZ(super::path_fields::WordOperand),
     StoreHeading(ByteOperand),
 }
 
 impl EncounterHandoff {
-    pub fn apply(&mut self, actor: &Object, command: HandoffCommand) {
+    pub fn apply(&mut self, actor: &mut Object, command: HandoffCommand) {
         const HANDOFF_REQUEST: u8 = 0x40;
+        const CORRIDOR_EXIT_REQUEST: u8 = 0x08;
         const HEADING_COMPANION: u16 = 0xFF00;
         match command {
             HandoffCommand::Request => self.player_flags |= HANDOFF_REQUEST,
+            HandoffCommand::RequestCorridorExit => self.player_flags |= CORRIDOR_EXIT_REQUEST,
+            HandoffCommand::CopyX(destination) => destination.write(actor, self.x as u16),
+            HandoffCommand::CopyZ(destination) => destination.write(actor, self.z as u16),
+            HandoffCommand::CopyHeading(destination) => {
+                destination.write(actor, self.heading_word as u8)
+            }
             HandoffCommand::StoreX(source) => self.x = source.read(actor) as i16,
             HandoffCommand::StoreZ(source) => self.z = source.read(actor) as i16,
             HandoffCommand::StoreHeading(source) => {
                 self.heading_word =
                     (self.heading_word & HEADING_COMPANION) | u16::from(source.read(actor));
             }
+        }
+    }
+
+    /// $07:F96E: once corridor entry is latched, do not reassert the separate
+    /// start bit. Another consumer may have cleared it in the meantime.
+    pub fn latch_corridor_entry(&mut self) {
+        const ENTERED: u8 = 0x04;
+        const START: u8 = 0x01;
+        if self.player_flags & ENTERED == 0 {
+            self.player_flags |= ENTERED | START;
         }
     }
 }

@@ -59,6 +59,11 @@ pub struct PlayerModeSelection {
 }
 
 impl PlayerModeSelection {
+    /// Path requests ($7F:B04D/B081) bypass the controller-input gate, but
+    /// still do not change the current mode before arbitration runs.
+    pub fn request_mode(&mut self, request: ModeRequest) {
+        self.requested = (self.requested & FAMILY_MASK) | request.selector();
+    }
     pub const fn request_inhibited(self) -> bool {
         self.cue_control & REQUEST_INHIBITED != 0
     }
@@ -123,7 +128,7 @@ pub fn advance(
             if pressed.contains(Button::Select)
                 && state.transition_control & (TRANSITION_ACTIVE | TRANSITION_QUEUED) == 0
             {
-                state.requested = (state.requested & FAMILY_MASK) | request.selector();
+                state.request_mode(request);
                 world
                     .player_mut(objects, owner)?
                     .mode_selection
