@@ -90,6 +90,10 @@ mod guidance_controller_tests;
 mod impact_tests;
 
 #[cfg(test)]
+#[path = "path_bounded_lookup_tests.rs"]
+mod bounded_lookup_tests;
+
+#[cfg(test)]
 #[path = "path_rapid_projectile_tests.rs"]
 mod rapid_projectile_tests;
 
@@ -826,6 +830,14 @@ pub enum Statement {
     /// A reviewed authored coordinate table. Out-of-contract selectors do
     /// not read neighboring source data or wrap into another source region.
     SelectRelativeCoordinate { selector: super::path_fields::ByteField, axis: super::path_fields::Axis, values: &'static [i16], next: PathCursor },
+    /// Banked byte/word lookup whose source table ends at its bank boundary
+    /// (`$7F:A62D`, `$7F:A64F`). The source adds the index to the pointer's
+    /// LOW WORD only, so a selector past the bank end reads low-bank memory,
+    /// which is mutable and not modeled: it faults instead of guessing.
+    /// Material-set word 1CCD selected from a bank-end table (`$06:FFDC`).
+    SelectMaterialSet { selector: super::path_fields::ByteField, materials: &'static [super::render::MaterialSetId], next: PathCursor },
+    LookupByteBounded { selector: super::path_fields::ByteField, field: super::path_fields::ByteField, values: &'static [u8], next: PathCursor },
+    LookupWordBounded { selector: super::path_fields::ByteField, field: super::path_fields::WordField, values: &'static [u16], next: PathCursor },
     MarkForDeath,
     SetActionGate { value: u8, next: PathCursor },
     /// Literal comparisons branch directly without consuming IFNOT.
@@ -1297,6 +1309,7 @@ pub enum ProgramError {
     MissingProjectileFlightOverride,
     ShapeSelectionOutOfBounds { index: u8, count: usize },
     CoordinateSelectionOutOfBounds { index: u8, count: usize },
+    LookupSelectionOutOfBounds { index: u8, count: usize },
     ShotCount(super::path_shots::ShotCountError),
     MissingPublishedHomingTarget,
     Impact(super::path_impact::ImpactError),
@@ -2759,6 +2772,30 @@ impl PathRuntime {
                 let value = values.get(usize::from(index)).ok_or(ProgramError::CoordinateSelectionOutOfBounds { index, count: values.len() })?;
                 let actor = objects.get_mut(owner).expect("validated coordinate selector owner");
                 super::path_fields::WordField::RelativePosition(axis).write(actor, *value as u16);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SelectMaterialSet { selector, materials, next } => {
+                let actor = objects.get_mut(owner).expect("validated material selector owner");
+                let index = selector.read(actor);
+                let material = *materials.get(usize::from(index)).ok_or(ProgramError::LookupSelectionOutOfBounds { index, count: materials.len() })?;
+                actor.extension.material_set = Some(material);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::LookupByteBounded { selector, field, values, next } => {
+                let actor = objects.get_mut(owner).expect("validated lookup owner");
+                let index = selector.read(actor);
+                let value = *values.get(usize::from(index)).ok_or(ProgramError::LookupSelectionOutOfBounds { index, count: values.len() })?;
+                field.write(actor, value);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::LookupWordBounded { selector, field, values, next } => {
+                let actor = objects.get_mut(owner).expect("validated lookup owner");
+                let index = selector.read(actor);
+                let value = *values.get(usize::from(index)).ok_or(ProgramError::LookupSelectionOutOfBounds { index, count: values.len() })?;
+                field.write(actor, value);
                 actor.base.path = Some(next);
                 Ok(ControlStep::Continue)
             }

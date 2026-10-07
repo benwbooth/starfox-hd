@@ -9,7 +9,7 @@ from dataclasses import replace
 
 from generate_native_paths import (
     DEFAULT_ROM, OUTPUT, PathAddress, PathExtractor, UnsupportedPath,
-    banked_byte_values, banked_word_values, byte_field, child_spawn_parameters, independent_spawn_parameters, spawn_shape, generate, graph, lower_graph, lowering_units, SelectedOffsetAim, shape_index, trigger_kind, variable_bit_masks, word_field, rapid_shot_shapes,
+    banked_byte_values, banked_bounded_values, banked_word_values, byte_field, child_spawn_parameters, independent_spawn_parameters, spawn_shape, generate, graph, lower_graph, lowering_units, SelectedOffsetAim, shape_index, trigger_kind, variable_bit_masks, word_field, rapid_shot_shapes,
 )
 
 
@@ -83,6 +83,23 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(spawn_shape(shape, PathAddress(path))[1], 'ObjectKind::Effect')
             with self.assertRaises(UnsupportedPath):
                 spawn_shape(shape, PathAddress(path + 1))
+
+    def test_bank_end_lookups_keep_only_the_entries_the_source_cannot_alias(self):
+        # The handler adds the index to the pointer's low word without a carry
+        # into the bank byte: entries past 0xFFFF alias low-bank memory.
+        material = banked_bounded_values(self.rom, 0x06FFDC, True)
+        self.assertEqual(len(material), 18)
+        self.assertEqual(material[:6], (0x81F4, 0x82FE, 0x81F4, 0x82FE, 0x81F4, 0x82FE))
+        self.assertEqual(set(material[6:]), {0xFFFF})
+        craft = banked_bounded_values(self.rom, 0x06FFCA, True)
+        self.assertEqual(len(craft), 27)  # nine craft headers, then the material table
+        self.assertEqual(craft[9:], material)
+        self.assertEqual(len(banked_bounded_values(self.rom, 0x07FF86, False)), 122)
+        self.assertEqual(len(banked_bounded_values(self.rom, 0x07FECC, True)), 154)
+        with self.assertRaises(UnsupportedPath):
+            banked_bounded_values(self.rom, 0x06FFDD, True)  # odd word base
+        with self.assertRaises(UnsupportedPath):
+            banked_bounded_values(self.rom, 0x060100, False)  # below the ROM half-bank
 
     def test_scene_cue_decodes_all_parameter_bytes_without_listener_routing(self):
         for parameter in range(256):

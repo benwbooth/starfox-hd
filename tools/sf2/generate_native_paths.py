@@ -407,6 +407,29 @@ def banked_word_values(rom: bytes, address: int) -> tuple[int, ...]:
     return tuple(int.from_bytes(data[index:index + 2], "little") for index in range(0, 512, 2))
 
 
+def banked_bounded_values(rom: bytes, address: int, wide: bool) -> tuple[int, ...]:
+    """In-bank prefix of a lookup whose 256-entry window crosses the bank end.
+
+    The handler adds the (doubled) index to the pointer's low word without
+    carrying into the bank byte, so entries past the boundary alias low-bank
+    memory. Only the entries that stay inside the ROM half-bank are constant.
+    """
+    bank, base = address >> 16, address & 0xFFFF
+    if not 0 <= bank < 0x40 or base < 0x8000:
+        raise UnsupportedPath(f"unreviewed constant lookup window {address:06X}")
+    size = 2 if wide else 1
+    if wide and base & 1:
+        raise UnsupportedPath(f"odd word lookup base {address:06X}")
+    count = min(256, (0x10000 - base) // size)
+    start = source_offset(address)
+    data = rom[start:start + count * size]
+    if len(data) != count * size:
+        raise UnsupportedPath(f"truncated constant lookup {address:06X}")
+    if not wide:
+        return tuple(data)
+    return tuple(int.from_bytes(data[i:i + 2], "little") for i in range(0, len(data), 2))
+
+
 def core_beam_coordinates(rom: bytes, address: int) -> tuple[int, ...]:
     """The complete core constructor resets the mailbox and emits four beams."""
     if address not in (0x06FBC9, 0x06FBCD):
@@ -2263,6 +2286,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                     values = encounter_gate_shapes(extractor.rom)
                 elif selector == 0xA2 and address == 0x06FC4D:
                     values = node_reveal_shapes(extractor.rom)
+                elif selector == 0xA1 and address == 0x06FFCA:
+                    # Nine pilot-craft headers ending where the material table
+                    # begins; the selector is halved first, so the domain is 0..8.
+                    values = tuple(shape_index(v) for v in banked_bounded_values(extractor.rom, address, True)[:9])
                 elif selector == 0x27:
                     values = rapid_shot_shapes(extractor.rom, address)
                 else:
@@ -2272,9 +2299,23 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statements.append(statement)
                 continue
             kind = "Word" if wide else "Byte"
-            values = (banked_word_values if wide else banked_byte_values)(
-                extractor.rom, low | (high << 8) | (bank << 16))
+            window = low | (high << 8) | (bank << 16)
+            if (window & 0xFFFF) + (511 if wide else 255) > 0xFFFF:
+                values = banked_bounded_values(extractor.rom, window, wide)
+                if wide and destination == 0x8C:
+                    # Material-set word 1CCD: the table is the final 18 words
+                    # of the bank, one per selector 0..17.
+                    materials = ', '.join(f'super::render::MaterialSetId::from_catalog_token({v})' for v in values)
+                    statement = f"Statement::SelectMaterialSet {{ selector: {byte_field(selector)}, materials: &[{materials}], next: {next_cursor()} }}"
+                    statements.append(statement)
+                    continue
+                field = (word_field if wide else byte_field)(destination)
+                statement = f"Statement::Lookup{kind}Bounded {{ selector: {byte_field(selector)}, field: {field}, values: &[{', '.join(map(str, values))}], next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             field = (word_field if wide else byte_field)(destination)
+            values = (banked_word_values if wide else banked_byte_values)(
+                extractor.rom, window)
             operand = f"{kind}Operand::Lookup {{ selector: {byte_field(selector)}, values: &[{', '.join(map(str, values))}] }}"
             statement = f"Statement::Mutate {{ mutation: Mutation::{kind} {{ field: {field}, operation: {kind}Operation::Assign({operand}) }}, next: {next_cursor()} }}"
         elif name == "WriteObject1ccc":
