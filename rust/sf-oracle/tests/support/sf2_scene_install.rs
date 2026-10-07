@@ -9,9 +9,10 @@ use sf2_game::scene_install::{self, SceneInstallError};
 use sf2_game::Behavior;
 
 /// Installed scenes: (selection, path root, action script, action, companion seed).
-const SCENES: [(u8, u16, u16, AuthoredSceneAction, u16); 2] = [
+const SCENES: [(u8, u16, u16, AuthoredSceneAction, u16); 3] = [
     (9, 0xD40E, 0xC191, AuthoredSceneAction::Scene9, 0x1000),
     (3, 0xD9D6, 0xC4F3, AuthoredSceneAction::Scene3, 0x0000),
+    (5, 0xB65B, 0xBED3, AuthoredSceneAction::Scene5, 0x0000),
 ];
 
 fn run_case(count: usize, selection: u8, saved: u8, seed: u16) {
@@ -106,10 +107,10 @@ fn run_case(count: usize, selection: u8, saved: u8, seed: u16) {
     assert_eq!(source.bus.read16(base + 0x2B), path_root);
     assert_eq!(
         actor.base.path,
-        Some(if effective == 9 {
-            sf2_game::authored_paths::SCENE_NINE
-        } else {
-            sf2_game::authored_paths::SCENE_THREE
+        Some(match effective {
+            9 => sf2_game::authored_paths::SCENE_NINE,
+            3 => sf2_game::authored_paths::SCENE_THREE,
+            _ => sf2_game::authored_paths::SCENE_FIVE,
         })
     );
     super::special_exit_tests::compare_actor(&source, &native, created, 0);

@@ -95,6 +95,8 @@ impl Fixture {
             FixedViewCommand::ChasePosition => (0x7FC028, 0x7FCABE),
             FixedViewCommand::CopyRotation => (0x7FC005, 0x7FCABE),
             FixedViewCommand::CopyRotationFromView => (0x7FC0BF, 0x7FCAE8),
+            FixedViewCommand::ChaseRotation => (0x7FC069, 0x7FCABE),
+            FixedViewCommand::EaseYawTowardThreeQuarterTurn => (0x07F52B, 0x07F54D),
             FixedViewCommand::AimTracking { pitch_shift, chase } => {
                 source.bus.write8(0x1003, pitch_shift);
                 (if chase { 0x7FBE8C } else { 0x7FBE38 }, 0x7FCAA9)
@@ -190,9 +192,10 @@ fn exit_view_copy_and_tracking_aim_match_original_including_aliases_and_wrapped_
             }
             .write_to(actor);
         }
-        let command = match case % 6 {
+        let command = match case % 7 {
             0 => FixedViewCommand::CopyPosition,
             5 => FixedViewCommand::CopyRotationFromView,
+            6 => FixedViewCommand::ChaseRotation,
             1 => FixedViewCommand::CopyRotation,
             4 => FixedViewCommand::ChasePosition,
             mode => FixedViewCommand::AimTracking {
@@ -232,6 +235,22 @@ fn exit_view_copy_and_tracking_aim_match_original_including_aliases_and_wrapped_
             z: word.wrapping_neg() as i16,
         };
         f.run(&mut source, FixedViewCommand::ChasePosition, false, false);
+    }
+    // Every yaw word through the three-quarter-turn ease (`$07:F52B`),
+    // with pitch/roll carrying distinct values that must be left alone.
+    for yaw in 0..=u16::MAX {
+        FixedViewAngles {
+            pitch: yaw.rotate_left(3),
+            yaw,
+            roll: !yaw,
+        }
+        .write_to(f.objects.get_mut(f.view).unwrap());
+        f.run(
+            &mut source,
+            FixedViewCommand::EaseYawTowardThreeQuarterTurn,
+            false,
+            false,
+        );
     }
 }
 

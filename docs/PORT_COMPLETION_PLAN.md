@@ -113,6 +113,20 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Closed indexed scene five as the third complete path/action pair, with the
+  installer's table now covering scenes 3, 5 and 9. Its path matches the
+  original over 450 visits for six pilots, both protection states, three
+  gate-release times and varying wingmate, campaign phase and projection
+  inputs. New source services, each differential-tested against the
+  unchanged original instructions: background scroll words (1E4E, 193A), the
+  view-rotation copy, rotation chase and three-quarter-turn yaw ease, the
+  active-pilot advance, and the two inline campaign-phase branches (every
+  phase byte). New inputs the shipping owners must still publish: campaign
+  phase (1BE0), the projected-camera word (1E3C), the live scene selection
+  (1D73) and the listener identity for cues. A tracking handle naming an
+  actor retired since selection now reads the freed record's last pose
+  until slot reuse, as the source does. Scenes 4 and 25 remain blocked.
+
 - Closed indexed scene three as a second complete path/action pair. Its
   path and every child now lower, and the installer is a table of verified
   rows (scenes 3 and 9) rather than a scene-nine special case. Path lookups

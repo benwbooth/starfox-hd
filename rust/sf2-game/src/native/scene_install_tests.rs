@@ -102,6 +102,26 @@ fn scene_three_installs_its_path_action_and_zero_companion_seed() {
 }
 
 #[test]
+fn scene_five_installs_its_path_action_and_zero_companion_seed() {
+    let mut f = fixture(3, SCENE_FIVE, 0);
+    let created = f.install().unwrap().unwrap();
+    let actor = f.objects.get(created).unwrap();
+    assert_eq!(
+        actor.base.path,
+        Some(super::super::authored_paths::SCENE_FIVE)
+    );
+    assert_eq!(
+        f.action(),
+        PlayerActionState {
+            action: Some(PlayerAction::Scene(AuthoredSceneAction::Scene5)),
+            elapsed: 0,
+            auxiliary_counter: 0,
+            total_updates: PRIOR.total_updates,
+        }
+    );
+}
+
+#[test]
 fn scene_nine_installs_follow_path_actor_and_resets_both_counters() {
     let mut f = fixture(3, SCENE_NINE, 0);
     let created = f.install().unwrap().unwrap();

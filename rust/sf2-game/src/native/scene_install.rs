@@ -11,6 +11,8 @@ const RESTORE_SAVED_SCENE: u8 = 22;
 const AUTHORED_SCENE_COUNT: u8 = 30;
 const SCENE_NINE: u8 = 9;
 const SCENE_THREE: u8 = 3;
+const SCENE_FIVE: u8 = 5;
+const SCENE_FIVE_COMPANION_SEED: u16 = 0;
 const SCENE_THREE_COMPANION_SEED: u16 = 0;
 const SCENE_NINE_COMPANION_SEED: u16 = 4096;
 
@@ -89,6 +91,11 @@ pub fn install(
             super::authored_paths::SCENE_THREE,
             AuthoredSceneAction::Scene3,
             SCENE_THREE_COMPANION_SEED,
+        ),
+        SCENE_FIVE => (
+            super::authored_paths::SCENE_FIVE,
+            AuthoredSceneAction::Scene5,
+            SCENE_FIVE_COMPANION_SEED,
         ),
         _ => {
             return Err(SceneInstallError::UnsupportedScene {

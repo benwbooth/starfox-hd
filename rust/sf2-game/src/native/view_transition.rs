@@ -30,6 +30,12 @@ pub enum FixedViewCommand {
     /// Reverse of `CopyRotation` (`$7F:C0BF`): the owner's rotation bytes take
     /// the view's three angle HIGH bytes (0x13/0x15/0x17), dropping fine bits.
     CopyRotationFromView,
+    /// `$7F:C069`: chase the view's three angle words toward the owner's
+    /// rotation bytes widened into their high bytes (`CopyRotation`'s target).
+    ChaseRotation,
+    /// `$07:F52B`: ease the view's FULL yaw word a quarter of the way to
+    /// 0xC000 (three-quarter turn), using two arithmetic halvings.
+    EaseYawTowardThreeQuarterTurn,
     /// Aim at the shared tracking actor, with signed fine-pitch attenuation.
     AimTracking {
         pitch_shift: u8,

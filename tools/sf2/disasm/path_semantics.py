@@ -309,6 +309,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x140, "IfExternal1d72NotEqual", 0x7FBF19, None, "sf2_handler"),
     PathSemanticSpec(0x141, "IfExternal1d72Equal", 0x7FBF27, None, "sf2_handler"),
     PathSemanticSpec(0x142, "ChaseObjectPositionTowardCurrent", 0x7FC028, None, "sf2_handler"),
+    PathSemanticSpec(0x143, "ChaseObjectRotationTowardCurrent", 0x7FC069, None, "sf2_handler"),
     PathSemanticSpec(0x144, "CopySelectedRotation", 0x7FBF4E, None, "sf2_handler"),
     PathSemanticSpec(0x147, "IfVariableEqualsExternal1dd4", 0x7FBF58, None, "sf2_handler"),
     PathSemanticSpec(0x148, "CallExternalStrategy1e14", 0x7FBE19, None, "sf2_handler"),

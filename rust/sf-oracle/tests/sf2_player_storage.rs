@@ -97,6 +97,9 @@ mod scene_nine_tests;
 #[path = "support/sf2_scene_three.rs"]
 mod scene_three_tests;
 
+#[path = "support/sf2_scene_five.rs"]
+mod scene_five_tests;
+
 #[path = "support/sf2_scene_install.rs"]
 mod scene_install_tests;
 

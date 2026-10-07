@@ -238,6 +238,8 @@ pub struct ScenePathWorld {
     /// Projected-camera word (1E3C), produced by the camera pass. Not yet
     /// computed by a native owner; absent until one publishes it.
     pub published_camera_projection: Option<i16>,
+    /// Campaign/attract phase byte (1BE0); absent until its owner publishes it.
+    pub campaign_phase: Option<u8>,
     /// Last selected free-flight clipping plane (7024E0). Rejected planes
     /// clear the player's height but preserve this scene publication.
     pub surface_clipping_plane_height: Option<i16>,
@@ -432,6 +434,7 @@ impl ScenePathWorld {
             player_carry_mode: None,
             environment_plane_height: None,
             published_camera_projection: None,
+            campaign_phase: None,
             surface_clipping_plane_height: None,
             player_surface_support: None,
             player_surface_height: None,
@@ -653,7 +656,10 @@ impl InvocationWorld for ScenePathWorld {
         let mut world = PathWorld {
             primary_protection: None,
             engine_sound_control: self.engine_sound_control.as_mut(),
-            scene: self.scene,
+            scene: ScenePathInputs {
+                scene_selection: self.scene_selection,
+                ..self.scene
+            },
             primary_player: self.primary_player,
             secondary_player: self.secondary_player,
             fixed_players: self.fixed_players,
@@ -699,6 +705,7 @@ impl InvocationWorld for ScenePathWorld {
             surface_mode: self.surface_mode,
             environment_plane_height: self.environment_plane_height,
             published_camera_projection: self.published_camera_projection,
+            campaign_phase: self.campaign_phase,
             friend_health: self.friend_health.as_mut(),
             targeting_upgrade: self.targeting_upgrade.as_mut(),
             linked_effect_activity: self.linked_effect_activity.as_mut(),
@@ -716,6 +723,7 @@ impl InvocationWorld for ScenePathWorld {
             published_camera_roll: Some(&mut self.published_camera_roll),
             camera_projection_base: Some(&mut self.camera_projection_base),
             camera_projection_offset: Some(&mut self.camera_projection_offset),
+            active_pilot_slot: Some(&mut self.scene.active_pilot),
             map: self.map.as_mut(),
             spawn_defaults: self.spawn_defaults,
             view_transition_mode: self.view_transition_mode.as_mut(),

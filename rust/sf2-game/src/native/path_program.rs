@@ -221,6 +221,9 @@ pub struct PathWorld<'a> {
     pub published_camera_roll: Option<&'a mut Option<u16>>,
     pub camera_projection_base: Option<&'a mut Option<i16>>,
     pub camera_projection_offset: Option<&'a mut Option<i16>>,
+    /// Owner cell of the active pilot selector (1E14), mutated by the scene
+    /// pilot-advance service. `scene.active_pilot` is kept in step.
+    pub active_pilot_slot: Option<&'a mut Option<u8>>,
     pub map: Option<&'a mut super::scene_map::SceneMap>,
     pub reflection: Option<super::weapon_reflection::ReflectionRules>,
     pub health_display: Option<&'a mut super::path_scene_state::EncounterHealthDisplay>,
@@ -243,6 +246,9 @@ pub struct PathWorld<'a> {
     /// Shared projected-camera word (1E3C = 1E52 + 1E44 + the camera's
     /// recomputed term, `$07:9527..9531`), read-only to paths.
     pub published_camera_projection: Option<i16>,
+    /// Campaign/attract phase byte (1BE0), owned by the sequencing code that
+    /// advances it; paths only branch on it.
+    pub campaign_phase: Option<u8>,
     pub projectile_trigger: Option<&'a mut ProjectileTrigger>,
     pub linked_effect_activity: Option<&'a mut super::path_protection::LinkedEffectActivity>,
     pub interception_music_ready: Option<&'a mut Option<bool>>,
@@ -324,6 +330,7 @@ impl PathWorld<'_> {
             published_camera_roll: None,
             camera_projection_base: None,
             camera_projection_offset: None,
+            active_pilot_slot: None,
             map: None,
             reflection: None,
             health_display: None,
@@ -342,6 +349,7 @@ impl PathWorld<'_> {
             action_gate: None,
             environment_plane_height: None,
             published_camera_projection: None,
+            campaign_phase: None,
             projectile_trigger: None,
             linked_effect_activity: None,
             interception_music_ready: None,
@@ -443,6 +451,9 @@ pub struct ScenePathInputs {
     /// per-player weapon record at $06:9CE1. This is not a fresh lookup of
     /// the path-selected actor; pilot exchange updates the published byte.
     pub active_weapon_level: Option<u8>,
+    /// Live indexed-scene request (1D73). The bridge copies the world's single
+    /// owner field here; nothing else writes it.
+    pub scene_selection: Option<u8>,
 }
 
 /// Shared scenery proximity mask ($D78C). Authored paths select which bits
@@ -493,6 +504,25 @@ pub enum SceneryDistanceCommand {
     Assign(ByteOperand),
 }
 
+/// Exact outcome of the source's compare-with-literal on the phase byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhaseTest {
+    /// Taken when the byte equals the operand.
+    Equal(u8),
+    /// Taken when bit 7 of the 8-bit difference is clear (a sign test of the
+    /// wrapped difference, not an ordered comparison).
+    DifferenceNonNegative(u8),
+}
+
+impl PhaseTest {
+    pub const fn taken(self, phase: u8) -> bool {
+        match self {
+            Self::Equal(operand) => phase == operand,
+            Self::DifferenceNonNegative(operand) => phase.wrapping_sub(operand) & 0x80 == 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneByte {
     EncounterNodeMode,
@@ -507,6 +537,7 @@ pub enum SceneByte {
     EncounterLayout,
     NodePresentationVariant,
     ActiveWeaponLevel,
+    SceneSelection,
 }
 
 impl SceneByte {
@@ -524,6 +555,7 @@ impl SceneByte {
             Self::EncounterLayout => input.encounter_layout,
             Self::NodePresentationVariant => input.node_presentation_variant,
             Self::ActiveWeaponLevel => input.active_weapon_level,
+            Self::SceneSelection => input.scene_selection,
         }
     }
 }
@@ -785,6 +817,12 @@ pub enum Statement {
     Placement { command: super::path_scene_state::PlacementCommand, next: PathCursor },
     /// This direct source branch preserves pending IFNOT state.
     IfProtectionOverride { taken: PathCursor, next: PathCursor },
+    /// `$07:F3D1`: step the active pilot through the six craft, wrapping.
+    AdvanceActivePilot { next: PathCursor },
+    /// Inline phase tests (`$09:B796`, `$09:B869`): compare the phase byte
+    /// (1BE0) with a literal; the outcome picks one of two literal
+    /// continuations. No IFNOT state is read or consumed.
+    BranchOnCampaignPhase { test: PhaseTest, taken: PathCursor, not_taken: PathCursor },
     EncounterHandoff {
         command: super::path_scene_state::HandoffCommand,
         next: PathCursor,
@@ -1288,6 +1326,8 @@ pub enum ProgramError {
     MissingActionGate,
     MissingEnvironmentPlaneHeight,
     MissingCameraProjection,
+    MissingCampaignPhase,
+    MissingActivePilot,
     MissingProjectileTrigger,
     MissingPrimaryPitchRecoil,
     MissingPrimaryLinkedMode,
@@ -2171,6 +2211,27 @@ impl PathRuntime {
                 actor.base.yaw = rotation.yaw;
                 actor.base.roll = rotation.roll;
                 actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::AdvanceActivePilot { next } => {
+                const PILOT_COUNT: u8 = 6;
+                let slot = world
+                    .active_pilot_slot
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingActivePilot)?;
+                let current = slot.ok_or(ProgramError::MissingActivePilot)?;
+                // INC, AND #7, then CMP #6 / BMI keeps only values below six.
+                let advanced = current.wrapping_add(1) & 0x07;
+                let advanced = if advanced < PILOT_COUNT { advanced } else { 0 };
+                *slot = Some(advanced);
+                world.scene.active_pilot = Some(advanced);
+                objects.get_mut(owner).expect("validated pilot advance").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::BranchOnCampaignPhase { test, taken, not_taken } => {
+                let phase = world.campaign_phase.ok_or(ProgramError::MissingCampaignPhase)?;
+                objects.get_mut(owner).expect("validated phase branch").base.path =
+                    Some(if test.taken(phase) { taken } else { not_taken });
                 Ok(ControlStep::Continue)
             }
             Statement::IfProtectionOverride { taken, next } => {
@@ -3127,6 +3188,7 @@ mod tests {
             published_camera_roll: None,
             camera_projection_base: None,
             camera_projection_offset: None,
+            active_pilot_slot: None,
             map: None,
             selected_boundary: None,
             selected_steering: None,
@@ -3153,6 +3215,7 @@ mod tests {
             action_gate: None,
             environment_plane_height: None,
             published_camera_projection: None,
+            campaign_phase: None,
             projectile_trigger: None,
             linked_effect_activity: None,
             interception_music_ready: None,
@@ -8796,7 +8859,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::PlayerViewControl, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel] {
+        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::PlayerViewControl, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel, SceneByte::SceneSelection] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -8823,6 +8886,7 @@ mod tests {
                     SceneByte::EncounterLayout => inputs.scene.encounter_layout = Some(value),
                     SceneByte::NodePresentationVariant => inputs.scene.node_presentation_variant = Some(value),
                     SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
+                    SceneByte::SceneSelection => inputs.scene.scene_selection = Some(value),
                 }
                 assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
@@ -10276,6 +10340,7 @@ mod tests {
                 published_camera_roll: None,
                 camera_projection_base: None,
                 camera_projection_offset: None,
+                active_pilot_slot: None,
                 map: None,
                 selected_boundary: None,
                 selected_steering: None,
@@ -10302,6 +10367,7 @@ mod tests {
                 action_gate: None,
                 environment_plane_height: None,
                 published_camera_projection: None,
+                campaign_phase: None,
                 projectile_trigger: None,
                 linked_effect_activity: None,
                 interception_music_ready: None,
@@ -14369,10 +14435,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 157);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 158);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6776);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6835);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 6934);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 6993);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -14507,6 +14573,7 @@ mod tests {
                 published_camera_roll: None,
                 camera_projection_base: None,
                 camera_projection_offset: None,
+                active_pilot_slot: None,
                 map: None,
                 selected_boundary: None,
                 selected_steering: None,
@@ -14533,6 +14600,7 @@ mod tests {
                 action_gate: None,
                 environment_plane_height: None,
                 published_camera_projection: None,
+                campaign_phase: None,
                 projectile_trigger: None,
                 linked_effect_activity: None,
                 interception_music_ready: None,
@@ -14673,6 +14741,7 @@ mod tests {
                         published_camera_roll: None,
                         camera_projection_base: None,
                         camera_projection_offset: None,
+                        active_pilot_slot: None,
                         map: None,
                         selected_boundary: None,
                         selected_steering: None,
@@ -14699,6 +14768,7 @@ mod tests {
                         action_gate: None,
                         environment_plane_height: None,
                         published_camera_projection: None,
+                        campaign_phase: None,
                         projectile_trigger: None,
                         linked_effect_activity: None,
                         interception_music_ready: None,

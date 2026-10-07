@@ -79,6 +79,31 @@ impl PathRuntime {
                 actor.base.yaw = super::super::Angle::from_units((angles.yaw >> FINE_ANGLE_SHIFT) as u8);
                 actor.base.roll = super::super::Angle::from_units((angles.roll >> FINE_ANGLE_SHIFT) as u8);
             }
+            FixedViewCommand::ChaseRotation => {
+                use super::super::path_fields::chase_word;
+                let source = objects.get(owner).expect("validated view source");
+                let target = [source.base.pitch, source.base.yaw, source.base.roll]
+                    .map(|angle| u16::from(angle.units()) << FINE_ANGLE_SHIFT);
+                let camera = objects.get_mut(view).expect("validated view");
+                let angles = FixedViewAngles::capture(camera);
+                FixedViewAngles {
+                    pitch: chase_word(angles.pitch, target[0]),
+                    yaw: chase_word(angles.yaw, target[1]),
+                    roll: chase_word(angles.roll, target[2]),
+                }
+                .write_to(camera);
+            }
+            FixedViewCommand::EaseYawTowardThreeQuarterTurn => {
+                const THREE_QUARTER_TURN: u16 = 0xC000;
+                let camera = objects.get_mut(view).expect("validated view");
+                let mut angles = FixedViewAngles::capture(camera);
+                let half = ((angles.yaw.wrapping_sub(THREE_QUARTER_TURN)) as i16) >> 1;
+                let quarter = half >> 1;
+                angles.yaw = (quarter as u16)
+                    .wrapping_add(half as u16)
+                    .wrapping_add(THREE_QUARTER_TURN);
+                angles.write_to(camera);
+            }
             FixedViewCommand::AimTracking { pitch_shift, chase } => {
                 let tracking = world
                     .camera_tracking
@@ -86,11 +111,12 @@ impl PathRuntime {
                     .ok_or(ProgramError::MissingCameraTrackingTarget)?
                     .actor
                     .ok_or(ProgramError::MissingCameraTrackingTarget)?;
-                let center = objects
-                    .get(tracking)
-                    .ok_or(PathRuntimeError::MissingActor(tracking))?
-                    .base
-                    .position;
+                // The tracking handle (1DFF) can name an actor retired since it
+                // was selected; the freed record keeps its last position until
+                // the slot is reused.
+                let (center, _) = objects
+                    .attachment_parent_pose(tracking)
+                    .ok_or(PathRuntimeError::MissingActor(tracking))?;
                 let camera = objects.get(view).expect("validated view");
                 let delta = super::super::Vector3 {
                     x: center.x.wrapping_sub(camera.base.position.x),

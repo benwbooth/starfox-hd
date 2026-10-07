@@ -27,6 +27,7 @@ OUTPUT = REPO / "rust/sf2-game/src/native/authored_paths.rs"
 ROOTS = (
     ("SCENE_NINE", PathAddress(0xD40E)),
     ("SCENE_THREE", PathAddress(0xD9D6)),
+    ("SCENE_FIVE", PathAddress(0xB65B)),
     ("ORDINARY_SCENE_EXIT", PathAddress(0xCF18)),
     ("SPECIAL_SCENE_EXIT", PathAddress(0xD27B)),
     ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
@@ -1419,6 +1420,29 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::UpdateProtectionEffect {{ ordinary_return: {cursor(ordinary)}, flicker: {cursor(flicker)} }}"
                 statements.append(statement)
                 continue
+            if command.address == PathAddress(0xB7E7):
+                # Reviewed inline block: JSL $07:F52B, returning B7F2.
+                parameters(0)
+                statements.append(f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::EaseYawTowardThreeQuarterTurn, next: {next_cursor()} }}")
+                continue
+            if command.address == PathAddress(0xE91B):
+                # Reviewed inline block: JSL $07:F3D1, returning E926.
+                parameters(0)
+                statements.append(f"Statement::AdvanceActivePilot {{ next: {next_cursor()} }}")
+                continue
+            if command.address in (PathAddress(0xB796), PathAddress(0xB869)):
+                # Reviewed inline blocks: LDA $1BE0; CMP #$01; BEQ (B796) or
+                # BPL (B869). The fall-through arm returns the first literal
+                # continuation, the taken arm the second.
+                parameters(0)
+                if command.address == PathAddress(0xB796):
+                    test, not_taken, taken = "PhaseTest::Equal(1)", PathAddress(0xB7A4), PathAddress(0xB7AB)
+                else:
+                    test, not_taken, taken = "PhaseTest::DifferenceNonNegative(1)", PathAddress(0xB877), PathAddress(0xB87E)
+                if set(command.successors) != {not_taken, taken}:
+                    raise UnsupportedPath("unexpected phase branch continuation")
+                statements.append(f"Statement::BranchOnCampaignPhase {{ test: super::path_program::{test}, taken: {cursor(taken)}, not_taken: {cursor(not_taken)} }}")
+                continue
             if command.address not in actions and command.address not in controls:
                 raise UnsupportedPath(f"unported inline action at {command.address.label()}")
             parameters(0)
@@ -1801,6 +1825,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             parameters(0)  # the handler loads the fixed view (033F) itself
             statement = f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::CopyRotationFromView, next: {next_cursor()} }}"
         elif name in ("CopyPositionToObject", "CopyRotationToObjectFixed", "ChaseObjectPositionTowardCurrent",
+                      "ChaseObjectRotationTowardCurrent",
                       "SetObjectRotationTowardTarget", "ChaseObjectRotationTowardTarget"):
             aim = name in ("SetObjectRotationTowardTarget", "ChaseObjectRotationTowardTarget")
             operand = parameters(3 if aim else 2)
@@ -1812,7 +1837,8 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                            f"chase: {str(name == 'ChaseObjectRotationTowardTarget').lower()} }}")
             else:
                 operation = {"CopyPositionToObject": "CopyPosition", "CopyRotationToObjectFixed": "CopyRotation",
-                             "ChaseObjectPositionTowardCurrent": "ChasePosition"}[name]
+                             "ChaseObjectPositionTowardCurrent": "ChasePosition",
+                             "ChaseObjectRotationTowardCurrent": "ChaseRotation"}[name]
             statement = f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::{operation}, next: {next_cursor()} }}"
         elif name in ("ChasePlayerTowardObject", "SnapPlayerToObject"):
             parameters(0)
@@ -2216,9 +2242,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f'Statement::ObjectiveCounts {{ field: super::path_scene_state::ObjectiveCountField::{field}, command: super::path_scene_state::CoordinationCommand::{operation}, next: {next_cursor()} }}'
                 statements.append(statement)
                 continue
-            if address in (0xD79B, 0x1DE0, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B, 0x1E09) and name.startswith("Import"):
+            if address in (0xD79B, 0x1DE0, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B, 0x1E09, 0x1D73) and name.startswith("Import"):
                 source = {0xD79B: "EncounterNodeMode", 0x1DE0: "PlayerViewControl", 0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
-                          0x1E70: "WingmatePilot", 0xDB5B: "MapRegion", 0x1E09: "NodePresentationVariant"}[address]
+                          0x1E70: "WingmatePilot", 0xDB5B: "MapRegion", 0x1E09: "NodePresentationVariant", 0x1D73: "SceneSelection"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
@@ -2495,6 +2521,7 @@ INDEXED_SCENES = {
     # root: (index, action script, record bytes, controller stream is empty)
     0xD40E: (9, 0x0DC191, '0ed491c10d001000', True),
     0xD9D6: (3, 0x0DC4F3, 'd6d9f3c40d000000', False),
+    0xB65B: (5, 0x0DBED3, '5bb6d3be0d000000', False),
 }
 
 
