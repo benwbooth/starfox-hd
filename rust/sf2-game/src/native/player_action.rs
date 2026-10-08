@@ -67,6 +67,8 @@ pub enum PlayerAction {
     TriggeredProjectile,
     /// `$0D:BF63`, forced retreat when the scene inhibits ordinary play.
     ForcedRetreat,
+    /// `$0D:C585`, installed by the scene player's death routine (`$06:F3A4`).
+    Defeat,
     Scene(AuthoredSceneAction),
 }
 
@@ -132,6 +134,10 @@ impl PlayerServiceFlags {
     }
     pub const fn palette_restoration_requested(self) -> bool {
         self.0 & Self::RESTORE_PALETTE != 0
+    }
+    /// `$06:F417`: set by the scene player's death routine.
+    pub fn request_minimum_protection(&mut self) {
+        self.0 |= Self::MINIMUM_PROTECTION;
     }
     fn request_palette_restoration(&mut self) {
         self.0 |= Self::RESTORE_PALETTE;
@@ -213,6 +219,15 @@ enum ActionService {
     AdvanceShieldDisplay,
     /// `$0D:C83F`: clear the shared action gate (1D72).
     ClearActionGate,
+    /// `$0D:C75C`: install the mode-distance orbit camera (`$07:9F17`) and
+    /// set the fixed view's displacement-follow and velocity bits.
+    InstallModeCamera,
+    /// `$0D:CBEA`: authored music control 14.
+    RequestDefeatMusic,
+    /// `$0D:CBCD`: authored music control 4, only with 1AA6 bit 02.
+    RequestDefeatFollowUpMusic,
+    /// `$0D:C97A`: scene-transition phase 2, only with 1AA6 bit 02.
+    RequestDefeatTransition,
 }
 
 /// Live colors 113..116 written by `$07:EF8D`.
@@ -292,6 +307,18 @@ const SCENE_TWENTY_NINE_SERVICES: [(ActionTiming, ActionService); 11] = [
     (ActionTiming::From(SCENE_TWENTY_NINE_RELEASE), ActionService::Stop),
 ];
 
+// Source order of `$0D:C585`'s eight services; the stream never stops.
+const DEFEAT_SERVICES: [(ActionTiming, ActionService); 8] = [
+    (ActionTiming::At(0), ActionService::DisableViewOptions),
+    (ActionTiming::Always, ActionService::RefreshProtection),
+    (ActionTiming::From(0), ActionService::HoldScriptedView),
+    (ActionTiming::At(8), ActionService::InstallModeCamera),
+    (ActionTiming::At(0), ActionService::SetActionBit01(false)),
+    (ActionTiming::At(0), ActionService::RequestDefeatMusic),
+    (ActionTiming::At(20), ActionService::RequestDefeatFollowUpMusic),
+    (ActionTiming::At(75), ActionService::RequestDefeatTransition),
+];
+
 const fn interval(start: u16, end: u16) -> ActionTiming {
     ActionTiming::Interval { start, end }
 }
@@ -358,6 +385,9 @@ pub enum PlayerActionError {
     Palette(super::player_palette::PaletteError),
     /// The shield display service ($07:AF5B) lacked one of its inputs.
     ShieldDisplay,
+    MissingFixedView,
+    /// The shared mode byte (1AA6 bit 02) gating the defeat requests.
+    MissingModeFlags,
 }
 
 impl From<WorldInputError> for PlayerActionError {
@@ -399,6 +429,7 @@ pub fn advance(
     let services: &[_] = match action {
         PlayerAction::TriggeredProjectile => &TRIGGERED_SERVICES,
         PlayerAction::ForcedRetreat => &RETREAT_SERVICES,
+        PlayerAction::Defeat => &DEFEAT_SERVICES,
         PlayerAction::Scene(scene) => match scene {
             AuthoredSceneAction::Scene3 => &SCENE_THREE_SERVICES,
             AuthoredSceneAction::Scene4 => &SCENE_FOUR_SERVICES,
@@ -480,6 +511,49 @@ pub fn advance(
             ActionService::RequestRetreatAudio => world
                 .audio
                 .request_music_control(super::path_sound::MusicControlRequest::ForcedRetreat),
+            ActionService::InstallModeCamera => {
+                player_camera_auxiliary::install(
+                    objects,
+                    world,
+                    owner,
+                    AuxiliaryCameraTask::Initialize(OrbitStyle::ModeDistance),
+                )
+                .map_err(PlayerActionError::Camera)?;
+                let view = world.fixed_players[0].ok_or(PlayerActionError::MissingFixedView)?;
+                let motion = &mut objects
+                    .get_mut(view)
+                    .ok_or(WorldInputError::MissingActor(view))?
+                    .extension
+                    .path_state
+                    .motion;
+                motion.follow_player_displacement = true;
+                motion.generate_velocity_each_step = true;
+            }
+            ActionService::RequestDefeatMusic => world
+                .audio
+                .request_music_control(super::path_sound::MusicControlRequest::Defeat),
+            ActionService::RequestDefeatFollowUpMusic => {
+                if world
+                    .reflect_all_contacts
+                    .ok_or(PlayerActionError::MissingModeFlags)?
+                {
+                    world.audio.request_music_control(
+                        super::path_sound::MusicControlRequest::DefeatFollowUp,
+                    );
+                }
+            }
+            ActionService::RequestDefeatTransition => {
+                if world
+                    .reflect_all_contacts
+                    .ok_or(PlayerActionError::MissingModeFlags)?
+                {
+                    world
+                        .scene_transition
+                        .as_mut()
+                        .ok_or(PlayerActionError::MissingSceneTransition)?
+                        .request_defeat();
+                }
+            }
             ActionService::InstallRetreatCamera => player_camera_auxiliary::install(
                 objects,
                 world,

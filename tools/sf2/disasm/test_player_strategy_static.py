@@ -72,6 +72,33 @@ class PlayerStrategyStaticTests(unittest.TestCase):
     def test_common_death_defers_to_a_registered_type_twelve_routine(self):
         self.source(0x03A055, "a90c223b237f")
 
+    def test_scene_player_death_routine(self):
+        # Throttle cancel, the smoke child numbered by direct-page $00 on
+        # path F561, primary target rates, 1E0D bit 01, the defeat action,
+        # the defeat cue, falling velocity, the countdown, the follow-up
+        # routine F512, view bits, child refresh, depth and zero reserve.
+        self.source(0x06F3A4,
+                    "e220c210221da506c220a99cbc855fe22022172a7fb0045cd8f306a500223d2a7f"
+                    "dabb7ac220a91e7e9519e220a97f951bdabb7ac00000f028c220a91e7e991900e220"
+                    "a97f991b00c220a961f5992b00e220a901992d00a901992e00a932990a00b42ba901"
+                    "853aa901853ca901853e229bb807ad0d1e09018d0d1ea9008de51c5ab42ba90dd915"
+                    "6cf00399156cc220a985c5d9136cf00c99136ca9000099166c99186ce2207a5ab42b"
+                    "b9a06a7a29f0c910f0045c70f406c220a91100ecc312f00309008022096e7fe22080"
+                    "13c220a91500ecc312f00309008022096e7fe220a91e9518a9009513b5188585b514"
+                    "8d1215b5138d1115221f2d7f22959106c220a900009de41ce220c220a900009de41c"
+                    "e220ada61a8902f0045ccaf406c220a91e009de41ce2205aa90c2260237fc220a912"
+                    "f599626ae220a90699646a7ab9ea6a291f99ea6a5aa03f03b9210009089921"
+                    "00b9210009109921007a2219237fc220a901009dc81ce220a90099006c6b")
+
+    def test_defeat_action_stream_and_its_services(self):
+        self.source(0x0DC585, "0000008cc8" "040000c6c8" "010000c0c9" "0008005cc7" "00000076c8"
+                              "000000eacb" "001400cdcb" "004b007ac9" "ffff")
+        self.source(0x0DC75C, "08a907999f6ac220a9179f999d6ae2205aa03f03b921000908992100b9210009"
+                              "109921007a2860")
+        self.source(0x0DCBEA, "08a90e22f86d7f2860")
+        self.source(0x0DCBCD, "08ada61a8902d0045cdfcb0da90422f86d7f2860")
+        self.source(0x0DC97A, "08ada61a8902d0045c8bc90da9028d781b2860")
+
 
 if __name__ == "__main__":
     unittest.main()

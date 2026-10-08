@@ -46,6 +46,8 @@ pub enum AuxiliaryRecord {
 pub enum DeathHandler {
     /// `$06:F3A4`, installed by the scene-player initializer.
     ScenePlayer,
+    /// `$06:F512`, installed by `$06:F3A4` once the player is shot down.
+    DefeatedScenePlayer,
 }
 
 impl AuxiliaryRecord {

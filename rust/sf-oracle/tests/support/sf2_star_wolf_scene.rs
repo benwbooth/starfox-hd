@@ -25,6 +25,9 @@ const ACTOR_VISITS: [u32; 2] = [0x7F3526, 0x7F3572];
 /// handler ($03:819C); its talking-frame draw ($0A:CD92) is a render-timed
 /// RNG event like the entropy refresh.
 const RADIO_PANEL_DRAW: u32 = 0x0ACD92;
+/// The source's reads of direct-page $00 as a child number: the scene
+/// player's smoke child ($06:F3BF) and the damage particle ($07:D017).
+const PACING_READS: [u32; 2] = [0x06F3BF, 0x07D017];
 const B: u16 = 0x8000;
 const RIGHT: u16 = 0x0100;
 const UP: u16 = 0x0800;
@@ -313,13 +316,28 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     let mut matched = 0;
     // The scene's action clears the gate at its update 110; the player then
     // leaves for its flight strategy in the same visit and duels the rival
-    // until it is shot down in epoch 1052.
-    for epoch in 0..1052u32 {
+    // until it is shot down in epoch 1052; its death routine ($06:F3A4)
+    // keeps it flying with the defeat action.
+    for epoch in 0..1053u32 {
         let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW];
         watched.extend(RESEEDS);
         m.watch_cpu_execution(&watched);
         assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
-        assert!(m.tick_until_cpu_execution(0, EPOCH, 120).unwrap(), "epoch {epoch}: retail stalled");
+        // Direct-page $00 is the frame loop's render-paced countdown; record
+        // it where the source reads it as a child number.
+        let mut pacing = None;
+        loop {
+            match m.tick_until_cpu_execution_any(0, &[EPOCH, PACING_READS[0], PACING_READS[1]], 120).unwrap() {
+                Some(EPOCH) => break,
+                Some(_) => {
+                    let value = byte(&m, 0x0000);
+                    assert!(pacing.is_none_or(|seen| seen == value), "epoch {epoch}: pacing changed");
+                    pacing = Some(value);
+                }
+                None => panic!("epoch {epoch}: retail stalled"),
+            }
+        }
+        runner.world.frame_pacing = pacing;
         let hits = m.take_cpu_execution_watch_hits();
         let mut draws = 0u16;
         let mut refreshes = Vec::new();
@@ -411,14 +429,14 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
         matched = epoch + 1;
     }
     eprintln!("star wolf interception matched for {matched} epochs");
-    assert_eq!(matched, 1052);
-    // The player's registered death routine ($06:F3A4) is the frontier: it
-    // faults rather than falling back to common destruction.
+    assert_eq!(matched, 1053);
+    // The defeated player's per-frame death routine ($06:F512) is the
+    // frontier: it faults rather than falling back to common destruction.
     let error = runner
         .run_epoch(&catalog, EntropyRefresh::AfterPass)
-        .expect_err("the scene player's death routine is not ported");
+        .expect_err("the defeated scene player's death routine is not ported");
     assert!(
-        format!("{error:?}").contains("UnportedDeathHandler(ScenePlayer)"),
+        format!("{error:?}").contains("UnportedDeathHandler(DefeatedScenePlayer)"),
         "{error:?}"
     );
 }

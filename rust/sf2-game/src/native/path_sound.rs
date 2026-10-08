@@ -26,6 +26,10 @@ pub enum MusicControlRequest {
     EncounterProgressComplete,
     /// Authored control 10, scene seven's phase-gated request ($0D:CBFC).
     PhaseGatedSceneControl,
+    /// Authored control 14, requested as the defeat action starts ($0D:CBEA).
+    Defeat,
+    /// Authored control 4, the defeat action's later request ($0D:CBCD).
+    DefeatFollowUp,
 }
 
 /// Identity classification of the currently selected sound listener. The

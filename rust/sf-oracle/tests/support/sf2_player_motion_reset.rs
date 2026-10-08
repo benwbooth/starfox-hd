@@ -143,6 +143,7 @@ impl Reader<'_> {
                     (0xBEDF, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene6)),
                     (0xBEBB, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene25)),
                     (0xBDF9, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene29)),
+                    (0xC585, 0x0D) => Some(PlayerAction::Defeat),
                     value => panic!("unexpected retained action {value:?}"),
                 },
                 elapsed: self.word(0x6C16),
@@ -351,6 +352,8 @@ impl Reader<'_> {
                 task: match (self.word(0x6A9D), self.byte(0x6A9F)) {
                     (0, 0) => AuxiliaryCameraTask::None,
                     (0x9DF6, 7) => AuxiliaryCameraTask::Handoff,
+                    (0x9F17, 7) => AuxiliaryCameraTask::Initialize(sf2_game::player_camera_auxiliary::OrbitStyle::ModeDistance),
+                    (0x9F2D, 7) => AuxiliaryCameraTask::Orbit(sf2_game::player_camera_auxiliary::OrbitStyle::ModeDistance),
                     value => panic!("unexpected auxiliary camera {value:?}"),
                 },
                 retreat_distance: self.word(0x6B54) as i16,

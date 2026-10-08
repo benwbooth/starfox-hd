@@ -13,9 +13,19 @@ pub struct SceneTransitionControl {
 
 impl SceneTransitionControl {
     pub fn request_forced_retreat(&mut self) {
-        const COMPANION_BYTE: u16 = 0xFF00;
         const FORCED_RETREAT_PHASE: u16 = 6;
-        self.phase_word = (self.phase_word & COMPANION_BYTE) | FORCED_RETREAT_PHASE;
+        self.request_phase(FORCED_RETREAT_PHASE);
+    }
+
+    /// `$0D:C97A`: the defeat action's byte store, keeping the companion byte.
+    pub fn request_defeat(&mut self) {
+        const DEFEAT_PHASE: u16 = 2;
+        self.request_phase(DEFEAT_PHASE);
+    }
+
+    fn request_phase(&mut self, phase: u16) {
+        const COMPANION_BYTE: u16 = 0xFF00;
+        self.phase_word = (self.phase_word & COMPANION_BYTE) | phase;
     }
 }
 

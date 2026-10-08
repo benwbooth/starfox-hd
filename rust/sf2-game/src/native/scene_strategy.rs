@@ -152,8 +152,9 @@ pub enum SceneError<E> {
     PlayerActionWait(super::player_action_wait::ActionWaitError),
     PlayerSceneEntry(super::player_scene_entry::SceneEntryError),
     PlayerStrategy(super::player_strategy::PlayerStrategyError),
-    /// A registered death routine that is not ported yet (`$06:F3A4`).
+    /// A registered death routine that is not ported yet (`$06:F512`).
     UnportedDeathHandler(super::actor_auxiliary::DeathHandler),
+    PlayerDeath(super::player_death::PlayerDeathError),
     PlayerSceneInit(super::player_scene_init::SceneInitError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
@@ -2143,8 +2144,7 @@ impl<C: SceneCallbacks> DestructionHost for SceneActors<'_, C> {
             )
             .map_err(SceneError::Auxiliary)?;
         if let Some(super::actor_auxiliary::AuxiliaryRecord::DeathHandler(handler)) = registered {
-            self.execution.faulted = true;
-            return Err(SceneError::UnportedDeathHandler(handler));
+            return self.run_registered_death(owner, handler).map(Some);
         }
         C::death_override(self, owner)
             .map(|result| {

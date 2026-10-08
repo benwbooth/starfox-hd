@@ -25,6 +25,7 @@ pub(super) fn action_address(action: Option<PlayerAction>) -> u16 {
         None => 0,
         Some(PlayerAction::TriggeredProjectile) => 0xBDDA,
         Some(PlayerAction::ForcedRetreat) => 0xBF63,
+        Some(PlayerAction::Defeat) => 0xC585,
         Some(PlayerAction::Scene(scene)) => match scene {
             AuthoredSceneAction::Scene3 => 0xC4F3,
             AuthoredSceneAction::Scene4 => 0xBEB4,
@@ -274,6 +275,8 @@ impl Fixture {
                     MusicControlRequest::EncounterProgressTransition => 7,
                     MusicControlRequest::EncounterProgressComplete => 3,
                     MusicControlRequest::PhaseGatedSceneControl => 10,
+                    MusicControlRequest::Defeat => 14,
+                    MusicControlRequest::DefeatFollowUp => 4,
                 };
                 assert_eq!(source.bus.read8(WRAM + 0x1CDA), value);
                 assert_eq!(source.bus.read8(WRAM + 0x1CD9), 0);
