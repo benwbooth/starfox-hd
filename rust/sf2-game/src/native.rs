@@ -126,6 +126,7 @@ pub mod player_post_motion;
 pub mod player_action_wait;
 pub mod player_scene_entry;
 pub mod player_scene_init;
+pub mod attract_stage;
 pub mod player_surface_effect;
 pub mod player_surface;
 pub mod player_speed;

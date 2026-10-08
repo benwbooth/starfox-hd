@@ -1,21 +1,19 @@
-//! The retail attract loop's first indexed scene, composed natively by
-//! `SceneRunner` and compared with the complete retail machine at every
-//! strategy epoch. Only the starting state is read from the retail machine
-//! (the moment the scene player is first visited); afterwards both engines
-//! run independently and no value is copied from one to the other.
+//! The retail attract loop (indexed scenes 6, 7, 6), composed natively and
+//! compared with the complete retail machine at every strategy epoch. The
+//! native loop starts from its own boot world, spawns and initializes each
+//! scene player, applies the stage hand-over and carries its world between
+//! scenes. The only retail input is each scene's palette, which the scene
+//! loader uploads (not ported), plus the render-timed entropy-refresh points.
 use super::motion_reset_tests::Reader;
 use super::{Source, WRAM};
 use sf2_game::authored_paths;
-use sf2_game::cinematic_exit::CinematicSignals;
-use sf2_game::path_program::{ActionGate, EncounterSignals};
-use sf2_game::player_action::{PlayerServiceFlags, ScenePalette};
+use sf2_game::player_action::ScenePalette;
 use sf2_game::scene_runner::{EntropyRefresh, SceneRunner};
 use sf2_game::scene_strategy::{SceneActors, SceneCallbacks};
 use sf2_game::strategy_schedule::{StrategyCompletion, StrategySchedule};
-use sf2_game::view_transition::ViewTransitionMode;
 use sf2_game::{
-    Angle, Behavior, Buttons, InputState, Object, ObjectId, ObjectKind, ObjectSpawnDefaults,
-    ObjectStore, RandomState, ShapeId, Vector3,
+    Angle, Behavior, Object, ObjectId, ObjectKind, ObjectSpawnDefaults, ObjectStore, ShapeId,
+    Vector3,
 };
 use sf_oracle::RetailMachine;
 
@@ -29,6 +27,8 @@ const INITIALIZER_RETURN: u32 = 0x06832B;
 const REFRESH: u32 = 0x7F058F;
 const RANDOM_DRAW: u32 = 0x7F7BD4;
 const RANDOM_RETURN: u32 = 0x7F7BE7;
+/// The scene paths' inline reseed ($44:B13C, executed through its CPU banks).
+const RESEEDS: [u32; 4] = [0x09B13D, 0x44B13D, 0x89B13D, 0xC4B13D];
 
 struct Callbacks;
 impl SceneCallbacks for Callbacks {
@@ -74,12 +74,6 @@ fn retail_list(m: &RetailMachine) -> Vec<u16> {
     list
 }
 
-fn pose(object: &mut Object, m: &RetailMachine, base: u16) {
-    object.base.position = vector(m, base);
-    object.base.pitch = Angle::from_units(byte(m, base + 0x12));
-    object.base.yaw = Angle::from_units(byte(m, base + 0x14));
-    object.base.roll = Angle::from_units(byte(m, base + 0x16));
-}
 
 /// Advance the retail machine to the first epoch of the next scene player.
 /// Stop as the map-spawned scene player's initializer is entered. The map
@@ -97,8 +91,10 @@ fn attract_scenes_six_and_seven_run_natively_like_the_retail_machine() {
     // Each scene's player is re-spawned by the map and initialized; every
     // scene run ends with the retail machine at the next initializer.
     advance_to_initializer(&mut m);
+    let mut carried = None;
     for selection in [6u8, 7, 6] {
-        let epochs = run_scene(&mut m, selection);
+        let (epochs, world) = run_scene(&mut m, selection, carried.take());
+        carried = Some(world);
         eprintln!("scene {selection} matched for {epochs} epochs");
         // Both scenes run to their hand-over; scene six requests its exit.
         assert!(epochs > if selection == 6 { 440 } else { 100 });
@@ -107,112 +103,49 @@ fn attract_scenes_six_and_seven_run_natively_like_the_retail_machine() {
 
 /// Read the starting state once, then run both engines independently until
 /// the retail scene hands over. Returns the number of matched epochs.
-fn run_scene(m: &mut RetailMachine, selection: u8) -> u32 {
+fn run_scene(
+    m: &mut RetailMachine,
+    selection: u8,
+    carried: Option<(sf2_game::scene_path_world::ScenePathWorld, Poses)>,
+) -> (u32, (sf2_game::scene_path_world::ScenePathWorld, Poses)) {
+    let (carried, carried_poses) = match carried {
+        Some((world, poses)) => (Some(world), Some(poses)),
+        None => (None, None),
+    };
     assert_eq!(retail_list(m), vec![POOL, POOL + STRIDE]);
 
-    // Allocation inserts at the list head: build the list back to front.
-    // The fixed view lives outside the source pool; it is listed last here
-    // so insertion after the list head matches the source order.
+    // The map spawns the scene player into an empty list; the excluded
+    // proxy follows it. The fixed view lives outside the source pool, so it
+    // is listed last natively and never scheduled.
     let mut objects = ObjectStore::new();
+    let defaults = ObjectSpawnDefaults { group: 0xFF, run_when_paused: false };
+    let player = sf2_game::attract_stage::spawn_scene_player(&mut objects, defaults).unwrap();
+    assert_eq!(vector(m, POOL), objects.get(player).unwrap().base.position);
+    let idle = sf2_game::attract_stage::excluded_proxy(carried_poses.as_ref().map(|poses| poses.1));
+    let idle = objects.allocate_after(Some(player), idle).unwrap();
     let mut view = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Unassigned);
-    pose(&mut view, &m, VIEW);
-    // Outside the source pool the view is never scheduled.
+    if let Some((view_pose, _)) = &carried_poses {
+        view.base.position = view_pose.0;
+        [view.base.pitch, view.base.yaw, view.base.roll] = view_pose.1;
+    }
     view.base.flags.strategy_suspended = true;
-    let view = objects.allocate(view).unwrap();
-    let mut idle = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Unassigned);
-    pose(&mut idle, &m, POOL + STRIDE);
-    idle.base.hit_points = byte(m, POOL + STRIDE + 0x2D);
-    idle.base.flags.strategy_suspended = byte(m, POOL + STRIDE + 0x26) & 0x40 != 0;
-    idle.base.contacts.first_strategy_visit = byte(m, POOL + STRIDE + 0x31) & 4 != 0;
-    let idle = objects.allocate(idle).unwrap();
-    // Fresh from the map spawn: its first visit runs the scene initializer.
-    let mut player = Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerSceneInit);
-    pose(&mut player, &m, POOL);
-    player.base.hit_points = byte(m, POOL + 0x2D);
-    player.base.attack_power = byte(m, POOL + 0x2E);
-    player.base.flags.collision_disabled = byte(m, POOL + 0x21) & 1 != 0;
-    let player = objects.allocate(player).unwrap();
+    if carried_poses.is_some() && selection == 6 {
+        sf2_game::attract_stage::reset_view(&mut view);
+    }
+    let view = objects.allocate_after(Some(idle), view).unwrap();
     assert_eq!(objects.active_ids(), &[player, idle, view]);
 
-    let mut world = sf2_game::scene_path_world::ScenePathWorld::new(RandomState::new([
-        byte(m, 0xE0),
-        byte(m, 0xE1),
-        byte(m, 0xE2),
-        byte(m, 0xE3),
-    ]));
-    world.published_score = Some(sf2_game::player_storage::PlayerScore::from_parts(
-        word(m, 0xD816),
-        byte(m, 0xD818),
-    ));
-    world.active_shield_capacity = Some(byte(m, 0x1DD5));
-    world.handoff = Some(sf2_game::path_scene_state::EncounterHandoff {
-        player_flags: byte(m, 0x1D74),
-        x: word(m, 0x1D88) as i16,
-        z: word(m, 0x1D8C) as i16,
-        heading_word: word(m, 0x1D8E),
-    });
+    // The first scene reads the boot state; later scenes continue the
+    // previous scene's world, as the source's RAM does.
+    let mut world = match carried {
+        Some(world) => world,
+        None => sf2_game::attract_stage::boot_world(),
+    };
     world.primary_player = Some(player);
     world.fixed_players[0] = Some(view);
-    let mode = ViewTransitionMode { flags: word(m, 0x1B84) };
-    world.view_transition_mode = Some(mode);
-    world.spawn_defaults = Some(mode.spawn_defaults(ObjectSpawnDefaults {
-        group: byte(m, 0x190E),
-        run_when_paused: false,
-    }));
-    world.scene_selection = Some(byte(m, 0x1D73));
-    world.action_gate = Some(ActionGate { code: byte(m, 0x1D72) });
-    world.campaign_phase = Some(byte(m, 0x1BE0));
-    let flags = word(m, 0x1B96);
-    world.cinematic_signals = Some(CinematicSignals {
-        exit_requested: flags & 0x10 != 0,
-        skip_ready: flags & 0x20 != 0,
-    });
-    world.reticle_inhibited = Some(flags & 0x100 != 0);
-    world.reflect_all_contacts = Some(byte(m, 0x1AA6) & 2 != 0);
-    world.palette = Some(ScenePalette {
-        colors: std::array::from_fn(|i| word(m, 0xEFE5 + i as u16 * 2)),
-        saved_colors: std::array::from_fn(|i| word(m, 0xF2E5 + i as u16 * 2)),
-    });
-    world.palette_refresh_requested = Some(byte(m, 0x1E58) & 0x80 != 0);
-    world.player_service_flags = Some(PlayerServiceFlags::from_bits(byte(m, 0x1E0D)));
-    world.scene.player_configuration = Some(byte(m, 0x1DE2));
-    world.controller_inputs = [0u16, 2].map(|side| {
-        Some(InputState {
-            held: Buttons::from_bits(word(m, 0x1292 + side)),
-            pressed: Buttons::from_bits(word(m, 0x1296 + side)),
-        })
-    });
-    world.encounter_signals = Some(EncounterSignals { raised: word(m, 0xD77D) });
-    world.camera_height_limits = Some((word(m, 0x1E32) as i16, word(m, 0x1E34) as i16));
-    world.camera_projection_offset = Some(word(m, 0x1E52) as i16);
-    world.weapons = Some(Default::default());
-    world.published_motion = Some(sf2_game::path_motion::PublishedPlayerMotion {
-        position: Vector3 {
-            x: word(m, 0xD7EC) as i16,
-            y: word(m, 0xD7EE) as i16,
-            z: word(m, 0xD7F0) as i16,
-        },
-        delta: Vector3 {
-            x: word(m, 0x1E1C) as i16,
-            y: word(m, 0x1E1E) as i16,
-            z: word(m, 0x1E20) as i16,
-        },
-    });
-    world.engine_sound_control =
-        Some(sf2_game::player_engine_sound::EngineSoundControl::from_bits(byte(m, 0x1CE5)));
-    world.linked_effect_activity =
-        Some(sf2_game::path_protection::LinkedEffectActivity { recent_spawn: byte(m, 0x1DDF) });
-    // The initializer's shared reset replaces the tracked camera actor.
-    world.camera_tracking = Some(Default::default());
-    world.scene.active_pilot = Some(byte(m, 0x1E14));
-    world.scene.wingmate_pilot = Some(byte(m, 0x1E70));
-    world.published_camera_projection = Some(word(m, 0x1E3C) as i16);
-    world.scene.active_shield = Some(byte(m, 0x1DD1));
-    world.scene.encounter_location = Some(word(m, 0x1BB5));
-    world.strategy_clock = word(m, 0xC4);
 
     let mut runner = SceneRunner::new(objects, world, Callbacks);
-    runner.schedule = StrategySchedule::resume(word(m, 0xC4));
+    runner.schedule = StrategySchedule::resume(runner.world.strategy_clock);
     // The strategy pass skips the shared excluded actor (14D6).
     assert_eq!(word(m, 0x14D6), POOL + STRIDE);
     runner.execution.controls.excluded_actor = Some(idle);
@@ -235,27 +168,24 @@ fn run_scene(m: &mut RetailMachine, selection: u8) -> u32 {
     assert!(m.tick_until_cpu_execution(0, EPOCH, 60).unwrap());
     assert_eq!(byte(m, 0x1D73), selection);
     let world = &mut runner.world;
-    world.scene_selection = Some(selection);
-    world.action_gate = Some(ActionGate { code: byte(m, 0x1D72) });
-    world.handoff.as_mut().unwrap().player_flags = byte(m, 0x1D74);
-    let mode = ViewTransitionMode { flags: word(m, 0x1B84) };
-    world.view_transition_mode = Some(mode);
-    world.spawn_defaults = Some(mode.spawn_defaults(ObjectSpawnDefaults {
-        group: byte(m, 0x190E),
-        run_when_paused: false,
-    }));
-    world.reflect_all_contacts = Some(byte(m, 0x1AA6) & 2 != 0);
+    {
+        // Native stage hand-over and the map's scene selection.
+        sf2_game::attract_stage::hand_over(world).unwrap();
+        sf2_game::attract_stage::select_scene(world, selection).unwrap();
+        sf2_game::attract_stage::start_frame_loop(world);
+        let mode = world.view_transition_mode.unwrap();
+        let group = world.spawn_defaults.unwrap().group;
+        world.spawn_defaults = Some(mode.spawn_defaults(ObjectSpawnDefaults {
+            group,
+            run_when_paused: false,
+        }));
+    }
     world.palette = Some(ScenePalette {
         colors: std::array::from_fn(|i| word(m, 0xEFE5 + i as u16 * 2)),
         saved_colors: std::array::from_fn(|i| word(m, 0xF2E5 + i as u16 * 2)),
     });
-    world.palette_refresh_requested = Some(byte(m, 0x1E58) & 0x80 != 0);
-    world.published_camera_projection = Some(word(m, 0x1E3C) as i16);
-    world.encounter_signals = Some(EncounterSignals { raised: word(m, 0xD77D) });
-    world.random = RandomState::new([byte(m, 0xE0), byte(m, 0xE1), byte(m, 0xE2), byte(m, 0xE3)]);
-    world.strategy_clock = word(m, 0xC4);
-    runner.schedule = StrategySchedule::resume(word(m, 0xC4));
-    runner.execution.paths.runtime.background_horizontal = Some(word(m, 0x1E4E) as i16);
+    let clock = runner.world.strategy_clock;
+    runner.schedule = StrategySchedule::resume(clock);
     runner.prepare_frame(&catalog).unwrap();
     compare(m, &runner, view, 0);
     let mut ended = None;
@@ -264,7 +194,9 @@ fn run_scene(m: &mut RetailMachine, selection: u8) -> u32 {
         // be placed at the same actor-visit boundary natively.
         // Draw entry/return markers alternate, so consecutive draws are not
         // collapsed into one recorded entry.
-        m.watch_cpu_execution(&[REFRESH, RANDOM_DRAW, RANDOM_RETURN]);
+        let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN];
+        watched.extend(RESEEDS);
+        m.watch_cpu_execution(&watched);
         assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
         match m.tick_until_cpu_execution_any(0, &[EPOCH, INITIALIZER], 120).unwrap() {
             Some(EPOCH) => {}
@@ -289,6 +221,8 @@ fn run_scene(m: &mut RetailMachine, selection: u8) -> u32 {
                 }
                 RANDOM_DRAW if in_refresh => in_refresh = false,
                 RANDOM_DRAW => draws += 1,
+                // A reseed is an ordered RNG event like a draw.
+                hit if RESEEDS.contains(&hit) => draws += 1,
                 _ => {}
             }
         }
@@ -307,8 +241,18 @@ fn run_scene(m: &mut RetailMachine, selection: u8) -> u32 {
     }
     let ended = ended.expect("the scene ends within the test bound");
     assert!(ended > 100);
-    ended
+    let view_pose = runner.objects.get(view).unwrap();
+    let view_pose = (
+        view_pose.base.position,
+        [view_pose.base.pitch, view_pose.base.yaw, view_pose.base.roll],
+    );
+    let idle_pose = runner.objects.get(idle).unwrap().base.position;
+    (ended, (runner.world, (view_pose, idle_pose)))
 }
+
+/// The fixed view's and the excluded proxy's poses, which persist across
+/// scenes.
+type Poses = ((Vector3, [Angle; 3]), Vector3);
 
 /// The initializer's records, decoded from the retail allocation.
 fn compare_initialized_player(

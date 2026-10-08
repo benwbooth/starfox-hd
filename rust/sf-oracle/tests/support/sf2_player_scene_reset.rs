@@ -196,6 +196,13 @@ fn compare(source: &mut Source, world: &ScenePathWorld, owner: ObjectId) {
         world.environment_plane_height.unwrap() as u16,
         source.bus.read16(WRAM + 0x1E0F)
     );
+    // Absent when an earlier missing owner stopped the native reset.
+    if let Some(offset) = world.camera_projection_offset {
+        assert_eq!(offset as u16, source.bus.read16(WRAM + 0x1E52));
+    }
+    if let Some(projection) = world.published_camera_projection {
+        assert_eq!(projection as u16, source.bus.read16(WRAM + 0x1E3C));
+    }
     let support = world.player_surface_support.unwrap();
     assert_eq!(support.object.map_or(0, |_| OWNER), source.bus.read16(WRAM + 0x1D6F));
     assert_eq!(support.group, source.bus.read8(WRAM + 0x1D71));

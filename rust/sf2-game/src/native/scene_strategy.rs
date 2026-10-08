@@ -1196,6 +1196,8 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
             .map_err(SceneError::PlayerSceneReset);
         if result.is_err() {
             self.execution.faulted = true;
+        } else {
+            super::player_scene_reset::reset_background_base(&mut self.execution.paths.runtime);
         }
         result
     }

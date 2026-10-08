@@ -93,9 +93,20 @@ pub fn reset_services(
     world.camera_tracking = Some(Default::default());
     world.camera_focus = Some(Default::default());
     world.published_motion = Some(Default::default());
+    // `$06:966F..9675`: the background base (1E4E) belongs to the path
+    // runtime and is reset by `reset_background_base`, in the same order.
+    world.camera_projection_offset = Some(0);
+    world.published_camera_projection = Some(0);
     world.environment_plane_height = Some(0);
     world.player_surface_support = Some(Default::default());
     Ok(())
+}
+
+/// The shared reset's background-base store (`$06:966F`, 1E4E), owned by
+/// the path runtime. Callers apply it immediately after `reset_services`;
+/// nothing in between reads it.
+pub fn reset_background_base(runtime: &mut super::path_runtime::PathRuntime) {
+    runtime.background_horizontal = Some(0);
 }
 
 #[cfg(test)]

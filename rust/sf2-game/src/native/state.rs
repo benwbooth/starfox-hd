@@ -206,14 +206,16 @@ impl RandomState {
         }
     }
 
-    /// Replace the generator bytes; a scheduled refresh stays scheduled.
+    /// Replace the generator bytes. A reseed is a scheduled event like a
+    /// draw: a refresh due at this event index happens first.
     pub fn reseed(&mut self, bytes: [u8; 4]) {
+        self.apply_due_refreshes();
         self.bytes = bytes;
     }
 
-    /// Each refresh happens before the consumer draw with its zero-based
-    /// index (ascending, counted from this call), or at `finish_refreshes`
-    /// if fewer draws are made. Returns false if too many are requested.
+    /// Each refresh happens before the consumer event (draw or reseed) with
+    /// its zero-based index (ascending, counted from this call), or at
+    /// `finish_refreshes` if fewer events occur. Returns false if too many.
     pub fn schedule_refreshes(&mut self, draws: &[u16]) -> bool {
         if draws.len() > MAX_PENDING_REFRESHES || draws.windows(2).any(|pair| pair[0] > pair[1]) {
             return false;
@@ -241,6 +243,12 @@ impl RandomState {
     }
 
     pub fn next_byte(&mut self) -> u8 {
+        self.apply_due_refreshes();
+        self.step()
+    }
+
+    /// Refreshes due before this event (a draw or a reseed), then count it.
+    fn apply_due_refreshes(&mut self) {
         while self.pending_refreshes != 0 && self.refreshes[0] == self.scheduled_draws {
             self.pop_refresh();
             self.step();
@@ -248,7 +256,6 @@ impl RandomState {
         if self.pending_refreshes != 0 {
             self.scheduled_draws += 1;
         }
-        self.step()
     }
 
     fn step(&mut self) -> u8 {

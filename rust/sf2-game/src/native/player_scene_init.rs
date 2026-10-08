@@ -72,6 +72,7 @@ pub fn initialize(
     player_storage::initialize(objects, world, runtime, owner, inputs)
         .map_err(SceneInitError::Storage)?;
     player_scene_reset::reset_services(objects, world, owner).map_err(SceneInitError::Reset)?;
+    player_scene_reset::reset_background_base(runtime);
     let reflect_all = world
         .reflect_all_contacts
         .ok_or(SceneInitError::MissingReflectionPolicy)?;
