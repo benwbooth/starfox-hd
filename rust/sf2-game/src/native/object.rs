@@ -1073,6 +1073,9 @@ pub struct ObjectExtension {
     /// Allocation group's byte identity (source 1CF0). Child-producing paths
     /// inherit it from their caller; `$0D:D8DD` retires a matching group.
     pub spawn_group: u8,
+    /// Map record this actor was streamed from (source 1CE6). Cleared by
+    /// group retirement; the record keeps its own stale actor link.
+    pub map_record: Option<super::map_streaming::MapRecordId>,
     pub texture_scroll_x: u8,
     pub texture_scroll_y: u8,
     pub spatial_loop: Option<SpatialLoop>,

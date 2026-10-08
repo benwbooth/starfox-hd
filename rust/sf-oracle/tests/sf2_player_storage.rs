@@ -106,6 +106,9 @@ mod scene_twentyfive_tests;
 #[path = "support/sf2_scene_four.rs"]
 mod scene_four_tests;
 
+#[path = "support/sf2_map_streaming.rs"]
+mod map_streaming_tests;
+
 #[path = "support/sf2_scene_install.rs"]
 mod scene_install_tests;
 

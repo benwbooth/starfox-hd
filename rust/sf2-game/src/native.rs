@@ -10,6 +10,7 @@ pub mod authored_paths;
 pub mod cinematic_exit;
 pub mod exit_shield;
 pub mod frame_background;
+pub mod map_streaming;
 pub mod collision_boxes;
 pub mod collision_contacts;
 pub mod collision_math;

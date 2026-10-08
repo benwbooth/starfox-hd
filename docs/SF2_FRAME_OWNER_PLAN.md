@@ -61,6 +61,14 @@ address (several may be ported under another name; confirm before porting):
 $7F:7B33 $03:820C $7F:32A1 $7F:7980 $07:A337 $03:D87D $7F:1118 $04:FCC8
 $07:950E $7F:79F8 $7F:148D $7F:7918 $7F:11C6`.
 
+Ported so far: `$03:B0C3` (background scroll, `frame_background.rs`) and
+`$0D:D5FA` with its region scan `$0D:D95B` and group retirement `$0D:D8DD`
+(`map_streaming.rs`). The streaming port reproduces a source quirk: its
+second "unchanged cell" test compares the first view's position with the
+second view's saved cell. Records with attached data (flag bit 2, `$7F:2360`)
+fault until that attachment is ported. The map-loader producers (opcodes
+`$90` records, `$94` regions) are not yet wired to the native map.
+
 During cutscenes the player runs the action-only strategies
 (`Behavior::PlayerActionWait`, ported), so a first scene runner does not need
 the flight-mode dispatcher (`$06:9D09`, mode table at `$06:9D1A`).
