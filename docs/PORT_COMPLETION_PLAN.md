@@ -113,6 +113,19 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Whole-workspace release baseline (2026-10-07, after the scene work above):
+  4,608 tests pass, 3 fail, 1 is ignored. The three failures are the SF1
+  retail comparisons already recorded: `retail_front_end_and_corneria_opening_
+  match_native_semantic_state` (native leaves the attract intro one 20 Hz tick
+  before retail, at relative tick 83 versus 84), `native_corneria_retains_
+  certified_semantic_checkpoints` and `controller_only_route_reaches_corneria_
+  attack_carrier` (the player is lost at level frame 1,499). Probing the first
+  one shows retail's game frame does not advance on every 20 Hz tick (it
+  skips about one in eight during the intro), so a fixed one-frame-per-tick
+  native model cannot match retail's wall-clock tick; the comparison needs to
+  be aligned by game frame, as the in-level comparison already is. That is a
+  change to the certification criterion and is left for the owner to approve.
+
 - Added indexed scene seven (scene five's path with its own action stream:
   projection-correction off at 0, phase-gated authored control 10 at 153,
   scene-progress flag 1E66 at 208). Matches the original for every elapsed
