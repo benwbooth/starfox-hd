@@ -244,6 +244,9 @@ impl MapFramePolicy {
 pub struct SceneMap {
     cursor: MapCursor,
     saved_continuation: Option<MapCursor>,
+    /// The last saved continuation names no runnable record (the chain's
+    /// final gate saves the byte after its jump, which is not a record).
+    unrunnable_continuation: bool,
     marker: u16,
     current: Option<ObjectId>,
     faulted: bool,
@@ -258,6 +261,7 @@ impl SceneMap {
         Ok(Self {
             cursor: entry,
             saved_continuation: None,
+            unrunnable_continuation: false,
             marker: 0,
             current: None,
             faulted: false,
@@ -290,6 +294,17 @@ impl SceneMap {
         }
         catalog.check(target).map_err(MapError::Catalog)?;
         self.saved_continuation = Some(target);
+        self.unrunnable_continuation = false;
+        Ok(())
+    }
+
+    /// Save a continuation that names no map record; restoring it faults.
+    pub fn save_unrunnable_continuation(&mut self) -> Result<(), MapError<std::convert::Infallible>> {
+        if self.faulted {
+            return Err(MapError::Faulted);
+        }
+        self.saved_continuation = None;
+        self.unrunnable_continuation = true;
         Ok(())
     }
 
@@ -302,6 +317,9 @@ impl SceneMap {
     pub fn restore_continuation(&mut self) -> Result<(), MapRestoreError> {
         if self.faulted {
             return Err(MapRestoreError::Faulted);
+        }
+        if self.unrunnable_continuation {
+            return Err(MapRestoreError::UnrunnableContinuation);
         }
         self.cursor = self
             .saved_continuation
@@ -455,6 +473,8 @@ impl SceneMap {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapRestoreError {
     MissingContinuation,
+    /// The authored continuation names bytes that are not a map record.
+    UnrunnableContinuation,
     Faulted,
 }
 

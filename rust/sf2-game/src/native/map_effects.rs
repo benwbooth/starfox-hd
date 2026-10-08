@@ -47,6 +47,8 @@ pub enum MapEffect {
     HandoffFlags(u8),
     /// 1D78/1D77: the continuation restored by `$7F:BF3D`.
     SaveContinuation(MapCursor),
+    /// 1D78/1D77 naming bytes that are not a map record.
+    SaveUnrunnableContinuation,
     /// 1E44: the authored vertical projection bias.
     CameraProjectionBase(i16),
     Presentation(PresentationByte, u8),
@@ -274,7 +276,8 @@ pub struct MapWorld<'a> {
     /// Program resources holding player storage, for player placement.
     pub resources: Option<&'a mut super::program_resources::ProgramResources<super::program_state::ProgramData>>,
     pub presentation: &'a mut MapPresentation,
-    pub continuation: Option<MapCursor>,
+    /// A continuation saved by this visit; `Some(None)` is unrunnable.
+    pub continuation: Option<Option<MapCursor>>,
 }
 
 impl MapWorld<'_> {
@@ -450,7 +453,8 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
                     .ok_or(MapHostError::MissingHandoff)?
                     .player_flags = flags
             }
-            MapEffect::SaveContinuation(target) => self.continuation = Some(target),
+            MapEffect::SaveContinuation(target) => self.continuation = Some(Some(target)),
+            MapEffect::SaveUnrunnableContinuation => self.continuation = Some(None),
             MapEffect::CameraProjectionBase(bias) => self.world.camera_projection_base = Some(bias),
             MapEffect::Presentation(byte, value) => match byte {
                 PresentationByte::SceneStyle => presentation.scene_style = Some(value),
@@ -656,9 +660,14 @@ pub fn visit(
         continuation: None,
     };
     let report = map.visit(catalog, &mut host, Default::default(), budget)?;
-    if let Some(target) = host.continuation {
-        map.save_continuation(catalog, target)
-            .map_err(|_| super::scene_map::MapError::Faulted)?;
+    match host.continuation {
+        Some(Some(target)) => map
+            .save_continuation(catalog, target)
+            .map_err(|_| super::scene_map::MapError::Faulted)?,
+        Some(None) => map
+            .save_unrunnable_continuation()
+            .map_err(|_| super::scene_map::MapError::Faulted)?,
+        None => {}
     }
     Ok(report)
 }
@@ -827,6 +836,9 @@ mod tests {
             (authored_maps::SCENE_ONE_LAUNCHER, 0xAB, 1),
             (authored_maps::SCENE_ONE_ALTERNATE_LAUNCHER, 0x8D, 1),
             (authored_maps::SCENE_TWENTY_EIGHT_LAUNCHER, 0x8D, 28),
+            (authored_maps::SCENE_TWENTY_FIVE_LAUNCHER, 0x57, 25),
+            (authored_maps::SCENE_TWENTY_EIGHT_CHAINED_LAUNCHER, 0x57, 28),
+            (authored_maps::SCENE_TWENTY_SIX_LAUNCHER, 0x5D, 26),
         ] {
             let mut objects = ObjectStore::new();
             let mut world = attract_stage::boot_world();
@@ -846,7 +858,15 @@ mod tests {
             assert_eq!(report.stop, MapStop::Yielded(0x1388));
             assert_eq!(presentation.scene_load, Some(load));
             assert_eq!(world.scene_selection, Some(selection));
-            assert!(map.saved_continuation().is_some());
+            if root == authored_maps::SCENE_TWENTY_SIX_LAUNCHER {
+                assert_eq!(map.saved_continuation(), None);
+                assert_eq!(
+                    map.restore_continuation(),
+                    Err(super::super::scene_map::MapRestoreError::UnrunnableContinuation)
+                );
+            } else {
+                assert!(map.saved_continuation().is_some());
+            }
             if root == authored_maps::SCENE_FOUR_LAUNCHER {
                 assert_eq!(world.campaign.unwrap().encounter_variant, 4);
             }

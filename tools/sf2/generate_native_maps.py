@@ -49,6 +49,11 @@ ROOTS = (
     ("SCENE_ONE_LAUNCHER", MapAddress(5, 0x7CF7)),
     ("SCENE_ONE_ALTERNATE_LAUNCHER", MapAddress(5, 0x7D31)),
     ("SCENE_TWENTY_EIGHT_LAUNCHER", MapAddress(5, 0x7D6B)),
+    # A chained launcher sequence: twenty-five, twenty-eight, twenty-six.
+    # The last gate saves the byte after its jump (not a record).
+    ("SCENE_TWENTY_FIVE_LAUNCHER", MapAddress(5, 0x7DAC)),
+    ("SCENE_TWENTY_EIGHT_CHAINED_LAUNCHER", MapAddress(5, 0x7DFC)),
+    ("SCENE_TWENTY_SIX_LAUNCHER", MapAddress(5, 0x7E36)),
 )
 
 PHASE_HOLD = 0x1388
@@ -315,7 +320,12 @@ def lower(rom: bytes, errors: list | None = None) -> str:
                     if extractor.byte(previous) != 0x5E or (extractor.word(previous, 3) | extractor.byte(previous, 5) << 16) != 0x001D78:
                         raise UnsupportedMap(f"unpaired continuation bank at {address.label()}")
                     continuation = MapAddress(value, extractor.word(previous, 1))
-                    statements.append(f"MapInstruction::Apply {{ effect: MapEffect::SaveContinuation({cursor(continuation)}), next: {cursor(nxt)} }}")
+                    if extractor.byte(continuation) in RECORD_SIZES:
+                        effect = f"MapEffect::SaveContinuation({cursor(continuation)})"
+                    else:
+                        # The chain's last gate saves the byte after its jump.
+                        effect = "MapEffect::SaveUnrunnableContinuation"
+                    statements.append(f"MapInstruction::Apply {{ effect: {effect}, next: {cursor(nxt)} }}")
                 elif target in BYTE_STORES:
                     statements.append(f"MapInstruction::Apply {{ effect: {BYTE_STORES[target](value)}, next: {cursor(nxt)} }}")
                 else:
