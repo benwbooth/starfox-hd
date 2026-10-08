@@ -9,7 +9,6 @@ use sf2_game::authored_paths;
 use sf2_game::cinematic_exit::CinematicSignals;
 use sf2_game::path_program::{ActionGate, EncounterSignals};
 use sf2_game::player_action::{PlayerServiceFlags, ScenePalette};
-use sf2_game::player_scene_entry::SceneEntryPhase;
 use sf2_game::scene_runner::{EntropyRefresh, SceneRunner};
 use sf2_game::scene_strategy::{SceneActors, SceneCallbacks};
 use sf2_game::strategy_schedule::{StrategyCompletion, StrategySchedule};
@@ -26,7 +25,6 @@ const POOL: u16 = 0x03BD;
 const STRIDE: u16 = 0x3F;
 const EPOCH: u32 = 0x7F34E7;
 const INITIALIZER: u32 = 0x0682F9;
-const SCENE_PLAYER_ENTRY: u16 = 0x845C;
 const INITIALIZER_RETURN: u32 = 0x06832B;
 const REFRESH: u32 = 0x7F058F;
 const RANDOM_DRAW: u32 = 0x7F7BD4;
@@ -84,24 +82,6 @@ fn pose(object: &mut Object, m: &RetailMachine, base: u16) {
 }
 
 /// Advance the retail machine to the first epoch of the next scene player.
-#[derive(Clone, Copy, PartialEq)]
-enum Start {
-    Initializer,
-    Entry,
-}
-
-/// Stop at the first epoch whose scene player is at its entry ($06:845C).
-fn advance_to_entry(machine: &mut RetailMachine) {
-    for _ in 0..4000 {
-        assert!(machine.tick_until_cpu_execution(0, EPOCH, 60).unwrap());
-        if word(machine, POOL + 0x19) == SCENE_PLAYER_ENTRY {
-            return;
-        }
-        assert!(machine.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
-    }
-    panic!("scene player entry never reached");
-}
-
 /// Stop as the map-spawned scene player's initializer is entered. The map
 /// hand-over runs that first visit itself, outside a frame epoch.
 fn advance_to_initializer(machine: &mut RetailMachine) {
@@ -114,15 +94,11 @@ fn advance_to_initializer(machine: &mut RetailMachine) {
 #[test]
 fn attract_scenes_six_and_seven_run_natively_like_the_retail_machine() {
     let mut m = RetailMachine::new(super::rom());
-    // Scene six's player comes from the map's initializer; scene seven
-    // reuses that player through an unported hand-over, so it starts from
-    // the retail allocation at its first entry visit instead.
-    for (selection, start) in [(6u8, Start::Initializer), (7, Start::Entry)] {
-        match start {
-            Start::Initializer => advance_to_initializer(&mut m),
-            Start::Entry => advance_to_entry(&mut m),
-        }
-        let epochs = run_scene(&mut m, selection, start);
+    // Each scene's player is re-spawned by the map and initialized; every
+    // scene run ends with the retail machine at the next initializer.
+    advance_to_initializer(&mut m);
+    for selection in [6u8, 7, 6] {
+        let epochs = run_scene(&mut m, selection);
         eprintln!("scene {selection} matched for {epochs} epochs");
         // Both scenes run to their hand-over; scene six requests its exit.
         assert!(epochs > if selection == 6 { 440 } else { 100 });
@@ -131,7 +107,7 @@ fn attract_scenes_six_and_seven_run_natively_like_the_retail_machine() {
 
 /// Read the starting state once, then run both engines independently until
 /// the retail scene hands over. Returns the number of matched epochs.
-fn run_scene(m: &mut RetailMachine, selection: u8, start: Start) -> u32 {
+fn run_scene(m: &mut RetailMachine, selection: u8) -> u32 {
     assert_eq!(retail_list(m), vec![POOL, POOL + STRIDE]);
 
     // Allocation inserts at the list head: build the list back to front.
@@ -149,12 +125,8 @@ fn run_scene(m: &mut RetailMachine, selection: u8, start: Start) -> u32 {
     idle.base.flags.strategy_suspended = byte(m, POOL + STRIDE + 0x26) & 0x40 != 0;
     idle.base.contacts.first_strategy_visit = byte(m, POOL + STRIDE + 0x31) & 4 != 0;
     let idle = objects.allocate(idle).unwrap();
-    // Fresh from the map spawn, the first visit runs the scene initializer.
-    let behavior = match start {
-        Start::Initializer => Behavior::PlayerSceneInit,
-        Start::Entry => Behavior::PlayerSceneEntry(SceneEntryPhase::ClearLaunchCounts),
-    };
-    let mut player = Object::new(ObjectKind::Player, ShapeId::EMPTY, behavior);
+    // Fresh from the map spawn: its first visit runs the scene initializer.
+    let mut player = Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerSceneInit);
     pose(&mut player, &m, POOL);
     player.base.hit_points = byte(m, POOL + 0x2D);
     player.base.attack_power = byte(m, POOL + 0x2E);
@@ -245,72 +217,47 @@ fn run_scene(m: &mut RetailMachine, selection: u8, start: Start) -> u32 {
     assert_eq!(word(m, 0x14D6), POOL + STRIDE);
     runner.execution.controls.excluded_actor = Some(idle);
     let catalog = authored_paths::catalog();
-    match start {
-        Start::Initializer => {
-            // The initializer's visit runs inside the map hand-over. The map then
-            // publishes the scene's selection and gate and the scene loader its
-            // palette and background before the first epoch: those producers are not
-            // ported, so their outputs are read once more at that epoch. Everything
-            // the initializer itself produces is compared instead.
-            sf2_game::player_scene_init::initialize(
-                &mut runner.objects,
-                &mut runner.world,
-                &mut runner.execution.paths.runtime,
-                player,
-            )
-            .unwrap();
-            // Compare as the original initializer returns, before other services.
-            assert!(m.tick_until_cpu_execution(0, INITIALIZER_RETURN, 1).unwrap());
-            compare_initialized_player(m, &runner, player, idle);
-            assert!(m.tick_until_cpu_execution(0, EPOCH, 60).unwrap());
-            assert_eq!(byte(m, 0x1D73), selection);
-            let world = &mut runner.world;
-            world.scene_selection = Some(selection);
-            world.action_gate = Some(ActionGate { code: byte(m, 0x1D72) });
-            world.handoff.as_mut().unwrap().player_flags = byte(m, 0x1D74);
-            let mode = ViewTransitionMode { flags: word(m, 0x1B84) };
-            world.view_transition_mode = Some(mode);
-            world.spawn_defaults = Some(mode.spawn_defaults(ObjectSpawnDefaults {
-                group: byte(m, 0x190E),
-                run_when_paused: false,
-            }));
-            world.reflect_all_contacts = Some(byte(m, 0x1AA6) & 2 != 0);
-            world.palette = Some(ScenePalette {
-                colors: std::array::from_fn(|i| word(m, 0xEFE5 + i as u16 * 2)),
-                saved_colors: std::array::from_fn(|i| word(m, 0xF2E5 + i as u16 * 2)),
-            });
-            world.palette_refresh_requested = Some(byte(m, 0x1E58) & 0x80 != 0);
-            world.published_camera_projection = Some(word(m, 0x1E3C) as i16);
-            world.encounter_signals = Some(EncounterSignals { raised: word(m, 0xD77D) });
-            world.random = RandomState::new([byte(m, 0xE0), byte(m, 0xE1), byte(m, 0xE2), byte(m, 0xE3)]);
-            world.strategy_clock = word(m, 0xC4);
-            runner.schedule = StrategySchedule::resume(word(m, 0xC4));
-            runner.execution.paths.runtime.background_horizontal = Some(word(m, 0x1E4E) as i16);
-            runner.prepare_frame(&catalog).unwrap();
-            compare(m, &runner, view, 0);
-        }
-        Start::Entry => {
-            assert_eq!(byte(m, 0x1D73), selection);
-            // The player's allocation is owned by the scene's program
-            // resources; its records bind to that storage identity.
-            let mut source = Source::new(&super::rom(), 0);
-            for offset in 0..0x20000u32 {
-                source.bus.write8(WRAM + offset, m.peek8(RETAIL + offset));
-            }
-            let slot = u32::from(word(m, POOL + 0x2B));
-            let reader = Reader { source: &source, slot, other: idle };
-            let resource = runner
-                .execution
-                .paths
-                .runtime
-                .resources
-                .allocate_owned(player, 472, sf2_game::program_state::ProgramData::PlayerStorage(reader.storage()))
-                .unwrap();
-            runner.objects.get_mut(player).unwrap().base.player_storage = Some(resource);
-            runner.world.bind_player(&runner.objects, player, reader.records()).unwrap();
-            runner.execution.paths.runtime.background_horizontal = Some(word(m, 0x1E4E) as i16);
-        }
-    }
+    // The initializer's visit runs inside the map hand-over. The map then
+    // publishes the scene's selection and gate and the scene loader its
+    // palette and background before the first epoch: those producers are not
+    // ported, so their outputs are read once more at that epoch. Everything
+    // the initializer itself produces is compared instead.
+    sf2_game::player_scene_init::initialize(
+        &mut runner.objects,
+        &mut runner.world,
+        &mut runner.execution.paths.runtime,
+        player,
+    )
+    .unwrap();
+    // Compare as the original initializer returns, before other services.
+    assert!(m.tick_until_cpu_execution(0, INITIALIZER_RETURN, 1).unwrap());
+    compare_initialized_player(m, &runner, player, idle);
+    assert!(m.tick_until_cpu_execution(0, EPOCH, 60).unwrap());
+    assert_eq!(byte(m, 0x1D73), selection);
+    let world = &mut runner.world;
+    world.scene_selection = Some(selection);
+    world.action_gate = Some(ActionGate { code: byte(m, 0x1D72) });
+    world.handoff.as_mut().unwrap().player_flags = byte(m, 0x1D74);
+    let mode = ViewTransitionMode { flags: word(m, 0x1B84) };
+    world.view_transition_mode = Some(mode);
+    world.spawn_defaults = Some(mode.spawn_defaults(ObjectSpawnDefaults {
+        group: byte(m, 0x190E),
+        run_when_paused: false,
+    }));
+    world.reflect_all_contacts = Some(byte(m, 0x1AA6) & 2 != 0);
+    world.palette = Some(ScenePalette {
+        colors: std::array::from_fn(|i| word(m, 0xEFE5 + i as u16 * 2)),
+        saved_colors: std::array::from_fn(|i| word(m, 0xF2E5 + i as u16 * 2)),
+    });
+    world.palette_refresh_requested = Some(byte(m, 0x1E58) & 0x80 != 0);
+    world.published_camera_projection = Some(word(m, 0x1E3C) as i16);
+    world.encounter_signals = Some(EncounterSignals { raised: word(m, 0xD77D) });
+    world.random = RandomState::new([byte(m, 0xE0), byte(m, 0xE1), byte(m, 0xE2), byte(m, 0xE3)]);
+    world.strategy_clock = word(m, 0xC4);
+    runner.schedule = StrategySchedule::resume(word(m, 0xC4));
+    runner.execution.paths.runtime.background_horizontal = Some(word(m, 0x1E4E) as i16);
+    runner.prepare_frame(&catalog).unwrap();
+    compare(m, &runner, view, 0);
     let mut ended = None;
     for epoch in 0..2000u32 {
         // The retail epoch runs first so its render-timed entropy refresh can
@@ -319,10 +266,14 @@ fn run_scene(m: &mut RetailMachine, selection: u8, start: Start) -> u32 {
         // collapsed into one recorded entry.
         m.watch_cpu_execution(&[REFRESH, RANDOM_DRAW, RANDOM_RETURN]);
         assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
-        if !m.tick_until_cpu_execution(0, EPOCH, 60).unwrap() {
-            // The scene handed over: no further strategy epoch follows soon.
-            ended = Some(epoch);
-            break;
+        match m.tick_until_cpu_execution_any(0, &[EPOCH, INITIALIZER], 120).unwrap() {
+            Some(EPOCH) => {}
+            // The next scene's player is being initialized: stop here.
+            Some(_) => {
+                ended = Some(epoch);
+                break;
+            }
+            None => panic!("epoch {epoch}: the retail frame loop stalled"),
         }
         let hits = m.take_cpu_execution_watch_hits();
         // Each refresh's index among the pass's ordinary draws. A refresh's
