@@ -421,7 +421,7 @@ fn player_status_visit_prefix_matches_original_all_pilot_action_bytes_and_live_w
                         .write16(WRAM + u32::from(OWNER) + offset, value as u16);
                 }
                 source.run(0x069C27, Some(0x069D09), 0, OWNER, true);
-                player_visit::begin(&mut f.objects, &mut f.world, f.owner, InputState::default())
+                player_visit::begin(&mut f.objects, &mut f.world, &mut f.runtime.resources, f.owner, InputState::default())
                     .unwrap();
                 f.verify(&source, "whole player visit prefix");
                 assert_eq!(

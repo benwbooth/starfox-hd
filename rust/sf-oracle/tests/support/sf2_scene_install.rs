@@ -13,7 +13,7 @@ use sf2_game::scene_install::{self, SceneInstallError};
 use sf2_game::Behavior;
 
 /// Installed scenes: (selection, path root, action script, action, companion seed).
-const SCENES: [(u8, u16, u16, AuthoredSceneAction, u16); 7] = [
+const SCENES: [(u8, u16, u16, AuthoredSceneAction, u16); 8] = [
     (6, 0xFA11, 0xBEDF, AuthoredSceneAction::Scene6, 0x0000),
     (9, 0xD40E, 0xC191, AuthoredSceneAction::Scene9, 0x1000),
     (3, 0xD9D6, 0xC4F3, AuthoredSceneAction::Scene3, 0x0000),
@@ -21,6 +21,7 @@ const SCENES: [(u8, u16, u16, AuthoredSceneAction, u16); 7] = [
     (7, 0xB65B, 0xBEC2, AuthoredSceneAction::Scene7, 0x0000),
     (4, 0xD48C, 0xBEB4, AuthoredSceneAction::Scene4, 0x0000),
     (25, 0xD490, 0xBEBB, AuthoredSceneAction::Scene25, 0x0000),
+    (29, 0xB8D2, 0xBDF9, AuthoredSceneAction::Scene29, 0x0000),
 ];
 
 /// The entry continuation ($06:846C..84A1) runs the installer only behind
@@ -183,6 +184,7 @@ fn run_case(count: usize, selection: u8, saved: u8, seed: u16, entry: Entry) {
             25 => sf2_game::authored_paths::SCENE_TWENTY_FIVE,
             5 | 7 => sf2_game::authored_paths::SCENE_FIVE,
             6 => sf2_game::authored_paths::SCENE_SIX,
+            29 => sf2_game::authored_paths::SCENE_TWENTY_NINE,
             _ => unreachable!(),
         })
     );

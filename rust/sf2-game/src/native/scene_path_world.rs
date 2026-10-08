@@ -153,6 +153,12 @@ pub struct AudioRouting {
     pub markers: Option<MarkerInputs>,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SceneGateFlags {
+    pub hud_held: bool,
+    pub hud_ready: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldInputError {
     MissingActor(ObjectId),
@@ -194,6 +200,8 @@ pub struct ScenePathWorld {
     pub map_placement: super::map_effects::MapPlacement,
     /// 1D75/1D76/1D7A/1D7B/1D80: map-authored stage-exit state.
     pub stage_exit: super::map_effects::StageExit,
+    /// Presentation requests the map wrote for the display and loader owners.
+    pub map_presentation: super::map_effects::MapPresentation,
     pub strategy_clock: u16,
     pub scene: ScenePathInputs,
     /// Live indexed scene request (1D73), separate from the map and action gate.
@@ -206,6 +214,11 @@ pub struct ScenePathWorld {
     /// Scenario flag word (E087). Bit 0400 is set by `$0D:FA9D` for the
     /// location-7 / layout-9 encounter and tested by map branch A4.
     pub scenario_flags: Option<u16>,
+    /// Shared scene flags 1B96 bits 40 (HUD held: `$04:939C` skips its HUD
+    /// block) and 04 (HUD ready, tested by `$02:D3B3`).
+    pub scene_gate_flags: Option<SceneGateFlags>,
+    /// Display flag word (1B9C), consumed by the display services.
+    pub scene_display_flags: Option<u16>,
     /// 14D6: the actor slot excluded from strategy visits (the cue-marker
     /// proxy in scenes); map placement moves it to the map target.
     pub excluded_actor: Option<ObjectId>,
@@ -446,12 +459,15 @@ impl ScenePathWorld {
             streaming_radius_limit: None,
             map_placement: Default::default(),
             stage_exit: Default::default(),
+            map_presentation: Default::default(),
             strategy_clock: 0,
             scene: ScenePathInputs::default(),
             primary_player: None,
             secondary_player: None,
             stage_layout: None,
             scenario_flags: None,
+            scene_gate_flags: None,
+            scene_display_flags: None,
             excluded_actor: None,
             map_target_position: None,
             proximity_distance_seed: None,

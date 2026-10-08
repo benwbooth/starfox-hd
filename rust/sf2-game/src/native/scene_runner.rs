@@ -31,6 +31,8 @@ pub enum SceneRunError<E> {
     MissingSpawnDefaults,
     MissingSecondaryMarkerPolicy,
     InvalidRefreshSchedule,
+    /// The frame's map dispatch ($03:8FC9) faulted.
+    Map(super::scene_map::MapError<super::map_effects::MapHostError>),
 }
 
 impl<E> From<SceneError<E>> for SceneRunError<E> {
@@ -109,7 +111,32 @@ impl<C: SceneCallbacks> SceneRunner<C> {
         host.advance_player_palette()?;
         frame_background::publish(host.objects, host.world, &mut host.execution.paths.runtime)
             .map_err(SceneRunError::Background)?;
+        self.dispatch_map()?;
         Ok(())
+    }
+
+    /// The frame's map dispatch (`$03:8FC9`) from the map's live cursor. A
+    /// parked hold re-yields each frame; a restored continuation runs on.
+    fn dispatch_map(&mut self) -> Result<(), SceneRunError<C::Error>> {
+        const MAP_COMMAND_BUDGET: usize = 256;
+        let Some(mut map) = self.world.map.take() else {
+            return Ok(());
+        };
+        let catalog = super::authored_maps::catalog()
+            .map_err(|error| SceneRunError::Map(super::scene_map::MapError::Catalog(error)))?;
+        let mut presentation = self.world.map_presentation;
+        let result = super::map_effects::visit(
+            &mut map,
+            &catalog,
+            &mut self.objects,
+            &mut self.world,
+            Some(&mut self.execution.paths.runtime.resources),
+            &mut presentation,
+            MAP_COMMAND_BUDGET,
+        );
+        self.world.map_presentation = presentation;
+        self.world.map = Some(map);
+        result.map(|_| ()).map_err(SceneRunError::Map)
     }
 
     /// The ordered collision pass during rendering (`$7F:402D`): deferred

@@ -85,7 +85,7 @@ pub fn step(
             let outcome = begin(objects, world, owner)?;
             if outcome != EntryOutcome::Retry {
                 // The source falls through into the wait in the same visit.
-                wait(objects, world, owner)?;
+                wait(objects, world, resources, owner)?;
             }
             Ok(Some(outcome))
         }
@@ -97,11 +97,11 @@ pub fn step(
                 .hostile_counts = Default::default();
             let outcome = begin(objects, world, owner)?;
             if outcome != EntryOutcome::Retry {
-                wait(objects, world, owner)?;
+                wait(objects, world, resources, owner)?;
             }
             Ok(Some(outcome))
         }
-        SceneEntryPhase::Wait => wait(objects, world, owner).map(|()| None),
+        SceneEntryPhase::Wait => wait(objects, world, resources, owner).map(|()| None),
     }
 }
 
@@ -142,6 +142,7 @@ pub fn begin(
 pub fn wait(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
+    resources: &mut ProgramResources<ProgramData>,
     owner: ObjectId,
 ) -> Result<(), SceneEntryError> {
     player_camera_dispatch::advance_projection(objects, world, owner)
@@ -154,7 +155,7 @@ pub fn wait(
     if gate_closed(world)? {
         return Err(SceneEntryError::UnportedWaitExit);
     }
-    player_action_wait::advance_action_tail(objects, world, owner)
+    player_action_wait::advance_action_tail(objects, world, resources, owner)
         .map_err(SceneEntryError::Action)
 }
 

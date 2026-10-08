@@ -17,20 +17,20 @@ use sf2_game::{
 };
 use sf_oracle::RetailMachine;
 
-const RETAIL: u32 = 0x7E0000;
-const VIEW: u16 = 0x033F;
-const POOL: u16 = 0x03BD;
-const STRIDE: u16 = 0x3F;
-const EPOCH: u32 = 0x7F34E7;
-const INITIALIZER: u32 = 0x0682F9;
-const INITIALIZER_RETURN: u32 = 0x06832B;
-const REFRESH: u32 = 0x7F058F;
-const RANDOM_DRAW: u32 = 0x7F7BD4;
-const RANDOM_RETURN: u32 = 0x7F7BE7;
+pub(super) const RETAIL: u32 = 0x7E0000;
+pub(super) const VIEW: u16 = 0x033F;
+pub(super) const POOL: u16 = 0x03BD;
+pub(super) const STRIDE: u16 = 0x3F;
+pub(super) const EPOCH: u32 = 0x7F34E7;
+pub(super) const INITIALIZER: u32 = 0x0682F9;
+pub(super) const INITIALIZER_RETURN: u32 = 0x06832B;
+pub(super) const REFRESH: u32 = 0x7F058F;
+pub(super) const RANDOM_DRAW: u32 = 0x7F7BD4;
+pub(super) const RANDOM_RETURN: u32 = 0x7F7BE7;
 /// The scene paths' inline reseed ($44:B13C, executed through its CPU banks).
-const RESEEDS: [u32; 4] = [0x09B13D, 0x44B13D, 0x89B13D, 0xC4B13D];
+pub(super) const RESEEDS: [u32; 4] = [0x09B13D, 0x44B13D, 0x89B13D, 0xC4B13D];
 
-struct Callbacks;
+pub(super) struct Callbacks;
 impl SceneCallbacks for Callbacks {
     type Error = &'static str;
     fn assigned(_: &mut SceneActors<'_, Self>, _: ObjectId) -> Result<StrategyCompletion, Self::Error> {
@@ -47,15 +47,15 @@ impl SceneCallbacks for Callbacks {
     }
 }
 
-fn byte(m: &RetailMachine, address: u16) -> u8 {
+pub(super) fn byte(m: &RetailMachine, address: u16) -> u8 {
     m.peek8(RETAIL + u32::from(address))
 }
 
-fn word(m: &RetailMachine, address: u16) -> u16 {
+pub(super) fn word(m: &RetailMachine, address: u16) -> u16 {
     m.peek16(RETAIL + u32::from(address))
 }
 
-fn vector(m: &RetailMachine, base: u16) -> Vector3 {
+pub(super) fn vector(m: &RetailMachine, base: u16) -> Vector3 {
     Vector3 {
         x: word(m, base + 0x0C) as i16,
         y: word(m, base + 0x0E) as i16,
@@ -63,7 +63,7 @@ fn vector(m: &RetailMachine, base: u16) -> Vector3 {
     }
 }
 
-fn retail_list(m: &RetailMachine) -> Vec<u16> {
+pub(super) fn retail_list(m: &RetailMachine) -> Vec<u16> {
     let mut list = Vec::new();
     let mut cursor = word(m, 0x12A8);
     while cursor != 0 {
@@ -304,7 +304,7 @@ fn run_scene(
 type Poses = ((Vector3, [Angle; 3]), Vector3);
 
 /// The initializer's records, decoded from the retail allocation.
-fn compare_initialized_player(
+pub(super) fn compare_initialized_player(
     m: &RetailMachine,
     runner: &SceneRunner<Callbacks>,
     player: ObjectId,
@@ -345,7 +345,7 @@ fn compare_initialized_player(
     assert_eq!(runner.world.scene.player_configuration, Some(byte(m, 0x1DE2)));
 }
 
-fn compare(m: &RetailMachine, runner: &SceneRunner<Callbacks>, view: ObjectId, epoch: u32) {
+pub(super) fn compare(m: &RetailMachine, runner: &SceneRunner<Callbacks>, view: ObjectId, epoch: u32) {
     let retail = retail_list(m);
     let native: Vec<ObjectId> = runner
         .objects

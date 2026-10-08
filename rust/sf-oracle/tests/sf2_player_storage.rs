@@ -103,6 +103,8 @@ mod scene_five_tests;
 mod scene_six_tests;
 #[path = "support/sf2_attract_scene.rs"]
 mod attract_scene_tests;
+#[path = "support/sf2_star_wolf_scene.rs"]
+mod star_wolf_scene_tests;
 
 #[path = "support/sf2_scene_twentyfive.rs"]
 mod scene_twentyfive_tests;

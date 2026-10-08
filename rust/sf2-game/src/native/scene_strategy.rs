@@ -1389,7 +1389,7 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
-        let result = super::player_visit::begin(self.objects, self.world, owner, input)
+        let result = super::player_visit::begin(self.objects, self.world, &mut self.execution.paths.runtime.resources, owner, input)
             .map_err(SceneError::PlayerVisit);
         if result.is_err() {
             self.execution.faulted = true;
@@ -1450,7 +1450,7 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
         }
-        let result = super::player_action::advance(self.objects, self.world, owner, input)
+        let result = super::player_action::advance(self.objects, self.world, &mut self.execution.paths.runtime.resources, owner, input)
             .map_err(SceneError::PlayerAction);
         if result.is_err() {
             self.execution.faulted = true;

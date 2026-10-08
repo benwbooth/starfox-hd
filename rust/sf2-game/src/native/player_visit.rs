@@ -72,6 +72,7 @@ fn control(
 pub fn begin(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
+    resources: &mut super::program_resources::ProgramResources<super::program_state::ProgramData>,
     owner: ObjectId,
     input: InputState,
 ) -> Result<(), PlayerVisitError> {
@@ -175,7 +176,7 @@ pub fn begin(
     if paused {
         world.bind_shots(objects, owner, ActiveShots::from_count(0))?;
     }
-    player_action::advance(objects, world, owner, input).map_err(PlayerVisitError::Action)?;
+    player_action::advance(objects, world, resources, owner, input).map_err(PlayerVisitError::Action)?;
 
     world.scene.active_shield = Some(
         world

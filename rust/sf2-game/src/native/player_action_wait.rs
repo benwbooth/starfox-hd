@@ -121,9 +121,9 @@ pub fn step(
         .flags
         .collision_disabled = true;
     if phase == ActionWaitPhase::Resetting {
-        return advance_action_tail(objects, world, owner);
+        return advance_action_tail(objects, world, resources, owner);
     }
-    sample_and_advance(objects, world, owner)
+    sample_and_advance(objects, world, resources, owner)
 }
 
 /// Shared tail (`$06:84BE..84EE`): sample the visiting player's raw input,
@@ -132,15 +132,17 @@ pub fn step(
 pub fn advance_action_tail(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
+    resources: &mut super::program_resources::ProgramResources<super::program_state::ProgramData>,
     owner: ObjectId,
 ) -> Result<(), ActionWaitError> {
-    sample_and_advance(objects, world, owner)?;
+    sample_and_advance(objects, world, resources, owner)?;
     player_palette::advance_primary(objects, world).map_err(ActionWaitError::Palette)
 }
 
 fn sample_and_advance(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
+    resources: &mut super::program_resources::ProgramResources<super::program_state::ProgramData>,
     owner: ObjectId,
 ) -> Result<(), ActionWaitError> {
     let side = objects
@@ -156,7 +158,7 @@ fn sample_and_advance(
     let input =
         world.controller_inputs[controller].ok_or(ActionWaitError::MissingController(side))?;
     world.processed_player_input = Some(input);
-    player_action::advance(objects, world, owner, input).map_err(ActionWaitError::Action)
+    player_action::advance(objects, world, resources, owner, input).map_err(ActionWaitError::Action)
 }
 
 #[cfg(test)]

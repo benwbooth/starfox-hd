@@ -82,6 +82,10 @@ impl PathScratchBytes {
     pub fn get(&self, cell: ScratchCell) -> u8 {
         self.cells[cell.slot()].remaining
     }
+
+    pub fn set(&mut self, cell: ScratchCell, value: u8) {
+        self.cells[cell.slot()].remaining = value;
+    }
 }
 
 #[cfg(test)]

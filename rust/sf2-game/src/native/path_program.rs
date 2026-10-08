@@ -14908,7 +14908,7 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 288);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 289);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
         assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 16406);
         assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 16465);

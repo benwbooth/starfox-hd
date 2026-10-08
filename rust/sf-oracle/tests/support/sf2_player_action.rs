@@ -33,6 +33,7 @@ pub(super) fn action_address(action: Option<PlayerAction>) -> u16 {
             AuthoredSceneAction::Scene7 => 0xBEC2,
             AuthoredSceneAction::Scene9 => 0xC191,
             AuthoredSceneAction::Scene25 => 0xBEBB,
+            AuthoredSceneAction::Scene29 => 0xBDF9,
         },
     }
 }
@@ -194,6 +195,8 @@ impl Fixture {
         player_action::advance(
             &mut self.objects,
             &mut self.world,
+            // These streams never read player storage.
+            &mut sf2_game::program_resources::ProgramResources::default(),
             self.owner,
             InputState {
                 held: Buttons::from_bits(Button::X as u16),

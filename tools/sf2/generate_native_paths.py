@@ -31,6 +31,7 @@ ROOTS = (
     ("SCENE_FOUR", PathAddress(0xD48C)),
     ("SCENE_TWENTY_FIVE", PathAddress(0xD490)),
     ("SCENE_SIX", PathAddress(0xFA11)),
+    ("SCENE_TWENTY_NINE", PathAddress(0xB8D2)),
     ("ORDINARY_SCENE_EXIT", PathAddress(0xCF18)),
     ("SPECIAL_SCENE_EXIT", PathAddress(0xD27B)),
     ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
@@ -2801,6 +2802,7 @@ INDEXED_SCENES = {
     0xD48C: ((4, 0x0DBEB4, '8cd4b4be0d000000', False),),
     0xD490: ((25, 0x0DBEBB, '90d4bbbe0d000000', False),),
     0xFA11: ((6, 0x0DBEDF, '11fadfbe0d000000', False),),
+    0xB8D2: ((29, 0x0DBDF9, 'd2b8f9bd0d000000', False),),
 }
 
 

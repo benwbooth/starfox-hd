@@ -414,7 +414,7 @@ fn original_scene_wait_clears_entry_mode_and_runs_action_tail_or_faults_closed_g
                 seed_input(&mut f.source, words, side);
                 for visit in 0..3 {
                     let result =
-                        player_scene_entry::wait(&mut f.objects, &mut f.world, f.owner);
+                        player_scene_entry::wait(&mut f.objects, &mut f.world, &mut f.runtime.resources, f.owner);
                     if gate == 0 {
                         f.source.run(0x0684A2, Some(0x0684EF), 0, OWNER, true);
                         assert_eq!(result, Err(SceneEntryError::UnportedWaitExit));

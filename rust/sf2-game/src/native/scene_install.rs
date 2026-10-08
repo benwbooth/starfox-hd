@@ -23,6 +23,8 @@ const SCENE_FOUR_COMPANION_SEED: u16 = 0;
 const SCENE_TWENTY_FIVE_COMPANION_SEED: u16 = 0;
 const SCENE_THREE_COMPANION_SEED: u16 = 0;
 const SCENE_NINE_COMPANION_SEED: u16 = 4096;
+const SCENE_TWENTY_NINE: u8 = 29;
+const SCENE_TWENTY_NINE_COMPANION_SEED: u16 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneInstallError {
@@ -125,6 +127,11 @@ pub fn install(
             super::authored_paths::SCENE_TWENTY_FIVE,
             AuthoredSceneAction::Scene25,
             SCENE_TWENTY_FIVE_COMPANION_SEED,
+        ),
+        SCENE_TWENTY_NINE => (
+            super::authored_paths::SCENE_TWENTY_NINE,
+            AuthoredSceneAction::Scene29,
+            SCENE_TWENTY_NINE_COMPANION_SEED,
         ),
         _ => {
             return Err(SceneInstallError::UnsupportedScene {

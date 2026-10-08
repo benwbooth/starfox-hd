@@ -55,6 +55,10 @@ pub enum AuthoredSceneAction {
     Scene9,
     /// Record 25, `$0D:BEBB`: request the next scene at update 124.
     Scene25,
+    /// Record 29, `$0D:BDF9`: the Star Wolf interception's opening. Scripted
+    /// view and the HUD hold until 115, the gate clears at 110, the reticle
+    /// returns at 113/115 and the stream stops from 115.
+    Scene29,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +152,7 @@ enum ActionTiming {
     Always,
     At(u16),
     Interval { start: u16, end: u16 },
+    From(u16),
 }
 
 impl ActionTiming {
@@ -156,6 +161,7 @@ impl ActionTiming {
             Self::Always => true,
             Self::At(at) => elapsed == at,
             Self::Interval { start, end } => (start..end).contains(&elapsed),
+            Self::From(start) => elapsed >= start,
         }
     }
 }
@@ -189,6 +195,24 @@ enum ActionService {
     FlashPalette,
     /// `$0D:C82F`: advance the shared action gate and restart total updates.
     AdvanceActionGate,
+    /// `$0D:CAA8`: hold the HUD (1B96 bit 40) and disable the reticle.
+    HoldHud,
+    /// `$0D:CA80`: release the HUD hold, mark display flag 1B9C bit 08 and
+    /// enable the reticle.
+    ReleaseHud,
+    /// `$0D:CABD` / `$0D:CAC8`: the shared reticle-enable bit (1E2F bit 80).
+    SetReticle(bool),
+    /// `$0D:C876` / `$0D:C881`: auxiliary action bit 01 (6B77).
+    SetActionBit01(bool),
+    /// `$0D:C9C0`: scripted-view mode bit 0010 on, HUD ready bit (1B96
+    /// bit 04) off.
+    HoldScriptedView,
+    /// `$0D:C9E4`: the reverse of `HoldScriptedView`.
+    ReleaseScriptedView,
+    /// `$0D:C93F`: the shield display step (`$07:AF5B`).
+    AdvanceShieldDisplay,
+    /// `$0D:C83F`: clear the shared action gate (1D72).
+    ClearActionGate,
 }
 
 /// Live colors 113..116 written by `$07:EF8D`.
@@ -246,6 +270,28 @@ const SCENE_FIVE_SERVICES: [(ActionTiming, ActionService); 2] = [
         ActionService::RequestSceneExit,
     ),
 ];
+/// Display flag word 1B9C bit 08, set by `$0D:CA80`.
+const DISPLAY_FLAG_08: u16 = 0x0008;
+const ACTION_BIT_01: u8 = 0x01;
+/// Shared mode word bit 0010 (scripted view).
+const SCRIPTED_VIEW_MODE: u16 = 0x0010;
+const SCENE_TWENTY_NINE_RELEASE: u16 = 115;
+
+// Source order of `$0D:BDF9`'s eleven timed services.
+const SCENE_TWENTY_NINE_SERVICES: [(ActionTiming, ActionService); 11] = [
+    (ActionTiming::At(0), ActionService::HoldHud),
+    (ActionTiming::At(0), ActionService::SetActionBit01(false)),
+    (ActionTiming::At(SCENE_TWENTY_NINE_RELEASE), ActionService::SetActionBit01(true)),
+    (interval(0, SCENE_TWENTY_NINE_RELEASE), ActionService::HoldScriptedView),
+    (ActionTiming::At(SCENE_TWENTY_NINE_RELEASE), ActionService::ReleaseScriptedView),
+    (ActionTiming::At(SCENE_TWENTY_NINE_RELEASE), ActionService::SetReticle(true)),
+    (ActionTiming::At(113), ActionService::ReleaseHud),
+    (ActionTiming::At(113), ActionService::SetReticle(false)),
+    (ActionTiming::At(0), ActionService::AdvanceShieldDisplay),
+    (ActionTiming::At(110), ActionService::ClearActionGate),
+    (ActionTiming::From(SCENE_TWENTY_NINE_RELEASE), ActionService::Stop),
+];
+
 const fn interval(start: u16, end: u16) -> ActionTiming {
     ActionTiming::Interval { start, end }
 }
@@ -306,7 +352,12 @@ pub enum PlayerActionError {
     MissingCameraDispatch(ObjectId),
     MissingCampaignPhase,
     MissingActionGate,
+    MissingSceneGateFlags,
+    MissingSceneDisplayFlags,
+    MissingViewMode,
     Palette(super::player_palette::PaletteError),
+    /// The shield display service ($07:AF5B) lacked one of its inputs.
+    ShieldDisplay,
 }
 
 impl From<WorldInputError> for PlayerActionError {
@@ -330,6 +381,7 @@ fn state<'a>(
 pub fn advance(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
+    resources: &mut super::program_resources::ProgramResources<super::program_state::ProgramData>,
     owner: ObjectId,
     input: InputState,
 ) -> Result<(), PlayerActionError> {
@@ -355,6 +407,7 @@ pub fn advance(
             AuthoredSceneAction::Scene7 => &SCENE_SEVEN_SERVICES,
             AuthoredSceneAction::Scene9 => &[],
             AuthoredSceneAction::Scene25 => &SCENE_TWENTY_FIVE_SERVICES,
+            AuthoredSceneAction::Scene29 => &SCENE_TWENTY_NINE_SERVICES,
         },
     };
     for &(timing, service) in services {
@@ -481,6 +534,67 @@ pub fn advance(
                     .ok_or(PlayerActionError::MissingActionGate)?;
                 gate.code = gate.code.wrapping_add(1);
                 state(objects, world, owner)?.total_updates = 0;
+            }
+            ActionService::HoldHud => {
+                world
+                    .scene_gate_flags
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingSceneGateFlags)?
+                    .hud_held = true;
+                world.reticle_enabled = Some(false);
+            }
+            ActionService::ReleaseHud => {
+                world
+                    .scene_gate_flags
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingSceneGateFlags)?
+                    .hud_held = false;
+                *world
+                    .scene_display_flags
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingSceneDisplayFlags)? |= DISPLAY_FLAG_08;
+                world.reticle_enabled = Some(true);
+            }
+            ActionService::SetReticle(enabled) => world.reticle_enabled = Some(enabled),
+            ActionService::SetActionBit01(set) => {
+                let auxiliary = world
+                    .player_mut(objects, owner)?
+                    .auxiliary
+                    .as_mut()
+                    .ok_or(WorldInputError::MissingAuxiliary(owner))?;
+                if set {
+                    auxiliary.action_flags |= ACTION_BIT_01;
+                } else {
+                    auxiliary.action_flags &= !ACTION_BIT_01;
+                }
+            }
+            ActionService::HoldScriptedView | ActionService::ReleaseScriptedView => {
+                let hold = service == ActionService::HoldScriptedView;
+                let mode = world
+                    .view_transition_mode
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingViewMode)?;
+                if hold {
+                    mode.flags |= SCRIPTED_VIEW_MODE;
+                } else {
+                    mode.flags &= !SCRIPTED_VIEW_MODE;
+                }
+                world
+                    .scene_gate_flags
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingSceneGateFlags)?
+                    .hud_ready = !hold;
+            }
+            ActionService::AdvanceShieldDisplay => {
+                super::player_status::advance_shield(objects, world, resources, owner)
+                    .map_err(|_| PlayerActionError::ShieldDisplay)?
+            }
+            ActionService::ClearActionGate => {
+                world
+                    .action_gate
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingActionGate)?
+                    .code = 0
             }
             ActionService::DisableProjectionCorrection => {
                 world

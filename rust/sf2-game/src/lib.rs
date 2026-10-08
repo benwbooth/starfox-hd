@@ -15,6 +15,7 @@ pub use native::path_exit;
 pub use native::path_invocation;
 pub use native::{path_countdown, path_death, path_protection, weapon_reflection};
 pub use native::path_shots;
+pub use native::path_score;
 pub use native::positional_audio;
 pub use native::scene_path_world;
 pub use native::scene_map;
