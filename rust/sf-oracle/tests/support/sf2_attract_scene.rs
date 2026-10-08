@@ -147,6 +147,7 @@ fn run_scene(
         &map_catalog,
         &mut objects,
         &mut world,
+        None,
         &mut presentation,
         64,
     )
@@ -207,6 +208,7 @@ fn run_scene(
             &map_catalog,
             &mut runner.objects,
             world,
+            Some(&mut runner.execution.paths.runtime.resources),
             &mut presentation,
             64,
         )

@@ -445,6 +445,9 @@ pub struct ScenePathInputs {
     /// Published wingmate pilot byte ($1E70), refreshed during pilot exchange
     /// and set to 255 when absent. Not the path-selected actor identity.
     pub wingmate_pilot: Option<u8>,
+    /// Player-configuration variant ($1DE3); bit 80 selects the alternate
+    /// first word of the configuration record ($06:85F9).
+    pub player_configuration_variant: Option<u8>,
     /// Scene-entry heading ($1BA9), published from the selected map actor's
     /// heading at $04:B11B. Not the current player's or camera's yaw.
     pub entry_heading: Option<u8>,

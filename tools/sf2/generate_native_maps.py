@@ -50,6 +50,8 @@ BYTE_STORES = {
     0x1D57: lambda v: f"MapEffect::Presentation(PresentationByte::PlayerCountLatch, {v})",
     0x1E13: lambda v: f"MapEffect::PlayerCarryMode({v})",
     0x1DE2: lambda v: f"MapEffect::PlayerConfiguration({v})",
+    0x1DE3: lambda v: f"MapEffect::PlayerConfigurationVariant({v})",
+    0x1DEA: lambda v: f"MapEffect::PlacementHeading({v})",
 }
 WORD_STORES = {
     0x1E44: lambda v: f"MapEffect::CameraProjectionBase({signed(v)})",
@@ -58,6 +60,9 @@ WORD_STORES = {
     0x1E0F: lambda v: f"MapEffect::EnvironmentPlane({signed(v)})",
     0x18B9: lambda v: f"MapEffect::RenderPlane({signed(v)})",
     0x7ED739: lambda v: f"MapEffect::StreamingRadiusLimit({v})",
+    0x1DE4: lambda v: f"MapEffect::PlacementCoordinate(Axis::X, {signed(v)})",
+    0x1DE6: lambda v: f"MapEffect::PlacementCoordinate(Axis::Y, {signed(v)})",
+    0x1DE8: lambda v: f"MapEffect::PlacementCoordinate(Axis::Z, {signed(v)})",
 }
 # Scene-player initializers for the primary ($06:82F9) and secondary
 # ($06:82ED) hit sides.
@@ -101,6 +106,7 @@ ARGUMENT_CALLS = {
         f"up: {_signed_byte(v[0x02])}, down: {_signed_byte(v[0x04])} }})")),
 }
 PLAIN_CALLS = {
+    0x069A92: "MapEffect::PlacePrimaryPlayer",
     0x069B04: "MapEffect::OccupancyExempt(true)",
     0x069B20: "MapEffect::OccupancyExempt(false)",
 }
@@ -395,6 +401,7 @@ def lower(rom: bytes, errors: list | None = None) -> str:
         + "};",
         *(["use super::map_streaming::MapRegion;"] if "MapRegion {" in body else []),
         *(["use super::player_vertical::VerticalProfile;"] if "VerticalProfile {" in body else []),
+        *(["use super::path_fields::Axis;"] if "Axis::" in body else []),
         *(["use super::player_camera_angles::CameraPitchProfile;"] if "CameraPitchProfile {" in body else []),
         "use super::scene_map::{",
         "    CatalogError, MapActorSpawn, MapCatalog, MapCondition, MapCursor, MapInstruction, PhaseExit,",

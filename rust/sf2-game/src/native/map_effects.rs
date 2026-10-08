@@ -80,6 +80,24 @@ pub enum MapEffect {
     PlayerConfiguration(u8),
     /// D739: the map-record streaming radius ceiling.
     StreamingRadiusLimit(u16),
+    /// 1DE3: the player-configuration variant (bit 80 selects the record's
+    /// alternate first word at `$06:85F9`).
+    PlayerConfigurationVariant(u8),
+    /// 1DE4/1DE6/1DE8: one coordinate of the mission-entry placement.
+    PlacementCoordinate(super::path_fields::Axis, i16),
+    /// 1DEA: the mission-entry heading.
+    PlacementHeading(u8),
+    /// `$06:9A92`: place the primary player at the mission-entry placement.
+    PlacePrimaryPlayer,
+}
+
+/// The mission-entry placement (1DE4..1DEA) written by map records.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct MapPlacement {
+    pub x: Option<i16>,
+    pub y: Option<i16>,
+    pub z: Option<i16>,
+    pub heading: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +178,11 @@ pub enum MapHostError {
     MissingPlayerVertical,
     MissingPlayerCameraAngles,
     MissingCameraHeightLimits,
+    IncompletePlacement,
+    MissingProgramResources,
+    MissingPlayerStorage,
+    MissingPlayerAuxiliary,
+    MissingFixedView,
 }
 
 /// The scene world as seen by map records. Continuations are returned to
@@ -167,11 +190,50 @@ pub enum MapHostError {
 pub struct MapWorld<'a> {
     pub objects: &'a mut ObjectStore,
     pub world: &'a mut ScenePathWorld,
+    /// Program resources holding player storage, for player placement.
+    pub resources: Option<&'a mut super::program_resources::ProgramResources<super::program_state::ProgramData>>,
     pub presentation: &'a mut MapPresentation,
     pub continuation: Option<MapCursor>,
 }
 
 impl MapWorld<'_> {
+    /// `$06:9A92`: the player's position and heading, its storage heading
+    /// (6ABC), and the opposite heading in its stored rotation (6B34) and
+    /// the fixed view's coarse yaw (033F byte 15).
+    fn place_primary_player(&mut self) -> Result<(), MapHostError> {
+        let MapPlacement { x: Some(x), y: Some(y), z: Some(z), heading: Some(heading) } =
+            self.world.map_placement
+        else {
+            return Err(MapHostError::IncompletePlacement);
+        };
+        let owner = self.world.primary_player.ok_or(MapHostError::MissingPrimaryPlayer)?;
+        let view = self.world.fixed_players[0].ok_or(MapHostError::MissingFixedView)?;
+        let resources = self.resources.as_deref_mut().ok_or(MapHostError::MissingProgramResources)?;
+        let storage = super::player_storage::get_mut(self.objects, resources, owner)
+            .map_err(|_| MapHostError::MissingPlayerStorage)?;
+        storage.fine_yaw = (storage.fine_yaw & 0x00FF) | (u16::from(heading) << 8);
+        let opposite = heading.wrapping_neg();
+        self.world
+            .player_mut(self.objects, owner)
+            .map_err(MapHostError::PlayerRecords)?
+            .auxiliary
+            .as_mut()
+            .ok_or(MapHostError::MissingPlayerAuxiliary)?
+            .stored_rotation
+            .yaw = super::Angle::from_units(opposite);
+        let player = self
+            .objects
+            .get_mut(owner)
+            .ok_or(MapHostError::MissingCurrentActor(owner))?;
+        player.base.position = super::Vector3 { x, y, z };
+        player.base.yaw = super::Angle::from_units(heading);
+        let view = self.objects.get_mut(view).ok_or(MapHostError::MissingCurrentActor(view))?;
+        let mut angles = super::view_transition::FixedViewAngles::capture(view);
+        angles.yaw = (angles.yaw & 0x00FF) | (u16::from(opposite) << 8);
+        angles.write_to(view);
+        Ok(())
+    }
+
     fn primary_records(
         &mut self,
     ) -> Result<&mut super::scene_path_world::PlayerPathRecords, MapHostError> {
@@ -330,6 +392,19 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
                 self.world.scene.player_configuration = Some(configuration)
             }
             MapEffect::StreamingRadiusLimit(limit) => self.world.streaming_radius_limit = Some(limit),
+            MapEffect::PlayerConfigurationVariant(variant) => {
+                self.world.scene.player_configuration_variant = Some(variant)
+            }
+            MapEffect::PlacementCoordinate(axis, value) => {
+                let placement = &mut self.world.map_placement;
+                *match axis {
+                    super::path_fields::Axis::X => &mut placement.x,
+                    super::path_fields::Axis::Y => &mut placement.y,
+                    super::path_fields::Axis::Z => &mut placement.z,
+                } = Some(value);
+            }
+            MapEffect::PlacementHeading(heading) => self.world.map_placement.heading = Some(heading),
+            MapEffect::PlacePrimaryPlayer => self.place_primary_player()?,
             MapEffect::ResetSceneDisplay => {
                 const RESET_SCENE_STYLE: u8 = 2;
                 presentation.display_mode = Some(DisplayModeRequest::Scene);
@@ -394,12 +469,14 @@ pub fn visit(
     catalog: &MapCatalog<'_, MapEffect, MapSpawn>,
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
+    resources: Option<&mut super::program_resources::ProgramResources<super::program_state::ProgramData>>,
     presentation: &mut MapPresentation,
     budget: usize,
 ) -> Result<super::scene_map::MapReport, super::scene_map::MapError<MapHostError>> {
     let mut host = MapWorld {
         objects,
         world,
+        resources,
         presentation,
         continuation: None,
     };
@@ -436,6 +513,7 @@ mod tests {
         let mut host = MapWorld {
             objects: &mut objects,
             world: &mut world,
+            resources: None,
             presentation: &mut presentation,
             continuation: None,
         };
@@ -464,6 +542,7 @@ mod tests {
         let mut host = MapWorld {
             objects: &mut objects,
             world: &mut world,
+            resources: None,
             presentation: &mut presentation,
             continuation: None,
         };
@@ -488,6 +567,7 @@ mod tests {
         let host = MapWorld {
             objects: &mut objects,
             world: &mut world,
+            resources: None,
             presentation: &mut presentation,
             continuation: None,
         };
@@ -499,6 +579,7 @@ mod tests {
         let host = MapWorld {
             objects: &mut objects,
             world: &mut world,
+            resources: None,
             presentation: &mut presentation,
             continuation: None,
         };
@@ -515,6 +596,7 @@ mod tests {
         let mut host = MapWorld {
             objects: &mut objects,
             world: &mut world,
+            resources: None,
             presentation: &mut presentation,
             continuation: None,
         };
@@ -530,5 +612,30 @@ mod tests {
         );
         assert_eq!(world.camera_height_limits, Some((-600, 15)));
         assert_eq!(world.streaming_radius_limit, Some(4000));
+    }
+
+    #[test]
+    fn primary_player_placement_needs_every_placement_store() {
+        use super::super::path_fields::Axis;
+        let mut objects = ObjectStore::new();
+        let mut world = world();
+        let mut presentation = MapPresentation::default();
+        let mut host = MapWorld {
+            objects: &mut objects,
+            world: &mut world,
+            resources: None,
+            presentation: &mut presentation,
+            continuation: None,
+        };
+        host.apply(&MapEffect::PlacementCoordinate(Axis::X, 256)).unwrap();
+        host.apply(&MapEffect::PlacementCoordinate(Axis::Y, -140)).unwrap();
+        host.apply(&MapEffect::PlacementCoordinate(Axis::Z, 20)).unwrap();
+        assert_eq!(host.apply(&MapEffect::PlacePrimaryPlayer), Err(MapHostError::IncompletePlacement));
+        host.apply(&MapEffect::PlacementHeading(0x40)).unwrap();
+        assert_eq!(host.apply(&MapEffect::PlacePrimaryPlayer), Err(MapHostError::MissingPrimaryPlayer));
+        assert_eq!(
+            world.map_placement,
+            MapPlacement { x: Some(256), y: Some(-140), z: Some(20), heading: Some(0x40) }
+        );
     }
 }

@@ -190,6 +190,8 @@ pub struct ScenePathWorld {
     pub region_groups: Option<super::map_streaming::RegionGroups>,
     /// D739: the map-authored streaming radius ceiling.
     pub streaming_radius_limit: Option<u16>,
+    /// 1DE4..1DEA: the map-authored mission-entry placement.
+    pub map_placement: super::map_effects::MapPlacement,
     pub strategy_clock: u16,
     pub scene: ScenePathInputs,
     /// Live indexed scene request (1D73), separate from the map and action gate.
@@ -423,6 +425,7 @@ impl ScenePathWorld {
             map_regions: None,
             region_groups: None,
             streaming_radius_limit: None,
+            map_placement: Default::default(),
             strategy_clock: 0,
             scene: ScenePathInputs::default(),
             primary_player: None,
