@@ -815,6 +815,8 @@ fn target_initializer_matches_original_for_every_existing_control_and_shared_mod
                 yaw: 49159,
                 screen: [213, 179],
                 clipped_yaw: flags ^ mode,
+                compass_position: Vector3::default(),
+                compass_distance: 0,
             };
             source_target(&mut source, slot, initial, |_| OTHER);
             source.bus.write8(WRAM + 0x1AA6, mode);
@@ -1014,6 +1016,8 @@ fn scene_primary_target_selection_matches_both_original_entries_with_live_view_a
                         yaw: 40839,
                         screen: [173, 237],
                         clipped_yaw: !seed,
+                        compass_position: Vector3::default(),
+                        compass_distance: 0,
                     };
                     source_target(&mut source, slot, initial, pointer);
                     world

@@ -205,17 +205,36 @@ pub fn position(
         .ok_or(ReticleError::MissingView)?;
     let origin = view.extension.path_state.platform_carry.saved_position;
     world.marker_projection.published_view_angles = Some(FixedViewAngles::capture(view));
+    let projected = project_marker(world, [angles[0], angles[1]], aim, origin)?;
+    world
+        .target_reticle
+        .track_projected(projected)
+        .map_err(ReticleError::Position)
+}
+
+/// `$03:8E7E` and the GSU's individual-point projection: the point plus a
+/// 30-unit forward offset rotated by the marker actor's pitch then yaw,
+/// relative to the origin, through the retained view matrix.
+pub(super) fn project_marker(
+    world: &ScenePathWorld,
+    [pitch, yaw]: [Angle; 2],
+    point: super::Vector3,
+    origin: super::Vector3,
+) -> Result<[i16; 2], ReticleError> {
     let (vertical, forward) =
-        sf_core::snes_trig::rotate_8yz(angles[0].units(), 0, MARKER_FORWARD_OFFSET);
-    let (horizontal, forward) = sf_core::snes_trig::rotate_8xz(angles[1].units(), 0, forward as i8);
+        sf_core::snes_trig::rotate_8yz(pitch.units(), 0, MARKER_FORWARD_OFFSET);
+    let (horizontal, forward) = sf_core::snes_trig::rotate_8xz(yaw.units(), 0, forward as i8);
     let relative = [
-        aim.x
+        point
+            .x
             .wrapping_add(horizontal as i8 as i16)
             .wrapping_sub(origin.x),
-        aim.y
+        point
+            .y
             .wrapping_add(vertical as i8 as i16)
             .wrapping_sub(origin.y),
-        aim.z
+        point
+            .z
             .wrapping_add(forward as i8 as i16)
             .wrapping_sub(origin.z),
     ];
@@ -230,10 +249,7 @@ pub fn position(
         .viewport
         .ok_or(ReticleError::MissingViewport)?;
     let projected = project_individual_point([rotated.0, rotated.1, rotated.2], viewport);
-    world
-        .target_reticle
-        .track_projected([projected.x, projected.y])
-        .map_err(ReticleError::Position)
+    Ok([projected.x, projected.y])
 }
 
 #[cfg(test)]

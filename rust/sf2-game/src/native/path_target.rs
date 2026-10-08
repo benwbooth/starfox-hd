@@ -133,6 +133,10 @@ pub struct TargetSelection {
     pub yaw: u16,
     pub screen: [u8; 2],
     pub clipped_yaw: u8,
+    /// The nearest flagged map record beyond 2000 units (`$07:B117`, every
+    /// 32 frames): its position and distance, FFFF when none qualified.
+    pub compass_position: Vector3,
+    pub compass_distance: u16,
 }
 
 impl TargetSelection {
@@ -479,6 +483,8 @@ mod tests {
                             yaw: 17,
                             screen: [19, 23],
                             clipped_yaw: 29,
+                            compass_position: Vector3 { x: 31, y: -37, z: 41 },
+                            compass_distance: 43,
                         };
                         let mut expected = selection;
                         let accepted = flags & 16 == 0 && (forced || distance > 56);

@@ -170,6 +170,8 @@ fn encounter_feedback_gates_full_word_mode_and_preserves_every_other_hit_field()
         secondary_protection: 173,
         hold_secondary_protection: true,
         deflection_sound_cooldown: 251,
+        tint: [7, 11, 13],
+        tint_step: [2, 3, 5],
     };
     for mode in 0..=u16::MAX {
         for state in [0, 1, 255] {

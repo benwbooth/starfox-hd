@@ -102,6 +102,8 @@ impl Reader<'_> {
                     camera_pitch_recoil: self.word(0x6B3B) as i16,
                     reserve_shield: self.byte(0x6C00),
                     deflection_sound_cooldown: self.byte(0x6BE7),
+                    tint: [self.byte(0x6C0B), self.byte(0x6C0C), self.byte(0x6C0D)],
+                    tint_step: [self.byte(0x6C0E), self.byte(0x6C0F), self.byte(0x6C10)],
                 },
                 ignores_contacts: self.byte(0x6A72) & 0x10 != 0,
             }),
@@ -169,6 +171,7 @@ impl Reader<'_> {
                 origin: self.vector(0x6A92),
                 range: self.word(0x6A90) as i16,
                 positive_range: self.word(0x6C26),
+                progress: self.word(0x6C22),
                 limit: self.word(0x6C24),
                 axis_mode: self.byte(0x6C29),
                 control: self.byte(0x6C28),
@@ -187,6 +190,13 @@ impl Reader<'_> {
                 yaw: self.word(0x6BBE),
                 screen: [self.byte(0x6BAD), self.byte(0x6BAF)],
                 clipped_yaw: self.byte(0x6BC5),
+                // With no qualifying record the source copies stale scratch.
+                compass_position: if self.word(0x6BD8) == 0xFFFF {
+                    Vector3::default()
+                } else {
+                    self.vector(0x6BD2)
+                },
+                compass_distance: self.word(0x6BD8),
             }),
             target_lock: Some(TargetLock {
                 previous_candidate: self.object(0x6BC8),

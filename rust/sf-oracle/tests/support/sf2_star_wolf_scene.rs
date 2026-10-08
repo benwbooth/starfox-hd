@@ -219,6 +219,12 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
             sf2_game::path_control::PlayerTarget::Secondary
         },
     )));
+    world.targeting_upgrade =
+        Some(sf2_game::path_target::TargetingUpgradeState { pilot_flags: byte(m, 0x1DDD) });
+    world.target_reticle = sf2_game::player_target_lock::TargetReticle {
+        horizontal: Some(byte(m, 0x1E30)),
+        vertical: Some(byte(m, 0x1E31)),
+    };
     world.map_records = Some(sf2_game::map_streaming::MapRecordStore::new());
     world.map_regions = Some(Default::default());
     world.region_groups = Some(sf2_game::map_streaming::RegionGroups {
@@ -418,6 +424,10 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
             );
         }
         compare(&m, &runner, view, epoch);
+        // The render-view setup's matrix ($157C), used for marker projection.
+        let retail_matrix: [[i16; 3]; 3] =
+            std::array::from_fn(|row| std::array::from_fn(|column| word(&m, 0x157C + (row * 6 + column * 2) as u16) as i16));
+        assert_eq!(runner.world.marker_projection.view_matrix, Some(retail_matrix), "epoch {epoch}: view matrix");
         compare_player_records(
             &m,
             &runner,

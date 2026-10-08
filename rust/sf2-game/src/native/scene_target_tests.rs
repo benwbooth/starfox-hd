@@ -37,6 +37,8 @@ fn initial(owner: ObjectId, flags: u8) -> TargetSelection {
         yaw: 13967,
         screen: [109, 241],
         clipped_yaw: 173,
+        compass_position: Vector3 { x: 181, y: -191, z: 193 },
+        compass_distance: 197,
     }
 }
 

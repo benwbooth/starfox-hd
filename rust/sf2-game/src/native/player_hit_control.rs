@@ -57,6 +57,11 @@ pub struct PlayerHitControl {
     pub camera_pitch_recoil: i16,
     pub reserve_shield: u8,
     pub deflection_sound_cooldown: u8,
+    /// Hit-flash screen tint (6C0B..6C0D) and its per-visit decay
+    /// (6C0E..6C10), driven by the feedback service (`$07:B548`). The
+    /// feedback duration ends once all three components reach zero.
+    pub tint: [u8; 3],
+    pub tint_step: [u8; 3],
 }
 
 /// Shared reserve-shield replenishment request (1E1B), consumed by the next

@@ -151,6 +151,8 @@ pub fn clear(
             hit: super::player_hit_control::PlayerHitControl {
                 feedback_duration: contact.hit.feedback_duration,
                 feedback_flags: contact.hit.feedback_flags,
+                tint: contact.hit.tint,
+                tint_step: contact.hit.tint_step,
                 reserve_shield: contact.hit.reserve_shield,
                 ..Default::default()
             },
@@ -187,6 +189,7 @@ pub fn clear(
             axis_mode: target.axis_mode,
             control: target.control,
             axis_limits: target.axis_limits,
+            progress: target.progress,
             ..Default::default()
         }),
         target_selection: Some(Default::default()),

@@ -151,6 +151,8 @@ impl Check {
             },
             screen: case.screen,
             clipped_yaw: 173,
+            compass_position: Vector3::default(),
+            compass_distance: 0,
         };
         let target = self.target;
         source_target(&mut self.source, BASE, selection, |id| {

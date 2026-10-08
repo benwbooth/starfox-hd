@@ -21,6 +21,8 @@ const STATEMENT_BUDGET: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SceneRunError<E> {
+    HudTarget(super::hud_target::HudTargetError),
+    RenderView(super::render_view::RenderViewError),
     Scene(SceneError<E>),
     Schedule(ScheduleError<SceneError<E>>),
     Collision(CollisionError),
@@ -111,9 +113,24 @@ impl<C: SceneCallbacks> SceneRunner<C> {
         queue
             .detect(host.objects, &mut host.world.contacts, host.world.strategy_clock as u8)
             .map_err(SceneRunError::Collision)?;
+        super::render_view::setup(host.objects, host.world).map_err(SceneRunError::RenderView)?;
+        // `$03:D87D`: the hit-feedback countdown and the screen effect.
+        super::hud_target::advance_screen_effects(host.objects, host.world)
+            .map_err(SceneRunError::HudTarget)?;
         host.advance_player_palette()?;
         frame_background::publish(host.objects, host.world, &mut host.execution.paths.runtime)
             .map_err(SceneRunError::Background)?;
+        // `$07:AA8C`, then `$07:A326`: target mode, feedback, reticle and
+        // retention, and the candidate reset after drawing.
+        super::hud_target::advance_target_service(host.objects, host.world)
+            .map_err(SceneRunError::HudTarget)?;
+        super::hud_target::advance_target_mode(host.objects, host.world)
+            .map_err(SceneRunError::HudTarget)?;
+        super::hud_target::advance_feedback(host.objects, host.world)
+            .map_err(SceneRunError::HudTarget)?;
+        host.position_and_retain_primary_target()?;
+        super::hud_target::reset_candidate(host.objects, host.world)
+            .map_err(SceneRunError::HudTarget)?;
         self.dispatch_map()?;
         Ok(())
     }

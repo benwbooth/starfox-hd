@@ -176,6 +176,8 @@ fn run_scene(
     // The strategy pass skips the shared excluded actor (14D6).
     assert_eq!(word(m, 0x14D6), POOL + STRIDE);
     runner.execution.controls.excluded_actor = Some(idle);
+    // The same reserved actor is the display services' marker proxy.
+    runner.world.weapons.as_mut().unwrap().fallback = Some(idle);
     let catalog = authored_paths::catalog();
     // The initializer's visit runs inside the map hand-over. The map then
     // publishes the scene's selection and gate and the scene loader its
@@ -305,9 +307,9 @@ type Poses = ((Vector3, [Angle; 3]), Vector3);
 
 /// Decode the retail player allocation with the shared reader and compare
 /// every typed player record and the storage payload. With `display_owned`
-/// the records the per-frame display services own are excluded: target
-/// selection/lock/control ($07:AA8C, $07:A326) and the contact feedback
-/// countdown ($07:B548). Those frame services are not ported yet.
+/// the displayed shield (6C38) is excluded: its pending bit is acknowledged
+/// by the HUD's shield gauge ($04:95CB, in the HUD service $04:8301), which
+/// is not ported yet.
 pub(super) fn compare_player_records(
     m: &RetailMachine,
     runner: &SceneRunner<Callbacks>,
@@ -333,15 +335,6 @@ pub(super) fn compare_player_records(
     // The shared reader fixes this record to its own test convention; it
     // is not decoded from the allocation.
     retail.carried = native.carried;
-    if display_owned {
-        retail.target_control = native.target_control;
-        retail.target_selection = native.target_selection;
-        retail.target_lock = native.target_lock;
-        if let (Some(retail), Some(native)) = (retail.contact.as_mut(), native.contact) {
-            retail.hit.feedback_duration = native.hit.feedback_duration;
-            retail.hit.feedback_flags = native.hit.feedback_flags;
-        }
-    }
     if native != &retail {
         let mut diff = Vec::new();
         macro_rules! fields {

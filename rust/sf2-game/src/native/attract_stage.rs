@@ -99,6 +99,22 @@ pub fn boot_world() -> ScenePathWorld {
     world.camera_tracking = Some(Default::default());
     world.render_environment.ambient_control =
         Some(super::player_surface_render::AmbientParticleControl::from_bits(0));
+    // Display-service inputs: no objectives, node exit or targeting upgrade,
+    // the reticle off and centred, and no streamed map records yet.
+    world.objective_counts = Some(Default::default());
+    world.node_exit = super::player_node_exit::NodeExitState {
+        presentation_flags: Some(0),
+        completion_code: Some(0),
+    };
+    world.reticle_enabled = Some(false);
+    world.targeting_upgrade = Some(Default::default());
+    world.target_reticle = super::player_target_lock::TargetReticle {
+        horizontal: Some(0),
+        vertical: Some(0),
+    };
+    if world.map_records.is_none() {
+        world.map_records = Some(super::map_streaming::MapRecordStore::new());
+    }
     world
 }
 

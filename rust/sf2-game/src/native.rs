@@ -127,6 +127,8 @@ pub mod player_action_wait;
 pub mod player_scene_entry;
 pub mod player_strategy;
 pub mod player_death;
+pub mod render_view;
+pub mod hud_target;
 pub mod player_scene_init;
 pub mod attract_stage;
 pub mod authored_maps;

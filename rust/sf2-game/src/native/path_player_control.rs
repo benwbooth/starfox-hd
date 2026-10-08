@@ -34,6 +34,9 @@ pub struct PlayerTargetControl {
     pub origin: Vector3,
     pub range: i16,
     pub positive_range: u16,
+    /// Screen-effect progress (6C22): `$03:D9ED` advances it by the positive
+    /// range in mode 4 until it reaches the limit, then enters mode 6.
+    pub progress: u16,
     pub limit: u16,
     pub axis_mode: u8,
     pub control: u8,
@@ -209,6 +212,7 @@ mod tests {
             },
             range: -111,
             positive_range: 222,
+            progress: 0,
             limit: 333,
             axis_mode: 91,
             control: 127,
@@ -243,6 +247,7 @@ mod tests {
                             origin: position,
                             range: 0,
                             positive_range: 0,
+                            progress: 0,
                             limit: 255,
                             axis_mode: 3,
                             control: 31,
