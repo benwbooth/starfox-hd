@@ -188,6 +188,8 @@ pub struct ScenePathWorld {
     pub map_regions: Option<super::map_streaming::MapRegions>,
     /// 190E/190F: the current and previous region (allocation groups).
     pub region_groups: Option<super::map_streaming::RegionGroups>,
+    /// D739: the map-authored streaming radius ceiling.
+    pub streaming_radius_limit: Option<u16>,
     pub strategy_clock: u16,
     pub scene: ScenePathInputs,
     /// Live indexed scene request (1D73), separate from the map and action gate.
@@ -418,6 +420,7 @@ impl ScenePathWorld {
             map_records: None,
             map_regions: None,
             region_groups: None,
+            streaming_radius_limit: None,
             strategy_clock: 0,
             scene: ScenePathInputs::default(),
             primary_player: None,

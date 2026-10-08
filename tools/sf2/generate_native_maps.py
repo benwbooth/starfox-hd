@@ -20,6 +20,7 @@ from extract_map import (  # noqa: E402
     DEFAULT_ROM,
     RECORD_SIZES,
     InlineBranchWordBits,
+    InlineCall,
     MapAddress,
     MapExtractor,
 )
@@ -47,9 +48,16 @@ BYTE_STORES = {
     0x18BB: lambda v: f"MapEffect::Presentation(PresentationByte::SceneStyle, {v})",
     0x1B49: lambda v: f"MapEffect::Presentation(PresentationByte::TitleLayout, {v})",
     0x1D57: lambda v: f"MapEffect::Presentation(PresentationByte::PlayerCountLatch, {v})",
+    0x1E13: lambda v: f"MapEffect::PlayerCarryMode({v})",
+    0x1DE2: lambda v: f"MapEffect::PlayerConfiguration({v})",
 }
 WORD_STORES = {
-    0x1E44: lambda v: f"MapEffect::CameraProjectionBase({v - 0x10000 if v & 0x8000 else v})",
+    0x1E44: lambda v: f"MapEffect::CameraProjectionBase({signed(v)})",
+    0x1E32: lambda v: f"MapEffect::CameraHeightLimit(HeightLimit::Top, {signed(v)})",
+    0x1E34: lambda v: f"MapEffect::CameraHeightLimit(HeightLimit::Bottom, {signed(v)})",
+    0x1E0F: lambda v: f"MapEffect::EnvironmentPlane({signed(v)})",
+    0x18B9: lambda v: f"MapEffect::RenderPlane({signed(v)})",
+    0x7ED739: lambda v: f"MapEffect::StreamingRadiusLimit({v})",
 }
 # Scene-player initializers for the primary ($06:82F9) and secondary
 # ($06:82ED) hit sides.
@@ -73,6 +81,29 @@ CALLS = {
     # $03:DD6F: display mode 02, fade progress (F4) clear, scene style 02.
     0x03DD6E: "MapEffect::ResetSceneDisplay",
 }
+def _signed_byte(value: int) -> int:
+    return value - 0x100 if value & 0x80 else value
+
+
+# Inline calls whose operands are direct-page bytes/words set by the map
+# records falling into them: target -> (required {variable: wide}, variables
+# the call stores but nothing reads, effect builder).
+ARGUMENT_CALLS = {
+    # $06:9A2F: the primary player's vertical profile (6BF5..6BFA).
+    0x069A2F: ({0x08: True, 0x0A: True, 0x02: False, 0x04: False}, set(), lambda v: (
+        "MapEffect::PlayerVerticalProfile(VerticalProfile { "
+        f"upper_height_offset: {signed(v[0x08])}, lower_height_offset: {signed(v[0x0A])}, "
+        f"up_pitch: {v[0x02]}, down_pitch: {v[0x04]} }})")),
+    # $06:9A5F: camera pitch limits (6BFD/6BFE); 6BFB, 6B49 and 6B59 have
+    # no reader (the load at $07:8EA8 is overwritten before use).
+    0x069A5F: ({0x02: False, 0x04: False}, {0x08, 0x0A, 0xA7}, lambda v: (
+        "MapEffect::CameraPitchProfile(CameraPitchProfile { "
+        f"up: {_signed_byte(v[0x02])}, down: {_signed_byte(v[0x04])} }})")),
+}
+PLAIN_CALLS = {
+    0x069B04: "MapEffect::OccupancyExempt(true)",
+    0x069B20: "MapEffect::OccupancyExempt(false)",
+}
 INLINE_BRANCHES = {
     # 1AA6 bit 02: the shared single-player display policy.
     (0x1AA6, 0x02): "MapCondition::SinglePlayer",
@@ -92,7 +123,7 @@ def signed(word: int) -> int:
     return word - 0x10000 if word & 0x8000 else word
 
 
-def graph(extractor: MapExtractor, root: MapAddress):
+def graph(extractor: MapExtractor, root: MapAddress, edges: dict | None = None):
     pending = [root]
     seen: dict[MapAddress, int] = {}
     order = []
@@ -124,6 +155,8 @@ def graph(extractor: MapExtractor, root: MapAddress):
             if not (extractor.byte(continuation) == 0x12
                     and extractor.word(continuation, 1) == PHASE_HOLD):
                 successors = successors[:1]
+        if edges is not None:
+            edges[address] = successors
         pending.extend(reversed(successors))
     return order, inline_exits
 
@@ -132,14 +165,56 @@ def lower(rom: bytes, errors: list | None = None) -> str:
     extractor = MapExtractor(rom)
     addresses: list[MapAddress] = []
     inline_exits = {}
+    edges: dict[MapAddress, list[MapAddress]] = {}
     for _, root in ROOTS:
-        order, exits = graph(extractor, root)
+        order, exits = graph(extractor, root, edges)
         inline_exits.update(exits)
         for address in order:
             if address not in addresses:
                 addresses.append(address)
     addresses.sort()
     index = {address: i for i, address in enumerate(addresses)}
+    predecessors: dict[MapAddress, set[MapAddress]] = {}
+    for source, targets in edges.items():
+        for target in targets:
+            predecessors.setdefault(target, set()).add(source)
+
+    def dp_store(address: MapAddress):
+        """(variable, value, wide) for a direct-page store record, else None."""
+        opcode = extractor.byte(address)
+        if opcode == 0x5C and extractor.byte(address, 4) == 0 and extractor.word(address, 2) < 0x100:
+            return extractor.word(address, 2), extractor.byte(address, 1), False
+        if opcode == 0x5E and extractor.byte(address, 5) == 0 and extractor.word(address, 3) < 0x100:
+            return extractor.word(address, 3), extractor.word(address, 1), True
+        return None
+
+    def argument_call(address: MapAddress):
+        """The inline call target consuming the direct-page run at address."""
+        while dp_store(address) is not None:
+            address = MapAddress(address.bank, address.offset + RECORD_SIZES[extractor.byte(address)])
+        if extractor.byte(address) != 0x78 or address not in inline_exits:
+            return None, address
+        action = extractor._decode_inline_action(address, inline_exits[address])
+        if not isinstance(action, InlineCall) or action.target not in ARGUMENT_CALLS:
+            return None, address
+        return action, address
+
+    def call_arguments(call: MapAddress) -> dict[int, tuple[int, bool]]:
+        """Direct-page values set by the run that falls into `call` only."""
+        arguments = {}
+        current = call
+        while True:
+            sources = predecessors.get(current, set())
+            if len(sources) != 1:
+                break
+            (previous,) = sources
+            store = dp_store(previous)
+            if store is None or MapAddress(previous.bank, previous.offset + RECORD_SIZES[extractor.byte(previous)]) != current:
+                break
+            variable, value, wide = store
+            arguments.setdefault(variable, (value, wide))
+            current = previous
+        return arguments
 
     def cursor(address: MapAddress) -> str:
         if address not in index:
@@ -179,6 +254,16 @@ def lower(rom: bytes, errors: list | None = None) -> str:
                 statements.append(f"MapInstruction::Apply {{ effect: MapEffect::LoaderHold, next: {cursor(nxt)} }}")
             elif opcode == 0x9A:
                 statements.append(f"MapInstruction::Apply {{ effect: MapEffect::AmbientControl({b(1)}), next: {cursor(nxt)} }}")
+            elif dp_store(address) is not None:
+                # Direct-page arguments of the inline call that ends the run.
+                variable = dp_store(address)[0]
+                action, call = argument_call(address)
+                if action is None:
+                    raise UnsupportedMap(f"direct-page store {variable:02X} without a reviewed consumer at {address.label()}")
+                required, unread, _ = ARGUMENT_CALLS[action.target]
+                if variable not in required and variable not in unread:
+                    raise UnsupportedMap(f"direct-page store {variable:02X} is not an argument of {action.target:06X}")
+                statements.append(f"MapInstruction::Jump({cursor(nxt)})")
             elif opcode == 0x5C:
                 value, target = b(1), w(2) | b(4) << 16
                 if target == 0x001D77:
@@ -260,6 +345,21 @@ def lower(rom: bytes, errors: list | None = None) -> str:
                 statements.append(f"MapInstruction::Branch {{ condition: MapCondition::EncounterLayout({b(1)}), taken: {cursor(taken)}, otherwise: {cursor(nxt)} }}")
             elif opcode == 0x78:
                 action = extractor._decode_inline_action(address, inline_exits[address])
+                if isinstance(action, InlineCall) and action.accumulator is None and action.target in ARGUMENT_CALLS:
+                    required, _, build = ARGUMENT_CALLS[action.target]
+                    arguments = call_arguments(address)
+                    values = {}
+                    for variable, wide in required.items():
+                        if variable not in arguments or arguments[variable][1] != wide:
+                            raise UnsupportedMap(f"call {action.target:06X} lacks argument {variable:02X} at {address.label()}")
+                        values[variable] = arguments[variable][0]
+                    continuation = MapAddress(address.bank, action.continuation)
+                    statements.append(f"MapInstruction::Apply {{ effect: {build(values)}, next: {cursor(continuation)} }}")
+                    return
+                if isinstance(action, InlineCall) and action.accumulator is None and action.target in PLAIN_CALLS:
+                    continuation = MapAddress(address.bank, action.continuation)
+                    statements.append(f"MapInstruction::Apply {{ effect: {PLAIN_CALLS[action.target]}, next: {cursor(continuation)} }}")
+                    return
                 if not isinstance(action, InlineBranchWordBits):
                     raise UnsupportedMap(f"unreviewed inline action {action} at {address.label()}")
                 key = (action.address & 0xFFFF, action.mask)
@@ -290,10 +390,12 @@ def lower(rom: bytes, errors: list | None = None) -> str:
         "",
         *(["use super::authored_paths;"] if "authored_paths::" in body else []),
         "use super::map_effects::{"
-        + ", ".join(name for name in ("DisplayModeRequest", "MapEffect", "MapSpawn", "PathEntry", "PathRecord", "PresentationByte")
+        + ", ".join(name for name in ("DisplayModeRequest", "HeightLimit", "MapEffect", "MapSpawn", "PathEntry", "PathRecord", "PresentationByte")
                     if name in ("MapEffect", "MapSpawn") or f"{name}::" in body or f"{name} {{" in body)
         + "};",
         *(["use super::map_streaming::MapRegion;"] if "MapRegion {" in body else []),
+        *(["use super::player_vertical::VerticalProfile;"] if "VerticalProfile {" in body else []),
+        *(["use super::player_camera_angles::CameraPitchProfile;"] if "CameraPitchProfile {" in body else []),
         "use super::scene_map::{",
         "    CatalogError, MapActorSpawn, MapCatalog, MapCondition, MapCursor, MapInstruction, PhaseExit,",
         "};",

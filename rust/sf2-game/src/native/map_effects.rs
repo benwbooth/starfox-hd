@@ -59,6 +59,35 @@ pub enum MapEffect {
     DeclarePathRecord(PathRecord),
     /// `$03:90EF`: write region slot `index` and count one more region.
     RegisterRegion { index: u8, region: MapRegion },
+    /// `$06:9A2F`: the primary player's map-selected vertical profile.
+    PlayerVerticalProfile(super::player_vertical::VerticalProfile),
+    /// `$06:9A5F`: the primary player's camera pitch limits (6BFD/6BFE),
+    /// skipped without a primary player. Its other stores (6BFB, 6B49,
+    /// 6B59) have no reader and are not modeled.
+    CameraPitchProfile(super::player_camera_angles::CameraPitchProfile),
+    /// `$06:9B04` / `$06:9B20`: the primary player's occupancy exemption
+    /// (6BEB bit 80).
+    OccupancyExempt(bool),
+    /// 1E32 / 1E34: one half of the authored camera height limits.
+    CameraHeightLimit(HeightLimit, i16),
+    /// 1E0F: the shared environmental reference plane.
+    EnvironmentPlane(i16),
+    /// 18B9: the shared rendering plane.
+    RenderPlane(i16),
+    /// 1E13: the shared carry context byte.
+    PlayerCarryMode(u8),
+    /// 1DE2: the shared character/mode byte.
+    PlayerConfiguration(u8),
+    /// D739: the map-record streaming radius ceiling.
+    StreamingRadiusLimit(u16),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeightLimit {
+    /// 1E32.
+    Top,
+    /// 1E34.
+    Bottom,
 }
 
 /// The authored part of an opcode-90 record; the group is the current region
@@ -126,6 +155,11 @@ pub enum MapHostError {
     MissingRegionGroups,
     MissingShapeExtent(super::ShapeId),
     Region(RegionError),
+    MissingPrimaryPlayer,
+    PlayerRecords(super::scene_path_world::WorldInputError),
+    MissingPlayerVertical,
+    MissingPlayerCameraAngles,
+    MissingCameraHeightLimits,
 }
 
 /// The scene world as seen by map records. Continuations are returned to
@@ -138,6 +172,18 @@ pub struct MapWorld<'a> {
 }
 
 impl MapWorld<'_> {
+    fn primary_records(
+        &mut self,
+    ) -> Result<&mut super::scene_path_world::PlayerPathRecords, MapHostError> {
+        let owner = self
+            .world
+            .primary_player
+            .ok_or(MapHostError::MissingPrimaryPlayer)?;
+        self.world
+            .player_mut(self.objects, owner)
+            .map_err(MapHostError::PlayerRecords)
+    }
+
     fn declare_path_record(&mut self, record: PathRecord) -> Result<(), MapHostError> {
         let shape_extent = record
             .shape
@@ -244,6 +290,46 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
                 .ok_or(MapHostError::MissingRegions)?
                 .register(index, region)
                 .map_err(MapHostError::Region)?,
+            MapEffect::PlayerVerticalProfile(profile) => {
+                *self
+                    .primary_records()?
+                    .vertical
+                    .as_mut()
+                    .map(|vertical| &mut vertical.profile)
+                    .ok_or(MapHostError::MissingPlayerVertical)? = profile;
+            }
+            MapEffect::CameraPitchProfile(profile) => {
+                if self.world.primary_player.is_some() {
+                    self.primary_records()?
+                        .camera_angles
+                        .as_mut()
+                        .ok_or(MapHostError::MissingPlayerCameraAngles)?
+                        .profile = profile;
+                }
+            }
+            MapEffect::OccupancyExempt(exempt) => {
+                self.primary_records()?.occupancy_exempt = Some(exempt);
+            }
+            MapEffect::CameraHeightLimit(half, height) => {
+                let limits = self
+                    .world
+                    .camera_height_limits
+                    .as_mut()
+                    .ok_or(MapHostError::MissingCameraHeightLimits)?;
+                match half {
+                    HeightLimit::Top => limits.0 = height,
+                    HeightLimit::Bottom => limits.1 = height,
+                }
+            }
+            MapEffect::EnvironmentPlane(height) => self.world.environment_plane_height = Some(height),
+            MapEffect::RenderPlane(height) => {
+                self.world.render_environment.plane_height = Some(height)
+            }
+            MapEffect::PlayerCarryMode(mode) => self.world.player_carry_mode = Some(mode),
+            MapEffect::PlayerConfiguration(configuration) => {
+                self.world.scene.player_configuration = Some(configuration)
+            }
+            MapEffect::StreamingRadiusLimit(limit) => self.world.streaming_radius_limit = Some(limit),
             MapEffect::ResetSceneDisplay => {
                 const RESET_SCENE_STYLE: u8 = 2;
                 presentation.display_mode = Some(DisplayModeRequest::Scene);
@@ -418,5 +504,31 @@ mod tests {
         };
         assert_eq!(host.condition(MapCondition::EncounterLayout(2)), Ok(true));
         assert_eq!(host.condition(MapCondition::EncounterLayout(3)), Ok(false));
+    }
+
+    #[test]
+    fn shared_scene_stores_write_their_owners_and_player_calls_need_a_player() {
+        let mut objects = ObjectStore::new();
+        let mut world = world();
+        world.camera_height_limits = Some((0, 0));
+        let mut presentation = MapPresentation::default();
+        let mut host = MapWorld {
+            objects: &mut objects,
+            world: &mut world,
+            presentation: &mut presentation,
+            continuation: None,
+        };
+        host.apply(&MapEffect::CameraHeightLimit(HeightLimit::Top, -600)).unwrap();
+        host.apply(&MapEffect::CameraHeightLimit(HeightLimit::Bottom, 15)).unwrap();
+        host.apply(&MapEffect::StreamingRadiusLimit(4000)).unwrap();
+        // $06:9A5F skips without a primary player; $06:9A2F and $06:9B04 do not.
+        let camera = super::super::player_camera_angles::CameraPitchProfile { up: 16, down: -16 };
+        host.apply(&MapEffect::CameraPitchProfile(camera)).unwrap();
+        assert_eq!(
+            host.apply(&MapEffect::OccupancyExempt(true)),
+            Err(MapHostError::MissingPrimaryPlayer)
+        );
+        assert_eq!(world.camera_height_limits, Some((-600, 15)));
+        assert_eq!(world.streaming_radius_limit, Some(4000));
     }
 }
