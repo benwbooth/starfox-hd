@@ -1187,6 +1187,9 @@ pub struct ObjectStore {
     /// reuse. Later nested-owner cleanup can traverse that slot in the same
     /// retirement pass. Keep this domain link, not a dead actor or byte arena.
     retired_attachment_links: Vec<Option<RetiredAttachmentLink>>,
+    /// The complete freed record, for the collision pass's queue snapshot:
+    /// it still reads a queued actor retired before detection (`$7F:402D`).
+    retired_records: Vec<Option<Object>>,
     free: Vec<ObjectId>,
     active: Vec<ObjectId>,
     generations: Vec<u32>,
@@ -1206,6 +1209,7 @@ impl ObjectStore {
         Self {
             slots: vec![None; OBJECT_CAPACITY],
             retired_attachment_links: vec![None; OBJECT_CAPACITY],
+            retired_records: vec![None; OBJECT_CAPACITY],
             free,
             active: Vec::with_capacity(OBJECT_CAPACITY),
             generations: vec![0; OBJECT_CAPACITY],
@@ -1267,6 +1271,7 @@ impl ObjectStore {
         let next = self.active.get(position).copied();
         self.slots[id.index()] = Some(object);
         self.retired_attachment_links[id.index()] = None;
+        self.retired_records[id.index()] = None;
         if let Some(value) = self.slots[id.index()].as_mut() {
             value.base.previous = after;
             value.base.next = next;
@@ -1325,6 +1330,7 @@ impl ObjectStore {
     pub(super) fn remove_detached(&mut self, id: ObjectId) -> Option<Object> {
         let position = self.active.iter().position(|candidate| *candidate == id)?;
         let object = self.slots.get_mut(id.index())?.take()?;
+        self.retired_records[id.index()] = Some(object.clone());
         self.retired_attachment_links[id.index()] = Some(RetiredAttachmentLink {
             next: object.base.attachment_next,
             pose: (
@@ -1403,6 +1409,15 @@ impl ObjectStore {
                 object.base.attachment = None;
             }
         }
+    }
+
+    /// A freed slot's last record, until the slot is reallocated.
+    pub fn retired(&self, id: ObjectId) -> Option<&Object> {
+        self.retired_records.get(id.index())?.as_ref()
+    }
+
+    pub fn retired_mut(&mut self, id: ObjectId) -> Option<&mut Object> {
+        self.retired_records.get_mut(id.index())?.as_mut()
     }
 
     pub fn get(&self, id: ObjectId) -> Option<&Object> {

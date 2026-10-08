@@ -57,6 +57,8 @@ pub struct SceneRunner<C: SceneCallbacks> {
     pub execution: SceneExecution,
     pub schedule: StrategySchedule,
     pub callbacks: C,
+    /// Captured at frame start (`$7F:32A1`), consumed after the epoch.
+    collision_queue: Option<CollisionQueue>,
 }
 
 impl<C: SceneCallbacks> SceneRunner<C> {
@@ -67,6 +69,7 @@ impl<C: SceneCallbacks> SceneRunner<C> {
             execution: SceneExecution::default(),
             schedule: StrategySchedule::default(),
             callbacks,
+            collision_queue: None,
         }
     }
 
@@ -77,11 +80,12 @@ impl<C: SceneCallbacks> SceneRunner<C> {
         refresh: EntropyRefresh<'_>,
     ) -> Result<(), SceneRunError<C::Error>> {
         self.prepare_frame(catalog)?;
-        self.run_epoch(catalog, refresh)
+        self.run_epoch(catalog, refresh)?;
+        self.finish_frame(catalog)
     }
 
-    /// The frame services before the strategy epoch: collision queue and
-    /// deferred retirement (`$7F:32A1`), primary palette, background scroll.
+    /// The frame services before the strategy epoch: the collision queue
+    /// (`$7F:32A1`), primary palette (`$07:EA67`), background scroll.
     pub fn prepare_frame(&mut self, catalog: &PathCatalog) -> Result<(), SceneRunError<C::Error>> {
         let queue_disabled = self
             .world
@@ -96,17 +100,27 @@ impl<C: SceneCallbacks> SceneRunner<C> {
         if self.world.reflect_all_contacts.is_none() {
             return Err(SceneRunError::MissingSecondaryMarkerPolicy);
         }
-        // Profiles are captured before deferred retirement.
-        let queue = CollisionQueue::build(&self.objects, queue_disabled)
-            .map_err(SceneRunError::Collision)?;
+        // Profiles are captured now; the pass runs after the epoch.
+        self.collision_queue = Some(
+            CollisionQueue::build(&self.objects, queue_disabled)
+                .map_err(SceneRunError::Collision)?,
+        );
+        let mut host = self.host(catalog);
+        host.advance_player_palette()?;
+        frame_background::publish(host.objects, host.world, &mut host.execution.paths.runtime)
+            .map_err(SceneRunError::Background)?;
+        Ok(())
+    }
+
+    /// The ordered collision pass during rendering (`$7F:402D`): deferred
+    /// retirement and latch roll, then detection over the frame's queue.
+    pub fn finish_frame(&mut self, catalog: &PathCatalog) -> Result<(), SceneRunError<C::Error>> {
+        let queue = self.collision_queue.take().unwrap_or_default();
         let mut host = self.host(catalog);
         host.clean_epoch()?;
         queue
             .detect(host.objects, &mut host.world.contacts, host.world.strategy_clock as u8)
             .map_err(SceneRunError::Collision)?;
-        host.advance_player_palette()?;
-        frame_background::publish(host.objects, host.world, &mut host.execution.paths.runtime)
-            .map_err(SceneRunError::Background)?;
         Ok(())
     }
 

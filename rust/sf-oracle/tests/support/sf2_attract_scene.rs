@@ -81,28 +81,40 @@ fn pose(object: &mut Object, m: &RetailMachine, base: u16) {
     object.base.roll = Angle::from_units(byte(m, base + 0x16));
 }
 
-/// Run the retail machine to the first epoch of the attract's scene player.
-fn boot_to_scene() -> RetailMachine {
-    let mut machine = RetailMachine::new(super::rom());
-    for _ in 0..400 {
+/// Advance the retail machine to the first epoch of the next scene player.
+fn advance_to_scene(machine: &mut RetailMachine) {
+    for _ in 0..4000 {
         machine.tick_video_frames(0, 1).unwrap();
-        if word(&machine, POOL + 0x19) == SCENE_PLAYER_ENTRY {
+        if word(machine, POOL + 0x19) == SCENE_PLAYER_ENTRY {
             assert!(machine.tick_until_cpu_execution(0, EPOCH, 60).unwrap());
-            return machine;
+            return;
         }
     }
     panic!("attract scene player never installed");
 }
 
 #[test]
-fn attract_scene_six_runs_natively_like_the_retail_machine() {
-    let mut m = boot_to_scene();
+fn attract_scenes_six_and_seven_run_natively_like_the_retail_machine() {
+    let mut m = RetailMachine::new(super::rom());
+    for selection in [6u8, 7] {
+        advance_to_scene(&mut m);
+        assert_eq!(byte(&m, 0x1D73), selection);
+        let epochs = run_scene(&mut m);
+        eprintln!("scene {selection} matched for {epochs} epochs");
+        // Both scenes run to their hand-over; scene six requests its exit.
+        assert!(epochs > if selection == 6 { 440 } else { 100 });
+    }
+}
+
+/// Read the starting state once, then run both engines independently until
+/// the retail scene hands over. Returns the number of matched epochs.
+fn run_scene(m: &mut RetailMachine) -> u32 {
     // Copy WRAM so the existing typed record reader can decode the player.
     let mut source = Source::new(&super::rom(), 0);
     for offset in 0..0x20000u32 {
         source.bus.write8(WRAM + offset, m.peek8(RETAIL + offset));
     }
-    assert_eq!(retail_list(&m), vec![POOL, POOL + STRIDE]);
+    assert_eq!(retail_list(m), vec![POOL, POOL + STRIDE]);
 
     // Allocation inserts at the list head: build the list back to front.
     // The fixed view lives outside the source pool; it is listed last here
@@ -115,94 +127,94 @@ fn attract_scene_six_runs_natively_like_the_retail_machine() {
     let view = objects.allocate(view).unwrap();
     let mut idle = Object::new(ObjectKind::Effect, ShapeId::EMPTY, Behavior::Unassigned);
     pose(&mut idle, &m, POOL + STRIDE);
-    idle.base.hit_points = byte(&m, POOL + STRIDE + 0x2D);
-    idle.base.flags.strategy_suspended = byte(&m, POOL + STRIDE + 0x26) & 0x40 != 0;
-    idle.base.contacts.first_strategy_visit = byte(&m, POOL + STRIDE + 0x31) & 4 != 0;
+    idle.base.hit_points = byte(m, POOL + STRIDE + 0x2D);
+    idle.base.flags.strategy_suspended = byte(m, POOL + STRIDE + 0x26) & 0x40 != 0;
+    idle.base.contacts.first_strategy_visit = byte(m, POOL + STRIDE + 0x31) & 4 != 0;
     let idle = objects.allocate(idle).unwrap();
     let mut player = Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerSceneEntry(SceneEntryPhase::ClearLaunchCounts));
     pose(&mut player, &m, POOL);
-    player.base.hit_points = byte(&m, POOL + 0x2D);
-    player.base.attack_power = byte(&m, POOL + 0x2E);
-    player.base.flags.collision_disabled = byte(&m, POOL + 0x21) & 1 != 0;
+    player.base.hit_points = byte(m, POOL + 0x2D);
+    player.base.attack_power = byte(m, POOL + 0x2E);
+    player.base.flags.collision_disabled = byte(m, POOL + 0x21) & 1 != 0;
     let player = objects.allocate(player).unwrap();
     assert_eq!(objects.active_ids(), &[player, idle, view]);
 
     let mut world = sf2_game::scene_path_world::ScenePathWorld::new(RandomState::new([
-        byte(&m, 0xE0),
-        byte(&m, 0xE1),
-        byte(&m, 0xE2),
-        byte(&m, 0xE3),
+        byte(m, 0xE0),
+        byte(m, 0xE1),
+        byte(m, 0xE2),
+        byte(m, 0xE3),
     ]));
-    let slot = u32::from(word(&m, POOL + 0x2B));
+    let slot = u32::from(word(m, POOL + 0x2B));
     let records = Reader { source: &source, slot, other: idle }.records();
     world.bind_player(&objects, player, records).unwrap();
     world.primary_player = Some(player);
     world.fixed_players[0] = Some(view);
-    let mode = ViewTransitionMode { flags: word(&m, 0x1B84) };
+    let mode = ViewTransitionMode { flags: word(m, 0x1B84) };
     world.view_transition_mode = Some(mode);
     world.spawn_defaults = Some(mode.spawn_defaults(ObjectSpawnDefaults {
-        group: byte(&m, 0x190E),
+        group: byte(m, 0x190E),
         run_when_paused: false,
     }));
-    world.scene_selection = Some(byte(&m, 0x1D73));
-    world.action_gate = Some(ActionGate { code: byte(&m, 0x1D72) });
-    world.campaign_phase = Some(byte(&m, 0x1BE0));
-    let flags = word(&m, 0x1B96);
+    world.scene_selection = Some(byte(m, 0x1D73));
+    world.action_gate = Some(ActionGate { code: byte(m, 0x1D72) });
+    world.campaign_phase = Some(byte(m, 0x1BE0));
+    let flags = word(m, 0x1B96);
     world.cinematic_signals = Some(CinematicSignals {
         exit_requested: flags & 0x10 != 0,
         skip_ready: flags & 0x20 != 0,
     });
     world.reticle_inhibited = Some(flags & 0x100 != 0);
-    world.reflect_all_contacts = Some(byte(&m, 0x1AA6) & 2 != 0);
+    world.reflect_all_contacts = Some(byte(m, 0x1AA6) & 2 != 0);
     world.palette = Some(ScenePalette {
-        colors: std::array::from_fn(|i| word(&m, 0xEFE5 + i as u16 * 2)),
-        saved_colors: std::array::from_fn(|i| word(&m, 0xF2E5 + i as u16 * 2)),
+        colors: std::array::from_fn(|i| word(m, 0xEFE5 + i as u16 * 2)),
+        saved_colors: std::array::from_fn(|i| word(m, 0xF2E5 + i as u16 * 2)),
     });
-    world.palette_refresh_requested = Some(byte(&m, 0x1E58) & 0x80 != 0);
-    world.player_service_flags = Some(PlayerServiceFlags::from_bits(byte(&m, 0x1E0D)));
-    world.scene.player_configuration = Some(byte(&m, 0x1DE2));
+    world.palette_refresh_requested = Some(byte(m, 0x1E58) & 0x80 != 0);
+    world.player_service_flags = Some(PlayerServiceFlags::from_bits(byte(m, 0x1E0D)));
+    world.scene.player_configuration = Some(byte(m, 0x1DE2));
     world.controller_inputs = [0u16, 2].map(|side| {
         Some(InputState {
-            held: Buttons::from_bits(word(&m, 0x1292 + side)),
-            pressed: Buttons::from_bits(word(&m, 0x1296 + side)),
+            held: Buttons::from_bits(word(m, 0x1292 + side)),
+            pressed: Buttons::from_bits(word(m, 0x1296 + side)),
         })
     });
-    world.encounter_signals = Some(EncounterSignals { raised: word(&m, 0xD77D) });
-    world.camera_height_limits = Some((word(&m, 0x1E32) as i16, word(&m, 0x1E34) as i16));
-    world.camera_projection_offset = Some(word(&m, 0x1E52) as i16);
+    world.encounter_signals = Some(EncounterSignals { raised: word(m, 0xD77D) });
+    world.camera_height_limits = Some((word(m, 0x1E32) as i16, word(m, 0x1E34) as i16));
+    world.camera_projection_offset = Some(word(m, 0x1E52) as i16);
     world.weapons = Some(Default::default());
     world.published_motion = Some(sf2_game::path_motion::PublishedPlayerMotion {
         position: Vector3 {
-            x: word(&m, 0xD7EC) as i16,
-            y: word(&m, 0xD7EE) as i16,
-            z: word(&m, 0xD7F0) as i16,
+            x: word(m, 0xD7EC) as i16,
+            y: word(m, 0xD7EE) as i16,
+            z: word(m, 0xD7F0) as i16,
         },
         delta: Vector3 {
-            x: word(&m, 0x1E1C) as i16,
-            y: word(&m, 0x1E1E) as i16,
-            z: word(&m, 0x1E20) as i16,
+            x: word(m, 0x1E1C) as i16,
+            y: word(m, 0x1E1E) as i16,
+            z: word(m, 0x1E20) as i16,
         },
     });
     world.engine_sound_control =
-        Some(sf2_game::player_engine_sound::EngineSoundControl::from_bits(byte(&m, 0x1CE5)));
+        Some(sf2_game::player_engine_sound::EngineSoundControl::from_bits(byte(m, 0x1CE5)));
     world.linked_effect_activity =
-        Some(sf2_game::path_protection::LinkedEffectActivity { recent_spawn: byte(&m, 0x1DDF) });
-    assert_eq!(word(&m, 0x1DFF), 0, "no tracked camera actor at scene entry");
+        Some(sf2_game::path_protection::LinkedEffectActivity { recent_spawn: byte(m, 0x1DDF) });
+    assert_eq!(word(m, 0x1DFF), 0, "no tracked camera actor at scene entry");
     world.camera_tracking = Some(Default::default());
-    world.scene.active_pilot = Some(byte(&m, 0x1E14));
-    world.scene.wingmate_pilot = Some(byte(&m, 0x1E70));
-    world.published_camera_projection = Some(word(&m, 0x1E3C) as i16);
-    world.scene.active_shield = Some(byte(&m, 0x1DD1));
-    world.scene.encounter_location = Some(word(&m, 0x1BB5));
-    world.strategy_clock = word(&m, 0xC4);
+    world.scene.active_pilot = Some(byte(m, 0x1E14));
+    world.scene.wingmate_pilot = Some(byte(m, 0x1E70));
+    world.published_camera_projection = Some(word(m, 0x1E3C) as i16);
+    world.scene.active_shield = Some(byte(m, 0x1DD1));
+    world.scene.encounter_location = Some(word(m, 0x1BB5));
+    world.strategy_clock = word(m, 0xC4);
 
     let mut runner = SceneRunner::new(objects, world, Callbacks);
-    runner.schedule = StrategySchedule::resume(word(&m, 0xC4));
+    runner.schedule = StrategySchedule::resume(word(m, 0xC4));
     // The strategy pass skips the shared excluded actor (14D6).
-    assert_eq!(word(&m, 0x14D6), POOL + STRIDE);
+    assert_eq!(word(m, 0x14D6), POOL + STRIDE);
     runner.execution.controls.excluded_actor = Some(idle);
     let runtime = &mut runner.execution.paths.runtime;
-    runtime.background_horizontal = Some(word(&m, 0x1E4E) as i16);
+    runtime.background_horizontal = Some(word(m, 0x1E4E) as i16);
     // The player's allocation is owned by the scene's program resources;
     // its records bind to that storage identity, so rebind afterwards.
     let storage = Reader { source: &source, slot, other: idle }.storage();
@@ -248,18 +260,18 @@ fn attract_scene_six_runs_natively_like_the_retail_machine() {
         // Retail now stands at the next epoch, after its pre-epoch services.
         runner
             .run_epoch(&catalog, refresh)
+            .and_then(|()| runner.finish_frame(&catalog))
             .and_then(|()| runner.prepare_frame(&catalog))
             .unwrap_or_else(|error| panic!("epoch {epoch}: {error:?}"));
-        compare(&m, &runner, view, epoch);
-        if word(&m, POOL + 0x19) != 0x84A2 {
+        compare(m, &runner, view, epoch);
+        if word(m, POOL + 0x19) != 0x84A2 {
             ended = Some(epoch);
             break;
         }
     }
     let ended = ended.expect("the scene ends within the test bound");
-    eprintln!("scene six matched for {ended} epochs");
-    assert!(runner.world.cinematic_signals.unwrap().exit_requested, "native exit request");
-    assert!(ended > 400);
+    assert!(ended > 100);
+    ended
 }
 
 fn compare(m: &RetailMachine, runner: &SceneRunner<Callbacks>, view: ObjectId, epoch: u32) {

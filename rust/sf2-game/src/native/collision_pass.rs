@@ -148,6 +148,21 @@ fn pair_allowed(first_id: ObjectId, first: &Object, second_id: ObjectId, second:
             || (first.base.contacts.allow_same_shape && second.base.contacts.allow_same_shape))
 }
 
+fn record(objects: &ObjectStore, id: ObjectId) -> Result<&Object, CollisionError> {
+    objects
+        .get(id)
+        .or_else(|| objects.retired(id))
+        .ok_or(CollisionError::MissingActor(id))
+}
+
+fn record_mut(objects: &mut ObjectStore, id: ObjectId) -> &mut Object {
+    if objects.get(id).is_some() {
+        objects.get_mut(id).expect("live queued actor")
+    } else {
+        objects.retired_mut(id).expect("validated freed record")
+    }
+}
+
 impl CollisionQueue {
     pub fn build(objects: &ObjectStore, disabled: bool) -> Result<Self, CollisionError> {
         let mut queue = Self::default();
@@ -186,6 +201,9 @@ impl CollisionQueue {
     /// Call after epoch cleanup, with the actual shared strategy clock.
     /// Returns detections, NOT unique pairs. A compound probe's entire later
     /// candidate list is visited before advancing to its next authored box.
+    /// A queued actor retired by that cleanup is still tested from its freed
+    /// record, as the source reads the stale slot; a reused slot reads the
+    /// new occupant. A slot with neither is an explicit error.
     pub fn detect(
         self,
         objects: &mut ObjectStore,
@@ -194,18 +212,12 @@ impl CollisionQueue {
     ) -> Result<usize, CollisionError> {
         let mut detections = 0;
         for (index, entry) in self.entries.iter().copied().enumerate() {
-            let first = objects
-                .get(entry.actor)
-                .ok_or(CollisionError::MissingActor(entry.actor))?;
+            let first = record(objects, entry.actor)?;
             let collider = entry.collider(first);
             for probe in collider.world_boxes(strategy_clock) {
                 for candidate in &self.entries[index + 1..] {
-                    let first = objects
-                        .get(entry.actor)
-                        .ok_or(CollisionError::MissingActor(entry.actor))?;
-                    let second = objects
-                        .get(candidate.actor)
-                        .ok_or(CollisionError::MissingActor(candidate.actor))?;
+                    let first = record(objects, entry.actor)?;
+                    let second = record(objects, candidate.actor)?;
                     if !pair_allowed(entry.actor, first, candidate.actor, second) {
                         continue;
                     }
@@ -217,12 +229,10 @@ impl CollisionQueue {
                     contacts
                         .record_pair(entry.actor, candidate.actor, [Some(probe.hit_flags), flags])
                         .map_err(CollisionError::Contacts)?;
-                    let first = objects.get_mut(entry.actor).expect("validated probe actor");
+                    let first = record_mut(objects, entry.actor);
                     first.base.contacts.pending_hit = true;
                     first.base.hit_flags |= probe.hit_flags;
-                    let second = objects
-                        .get_mut(candidate.actor)
-                        .expect("validated candidate actor");
+                    let second = record_mut(objects, candidate.actor);
                     second.base.contacts.pending_hit = true;
                     if let Some(flags) = flags {
                         second.base.hit_flags |= flags;
@@ -460,13 +470,14 @@ mod tests {
     }
 
     #[test]
-    fn missing_catalog_entries_and_removed_queued_actors_are_explicit_errors() {
+    fn missing_catalog_entries_are_errors_and_retired_queued_actors_use_their_freed_record() {
         let (mut objects, probe, _) = pair();
         let queue = CollisionQueue::build(&objects, false).unwrap();
         objects.remove(probe).unwrap();
+        // The source still tests the stale slot of an actor retired by cleanup.
         assert_eq!(
             queue.detect(&mut objects, &mut ContactStore::default(), 0),
-            Err(CollisionError::MissingActor(probe))
+            Ok(1)
         );
         let invalid = ShapeId::from_catalog_index(u16::MAX);
         objects.allocate(actor(invalid, 0)).unwrap();

@@ -33,12 +33,15 @@ verified at path level. Status: **not started**. This is the gap between
 ## First slice status (2026-10-08)
 
 `scene_runner.rs` (`SceneRunner`) now composes a scene frame natively:
-collision queue + deferred retirement (`$7F:32A1`), primary palette,
-background scroll, then the strategy epoch with per-visit listener markers.
+collision queue (`$7F:32A1`), primary palette, background scroll, the
+strategy epoch with per-visit listener markers, then the ordered collision
+pass (`$7F:402D`: deferred retirement, latch roll, detection) that the
+source runs during rendering.
 `sf-oracle/tests/support/sf2_attract_scene.rs` boots the retail machine to the
-attract loop's scene six, reads the starting state once, and then runs both
-engines independently: all 445 game frames match at every epoch (every actor's
-pose, health, list order, the view, action gate, exit request and RNG).
+attract loop's scenes six and seven, reads each scene's starting state once,
+and then runs both engines independently: all 445 and 825 game frames match
+at every epoch (every actor's pose, health, list order, the view, action
+gate, exit request and RNG).
 
 Findings that shaped it:
 - The render-timed entropy refresh (`$7F:058F`, one extra RNG draw, usually
@@ -47,6 +50,8 @@ Findings that shaped it:
   supplies the observed indices. Shipping uses `AfterPass`.
 - The excluded actor (14D6) is the source's cue-marker proxy (`$07:B8CA`
   poses it); native markers are typed values, so its pose is not modeled.
+- Detection still tests a queued actor that the pass's cleanup just retired,
+  from its stale slot; `ObjectStore` keeps the freed record until reuse.
 - The fixed view lives outside the source pool; natively it is listed last
   and suspended so insertion after the head and scheduling match.
 - Not yet ported for this slice: the scene loader's palette upload
