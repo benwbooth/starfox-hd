@@ -140,6 +140,16 @@ pub struct StrategySchedule {
 }
 
 impl StrategySchedule {
+    /// An idle schedule continuing an existing shared clock (C4), for a
+    /// scene that takes over a running frame loop.
+    pub const fn resume(clock: u16) -> Self {
+        Self {
+            clock,
+            phase: PassPhase::Idle,
+            next: None,
+        }
+    }
+
     pub const fn clock(&self) -> u16 {
         self.clock
     }

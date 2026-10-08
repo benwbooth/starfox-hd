@@ -2293,7 +2293,7 @@ impl PathRuntime {
                 Ok(ControlStep::Continue)
             }
             Statement::SeedRandom { bytes, next } => {
-                *world.random = RandomState::new(bytes);
+                world.random.reseed(bytes);
                 objects.get_mut(owner).expect("validated random seeder").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }

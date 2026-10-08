@@ -80,6 +80,7 @@ pub use native::player_impact;
 pub use native::player_surface_damage;
 pub use native::path_target;
 pub use native::target_search;
+pub use native::scene_runner;
 pub use native::scene_strategy;
 pub use native::view_transition;
 pub use native::view_blend;

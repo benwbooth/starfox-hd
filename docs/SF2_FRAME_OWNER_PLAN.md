@@ -30,6 +30,30 @@ verified at path level. Status: **not started**. This is the gap between
   the rest of the frame order are not), the render hand-off, and the non-path
   actor strategies (enemy/boss strategies are still `Game` special cases).
 
+## First slice status (2026-10-08)
+
+`scene_runner.rs` (`SceneRunner`) now composes a scene frame natively:
+collision queue + deferred retirement (`$7F:32A1`), primary palette,
+background scroll, then the strategy epoch with per-visit listener markers.
+`sf-oracle/tests/support/sf2_attract_scene.rs` boots the retail machine to the
+attract loop's scene six, reads the starting state once, and then runs both
+engines independently: all 445 game frames match at every epoch (every actor's
+pose, health, list order, the view, action gate, exit request and RNG).
+
+Findings that shaped it:
+- The render-timed entropy refresh (`$7F:058F`, one extra RNG draw, usually
+  once per frame, sometimes 0 or 2) can land inside an actor's visit. The
+  runner takes its position as draw indices (`EntropyRefresh`); the oracle
+  supplies the observed indices. Shipping uses `AfterPass`.
+- The excluded actor (14D6) is the source's cue-marker proxy (`$07:B8CA`
+  poses it); native markers are typed values, so its pose is not modeled.
+- The fixed view lives outside the source pool; natively it is listed last
+  and suspended so insertion after the head and scheduling match.
+- Not yet ported for this slice: the scene loader's palette upload
+  (`$7F:0A76` DMA from the `$03:C7E8..` load lists), the attract map scripts
+  (`$05:FBE7`, `$05:8035`, ...), and the scene-player initializer `$06:82F9`
+  (entry at `$06:845C` is ported as `SceneEntryPhase::ClearLaunchCounts`).
+
 ## Smallest coherent first slice
 
 Run one installed scene end to end on the shared scheduler, with a live

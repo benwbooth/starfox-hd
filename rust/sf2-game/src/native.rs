@@ -154,6 +154,7 @@ pub mod scene_artwork;
 pub mod scene_video;
 pub mod scene_frame;
 pub mod scene_contact;
+pub mod scene_runner;
 pub mod scene_strategy;
 pub mod scene_proxy;
 pub mod scene_clear;

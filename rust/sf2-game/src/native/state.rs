@@ -123,7 +123,15 @@ impl AudioState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RandomState {
     bytes: [u8; 4],
+    /// Pending render-timed entropy refreshes (`$7F:058F`, one extra draw
+    /// each), due before the consumer draws with these zero-based indices.
+    refreshes: [u16; MAX_PENDING_REFRESHES],
+    pending_refreshes: u8,
+    scheduled_draws: u16,
 }
+
+/// A long frame can span more than one render-timed refresh.
+pub const MAX_PENDING_REFRESHES: usize = 4;
 
 /// An ordered source of gameplay random draws. Scene scheduling may advance
 /// the shared generator between draws without assigning those values to an actor.
@@ -190,7 +198,42 @@ impl RandomSource for InterleavedRandom<'_> {
 
 impl RandomState {
     pub const fn new(bytes: [u8; 4]) -> Self {
-        Self { bytes }
+        Self {
+            bytes,
+            refreshes: [0; MAX_PENDING_REFRESHES],
+            pending_refreshes: 0,
+            scheduled_draws: 0,
+        }
+    }
+
+    /// Replace the generator bytes; a scheduled refresh stays scheduled.
+    pub fn reseed(&mut self, bytes: [u8; 4]) {
+        self.bytes = bytes;
+    }
+
+    /// Each refresh happens before the consumer draw with its zero-based
+    /// index (ascending, counted from this call), or at `finish_refreshes`
+    /// if fewer draws are made. Returns false if too many are requested.
+    pub fn schedule_refreshes(&mut self, draws: &[u16]) -> bool {
+        if draws.len() > MAX_PENDING_REFRESHES || draws.windows(2).any(|pair| pair[0] > pair[1]) {
+            return false;
+        }
+        self.refreshes[..draws.len()].copy_from_slice(draws);
+        self.pending_refreshes = draws.len() as u8;
+        self.scheduled_draws = 0;
+        true
+    }
+
+    pub fn finish_refreshes(&mut self) {
+        while self.pending_refreshes != 0 {
+            self.pop_refresh();
+            self.step();
+        }
+    }
+
+    fn pop_refresh(&mut self) {
+        self.refreshes.copy_within(1.., 0);
+        self.pending_refreshes -= 1;
     }
 
     pub const fn bytes(self) -> [u8; 4] {
@@ -198,6 +241,17 @@ impl RandomState {
     }
 
     pub fn next_byte(&mut self) -> u8 {
+        while self.pending_refreshes != 0 && self.refreshes[0] == self.scheduled_draws {
+            self.pop_refresh();
+            self.step();
+        }
+        if self.pending_refreshes != 0 {
+            self.scheduled_draws += 1;
+        }
+        self.step()
+    }
+
+    fn step(&mut self) -> u8 {
         fn subtract_with_borrow(left: u8, right: u8, no_borrow: bool) -> (u8, bool) {
             let borrow = u16::from(!no_borrow);
             let subtrahend = u16::from(right) + borrow;

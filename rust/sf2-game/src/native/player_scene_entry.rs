@@ -23,6 +23,9 @@ const SCENE_ENTRY_MODE: u16 = 0x0010;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SceneEntryPhase {
     Enter,
+    /// `$06:845C`: the scene-player initializer's entry point, after the
+    /// reset prefix. Only the hostile-launch statistics are cleared first.
+    ClearLaunchCounts,
     Wait,
 }
 
@@ -45,6 +48,7 @@ pub enum SceneEntryError {
     MissingSelection,
     MissingFixedView,
     MissingViewMode,
+    MissingWeaponState,
     WrongBehavior,
     /// `$06:8525`: gate closed at entry; the fixed view is already marked.
     UnportedEntryExit,
@@ -81,6 +85,18 @@ pub fn step(
             let outcome = begin(objects, world, owner)?;
             if outcome != EntryOutcome::Retry {
                 // The source falls through into the wait in the same visit.
+                wait(objects, world, owner)?;
+            }
+            Ok(Some(outcome))
+        }
+        SceneEntryPhase::ClearLaunchCounts => {
+            world
+                .weapons
+                .as_mut()
+                .ok_or(SceneEntryError::MissingWeaponState)?
+                .hostile_counts = Default::default();
+            let outcome = begin(objects, world, owner)?;
+            if outcome != EntryOutcome::Retry {
                 wait(objects, world, owner)?;
             }
             Ok(Some(outcome))
