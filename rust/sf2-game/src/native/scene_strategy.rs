@@ -151,6 +151,7 @@ pub enum SceneError<E> {
     PlayerPostMotion(super::player_post_motion::PostMotionError),
     PlayerActionWait(super::player_action_wait::ActionWaitError),
     PlayerSceneEntry(super::player_scene_entry::SceneEntryError),
+    PlayerSceneInit(super::player_scene_init::SceneInitError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
@@ -1893,6 +1894,12 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                     self.objects, self.world, &mut self.execution.paths.runtime.resources,
                     &mut self.execution.positional, owner,
                 ).map_err(SceneError::PlayerActionWait)?;
+                Ok(owner)
+            }
+            Behavior::PlayerSceneInit => {
+                super::player_scene_init::initialize(
+                    self.objects, self.world, &mut self.execution.paths.runtime, owner,
+                ).map_err(SceneError::PlayerSceneInit)?;
                 Ok(owner)
             }
             Behavior::PlayerSceneEntry(_) => {

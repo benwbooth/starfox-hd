@@ -21,9 +21,10 @@ pub enum AuxiliaryKind {
     OrdinaryImpactMaterial,
     SuppressedImpactMaterial,
     ReflectionShape,
+    DeathHandler,
 }
 
-/// Reviewed source types 3, 5, 6, 7, 8, 10, 11 and 13. Extend with typed payloads as the other
+/// Reviewed source types 3, 5, 6, 7, 8, 10, 11, 12 and 13. Extend with typed payloads as the other
 /// auxiliary producers migrate; unknown source kinds are not generic bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuxiliaryRecord {
@@ -35,6 +36,16 @@ pub enum AuxiliaryRecord {
     OrdinaryImpactMaterial(u8),
     SuppressedImpactMaterial(u8),
     ReflectionShape(super::ShapeId),
+    /// Source type 12: the actor's own death routine.
+    DeathHandler(DeathHandler),
+}
+
+/// Reviewed type-12 death routines. A registered handler that is not ported
+/// faults where it would run; it is never treated as absent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeathHandler {
+    /// `$06:F3A4`, installed by the scene-player initializer.
+    ScenePlayer,
 }
 
 impl AuxiliaryRecord {
@@ -48,6 +59,7 @@ impl AuxiliaryRecord {
             Self::OrdinaryImpactMaterial(_) => AuxiliaryKind::OrdinaryImpactMaterial,
             Self::SuppressedImpactMaterial(_) => AuxiliaryKind::SuppressedImpactMaterial,
             Self::ReflectionShape(_) => AuxiliaryKind::ReflectionShape,
+            Self::DeathHandler(_) => AuxiliaryKind::DeathHandler,
         }
     }
 }

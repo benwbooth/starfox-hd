@@ -430,6 +430,8 @@ pub enum Behavior {
     PlayerFlight,
     PlayerActionWait(super::player_action_wait::ActionWaitPhase),
     PlayerSceneEntry(super::player_scene_entry::SceneEntryPhase),
+    /// `$06:82F9`: the map-installed scene-player initializer.
+    PlayerSceneInit,
     FollowPath,
     /// Source PATHHOLD installs the movement service without path dispatch.
     PathMovement,

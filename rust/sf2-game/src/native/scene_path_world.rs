@@ -321,6 +321,8 @@ pub struct ScenePathWorld {
     /// spawn_defaults() to resample the live mode after scripted-view changes.
     pub spawn_defaults: Option<ObjectSpawnDefaults>,
     pub published_motion: Option<PublishedPlayerMotion>,
+    /// Campaign score published for the next player allocation ($D816..D818).
+    pub published_score: Option<super::path_score::PlayerScore>,
     pub active_charge_threshold: Option<u8>,
     pub handoff: Option<EncounterHandoff>,
     pub camera_focus: Option<EncounterCameraFocus>,
@@ -476,6 +478,7 @@ impl ScenePathWorld {
             horizon_disabled: None,
             spawn_defaults: None,
             published_motion: None,
+            published_score: None,
             active_charge_threshold: None,
             handoff: None,
             camera_focus: None,
