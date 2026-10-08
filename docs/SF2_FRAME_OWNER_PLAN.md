@@ -19,7 +19,9 @@ verified at path level. Status: **not started**. This is the gap between
   - actor pass: `strategy_schedule.rs` (`$7F:34E7..367F`), hosted by
     `scene_strategy.rs` (`SceneActors`, `SceneExecution`);
   - path VM and the 160-root catalog (`authored_paths.rs`);
-  - indexed scene entry (`scene_install.rs`): scenes 3, 4, 5, 9, 25 only;
+  - indexed scene entry (`scene_install.rs`): scenes 3, 4, 5, 6, 7, 9, 25;
+  - the indexed-scene player strategy (`player_scene_entry.rs`,
+    `$06:83F1..84BD`): entry reset, install, wait, shared action tail;
   - player services (`player_*.rs`): input, action stream, motion, camera,
     weapons, status, palette, entry/motion reset, post-motion publication;
   - collision passes, common destruction, retirement, sound routing.
@@ -69,6 +71,12 @@ second view's saved cell. Records with attached data (flag bit 2, `$7F:2360`)
 fault until that attachment is ported. The map-loader producers (opcodes
 `$90` records, `$94` regions) are not yet wired to the native map.
 
+The attract loop alternates indexed scenes 6 and 7; both rows, their action
+streams and the player scene strategy are now verified against the original
+code. Scene 6 needed six new path operations (selected-player pose copies,
+published-motion export, D767 shape hand-off, relative-offset drain, the
+script-value link swap) and two reviewed opcodes (0x145, 0x146).
+
 During cutscenes the player runs the action-only strategies
 (`Behavior::PlayerActionWait`, ported), so a first scene runner does not need
 the flight-mode dispatcher (`$06:9D09`, mode table at `$06:9D1A`).
@@ -83,7 +91,11 @@ plus everything already listed as `Option` world inputs in `ScenePathWorld`
 
 ## Known limits to keep visible
 
-- Indexed scene table: 5 of 30 entries; others fault after allocation.
+- Indexed scene table: 7 of 30 entries; others fault after allocation.
+- The two closed-gate player exits (`$06:8525`, `$06:84EF`) fault as
+  unported after their leading writes.
+- Scene six parks an attachment link in its script-value word; the native
+  link is typed and faults if a nonzero number would be reinterpreted.
 - Past-the-end selectors in bank-end lookup tables fault (e.g. wingmate 255 in
   scene 3) because the original reads mutable low-bank memory there.
 - Scene 25's removal of child 20 is a reviewed no-op (child never created).

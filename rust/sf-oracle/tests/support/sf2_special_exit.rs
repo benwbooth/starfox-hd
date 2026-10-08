@@ -83,7 +83,13 @@ pub(super) fn compare_actor(source: &Source, native: &Native, id: ObjectId, visi
     }
     for (offset, actual) in [
         (0x1CE2, a.extension.path_state.motion_phase),
-        (0x1CE4, a.extension.path_state.script_value),
+        (
+            0x1CE4,
+            // A parked link is the source word's actor address.
+            a.extension
+                .script_value_link
+                .map_or(a.extension.path_state.script_value, address),
+        ),
         (
             0x1CCD,
             a.extension

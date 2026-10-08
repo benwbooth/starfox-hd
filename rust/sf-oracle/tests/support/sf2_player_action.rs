@@ -29,6 +29,7 @@ pub(super) fn action_address(action: Option<PlayerAction>) -> u16 {
             AuthoredSceneAction::Scene3 => 0xC4F3,
             AuthoredSceneAction::Scene4 => 0xBEB4,
             AuthoredSceneAction::Scene5 => 0xBED3,
+            AuthoredSceneAction::Scene6 => 0xBEDF,
             AuthoredSceneAction::Scene7 => 0xBEC2,
             AuthoredSceneAction::Scene9 => 0xC191,
             AuthoredSceneAction::Scene25 => 0xBEBB,

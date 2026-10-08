@@ -42,9 +42,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 160;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 161;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 7459;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 8059;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -146,8 +146,10 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertEqual(craft[9:], material)
         self.assertEqual(len(banked_bounded_values(self.rom, 0x07FF86, False)), 122)
         self.assertEqual(len(banked_bounded_values(self.rom, 0x07FECC, True)), 154)
-        with self.assertRaises(UnsupportedPath):
-            banked_bounded_values(self.rom, 0x06FFDD, True)  # odd word base
+        # An odd word base drops only the entry straddling the bank end.
+        odd = banked_bounded_values(self.rom, 0x06FFDD, True)
+        self.assertEqual(len(odd), 17)
+        self.assertEqual(odd[0], int.from_bytes(self.rom[0x37FDD:0x37FDF], 'little'))
         with self.assertRaises(UnsupportedPath):
             banked_bounded_values(self.rom, 0x060100, False)  # below the ROM half-bank
 

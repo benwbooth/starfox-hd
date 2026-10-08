@@ -118,3 +118,77 @@ fn original_scene_actions_keep_identity_and_clocks_across_exit_request_and_exter
         }
     }
 }
+
+/// Scene six (`$0D:BEDF`): palette snapshot/highlight, flash and restore
+/// intervals (including the double restore), five gate steps that restart
+/// total updates, and the exit request. Every update runs on both engines.
+#[test]
+fn original_scene_six_stream_matches_palette_gate_and_exit_on_every_update() {
+    use sf2_game::path_program::ActionGate;
+    use sf2_game::player_action::ScenePalette;
+    use sf2_game::player_consumable::{PlayerConsumableControl, TriggeredUseBlockers};
+    use sf2_game::player_palette::PlayerPaletteControl;
+
+    let mut source = Source::new(&rom(), 0);
+    for (case, (flags, gate)) in [(0x00u8, 1u8), (0x58, 0xFE), (0xF8, 0x40), (0x67, 0xFF)]
+        .into_iter()
+        .enumerate()
+    {
+        let mut f = Fixture::new();
+        f.prepare(Some(PlayerAction::Scene(AuthoredSceneAction::Scene6)), 0, 0);
+        f.world.view_transition_mode.as_mut().unwrap().flags = 0;
+        f.world.cinematic_signals = Some(CinematicSignals::default());
+        f.records().palette_effects = Some(PlayerPaletteControl::from_control(flags));
+        f.records().consumable = Some(PlayerConsumableControl {
+            projectile_blockers: TriggeredUseBlockers::from_control(flags),
+            ..Default::default()
+        });
+        let untouched = flags & 7;
+        f.world.action_gate = Some(ActionGate { code: gate });
+        f.world.palette_refresh_requested = Some(false);
+        f.world.primary_player = Some(f.owner);
+        let seed = case as u16 * 977;
+        f.world.palette = Some(ScenePalette {
+            colors: std::array::from_fn(|i| (i as u16).wrapping_mul(2963) ^ seed),
+            saved_colors: std::array::from_fn(|i| (i as u16).wrapping_mul(613) ^ !seed),
+        });
+        f.seed(&mut source, false);
+        source.bus.write8(WRAM + SLOT + 0x6BE9, flags);
+        source.bus.write8(WRAM + 0x1D72, gate);
+        source.bus.write8(WRAM + 0x1E58, 0x37);
+        let palette = f.world.palette.clone().unwrap();
+        for (index, (&color, &saved)) in palette.colors.iter().zip(&palette.saved_colors).enumerate() {
+            source.bus.write16(WRAM + 0xEFE5 + index as u32 * 2, color);
+            source.bus.write16(WRAM + 0xF2E5 + index as u32 * 2, saved);
+        }
+        for visit in 0..470u16 {
+            f.visit(&mut source, false);
+            let r = f.records().clone();
+            let context = format!("case {case} visit {visit}");
+            assert_eq!(
+                source.bus.read8(WRAM + SLOT + 0x6BE9),
+                r.palette_effects.unwrap().bits()
+                    | r.consumable.unwrap().projectile_blockers.bits()
+                    | untouched,
+                "{context}"
+            );
+            assert_eq!(source.bus.read8(WRAM + 0x1D72), f.world.action_gate.unwrap().code, "{context}");
+            assert_eq!(
+                source.bus.read8(WRAM + 0x1E58),
+                0x37 | u8::from(f.world.palette_refresh_requested.unwrap()) * 0x80,
+                "{context}"
+            );
+            assert_eq!(
+                source.bus.read8(WRAM + 0x1B96) & 0x10 != 0,
+                f.world.cinematic_signals.unwrap().exit_requested,
+                "{context}"
+            );
+            let palette = f.world.palette.as_ref().unwrap();
+            for (index, (&color, &saved)) in palette.colors.iter().zip(&palette.saved_colors).enumerate() {
+                let offset = index as u32 * 2;
+                assert_eq!(source.bus.read16(WRAM + 0xEFE5 + offset), color, "{context} color {index}");
+                assert_eq!(source.bus.read16(WRAM + 0xF2E5 + offset), saved, "{context} saved {index}");
+            }
+        }
+    }
+}

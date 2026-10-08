@@ -13,7 +13,8 @@ use sf2_game::scene_install::{self, SceneInstallError};
 use sf2_game::Behavior;
 
 /// Installed scenes: (selection, path root, action script, action, companion seed).
-const SCENES: [(u8, u16, u16, AuthoredSceneAction, u16); 6] = [
+const SCENES: [(u8, u16, u16, AuthoredSceneAction, u16); 7] = [
+    (6, 0xFA11, 0xBEDF, AuthoredSceneAction::Scene6, 0x0000),
     (9, 0xD40E, 0xC191, AuthoredSceneAction::Scene9, 0x1000),
     (3, 0xD9D6, 0xC4F3, AuthoredSceneAction::Scene3, 0x0000),
     (5, 0xB65B, 0xBED3, AuthoredSceneAction::Scene5, 0x0000),
@@ -181,6 +182,7 @@ fn run_case(count: usize, selection: u8, saved: u8, seed: u16, entry: Entry) {
             4 => sf2_game::authored_paths::SCENE_FOUR,
             25 => sf2_game::authored_paths::SCENE_TWENTY_FIVE,
             5 | 7 => sf2_game::authored_paths::SCENE_FIVE,
+            6 => sf2_game::authored_paths::SCENE_SIX,
             _ => unreachable!(),
         })
     );

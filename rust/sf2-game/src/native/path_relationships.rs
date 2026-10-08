@@ -17,6 +17,7 @@ pub enum RelationshipError {
     MissingChild { owner: ObjectId, number: u8 },
     ChildCycle(ObjectId),
     ChildNotFresh(ObjectId),
+    NumericLink(ObjectId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +41,8 @@ pub enum RelationshipCommand {
     /// Temporarily use the auxiliary link as the attachment frame, then swap
     /// back. This does not rebuild the child chain or change coordinate gates.
     SwapAttachmentAndAuxiliary,
+    /// Park the attachment link in the script-value word, then restore it.
+    SwapAttachmentAndScriptValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,6 +421,21 @@ pub fn apply(
                 .get_mut(owner)
                 .ok_or(RelationshipError::MissingActor(owner))?;
             std::mem::swap(&mut actor.base.attachment, &mut actor.base.linked_object);
+            return Ok(());
+        }
+        RelationshipCommand::SwapAttachmentAndScriptValue => {
+            let actor = objects
+                .get_mut(owner)
+                .ok_or(RelationshipError::MissingActor(owner))?;
+            let parked = match actor.extension.script_value_link {
+                Some(link) => link,
+                // A numeric zero is the null link; any other number would be
+                // an arbitrary source address, which has no native identity.
+                None if actor.extension.path_state.script_value == 0 => None,
+                None => return Err(RelationshipError::NumericLink(owner)),
+            };
+            actor.extension.script_value_link = Some(actor.base.attachment);
+            actor.base.attachment = parked;
             return Ok(());
         }
         RelationshipCommand::ClearRelativeReference | RelationshipCommand::UseSelfRelativeFrame => {

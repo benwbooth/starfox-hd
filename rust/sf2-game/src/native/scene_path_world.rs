@@ -670,6 +670,7 @@ impl InvocationWorld for ScenePathWorld {
             primary_motion,
             caller_weapon_inputs,
             published_motion: self.published_motion,
+            published_motion_slot: Some(&mut self.published_motion),
             active_charge_threshold: self.active_charge_threshold,
             reflection,
             protection: Some(super::path_protection::PathProtection {

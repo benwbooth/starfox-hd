@@ -1077,6 +1077,11 @@ pub struct ObjectExtension {
     /// Map record this actor was streamed from (source 1CE6). Cleared by
     /// group retirement; the record keeps its own stale actor link.
     pub map_record: Option<super::map_streaming::MapRecordId>,
+    /// Present while the script-value word (source A3) holds an attachment
+    /// link parked by SwapAttachmentAndScriptValue rather than a number.
+    /// Only reviewed paths that never read that word numerically meanwhile
+    /// may park a link there.
+    pub script_value_link: Option<Option<ObjectId>>,
     pub texture_scroll_x: u8,
     pub texture_scroll_y: u8,
     pub spatial_loop: Option<SpatialLoop>,

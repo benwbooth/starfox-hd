@@ -30,6 +30,7 @@ ROOTS = (
     ("SCENE_FIVE", PathAddress(0xB65B)),
     ("SCENE_FOUR", PathAddress(0xD48C)),
     ("SCENE_TWENTY_FIVE", PathAddress(0xD490)),
+    ("SCENE_SIX", PathAddress(0xFA11)),
     ("ORDINARY_SCENE_EXIT", PathAddress(0xCF18)),
     ("SPECIAL_SCENE_EXIT", PathAddress(0xD27B)),
     ("NODE_EXIT_PRESENTATION", PathAddress(0xB8C5)),
@@ -422,8 +423,8 @@ def banked_bounded_values(rom: bytes, address: int, wide: bool) -> tuple[int, ..
     if not 0 <= bank < 0x40 or base < 0x8000:
         raise UnsupportedPath(f"unreviewed constant lookup window {address:06X}")
     size = 2 if wide else 1
-    if wide and base & 1:
-        raise UnsupportedPath(f"odd word lookup base {address:06X}")
+    # An odd word base is still a byte-addressed read; the floor division
+    # drops the one entry that would straddle the bank end.
     count = min(256, (0x10000 - base) // size)
     start = source_offset(address)
     data = rom[start:start + count * size]
@@ -693,6 +694,19 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     if (shape, path) in tuple((s, PathAddress(p)) for s, p in (
             (0xBC9C, 0xB746), (0xBC9C, 0xB68B), (0xBC9C, 0xB807),
             (0xBC9C, 0xB85A), (0xC984, 0xB862))):
+        return index, "ObjectKind::Enemy"
+    # Indexed scene six. Every route of these children reaches
+    # DisableCollision before the first yield (same interprocedural walk).
+    if (shape, path) in tuple((s, PathAddress(p)) for s, p in (
+            (0xBC9C, 0x9284), (0xBC9C, 0x93F0), (0xBC9C, 0xFAB2), (0xBC9C, 0xFB08),
+            (0xBC9C, 0xFB2E), (0xBC9C, 0xFB4C), (0xBC9C, 0xFD5C), (0xBC9C, 0xFDAB),
+            (0xC1DC, 0x9378), (0xC1DC, 0xFD52), (0xC1DC, 0xFD58), (0xC39C, 0xFCC5),
+            (0xC39C, 0xFCF2), (0xC39C, 0xFD22), (0xC658, 0xFBD0), (0xC658, 0xFF45),
+            (0xC658, 0xFF63), (0xC984, 0xFF98), (0xC9A0, 0xFF8D), (0xE194, 0xFDC2),
+            (0xE54C, 0xF01D))):
+        return index, "ObjectKind::Effect"
+    # Its two E1CC children keep ordinary contacts through their first yield.
+    if (shape, path) in ((0xE1CC, PathAddress(0xF831)), (0xE1CC, PathAddress(0xF83D))):
         return index, "ObjectKind::Enemy"
     # Indexed scene twenty-five (and four, which stores the encounter variant
     # then enters it). Same interprocedural walk as scene three: every route
@@ -1456,6 +1470,11 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 parameters(0)
                 statements.append(f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::SetYawWord(0x8000), next: {next_cursor()} }}")
                 continue
+            if command.address == PathAddress(0xFCB9):
+                # Reviewed inline block: JSL $06:FA04, returning FCC4.
+                parameters(0)
+                statements.append(f"Statement::DrainRelativeOffset {{ next: {next_cursor()} }}")
+                continue
             if command.address == PathAddress(0xE91B):
                 # Reviewed inline block: JSL $07:F3D1, returning E926.
                 parameters(0)
@@ -1546,6 +1565,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             first, second = parameters(2)
             if (first, second) in ((0x1C, 0x06), (0x06, 0x1C)):
                 statement = f"Statement::Relationship {{ command: RelationshipCommand::SwapAttachmentAndAuxiliary, next: {next_cursor()} }}"
+            elif (first, second) in ((0xA3, 0x06), (0x06, 0xA3)):
+                # Scene six's paired find/face swaps; nothing on this graph
+                # reads the script value numerically while it holds the link.
+                if command.address not in (PathAddress(0xFAB7), PathAddress(0xFAC6), PathAddress(0xFAE7), PathAddress(0xFAF6)):
+                    raise UnsupportedPath(f"unreviewed script-value link swap at {command.address.label()}")
+                statement = f"Statement::Relationship {{ command: RelationshipCommand::SwapAttachmentAndScriptValue, next: {next_cursor()} }}"
             else:
                 statement = f"Statement::Mutate {{ mutation: Mutation::SwapWords {{ first: {word_field(first)}, second: {word_field(second)} }}, next: {next_cursor()} }}"
         elif name == "ClearExternalCf33VariableBit":
@@ -1625,7 +1650,7 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 # Shared helper $09:81B6 and core phases $44:5EEB/$44:5FAB
                 # select bank-01 materials; $7F:1451 publishes them to render.
                 # Do not expose pointer arithmetic or infer other table roots.
-                if value not in (0x8174, 0x81F4, 0x82FE, 0x8404, 0x8498):
+                if value not in (0x8174, 0x81F4, 0x82FE, 0x8404, 0x8498, 0x86D7):
                     raise UnsupportedPath(f"unreviewed material table {value:04X}")
                 statement = f"Statement::Appearance {{ command: AppearanceCommand::MaterialSet(super::render::MaterialSetId::from_catalog_token({value})), next: {next_cursor()} }}"
             else:
@@ -1930,6 +1955,9 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 }[name]
             taken, next_ = branch_cursors(int.from_bytes(operands[-2:], "little"))
             statement = f"Statement::Spatial {{ condition: SpatialCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name in ("CopyRotationToSelectedPlayer", "CopyPositionToSelectedPlayer"):
+            parameters(0)
+            statement = f"Statement::{name} {{ next: {next_cursor()} }}"
         elif name in ("CopySelectedWorldPosition", "CopySelectedRotation", "RefreshSelectedRelativeTransform"):
             parameters(0)
             operation = {"CopySelectedWorldPosition": "WorldPosition", "CopySelectedRotation": "WorldRotation", "RefreshSelectedRelativeTransform": "RelativeFrame"}[name]
@@ -1989,12 +2017,21 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             variable, index = parameters(2)
             # $7F:9FE7 widens the second literal without scaling it. Only
             # reviewed live domain fields are mapped, never shared RAM.
-            if name == "ImportWordIndexed" and (variable, index) == (0x06, 0x15):
+            if name == "ImportWordIndexed" and (variable, index) == (0x04, 0x0B):
+                # Scene six publishes a shape header from $00:B36B (selector
+                # A1 = 0..8) through D767, then imports it into a new child.
+                if command.address not in (PathAddress(0x92A4), PathAddress(0x92B0)):
+                    raise UnsupportedPath(f"unreviewed placement shape import at {command.address.label()}")
+                headers = banked_word_values(extractor.rom, 0x00B36B)[:9]
+                shapes = ', '.join(f'(0x{h:04X}, ShapeId::from_catalog_index({shape_index(h)}))' for h in dict.fromkeys(headers))
+                statement = f"Statement::ImportShapeFromPlacement {{ shapes: const {{ &[{shapes}] }}, next: {next_cursor()} }}"
+            elif name == "ImportWordIndexed" and (variable, index) == (0x06, 0x15):
                 statement = f"Statement::AttachLastSpawn {{ next: {next_cursor()} }}"
             elif command.address == PathAddress(0xB136) and name == "ImportWordIndexed" and (variable, index) == (0x0E, 0x0B):
                 statement = f"Statement::ImportSceneryPlacementHeight {{ next: {next_cursor()} }}"
             elif ((variable, index) in ((0x0C, 0x0B), (0x10, 0x0D))
                   or (name, variable, index) in (("ExportWordIndexed", 0xA3, 0x0B),
+                                                 ("ExportWordIndexed", 0x39, 0x0B),
                                                  ("ImportWordIndexed", 0x92, 0x0B))):
                 coordinate = "Primary" if index == 0x0B else "Depth"
                 operation = (f"Import {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, destination: {word_field(variable)} }}"
@@ -2119,6 +2156,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 continue
             if address == 0x193A:
                 statements.append(f"Statement::PublishBackgroundScrollShadow {{ source: {word_field(variable)}, next: {next_cursor()} }}")
+                continue
+            if address in (0x1E1C, 0x1E1E, 0x1E20):
+                if command.address != PathAddress(0xFA1D):
+                    raise UnsupportedPath(f"unreviewed player-motion export at {command.address.label()}")
+                axis = {0x1E1C: "X", 0x1E1E: "Y", 0x1E20: "Z"}[address]
+                statements.append(f"Statement::ExportPlayerMotion {{ axis: Axis::{axis}, source: {word_field(variable)}, next: {next_cursor()} }}")
                 continue
             if address not in (0x1D88, 0x1D8C):
                 raise UnsupportedPath(f"unreviewed handoff coordinate {address:04X}")
@@ -2573,6 +2616,7 @@ INDEXED_SCENES = {
              (7, 0x0DBEC2, '5bb6c2be0d000000', False)),
     0xD48C: ((4, 0x0DBEB4, '8cd4b4be0d000000', False),),
     0xD490: ((25, 0x0DBEBB, '90d4bbbe0d000000', False),),
+    0xFA11: ((6, 0x0DBEDF, '11fadfbe0d000000', False),),
 }
 
 

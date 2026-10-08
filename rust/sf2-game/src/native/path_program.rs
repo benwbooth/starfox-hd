@@ -285,6 +285,8 @@ pub struct PathWorld<'a> {
     pub primary_motion: Option<PrimaryMotionInput>,
     /// Published player-service snapshot, distinct from fresh primary inputs.
     pub published_motion: Option<super::path_motion::PublishedPlayerMotion>,
+    /// Writable publication behind `published_motion` for absolute exports.
+    pub published_motion_slot: Option<&'a mut Option<super::path_motion::PublishedPlayerMotion>>,
     /// Shared active-pilot threshold; it can change independently of selection.
     pub active_charge_threshold: Option<u8>,
     pub selected_charge: Option<super::path_charge::SelectedChargeInput>,
@@ -381,6 +383,7 @@ impl PathWorld<'_> {
             primary_protection: None,
             engine_sound_control: None,
             published_motion: None,
+            published_motion_slot: None,
             active_charge_threshold: None,
             selected_charge: None,
             primary_control: None,
@@ -1058,6 +1061,35 @@ pub enum Statement {
         destination: super::path_fields::WordField,
         next: PathCursor,
     },
+    /// `$7F:BFCD` (0x145): the selected player's world rotation, then its
+    /// storage fine pitch/yaw (fraction cleared) and bank, from this actor.
+    CopyRotationToSelectedPlayer {
+        next: PathCursor,
+    },
+    /// `$7F:BFAB` (0x146): the selected player's position and its retained
+    /// boundary return position, from this actor.
+    CopyPositionToSelectedPlayer {
+        next: PathCursor,
+    },
+    /// Absolute word export into the published player-motion delta. The
+    /// other axes and the published position are retained.
+    ExportPlayerMotion {
+        axis: super::path_fields::Axis,
+        source: super::path_fields::WordField,
+        next: PathCursor,
+    },
+    /// Shape-header word carried in the primary placement coordinate (D767)
+    /// and imported into the shape word (04). Values outside the reviewed
+    /// header table fault rather than becoming an arbitrary shape.
+    ImportShapeFromPlacement {
+        shapes: &'static [(u16, super::ShapeId)],
+        next: PathCursor,
+    },
+    /// `$06:FA04`: roll and relative offset chase zero by eighths after the
+    /// relative offset is added to the world position.
+    DrainRelativeOffset {
+        next: PathCursor,
+    },
     ImportPlayerPosition {
         axis: super::path_fields::Axis,
         destination: super::path_fields::WordField,
@@ -1400,6 +1432,10 @@ pub enum ProgramError {
     Relationship(super::path_relationships::RelationshipError),
     MissingSelectedAuxiliary,
     MissingSelectedPlayer,
+    MissingSelectedBoundary,
+    MissingSelectedStorage(super::player_storage::PlayerStorageError),
+    UnreviewedPlacementShape(u16),
+    MissingPublishedMotionSlot,
     MissingSelectedModeSelection,
     MissingSelectedEquipment,
     MissingSelectedScore,
@@ -2477,6 +2513,89 @@ impl PathRuntime {
                 actor.base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
+            Statement::CopyRotationToSelectedPlayer { next } => {
+                let selected = world.selected.ok_or(ProgramError::MissingSelectedPlayer)?;
+                let source = objects.get(owner).expect("validated rotation source");
+                let (pitch, yaw, roll) = (source.base.pitch, source.base.yaw, source.base.roll);
+                let player = objects
+                    .get_mut(selected)
+                    .ok_or(PathRuntimeError::MissingActor(selected))?;
+                player.base.pitch = pitch;
+                player.base.yaw = yaw;
+                player.base.roll = roll;
+                // The byte above bank (6ABE) is also cleared; no service reads it.
+                let storage = super::player_storage::get_mut(objects, &mut self.resources, selected)
+                    .map_err(ProgramError::MissingSelectedStorage)?;
+                storage.fine_pitch = u16::from(pitch.units()) << 8;
+                storage.fine_yaw = u16::from(yaw.units()) << 8;
+                storage.bank = roll;
+                objects.get_mut(owner).expect("validated rotation source").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::CopyPositionToSelectedPlayer { next } => {
+                let selected = world.selected.ok_or(ProgramError::MissingSelectedPlayer)?;
+                let position = objects.get(owner).expect("validated position source").base.position;
+                objects
+                    .get_mut(selected)
+                    .ok_or(PathRuntimeError::MissingActor(selected))?
+                    .base
+                    .position = position;
+                world
+                    .selected_boundary
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingSelectedBoundary)?
+                    .return_position = position;
+                objects.get_mut(owner).expect("validated position source").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ExportPlayerMotion { axis, source, next } => {
+                use super::path_fields::Axis;
+                let value = source.read(objects.get(owner).expect("validated motion exporter")) as i16;
+                let slot = world
+                    .published_motion_slot
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingPublishedMotionSlot)?;
+                let motion = slot.as_mut().ok_or(ProgramError::MissingPublishedMotion)?;
+                match axis {
+                    Axis::X => motion.delta.x = value,
+                    Axis::Y => motion.delta.y = value,
+                    Axis::Z => motion.delta.z = value,
+                }
+                world.published_motion = Some(*motion);
+                objects.get_mut(owner).expect("validated motion exporter").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportShapeFromPlacement { shapes, next } => {
+                let value = self.placement.primary.ok_or(ProgramError::MissingPlacementCoordinate(
+                    super::path_scene_state::PlacementCoordinate::Primary,
+                ))? as u16;
+                let &(_, shape) = shapes
+                    .iter()
+                    .find(|(header, _)| *header == value)
+                    .ok_or(ProgramError::UnreviewedPlacementShape(value))?;
+                let actor = objects.get_mut(owner).expect("validated shape importer");
+                actor.base.shape = shape;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::DrainRelativeOffset { next } => {
+                use super::path_fields::{chase_byte, chase_word};
+                let actor = objects.get_mut(owner).expect("validated offset owner");
+                actor.base.roll = super::Angle::from_units(chase_byte(actor.base.roll.units(), 0));
+                let offset = actor.extension.relative_position;
+                let position = &mut actor.base.position;
+                position.x = position.x.wrapping_add(offset.x);
+                position.y = position.y.wrapping_add(offset.y);
+                position.z = position.z.wrapping_add(offset.z);
+                let drain = |value: i16| chase_word(value as u16, 0) as i16;
+                actor.extension.relative_position = super::Vector3 {
+                    x: drain(offset.x),
+                    y: drain(offset.y),
+                    z: drain(offset.z),
+                };
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
             Statement::ImportPlayerMotionByte { axis, part, destination, next } => {
                 use super::path_fields::{Axis, BytePart};
                 let delta = world.published_motion
@@ -3292,6 +3411,7 @@ mod tests {
             primary_protection: None,
             engine_sound_control: None,
             published_motion: None,
+            published_motion_slot: None,
             active_charge_threshold: None,
             selected_charge: None,
             primary_control: None,
@@ -10447,6 +10567,7 @@ mod tests {
                 primary_protection: None,
                 engine_sound_control: None,
                 published_motion: None,
+                published_motion_slot: None,
                 active_charge_threshold: None,
                 selected_charge: None,
                 primary_control: None,
@@ -14495,10 +14616,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 160);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 161);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 7400);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 7459);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 8000);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 8059);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -14691,6 +14812,7 @@ mod tests {
                 primary_protection: None,
                 engine_sound_control: None,
                 published_motion: None,
+                published_motion_slot: None,
                 active_charge_threshold: None,
                 selected_charge: None,
                 primary_control: None,
@@ -14860,6 +14982,7 @@ mod tests {
                         primary_protection: None,
                         engine_sound_control: None,
                         published_motion: None,
+                        published_motion_slot: None,
                         active_charge_threshold: None,
                         selected_charge: None,
                         primary_control: None,

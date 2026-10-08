@@ -45,6 +45,9 @@ pub enum AuthoredSceneAction {
     Scene4,
     /// Record 5, `$0D:BED3`: disable projection correction, then exit at 227.
     Scene5,
+    /// Record 6, `$0D:BEDF`: palette snapshot and highlight at 14, fades and
+    /// flashes, five action-gate steps, then the scene exit at 441.
+    Scene6,
     /// Record 7, `$0D:BEC2`: disable projection correction, request phase-gated
     /// control 10 at 153, publish the scene-progress flag at 208.
     Scene7,
@@ -176,7 +179,24 @@ enum ActionService {
     PublishSceneProgress,
     /// `$0D:CBFC`: authored control 10 when the phase difference is negative.
     RequestPhaseGatedControl,
+    /// `$07:EBB8`: unconditional live-to-saved palette copy.
+    SnapshotPalette,
+    /// `$07:EF8D`: four fixed live colors; no refresh request.
+    SetHighlightColors,
+    /// `$07:EEB2`: one restoration step for the visiting player.
+    RestorePalette,
+    /// `$07:EC9A`: one brightening step.
+    FlashPalette,
+    /// `$0D:C82F`: advance the shared action gate and restart total updates.
+    AdvanceActionGate,
 }
+
+/// Live colors 113..116 written by `$07:EF8D`.
+const HIGHLIGHT_FIRST_COLOR: usize = 113;
+const HIGHLIGHT_COLORS: [u16; 4] = [0x177F, 0x0EFF, 0x0A7E, 0x061B];
+const SCENE_SIX_EXIT_TIME: u16 = 441;
+const SCENE_SIX_HIGHLIGHT_TIME: u16 = 14;
+const SCENE_SIX_GATE_TIMES: [u16; 5] = [182, 249, 293, 327, 416];
 
 // Preserve the source order, including Stop before the earlier-time events.
 const TRIGGERED_SERVICES: [(ActionTiming, ActionService); 5] = [
@@ -226,6 +246,30 @@ const SCENE_FIVE_SERVICES: [(ActionTiming, ActionService); 2] = [
         ActionService::RequestSceneExit,
     ),
 ];
+const fn interval(start: u16, end: u16) -> ActionTiming {
+    ActionTiming::Interval { start, end }
+}
+
+// `$0D:CF73` restores twice per visit; it is two consecutive services here.
+const SCENE_SIX_SERVICES: [(ActionTiming, ActionService); 16] = [
+    (ActionTiming::At(SCENE_SIX_HIGHLIGHT_TIME), ActionService::SnapshotPalette),
+    (ActionTiming::At(SCENE_SIX_HIGHLIGHT_TIME), ActionService::SetHighlightColors),
+    (interval(107, 139), ActionService::RestorePalette),
+    (interval(107, 139), ActionService::RestorePalette),
+    (ActionTiming::At(SCENE_SIX_GATE_TIMES[0]), ActionService::AdvanceActionGate),
+    (ActionTiming::At(SCENE_SIX_GATE_TIMES[1]), ActionService::AdvanceActionGate),
+    (ActionTiming::At(SCENE_SIX_GATE_TIMES[2]), ActionService::AdvanceActionGate),
+    (ActionTiming::At(SCENE_SIX_GATE_TIMES[3]), ActionService::AdvanceActionGate),
+    (ActionTiming::At(SCENE_SIX_GATE_TIMES[4]), ActionService::AdvanceActionGate),
+    (ActionTiming::At(SCENE_SIX_EXIT_TIME), ActionService::RequestSceneExit),
+    (interval(169, 185), ActionService::FlashPalette),
+    (interval(185, 217), ActionService::RestorePalette),
+    (interval(314, 318), ActionService::FlashPalette),
+    (interval(324, 356), ActionService::RestorePalette),
+    (interval(409, 413), ActionService::FlashPalette),
+    (interval(417, 449), ActionService::RestorePalette),
+];
+
 // Source order is retained: the 153 request precedes the 208 publication in
 // the stream even though it is earlier in time.
 const SCENE_SEVEN_SERVICES: [(ActionTiming, ActionService); 3] = [
@@ -261,6 +305,8 @@ pub enum PlayerActionError {
     MissingCinematicSignals,
     MissingCameraDispatch(ObjectId),
     MissingCampaignPhase,
+    MissingActionGate,
+    Palette(super::player_palette::PaletteError),
 }
 
 impl From<WorldInputError> for PlayerActionError {
@@ -305,6 +351,7 @@ pub fn advance(
             AuthoredSceneAction::Scene3 => &SCENE_THREE_SERVICES,
             AuthoredSceneAction::Scene4 => &SCENE_FOUR_SERVICES,
             AuthoredSceneAction::Scene5 => &SCENE_FIVE_SERVICES,
+            AuthoredSceneAction::Scene6 => &SCENE_SIX_SERVICES,
             AuthoredSceneAction::Scene7 => &SCENE_SEVEN_SERVICES,
             AuthoredSceneAction::Scene9 => &[],
             AuthoredSceneAction::Scene25 => &SCENE_TWENTY_FIVE_SERVICES,
@@ -404,6 +451,36 @@ pub fn advance(
                         super::path_sound::MusicControlRequest::PhaseGatedSceneControl,
                     );
                 }
+            }
+            ActionService::SnapshotPalette => {
+                let palette = world
+                    .palette
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingPalette)?;
+                palette.saved_colors = palette.colors;
+            }
+            ActionService::SetHighlightColors => {
+                let palette = world
+                    .palette
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingPalette)?;
+                palette.colors[HIGHLIGHT_FIRST_COLOR..HIGHLIGHT_FIRST_COLOR + HIGHLIGHT_COLORS.len()]
+                    .copy_from_slice(&HIGHLIGHT_COLORS);
+            }
+            ActionService::RestorePalette => {
+                super::player_palette::restore(objects, world, owner)
+                    .map_err(PlayerActionError::Palette)?
+            }
+            ActionService::FlashPalette => {
+                super::player_palette::flash(world).map_err(PlayerActionError::Palette)?
+            }
+            ActionService::AdvanceActionGate => {
+                let gate = world
+                    .action_gate
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingActionGate)?;
+                gate.code = gate.code.wrapping_add(1);
+                state(objects, world, owner)?.total_updates = 0;
             }
             ActionService::DisableProjectionCorrection => {
                 world

@@ -99,6 +99,8 @@ mod scene_three_tests;
 
 #[path = "support/sf2_scene_five.rs"]
 mod scene_five_tests;
+#[path = "support/sf2_scene_six.rs"]
+mod scene_six_tests;
 
 #[path = "support/sf2_scene_twentyfive.rs"]
 mod scene_twentyfive_tests;
