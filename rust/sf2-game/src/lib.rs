@@ -31,6 +31,7 @@ pub use native::player_mission;
 pub use native::player_palette;
 pub use native::player_node_exit;
 pub use native::scene_install;
+pub use native::frame_background;
 pub use native::player_motion_reset;
 pub use native::player_entry_reset;
 pub use native::scene_world_reset;

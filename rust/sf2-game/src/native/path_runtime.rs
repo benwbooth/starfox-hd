@@ -133,6 +133,9 @@ pub struct PathRuntime {
     /// Background scroll shadow word (193A), written by scene paths and copied
     /// into the scroll tables by `$7F:0B3F`. Its screen axis is not asserted.
     pub background_scroll_shadow: Option<u16>,
+    /// Background horizontal scroll word (193C), recomputed each mission
+    /// frame from the view yaw and 1E4E (`frame_background`).
+    pub background_scroll_x: Option<u16>,
     /// Direct-page scratch byte ($0002) used to carry a variable between two
     /// actor identities (export, switch actor, import). Only reviewed paths
     /// touch it; reading it before any export is a fault, not zero.
@@ -158,6 +161,7 @@ impl Default for PathRuntime {
             captured_world_position: None,
             background_horizontal: None,
             background_scroll_shadow: None,
+            background_scroll_x: None,
             scratch_byte_02: None,
             steering: super::path_steering::SteeringState::default(),
             branch: super::path_conditions::BranchState::default(),

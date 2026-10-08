@@ -452,3 +452,22 @@ fn random_seed_inline_matches_original_from_every_prior_state() {
         }
     }
 }
+
+#[test]
+fn background_scroll_matches_original_for_every_view_yaw_word() {
+    use sf2_game::frame_background;
+    let bytes = rom();
+    let mut source = Source::new(&bytes, 0);
+    for base in [0u16, 1, 0x7FFF, 0x8000, 0xFC01, 0xFFFF] {
+        source.bus.write16(0x1E4E, base);
+        for yaw in 0..=u16::MAX {
+            source.bus.write16(0x033F + 0x14, yaw);
+            source.run(0x03B0C3, None, 0, 0x03BD, true);
+            assert_eq!(
+                source.bus.read16(0x193C),
+                frame_background::scroll_x(yaw, base as i16),
+                "base {base:04X} yaw {yaw:04X}"
+            );
+        }
+    }
+}
