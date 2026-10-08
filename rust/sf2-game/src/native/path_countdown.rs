@@ -37,6 +37,8 @@ impl PathCountdown {
 pub enum ScratchCell {
     /// D766.
     D766,
+    /// D77B.
+    D77B,
     /// D77C.
     D77C,
     /// D79C.
@@ -45,20 +47,40 @@ pub enum ScratchCell {
     D7D2,
     /// D7D6.
     D7D6,
+    /// D7EB.
+    D7EB,
+    /// D7E8..D7EA: health retained per node presentation variant (1E09)
+    /// between a rival's encounters; campaign start clears them (`$0D:F627`).
+    RetainedRivalHealth(u8),
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PathScratchBytes {
-    cells: [PathCountdown; 5],
+    cells: [PathCountdown; 10],
+}
+
+impl ScratchCell {
+    fn slot(self) -> usize {
+        match self {
+            Self::D766 => 0,
+            Self::D77C => 1,
+            Self::D79C => 2,
+            Self::D7D2 => 3,
+            Self::D7D6 => 4,
+            Self::D77B => 5,
+            Self::D7EB => 6,
+            Self::RetainedRivalHealth(variant) => 7 + usize::from(variant.min(2)),
+        }
+    }
 }
 
 impl PathScratchBytes {
     pub fn apply(&mut self, cell: ScratchCell, actor: &mut Object, command: CountdownCommand) {
-        self.cells[cell as usize].apply(actor, command);
+        self.cells[cell.slot()].apply(actor, command);
     }
 
     pub fn get(&self, cell: ScratchCell) -> u8 {
-        self.cells[cell as usize].remaining
+        self.cells[cell.slot()].remaining
     }
 }
 

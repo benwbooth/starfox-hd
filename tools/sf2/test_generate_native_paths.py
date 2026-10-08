@@ -42,9 +42,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 284;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 288;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 15489;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 16465;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -3265,7 +3265,10 @@ class NativePathGenerationTests(unittest.TestCase):
                 self.assertIn("next: cursor(0, 1)", statement)
         # A later wrap period does not prove the FIRST index is in range.
         # The full lookup window must still be immutable source data.
-        for record in ["92 36 ff 06 a2 16 0a", "00 03 00 80 7e a1 0e 14"]:
+        # A window crossing the ROM bank end keeps only its in-bank prefix;
+        # selecting past it faults natively.
+        self.assertIn("values: &[", self.lower_record("92 36 ff 06 a2 16 0a")[0])
+        for record in ["00 03 00 80 7e a1 0e 14"]:
             with self.assertRaisesRegex(UnsupportedPath, "unreviewed constant-byte lookup window"):
                 self.lower_record(record)
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
@@ -3812,7 +3815,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
         self.assertIn("destination: WordField::MotionPhase", self.lower_record("7b a1 9a")[0])
         for index in range(256):
-            if index not in (0x0B, 0x0D, 0x32, 0x34, 0x36, 0x43, 0x7D, 0x7F, 0x81, 0x83, 0x90, 0x92, 0x94, 0x9A):
+            if index not in (0x0B, 0x0D, 0x32, 0x34, 0x36, 0x41, 0x43, 0x7D, 0x7F, 0x81, 0x83, 0x90, 0x92, 0x94, 0x9A):
                 with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                     self.lower_record(f"7b a3 {index:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
@@ -3831,7 +3834,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("Statement::ImportButtonLayout", self.lower_record("79 a1 d0 1d")[0])
         self.assertIn("GuidanceCommand::CopyTo(WordField::MotionScriptOverlap)", self.lower_record("7b a2 36")[0])
         for index in range(256):
-            if index not in (0x0B, 0x0D, 0x32, 0x34, 0x36, 0x43, 0x7D, 0x7F, 0x81, 0x83, 0x9A):
+            if index not in (0x0B, 0x0D, 0x32, 0x34, 0x36, 0x41, 0x43, 0x7D, 0x7F, 0x81, 0x83, 0x9A):
                 with self.assertRaises(UnsupportedPath):
                     self.lower_record(f"80 a3 {index:02x}")
         for record in ["7b a4 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:

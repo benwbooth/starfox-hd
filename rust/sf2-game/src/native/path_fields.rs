@@ -385,12 +385,26 @@ pub enum Mutation {
     IndexedAddAndAdvance {
         field: IndexedAddField,
         selector: ByteField,
-        values: &'static [u8; 256],
+        /// The constant prefix of the source table; a selector past it reads
+        /// mutable memory in the source and faults natively.
+        values: &'static [u8],
         period: u8,
     },
 }
 
 impl Mutation {
+    /// The lookup index a constant-table mutation would read, when it lies
+    /// past the table's constant prefix.
+    pub fn out_of_table(self, actor: &Object) -> Option<u8> {
+        match self {
+            Self::IndexedAddAndAdvance { selector, values, .. } => {
+                let index = selector.read(actor);
+                (usize::from(index) >= values.len()).then_some(index)
+            }
+            _ => None,
+        }
+    }
+
     pub fn apply(self, actor: &mut Object) {
         match self {
             Self::SwapWords { first, second } => {

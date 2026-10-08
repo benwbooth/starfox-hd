@@ -16,41 +16,43 @@ use super::scene_map::{
 };
 use super::{Angle, Behavior, ObjectKind, ShapeId, Vector3};
 
-pub const MAP_COMMAND_COUNT: usize = 1162;
+pub const MAP_COMMAND_COUNT: usize = 1342;
 /// `$05:8003`.
 pub const SCENE_PLAYER_PROLOGUE: MapCursor = MapCursor::from_index(0);
 /// `$05:FBE7`.
-pub const ATTRACT_SCENE_SIX: MapCursor = MapCursor::from_index(980);
+pub const ATTRACT_SCENE_SIX: MapCursor = MapCursor::from_index(1160);
 /// `$05:8035`.
 pub const ATTRACT_SCENE_SEVEN: MapCursor = MapCursor::from_index(5);
 /// `$05:80A7`.
 pub const SCENE_EIGHT_LAUNCHER: MapCursor = MapCursor::from_index(24);
 /// `$05:FC2E`.
-pub const SCENE_FOUR_LAUNCHER: MapCursor = MapCursor::from_index(1000);
+pub const SCENE_FOUR_LAUNCHER: MapCursor = MapCursor::from_index(1180);
 /// `$05:FC83`.
-pub const SCENE_FIVE_LAUNCHER: MapCursor = MapCursor::from_index(1021);
+pub const SCENE_FIVE_LAUNCHER: MapCursor = MapCursor::from_index(1201);
 /// `$05:FCBD`.
-pub const SCENE_THREE_LAUNCHER: MapCursor = MapCursor::from_index(1038);
+pub const SCENE_THREE_LAUNCHER: MapCursor = MapCursor::from_index(1218);
 /// `$05:FCF7`.
-pub const SCENE_ONE_LAUNCHER: MapCursor = MapCursor::from_index(1055);
+pub const SCENE_ONE_LAUNCHER: MapCursor = MapCursor::from_index(1235);
 /// `$05:FD31`.
-pub const SCENE_ONE_ALTERNATE_LAUNCHER: MapCursor = MapCursor::from_index(1072);
+pub const SCENE_ONE_ALTERNATE_LAUNCHER: MapCursor = MapCursor::from_index(1252);
 /// `$05:FD6B`.
-pub const SCENE_TWENTY_EIGHT_LAUNCHER: MapCursor = MapCursor::from_index(1089);
+pub const SCENE_TWENTY_EIGHT_LAUNCHER: MapCursor = MapCursor::from_index(1269);
 /// `$05:FDAC`.
-pub const SCENE_TWENTY_FIVE_LAUNCHER: MapCursor = MapCursor::from_index(1108);
+pub const SCENE_TWENTY_FIVE_LAUNCHER: MapCursor = MapCursor::from_index(1288);
 /// `$05:FDFC`.
-pub const SCENE_TWENTY_EIGHT_CHAINED_LAUNCHER: MapCursor = MapCursor::from_index(1128);
+pub const SCENE_TWENTY_EIGHT_CHAINED_LAUNCHER: MapCursor = MapCursor::from_index(1308);
 /// `$05:FE36`.
-pub const SCENE_TWENTY_SIX_LAUNCHER: MapCursor = MapCursor::from_index(1145);
+pub const SCENE_TWENTY_SIX_LAUNCHER: MapCursor = MapCursor::from_index(1325);
 /// `$05:A213`.
 pub const MACBETH_MISSION: MapCursor = MapCursor::from_index(43);
 /// `$05:BD99`.
 pub const METEOR_MISSION: MapCursor = MapCursor::from_index(340);
 /// `$05:C89E`.
 pub const FORTUNA_MISSION: MapCursor = MapCursor::from_index(670);
+/// `$05:E995`.
+pub const STAR_WOLF_INTERCEPTION: MapCursor = MapCursor::from_index(980);
 
-pub static MAP_INSTRUCTIONS: [MapInstruction<MapEffect, MapSpawn>; 1162] = [
+pub static MAP_INSTRUCTIONS: [MapInstruction<MapEffect, MapSpawn>; 1342] = [
     // $05:8003
     MapInstruction::Spawn {
         specification: MapSpawn::Actor(MapActorSpawn {
@@ -8453,145 +8455,1128 @@ pub static MAP_INSTRUCTIONS: [MapInstruction<MapEffect, MapSpawn>; 1162] = [
     },
     // $05:D2AA
     MapInstruction::Jump(MapCursor::from_index(978)),
-    // $05:FBE7
+    // $05:E995
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
         next: MapCursor::from_index(981),
     },
-    // $05:FBE8
+    // $05:E996
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
         next: MapCursor::from_index(982),
     },
-    // $05:FBE9
+    // $05:E997
     MapInstruction::Apply {
-        effect: MapEffect::SceneLoad(141),
+        effect: MapEffect::SceneLoad(129),
         next: MapCursor::from_index(983),
     },
-    // $05:FBEC
+    // $05:E99A
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
         next: MapCursor::from_index(984),
     },
-    // $05:FBED
+    // $05:E99B
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
         next: MapCursor::from_index(985),
     },
-    // $05:FBEE
+    // $05:E99C
     MapInstruction::Apply {
         effect: MapEffect::CameraProjectionBase(400),
         next: MapCursor::from_index(986),
     },
-    // $05:FBF4
+    // $05:E9A2
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
         next: MapCursor::from_index(987),
     },
-    // $05:FBF8
+    // $05:E9A6
     MapInstruction::Apply {
-        effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
+        effect: MapEffect::Presentation(PresentationByte::SceneStyle, 1),
         next: MapCursor::from_index(988),
     },
-    // $05:FBFD
+    // $05:E9AB
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
         next: MapCursor::from_index(989),
     },
+    // $05:E9AC
+    MapInstruction::Apply {
+        effect: MapEffect::AmbientControl(18),
+        next: MapCursor::from_index(990),
+    },
+    // $05:E9AF
+    MapInstruction::Apply {
+        effect: MapEffect::GsuParameter(GsuParameter::PatternOffset, 65385),
+        next: MapCursor::from_index(991),
+    },
+    // $05:E9B5
+    MapInstruction::Apply {
+        effect: MapEffect::GsuParameter(GsuParameter::PatternMode, 16),
+        next: MapCursor::from_index(992),
+    },
+    // $05:E9BA
+    MapInstruction::Apply {
+        effect: MapEffect::Presentation(PresentationByte::TitleLayout, 64),
+        next: MapCursor::from_index(993),
+    },
+    // $05:E9BF
+    MapInstruction::Branch {
+        condition: MapCondition::SceneEvent,
+        taken: MapCursor::from_index(998),
+        otherwise: MapCursor::from_index(994),
+    },
+    // $05:E9D3
+    MapInstruction::Apply {
+        effect: MapEffect::AmbientControl(146),
+        next: MapCursor::from_index(995),
+    },
+    // $05:E9D6
+    MapInstruction::Apply {
+        effect: MapEffect::GsuParameter(GsuParameter::PatternOffset, 65385),
+        next: MapCursor::from_index(996),
+    },
+    // $05:E9DC
+    MapInstruction::Apply {
+        effect: MapEffect::GsuParameter(GsuParameter::PatternMode, 16),
+        next: MapCursor::from_index(997),
+    },
+    // $05:E9E1
+    MapInstruction::Apply {
+        effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
+        next: MapCursor::from_index(998),
+    },
+    // $05:E9E6
+    MapInstruction::Apply {
+        effect: MapEffect::PlaceMapPlayer,
+        next: MapCursor::from_index(999),
+    },
+    // $05:E9EF
+    MapInstruction::Apply {
+        effect: MapEffect::PlayerConfiguration(3),
+        next: MapCursor::from_index(1000),
+    },
+    // $05:E9F4
+    MapInstruction::Apply {
+        effect: MapEffect::PlayerConfigurationVariant(0),
+        next: MapCursor::from_index(1001),
+    },
+    // $05:E9F9
+    MapInstruction::Apply {
+        effect: MapEffect::CameraHeightLimit(HeightLimit::Top, -3500),
+        next: MapCursor::from_index(1002),
+    },
+    // $05:E9FF
+    MapInstruction::Apply {
+        effect: MapEffect::CameraHeightLimit(HeightLimit::Bottom, 3500),
+        next: MapCursor::from_index(1003),
+    },
+    // $05:EA05
+    MapInstruction::Apply {
+        effect: MapEffect::EnvironmentPlane(0),
+        next: MapCursor::from_index(1004),
+    },
+    // $05:EA0B
+    MapInstruction::Apply {
+        effect: MapEffect::GsuParameter(GsuParameter::BackdropColor, 0),
+        next: MapCursor::from_index(1005),
+    },
+    // $05:EA11
+    MapInstruction::Apply {
+        effect: MapEffect::RenderPlane(0),
+        next: MapCursor::from_index(1006),
+    },
+    // $05:EA17
+    MapInstruction::Apply {
+        effect: MapEffect::PlayerCarryMode(0),
+        next: MapCursor::from_index(1007),
+    },
+    // $05:EA1C
+    MapInstruction::Apply {
+        effect: MapEffect::AltitudeGaugeScale(175),
+        next: MapCursor::from_index(1008),
+    },
+    // $05:EA22
+    MapInstruction::Jump(MapCursor::from_index(1009)),
+    // $05:EA28
+    MapInstruction::Jump(MapCursor::from_index(1010)),
+    // $05:EA2D
+    MapInstruction::Jump(MapCursor::from_index(1011)),
+    // $05:EA32
+    MapInstruction::Jump(MapCursor::from_index(1012)),
+    // $05:EA37
+    MapInstruction::Jump(MapCursor::from_index(1013)),
+    // $05:EA3C
+    MapInstruction::Apply {
+        effect: MapEffect::CameraPitchProfile(CameraPitchProfile { up: 30, down: -30 }),
+        next: MapCursor::from_index(1014),
+    },
+    // $05:EA45
+    MapInstruction::Jump(MapCursor::from_index(1015)),
+    // $05:EA4B
+    MapInstruction::Jump(MapCursor::from_index(1016)),
+    // $05:EA51
+    MapInstruction::Jump(MapCursor::from_index(1017)),
+    // $05:EA56
+    MapInstruction::Jump(MapCursor::from_index(1018)),
+    // $05:EA5B
+    MapInstruction::Apply {
+        effect: MapEffect::PlayerVerticalProfile(VerticalProfile {
+            upper_height_offset: 3500,
+            lower_height_offset: -3500,
+            up_pitch: 40,
+            down_pitch: 216,
+        }),
+        next: MapCursor::from_index(1019),
+    },
+    // $05:EA64
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(0),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::DefaultCombat,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1020),
+    },
+    // $05:EA72
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_0502),
+        next: MapCursor::from_index(1021),
+    },
+    // $05:EA75
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(3),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1022),
+    },
+    // $05:EA83
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(100),
+        next: MapCursor::from_index(1023),
+    },
+    // $05:EA87
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(0),
+        next: MapCursor::from_index(1024),
+    },
+    // $05:EA8B
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::GUIDANCE_RADIO_CONTROLLER),
+        next: MapCursor::from_index(1025),
+    },
+    // $05:EA8E
+    MapInstruction::Apply {
+        effect: MapEffect::OccupancyExempt(true),
+        next: MapCursor::from_index(1026),
+    },
+    // $05:EA97
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(10),
+        taken: MapCursor::from_index(1136),
+        otherwise: MapCursor::from_index(1027),
+    },
+    // $05:EA9B
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(11),
+        taken: MapCursor::from_index(1147),
+        otherwise: MapCursor::from_index(1028),
+    },
+    // $05:EA9F
+    MapInstruction::Apply {
+        effect: MapEffect::HandoffFlags(0),
+        next: MapCursor::from_index(1029),
+    },
+    // $05:EAA4
+    MapInstruction::Apply {
+        effect: MapEffect::ActionGate(1),
+        next: MapCursor::from_index(1030),
+    },
+    // $05:EAA9
+    MapInstruction::Apply {
+        effect: MapEffect::SceneSelection(22),
+        next: MapCursor::from_index(1031),
+    },
+    // $05:EAAE
+    MapInstruction::Jump(MapCursor::from_index(1032)),
+    // $05:EAB4
+    MapInstruction::Apply {
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1035)),
+        next: MapCursor::from_index(1033),
+    },
+    // $05:EAB9
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1034),
+    },
+    // $05:EABC
+    MapInstruction::Jump(MapCursor::from_index(1033)),
+    // $05:EAC0
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(0),
+        taken: MapCursor::from_index(1046),
+        otherwise: MapCursor::from_index(1036),
+    },
+    // $05:EAC4
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(1),
+        taken: MapCursor::from_index(1052),
+        otherwise: MapCursor::from_index(1037),
+    },
+    // $05:EAC8
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(2),
+        taken: MapCursor::from_index(1062),
+        otherwise: MapCursor::from_index(1038),
+    },
+    // $05:EACC
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(3),
+        taken: MapCursor::from_index(1068),
+        otherwise: MapCursor::from_index(1039),
+    },
+    // $05:EAD0
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(4),
+        taken: MapCursor::from_index(1082),
+        otherwise: MapCursor::from_index(1040),
+    },
+    // $05:EAD4
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(5),
+        taken: MapCursor::from_index(1088),
+        otherwise: MapCursor::from_index(1041),
+    },
+    // $05:EAD8
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(6),
+        taken: MapCursor::from_index(1094),
+        otherwise: MapCursor::from_index(1042),
+    },
+    // $05:EADC
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(7),
+        taken: MapCursor::from_index(1108),
+        otherwise: MapCursor::from_index(1043),
+    },
+    // $05:EAE0
+    MapInstruction::Branch {
+        condition: MapCondition::EncounterLayout(8),
+        taken: MapCursor::from_index(1114),
+        otherwise: MapCursor::from_index(1044),
+    },
+    // $05:EAE4
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1045),
+    },
+    // $05:EAE7
+    MapInstruction::Jump(MapCursor::from_index(1044)),
+    // $05:EAEB
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(181),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1047),
+    },
+    // $05:EAF9
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(0),
+        next: MapCursor::from_index(1048),
+    },
+    // $05:EAFD
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1049),
+    },
+    // $05:EB01
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::OBJECTIVE_GATED_PULSE_PATROL),
+        next: MapCursor::from_index(1050),
+    },
+    // $05:EB04
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1051),
+    },
+    // $05:EB07
+    MapInstruction::Jump(MapCursor::from_index(1050)),
+    // $05:EB0B
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(181),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1053),
+    },
+    // $05:EB19
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(0),
+        next: MapCursor::from_index(1054),
+    },
+    // $05:EB1D
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1055),
+    },
+    // $05:EB21
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::OBJECTIVE_GATED_PULSE_PATROL),
+        next: MapCursor::from_index(1056),
+    },
+    // $05:EB24
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(181),
+            position: Vector3 {
+                x: -2500,
+                y: -1500,
+                z: -3000,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1057),
+    },
+    // $05:EB32
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(1),
+        next: MapCursor::from_index(1058),
+    },
+    // $05:EB36
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1059),
+    },
+    // $05:EB3A
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::OBJECTIVE_GATED_PULSE_PATROL),
+        next: MapCursor::from_index(1060),
+    },
+    // $05:EB3D
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1061),
+    },
+    // $05:EB40
+    MapInstruction::Jump(MapCursor::from_index(1060)),
+    // $05:EB44
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(164),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1063),
+    },
+    // $05:EB52
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(0),
+        next: MapCursor::from_index(1064),
+    },
+    // $05:EB56
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1065),
+    },
+    // $05:EB5A
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_295E),
+        next: MapCursor::from_index(1066),
+    },
+    // $05:EB5D
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1067),
+    },
+    // $05:EB60
+    MapInstruction::Jump(MapCursor::from_index(1066)),
+    // $05:EB64
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(181),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1069),
+    },
+    // $05:EB72
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(0),
+        next: MapCursor::from_index(1070),
+    },
+    // $05:EB76
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1071),
+    },
+    // $05:EB7A
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::OBJECTIVE_GATED_PULSE_PATROL),
+        next: MapCursor::from_index(1072),
+    },
+    // $05:EB7D
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(181),
+            position: Vector3 {
+                x: 1000,
+                y: 800,
+                z: -2000,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1073),
+    },
+    // $05:EB8B
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(1),
+        next: MapCursor::from_index(1074),
+    },
+    // $05:EB8F
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1075),
+    },
+    // $05:EB93
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::OBJECTIVE_GATED_PULSE_PATROL),
+        next: MapCursor::from_index(1076),
+    },
+    // $05:EB96
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(181),
+            position: Vector3 {
+                x: 2000,
+                y: 1400,
+                z: 2500,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1077),
+    },
+    // $05:EBA4
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(2),
+        next: MapCursor::from_index(1078),
+    },
+    // $05:EBA8
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1079),
+    },
+    // $05:EBAC
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::OBJECTIVE_GATED_PULSE_PATROL),
+        next: MapCursor::from_index(1080),
+    },
+    // $05:EBAF
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1081),
+    },
+    // $05:EBB2
+    MapInstruction::Jump(MapCursor::from_index(1080)),
+    // $05:EBB6
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(164),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1083),
+    },
+    // $05:EBC4
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(0),
+        next: MapCursor::from_index(1084),
+    },
+    // $05:EBC8
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1085),
+    },
+    // $05:EBCC
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_2961),
+        next: MapCursor::from_index(1086),
+    },
+    // $05:EBCF
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1087),
+    },
+    // $05:EBD2
+    MapInstruction::Jump(MapCursor::from_index(1086)),
+    // $05:EBD6
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(411),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1089),
+    },
+    // $05:EBE4
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(10),
+        next: MapCursor::from_index(1090),
+    },
+    // $05:EBE8
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(0),
+        next: MapCursor::from_index(1091),
+    },
+    // $05:EBEC
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_2102),
+        next: MapCursor::from_index(1092),
+    },
+    // $05:EBEF
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1093),
+    },
+    // $05:EBF2
+    MapInstruction::Jump(MapCursor::from_index(1092)),
+    // $05:EBF6
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(164),
+            position: Vector3 {
+                x: -500,
+                y: -1400,
+                z: 0,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1095),
+    },
+    // $05:EC04
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(0),
+        next: MapCursor::from_index(1096),
+    },
+    // $05:EC08
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(231),
+        next: MapCursor::from_index(1097),
+    },
+    // $05:EC0C
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_2961),
+        next: MapCursor::from_index(1098),
+    },
+    // $05:EC0F
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(181),
+            position: Vector3 {
+                x: 1700,
+                y: 0,
+                z: -1500,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1099),
+    },
+    // $05:EC1D
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(8),
+        next: MapCursor::from_index(1100),
+    },
+    // $05:EC21
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(221),
+        next: MapCursor::from_index(1101),
+    },
+    // $05:EC25
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::OBJECTIVE_GATED_PULSE_PATROL),
+        next: MapCursor::from_index(1102),
+    },
+    // $05:EC28
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(181),
+            position: Vector3 {
+                x: -1500,
+                y: 1400,
+                z: -3000,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1103),
+    },
+    // $05:EC36
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(9),
+        next: MapCursor::from_index(1104),
+    },
+    // $05:EC3A
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(226),
+        next: MapCursor::from_index(1105),
+    },
+    // $05:EC3E
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::OBJECTIVE_GATED_PULSE_PATROL),
+        next: MapCursor::from_index(1106),
+    },
+    // $05:EC41
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1107),
+    },
+    // $05:EC44
+    MapInstruction::Jump(MapCursor::from_index(1106)),
+    // $05:EC48
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(133),
+            position: Vector3 { x: 0, y: 400, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1109),
+    },
+    // $05:EC56
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(10),
+        next: MapCursor::from_index(1110),
+    },
+    // $05:EC5A
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(0),
+        next: MapCursor::from_index(1111),
+    },
+    // $05:EC5E
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_22AA),
+        next: MapCursor::from_index(1112),
+    },
+    // $05:EC61
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1113),
+    },
+    // $05:EC64
+    MapInstruction::Jump(MapCursor::from_index(1112)),
+    // $05:EC68
+    MapInstruction::Branch {
+        condition: MapCondition::ExternalEvent,
+        taken: MapCursor::from_index(1129),
+        otherwise: MapCursor::from_index(1115),
+    },
+    // $05:EC6B
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(233),
+            position: Vector3 {
+                x: 0,
+                y: 0,
+                z: 3000,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1116),
+    },
+    // $05:EC79
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(10),
+        next: MapCursor::from_index(1117),
+    },
+    // $05:EC7D
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(0),
+        next: MapCursor::from_index(1118),
+    },
+    // $05:EC81
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_72BB),
+        next: MapCursor::from_index(1119),
+    },
+    // $05:EC84
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(233),
+            position: Vector3 {
+                x: 3500,
+                y: -1800,
+                z: 0,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1120),
+    },
+    // $05:EC92
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(10),
+        next: MapCursor::from_index(1121),
+    },
+    // $05:EC96
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(1),
+        next: MapCursor::from_index(1122),
+    },
+    // $05:EC9A
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_72BB),
+        next: MapCursor::from_index(1123),
+    },
+    // $05:EC9D
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(233),
+            position: Vector3 {
+                x: -2500,
+                y: 1200,
+                z: -2000,
+            },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1124),
+    },
+    // $05:ECAB
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(10),
+        next: MapCursor::from_index(1125),
+    },
+    // $05:ECAF
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(2),
+        next: MapCursor::from_index(1126),
+    },
+    // $05:ECB3
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_72BB),
+        next: MapCursor::from_index(1127),
+    },
+    // $05:ECB6
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1128),
+    },
+    // $05:ECB9
+    MapInstruction::Jump(MapCursor::from_index(1127)),
+    // $05:ECBD
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(505),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::Plain,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1130),
+    },
+    // $05:ECCB
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorHitPoints(3),
+        next: MapCursor::from_index(1131),
+    },
+    // $05:ECCF
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::ActorAttackPower(10),
+        next: MapCursor::from_index(1132),
+    },
+    // $05:ECD3
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_720D),
+        next: MapCursor::from_index(1133),
+    },
+    // $05:ECD6
+    MapInstruction::Apply {
+        effect: MapEffect::DeclarePathRecord(PathRecord {
+            position: Vector3 {
+                x: 700,
+                y: -1200,
+                z: -700,
+            },
+            yaw: Angle::from_units(25),
+            shape: ShapeId::from_catalog_index(492),
+            path: authored_paths::MAP_PLACED_7382,
+        }),
+        next: MapCursor::from_index(1134),
+    },
+    // $05:ECE2
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1135),
+    },
+    // $05:ECE5
+    MapInstruction::Jump(MapCursor::from_index(1134)),
+    // $05:ECE9
+    MapInstruction::Apply {
+        effect: MapEffect::HandoffFlags(0),
+        next: MapCursor::from_index(1137),
+    },
+    // $05:ECEE
+    MapInstruction::Apply {
+        effect: MapEffect::ActionGate(1),
+        next: MapCursor::from_index(1138),
+    },
+    // $05:ECF3
+    MapInstruction::Apply {
+        effect: MapEffect::SceneSelection(29),
+        next: MapCursor::from_index(1139),
+    },
+    // $05:ECF8
+    MapInstruction::Jump(MapCursor::from_index(1140)),
+    // $05:ECFE
+    MapInstruction::Apply {
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1143)),
+        next: MapCursor::from_index(1141),
+    },
+    // $05:ED03
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1142),
+    },
+    // $05:ED06
+    MapInstruction::Jump(MapCursor::from_index(1141)),
+    // $05:ED0A
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(61),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::DefaultCombat,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1144),
+    },
+    // $05:ED18
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_00BC),
+        next: MapCursor::from_index(1145),
+    },
+    // $05:ED1B
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1146),
+    },
+    // $05:ED1E
+    MapInstruction::Jump(MapCursor::from_index(1145)),
+    // $05:ED22
+    MapInstruction::Apply {
+        effect: MapEffect::HandoffFlags(0),
+        next: MapCursor::from_index(1148),
+    },
+    // $05:ED27
+    MapInstruction::Apply {
+        effect: MapEffect::ActionGate(1),
+        next: MapCursor::from_index(1149),
+    },
+    // $05:ED2C
+    MapInstruction::Apply {
+        effect: MapEffect::SceneSelection(29),
+        next: MapCursor::from_index(1150),
+    },
+    // $05:ED31
+    MapInstruction::Jump(MapCursor::from_index(1151)),
+    // $05:ED37
+    MapInstruction::Apply {
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1154)),
+        next: MapCursor::from_index(1152),
+    },
+    // $05:ED3C
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1153),
+    },
+    // $05:ED3F
+    MapInstruction::Jump(MapCursor::from_index(1152)),
+    // $05:ED43
+    MapInstruction::Spawn {
+        specification: MapSpawn::PathActor {
+            shape: ShapeId::from_catalog_index(380),
+            position: Vector3 { x: 0, y: 0, z: 0 },
+            entry: PathEntry::DefaultCombat,
+        },
+        marker: 0,
+        next: MapCursor::from_index(1155),
+    },
+    // $05:ED51
+    MapInstruction::ApplyToCurrent {
+        effect: MapEffect::InstallPath(authored_paths::MAP_PLACED_00BC),
+        next: MapCursor::from_index(1156),
+    },
+    // $05:ED54
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1157),
+    },
+    // $05:ED57
+    MapInstruction::Jump(MapCursor::from_index(1156)),
+    // $05:ED5B
+    MapInstruction::Yield {
+        marker: 5000,
+        next: MapCursor::from_index(1159),
+    },
+    // $05:ED5E
+    MapInstruction::Jump(MapCursor::from_index(1158)),
+    // $05:FBE7
+    MapInstruction::Apply {
+        effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
+        next: MapCursor::from_index(1161),
+    },
+    // $05:FBE8
+    MapInstruction::Await {
+        condition: MapCondition::DisplayReady,
+        retry_marker: Some(1),
+        next: MapCursor::from_index(1162),
+    },
+    // $05:FBE9
+    MapInstruction::Apply {
+        effect: MapEffect::SceneLoad(141),
+        next: MapCursor::from_index(1163),
+    },
+    // $05:FBEC
+    MapInstruction::Await {
+        condition: MapCondition::LoadTableIdle,
+        retry_marker: None,
+        next: MapCursor::from_index(1164),
+    },
+    // $05:FBED
+    MapInstruction::Apply {
+        effect: MapEffect::LoaderHold,
+        next: MapCursor::from_index(1165),
+    },
+    // $05:FBEE
+    MapInstruction::Apply {
+        effect: MapEffect::CameraProjectionBase(400),
+        next: MapCursor::from_index(1166),
+    },
+    // $05:FBF4
+    MapInstruction::Apply {
+        effect: MapEffect::ResetSceneDisplay,
+        next: MapCursor::from_index(1167),
+    },
+    // $05:FBF8
+    MapInstruction::Apply {
+        effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
+        next: MapCursor::from_index(1168),
+    },
+    // $05:FBFD
+    MapInstruction::Apply {
+        effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
+        next: MapCursor::from_index(1169),
+    },
     // $05:FBFE
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(990),
+        next: MapCursor::from_index(1170),
     },
     // $05:FC01
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 64),
-        next: MapCursor::from_index(991),
+        next: MapCursor::from_index(1171),
     },
     // $05:FC06
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(992),
+        next: MapCursor::from_index(1172),
     },
     // $05:FC0B
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(993),
+        next: MapCursor::from_index(1173),
     },
     // $05:FC10
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(6),
-        next: MapCursor::from_index(994),
+        next: MapCursor::from_index(1174),
     },
     // $05:FC15
-    MapInstruction::Jump(MapCursor::from_index(995)),
+    MapInstruction::Jump(MapCursor::from_index(1175)),
     // $05:FC1B
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(998)),
-        next: MapCursor::from_index(996),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1178)),
+        next: MapCursor::from_index(1176),
     },
     // $05:FC20
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(997),
+        next: MapCursor::from_index(1177),
     },
     // $05:FC23
-    MapInstruction::Jump(MapCursor::from_index(996)),
+    MapInstruction::Jump(MapCursor::from_index(1176)),
     // $05:FC27
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(999),
+        next: MapCursor::from_index(1179),
     },
     // $05:FC2A
-    MapInstruction::Jump(MapCursor::from_index(998)),
+    MapInstruction::Jump(MapCursor::from_index(1178)),
     // $05:FC2E
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1001),
+        next: MapCursor::from_index(1181),
     },
     // $05:FC2F
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1002),
+        next: MapCursor::from_index(1182),
     },
     // $05:FC30
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(87),
-        next: MapCursor::from_index(1003),
+        next: MapCursor::from_index(1183),
     },
     // $05:FC33
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1004),
+        next: MapCursor::from_index(1184),
     },
     // $05:FC34
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1005),
+        next: MapCursor::from_index(1185),
     },
     // $05:FC35
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::BackdropProgram, 11),
-        next: MapCursor::from_index(1006),
+        next: MapCursor::from_index(1186),
     },
     // $05:FC3A
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1007),
+        next: MapCursor::from_index(1187),
     },
     // $05:FC3E
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1008),
+        next: MapCursor::from_index(1188),
     },
     // $05:FC43
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1009),
+        next: MapCursor::from_index(1189),
     },
     // $05:FC44
     MapInstruction::Spawn {
@@ -8601,515 +9586,515 @@ pub static MAP_INSTRUCTIONS: [MapInstruction<MapEffect, MapSpawn>; 1162] = [
             entry: PathEntry::DefaultCombat,
         },
         marker: 0,
-        next: MapCursor::from_index(1010),
+        next: MapCursor::from_index(1190),
     },
     // $05:FC52
     MapInstruction::ApplyToCurrent {
         effect: MapEffect::InstallPath(authored_paths::ENCOUNTER_RADIO_SERVICE),
-        next: MapCursor::from_index(1011),
+        next: MapCursor::from_index(1191),
     },
     // $05:FC55
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1012),
+        next: MapCursor::from_index(1192),
     },
     // $05:FC58
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1013),
+        next: MapCursor::from_index(1193),
     },
     // $05:FC5D
     MapInstruction::Apply {
         effect: MapEffect::EncounterVariant(4),
-        next: MapCursor::from_index(1014),
+        next: MapCursor::from_index(1194),
     },
     // $05:FC62
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1015),
+        next: MapCursor::from_index(1195),
     },
     // $05:FC67
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1016),
+        next: MapCursor::from_index(1196),
     },
     // $05:FC6C
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(25),
-        next: MapCursor::from_index(1017),
+        next: MapCursor::from_index(1197),
     },
     // $05:FC71
-    MapInstruction::Jump(MapCursor::from_index(1018)),
+    MapInstruction::Jump(MapCursor::from_index(1198)),
     // $05:FC77
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(1021)),
-        next: MapCursor::from_index(1019),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1201)),
+        next: MapCursor::from_index(1199),
     },
     // $05:FC7C
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1020),
+        next: MapCursor::from_index(1200),
     },
     // $05:FC7F
-    MapInstruction::Jump(MapCursor::from_index(1019)),
+    MapInstruction::Jump(MapCursor::from_index(1199)),
     // $05:FC83
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1022),
+        next: MapCursor::from_index(1202),
     },
     // $05:FC84
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1023),
+        next: MapCursor::from_index(1203),
     },
     // $05:FC85
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(153),
-        next: MapCursor::from_index(1024),
+        next: MapCursor::from_index(1204),
     },
     // $05:FC88
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1025),
+        next: MapCursor::from_index(1205),
     },
     // $05:FC89
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1026),
+        next: MapCursor::from_index(1206),
     },
     // $05:FC8A
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1027),
+        next: MapCursor::from_index(1207),
     },
     // $05:FC8E
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1028),
+        next: MapCursor::from_index(1208),
     },
     // $05:FC93
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1029),
+        next: MapCursor::from_index(1209),
     },
     // $05:FC96
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1030),
+        next: MapCursor::from_index(1210),
     },
     // $05:FC9B
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1031),
+        next: MapCursor::from_index(1211),
     },
     // $05:FC9C
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1032),
+        next: MapCursor::from_index(1212),
     },
     // $05:FCA1
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1033),
+        next: MapCursor::from_index(1213),
     },
     // $05:FCA6
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(5),
-        next: MapCursor::from_index(1034),
+        next: MapCursor::from_index(1214),
     },
     // $05:FCAB
-    MapInstruction::Jump(MapCursor::from_index(1035)),
+    MapInstruction::Jump(MapCursor::from_index(1215)),
     // $05:FCB1
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(1038)),
-        next: MapCursor::from_index(1036),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1218)),
+        next: MapCursor::from_index(1216),
     },
     // $05:FCB6
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1037),
+        next: MapCursor::from_index(1217),
     },
     // $05:FCB9
-    MapInstruction::Jump(MapCursor::from_index(1036)),
+    MapInstruction::Jump(MapCursor::from_index(1216)),
     // $05:FCBD
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1039),
+        next: MapCursor::from_index(1219),
     },
     // $05:FCBE
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1040),
+        next: MapCursor::from_index(1220),
     },
     // $05:FCBF
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(171),
-        next: MapCursor::from_index(1041),
+        next: MapCursor::from_index(1221),
     },
     // $05:FCC2
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1042),
+        next: MapCursor::from_index(1222),
     },
     // $05:FCC3
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1043),
+        next: MapCursor::from_index(1223),
     },
     // $05:FCC4
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1044),
+        next: MapCursor::from_index(1224),
     },
     // $05:FCC8
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1045),
+        next: MapCursor::from_index(1225),
     },
     // $05:FCCD
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1046),
+        next: MapCursor::from_index(1226),
     },
     // $05:FCD0
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1047),
+        next: MapCursor::from_index(1227),
     },
     // $05:FCD5
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1048),
+        next: MapCursor::from_index(1228),
     },
     // $05:FCD6
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1049),
+        next: MapCursor::from_index(1229),
     },
     // $05:FCDB
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1050),
+        next: MapCursor::from_index(1230),
     },
     // $05:FCE0
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(3),
-        next: MapCursor::from_index(1051),
+        next: MapCursor::from_index(1231),
     },
     // $05:FCE5
-    MapInstruction::Jump(MapCursor::from_index(1052)),
+    MapInstruction::Jump(MapCursor::from_index(1232)),
     // $05:FCEB
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(1055)),
-        next: MapCursor::from_index(1053),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1235)),
+        next: MapCursor::from_index(1233),
     },
     // $05:FCF0
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1054),
+        next: MapCursor::from_index(1234),
     },
     // $05:FCF3
-    MapInstruction::Jump(MapCursor::from_index(1053)),
+    MapInstruction::Jump(MapCursor::from_index(1233)),
     // $05:FCF7
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1056),
+        next: MapCursor::from_index(1236),
     },
     // $05:FCF8
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1057),
+        next: MapCursor::from_index(1237),
     },
     // $05:FCF9
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(171),
-        next: MapCursor::from_index(1058),
+        next: MapCursor::from_index(1238),
     },
     // $05:FCFC
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1059),
+        next: MapCursor::from_index(1239),
     },
     // $05:FCFD
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1060),
+        next: MapCursor::from_index(1240),
     },
     // $05:FCFE
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1061),
+        next: MapCursor::from_index(1241),
     },
     // $05:FD02
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1062),
+        next: MapCursor::from_index(1242),
     },
     // $05:FD07
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1063),
+        next: MapCursor::from_index(1243),
     },
     // $05:FD08
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1064),
+        next: MapCursor::from_index(1244),
     },
     // $05:FD0B
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1065),
+        next: MapCursor::from_index(1245),
     },
     // $05:FD10
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1066),
+        next: MapCursor::from_index(1246),
     },
     // $05:FD15
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1067),
+        next: MapCursor::from_index(1247),
     },
     // $05:FD1A
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(1),
-        next: MapCursor::from_index(1068),
+        next: MapCursor::from_index(1248),
     },
     // $05:FD1F
-    MapInstruction::Jump(MapCursor::from_index(1069)),
+    MapInstruction::Jump(MapCursor::from_index(1249)),
     // $05:FD25
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(1072)),
-        next: MapCursor::from_index(1070),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1252)),
+        next: MapCursor::from_index(1250),
     },
     // $05:FD2A
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1071),
+        next: MapCursor::from_index(1251),
     },
     // $05:FD2D
-    MapInstruction::Jump(MapCursor::from_index(1070)),
+    MapInstruction::Jump(MapCursor::from_index(1250)),
     // $05:FD31
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1073),
+        next: MapCursor::from_index(1253),
     },
     // $05:FD32
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1074),
+        next: MapCursor::from_index(1254),
     },
     // $05:FD33
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(141),
-        next: MapCursor::from_index(1075),
+        next: MapCursor::from_index(1255),
     },
     // $05:FD36
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1076),
+        next: MapCursor::from_index(1256),
     },
     // $05:FD37
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1077),
+        next: MapCursor::from_index(1257),
     },
     // $05:FD38
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1078),
+        next: MapCursor::from_index(1258),
     },
     // $05:FD3C
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1079),
+        next: MapCursor::from_index(1259),
     },
     // $05:FD41
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1080),
+        next: MapCursor::from_index(1260),
     },
     // $05:FD42
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1081),
+        next: MapCursor::from_index(1261),
     },
     // $05:FD45
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1082),
+        next: MapCursor::from_index(1262),
     },
     // $05:FD4A
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1083),
+        next: MapCursor::from_index(1263),
     },
     // $05:FD4F
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1084),
+        next: MapCursor::from_index(1264),
     },
     // $05:FD54
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(1),
-        next: MapCursor::from_index(1085),
+        next: MapCursor::from_index(1265),
     },
     // $05:FD59
-    MapInstruction::Jump(MapCursor::from_index(1086)),
+    MapInstruction::Jump(MapCursor::from_index(1266)),
     // $05:FD5F
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(1089)),
-        next: MapCursor::from_index(1087),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1269)),
+        next: MapCursor::from_index(1267),
     },
     // $05:FD64
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1088),
+        next: MapCursor::from_index(1268),
     },
     // $05:FD67
-    MapInstruction::Jump(MapCursor::from_index(1087)),
+    MapInstruction::Jump(MapCursor::from_index(1267)),
     // $05:FD6B
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1090),
+        next: MapCursor::from_index(1270),
     },
     // $05:FD6C
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1091),
+        next: MapCursor::from_index(1271),
     },
     // $05:FD6D
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(141),
-        next: MapCursor::from_index(1092),
+        next: MapCursor::from_index(1272),
     },
     // $05:FD70
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1093),
+        next: MapCursor::from_index(1273),
     },
     // $05:FD71
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1094),
+        next: MapCursor::from_index(1274),
     },
     // $05:FD72
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1095),
+        next: MapCursor::from_index(1275),
     },
     // $05:FD76
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1096),
+        next: MapCursor::from_index(1276),
     },
     // $05:FD7B
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1097),
+        next: MapCursor::from_index(1277),
     },
     // $05:FD7C
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1098),
+        next: MapCursor::from_index(1278),
     },
     // $05:FD7F
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1099),
+        next: MapCursor::from_index(1279),
     },
     // $05:FD84
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1100),
+        next: MapCursor::from_index(1280),
     },
     // $05:FD89
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1101),
+        next: MapCursor::from_index(1281),
     },
     // $05:FD8E
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(28),
-        next: MapCursor::from_index(1102),
+        next: MapCursor::from_index(1282),
     },
     // $05:FD93
-    MapInstruction::Jump(MapCursor::from_index(1103)),
+    MapInstruction::Jump(MapCursor::from_index(1283)),
     // $05:FD99
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(1106)),
-        next: MapCursor::from_index(1104),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1286)),
+        next: MapCursor::from_index(1284),
     },
     // $05:FD9E
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1105),
+        next: MapCursor::from_index(1285),
     },
     // $05:FDA1
-    MapInstruction::Jump(MapCursor::from_index(1104)),
+    MapInstruction::Jump(MapCursor::from_index(1284)),
     // $05:FDA5
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1107),
+        next: MapCursor::from_index(1287),
     },
     // $05:FDA8
-    MapInstruction::Jump(MapCursor::from_index(1106)),
+    MapInstruction::Jump(MapCursor::from_index(1286)),
     // $05:FDAC
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1109),
+        next: MapCursor::from_index(1289),
     },
     // $05:FDAD
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1110),
+        next: MapCursor::from_index(1290),
     },
     // $05:FDAE
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(87),
-        next: MapCursor::from_index(1111),
+        next: MapCursor::from_index(1291),
     },
     // $05:FDB1
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1112),
+        next: MapCursor::from_index(1292),
     },
     // $05:FDB2
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1113),
+        next: MapCursor::from_index(1293),
     },
     // $05:FDB3
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::BackdropProgram, 11),
-        next: MapCursor::from_index(1114),
+        next: MapCursor::from_index(1294),
     },
     // $05:FDB8
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1115),
+        next: MapCursor::from_index(1295),
     },
     // $05:FDBC
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1116),
+        next: MapCursor::from_index(1296),
     },
     // $05:FDC1
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1117),
+        next: MapCursor::from_index(1297),
     },
     // $05:FDC2
     MapInstruction::Spawn {
@@ -9119,217 +10104,217 @@ pub static MAP_INSTRUCTIONS: [MapInstruction<MapEffect, MapSpawn>; 1162] = [
             entry: PathEntry::DefaultCombat,
         },
         marker: 0,
-        next: MapCursor::from_index(1118),
+        next: MapCursor::from_index(1298),
     },
     // $05:FDD0
     MapInstruction::ApplyToCurrent {
         effect: MapEffect::InstallPath(authored_paths::ENCOUNTER_RADIO_SERVICE),
-        next: MapCursor::from_index(1119),
+        next: MapCursor::from_index(1299),
     },
     // $05:FDD3
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1120),
+        next: MapCursor::from_index(1300),
     },
     // $05:FDD6
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1121),
+        next: MapCursor::from_index(1301),
     },
     // $05:FDDB
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1122),
+        next: MapCursor::from_index(1302),
     },
     // $05:FDE0
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1123),
+        next: MapCursor::from_index(1303),
     },
     // $05:FDE5
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(25),
-        next: MapCursor::from_index(1124),
+        next: MapCursor::from_index(1304),
     },
     // $05:FDEA
-    MapInstruction::Jump(MapCursor::from_index(1125)),
+    MapInstruction::Jump(MapCursor::from_index(1305)),
     // $05:FDF0
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(1128)),
-        next: MapCursor::from_index(1126),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1308)),
+        next: MapCursor::from_index(1306),
     },
     // $05:FDF5
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1127),
+        next: MapCursor::from_index(1307),
     },
     // $05:FDF8
-    MapInstruction::Jump(MapCursor::from_index(1126)),
+    MapInstruction::Jump(MapCursor::from_index(1306)),
     // $05:FDFC
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1129),
+        next: MapCursor::from_index(1309),
     },
     // $05:FDFD
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1130),
+        next: MapCursor::from_index(1310),
     },
     // $05:FDFE
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(87),
-        next: MapCursor::from_index(1131),
+        next: MapCursor::from_index(1311),
     },
     // $05:FE01
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1132),
+        next: MapCursor::from_index(1312),
     },
     // $05:FE02
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1133),
+        next: MapCursor::from_index(1313),
     },
     // $05:FE03
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1134),
+        next: MapCursor::from_index(1314),
     },
     // $05:FE07
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1135),
+        next: MapCursor::from_index(1315),
     },
     // $05:FE0C
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1136),
+        next: MapCursor::from_index(1316),
     },
     // $05:FE0D
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1137),
+        next: MapCursor::from_index(1317),
     },
     // $05:FE10
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1138),
+        next: MapCursor::from_index(1318),
     },
     // $05:FE15
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1139),
+        next: MapCursor::from_index(1319),
     },
     // $05:FE1A
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1140),
+        next: MapCursor::from_index(1320),
     },
     // $05:FE1F
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(28),
-        next: MapCursor::from_index(1141),
+        next: MapCursor::from_index(1321),
     },
     // $05:FE24
-    MapInstruction::Jump(MapCursor::from_index(1142)),
+    MapInstruction::Jump(MapCursor::from_index(1322)),
     // $05:FE2A
     MapInstruction::Apply {
-        effect: MapEffect::SaveContinuation(MapCursor::from_index(1145)),
-        next: MapCursor::from_index(1143),
+        effect: MapEffect::SaveContinuation(MapCursor::from_index(1325)),
+        next: MapCursor::from_index(1323),
     },
     // $05:FE2F
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1144),
+        next: MapCursor::from_index(1324),
     },
     // $05:FE32
-    MapInstruction::Jump(MapCursor::from_index(1143)),
+    MapInstruction::Jump(MapCursor::from_index(1323)),
     // $05:FE36
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Blank),
-        next: MapCursor::from_index(1146),
+        next: MapCursor::from_index(1326),
     },
     // $05:FE37
     MapInstruction::Await {
         condition: MapCondition::DisplayReady,
         retry_marker: Some(1),
-        next: MapCursor::from_index(1147),
+        next: MapCursor::from_index(1327),
     },
     // $05:FE38
     MapInstruction::Apply {
         effect: MapEffect::SceneLoad(93),
-        next: MapCursor::from_index(1148),
+        next: MapCursor::from_index(1328),
     },
     // $05:FE3B
     MapInstruction::Await {
         condition: MapCondition::LoadTableIdle,
         retry_marker: None,
-        next: MapCursor::from_index(1149),
+        next: MapCursor::from_index(1329),
     },
     // $05:FE3C
     MapInstruction::Apply {
         effect: MapEffect::LoaderHold,
-        next: MapCursor::from_index(1150),
+        next: MapCursor::from_index(1330),
     },
     // $05:FE3D
     MapInstruction::Apply {
         effect: MapEffect::ResetSceneDisplay,
-        next: MapCursor::from_index(1151),
+        next: MapCursor::from_index(1331),
     },
     // $05:FE41
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::SceneStyle, 3),
-        next: MapCursor::from_index(1152),
+        next: MapCursor::from_index(1332),
     },
     // $05:FE46
     MapInstruction::Apply {
         effect: MapEffect::DisplayMode(DisplayModeRequest::Scene),
-        next: MapCursor::from_index(1153),
+        next: MapCursor::from_index(1333),
     },
     // $05:FE47
     MapInstruction::Apply {
         effect: MapEffect::AmbientControl(80),
-        next: MapCursor::from_index(1154),
+        next: MapCursor::from_index(1334),
     },
     // $05:FE4A
     MapInstruction::Apply {
         effect: MapEffect::Presentation(PresentationByte::TitleLayout, 32),
-        next: MapCursor::from_index(1155),
+        next: MapCursor::from_index(1335),
     },
     // $05:FE4F
     MapInstruction::Apply {
         effect: MapEffect::HandoffFlags(0),
-        next: MapCursor::from_index(1156),
+        next: MapCursor::from_index(1336),
     },
     // $05:FE54
     MapInstruction::Apply {
         effect: MapEffect::ActionGate(1),
-        next: MapCursor::from_index(1157),
+        next: MapCursor::from_index(1337),
     },
     // $05:FE59
     MapInstruction::Apply {
         effect: MapEffect::SceneSelection(26),
-        next: MapCursor::from_index(1158),
+        next: MapCursor::from_index(1338),
     },
     // $05:FE5E
-    MapInstruction::Jump(MapCursor::from_index(1159)),
+    MapInstruction::Jump(MapCursor::from_index(1339)),
     // $05:FE64
     MapInstruction::Apply {
         effect: MapEffect::SaveUnrunnableContinuation,
-        next: MapCursor::from_index(1160),
+        next: MapCursor::from_index(1340),
     },
     // $05:FE69
     MapInstruction::Yield {
         marker: 5000,
-        next: MapCursor::from_index(1161),
+        next: MapCursor::from_index(1341),
     },
     // $05:FE6C
-    MapInstruction::Jump(MapCursor::from_index(1160)),
+    MapInstruction::Jump(MapCursor::from_index(1340)),
 ];
 
-pub static MAP_PHASE_EXITS: [PhaseExit; 50] = [
+pub static MAP_PHASE_EXITS: [PhaseExit; 66] = [
     PhaseExit {
         parked: MapCursor::from_index(21),
         continuation: MapCursor::from_index(22),
@@ -9487,48 +10472,112 @@ pub static MAP_PHASE_EXITS: [PhaseExit; 50] = [
         continuation: MapCursor::from_index(978),
     },
     PhaseExit {
-        parked: MapCursor::from_index(997),
-        continuation: MapCursor::from_index(998),
+        parked: MapCursor::from_index(1034),
+        continuation: MapCursor::from_index(1035),
     },
     PhaseExit {
-        parked: MapCursor::from_index(999),
-        continuation: MapCursor::from_index(1000),
+        parked: MapCursor::from_index(1045),
+        continuation: MapCursor::from_index(1046),
     },
     PhaseExit {
-        parked: MapCursor::from_index(1020),
-        continuation: MapCursor::from_index(1021),
+        parked: MapCursor::from_index(1051),
+        continuation: MapCursor::from_index(1052),
     },
     PhaseExit {
-        parked: MapCursor::from_index(1037),
-        continuation: MapCursor::from_index(1038),
+        parked: MapCursor::from_index(1061),
+        continuation: MapCursor::from_index(1062),
     },
     PhaseExit {
-        parked: MapCursor::from_index(1054),
-        continuation: MapCursor::from_index(1055),
+        parked: MapCursor::from_index(1067),
+        continuation: MapCursor::from_index(1068),
     },
     PhaseExit {
-        parked: MapCursor::from_index(1071),
-        continuation: MapCursor::from_index(1072),
+        parked: MapCursor::from_index(1081),
+        continuation: MapCursor::from_index(1082),
     },
     PhaseExit {
-        parked: MapCursor::from_index(1088),
-        continuation: MapCursor::from_index(1089),
+        parked: MapCursor::from_index(1087),
+        continuation: MapCursor::from_index(1088),
     },
     PhaseExit {
-        parked: MapCursor::from_index(1105),
-        continuation: MapCursor::from_index(1106),
+        parked: MapCursor::from_index(1093),
+        continuation: MapCursor::from_index(1094),
     },
     PhaseExit {
         parked: MapCursor::from_index(1107),
         continuation: MapCursor::from_index(1108),
     },
     PhaseExit {
-        parked: MapCursor::from_index(1127),
-        continuation: MapCursor::from_index(1128),
+        parked: MapCursor::from_index(1113),
+        continuation: MapCursor::from_index(1114),
     },
     PhaseExit {
-        parked: MapCursor::from_index(1144),
-        continuation: MapCursor::from_index(1145),
+        parked: MapCursor::from_index(1128),
+        continuation: MapCursor::from_index(1129),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1135),
+        continuation: MapCursor::from_index(1136),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1142),
+        continuation: MapCursor::from_index(1143),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1146),
+        continuation: MapCursor::from_index(1147),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1153),
+        continuation: MapCursor::from_index(1154),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1157),
+        continuation: MapCursor::from_index(1158),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1177),
+        continuation: MapCursor::from_index(1178),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1179),
+        continuation: MapCursor::from_index(1180),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1200),
+        continuation: MapCursor::from_index(1201),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1217),
+        continuation: MapCursor::from_index(1218),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1234),
+        continuation: MapCursor::from_index(1235),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1251),
+        continuation: MapCursor::from_index(1252),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1268),
+        continuation: MapCursor::from_index(1269),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1285),
+        continuation: MapCursor::from_index(1286),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1287),
+        continuation: MapCursor::from_index(1288),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1307),
+        continuation: MapCursor::from_index(1308),
+    },
+    PhaseExit {
+        parked: MapCursor::from_index(1324),
+        continuation: MapCursor::from_index(1325),
     },
 ];
 

@@ -190,22 +190,22 @@ ROOTS = (
 # Paths named only by map records (opcode 90's path word, or 8C). Each is admitted
 # through a decoded map record that names it (verified_map_spawn_installer).
 MAP_PLACED_PATHS = (
-    0x0691, 0x0A0F, 0x0A11, 0x0BD7, 0x0BDA, 0x0C34, 0x0C3A, 0x0C40,
-    0x0D28, 0x0D69, 0x0DDA, 0x0DE8, 0x0E52, 0x0E54, 0x0E56, 0x0F2C,
-    0x1369, 0x1466, 0x146F, 0x1496, 0x149A, 0x14F5, 0x1542, 0x1556,
-    0x15C4, 0x1618, 0x1684, 0x1725, 0x180D, 0x1820, 0x18A5, 0x1913,
-    0x1966, 0x19BA, 0x19F5, 0x1A52, 0x1AFF, 0x22AA, 0x2651, 0x295E,
-    0x2961, 0x2D26, 0x2E2D, 0x2E52, 0x2EDD, 0x2F0B, 0x3089, 0x360A,
-    0x37AE, 0x37B6, 0x3982, 0x39A8, 0x39AA, 0x3A3A, 0x3A72, 0x3AF9,
-    0x3B93, 0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8, 0x3C4E, 0x3D02, 0x3F35,
-    0x3F85, 0x3FC1, 0x419B, 0x4368, 0x4370, 0x4397, 0x439F, 0x45F6,
-    0x45FB, 0x460E, 0x468C, 0x479F, 0x4839, 0x4C16, 0x4E26, 0x4F06,
-    0x4F72, 0x4FA5, 0x5097, 0x520D, 0x5385, 0x53A8, 0x5742, 0x58B9,
-    0x5C8F, 0x5EF6, 0x60F1, 0x66EA, 0x6A15, 0x6C01, 0x6F65, 0x6F75,
-    0x720D, 0x72BB, 0x737F, 0x7382, 0x7442, 0x7D10, 0x7D17, 0x7D1E,
-    0x7D4A, 0x7E04, 0x7E25, 0x7E27, 0x7E29, 0x7E2B, 0x7E2D, 0x7E2F,
-    0x7E31, 0x7E68, 0x7E7C, 0x7E8E, 0x7F00, 0x7F12, 0x7F36, 0x7F8E,
-    0x7FA8, 0x7FCE, 0xA552,
+    0x00BC, 0x0502, 0x0691, 0x0A0F, 0x0A11, 0x0BD7, 0x0BDA, 0x0C34,
+    0x0C3A, 0x0C40, 0x0D28, 0x0D69, 0x0DDA, 0x0DE8, 0x0E52, 0x0E54,
+    0x0E56, 0x0F2C, 0x1369, 0x1466, 0x146F, 0x1496, 0x149A, 0x14F5,
+    0x1542, 0x1556, 0x15C4, 0x1618, 0x1684, 0x1725, 0x180D, 0x1820,
+    0x18A5, 0x1913, 0x1966, 0x19BA, 0x19F5, 0x1A52, 0x1AFF, 0x2102,
+    0x22AA, 0x2651, 0x295E, 0x2961, 0x2D26, 0x2E2D, 0x2E52, 0x2EDD,
+    0x2F0B, 0x3089, 0x360A, 0x37AE, 0x37B6, 0x3982, 0x39A8, 0x39AA,
+    0x3A3A, 0x3A72, 0x3AF9, 0x3B93, 0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8,
+    0x3C4E, 0x3D02, 0x3F35, 0x3F85, 0x3FC1, 0x419B, 0x4368, 0x4370,
+    0x4397, 0x439F, 0x45F6, 0x45FB, 0x460E, 0x468C, 0x479F, 0x4839,
+    0x4C16, 0x4E26, 0x4F06, 0x4F72, 0x4FA5, 0x5097, 0x520D, 0x5385,
+    0x53A8, 0x5742, 0x58B9, 0x5C8F, 0x5EF6, 0x60F1, 0x6230, 0x66EA,
+    0x6A15, 0x6C01, 0x6F65, 0x6F75, 0x720D, 0x72BB, 0x737F, 0x7382,
+    0x7442, 0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04, 0x7E25, 0x7E27,
+    0x7E29, 0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68, 0x7E7C, 0x7E8E,
+    0x7F00, 0x7F12, 0x7F36, 0x7F8E, 0x7FA8, 0x7FCE, 0xA552,
 )
 ROOTS = ROOTS + tuple((f"MAP_PLACED_{offset:04X}", PathAddress(offset)) for offset in MAP_PLACED_PATHS)
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
@@ -2127,6 +2127,10 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
             elif index == 0x36:
                 operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
                 statement = f"Statement::Guidance {{ command: GuidanceCommand::{operation}, next: {next_cursor()} }}"
+            elif index == 0x41:
+                # D79D: the encounter result word read by the strategic map.
+                operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
+                statement = f"Statement::EncounterResult {{ command: super::path_program::SlotWordCommand::{operation}, next: {next_cursor()} }}"
             elif index in (0x7D, 0x7F, 0x81, 0x83):
                 # D7D9..D7DF: path-only shared words, one per authored slot.
                 operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
@@ -2202,6 +2206,10 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                 statement = f'Statement::SetHealthDisplayLabel {{ label: "{label[:-1].decode("ascii")}", next: {next_cursor()} }}'
                 statements.append(statement)
                 continue
+            if (low | high << 8) == 0xD79D:
+                value = value_low | value_high << 8
+                statements.append(f"Statement::EncounterResult {{ command: super::path_program::SlotWordCommand::Assign(WordOperand::Literal({value})), next: {next_cursor()} }}")
+                continue
             if (low | high << 8) in (0xD767, 0xD769) and command.address not in (PathAddress(0xB053), PathAddress(0xB061)):
                 coordinate = "Primary" if (low | high << 8) == 0xD767 else "Depth"
                 value = value_low | value_high << 8
@@ -2246,6 +2254,9 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                 parameter = "HalfWidth" if address == 0x0004 else "HalfHeight"
                 statements.append(f"Statement::SetRegionParameter {{ parameter: super::player_boundary::RegionParameter::{parameter}, value: WordOperand::Actor({word_field(variable)}), next: {next_cursor()} }}")
                 continue
+            if address == 0x1B84:
+                statements.append(f"Statement::ExecutionModeWord {{ command: super::path_program::SlotWordCommand::Assign(WordOperand::Actor({word_field(variable)})), next: {next_cursor()} }}")
+                continue
             if address == 0x1B88:
                 statement = f"Statement::SceneEvent {{ command: super::path_scene_state::SceneEventCommand::Assign(WordOperand::Actor({word_field(variable)})), next: {next_cursor()} }}"
                 statements.append(statement)
@@ -2266,6 +2277,9 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
         elif name == "ImportWordAbsolute":
             variable, low, high = parameters(3)
             address = low | (high << 8)
+            if address == 0x1B84:
+                statements.append(f"Statement::ExecutionModeWord {{ command: super::path_program::SlotWordCommand::CopyTo({word_field(variable)}), next: {next_cursor()} }}")
+                continue
             if address == 0x1DFF and variable == 0x06:
                 statements.append(f"Statement::AttachCameraTrackingTarget {{ next: {next_cursor()} }}")
                 continue
@@ -2441,9 +2455,9 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                 statement = f'Statement::ObjectiveCounts {{ field: super::path_scene_state::ObjectiveCountField::{field}, command: super::path_scene_state::CoordinationCommand::{operation}, next: {next_cursor()} }}'
                 statements.append(statement)
                 continue
-            if address in (0xD79B, 0x1DE0, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B, 0x1E09, 0x1D73) and name.startswith("Import"):
+            if address in (0xD79B, 0x1DE0, 0x1DE2, 0x1BB5, 0x1BA5, 0x1BA9, 0x1E70, 0xDB5B, 0x1E09, 0x1D73, 0xD757) and name.startswith("Import"):
                 source = {0xD79B: "EncounterNodeMode", 0x1DE0: "PlayerViewControl", 0x1DE2: "PlayerConfiguration", 0x1BB5: "EncounterLocation", 0x1BA5: "EncounterLayout", 0x1BA9: "EntryHeading",
-                          0x1E70: "WingmatePilot", 0xDB5B: "MapRegion", 0x1E09: "NodePresentationVariant", 0x1D73: "SceneSelection"}[address]
+                          0x1E70: "WingmatePilot", 0xDB5B: "MapRegion", 0x1E09: "NodePresentationVariant", 0x1D73: "SceneSelection", 0xD757: "GsuTextActive"}[address]
                 statement = f"Statement::ImportSceneByte {{ source: super::path_program::SceneByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
@@ -2513,7 +2527,8 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                 statement = f"Statement::ImportCampaignByte {{ source: CampaignByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            scratch = {0xD766: "D766", 0xD77C: "D77C", 0xD79C: "D79C", 0xD7D2: "D7D2", 0xD7D6: "D7D6"}
+            scratch = {0xD766: "D766", 0xD77B: "D77B", 0xD77C: "D77C", 0xD7EB: "D7EB", 0xD79C: "D79C", 0xD7D2: "D7D2", 0xD7D6: "D7D6",
+                       0xD7E8: "RetainedRivalHealth(0)", 0xD7E9: "RetainedRivalHealth(1)", 0xD7EA: "RetainedRivalHealth(2)"}
             if address != 0xD786 and address not in scratch:
                 raise UnsupportedPath(f"unported shared byte {address:04X} at {command.address.label()}")
             if name.startswith("Import"):
@@ -2532,7 +2547,10 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
             low, high, bank, selector, destination, period = parameters(6)
             wide = name == "AddIndexedSignedByteAndAdvanceFrame"
             kind = "SignedWord" if wide else "Byte"
-            values = banked_byte_values(extractor.rom, low | (high << 8) | (bank << 16))
+            window = low | (high << 8) | (bank << 16)
+            values = (banked_bounded_values(extractor.rom, window, False)
+                      if 0 <= window >> 16 < 0x40 and 0x8000 <= window & 0xFFFF and (window & 0xFFFF) + 255 > 0xFFFF
+                      else banked_byte_values(extractor.rom, window))
             field = (word_field if wide else byte_field)(destination)
             mutation = f"Mutation::IndexedAddAndAdvance {{ field: super::path_fields::IndexedAddField::{kind}({field}), selector: {byte_field(selector)}, values: &[{', '.join(map(str, values))}], period: {period} }}"
             statement = f"Statement::Mutate {{ mutation: {mutation}, next: {next_cursor()} }}"

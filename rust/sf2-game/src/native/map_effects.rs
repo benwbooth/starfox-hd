@@ -93,6 +93,10 @@ pub enum MapEffect {
     PlacementHeading(u8),
     /// `$06:9A92`: place the primary player at the mission-entry placement.
     PlacePrimaryPlayer,
+    /// `$06:9B4C`: place the primary player on the map ground at the entry
+    /// placement and the excluded actor (14D6) at the map target, then take
+    /// the entry heading; proximity distance word 1DC0 is cleared.
+    PlaceMapPlayer,
     /// 1D75 / 1D76: the scene selections the stage-exit player actions
     /// (`$0D:CD11`, `$0D:CD1A`) publish to 1D73; 1D76 = FE marks no
     /// alternate selection (`$0D:BBE6`).
@@ -266,6 +270,7 @@ pub enum MapHostError {
     MissingControlledFlags,
     MissingCampaign,
     MissingScenarioFlags,
+    MissingMapTarget,
 }
 
 /// The scene world as seen by map records. Continuations are returned to
@@ -297,6 +302,61 @@ impl MapWorld<'_> {
         for owner in owners {
             apply(self.world.player_mut(self.objects, owner).map_err(MapHostError::PlayerRecords)?)?;
         }
+        Ok(())
+    }
+
+    /// `$06:9B4C..9C1E` with zero distance. The bearing toward the target
+    /// is stored and then replaced by the entry heading, so only the
+    /// heading survives; the 1D98 phase counter it advances has no reader.
+    fn place_map_player(&mut self) -> Result<(), MapHostError> {
+        const ENTRY_SCENE_SELECTION: u8 = 0x16;
+        self.world.proximity_distance_seed = Some(0);
+        let Some(owner) = self.world.primary_player else {
+            return Ok(());
+        };
+        let MapPlacement { x: Some(x), z: Some(z), heading: Some(heading), .. } =
+            self.world.map_placement
+        else {
+            return Err(MapHostError::IncompletePlacement);
+        };
+        let (target_x, target_z) = self
+            .world
+            .map_target_position
+            .ok_or(MapHostError::MissingMapTarget)?;
+        let view = self.world.fixed_players[0].ok_or(MapHostError::MissingFixedView)?;
+        if let Some(target) = self.world.excluded_actor {
+            let actor = self
+                .objects
+                .get_mut(target)
+                .ok_or(MapHostError::MissingCurrentActor(target))?;
+            actor.base.position = super::Vector3 { x: target_x, y: 0, z: target_z };
+        }
+        let resources = self.resources.as_deref_mut().ok_or(MapHostError::MissingProgramResources)?;
+        let storage = super::player_storage::get_mut(self.objects, resources, owner)
+            .map_err(|_| MapHostError::MissingPlayerStorage)?;
+        storage.fine_yaw = (storage.fine_yaw & 0x00FF) | (u16::from(heading) << 8);
+        let opposite = heading.wrapping_neg();
+        let records = self
+            .world
+            .player_mut(self.objects, owner)
+            .map_err(MapHostError::PlayerRecords)?;
+        records.saved_scene_selection = Some(ENTRY_SCENE_SELECTION);
+        records
+            .auxiliary
+            .as_mut()
+            .ok_or(MapHostError::MissingPlayerAuxiliary)?
+            .stored_rotation
+            .yaw = super::Angle::from_units(opposite);
+        let player = self
+            .objects
+            .get_mut(owner)
+            .ok_or(MapHostError::MissingCurrentActor(owner))?;
+        player.base.position = super::Vector3 { x, y: 0, z };
+        player.base.yaw = super::Angle::from_units(heading);
+        let view = self.objects.get_mut(view).ok_or(MapHostError::MissingCurrentActor(view))?;
+        let mut angles = super::view_transition::FixedViewAngles::capture(view);
+        angles.yaw = (angles.yaw & 0x00FF) | (u16::from(opposite) << 8);
+        angles.write_to(view);
         Ok(())
     }
 
@@ -526,6 +586,7 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
             }
             MapEffect::PlacementHeading(heading) => self.world.map_placement.heading = Some(heading),
             MapEffect::PlacePrimaryPlayer => self.place_primary_player()?,
+            MapEffect::PlaceMapPlayer => self.place_map_player()?,
             MapEffect::ExitSceneSelection(ExitScene::Primary, selection) => {
                 self.world.stage_exit.primary_scene = Some(selection)
             }

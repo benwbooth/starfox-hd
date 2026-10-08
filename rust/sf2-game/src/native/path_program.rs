@@ -266,6 +266,7 @@ pub struct PathWorld<'a> {
     pub guidance: Option<&'a mut GuidanceHistory>,
     pub pickup_history: Option<&'a mut PickupHistory>,
     pub slot_words: Option<&'a mut PathSlotWords>,
+    pub encounter_result: Option<&'a mut EncounterResult>,
     pub scratch_bytes: Option<&'a mut super::path_countdown::PathScratchBytes>,
     pub difficulty_tallies: Option<&'a mut DifficultyTallies>,
     /// Full shared button-layout byte (1DD0), not flight inversion (1DCF).
@@ -377,6 +378,7 @@ impl PathWorld<'_> {
             guidance: None,
             pickup_history: None,
             slot_words: None,
+            encounter_result: None,
             scratch_bytes: None,
             difficulty_tallies: None,
             button_layout: None,
@@ -447,6 +449,8 @@ pub struct ScenePathInputs {
     /// Published wingmate pilot byte ($1E70), refreshed during pilot exchange
     /// and set to 255 when absent. Not the path-selected actor identity.
     pub wingmate_pilot: Option<u8>,
+    /// GSU text-service flag (D757).
+    pub gsu_text_active: Option<u8>,
     /// Player-configuration variant ($1DE3); bit 80 selects the alternate
     /// first word of the configuration record ($06:85F9).
     pub player_configuration_variant: Option<u8>,
@@ -560,6 +564,9 @@ pub enum SceneByte {
     NodePresentationVariant,
     ActiveWeaponLevel,
     SceneSelection,
+    /// D757: set by the ending's text path and consumed by the GSU text
+    /// service (`$7F:CE49`); other paths hold while it is nonzero.
+    GsuTextActive,
 }
 
 impl SceneByte {
@@ -578,6 +585,7 @@ impl SceneByte {
             Self::NodePresentationVariant => input.node_presentation_variant,
             Self::ActiveWeaponLevel => input.active_weapon_level,
             Self::SceneSelection => input.scene_selection,
+            Self::GsuTextActive => input.gsu_text_active,
         }
     }
 }
@@ -632,6 +640,13 @@ pub enum PickupHistoryCommand {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct DifficultyTallies {
     pub counts: [u8; 3],
+}
+
+/// Encounter result word (D79D) that the strategic map reads after an
+/// encounter ($04:B2C8, $04:BD94): 0, 1, FFFE and FFFF are distinguished.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EncounterResult {
+    pub word: u16,
 }
 
 /// Four words (D7D9/DB/DD/DF) exchanged only between authored paths; each
@@ -1266,6 +1281,16 @@ pub enum Statement {
         tally: u8,
         next: PathCursor,
     },
+    /// The whole shared execution-mode word (1B84).
+    ExecutionModeWord {
+        command: SlotWordCommand,
+        next: PathCursor,
+    },
+    /// The encounter result word (D79D).
+    EncounterResult {
+        command: SlotWordCommand,
+        next: PathCursor,
+    },
     /// Indexed words D7D9 + 2 * slot (slot 0..=3).
     SlotWord {
         slot: u8,
@@ -1516,6 +1541,8 @@ pub enum ProgramError {
     MissingSelectedAuxiliary,
     MissingSelectedShield,
     MissingSlotWords,
+    MissingExecutionMode,
+    MissingEncounterResult,
     MissingScratchBytes,
     MissingDifficultyTallies,
     MissingShapeHeader(super::ShapeId),
@@ -3265,6 +3292,28 @@ impl PathRuntime {
                 objects.get_mut(owner).expect("validated tally owner").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
+            Statement::ExecutionModeWord { command, next } => {
+                let mode = world.view_transition_mode.as_deref_mut()
+                    .ok_or(ProgramError::MissingExecutionMode)?;
+                let actor = objects.get_mut(owner).expect("validated execution-mode owner");
+                match command {
+                    SlotWordCommand::CopyTo(field) => field.write(actor, mode.flags),
+                    SlotWordCommand::Assign(value) => mode.flags = value.read(actor),
+                }
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::EncounterResult { command, next } => {
+                let result = world.encounter_result.as_deref_mut()
+                    .ok_or(ProgramError::MissingEncounterResult)?;
+                let actor = objects.get_mut(owner).expect("validated encounter-result owner");
+                match command {
+                    SlotWordCommand::CopyTo(field) => field.write(actor, result.word),
+                    SlotWordCommand::Assign(value) => result.word = value.read(actor),
+                }
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
             Statement::SlotWord { slot, command, next } => {
                 let words = world.slot_words.as_deref_mut()
                     .ok_or(ProgramError::MissingSlotWords)?;
@@ -3590,6 +3639,7 @@ mod tests {
             guidance: None,
             pickup_history: None,
             slot_words: None,
+            encounter_result: None,
             scratch_bytes: None,
             difficulty_tallies: None,
             button_layout: None,
@@ -6480,10 +6530,13 @@ mod tests {
             expected.base.contacts.run_when_paused = true;
             expected.base.flags.visible = false;
             expected.base.flags.collision_disabled = true;
-            expected.base.path = Some(PathCursor {
-                command_index: authored_paths::SHARED_COUNTDOWN_SERVICE.command_index + 4,
-                ..authored_paths::SHARED_COUNTDOWN_SERVICE
-            });
+            // The service parks on its countdown sample; other catalog
+            // entries can decode into the same bytes, so locate it by kind.
+            let park = (authored_paths::SHARED_COUNTDOWN_SERVICE.command_index..)
+                .map(|index| PathCursor { command_index: index, ..authored_paths::SHARED_COUNTDOWN_SERVICE })
+                .find(|&at| matches!(catalog.statement(at).unwrap(), Statement::Countdown { command: super::super::path_countdown::CountdownCommand::CopyTo(_), .. }))
+                .unwrap();
+            expected.base.path = Some(park);
             let mut countdown = PathCountdown { remaining: initial };
             for visit in 0..(u16::from(initial) + 3) {
                 let before = countdown.remaining;
@@ -9260,7 +9313,7 @@ mod tests {
     fn scene_imports_require_only_the_selected_input_and_preserve_full_byte_values() {
         use super::super::path_fields::BytePart;
         let destination = ByteField::WordPart { field: WordField::MotionPhase, part: BytePart::Low };
-        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::PlayerViewControl, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel, SceneByte::SceneSelection] {
+        for source in [SceneByte::EncounterNodeMode, SceneByte::ActivePilot, SceneByte::ActiveShield, SceneByte::MapRegion, SceneByte::WingmatePilot, SceneByte::EntryHeading, SceneByte::PlayerConfiguration, SceneByte::PlayerViewControl, SceneByte::EncounterLocation, SceneByte::EncounterLayout, SceneByte::ActiveWeaponLevel, SceneByte::SceneSelection, SceneByte::GsuTextActive] {
             let catalog = PathCatalog::new(vec![vec![Statement::ImportSceneByte {
                 source, destination, next: cursor(0, 1),
             }]]).unwrap();
@@ -9288,6 +9341,7 @@ mod tests {
                     SceneByte::NodePresentationVariant => inputs.scene.node_presentation_variant = Some(value),
                     SceneByte::ActiveWeaponLevel => inputs.scene.active_weapon_level = Some(value),
                     SceneByte::SceneSelection => inputs.scene.scene_selection = Some(value),
+                    SceneByte::GsuTextActive => inputs.scene.gsu_text_active = Some(value),
                 }
                 assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 0).map(|exit| { assert_eq!(exit.actor, owner); exit.step }),
                     Err(ProgramError::BudgetExceeded { cursor: cursor(0, 0), executed: 0 }));
@@ -10784,6 +10838,7 @@ mod tests {
                 guidance: None,
                 pickup_history: None,
                 slot_words: None,
+                encounter_result: None,
                 scratch_bytes: None,
                 difficulty_tallies: None,
                 button_layout: None,
@@ -14853,10 +14908,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 284);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 288);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 15430);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 15489);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 16406);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 16465);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -15034,6 +15089,7 @@ mod tests {
                 guidance: None,
                 pickup_history: None,
                 slot_words: None,
+                encounter_result: None,
                 scratch_bytes: None,
                 difficulty_tallies: None,
                 button_layout: None,
@@ -15209,6 +15265,7 @@ mod tests {
                         guidance: None,
                         pickup_history: None,
                         slot_words: None,
+                        encounter_result: None,
                         scratch_bytes: None,
                         difficulty_tallies: None,
                         button_layout: None,

@@ -206,6 +206,15 @@ pub struct ScenePathWorld {
     /// Scenario flag word (E087). Bit 0400 is set by `$0D:FA9D` for the
     /// location-7 / layout-9 encounter and tested by map branch A4.
     pub scenario_flags: Option<u16>,
+    /// 14D6: the actor slot excluded from strategy visits (the cue-marker
+    /// proxy in scenes); map placement moves it to the map target.
+    pub excluded_actor: Option<ObjectId>,
+    /// 1DF3/1DF5: the strategic-map target's ground position, published by
+    /// the map before the stage ($04:B105).
+    pub map_target_position: Option<(i16, i16)>,
+    /// 1DC0: proximity record distance, seeded by the map placement calls
+    /// and shifted by the proximity scan ($06:A71D).
+    pub proximity_distance_seed: Option<u16>,
     pub fixed_players: [Option<ObjectId>; 2],
     /// Common player formatter's retained subject ($150D/$12C1/$1509).
     /// Those three legacy publications are assigned together to the same
@@ -368,6 +377,7 @@ pub struct ScenePathWorld {
     pub guidance: Option<GuidanceHistory>,
     pub pickup_history: Option<PickupHistory>,
     pub slot_words: Option<super::path_program::PathSlotWords>,
+    pub encounter_result: Option<super::path_program::EncounterResult>,
     pub scratch_bytes: Option<super::path_countdown::PathScratchBytes>,
     pub difficulty_tallies: Option<super::path_program::DifficultyTallies>,
     pub active_node_flags: Option<ActiveNodeFlags>,
@@ -442,6 +452,9 @@ impl ScenePathWorld {
             secondary_player: None,
             stage_layout: None,
             scenario_flags: None,
+            excluded_actor: None,
+            map_target_position: None,
+            proximity_distance_seed: None,
             fixed_players: [None; 2],
             player_display_subject: None,
             contacts_enabled: None,
@@ -532,6 +545,7 @@ impl ScenePathWorld {
             guidance: None,
             pickup_history: None,
             slot_words: None,
+            encounter_result: None,
             scratch_bytes: None,
             difficulty_tallies: None,
             active_node_flags: None,
@@ -790,6 +804,7 @@ impl InvocationWorld for ScenePathWorld {
             guidance: self.guidance.as_mut(),
             pickup_history: self.pickup_history.as_mut(),
             slot_words: self.slot_words.as_mut(),
+            encounter_result: self.encounter_result.as_mut(),
             scratch_bytes: self.scratch_bytes.as_mut(),
             difficulty_tallies: self.difficulty_tallies.as_mut(),
             active_node_flags: self.active_node_flags.as_mut(),

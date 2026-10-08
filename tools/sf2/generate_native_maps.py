@@ -60,6 +60,9 @@ ROOTS = (
     ("MACBETH_MISSION", MapAddress(5, 0x2213)),
     ("METEOR_MISSION", MapAddress(5, 0x3D99)),
     ("FORTUNA_MISSION", MapAddress(5, 0x489E)),
+    # Encounter location 7 (installer $03:BBA5): the Star Wolf interception
+    # reached on the map when Leon intercepts the ship (layout 0A).
+    ("STAR_WOLF_INTERCEPTION", MapAddress(5, 0x6995)),
 )
 
 PHASE_HOLD = 0x1388
@@ -142,6 +145,7 @@ ARGUMENT_CALLS = {
 PLAIN_CALLS = {
     0x069A92: "MapEffect::PlacePrimaryPlayer",
     0x069ACD: "MapEffect::LinkControlledPilots",
+    0x069B4C: "MapEffect::PlaceMapPlayer",
     0x069B04: "MapEffect::OccupancyExempt(true)",
     0x069B20: "MapEffect::OccupancyExempt(false)",
 }

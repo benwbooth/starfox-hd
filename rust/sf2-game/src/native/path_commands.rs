@@ -302,6 +302,9 @@ impl PathRuntime {
         if actor.base.path.is_none() {
             return Err(PathRuntimeError::MissingPath(owner));
         }
+        if let Some(index) = mutation.out_of_table(actor) {
+            return Err(PathRuntimeError::LookupOutsideConstantTable(index));
+        }
         mutation.apply(actor);
         actor.base.path = Some(next);
         Ok(ControlStep::Continue)

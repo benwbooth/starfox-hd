@@ -71,6 +71,8 @@ struct ActiveCallbacks {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathRuntimeError {
+    /// A constant-table lookup selected an index past the table's ROM prefix.
+    LookupOutsideConstantTable(u8),
     Auxiliary(super::actor_auxiliary::AuxiliaryError),
     MissingActor(ObjectId),
     MissingPath(ObjectId),
