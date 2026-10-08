@@ -2,12 +2,12 @@
 //! compared with the complete retail machine at every strategy epoch. The
 //! native loop starts from its own boot world, spawns and initializes each
 //! scene player, applies the stage hand-over and carries its world between
-//! scenes. The only retail input is each scene's palette, which the scene
-//! loader uploads (not ported), plus the render-timed entropy-refresh points.
+//! scenes. The only retail input is the render-timed entropy-refresh points.
+//! Palette words are compared only at boot: the scene loader's uploads are
+//! not ported yet, and no compared state depends on them.
 use super::motion_reset_tests::Reader;
 use super::{Source, WRAM};
 use sf2_game::authored_paths;
-use sf2_game::player_action::ScenePalette;
 use sf2_game::scene_runner::{EntropyRefresh, SceneRunner};
 use sf2_game::scene_strategy::{SceneActors, SceneCallbacks};
 use sf2_game::strategy_schedule::{StrategyCompletion, StrategySchedule};
@@ -108,6 +108,7 @@ fn run_scene(
     selection: u8,
     carried: Option<(sf2_game::scene_path_world::ScenePathWorld, Poses)>,
 ) -> (u32, (sf2_game::scene_path_world::ScenePathWorld, Poses)) {
+    let first_scene = carried.is_none();
     let (carried, carried_poses) = match carried {
         Some((world, poses)) => (Some(world), Some(poses)),
         None => (None, None),
@@ -180,10 +181,15 @@ fn run_scene(
             run_when_paused: false,
         }));
     }
-    world.palette = Some(ScenePalette {
-        colors: std::array::from_fn(|i| word(m, 0xEFE5 + i as u16 * 2)),
-        saved_colors: std::array::from_fn(|i| word(m, 0xF2E5 + i as u16 * 2)),
-    });
+    if first_scene {
+        // Boot leaves the scene palette clear until the loader uploads it.
+        let palette = runner.world.palette.as_ref().unwrap();
+        for index in 0..palette.colors.len() {
+            let offset = index as u16 * 2;
+            assert_eq!(palette.colors[index], word(m, 0xEFE5 + offset), "boot color {index}");
+            assert_eq!(palette.saved_colors[index], word(m, 0xF2E5 + offset), "boot saved {index}");
+        }
+    }
     let clock = runner.world.strategy_clock;
     runner.schedule = StrategySchedule::resume(clock);
     runner.prepare_frame(&catalog).unwrap();

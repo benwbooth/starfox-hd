@@ -91,7 +91,7 @@ pub fn reset_view(view: &mut Object) {
 /// The world as boot leaves it for the first attract scene: the scene
 /// frame loop's mode bit and the attract pilot's (Fox's) shield loadout
 /// (`$06:A3D9`, table `$06:A46E`); every other scene publication is clear.
-/// The scene palette is the scene loader's and is supplied separately.
+/// The scene palette is clear until the first scene's loader uploads it.
 pub fn boot_world() -> ScenePathWorld {
     let pilot = super::Pilot::Fox;
     let shield = pilot.craft_profile().maximum_shield;
@@ -114,6 +114,10 @@ pub fn boot_world() -> ScenePathWorld {
     world.cinematic_signals = Some(Default::default());
     world.reticle_inhibited = Some(false);
     world.reflect_all_contacts = Some(true);
+    world.palette = Some(super::player_action::ScenePalette {
+        colors: [0; super::player_action::SCENE_PALETTE_COLORS],
+        saved_colors: [0; super::player_action::SCENE_PALETTE_COLORS],
+    });
     world.palette_refresh_requested = Some(false);
     world.player_service_flags = Some(Default::default());
     world.controller_inputs = [Some(Default::default()); 2];
