@@ -18,6 +18,15 @@ use sf_oracle::RetailMachine;
 /// The mission-stage launch ($03:B90E) and the common stage loop.
 const MISSION_LAUNCH: u32 = 0x03B90E;
 const STAGE_LOOP: u32 = 0x03BE74;
+/// The stage loop's leaving state ($03:BED3): teardown, then the next kind.
+const STAGE_TEARDOWN: u32 = 0x03BED3;
+/// The render-completion fade service ($7F:0E79) and the stage loop's blank
+/// hold ($03:DD81): renders complete asynchronously, so the fade visits per
+/// scene frame (0, 1 or more) are observed, like the entropy refresh.
+const FADE_SERVICE: u32 = 0x7F0E79;
+const BLANK_HOLD: u32 = 0x03DD81;
+/// The flight stage controller ($03:C500), after each scene frame.
+const STAGE_CONTROLLER: u32 = 0x03C500;
 const START: u16 = 0x1000;
 /// The strategy pass's per-actor dispatch calls ($7F:3596), diagnostics only.
 const ACTOR_VISITS: [u32; 2] = [0x7F3526, 0x7F3572];
@@ -225,6 +234,8 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
         horizontal: Some(byte(m, 0x1E30)),
         vertical: Some(byte(m, 0x1E31)),
     };
+    world.stage = Some(retail_stage(m));
+    world.scene_display = Some(retail_display(m));
     world.map_records = Some(sf2_game::map_streaming::MapRecordStore::new());
     world.map_regions = Some(Default::default());
     world.region_groups = Some(sf2_game::map_streaming::RegionGroups {
@@ -232,6 +243,115 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
         previous: byte(m, 0x190F),
     });
     world
+}
+
+
+/// The stage controller's retail state ($03:C509 and its clocks).
+fn retail_stage(m: &RetailMachine) -> sf2_game::stage_controller::StageControl {
+    use sf2_game::stage_controller::{PlanetDamage, StageClock, StageControl, StageSignals};
+    // F532 is read as a word; its writer ($0D:C695) stores only the low byte.
+    assert_eq!(byte(m, 0xF533), 0, "clock stop companion byte");
+    let transition = word(m, 0x1C67);
+    StageControl {
+        clock: StageClock {
+            step_countdown: word(m, 0xDA61),
+            step_frames: word(m, 0xDA63),
+            elapsed_steps: word(m, 0xDA5B),
+            blink_countdown: word(m, 0xDA67),
+        },
+        planet: PlanetDamage {
+            pending: word(m, 0xDB4B),
+            health: word(m, 0xDB47),
+            damage: word(m, 0xDB49),
+            flash: word(m, 0xD9B9),
+            suspended: word(m, 0x1B8A) & 0x0200 != 0,
+        },
+        signals: StageSignals {
+            blink: word(m, 0x1B96) & 0x0008 != 0,
+            clock_expired: word(m, 0x1B96) & 0x8000 != 0,
+        },
+        exit_fade: sf2_game::cinematic_exit::SceneExitFade {
+            active: transition & 0x20 != 0,
+            audio_requested: transition & 0x10 != 0,
+            delay: word(m, 0x1BBE),
+        },
+        alternate_exit: transition & 0x04 != 0,
+        phase_countdown: word(m, 0x1B7C),
+        phase_continuation: word(m, 0x1B7A),
+        next_stage: word(m, 0x1B6A),
+        result_flags: word(m, 0x1B86),
+        hud_mode: byte(m, 0xD810),
+        clock_stopped: byte(m, 0xF532) != 0,
+        event_word: word(m, 0x1C0E),
+    }
+}
+
+/// The scene fade (F3/F4), blank hold (18BB), paced interval (1C59/A) and
+/// the three band publications (7F007C/7E/80).
+fn retail_display(m: &RetailMachine) -> sf2_game::scene_display::SceneDisplay {
+    use sf2_game::scene_display::{DisplayBand, FadeRequest, Intensity, SceneDisplay};
+    let request = match byte(m, 0xF3) {
+        0 => FadeRequest::Idle,
+        1 => FadeRequest::In,
+        2 => FadeRequest::InFast,
+        3 => FadeRequest::InPaced,
+        0xFF => FadeRequest::Out,
+        0xFE => FadeRequest::OutFast,
+        0xFD => FadeRequest::OutAlternating,
+        other => panic!("fade request {other:02X}"),
+    };
+    let band = |index: u32| {
+        let value = m.peek8(0x7F007C + 2 * index);
+        DisplayBand { blanked: value & 0x80 != 0, intensity: Intensity::new(value & 0x0F) }
+    };
+    SceneDisplay {
+        request,
+        progress: Intensity::new(byte(m, 0xF4)),
+        bands: [band(0), band(1), band(2)],
+        blank_hold: byte(m, 0x18BB),
+        interval_remaining: byte(m, 0x1C59),
+        interval_reload: byte(m, 0x1C5A),
+    }
+}
+
+/// The stage controller and display state against retail, each epoch.
+fn compare_stage(m: &RetailMachine, runner: &SceneRunner<Callbacks>, epoch: u32) {
+    let world = &runner.world;
+    assert_eq!(world.stage.unwrap(), retail_stage(m), "epoch {epoch}: stage control");
+    assert_eq!(world.scene_display.unwrap(), retail_display(m), "epoch {epoch}: scene display");
+    assert_eq!(world.encounter_timer_steps, Some(word(m, 0x1C0A)), "epoch {epoch}: stage clock steps");
+    // Bit 01 is the HUD service's buffer parity ($04:83A6), not ported yet.
+    const HUD_PARITY: u16 = 0x0001;
+    assert_eq!(
+        world.scene_display_flags.map(|flags| flags & !HUD_PARITY),
+        Some(word(m, 0x1B9C) & !HUD_PARITY),
+        "epoch {epoch}: display flags"
+    );
+    assert_eq!(world.scene_events.unwrap().bits, word(m, 0x1B88), "epoch {epoch}: scene events");
+    // Bit 0020 holds the stage for the bank-0B presentation scripts, which
+    // set and clear it ($0B:8CB0, $0B:8E56); that system is not ported yet.
+    const SCRIPT_HOLD: u16 = 0x0020;
+    assert_eq!(
+        world.view_transition_mode.unwrap().flags & !SCRIPT_HOLD,
+        word(m, 0x1B84) & !SCRIPT_HOLD,
+        "epoch {epoch}: mode word"
+    );
+    assert_eq!(
+        world.published_score,
+        Some(sf2_game::path_score::PlayerScore::from_parts(word(m, 0xD816), byte(m, 0xD818))),
+        "epoch {epoch}: published score"
+    );
+    let gate = world.scene_gate_flags.unwrap();
+    let signals = world.cinematic_signals.unwrap();
+    let stage = world.stage.unwrap().signals;
+    let cinematic = u16::from(stage.blink) * 0x0008
+        | u16::from(gate.hud_ready) * 0x0004
+        | u16::from(signals.exit_requested) * 0x0010
+        | u16::from(signals.skip_ready) * 0x0020
+        | u16::from(gate.hud_held) * 0x0040
+        | u16::from(world.reticle_inhibited.unwrap()) * 0x0100
+        | u16::from(stage.clock_expired) * 0x8000;
+    assert_eq!(cinematic, word(m, 0x1B96), "epoch {epoch}: cinematic word");
 }
 
 #[test]
@@ -317,6 +437,7 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     assert!(m.tick_until_cpu_execution(0, EPOCH, 60).unwrap());
     let clock = runner.world.strategy_clock;
     runner.schedule = StrategySchedule::resume(clock);
+    sf2_game::stage_controller::begin_frame(&mut runner.world).unwrap();
     runner.prepare_frame(&catalog).unwrap();
     compare(&m, &runner, view, 0);
     let mut matched = 0;
@@ -324,8 +445,9 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     // leaves for its flight strategy in the same visit and duels the rival
     // until it is shot down in epoch 1052; its death routines ($06:F3A4,
     // then $06:F512 each frame) run the defeat action, fall and explode.
-    for epoch in 0..1136u32 {
-        let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW];
+    let mut left = None;
+    for epoch in 0..1300u32 {
+        let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW, STAGE_TEARDOWN, FADE_SERVICE, BLANK_HOLD, STAGE_CONTROLLER];
         watched.extend(RESEEDS);
         m.watch_cpu_execution(&watched);
         assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
@@ -362,11 +484,38 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
         }
         let strategy = word(&m, POOL + 0x19);
         let random_before = runner.world.random.bytes();
-        runner
+        let frame = runner
             .run_epoch(&catalog, EntropyRefresh::BeforeDraws(&refreshes))
-            .and_then(|()| runner.finish_frame(&catalog))
-            .and_then(|()| runner.prepare_frame(&catalog))
-            .unwrap_or_else(|error| {
+            .and_then(|()| runner.finish_frame(&catalog));
+        // The stage controller runs after the frame ($03:C193); the next
+        // frame begins with the blank hold and the render-time fade.
+        let mut stage_visit = None;
+        let frame = frame.and_then(|()| {
+            // Replay the controller, render fades and blank hold in retail's order.
+            let mut controller_visits = 0;
+            for &hit in &hits {
+                match hit {
+                    STAGE_CONTROLLER => {
+                        controller_visits += 1;
+                        let outcome = sf2_game::stage_controller::advance(&runner.objects, &mut runner.world)
+                            .unwrap_or_else(|error| panic!("epoch {epoch}: stage controller {error:?}"));
+                        if outcome.visit.is_some() {
+                            stage_visit = outcome.visit;
+                            break;
+                        }
+                    }
+                    FADE_SERVICE => sf2_game::stage_controller::visit_fade(&mut runner.world).unwrap(),
+                    BLANK_HOLD => sf2_game::stage_controller::advance_blank_hold(&mut runner.world).unwrap(),
+                    _ => {}
+                }
+            }
+            assert_eq!(controller_visits, 1, "epoch {epoch}: stage controller visits");
+            if stage_visit.is_some() {
+                return Ok(());
+            }
+            runner.prepare_frame(&catalog)
+        });
+        frame.unwrap_or_else(|error| {
                 let actors: Vec<String> = runner
                     .objects
                     .active_ids()
@@ -396,6 +545,20 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
                     .collect();
                 panic!("epoch {epoch}: {error:?}\nnative actors {actors:#?}\nretail {retail:#?}")
             });
+        let retail_left = hits.contains(&STAGE_TEARDOWN);
+        if let Some(visit) = stage_visit {
+            // Retail tore the scene down and set up the next stage kind
+            // before this wait reached the next scene's strategy pass.
+            assert!(retail_left, "epoch {epoch}: native left the stage, retail did not");
+            assert_eq!(
+                visit,
+                sf2_game::stage_controller::StageVisit::Leave { next_stage: word(&m, 0x1B68) },
+                "epoch {epoch}: next stage kind"
+            );
+            left = Some(epoch);
+            break;
+        }
+        assert!(!retail_left, "epoch {epoch}: retail left the stage, native did not");
         let retail_random = [byte(&m, 0xE0), byte(&m, 0xE1), byte(&m, 0xE2), byte(&m, 0xE3)];
         if runner.world.random.bytes() != retail_random {
             // Diagnose: how many draws each side made from the shared start.
@@ -424,6 +587,7 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
             );
         }
         compare(&m, &runner, view, epoch);
+        compare_stage(&m, &runner, epoch);
         // The render-view setup's matrix ($157C), used for marker projection.
         let retail_matrix: [[i16; 3]; 3] =
             std::array::from_fn(|row| std::array::from_fn(|column| word(&m, 0x157C + (row * 6 + column * 2) as u16) as i16));
@@ -438,17 +602,10 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
         );
         matched = epoch + 1;
     }
-    eprintln!("star wolf interception matched for {matched} epochs");
-    assert_eq!(matched, 1136);
-    // The defeat action requested the scene transition ($0D:C97A); the stage
-    // loop then tears the scene down on the next frame, which is the
-    // frontier: the native stage loop is not composed yet.
-    assert_eq!(
-        runner.world.scene_transition.unwrap().phase_word,
-        word(&m, 0x1B78),
-        "scene transition request"
-    );
+    eprintln!("star wolf interception matched for {matched} epochs, left the stage at {left:?}");
+    // The defeat (phase 2, $03:C61F) fades the scene out ($03:E0FC) and
+    // leaves the stage loop for stage kind 3; the scene is then torn down.
+    assert_eq!(left, Some(matched));
     assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
-    assert!(m.tick_until_cpu_execution(0, EPOCH, 120).unwrap());
     assert_eq!(retail_list(&m), vec![POOL, POOL + STRIDE], "retail tore the scene down");
 }

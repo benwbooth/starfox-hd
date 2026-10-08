@@ -383,6 +383,10 @@ pub struct ScenePathWorld {
     pub objective_completion: Option<ObjectiveCompletion>,
     pub scene_events: Option<SceneEventFlags>,
     pub scene_transition: Option<super::path_scene_state::SceneTransitionControl>,
+    /// The stage controller's state ($03:C509 and its clocks).
+    pub stage: Option<super::stage_controller::StageControl>,
+    /// The scene fade and blank hold (F3/F4, 18BB, the band publications).
+    pub scene_display: Option<super::scene_display::SceneDisplay>,
     pub path_latches: Option<PathLatches>,
     pub sound_bank_request: Option<SoundBankRequest>,
     pub encounter_signals: Option<EncounterSignals>,
@@ -555,6 +559,8 @@ impl ScenePathWorld {
             objective_completion: None,
             scene_events: None,
             scene_transition: None,
+            stage: None,
+            scene_display: None,
             path_latches: None,
             sound_bank_request: None,
             encounter_signals: None,

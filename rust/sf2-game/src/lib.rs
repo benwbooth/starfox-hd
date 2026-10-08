@@ -69,6 +69,7 @@ pub use native::player_strategy;
 pub use native::player_death;
 pub use native::render_view;
 pub use native::hud_target;
+pub use native::stage_controller;
 pub use native::player_scene_init;
 pub use native::attract_stage;
 pub use native::authored_maps;

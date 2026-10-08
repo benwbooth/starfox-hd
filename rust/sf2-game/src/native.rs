@@ -129,6 +129,7 @@ pub mod player_strategy;
 pub mod player_death;
 pub mod render_view;
 pub mod hud_target;
+pub mod stage_controller;
 pub mod player_scene_init;
 pub mod attract_stage;
 pub mod authored_maps;
