@@ -9,7 +9,6 @@ entire generation, rather than inserting placeholders or truncating a graph.
 from __future__ import annotations
 
 import argparse
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -192,11 +191,16 @@ ROOTS = (
 # through a decoded map record that names it (verified_map_spawn_installer).
 MAP_PLACED_PATHS = (
     0x0BD7, 0x0BDA, 0x0C34, 0x0C3A, 0x0C40, 0x0D28, 0x0D69, 0x1466,
-    0x146F, 0x1496, 0x149A, 0x14F5, 0x1618, 0x1684, 0x180D, 0x1820,
-    0x1966, 0x2F0B, 0x3A72, 0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8, 0x3C4E,
-    0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04, 0x7E25, 0x7E27,
-    0x7E29, 0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68, 0x7F00, 0x7F12,
-    0x7F36, 0x7F8E, 0x7FA8,
+    0x146F, 0x1496, 0x149A, 0x14F5, 0x1542, 0x1556, 0x15C4, 0x1618,
+    0x1684, 0x1725, 0x180D, 0x1820, 0x18A5, 0x1913, 0x1966, 0x19BA,
+    0x19F5, 0x1A52, 0x22AA, 0x2651, 0x2D26, 0x2E52, 0x2EDD, 0x2F0B,
+    0x3089, 0x3A72, 0x3AF9, 0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8, 0x3C4E,
+    0x3F35, 0x3F85, 0x3FC1, 0x4368, 0x4370, 0x4397, 0x439F, 0x45F6,
+    0x45FB, 0x460E, 0x468C, 0x479F, 0x4C16, 0x4E26, 0x4F06, 0x4F72,
+    0x4FA5, 0x5097, 0x520D, 0x58B9, 0x5C8F, 0x5EF6, 0x6C01, 0x6F65,
+    0x6F75, 0x737F, 0x7382, 0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04,
+    0x7E25, 0x7E27, 0x7E29, 0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68,
+    0x7E7C, 0x7E8E, 0x7F00, 0x7F12, 0x7F36, 0x7F8E, 0x7FA8,
 )
 ROOTS = ROOTS + tuple((f"MAP_PLACED_{offset:04X}", PathAddress(offset)) for offset in MAP_PLACED_PATHS)
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
@@ -929,8 +933,17 @@ def spawn_shape(shape: int, path: PathAddress | None = None) -> tuple[int, str]:
     if (shape, path) == (0xBECC, PathAddress(0x8C4A)):
         return index, "ObjectKind::Effect"
     if index not in (9, 10, 11, 12, 13):
+        if _MAP_PLACED_LOWERING:
+            # Within a map-placed actor's graph, children are labeled enemies
+            # until a reviewed path proves otherwise, as map-spawned path
+            # actors are. The label has no native gameplay consumer (radar
+            # reads the authored marker channel).
+            return index, "ObjectKind::Enemy"
         raise UnsupportedPath(f"unreviewed native spawn kind for shape {shape:04X}")
     return index, "ObjectKind::Effect"
+
+
+_MAP_PLACED_LOWERING = False
 
 
 def word_field(variable: int) -> str:
@@ -953,6 +966,7 @@ def word_field(variable: int) -> str:
         0x8E: "WordField::RelativePosition(Axis::X)",
         0x90: "WordField::RelativePosition(Axis::Y)",
         0x92: "WordField::RelativePosition(Axis::Z)",
+        0x2D: "WordField::HealthAndAttack",
         0x2E: "WordField::AttackAndWeapon",
         0xA1: "WordField::MotionPhase",
         0xA2: "WordField::MotionScriptOverlap",
@@ -1195,6 +1209,16 @@ def lowering_units(extractor: PathExtractor, root: PathAddress):
 
 
 def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, indices=None):
+    global _MAP_PLACED_LOWERING
+    previous = _MAP_PLACED_LOWERING
+    _MAP_PLACED_LOWERING = root.offset in MAP_PLACED_PATHS
+    try:
+        return _lower_graph(extractor, root, path_index, indices)
+    finally:
+        _MAP_PLACED_LOWERING = previous
+
+
+def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, indices=None):
     commands = lowering_units(extractor, root)
     if indices is None:
         indices = {command.address: index for index, command in enumerate(commands)}
@@ -1681,6 +1705,12 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 "IfSelectedSlotClass3": "ModeClass(super::path_conditions::AuxiliaryModeClass::Three)",
             }[name]
             statement = f"Statement::SelectedAuxiliaryBranch {{ condition: SelectedAuxiliaryCondition::{condition}, taken: {taken}, next: {next_} }}"
+        elif name == "IfSelectedAuxiliaryStateMatchesGlobal":
+            # $7F:B4B8: the selected player's live shield (6C00) equals the
+            # published active shield capacity (1DD5).
+            low, high = parameters(2)
+            taken, next_ = branch_cursors(low | (high << 8))
+            statement = f"Statement::SelectedShieldFullBranch {{ taken: {taken}, next: {next_} }}"
         elif name == "AdvanceSelectedAuxiliaryOrGotoWhenSettled":
             amount, low, high = parameters(3)
             taken, next_ = branch_cursors(low | (high << 8))
@@ -2029,11 +2059,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             variable, index = parameters(2)
             # $7F:9FE7 widens the second literal without scaling it. Only
             # reviewed live domain fields are mapped, never shared RAM.
-            if name == "ImportWordIndexed" and (variable, index) == (0x04, 0x0B):
+            if (name == "ImportWordIndexed" and (variable, index) == (0x04, 0x0B)
+                    and command.address in (PathAddress(0x92A4), PathAddress(0x92B0))):
                 # Scene six publishes a shape header from $00:B36B (selector
                 # A1 = 0..8) through D767, then imports it into a new child.
-                if command.address not in (PathAddress(0x92A4), PathAddress(0x92B0)):
-                    raise UnsupportedPath(f"unreviewed placement shape import at {command.address.label()}")
                 headers = banked_word_values(extractor.rom, 0x00B36B)[:9]
                 shapes = ', '.join(f'(0x{h:04X}, ShapeId::from_catalog_index({shape_index(h)}))' for h in dict.fromkeys(headers))
                 statement = f"Statement::ImportShapeFromPlacement {{ shapes: const {{ &[{shapes}] }}, next: {next_cursor()} }}"
@@ -2041,6 +2070,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::AttachLastSpawn {{ next: {next_cursor()} }}"
             elif command.address == PathAddress(0xB136) and name == "ImportWordIndexed" and (variable, index) == (0x0E, 0x0B):
                 statement = f"Statement::ImportSceneryPlacementHeight {{ next: {next_cursor()} }}"
+            elif (variable, index) == (0x04, 0x0B):
+                # The shape word handed to a child through D767.
+                statement = (f"Statement::ExportShapeToPlacement {{ next: {next_cursor()} }}" if name.startswith("Export")
+                             else f"Statement::ImportPlacedShape {{ next: {next_cursor()} }}")
             elif ((variable, index) in ((0x0C, 0x0B), (0x10, 0x0D))
                   or (name, variable, index) in (("ExportWordIndexed", 0xA3, 0x0B),
                                                  ("ExportWordIndexed", 0x39, 0x0B),
@@ -2053,6 +2086,10 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
             elif index == 0x36:
                 operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
                 statement = f"Statement::Guidance {{ command: GuidanceCommand::{operation}, next: {next_cursor()} }}"
+            elif index in (0x7D, 0x7F, 0x81, 0x83):
+                # D7D9..D7DF: path-only shared words, one per authored slot.
+                operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
+                statement = f"Statement::SlotWord {{ slot: {(index - 0x7D) // 2}, command: super::path_program::SlotWordCommand::{operation}, next: {next_cursor()} }}"
             elif index == 0x32:
                 operation = f"CopyTo({word_field(variable)})" if name.startswith("Import") else f"Assign(WordOperand::Actor({word_field(variable)}))"
                 statement = f"Statement::PickupHistory {{ command: super::path_program::PickupHistoryCommand::{operation}, next: {next_cursor()} }}"
@@ -2349,6 +2386,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 statement = f"Statement::RequestShieldRecovery {{ amount: ByteOperand::Literal({value}), next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
+            if address in (0xD7E1, 0xD7E2, 0xD7E3) and name == "IncrementExternalByte":
+                # Per-difficulty tallies read by $04:E30C (indexed by D7F2).
+                statement = f"Statement::IncrementDifficultyTally {{ tally: {address - 0xD7E1}, next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
+            if address == 0x1E1B and name == "IncrementExternalByte":
+                # $7F:B805: one more unit of pending shield recovery (wrapping).
+                statement = f"Statement::AccumulateShieldRecovery {{ amount: ByteOperand::Literal(1), next: {next_cursor()} }}"
+                statements.append(statement)
+                continue
             if address == 0x1DDF and name in ("ImportByteAbsolute", "StoreExternalByte"):
                 operation = f"CopyTo({byte_field(variable)})" if name == "ImportByteAbsolute" else f"Assign(ByteOperand::Literal({value}))"
                 statement = f"Statement::LinkedEffectActivity {{ command: super::path_protection::ActivityCommand::{operation}, next: {next_cursor()} }}"
@@ -2592,25 +2639,28 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
     return indices[root], statements
 
 
-_MAP_RECORD_PATHS: dict[bytes, frozenset[int]] = {}
+_MAP_RECORD_PATHS: dict[int, tuple[bytes, frozenset[int]]] = {}
 
 
 def map_record_paths(rom: bytes) -> frozenset[int]:
     """Paths placed by opcode-90 records or installed by opcode 8C."""
-    key = hashlib.sha256(rom).digest()
-    if key not in _MAP_RECORD_PATHS:
-        from generate_native_maps import graph as map_graph
-        extractor = MapExtractor(rom)
-        paths = set()
-        for root in extractor.discover_roots():
-            order, _ = map_graph(extractor, root.address)
-            for address in order:
-                if extractor.byte(address) == 0x90:
-                    paths.add(extractor.word(address, 10))
-                elif extractor.byte(address) == 0x8C:
-                    paths.add(extractor.word(address, 1))
-        _MAP_RECORD_PATHS[key] = frozenset(paths)
-    return _MAP_RECORD_PATHS[key]
+    # Map scripts and their host roots live in banks 03..05.
+    key = bytes(rom[0x18000:0x30000])
+    cached = _MAP_RECORD_PATHS.get(hash(key))
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    from generate_native_maps import graph as map_graph
+    extractor = MapExtractor(rom)
+    paths = set()
+    for root in extractor.discover_roots():
+        order, _ = map_graph(extractor, root.address)
+        for address in order:
+            if extractor.byte(address) == 0x90:
+                paths.add(extractor.word(address, 10))
+            elif extractor.byte(address) == 0x8C:
+                paths.add(extractor.word(address, 1))
+    _MAP_RECORD_PATHS[hash(key)] = (key, frozenset(paths))
+    return frozenset(paths)
 
 
 def verified_map_spawn_installer(rom: bytes, root: PathAddress) -> bool:

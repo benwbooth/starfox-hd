@@ -61,6 +61,8 @@ pub enum WordField {
     /// Authored word operations spanning attack and weapon-selection bytes.
     /// Neither byte is duplicated; writes do not perform weapon activation.
     AttackAndWeapon,
+    /// Authored word operations spanning health (2D) and attack (2E).
+    HealthAndAttack,
     DepthOffset,
     MotionPhase,
     /// Unaligned authored word: phase high byte followed by script low byte.
@@ -81,6 +83,9 @@ impl WordField {
             Self::AttackAndWeapon => u16::from_le_bytes([
                 actor.base.attack_power, actor.extension.path_state.weapon_selection,
             ]) as i16,
+            Self::HealthAndAttack => {
+                u16::from_le_bytes([actor.base.hit_points, actor.base.attack_power]) as i16
+            }
             Self::DepthOffset => actor.extension.depth_offset as i16,
             Self::MotionPhase => actor.extension.path_state.motion_phase as i16,
             Self::MotionScriptOverlap => u16::from_le_bytes([
@@ -102,6 +107,11 @@ impl WordField {
                 let [attack, weapon] = value.to_le_bytes();
                 actor.base.attack_power = attack;
                 actor.extension.path_state.weapon_selection = weapon;
+            }
+            Self::HealthAndAttack => {
+                let [health, attack] = value.to_le_bytes();
+                actor.base.hit_points = health;
+                actor.base.attack_power = attack;
             }
             Self::DepthOffset => actor.extension.depth_offset = value,
             Self::MotionPhase => actor.extension.path_state.motion_phase = value,

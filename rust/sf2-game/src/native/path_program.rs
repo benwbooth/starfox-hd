@@ -265,10 +265,16 @@ pub struct PathWorld<'a> {
     pub campaign: Option<CampaignPathInputs>,
     pub guidance: Option<&'a mut GuidanceHistory>,
     pub pickup_history: Option<&'a mut PickupHistory>,
+    pub slot_words: Option<&'a mut PathSlotWords>,
+    pub difficulty_tallies: Option<&'a mut DifficultyTallies>,
     /// Full shared button-layout byte (1DD0), not flight inversion (1DCF).
     pub button_layout: Option<u8>,
     /// Fresh selected-player exemption (auxiliary map flag bit 80).
     pub selected_occupancy_exempt: Option<bool>,
+    /// Selected player's live shield (6C00), compared with the published
+    /// active shield capacity (1DD5) by `$7F:B4B8`.
+    pub selected_reserve_shield: Option<u8>,
+    pub active_shield_capacity: Option<u8>,
     pub occupancy: Option<&'a super::world_occupancy::WorldOccupancy>,
     pub surface_mode: Option<super::collision_surface::SurfaceMode>,
     pub impact: Option<&'a mut super::path_impact::ImpactState>,
@@ -369,8 +375,12 @@ impl PathWorld<'_> {
             campaign: None,
             guidance: None,
             pickup_history: None,
+            slot_words: None,
+            difficulty_tallies: None,
             button_layout: None,
             selected_occupancy_exempt: None,
+            selected_reserve_shield: None,
+            active_shield_capacity: None,
             occupancy: None,
             surface_mode: None,
             impact: None,
@@ -607,6 +617,27 @@ pub struct PickupHistory {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PickupHistoryCommand {
+    CopyTo(super::path_fields::WordField),
+    Assign(WordOperand),
+}
+
+/// Per-difficulty tallies (D7E1..D7E3) that authored paths increment for
+/// the current difficulty; `$04:E30C` compares the current difficulty's tally
+/// with its threshold table.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DifficultyTallies {
+    pub counts: [u8; 3],
+}
+
+/// Four words (D7D9/DB/DD/DF) exchanged only between authored paths; each
+/// path names its slot. No 65816 service reads or writes them.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PathSlotWords {
+    pub words: [u16; 4],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotWordCommand {
     CopyTo(super::path_fields::WordField),
     Assign(WordOperand),
 }
@@ -1081,6 +1112,14 @@ pub enum Statement {
     /// Shape-header word carried in the primary placement coordinate (D767)
     /// and imported into the shape word (04). Values outside the reviewed
     /// header table fault rather than becoming an arbitrary shape.
+    /// ExportWordIndexed 04 0B: the actor's shape through D767.
+    ExportShapeToPlacement {
+        next: PathCursor,
+    },
+    /// ImportWordIndexed 04 0B: take the shape last handed through D767.
+    ImportPlacedShape {
+        next: PathCursor,
+    },
     ImportShapeFromPlacement {
         shapes: &'static [(u16, super::ShapeId)],
         next: PathCursor,
@@ -1191,6 +1230,22 @@ pub enum Statement {
     },
     CopySelectedTransform {
         command: super::path_relationships::SelectedTransformCommand,
+        next: PathCursor,
+    },
+    /// `$7F:B4B8`: branch when the selected player's shield is full.
+    /// D7E1 + tally (tally 0..=2).
+    IncrementDifficultyTally {
+        tally: u8,
+        next: PathCursor,
+    },
+    /// Indexed words D7D9 + 2 * slot (slot 0..=3).
+    SlotWord {
+        slot: u8,
+        command: SlotWordCommand,
+        next: PathCursor,
+    },
+    SelectedShieldFullBranch {
+        taken: PathCursor,
         next: PathCursor,
     },
     SelectedAuxiliaryBranch {
@@ -1431,6 +1486,11 @@ pub enum ProgramError {
     WeaponLaunch(super::weapon_dispatch::LaunchError),
     Relationship(super::path_relationships::RelationshipError),
     MissingSelectedAuxiliary,
+    MissingSelectedShield,
+    MissingSlotWords,
+    MissingDifficultyTallies,
+    MissingPlacedShape,
+    MissingShieldCapacity,
     MissingSelectedPlayer,
     MissingSelectedBoundary,
     MissingSelectedStorage(super::player_storage::PlayerStorageError),
@@ -2565,6 +2625,19 @@ impl PathRuntime {
                 objects.get_mut(owner).expect("validated motion exporter").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
+            Statement::ExportShapeToPlacement { next } => {
+                let actor = objects.get_mut(owner).expect("validated shape exporter");
+                self.placement.export_shape(actor);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::ImportPlacedShape { next } => {
+                let shape = self.placement.shape.ok_or(ProgramError::MissingPlacedShape)?;
+                let actor = objects.get_mut(owner).expect("validated shape importer");
+                actor.base.shape = shape;
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
             Statement::ImportShapeFromPlacement { shapes, next } => {
                 let value = self.placement.primary.ok_or(ProgramError::MissingPlacementCoordinate(
                     super::path_scene_state::PlacementCoordinate::Primary,
@@ -2925,6 +2998,26 @@ impl PathRuntime {
                     },
                 )
             }
+            Statement::SelectedShieldFullBranch { taken, next } => {
+                let shield = world
+                    .selected_reserve_shield
+                    .ok_or(ProgramError::MissingSelectedShield)?;
+                let capacity = world
+                    .active_shield_capacity
+                    .ok_or(ProgramError::MissingShieldCapacity)?;
+                self.execute_branch(
+                    objects,
+                    owner,
+                    BranchCommand::Test {
+                        predicate: Predicate::EqualByte {
+                            value: shield,
+                            expected: capacity,
+                        },
+                        taken,
+                        next,
+                    },
+                )
+            }
             Statement::FaceSelectedOffset { offset, next } => {
                 self.execute_facing_offset(objects, owner, world.selected, offset, next)
             }
@@ -3081,6 +3174,26 @@ impl PathRuntime {
                 match command {
                     GuidanceCommand::CopyTo(field) => field.write(actor, history.flags),
                     GuidanceCommand::Assign(value) => history.flags = value.read(actor),
+                }
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::IncrementDifficultyTally { tally, next } => {
+                let tallies = world.difficulty_tallies.as_deref_mut()
+                    .ok_or(ProgramError::MissingDifficultyTallies)?;
+                let count = &mut tallies.counts[usize::from(tally)];
+                *count = count.wrapping_add(1);
+                objects.get_mut(owner).expect("validated tally owner").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SlotWord { slot, command, next } => {
+                let words = world.slot_words.as_deref_mut()
+                    .ok_or(ProgramError::MissingSlotWords)?;
+                let actor = objects.get_mut(owner).expect("validated slot-word owner");
+                let word = &mut words.words[usize::from(slot)];
+                match command {
+                    SlotWordCommand::CopyTo(field) => field.write(actor, *word),
+                    SlotWordCommand::Assign(value) => *word = value.read(actor),
                 }
                 actor.base.path = Some(next);
                 Ok(ControlStep::Continue)
@@ -3397,8 +3510,12 @@ mod tests {
             campaign: None,
             guidance: None,
             pickup_history: None,
+            slot_words: None,
+            difficulty_tallies: None,
             button_layout: None,
             selected_occupancy_exempt: None,
+            selected_reserve_shield: None,
+            active_shield_capacity: None,
             occupancy: None,
             impact: None,
             contacts: None,
@@ -5853,6 +5970,41 @@ mod tests {
                     assert_eq!(random, initial_random);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn mission_shared_state_statements_use_their_owners_and_fault_without_them() {
+        // Slot words: each slot is its own word; export then import round-trips.
+        let catalog = PathCatalog::new(vec![vec![
+            Statement::SlotWord { slot: 2, command: SlotWordCommand::Assign(WordOperand::Actor(WordField::ScriptValue)), next: cursor(0, 1) },
+            Statement::SlotWord { slot: 2, command: SlotWordCommand::CopyTo(WordField::MotionPhase), next: cursor(0, 2) },
+            Statement::IncrementDifficultyTally { tally: 1, next: cursor(0, 3) },
+            Statement::SelectedShieldFullBranch { taken: cursor(0, 0), next: cursor(0, 3) },
+        ]]).unwrap();
+        let (mut runtime, mut objects, owner, mut random) = setup();
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut world(&mut random), 1).map(|exit| exit.step),
+            Err(ProgramError::MissingSlotWords));
+        objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 0));
+        objects.get_mut(owner).unwrap().extension.path_state.script_value = 0xBEEF;
+        let mut words = PathSlotWords::default();
+        let mut tallies = DifficultyTallies { counts: [0, 255, 0] };
+        let mut inputs = world(&mut random);
+        inputs.slot_words = Some(&mut words);
+        inputs.difficulty_tallies = Some(&mut tallies);
+        assert_eq!(runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 4).map(|exit| exit.step),
+            Err(ProgramError::MissingSelectedShield));
+        assert_eq!(words.words, [0, 0, 0xBEEF, 0]);
+        assert_eq!(objects.get(owner).unwrap().extension.path_state.motion_phase, 0xBEEF);
+        assert_eq!(tallies.counts, [0, 0, 0]);
+        // Full shield takes the branch; otherwise the next record follows.
+        for (shield, taken) in [(80, true), (79, false)] {
+            objects.get_mut(owner).unwrap().base.path = Some(cursor(0, 3));
+            let mut inputs = world(&mut random);
+            inputs.selected_reserve_shield = Some(shield);
+            inputs.active_shield_capacity = Some(80);
+            let _ = runtime.resume_program(&catalog, &mut objects, owner, &mut inputs, 1);
+            assert_eq!(objects.get(owner).unwrap().base.path, Some(if taken { cursor(0, 0) } else { cursor(0, 3) }));
         }
     }
 
@@ -10551,8 +10703,12 @@ mod tests {
                 campaign: None,
                 guidance: None,
                 pickup_history: None,
+                slot_words: None,
+                difficulty_tallies: None,
                 button_layout: None,
                 selected_occupancy_exempt: None,
+                selected_reserve_shield: None,
+                active_shield_capacity: None,
                 occupancy: None,
                 impact: None,
                 contacts: None,
@@ -14616,10 +14772,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 203);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 248);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 8646);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 8705);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 11735);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 11794);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -14796,8 +14952,12 @@ mod tests {
                 campaign: None,
                 guidance: None,
                 pickup_history: None,
+                slot_words: None,
+                difficulty_tallies: None,
                 button_layout: None,
                 selected_occupancy_exempt: None,
+                selected_reserve_shield: None,
+                active_shield_capacity: None,
                 occupancy: None,
                 impact: None,
                 contacts: None,
@@ -14966,8 +15126,12 @@ mod tests {
                         campaign: None,
                         guidance: None,
                         pickup_history: None,
+                        slot_words: None,
+                        difficulty_tallies: None,
                         button_layout: None,
                         selected_occupancy_exempt: None,
+                        selected_reserve_shield: None,
+                        active_shield_capacity: None,
                         occupancy: None,
                         impact: None,
                         contacts: None,

@@ -357,6 +357,8 @@ pub struct ScenePathWorld {
     pub radio_event: Option<RadioEvent>,
     pub guidance: Option<GuidanceHistory>,
     pub pickup_history: Option<PickupHistory>,
+    pub slot_words: Option<super::path_program::PathSlotWords>,
+    pub difficulty_tallies: Option<super::path_program::DifficultyTallies>,
     pub active_node_flags: Option<ActiveNodeFlags>,
 }
 
@@ -514,6 +516,8 @@ impl ScenePathWorld {
             radio_event: None,
             guidance: None,
             pickup_history: None,
+            slot_words: None,
+            difficulty_tallies: None,
             active_node_flags: None,
         }
     }
@@ -698,6 +702,8 @@ impl InvocationWorld for ScenePathWorld {
             selected_mode_selection: None,
             selected_charge: None,
             selected_occupancy_exempt: None,
+            selected_reserve_shield: None,
+            active_shield_capacity: self.active_shield_capacity,
             selected_equipment: None,
             selected_score: None,
             selected_particle_effects: None,
@@ -767,6 +773,8 @@ impl InvocationWorld for ScenePathWorld {
             radio_event: self.radio_event.as_mut(),
             guidance: self.guidance.as_mut(),
             pickup_history: self.pickup_history.as_mut(),
+            slot_words: self.slot_words.as_mut(),
+            difficulty_tallies: self.difficulty_tallies.as_mut(),
             active_node_flags: self.active_node_flags.as_mut(),
             weapons: self.weapons.as_mut(),
             random: &mut self.random,
@@ -796,6 +804,8 @@ impl InvocationWorld for ScenePathWorld {
                 world.selected_mode_selection = records.mode_selection.as_mut();
                 world.selected_charge = records.charge.map(|charge| charge.path_input());
                 world.selected_occupancy_exempt = records.occupancy_exempt;
+                world.selected_reserve_shield =
+                    records.contact.as_ref().map(|contact| contact.hit.reserve_shield);
                 world.selected_equipment = records.equipment.as_mut();
                 world.selected_score = records.score.as_mut();
                 world.selected_particle_effects = records.particles.as_mut();

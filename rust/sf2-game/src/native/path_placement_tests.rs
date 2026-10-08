@@ -72,10 +72,12 @@ fn placement_words_round_trip_all_signed_values_and_preserve_other_coordinates()
                 PlacementCoordinate::Primary => PlacementCoordinates {
                     primary: Some(bits as i16),
                     depth: Some(357),
+                    shape: None,
                 },
                 PlacementCoordinate::Depth => PlacementCoordinates {
                     primary: Some(-79),
                     depth: Some(bits as i16),
+                    shape: None,
                 },
             };
             assert_eq!(placement, expected);
@@ -179,7 +181,8 @@ fn scenery_and_exit_placement_share_first_coordinate_across_actor_invocations() 
         runtime.placement,
         PlacementCoordinates {
             primary: Some(-500),
-            depth: Some(32767)
+            depth: Some(32767),
+            shape: None,
         }
     );
     assert!(runtime.branch.invert_next);

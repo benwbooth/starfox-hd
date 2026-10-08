@@ -28,6 +28,9 @@ impl SceneTransitionControl {
 pub struct PlacementCoordinates {
     pub primary: Option<i16>,
     pub depth: Option<i16>,
+    /// A shape handed to a child through the primary slot (D767 holds the
+    /// shape-header word). It replaces the primary coordinate and vice versa.
+    pub shape: Option<super::ShapeId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,9 +70,20 @@ impl PlacementCoordinates {
             PlacementCommand::Import { destination, .. } => {
                 destination.write(actor, value.ok_or(coordinate)? as u16)
             }
-            PlacementCommand::Export { source, .. } => *value = Some(source.read(actor) as i16),
+            PlacementCommand::Export { source, .. } => {
+                *value = Some(source.read(actor) as i16);
+                if coordinate == PlacementCoordinate::Primary {
+                    self.shape = None;
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Publish the actor's shape through the primary slot.
+    pub fn export_shape(&mut self, actor: &Object) {
+        self.primary = None;
+        self.shape = Some(actor.base.shape);
     }
 }
 
