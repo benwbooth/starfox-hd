@@ -86,6 +86,12 @@ def graph(extractor: MapExtractor, root: MapAddress):
         seen[address] = opcode
         order.append(address)
         successors = extractor._successors(address, opcode, inline_exits, [])
+        if opcode == 0x5C and (extractor.word(address, 2) | extractor.byte(address, 4) << 16) == 0x001D77:
+            # The saved continuation is a later control transfer ($7F:BF3D).
+            previous = MapAddress(address.bank, address.offset - 6)
+            target = MapAddress(extractor.byte(address, 1), extractor.word(previous, 1))
+            if extractor.byte(previous) == 0x5E and extractor.byte(target) in RECORD_SIZES:
+                successors = successors + [target]
         if opcode == 0x2E and extractor._is_external_phase_gate(address) and len(successors) == 2:
             # A host-released gate continues at the next record. Within one
             # script that is the next gate's hold; after the last gate it is
@@ -98,7 +104,7 @@ def graph(extractor: MapExtractor, root: MapAddress):
     return order, inline_exits
 
 
-def lower(rom: bytes) -> str:
+def lower(rom: bytes, errors: list | None = None) -> str:
     extractor = MapExtractor(rom)
     addresses: list[MapAddress] = []
     inline_exits = {}
@@ -118,87 +124,99 @@ def lower(rom: bytes) -> str:
 
     statements = []
     phase_exits = []
+    def lower_one(address):
+            opcode = extractor.byte(address)
+            size = RECORD_SIZES[opcode]
+            nxt = MapAddress(address.bank, address.offset + size)
+            b = lambda i: extractor.byte(address, i)  # noqa: E731
+            w = lambda i: extractor.word(address, i)  # noqa: E731
+            if opcode == 0x02:
+                statements.append("MapInstruction::Stop")
+            elif opcode == 0x12:
+                statements.append(f"MapInstruction::Yield {{ marker: {w(1)}, next: {cursor(nxt)} }}")
+            elif opcode == 0x2E:
+                target = MapAddress(b(3), w(1))
+                statements.append(f"MapInstruction::Jump({cursor(target)})")
+                hold = MapAddress(address.bank, address.offset - 3)
+                if (extractor._is_external_phase_gate(address) and target == hold
+                        and extractor.word(hold, 1) == PHASE_HOLD and nxt in index):
+                    phase_exits.append(f"PhaseExit {{ parked: {cursor(address)}, continuation: {cursor(nxt)} }}")
+            elif opcode == 0x50:
+                statements.append(f"MapInstruction::Apply {{ effect: MapEffect::DisplayMode(DisplayModeRequest::Blank), next: {cursor(nxt)} }}")
+            elif opcode == 0x4E:
+                statements.append(f"MapInstruction::Apply {{ effect: MapEffect::DisplayMode(DisplayModeRequest::Scene), next: {cursor(nxt)} }}")
+            elif opcode == 0x4C:
+                statements.append(f"MapInstruction::Await {{ condition: MapCondition::DisplayReady, retry_marker: Some(1), next: {cursor(nxt)} }}")
+            elif opcode == 0x64:
+                statements.append(f"MapInstruction::Await {{ condition: MapCondition::LoadTableIdle, retry_marker: None, next: {cursor(nxt)} }}")
+            elif opcode == 0x10:
+                statements.append(f"MapInstruction::Apply {{ effect: MapEffect::SceneLoad({w(1)}), next: {cursor(nxt)} }}")
+            elif opcode == 0x66:
+                statements.append(f"MapInstruction::Apply {{ effect: MapEffect::LoaderHold, next: {cursor(nxt)} }}")
+            elif opcode == 0x9A:
+                statements.append(f"MapInstruction::Apply {{ effect: MapEffect::AmbientControl({b(1)}), next: {cursor(nxt)} }}")
+            elif opcode == 0x5C:
+                value, target = b(1), w(2) | b(4) << 16
+                if target == 0x001D77:
+                    # The continuation bank completes the preceding offset store.
+                    previous = MapAddress(address.bank, address.offset - 6)
+                    if extractor.byte(previous) != 0x5E or (extractor.word(previous, 3) | extractor.byte(previous, 5) << 16) != 0x001D78:
+                        raise UnsupportedMap(f"unpaired continuation bank at {address.label()}")
+                    continuation = MapAddress(value, extractor.word(previous, 1))
+                    statements.append(f"MapInstruction::Apply {{ effect: MapEffect::SaveContinuation({cursor(continuation)}), next: {cursor(nxt)} }}")
+                elif target in BYTE_STORES:
+                    statements.append(f"MapInstruction::Apply {{ effect: {BYTE_STORES[target](value)}, next: {cursor(nxt)} }}")
+                else:
+                    raise UnsupportedMap(f"unreviewed byte store {target:06X} at {address.label()}")
+            elif opcode == 0x5E:
+                value, target = w(1), w(3) | b(5) << 16
+                if target == 0x001D78:
+                    # Paired with the following bank store; that record lowers both.
+                    following = nxt
+                    if extractor.byte(following) != 0x5C or (extractor.word(following, 2) | extractor.byte(following, 4) << 16) != 0x001D77:
+                        raise UnsupportedMap(f"unpaired continuation offset at {address.label()}")
+                    statements.append(f"MapInstruction::Jump({cursor(nxt)})")
+                elif target in WORD_STORES:
+                    statements.append(f"MapInstruction::Apply {{ effect: {WORD_STORES[target](value)}, next: {cursor(nxt)} }}")
+                else:
+                    raise UnsupportedMap(f"unreviewed word store {target:06X} at {address.label()}")
+            elif opcode == 0x7A:
+                target = w(1) | b(3) << 16
+                if target not in CALLS:
+                    raise UnsupportedMap(f"unreviewed map call {target:06X} at {address.label()}")
+                statements.append(f"MapInstruction::Apply {{ effect: {CALLS[target]}, next: {cursor(MapAddress(address.bank, address.offset + 4))} }}")
+            elif opcode == 0x86:
+                spawn = extractor._spawn(address, opcode)
+                if spawn.strategy not in SPAWN_BEHAVIORS:
+                    raise UnsupportedMap(f"unreviewed spawn strategy {spawn.strategy:06X} at {address.label()}")
+                kind, behavior = SPAWN_BEHAVIORS[spawn.strategy]
+                spec = (f"MapSpawn::Actor(MapActorSpawn {{ kind: {kind}, shape: ShapeId::from_catalog_index({shape_index(spawn.shape)}), "
+                        f"behavior: {behavior}, position: Vector3 {{ x: {spawn.x}, y: {spawn.y}, z: {spawn.z} }} }})")
+                statements.append(f"MapInstruction::Spawn {{ specification: {spec}, marker: {spawn.delay}, next: {cursor(nxt)} }}")
+            elif opcode == 0x78:
+                action = extractor._decode_inline_action(address, inline_exits[address])
+                if not isinstance(action, InlineBranchWordBits):
+                    raise UnsupportedMap(f"unreviewed inline action {action} at {address.label()}")
+                key = (action.address & 0xFFFF, action.mask)
+                if key not in INLINE_BRANCHES:
+                    raise UnsupportedMap(f"unreviewed inline branch {key} at {address.label()}")
+                taken = MapAddress(address.bank, action.if_set)
+                otherwise = MapAddress(address.bank, action.if_clear)
+                statements.append(f"MapInstruction::Branch {{ condition: {INLINE_BRANCHES[key]}, taken: {cursor(taken)}, otherwise: {cursor(otherwise)} }}")
+            else:
+                raise UnsupportedMap(f"unreviewed map opcode {opcode:02X} at {address.label()}")
+
+
     for address in addresses:
-        opcode = extractor.byte(address)
-        size = RECORD_SIZES[opcode]
-        nxt = MapAddress(address.bank, address.offset + size)
-        b = lambda i: extractor.byte(address, i)  # noqa: E731
-        w = lambda i: extractor.word(address, i)  # noqa: E731
-        if opcode == 0x02:
-            statements.append("MapInstruction::Stop")
-        elif opcode == 0x12:
-            statements.append(f"MapInstruction::Yield {{ marker: {w(1)}, next: {cursor(nxt)} }}")
-        elif opcode == 0x2E:
-            target = MapAddress(b(3), w(1))
-            statements.append(f"MapInstruction::Jump({cursor(target)})")
-            hold = MapAddress(address.bank, address.offset - 3)
-            if (extractor._is_external_phase_gate(address) and target == hold
-                    and extractor.word(hold, 1) == PHASE_HOLD and nxt in index):
-                phase_exits.append(f"PhaseExit {{ parked: {cursor(address)}, continuation: {cursor(nxt)} }}")
-        elif opcode == 0x50:
-            statements.append(f"MapInstruction::Apply {{ effect: MapEffect::DisplayMode(DisplayModeRequest::Blank), next: {cursor(nxt)} }}")
-        elif opcode == 0x4E:
-            statements.append(f"MapInstruction::Apply {{ effect: MapEffect::DisplayMode(DisplayModeRequest::Scene), next: {cursor(nxt)} }}")
-        elif opcode == 0x4C:
-            statements.append(f"MapInstruction::Await {{ condition: MapCondition::DisplayReady, retry_marker: Some(1), next: {cursor(nxt)} }}")
-        elif opcode == 0x64:
-            statements.append(f"MapInstruction::Await {{ condition: MapCondition::LoadTableIdle, retry_marker: None, next: {cursor(nxt)} }}")
-        elif opcode == 0x10:
-            statements.append(f"MapInstruction::Apply {{ effect: MapEffect::SceneLoad({w(1)}), next: {cursor(nxt)} }}")
-        elif opcode == 0x66:
-            statements.append(f"MapInstruction::Apply {{ effect: MapEffect::LoaderHold, next: {cursor(nxt)} }}")
-        elif opcode == 0x9A:
-            statements.append(f"MapInstruction::Apply {{ effect: MapEffect::AmbientControl({b(1)}), next: {cursor(nxt)} }}")
-        elif opcode == 0x5C:
-            value, target = b(1), w(2) | b(4) << 16
-            if target == 0x001D77:
-                # The continuation bank completes the preceding offset store.
-                previous = MapAddress(address.bank, address.offset - 6)
-                if extractor.byte(previous) != 0x5E or (extractor.word(previous, 3) | extractor.byte(previous, 5) << 16) != 0x001D78:
-                    raise UnsupportedMap(f"unpaired continuation bank at {address.label()}")
-                continuation = MapAddress(value, extractor.word(previous, 1))
-                statements.append(f"MapInstruction::Apply {{ effect: MapEffect::SaveContinuation({cursor(continuation)}), next: {cursor(nxt)} }}")
-            elif target in BYTE_STORES:
-                statements.append(f"MapInstruction::Apply {{ effect: {BYTE_STORES[target](value)}, next: {cursor(nxt)} }}")
-            else:
-                raise UnsupportedMap(f"unreviewed byte store {target:06X} at {address.label()}")
-        elif opcode == 0x5E:
-            value, target = w(1), w(3) | b(5) << 16
-            if target == 0x001D78:
-                # Paired with the following bank store; that record lowers both.
-                following = nxt
-                if extractor.byte(following) != 0x5C or (extractor.word(following, 2) | extractor.byte(following, 4) << 16) != 0x001D77:
-                    raise UnsupportedMap(f"unpaired continuation offset at {address.label()}")
-                statements.append(f"MapInstruction::Jump({cursor(nxt)})")
-            elif target in WORD_STORES:
-                statements.append(f"MapInstruction::Apply {{ effect: {WORD_STORES[target](value)}, next: {cursor(nxt)} }}")
-            else:
-                raise UnsupportedMap(f"unreviewed word store {target:06X} at {address.label()}")
-        elif opcode == 0x7A:
-            target = w(1) | b(3) << 16
-            if target not in CALLS:
-                raise UnsupportedMap(f"unreviewed map call {target:06X} at {address.label()}")
-            statements.append(f"MapInstruction::Apply {{ effect: {CALLS[target]}, next: {cursor(MapAddress(address.bank, address.offset + 4))} }}")
-        elif opcode == 0x86:
-            spawn = extractor._spawn(address, opcode)
-            if spawn.strategy not in SPAWN_BEHAVIORS:
-                raise UnsupportedMap(f"unreviewed spawn strategy {spawn.strategy:06X} at {address.label()}")
-            kind, behavior = SPAWN_BEHAVIORS[spawn.strategy]
-            spec = (f"MapSpawn::Actor(MapActorSpawn {{ kind: {kind}, shape: ShapeId::from_catalog_index({shape_index(spawn.shape)}), "
-                    f"behavior: {behavior}, position: Vector3 {{ x: {spawn.x}, y: {spawn.y}, z: {spawn.z} }} }})")
-            statements.append(f"MapInstruction::Spawn {{ specification: {spec}, marker: {spawn.delay}, next: {cursor(nxt)} }}")
-        elif opcode == 0x78:
-            action = extractor._decode_inline_action(address, inline_exits[address])
-            if not isinstance(action, InlineBranchWordBits):
-                raise UnsupportedMap(f"unreviewed inline action {action} at {address.label()}")
-            key = (action.address & 0xFFFF, action.mask)
-            if key not in INLINE_BRANCHES:
-                raise UnsupportedMap(f"unreviewed inline branch {key} at {address.label()}")
-            taken = MapAddress(address.bank, action.if_set)
-            otherwise = MapAddress(address.bank, action.if_clear)
-            statements.append(f"MapInstruction::Branch {{ condition: {INLINE_BRANCHES[key]}, taken: {cursor(taken)}, otherwise: {cursor(otherwise)} }}")
-        else:
-            raise UnsupportedMap(f"unreviewed map opcode {opcode:02X} at {address.label()}")
+        if errors is not None:
+            try:
+                lower_one(address)
+            except UnsupportedMap as error:
+                errors.append(str(error))
+            continue
+        lower_one(address)
+    if errors is not None:
+        return ""
 
     lines = [
         "// Auto-generated by tools/sf2/generate_native_maps.py; do not edit by hand.",
