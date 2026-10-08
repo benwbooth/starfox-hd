@@ -853,6 +853,7 @@ fn authored_pickup_part_gate_preserves_saved_position_and_uses_published_height_
                         controlled_aux: ControlledAuxFlags {
                             high: visible,
                             low: !visible,
+                            linked: false,
                         },
                         ..Default::default()
                     };

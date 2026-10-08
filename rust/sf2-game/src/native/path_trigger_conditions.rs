@@ -22,6 +22,8 @@ pub struct ControlledAuxFlags {
     pub high: bool,
     /// Source controlled actor auxiliary flags bit 08.
     pub low: bool,
+    /// Bit 40, set by map stage setup (`$06:9ACD`) and tested at `$07:94A1`.
+    pub linked: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,6 +233,7 @@ mod tests {
         inputs.controlled_aux = ControlledAuxFlags {
             high: true,
             low: true,
+            linked: false,
         };
         state.hit_event_pending = true;
         for kind in [

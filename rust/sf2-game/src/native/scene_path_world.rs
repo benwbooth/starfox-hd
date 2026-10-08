@@ -192,12 +192,20 @@ pub struct ScenePathWorld {
     pub streaming_radius_limit: Option<u16>,
     /// 1DE4..1DEA: the map-authored mission-entry placement.
     pub map_placement: super::map_effects::MapPlacement,
+    /// 1D75/1D76/1D7A/1D7B/1D80: map-authored stage-exit state.
+    pub stage_exit: super::map_effects::StageExit,
     pub strategy_clock: u16,
     pub scene: ScenePathInputs,
     /// Live indexed scene request (1D73), separate from the map and action gate.
     pub scene_selection: Option<u8>,
     pub primary_player: Option<ObjectId>,
     pub secondary_player: Option<ObjectId>,
+    /// Stage layout word (1916), written by the stage setups ($03:B1C2..);
+    /// C0 omits the secondary player from the linked-transition block.
+    pub stage_layout: Option<u16>,
+    /// Scenario flag word (E087). Bit 0400 is set by `$0D:FA9D` for the
+    /// location-7 / layout-9 encounter and tested by map branch A4.
+    pub scenario_flags: Option<u16>,
     pub fixed_players: [Option<ObjectId>; 2],
     /// Common player formatter's retained subject ($150D/$12C1/$1509).
     /// Those three legacy publications are assigned together to the same
@@ -426,10 +434,13 @@ impl ScenePathWorld {
             region_groups: None,
             streaming_radius_limit: None,
             map_placement: Default::default(),
+            stage_exit: Default::default(),
             strategy_clock: 0,
             scene: ScenePathInputs::default(),
             primary_player: None,
             secondary_player: None,
+            stage_layout: None,
+            scenario_flags: None,
             fixed_players: [None; 2],
             player_display_subject: None,
             contacts_enabled: None,

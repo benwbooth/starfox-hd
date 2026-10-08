@@ -23,6 +23,8 @@ pub enum DisplayModeRequest {
 /// Map-written presentation bytes whose consumers are presentation owners.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PresentationByte {
+    /// 1E68, the backdrop program selector dispatched at `$02:F05B`.
+    BackdropProgram,
     /// 18BB, read by the scene display services (`$02:8E79`, `$03:DD86`).
     SceneStyle,
     /// 1B49, the title stage's layout byte.
@@ -89,6 +91,68 @@ pub enum MapEffect {
     PlacementHeading(u8),
     /// `$06:9A92`: place the primary player at the mission-entry placement.
     PlacePrimaryPlayer,
+    /// 1D75 / 1D76: the scene selections the stage-exit player actions
+    /// (`$0D:CD11`, `$0D:CD1A`) publish to 1D73; 1D76 = FE marks no
+    /// alternate selection (`$0D:BBE6`).
+    ExitSceneSelection(ExitScene, u8),
+    /// 1D7B/1D7A: the map script a stage-exit action (`$0D:CDC2`) installs.
+    StageExitScript(MapCursor),
+    /// 1D80: the scene load a later stage action issues (`$0D:C721`).
+    DeferredSceneLoad(u16),
+    /// 1E5A: the altitude gauge's divisor (`$07:AA59`).
+    AltitudeGaugeScale(u16),
+    /// GSU scene parameters read by the backdrop program.
+    GsuParameter(GsuParameter, u16),
+    /// Inline `$06:9ACD`-style block: transition flag 40 (6BEC) for the
+    /// primary player and, unless the stage layout word (1916) is C0, the
+    /// secondary player.
+    LinkPilotTransitions,
+    /// Inline GSU select: the backdrop program table (700050) chosen by the
+    /// display flag word (1B9C bit 20), resolved by the presentation owner.
+    SelectBackdropTable,
+    /// `$0D:DA7A`: draw (true) or erase a region's marker in the strategic
+    /// map bitplane.
+    RegionMarker { region: u8, drawn: bool },
+    /// Inline word-bit block on the shared execution-mode word (1B84).
+    ModeFlags { bits: u16, set: bool },
+    /// `$06:9ACD`: controlled-flag 40 (6B65) for the primary player and,
+    /// unless the stage layout word is C0, the secondary player.
+    LinkControlledPilots,
+    /// 1C06: the encounter variant byte.
+    EncounterVariant(u8),
+    /// 1E17: the stage-exit mode byte (`$0D:BBC3`, `$06:A09B`).
+    StageExitMode(u8),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitScene {
+    /// 1D75.
+    Primary,
+    /// 1D76.
+    Alternate,
+}
+
+/// GSU RAM words written by maps for the backdrop GSU program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GsuParameter {
+    /// 702862: the first color the program passes to `$01:F1BE`.
+    BackdropColor,
+    /// 70285C: added to the pattern ROM pointer at `$01:C98F`.
+    PatternOffset,
+    /// 70285E (byte): stored to the program's 0055 at `$01:CB43`.
+    PatternMode,
+}
+
+/// Stage-exit state written by maps and consumed by the bank-0D stage
+/// actions: exit scene selections (1D75/1D76), the exit map script
+/// (1D7B/1D7A) and a deferred scene load (1D80).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct StageExit {
+    pub primary_scene: Option<u8>,
+    pub alternate_scene: Option<u8>,
+    pub script: Option<MapCursor>,
+    pub deferred_load: Option<u16>,
+    pub mode: Option<u8>,
 }
 
 /// The mission-entry placement (1DE4..1DEA) written by map records.
@@ -149,6 +213,15 @@ pub struct MapPresentation {
     pub scene_style: Option<u8>,
     pub title_layout: Option<u8>,
     pub player_count_latch: Option<u8>,
+    pub backdrop_program: Option<u8>,
+    pub altitude_gauge_scale: Option<u16>,
+    pub backdrop_color: Option<u16>,
+    pub pattern_offset: Option<u16>,
+    pub pattern_mode: Option<u8>,
+    pub backdrop_table_selected: bool,
+    /// Region markers written by `$0D:DA7A`, and which of them are drawn.
+    pub region_markers_written: u128,
+    pub region_markers_drawn: u128,
     /// Supplied by the display owner (F4 clear and the fade at full, 7F007C).
     pub display_ready: Option<bool>,
     /// Supplied by the loader owner (the selected load-table entry is clear).
@@ -183,6 +256,14 @@ pub enum MapHostError {
     MissingPlayerStorage,
     MissingPlayerAuxiliary,
     MissingFixedView,
+    MissingSceneEvents,
+    MissingStageLayout,
+    MissingSecondaryPlayer,
+    MissingModeSelection,
+    MissingExecutionMode,
+    MissingControlledFlags,
+    MissingCampaign,
+    MissingScenarioFlags,
 }
 
 /// The scene world as seen by map records. Continuations are returned to
@@ -197,6 +278,25 @@ pub struct MapWorld<'a> {
 }
 
 impl MapWorld<'_> {
+    /// The primary player and, unless the stage layout word (1916) is C0,
+    /// the secondary player (`$06:9ACD` and its inline copies).
+    fn for_each_stage_player(
+        &mut self,
+        mut apply: impl FnMut(&mut super::scene_path_world::PlayerPathRecords) -> Result<(), MapHostError>,
+    ) -> Result<(), MapHostError> {
+        const SINGLE_LAYOUT: u16 = 0x00C0;
+        let primary = self.world.primary_player.ok_or(MapHostError::MissingPrimaryPlayer)?;
+        let layout = self.world.stage_layout.ok_or(MapHostError::MissingStageLayout)?;
+        let mut owners = vec![primary];
+        if layout != SINGLE_LAYOUT {
+            owners.push(self.world.secondary_player.ok_or(MapHostError::MissingSecondaryPlayer)?);
+        }
+        for owner in owners {
+            apply(self.world.player_mut(self.objects, owner).map_err(MapHostError::PlayerRecords)?)?;
+        }
+        Ok(())
+    }
+
     /// `$06:9A92`: the player's position and heading, its storage heading
     /// (6ABC), and the opposite heading in its stored rotation (6B34) and
     /// the fixed view's coarse yaw (033F byte 15).
@@ -298,6 +398,22 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
                 .presentation
                 .load_table_idle
                 .ok_or(MapHostError::MissingLoaderReadiness),
+            MapCondition::ExternalEvent => self
+                .world
+                .scenario_flags
+                .map(|flags| flags & 0x0400 != 0)
+                .ok_or(MapHostError::MissingScenarioFlags),
+            MapCondition::EncounterLayoutOdd => self
+                .world
+                .scene
+                .encounter_layout
+                .map(|current| current & 0x01 != 0)
+                .ok_or(MapHostError::MissingEncounterLayout),
+            MapCondition::SceneEvent => self
+                .world
+                .scene_events
+                .map(|events| events.bits & 0x2000 != 0)
+                .ok_or(MapHostError::MissingSceneEvents),
             MapCondition::EncounterLayout(layout) => self
                 .world
                 .scene
@@ -340,6 +456,7 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
                 PresentationByte::SceneStyle => presentation.scene_style = Some(value),
                 PresentationByte::TitleLayout => presentation.title_layout = Some(value),
                 PresentationByte::PlayerCountLatch => presentation.player_count_latch = Some(value),
+                PresentationByte::BackdropProgram => presentation.backdrop_program = Some(value),
             },
             MapEffect::InstallPath(_) | MapEffect::ActorHitPoints(_) | MapEffect::ActorAttackPower(_) => {
                 return Err(MapHostError::ActorEffectWithoutActor);
@@ -405,6 +522,64 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
             }
             MapEffect::PlacementHeading(heading) => self.world.map_placement.heading = Some(heading),
             MapEffect::PlacePrimaryPlayer => self.place_primary_player()?,
+            MapEffect::ExitSceneSelection(ExitScene::Primary, selection) => {
+                self.world.stage_exit.primary_scene = Some(selection)
+            }
+            MapEffect::ExitSceneSelection(ExitScene::Alternate, selection) => {
+                self.world.stage_exit.alternate_scene = Some(selection)
+            }
+            MapEffect::StageExitScript(script) => self.world.stage_exit.script = Some(script),
+            MapEffect::DeferredSceneLoad(load) => self.world.stage_exit.deferred_load = Some(load),
+            MapEffect::AltitudeGaugeScale(scale) => presentation.altitude_gauge_scale = Some(scale),
+            MapEffect::LinkPilotTransitions => self.for_each_stage_player(|records| {
+                records
+                    .mode_selection
+                    .as_mut()
+                    .map(|selection| selection.transition_control |= 0x40)
+                    .ok_or(MapHostError::MissingModeSelection)
+            })?,
+            MapEffect::LinkControlledPilots => self.for_each_stage_player(|records| {
+                records
+                    .controlled_flags
+                    .as_mut()
+                    .map(|flags| flags.linked = true)
+                    .ok_or(MapHostError::MissingControlledFlags)
+            })?,
+            MapEffect::EncounterVariant(variant) => {
+                self.world
+                    .campaign
+                    .as_mut()
+                    .ok_or(MapHostError::MissingCampaign)?
+                    .encounter_variant = variant
+            }
+            MapEffect::StageExitMode(mode) => self.world.stage_exit.mode = Some(mode),
+            MapEffect::ModeFlags { bits, set } => {
+                let mode = self
+                    .world
+                    .view_transition_mode
+                    .as_mut()
+                    .ok_or(MapHostError::MissingExecutionMode)?;
+                if set {
+                    mode.flags |= bits;
+                } else {
+                    mode.flags &= !bits;
+                }
+            }
+            MapEffect::SelectBackdropTable => presentation.backdrop_table_selected = true,
+            MapEffect::RegionMarker { region, drawn } => {
+                let bit = 1u128 << (region & 0x7F);
+                presentation.region_markers_written |= bit;
+                if drawn {
+                    presentation.region_markers_drawn |= bit;
+                } else {
+                    presentation.region_markers_drawn &= !bit;
+                }
+            }
+            MapEffect::GsuParameter(parameter, value) => match parameter {
+                GsuParameter::BackdropColor => presentation.backdrop_color = Some(value),
+                GsuParameter::PatternOffset => presentation.pattern_offset = Some(value),
+                GsuParameter::PatternMode => presentation.pattern_mode = Some(value as u8),
+            },
             MapEffect::ResetSceneDisplay => {
                 const RESET_SCENE_STYLE: u8 = 2;
                 presentation.display_mode = Some(DisplayModeRequest::Scene);

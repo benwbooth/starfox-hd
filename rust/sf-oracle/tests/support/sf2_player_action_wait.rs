@@ -357,6 +357,13 @@ fn original_scene_wait_clears_entry_mode_and_runs_action_tail_or_faults_closed_g
                     .projection_correction_disabled = true;
                 let flags = f.source.bus.read8(WRAM + f.slot + 0x6B65);
                 f.source.bus.write8(WRAM + f.slot + 0x6B65, flags | 0x40);
+                f.world
+                    .player_mut(&f.objects, f.owner)
+                    .unwrap()
+                    .controlled_flags
+                    .as_mut()
+                    .unwrap()
+                    .linked = true;
                 f.world.action_gate = Some(ActionGate { code: gate });
                 f.source.bus.write8(0x1D72, gate);
                 f.world.scene.player_configuration = Some(seed % 10);

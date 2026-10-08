@@ -374,6 +374,7 @@ impl Reader<'_> {
             controlled_flags: Some(ControlledAuxFlags {
                 high: self.byte(0x6B65) & 0x10 != 0,
                 low: self.byte(0x6B65) & 8 != 0,
+                linked: self.byte(0x6B65) & 0x40 != 0,
             }),
             carried: Some(CarriedPlayer {
                 enabled: true,

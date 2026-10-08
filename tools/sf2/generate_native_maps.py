@@ -21,6 +21,9 @@ from extract_map import (  # noqa: E402
     RECORD_SIZES,
     InlineBranchWordBits,
     InlineCall,
+    InlineSelectGsuProgram,
+    InlineSetPilotLinkedFlag,
+    InlineWordBits,
     MapAddress,
     MapExtractor,
 )
@@ -52,6 +55,12 @@ BYTE_STORES = {
     0x1DE2: lambda v: f"MapEffect::PlayerConfiguration({v})",
     0x1DE3: lambda v: f"MapEffect::PlayerConfigurationVariant({v})",
     0x1DEA: lambda v: f"MapEffect::PlacementHeading({v})",
+    0x1D75: lambda v: f"MapEffect::ExitSceneSelection(ExitScene::Primary, {v})",
+    0x1D76: lambda v: f"MapEffect::ExitSceneSelection(ExitScene::Alternate, {v})",
+    0x1E68: lambda v: f"MapEffect::Presentation(PresentationByte::BackdropProgram, {v})",
+    0x70285E: lambda v: f"MapEffect::GsuParameter(GsuParameter::PatternMode, {v})",
+    0x1C06: lambda v: f"MapEffect::EncounterVariant({v})",
+    0x1E17: lambda v: f"MapEffect::StageExitMode({v})",
 }
 WORD_STORES = {
     0x1E44: lambda v: f"MapEffect::CameraProjectionBase({signed(v)})",
@@ -63,6 +72,10 @@ WORD_STORES = {
     0x1DE4: lambda v: f"MapEffect::PlacementCoordinate(Axis::X, {signed(v)})",
     0x1DE6: lambda v: f"MapEffect::PlacementCoordinate(Axis::Y, {signed(v)})",
     0x1DE8: lambda v: f"MapEffect::PlacementCoordinate(Axis::Z, {signed(v)})",
+    0x1D80: lambda v: f"MapEffect::DeferredSceneLoad({v})",
+    0x1E5A: lambda v: f"MapEffect::AltitudeGaugeScale({v})",
+    0x702862: lambda v: f"MapEffect::GsuParameter(GsuParameter::BackdropColor, {v})",
+    0x70285C: lambda v: f"MapEffect::GsuParameter(GsuParameter::PatternOffset, {v})",
 }
 # Scene-player initializers for the primary ($06:82F9) and secondary
 # ($06:82ED) hit sides.
@@ -107,12 +120,15 @@ ARGUMENT_CALLS = {
 }
 PLAIN_CALLS = {
     0x069A92: "MapEffect::PlacePrimaryPlayer",
+    0x069ACD: "MapEffect::LinkControlledPilots",
     0x069B04: "MapEffect::OccupancyExempt(true)",
     0x069B20: "MapEffect::OccupancyExempt(false)",
 }
 INLINE_BRANCHES = {
     # 1AA6 bit 02: the shared single-player display policy.
     (0x1AA6, 0x02): "MapCondition::SinglePlayer",
+    # 1B88 bit 2000: the shared scene-event flag.
+    (0x1B88, 0x2000): "MapCondition::SceneEvent",
 }
 
 
@@ -150,6 +166,11 @@ def graph(extractor: MapExtractor, root: MapAddress, edges: dict | None = None):
             target = MapAddress(extractor.byte(address, 1), extractor.word(previous, 1))
             if extractor.byte(previous) == 0x5E and extractor.byte(target) in RECORD_SIZES:
                 successors = successors + [target]
+        if opcode == 0x5C and (extractor.word(address, 2) | extractor.byte(address, 4) << 16) == 0x001D7A:
+            # The stage-exit script runs when a bank-0D stage action installs it.
+            previous = MapAddress(address.bank, address.offset - 6)
+            if extractor.byte(previous) == 0x5E and (extractor.word(previous, 3) | extractor.byte(previous, 5) << 16) == 0x001D7B:
+                successors = successors + [MapAddress(extractor.byte(address, 1), extractor.word(previous, 1))]
         if opcode == 0x94 and not extractor.byte(address, 1) & 0x80:
             # A scannable region's script runs when the player enters it.
             successors = successors + [region_entry(extractor, address)]
@@ -272,7 +293,13 @@ def lower(rom: bytes, errors: list | None = None) -> str:
                 statements.append(f"MapInstruction::Jump({cursor(nxt)})")
             elif opcode == 0x5C:
                 value, target = b(1), w(2) | b(4) << 16
-                if target == 0x001D77:
+                if target == 0x001D7A:
+                    previous = MapAddress(address.bank, address.offset - 6)
+                    if extractor.byte(previous) != 0x5E or (extractor.word(previous, 3) | extractor.byte(previous, 5) << 16) != 0x001D7B:
+                        raise UnsupportedMap(f"unpaired stage-exit bank at {address.label()}")
+                    script = MapAddress(value, extractor.word(previous, 1))
+                    statements.append(f"MapInstruction::Apply {{ effect: MapEffect::StageExitScript({cursor(script)}), next: {cursor(nxt)} }}")
+                elif target == 0x001D77:
                     # The continuation bank completes the preceding offset store.
                     previous = MapAddress(address.bank, address.offset - 6)
                     if extractor.byte(previous) != 0x5E or (extractor.word(previous, 3) | extractor.byte(previous, 5) << 16) != 0x001D78:
@@ -285,7 +312,12 @@ def lower(rom: bytes, errors: list | None = None) -> str:
                     raise UnsupportedMap(f"unreviewed byte store {target:06X} at {address.label()}")
             elif opcode == 0x5E:
                 value, target = w(1), w(3) | b(5) << 16
-                if target == 0x001D78:
+                if target == 0x001D7B:
+                    following = nxt
+                    if extractor.byte(following) != 0x5C or (extractor.word(following, 2) | extractor.byte(following, 4) << 16) != 0x001D7A:
+                        raise UnsupportedMap(f"unpaired stage-exit offset at {address.label()}")
+                    statements.append(f"MapInstruction::Jump({cursor(nxt)})")
+                elif target == 0x001D78:
                     # Paired with the following bank store; that record lowers both.
                     following = nxt
                     if extractor.byte(following) != 0x5C or (extractor.word(following, 2) | extractor.byte(following, 4) << 16) != 0x001D77:
@@ -345,6 +377,14 @@ def lower(rom: bytes, errors: list | None = None) -> str:
                 region = (f"MapRegion {{ origin_x: {b(2) << 8}, origin_z: {b(3) << 8}, width: {b(4) << 8}, "
                           f"depth: {b(5) << 8}, entry: {entry} }}")
                 statements.append(f"MapInstruction::Apply {{ effect: MapEffect::RegisterRegion {{ index: {b(1) & 0x7F}, region: {region} }}, next: {cursor(nxt)} }}")
+            elif opcode == 0xA4:
+                # $03:A03A: scenario flag word (E087) bit 0400.
+                taken = MapAddress(address.bank, w(1))
+                statements.append(f"MapInstruction::Branch {{ condition: MapCondition::ExternalEvent, taken: {cursor(taken)}, otherwise: {cursor(nxt)} }}")
+            elif opcode == 0xA2:
+                # $03:A030: encounter layout bit 01.
+                taken = MapAddress(address.bank, w(1))
+                statements.append(f"MapInstruction::Branch {{ condition: MapCondition::EncounterLayoutOdd, taken: {cursor(taken)}, otherwise: {cursor(nxt)} }}")
             elif opcode == 0x9E:
                 # $03:90BF: compare the encounter layout (1BA5).
                 taken = MapAddress(address.bank, w(2))
@@ -365,6 +405,24 @@ def lower(rom: bytes, errors: list | None = None) -> str:
                 if isinstance(action, InlineCall) and action.accumulator is None and action.target in PLAIN_CALLS:
                     continuation = MapAddress(address.bank, action.continuation)
                     statements.append(f"MapInstruction::Apply {{ effect: {PLAIN_CALLS[action.target]}, next: {cursor(continuation)} }}")
+                    return
+                if isinstance(action, InlineCall) and action.target == 0x0DDA7A and action.accumulator is not None:
+                    # $0D:DA7A: bit 80 draws, otherwise erases, the marker of
+                    # region slot (accumulator & 7F).
+                    continuation = MapAddress(address.bank, action.continuation)
+                    effect = f"MapEffect::RegionMarker {{ region: {action.accumulator & 0x7F}, drawn: {str(bool(action.accumulator & 0x80)).lower()} }}"
+                    statements.append(f"MapInstruction::Apply {{ effect: {effect}, next: {cursor(continuation)} }}")
+                    return
+                if isinstance(action, (InlineSetPilotLinkedFlag, InlineSelectGsuProgram)):
+                    effect = ("MapEffect::LinkPilotTransitions" if isinstance(action, InlineSetPilotLinkedFlag)
+                              else "MapEffect::SelectBackdropTable")
+                    statements.append(f"MapInstruction::Apply {{ effect: {effect}, next: {cursor(MapAddress(address.bank, action.continuation))} }}")
+                    return
+                if isinstance(action, InlineWordBits):
+                    if (action.address & 0xFFFF, action.mask) != (0x1B84, 0x0100):
+                        raise UnsupportedMap(f"unreviewed inline word bits {action} at {address.label()}")
+                    effect = f"MapEffect::ModeFlags {{ bits: {action.mask}, set: {str(action.set_bits).lower()} }}"
+                    statements.append(f"MapInstruction::Apply {{ effect: {effect}, next: {cursor(MapAddress(address.bank, action.continuation))} }}")
                     return
                 if not isinstance(action, InlineBranchWordBits):
                     raise UnsupportedMap(f"unreviewed inline action {action} at {address.label()}")
@@ -396,7 +454,7 @@ def lower(rom: bytes, errors: list | None = None) -> str:
         "",
         *(["use super::authored_paths;"] if "authored_paths::" in body else []),
         "use super::map_effects::{"
-        + ", ".join(name for name in ("DisplayModeRequest", "HeightLimit", "MapEffect", "MapSpawn", "PathEntry", "PathRecord", "PresentationByte")
+        + ", ".join(name for name in ("DisplayModeRequest", "ExitScene", "GsuParameter", "HeightLimit", "MapEffect", "MapSpawn", "PathEntry", "PathRecord", "PresentationByte")
                     if name in ("MapEffect", "MapSpawn") or f"{name}::" in body or f"{name} {{" in body)
         + "};",
         *(["use super::map_streaming::MapRegion;"] if "MapRegion {" in body else []),

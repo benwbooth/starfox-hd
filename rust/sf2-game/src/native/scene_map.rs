@@ -42,6 +42,8 @@ pub enum MapCondition {
     LoadTableIdle,
     /// Map branch 9E: the encounter layout (1BA5) equals the operand.
     EncounterLayout(u8),
+    /// Map branch A2: encounter layout (1BA5) bit 01.
+    EncounterLayoutOdd,
 }
 
 /// Effects and spawn specifications are typed catalog data provided by the
