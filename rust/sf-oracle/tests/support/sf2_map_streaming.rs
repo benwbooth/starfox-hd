@@ -3,6 +3,7 @@
 //! records, regions, views and flags; only results are compared.
 use super::surface_particle_tests::{address, Native, OWNER};
 use super::{rom, Source, WRAM};
+use sf2_game::scene_map::MapCursor;
 use sf2_game::map_streaming::{
     self, MapProgram, MapRecord, MapRecordFlags, MapRecordId, MapRecordStore, MapRegion,
     MapRegions, RegionGroups, RegionPublication, StreamingInputs, StreamingState, StreamingWorld,
@@ -11,6 +12,8 @@ use sf2_game::map_streaming::{
 use sf2_game::{
     authored_paths, Angle, Behavior, ObjectKind, ObjectSpawnDefaults, ShapeId, Vector3,
 };
+
+const ENTRY_BANK: u8 = 0x05;
 
 const RECORD_BASE: u32 = 0x342E;
 const RECORD_SIZE: u32 = 0x19;
@@ -117,9 +120,15 @@ fn seed(source: &mut Source, scenario: &Scenario) {
         source.bus.write16(WRAM + base + 4, region.origin_z);
         source.bus.write16(WRAM + base + 6, region.width);
         source.bus.write16(WRAM + base + 0x0A, region.depth);
-        source.bus.write16(WRAM + base + 0x0C, region.entry_word);
-        source.bus.write8(WRAM + base + 0x0E, region.entry_byte);
-        source.bus.write8(WRAM + base + 0x0F, region.flags);
+        // A region script is a catalog cursor natively; any distinct
+        // source word/bank pair stands for it here.
+        let (word, bank, flags) = match region.entry {
+            Some(entry) => (entry.index() as u16, ENTRY_BANK, 2),
+            None => (0, 0, 0),
+        };
+        source.bus.write16(WRAM + base + 0x0C, word);
+        source.bus.write8(WRAM + base + 0x0E, bank);
+        source.bus.write8(WRAM + base + 0x0F, flags);
     }
     source
         .bus
@@ -186,12 +195,12 @@ fn compare(
         Some(p) => {
             assert_eq!(
                 source.bus.read16(WRAM + 0x1657),
-                p.entry_word,
+                p.entry.index() as u16,
                 "{context} 1657"
             );
             assert_eq!(
                 source.bus.read8(WRAM + 0x192E),
-                p.entry_byte,
+                ENTRY_BANK,
                 "{context} 192E"
             );
         }
@@ -327,9 +336,11 @@ fn streaming_and_regions_match_original_across_generated_scenarios() {
                 origin_z: (center(&mut layout) - 1500) as u16,
                 width: 500 + layout.next() % 3000,
                 depth: 500 + layout.next() % 3000,
-                entry_word: layout.next(),
-                entry_byte: layout.next() as u8,
-                flags: if layout.next() % 5 == 0 { 0 } else { 2 },
+                entry: {
+                    let word = layout.next();
+                    let _bank = layout.next();
+                    (layout.next() % 5 != 0).then(|| MapCursor::from_index(word))
+                },
             });
         }
         let pick = |l: &mut Layout| {

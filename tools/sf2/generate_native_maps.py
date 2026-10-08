@@ -83,6 +83,15 @@ class UnsupportedMap(Exception):
     pass
 
 
+def region_entry(extractor: MapExtractor, address: MapAddress) -> MapAddress:
+    """The script published to 1657/192E when the player enters the region."""
+    return MapAddress(extractor.byte(address, 8), extractor.word(address, 6))
+
+
+def signed(word: int) -> int:
+    return word - 0x10000 if word & 0x8000 else word
+
+
 def graph(extractor: MapExtractor, root: MapAddress):
     pending = [root]
     seen: dict[MapAddress, int] = {}
@@ -104,6 +113,9 @@ def graph(extractor: MapExtractor, root: MapAddress):
             target = MapAddress(extractor.byte(address, 1), extractor.word(previous, 1))
             if extractor.byte(previous) == 0x5E and extractor.byte(target) in RECORD_SIZES:
                 successors = successors + [target]
+        if opcode == 0x94 and not extractor.byte(address, 1) & 0x80:
+            # A scannable region's script runs when the player enters it.
+            successors = successors + [region_entry(extractor, address)]
         if opcode == 0x2E and extractor._is_external_phase_gate(address) and len(successors) == 2:
             # A host-released gate continues at the next record. Within one
             # script that is the next gate's hold; after the last gate it is
@@ -220,6 +232,32 @@ def lower(rom: bytes, errors: list | None = None) -> str:
                 spec = (f"MapSpawn::Actor(MapActorSpawn {{ kind: {kind}, shape: ShapeId::from_catalog_index({shape_index(spawn.shape)}), "
                         f"behavior: {behavior}, position: Vector3 {{ x: {spawn.x}, y: {spawn.y}, z: {spawn.z} }} }})")
                 statements.append(f"MapInstruction::Spawn {{ specification: {spec}, marker: {spawn.delay}, next: {cursor(nxt)} }}")
+            elif opcode == 0x90:
+                # $03:953F: record flags 02 (path); pitch and roll clear.
+                path = w(10)
+                if path not in LOWERED_PATHS:
+                    raise UnsupportedMap(f"map path {path:04X} is not in the native path catalog")
+                record = (f"PathRecord {{ position: Vector3 {{ x: {signed(w(1))}, y: {signed(w(3))}, z: {signed(w(5))} }}, "
+                          f"yaw: Angle::from_units({b(7)}), shape: ShapeId::from_catalog_index({shape_index(w(8))}), "
+                          f"path: authored_paths::{LOWERED_PATHS[path]} }}")
+                statements.append(f"MapInstruction::Apply {{ effect: MapEffect::DeclarePathRecord({record}), next: {cursor(nxt)} }}")
+            elif opcode == 0x94:
+                # $03:90EF: bounds are high bytes; bit 7 of the index byte
+                # leaves the region unscannable (byte 0F clear).
+                scannable = not b(1) & 0x80
+                if scannable:
+                    entry = f"Some({cursor(region_entry(extractor, address))})"
+                elif (b(6), b(7), b(8)) == (0, 0, 0):
+                    entry = "None"
+                else:
+                    raise UnsupportedMap(f"unscannable region with a script at {address.label()}")
+                region = (f"MapRegion {{ origin_x: {b(2) << 8}, origin_z: {b(3) << 8}, width: {b(4) << 8}, "
+                          f"depth: {b(5) << 8}, entry: {entry} }}")
+                statements.append(f"MapInstruction::Apply {{ effect: MapEffect::RegisterRegion {{ index: {b(1) & 0x7F}, region: {region} }}, next: {cursor(nxt)} }}")
+            elif opcode == 0x9E:
+                # $03:90BF: compare the encounter layout (1BA5).
+                taken = MapAddress(address.bank, w(2))
+                statements.append(f"MapInstruction::Branch {{ condition: MapCondition::EncounterLayout({b(1)}), taken: {cursor(taken)}, otherwise: {cursor(nxt)} }}")
             elif opcode == 0x78:
                 action = extractor._decode_inline_action(address, inline_exits[address])
                 if not isinstance(action, InlineBranchWordBits):
@@ -252,14 +290,17 @@ def lower(rom: bytes, errors: list | None = None) -> str:
         "",
         *(["use super::authored_paths;"] if "authored_paths::" in body else []),
         "use super::map_effects::{"
-        + ", ".join(name for name in ("DisplayModeRequest", "MapEffect", "MapSpawn", "PathEntry", "PresentationByte")
-                    if name in ("MapEffect", "MapSpawn") or f"{name}::" in body)
+        + ", ".join(name for name in ("DisplayModeRequest", "MapEffect", "MapSpawn", "PathEntry", "PathRecord", "PresentationByte")
+                    if name in ("MapEffect", "MapSpawn") or f"{name}::" in body or f"{name} {{" in body)
         + "};",
+        *(["use super::map_streaming::MapRegion;"] if "MapRegion {" in body else []),
         "use super::scene_map::{",
         "    CatalogError, MapActorSpawn, MapCatalog, MapCondition, MapCursor, MapInstruction, PhaseExit,",
         "};",
         "use super::hit_response::HitSide;",
-        "use super::{Behavior, ObjectKind, ShapeId, Vector3};",
+        "use super::{"
+        + ", ".join(name for name in ("Angle", "Behavior", "ObjectKind", "ShapeId", "Vector3") if f"{name}::" in body or f"{name} {{" in body)
+        + "};",
         "",
         f"pub const MAP_COMMAND_COUNT: usize = {len(statements)};",
     ]

@@ -7,6 +7,7 @@ use super::scene_map::{
     allocate_map_actor, MapActorSpawn, MapCatalog, MapCondition, MapCursor, SceneMap,
     SceneMapHost,
 };
+use super::map_streaming::{MapProgram, MapRecord, MapRecordFlags, MapRegion, RegionError};
 use super::scene_path_world::ScenePathWorld;
 use super::{ObjectId, ObjectStore};
 
@@ -54,6 +55,20 @@ pub enum MapEffect {
     /// `$03:9A87` at 2D/2E: the current actor's health or attack.
     ActorHitPoints(u8),
     ActorAttackPower(u8),
+    /// `$03:953F`: a proximity-streamed path record in the current region.
+    DeclarePathRecord(PathRecord),
+    /// `$03:90EF`: write region slot `index` and count one more region.
+    RegisterRegion { index: u8, region: MapRegion },
+}
+
+/// The authored part of an opcode-90 record; the group is the current region
+/// and the radius comes from the shape's catalog extent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PathRecord {
+    pub position: super::Vector3,
+    pub yaw: super::Angle,
+    pub shape: super::ShapeId,
+    pub path: super::PathCursor,
 }
 
 /// How a map-spawned path actor enters its path.
@@ -105,6 +120,12 @@ pub enum MapHostError {
     MissingCurrentActor(ObjectId),
     /// An actor effect reached without a current actor.
     ActorEffectWithoutActor,
+    MissingEncounterLayout,
+    MissingMapRecords,
+    MissingRegions,
+    MissingRegionGroups,
+    MissingShapeExtent(super::ShapeId),
+    Region(RegionError),
 }
 
 /// The scene world as seen by map records. Continuations are returned to
@@ -114,6 +135,41 @@ pub struct MapWorld<'a> {
     pub world: &'a mut ScenePathWorld,
     pub presentation: &'a mut MapPresentation,
     pub continuation: Option<MapCursor>,
+}
+
+impl MapWorld<'_> {
+    fn declare_path_record(&mut self, record: PathRecord) -> Result<(), MapHostError> {
+        let shape_extent = record
+            .shape
+            .catalog_entry()
+            .ok_or(MapHostError::MissingShapeExtent(record.shape))?
+            .size;
+        let group = self
+            .world
+            .region_groups
+            .ok_or(MapHostError::MissingRegionGroups)?
+            .current;
+        let records = self
+            .world
+            .map_records
+            .as_mut()
+            .ok_or(MapHostError::MissingMapRecords)?;
+        // An exhausted pool skips the record (`$03:9575`).
+        let _ = records.allocate(MapRecord {
+            position: record.position,
+            rotation: [super::Angle::ZERO, record.yaw, super::Angle::ZERO],
+            shape: record.shape,
+            shape_extent,
+            // The native kind is a label; path records are classified as
+            // enemies, like map-spawned path actors.
+            kind: super::ObjectKind::Enemy,
+            program: MapProgram::Path(record.path),
+            flags: MapRecordFlags(MapRecordFlags::PATH),
+            spawned: None,
+            group,
+        });
+        Ok(())
+    }
 }
 
 impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
@@ -134,6 +190,12 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
                 .presentation
                 .load_table_idle
                 .ok_or(MapHostError::MissingLoaderReadiness),
+            MapCondition::EncounterLayout(layout) => self
+                .world
+                .scene
+                .encounter_layout
+                .map(|current| current == layout)
+                .ok_or(MapHostError::MissingEncounterLayout),
             other => Err(MapHostError::UnsupportedCondition(other)),
         }
     }
@@ -174,6 +236,14 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
             MapEffect::InstallPath(_) | MapEffect::ActorHitPoints(_) | MapEffect::ActorAttackPower(_) => {
                 return Err(MapHostError::ActorEffectWithoutActor);
             }
+            MapEffect::DeclarePathRecord(record) => self.declare_path_record(record)?,
+            MapEffect::RegisterRegion { index, region } => self
+                .world
+                .map_regions
+                .as_mut()
+                .ok_or(MapHostError::MissingRegions)?
+                .register(index, region)
+                .map_err(MapHostError::Region)?,
             MapEffect::ResetSceneDisplay => {
                 const RESET_SCENE_STYLE: u8 = 2;
                 presentation.display_mode = Some(DisplayModeRequest::Scene);
@@ -253,4 +323,100 @@ pub fn visit(
             .map_err(|_| super::scene_map::MapError::Faulted)?;
     }
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::map_streaming::{MapRecordStore, MapRegions, RegionGroups, NO_REGION};
+    use super::super::{authored_paths, Angle, RandomState, ShapeId, Vector3};
+    use super::*;
+
+    fn world() -> ScenePathWorld {
+        let mut world = ScenePathWorld::new(RandomState::default());
+        world.map_records = Some(MapRecordStore::new());
+        world.map_regions = Some(MapRegions::default());
+        world.region_groups = Some(RegionGroups {
+            current: 3,
+            previous: NO_REGION,
+        });
+        world
+    }
+
+    #[test]
+    fn path_records_join_the_current_region_with_the_catalog_extent() {
+        let mut objects = ObjectStore::new();
+        let mut world = world();
+        let mut presentation = MapPresentation::default();
+        let mut host = MapWorld {
+            objects: &mut objects,
+            world: &mut world,
+            presentation: &mut presentation,
+            continuation: None,
+        };
+        let record = PathRecord {
+            position: Vector3 { x: 2048, y: 512, z: -2048 },
+            yaw: Angle::from_units(0x40),
+            shape: ShapeId::TITLE_CRAFT,
+            path: authored_paths::CONTACT_SUPPRESSED_ATTACHMENT,
+        };
+        host.apply(&MapEffect::DeclarePathRecord(record)).unwrap();
+        let records = world.map_records.as_ref().unwrap();
+        let stored = records.get(records.active_ids()[0]).unwrap();
+        assert_eq!(stored.group, 3);
+        assert_eq!(stored.position, record.position);
+        assert_eq!(stored.rotation, [Angle::ZERO, record.yaw, Angle::ZERO]);
+        assert_eq!(stored.shape_extent, ShapeId::TITLE_CRAFT.catalog_entry().unwrap().size);
+        assert_eq!(stored.program, MapProgram::Path(record.path));
+        assert_eq!(stored.flags, MapRecordFlags(MapRecordFlags::PATH));
+    }
+
+    #[test]
+    fn regions_count_in_order_and_unwritten_slots_fault() {
+        let mut objects = ObjectStore::new();
+        let mut world = world();
+        let mut presentation = MapPresentation::default();
+        let mut host = MapWorld {
+            objects: &mut objects,
+            world: &mut world,
+            presentation: &mut presentation,
+            continuation: None,
+        };
+        let region = MapRegion {
+            origin_x: 0xFC00,
+            origin_z: 0,
+            width: 0x800,
+            depth: 0xC00,
+            entry: None,
+        };
+        host.apply(&MapEffect::RegisterRegion { index: 1, region }).unwrap();
+        let regions = world.map_regions.as_ref().unwrap();
+        assert_eq!(regions.count(), 1);
+        assert_eq!(regions.regions(), Err(RegionError::Unwritten(0)));
+    }
+
+    #[test]
+    fn layout_branches_read_the_encounter_layout() {
+        let mut objects = ObjectStore::new();
+        let mut world = world();
+        let mut presentation = MapPresentation::default();
+        let host = MapWorld {
+            objects: &mut objects,
+            world: &mut world,
+            presentation: &mut presentation,
+            continuation: None,
+        };
+        assert_eq!(
+            host.condition(MapCondition::EncounterLayout(2)),
+            Err(MapHostError::MissingEncounterLayout)
+        );
+        world.scene.encounter_layout = Some(2);
+        let host = MapWorld {
+            objects: &mut objects,
+            world: &mut world,
+            presentation: &mut presentation,
+            continuation: None,
+        };
+        assert_eq!(host.condition(MapCondition::EncounterLayout(2)), Ok(true));
+        assert_eq!(host.condition(MapCondition::EncounterLayout(3)), Ok(false));
+    }
 }

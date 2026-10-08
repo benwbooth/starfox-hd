@@ -6,9 +6,7 @@ fn region(x: u16, z: u16, size: u16, word: u16) -> MapRegion {
         origin_z: z,
         width: size,
         depth: size,
-        entry_word: word,
-        entry_byte: word as u8,
-        flags: 2,
+        entry: Some(MapCursor::from_index(word)),
     }
 }
 
@@ -26,7 +24,7 @@ fn entering_a_region_selects_it_publishes_once_and_retires_the_group_left_behind
         current: NO_REGION,
         previous: NO_REGION,
     };
-    let first = select_regions(&regions, at(10, 10), none);
+    let first = select_regions(&regions, at(10, 10), none).unwrap();
     assert_eq!(
         first.groups,
         RegionGroups {
@@ -34,10 +32,10 @@ fn entering_a_region_selects_it_publishes_once_and_retires_the_group_left_behind
             previous: NO_REGION
         }
     );
-    assert_eq!(first.publication.unwrap().entry_word, 0x1111);
-    let again = select_regions(&regions, at(20, 20), first.groups);
+    assert_eq!(first.publication.unwrap().entry, MapCursor::from_index(0x1111));
+    let again = select_regions(&regions, at(20, 20), first.groups).unwrap();
     assert_eq!(again.publication, None);
-    let moved = select_regions(&regions, at(1010, 10), first.groups);
+    let moved = select_regions(&regions, at(1010, 10), first.groups).unwrap();
     assert_eq!(
         moved.groups,
         RegionGroups {
@@ -55,7 +53,7 @@ fn leaving_every_region_keeps_the_old_selection() {
         current: 0,
         previous: NO_REGION,
     };
-    let update = select_regions(&regions, at(-500, -500), old);
+    let update = select_regions(&regions, at(-500, -500), old).unwrap();
     assert_eq!(update.groups, old);
     assert_eq!(update.retired, [None, None]);
 }
@@ -63,13 +61,13 @@ fn leaving_every_region_keeps_the_old_selection() {
 #[test]
 fn unscannable_regions_are_ignored() {
     let mut hidden = region(0, 0, 100, 1);
-    hidden.flags = 0;
+    hidden.entry = None;
     let regions = MapRegions::new(vec![hidden]);
     let none = RegionGroups {
         current: NO_REGION,
         previous: NO_REGION,
     };
-    assert_eq!(select_regions(&regions, at(5, 5), none).groups, none);
+    assert_eq!(select_regions(&regions, at(5, 5), none).unwrap().groups, none);
 }
 
 #[test]

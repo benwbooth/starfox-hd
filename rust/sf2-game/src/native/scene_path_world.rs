@@ -182,6 +182,12 @@ pub struct ScenePathWorld {
     pub random: RandomState,
     /// The real decoded scene-map owner, shared with actor-side redirects.
     pub map: Option<super::scene_map::SceneMap>,
+    /// Proximity-streamed map records (1283/1285) declared by map opcode 90.
+    pub map_records: Option<super::map_streaming::MapRecordStore>,
+    /// The region table (686A, 1910) written by map opcode 94.
+    pub map_regions: Option<super::map_streaming::MapRegions>,
+    /// 190E/190F: the current and previous region (allocation groups).
+    pub region_groups: Option<super::map_streaming::RegionGroups>,
     pub strategy_clock: u16,
     pub scene: ScenePathInputs,
     /// Live indexed scene request (1D73), separate from the map and action gate.
@@ -409,6 +415,9 @@ impl ScenePathWorld {
         Self {
             random,
             map: None,
+            map_records: None,
+            map_regions: None,
+            region_groups: None,
             strategy_clock: 0,
             scene: ScenePathInputs::default(),
             primary_player: None,

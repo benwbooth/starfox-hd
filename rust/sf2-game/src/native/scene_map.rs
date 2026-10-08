@@ -40,6 +40,8 @@ pub enum MapCondition {
     DisplayReady,
     /// Read the selected load-table entry, not the pending load request.
     LoadTableIdle,
+    /// Map branch 9E: the encounter layout (1BA5) equals the operand.
+    EncounterLayout(u8),
 }
 
 /// Effects and spawn specifications are typed catalog data provided by the

@@ -13,6 +13,7 @@
 //! actor lists keep the source "insert after head" order, which fixes the
 //! order of later spawns and therefore of strategy visits.
 
+use super::scene_map::MapCursor;
 use super::{
     Angle, Behavior, Object, ObjectId, ObjectKind, ObjectSpawnDefaults, ObjectStore, PathCursor,
     ShapeId, Vector3,
@@ -35,37 +36,32 @@ impl MapRecordId {
     }
 }
 
-/// A registered map region (`$686A + 16 * id`). Only the fields the region
-/// scan reads are typed; the overlapping 0C/0D words are kept as written.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// A registered map region (`$686A + 16 * id`, written by map opcode 94).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MapRegion {
     pub origin_x: u16,
     pub origin_z: u16,
     pub width: u16,
     pub depth: u16,
-    /// Word at 0C, published to 1657 on entry.
-    pub entry_word: u16,
-    /// Byte at 0E, published to 192E on entry.
-    pub entry_byte: u8,
-    /// Byte 0F; bit 1 marks the region as scannable.
-    pub flags: u8,
+    /// The map script (0C/0E, published to 1657/192E) entered with the
+    /// region. Only scannable regions (byte 0F bit 1) have one; the scan
+    /// ignores the others.
+    pub entry: Option<MapCursor>,
 }
 
 impl MapRegion {
-    const SCANNABLE: u8 = 0x02;
-
     fn contains(&self, x: u16, z: u16) -> bool {
-        self.flags & Self::SCANNABLE != 0
+        self.entry.is_some()
             && x.wrapping_sub(self.origin_x) < self.width
             && z.wrapping_sub(self.origin_z) < self.depth
     }
 }
 
-/// Values published when the player enters a region it was not already in.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// Published when the player enters a region it was not already in: the
+/// map owner redirects the scene map to the region's script.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegionPublication {
-    pub entry_word: u16,
-    pub entry_byte: u8,
+    pub entry: MapCursor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,27 +162,68 @@ impl MapRecordStore {
     }
 }
 
+/// The region table and its count (1910). Map opcode 94 writes the slot it
+/// names and counts one more region; the scan covers the first `count`
+/// slots, so a slot below the count that was never written is a fault.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapRegions {
-    regions: Vec<MapRegion>,
+    slots: Vec<Option<MapRegion>>,
+    count: usize,
 }
 
 impl Default for MapRegions {
     fn default() -> Self {
         Self {
-            regions: Vec::new(),
+            slots: vec![None; REGION_CAPACITY],
+            count: 0,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegionError {
+    /// The source table holds 128 records; a further count reads past it.
+    Overflow,
+    /// The scan would read a slot no map record has written.
+    Unwritten(u8),
 }
 
 impl MapRegions {
     pub fn new(regions: Vec<MapRegion>) -> Self {
         assert!(regions.len() <= REGION_CAPACITY, "region table overflow");
-        Self { regions }
+        let mut table = Self::default();
+        for (index, region) in regions.into_iter().enumerate() {
+            table.slots[index] = Some(region);
+        }
+        table.count = table.slots.iter().take_while(|slot| slot.is_some()).count();
+        table
     }
 
-    pub fn regions(&self) -> &[MapRegion] {
-        &self.regions
+    /// `$03:90EF`: write slot `index` and count one more region.
+    pub fn register(&mut self, index: u8, region: MapRegion) -> Result<(), RegionError> {
+        let slot = self
+            .slots
+            .get_mut(usize::from(index))
+            .ok_or(RegionError::Overflow)?;
+        if self.count == REGION_CAPACITY {
+            return Err(RegionError::Overflow);
+        }
+        *slot = Some(region);
+        self.count += 1;
+        Ok(())
+    }
+
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
+    /// The scanned regions, in slot order.
+    pub fn regions(&self) -> Result<Vec<MapRegion>, RegionError> {
+        self.slots[..self.count]
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| slot.ok_or(RegionError::Unwritten(index as u8)))
+            .collect()
     }
 }
 
@@ -207,21 +244,22 @@ pub struct RegionUpdate {
 
 /// `$0D:D95B..DA5E` without its retirement calls, which the caller performs
 /// in the returned order (see [`retire_group`]).
-pub fn select_regions(regions: &MapRegions, player: Vector3, old: RegionGroups) -> RegionUpdate {
+pub fn select_regions(
+    regions: &MapRegions,
+    player: Vector3,
+    old: RegionGroups,
+) -> Result<RegionUpdate, RegionError> {
     let (x, z) = (player.x as u16, player.z as u16);
     let mut current = NO_REGION;
     let mut previous = NO_REGION;
     let mut publication = None;
-    for (index, region) in regions.regions.iter().enumerate() {
+    for (index, region) in regions.regions()?.iter().enumerate() {
         let id = index as u8;
         if !region.contains(x, z) {
             continue;
         }
         if id != old.current && id != old.previous {
-            publication = Some(RegionPublication {
-                entry_word: region.entry_word,
-                entry_byte: region.entry_byte,
-            });
+            publication = region.entry.map(|entry| RegionPublication { entry });
         }
         // The previous current region becomes the second one, unless none.
         if current != NO_REGION {
@@ -238,19 +276,19 @@ pub fn select_regions(regions: &MapRegions, player: Vector3, old: RegionGroups) 
     }
     if current == previous {
         // Only possible when no region matched: keep the old selection.
-        return RegionUpdate {
+        return Ok(RegionUpdate {
             groups: old,
             publication,
             retired: [None; 2],
-        };
+        });
     }
     let retire =
         |group: u8| (group != NO_REGION && group != current && group != previous).then_some(group);
-    RegionUpdate {
+    Ok(RegionUpdate {
         groups: RegionGroups { current, previous },
         publication,
         retired: [retire(old.current), retire(old.previous)],
-    }
+    })
 }
 
 /// `$0D:D8DD..D95A`: mark every live actor of `group` for removal and clear
@@ -302,6 +340,7 @@ pub enum StreamingError {
     /// attachment (`$7F:2360`), which is not ported yet.
     UnsupportedAttachedData(MapRecordId),
     MissingSpawnDefaults,
+    Region(RegionError),
 }
 
 /// Region update hooks provided by the frame owner.
@@ -344,7 +383,8 @@ pub fn stream(
             return Ok(());
         }
         let old = *groups;
-        let update = select_regions(regions, primary_player, old);
+        let update =
+            select_regions(regions, primary_player, old).map_err(StreamingError::Region)?;
         *groups = update.groups;
         if let Some(entry) = update.publication {
             *publication = Some(entry);
