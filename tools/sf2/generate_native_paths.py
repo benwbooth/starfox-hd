@@ -190,17 +190,18 @@ ROOTS = (
 # Paths named only by map records (opcode 90's path word, or 8C). Each is admitted
 # through a decoded map record that names it (verified_map_spawn_installer).
 MAP_PLACED_PATHS = (
-    0x0BD7, 0x0BDA, 0x0C34, 0x0C3A, 0x0C40, 0x0D28, 0x0D69, 0x1466,
-    0x146F, 0x1496, 0x149A, 0x14F5, 0x1542, 0x1556, 0x15C4, 0x1618,
-    0x1684, 0x1725, 0x180D, 0x1820, 0x18A5, 0x1913, 0x1966, 0x19BA,
-    0x19F5, 0x1A52, 0x22AA, 0x2651, 0x2D26, 0x2E52, 0x2EDD, 0x2F0B,
-    0x3089, 0x3A72, 0x3AF9, 0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8, 0x3C4E,
-    0x3F35, 0x3F85, 0x3FC1, 0x4368, 0x4370, 0x4397, 0x439F, 0x45F6,
-    0x45FB, 0x460E, 0x468C, 0x479F, 0x4C16, 0x4E26, 0x4F06, 0x4F72,
-    0x4FA5, 0x5097, 0x520D, 0x58B9, 0x5C8F, 0x5EF6, 0x6C01, 0x6F65,
-    0x6F75, 0x737F, 0x7382, 0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04,
-    0x7E25, 0x7E27, 0x7E29, 0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68,
-    0x7E7C, 0x7E8E, 0x7F00, 0x7F12, 0x7F36, 0x7F8E, 0x7FA8,
+    0x0A0F, 0x0A11, 0x0BD7, 0x0BDA, 0x0C34, 0x0C3A, 0x0C40, 0x0D28,
+    0x0D69, 0x0F2C, 0x1466, 0x146F, 0x1496, 0x149A, 0x14F5, 0x1542,
+    0x1556, 0x15C4, 0x1618, 0x1684, 0x1725, 0x180D, 0x1820, 0x18A5,
+    0x1913, 0x1966, 0x19BA, 0x19F5, 0x1A52, 0x22AA, 0x2651, 0x2D26,
+    0x2E52, 0x2EDD, 0x2F0B, 0x3089, 0x3982, 0x3A3A, 0x3A72, 0x3AF9,
+    0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8, 0x3C4E, 0x3F35, 0x3F85, 0x3FC1,
+    0x4368, 0x4370, 0x4397, 0x439F, 0x45F6, 0x45FB, 0x460E, 0x468C,
+    0x479F, 0x4C16, 0x4E26, 0x4F06, 0x4F72, 0x4FA5, 0x5097, 0x520D,
+    0x58B9, 0x5C8F, 0x5EF6, 0x6C01, 0x6F65, 0x6F75, 0x737F, 0x7382,
+    0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04, 0x7E25, 0x7E27, 0x7E29,
+    0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68, 0x7E7C, 0x7E8E, 0x7F00,
+    0x7F12, 0x7F36, 0x7F8E, 0x7FA8, 0x7FCE,
 )
 ROOTS = ROOTS + tuple((f"MAP_PLACED_{offset:04X}", PathAddress(offset)) for offset in MAP_PLACED_PATHS)
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
@@ -2023,6 +2024,24 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
         elif name == "SetFlag20Bit02":
             parameters(0)
             statement = f"Statement::Contact {{ command: ContactCommand::MarkHit, next: {next_cursor()} }}"
+        elif name == "SetFlag25Bit80":
+            # $7F:C3D9: incoming contacts may set player-part feedback.
+            parameters(0)
+            statement = f"Statement::Contact {{ command: ContactCommand::DamagePlayerParts, next: {next_cursor()} }}"
+        elif name == "SetShapeScaledScriptValue":
+            # $7F:B519: the signed literal shifted left by the current shape's
+            # header shift (byte 07), stored to the working word (1CE4).
+            value, = parameters(1)
+            signed_value = value - 0x100 if value & 0x80 else value
+            statement = f"Statement::SetShapeScaledScriptValue {{ value: {signed_value}, next: {next_cursor()} }}"
+        elif name in ("SetExternalCf33VariableBit", "IfExternalCf33VariableBitSet"):
+            operands = parameters(3 if name == "IfExternalCf33VariableBitSet" else 1)
+            mask = f"WordOperand::IndexedBitMask {{ selector: ByteOperand::Actor({byte_field(operands[0])}), masks: &VARIABLE_BIT_MASKS }}"
+            if name == "SetExternalCf33VariableBit":
+                statement = f"Statement::RaisePathLatches {{ mask: {mask}, next: {next_cursor()} }}"
+            else:
+                taken, next_ = branch_cursors(operands[1] | (operands[2] << 8))
+                statement = f"Statement::PathLatchBranch {{ mask: {mask}, taken: {taken}, next: {next_} }}"
         elif name in ("MaskFlag31", "OrFlag31"):
             mask, = parameters(1)
             retain = name == "MaskFlag31"

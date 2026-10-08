@@ -26,6 +26,8 @@ pub enum ContactCommand {
     SuppressHitMarker(bool),
     ShapeFootprintSearch(bool),
     MarkHit,
+    /// Source 25 bit 80: incoming contacts may set player-part feedback.
+    DamagePlayerParts,
 }
 
 impl ContactCommand {
@@ -38,6 +40,7 @@ impl ContactCommand {
                 actor.base.flags.exclude_from_shape_footprint_search = !enabled;
             }
             Self::MarkHit => contacts.hit_marked = true,
+            Self::DamagePlayerParts => contacts.damages_player_parts = true,
             Self::SuppressContactsNextEpoch(enabled) => {
                 contacts.suppress_contacts_next_epoch = enabled;
             }

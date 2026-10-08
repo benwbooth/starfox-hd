@@ -1233,6 +1233,23 @@ pub enum Statement {
         next: PathCursor,
     },
     /// `$7F:B4B8`: branch when the selected player's shield is full.
+    /// `$7F:B617`: raise the selected bits of the path latch word (CF33).
+    RaisePathLatches {
+        mask: WordOperand,
+        next: PathCursor,
+    },
+    /// `$7F:B629`: branch when any selected path latch bit is raised.
+    PathLatchBranch {
+        mask: WordOperand,
+        taken: PathCursor,
+        next: PathCursor,
+    },
+    /// `$7F:B519`: the working word (1CE4) becomes the signed value shifted
+    /// left by the current shape's header shift.
+    SetShapeScaledScriptValue {
+        value: i8,
+        next: PathCursor,
+    },
     /// D7E1 + tally (tally 0..=2).
     IncrementDifficultyTally {
         tally: u8,
@@ -1489,6 +1506,7 @@ pub enum ProgramError {
     MissingSelectedShield,
     MissingSlotWords,
     MissingDifficultyTallies,
+    MissingShapeHeader(super::ShapeId),
     MissingPlacedShape,
     MissingShieldCapacity,
     MissingSelectedPlayer,
@@ -3175,6 +3193,41 @@ impl PathRuntime {
                     GuidanceCommand::CopyTo(field) => field.write(actor, history.flags),
                     GuidanceCommand::Assign(value) => history.flags = value.read(actor),
                 }
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::RaisePathLatches { mask, next } => {
+                let mask = mask.read(objects.get(owner).expect("validated path latch writer"));
+                world.path_latches.as_deref_mut().ok_or(ProgramError::MissingPathLatches)?.raised |= mask;
+                objects.get_mut(owner).expect("validated path latch writer").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::PathLatchBranch { mask, taken, next } => {
+                let mask = mask.read(objects.get(owner).expect("validated path latch reader"));
+                let raised = world.path_latches.as_deref().ok_or(ProgramError::MissingPathLatches)?.raised;
+                self.execute_branch(
+                    objects,
+                    owner,
+                    BranchCommand::Test {
+                        predicate: Predicate::AnyWordBitsSet { value: raised, mask },
+                        taken,
+                        next,
+                    },
+                )
+            }
+            Statement::SetShapeScaledScriptValue { value, next } => {
+                let actor = objects.get_mut(owner).expect("validated scaled value owner");
+                let shift = actor
+                    .base
+                    .shape
+                    .catalog_entry()
+                    .ok_or(ProgramError::MissingShapeHeader(actor.base.shape))?
+                    .shift;
+                let mut scaled = i16::from(value) as u16;
+                for _ in 0..shift {
+                    scaled <<= 1;
+                }
+                actor.extension.path_state.script_value = scaled;
                 actor.base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
@@ -14772,10 +14825,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 248);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 254);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 11735);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 11794);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 11883);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 11942);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
