@@ -150,6 +150,7 @@ pub enum SceneError<E> {
     PlayerFrameEffects(super::player_frame_effects::FrameEffectsError),
     PlayerPostMotion(super::player_post_motion::PostMotionError),
     PlayerActionWait(super::player_action_wait::ActionWaitError),
+    PlayerSceneEntry(super::player_scene_entry::SceneEntryError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
     PlayerSpeed(super::player_speed::SpeedError),
@@ -1892,6 +1893,13 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                     self.objects, self.world, &mut self.execution.paths.runtime.resources,
                     &mut self.execution.positional, owner,
                 ).map_err(SceneError::PlayerActionWait)?;
+                Ok(owner)
+            }
+            Behavior::PlayerSceneEntry(_) => {
+                super::player_scene_entry::step(
+                    self.objects, self.world, &mut self.execution.paths.runtime.resources,
+                    &mut self.execution.positional, owner,
+                ).map_err(SceneError::PlayerSceneEntry)?;
                 Ok(owner)
             }
             Behavior::Destruction(phase) => {

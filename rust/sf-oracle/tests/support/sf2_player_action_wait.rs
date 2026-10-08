@@ -329,3 +329,120 @@ fn original_resetting_action_wait_reprepares_motion_and_runs_live_action_then_pr
         }
     }
 }
+
+/// Scene wait ($06:84A2..84BD) into the shared tail: projection gates, the
+/// per-visit mode-bit clear, the closed-gate exit and the live action.
+#[test]
+fn original_scene_wait_clears_entry_mode_and_runs_action_tail_or_faults_closed_gate() {
+    use sf2_game::path_program::{ActionGate, ProjectileTrigger};
+    use sf2_game::player_action::{PlayerServiceFlags, ScenePalette};
+    use sf2_game::player_scene_entry::{self, SceneEntryError, SceneEntryPhase};
+    use sf2_game::view_transition::ViewTransitionMode;
+
+    let image = rom();
+    for seed in (0..=u8::MAX).step_by(5) {
+        for paused in [false, true] {
+            for gate in [0, seed | 1] {
+                let mut f = entry_reset_tests::Fixture::new(&image, seed);
+                let mode = 0xFFFD | if paused { 2 } else { 0 };
+                f.world.view_transition_mode = Some(ViewTransitionMode { flags: mode });
+                f.source.bus.write16(0x1B84, mode);
+                // The projection itself has its own differential coverage.
+                f.world
+                    .player_mut(&f.objects, f.owner)
+                    .unwrap()
+                    .camera_dispatch
+                    .as_mut()
+                    .unwrap()
+                    .projection_correction_disabled = true;
+                let flags = f.source.bus.read8(WRAM + f.slot + 0x6B65);
+                f.source.bus.write8(WRAM + f.slot + 0x6B65, flags | 0x40);
+                f.world.action_gate = Some(ActionGate { code: gate });
+                f.source.bus.write8(0x1D72, gate);
+                f.world.scene.player_configuration = Some(seed % 10);
+                f.source.bus.write8(0x1DE2, seed % 10);
+                f.world.projectile_trigger = Some(ProjectileTrigger {
+                    activation: seed & 3,
+                    ..Default::default()
+                });
+                f.source.bus.write8(0x1E59, seed & 3);
+                f.world.player_service_flags = Some(PlayerServiceFlags::from_bits(seed));
+                f.source.bus.write8(0x1E0D, seed);
+                f.world.primary_player = Some(f.owner);
+                f.source.bus.write16(0x12C3, OWNER);
+                f.world.strategy_clock = u16::from(seed);
+                f.source.bus.write8(0xC4, seed);
+                f.world.palette_refresh_requested = Some(false);
+                f.source.bus.write8(0x1E58, 0x37);
+                f.world.palette = Some(ScenePalette {
+                    colors: std::array::from_fn(|index| (index as u16 * 251) ^ u16::from(seed)),
+                    saved_colors: std::array::from_fn(|index| {
+                        (index as u16 * 397) ^ u16::from(!seed)
+                    }),
+                });
+                let palette = f.world.palette.clone().unwrap();
+                for (index, (&color, &saved)) in
+                    palette.colors.iter().zip(&palette.saved_colors).enumerate()
+                {
+                    f.source.bus.write16(WRAM + 0xEFE5 + index as u32 * 2, color);
+                    f.source.bus.write16(WRAM + 0xF2E5 + index as u32 * 2, saved);
+                }
+                f.source.bus.write16(u32::from(OWNER) + 4, 0xBC9C);
+                f.world.engine_sound_control = Some(
+                    sf2_game::player_engine_sound::EngineSoundControl::from_bits(seed ^ 0x3C),
+                );
+                f.source.bus.write8(0x1CE5, seed ^ 0x3C);
+                f.source.bus.write16(u32::from(OWNER) + 0x19, 0x84A2);
+                f.source.bus.write8(u32::from(OWNER) + 0x1B, 6);
+                f.objects.get_mut(f.owner).unwrap().base.behavior =
+                    Behavior::PlayerSceneEntry(SceneEntryPhase::Wait);
+                let words = [input(u16::from(seed) * 257), input(u16::from(!seed) * 257)];
+                let side = if seed & 1 == 0 {
+                    HitSide::Primary
+                } else {
+                    HitSide::Secondary
+                };
+                f.objects.get_mut(f.owner).unwrap().base.contacts.hit_side = side;
+                f.world.controller_inputs = words.map(Some);
+                seed_input(&mut f.source, words, side);
+                for visit in 0..3 {
+                    let result =
+                        player_scene_entry::wait(&mut f.objects, &mut f.world, f.owner);
+                    if gate == 0 {
+                        f.source.run(0x0684A2, Some(0x0684EF), 0, OWNER, true);
+                        assert_eq!(result, Err(SceneEntryError::UnportedWaitExit));
+                    } else {
+                        f.source.run(0x0684A2, None, 0, OWNER, true);
+                        result.unwrap();
+                        f.compare();
+                        let actual = f.world.processed_player_input.unwrap();
+                        assert_eq!(f.source.bus.read16(0x1936), actual.pressed.bits());
+                        assert_eq!(f.source.bus.read16(0x1938), actual.held.bits());
+                        assert_eq!(actual, words[usize::from(side == HitSide::Secondary)]);
+                        assert_eq!(
+                            f.source.bus.read8(0x1E58),
+                            0x37 | u8::from(f.world.palette_refresh_requested.unwrap()) * 0x80
+                        );
+                        let palette = f.world.palette.as_ref().unwrap();
+                        for (index, (&color, &saved)) in
+                            palette.colors.iter().zip(&palette.saved_colors).enumerate()
+                        {
+                            let offset = index as u32 * 2;
+                            assert_eq!(f.source.bus.read16(WRAM + 0xEFE5 + offset), color);
+                            assert_eq!(f.source.bus.read16(WRAM + 0xF2E5 + offset), saved);
+                        }
+                    }
+                    assert_eq!(
+                        f.source.bus.read16(0x1B84),
+                        f.world.view_transition_mode.unwrap().flags,
+                        "seed {seed} paused {paused} gate {gate} visit {visit}"
+                    );
+                    assert_eq!(f.source.bus.read16(u32::from(OWNER) + 0x19), 0x84A2);
+                    // External mode publication before the next visit.
+                    f.world.view_transition_mode.as_mut().unwrap().flags |= 0x0010;
+                    f.source.bus.write16(0x1B84, f.source.bus.read16(0x1B84) | 0x0010);
+                }
+            }
+        }
+    }
+}

@@ -114,9 +114,41 @@ pub fn step(
             .base
             .behavior = Behavior::PlayerActionWait(ActionWaitPhase::Active);
     }
-    let actor = objects.get_mut(owner).expect("validated waiting player");
-    actor.base.flags.collision_disabled = true;
-    let side = actor.base.contacts.hit_side;
+    objects
+        .get_mut(owner)
+        .expect("validated waiting player")
+        .base
+        .flags
+        .collision_disabled = true;
+    if phase == ActionWaitPhase::Resetting {
+        return advance_action_tail(objects, world, owner);
+    }
+    sample_and_advance(objects, world, owner)
+}
+
+/// Shared tail (`$06:84BE..84EE`): sample the visiting player's raw input,
+/// run its real action, then the primary palette service. Entered both from
+/// the resetting wait and from the scene-entry wait ($06:84A2).
+pub fn advance_action_tail(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    owner: ObjectId,
+) -> Result<(), ActionWaitError> {
+    sample_and_advance(objects, world, owner)?;
+    player_palette::advance_primary(objects, world).map_err(ActionWaitError::Palette)
+}
+
+fn sample_and_advance(
+    objects: &mut ObjectStore,
+    world: &mut ScenePathWorld,
+    owner: ObjectId,
+) -> Result<(), ActionWaitError> {
+    let side = objects
+        .get(owner)
+        .ok_or(WorldInputError::MissingActor(owner))?
+        .base
+        .contacts
+        .hit_side;
     let controller = match side {
         HitSide::Primary => 0,
         HitSide::Secondary => 1,
@@ -124,11 +156,7 @@ pub fn step(
     let input =
         world.controller_inputs[controller].ok_or(ActionWaitError::MissingController(side))?;
     world.processed_player_input = Some(input);
-    player_action::advance(objects, world, owner, input).map_err(ActionWaitError::Action)?;
-    if phase == ActionWaitPhase::Resetting {
-        player_palette::advance_primary(objects, world).map_err(ActionWaitError::Palette)?;
-    }
-    Ok(())
+    player_action::advance(objects, world, owner, input).map_err(ActionWaitError::Action)
 }
 
 #[cfg(test)]

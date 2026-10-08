@@ -42,6 +42,9 @@ pub struct AudioState {
     /// Last direct scene cue ($1CE1), retained independently of queue
     /// consumption and ordinary player-routed sound publications.
     retained_scene_cue: Option<super::path_sound::AuthoredCue>,
+    /// Cue identity to replay when a scene hands control back ($1CE3). Only
+    /// the low (identity) byte of the retained cue word is copied.
+    restore_cue_id: Option<u8>,
 }
 
 impl AudioState {
@@ -54,6 +57,17 @@ impl AudioState {
 
     pub const fn retained_scene_cue(&self) -> Option<super::path_sound::AuthoredCue> {
         self.retained_scene_cue
+    }
+
+    /// Byte copy $1CE1 -> $1CE3. An absent retained cue stays absent; the
+    /// replaying consumer must fault rather than invent one. Direct music
+    /// writers ($03:E2A5, $0D:CCE2/CCF3) are separate unported producers.
+    pub fn save_restore_cue(&mut self) {
+        self.restore_cue_id = self.retained_scene_cue.map(|cue| cue.id);
+    }
+
+    pub const fn restore_cue_id(&self) -> Option<u8> {
+        self.restore_cue_id
     }
 
     /// Replace the unconsumed music/control publication, independently of

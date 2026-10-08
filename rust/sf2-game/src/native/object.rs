@@ -429,6 +429,7 @@ pub enum Behavior {
     PlayerSelection,
     PlayerFlight,
     PlayerActionWait(super::player_action_wait::ActionWaitPhase),
+    PlayerSceneEntry(super::player_scene_entry::SceneEntryPhase),
     FollowPath,
     /// Source PATHHOLD installs the movement service without path dispatch.
     PathMovement,
