@@ -132,6 +132,7 @@ impl Reader<'_> {
                     (0xBEB4, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene4)),
                     (0xBED3, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene5)),
                     (0xC191, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene9)),
+                    (0xBEC2, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene7)),
                     (0xBEBB, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene25)),
                     value => panic!("unexpected retained action {value:?}"),
                 },

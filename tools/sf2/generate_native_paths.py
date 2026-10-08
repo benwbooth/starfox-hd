@@ -1446,6 +1446,16 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
                 parameters(0)
                 statements.append(f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::EaseYawTowardThreeQuarterTurn, next: {next_cursor()} }}")
                 continue
+            if command.address == PathAddress(0xB13C):
+                # Reviewed inline block: store literals into $E0..$E3.
+                parameters(0)
+                statements.append("Statement::SeedRandom { bytes: [0x3A, 0xA7, 0x55, 0x7F], next: %s }" % next_cursor())
+                continue
+            if command.address == PathAddress(0xBD8C):
+                # Reviewed inline block: view (033F) yaw word := 0x8000.
+                parameters(0)
+                statements.append(f"Statement::FixedView {{ command: super::view_transition::FixedViewCommand::SetYawWord(0x8000), next: {next_cursor()} }}")
+                continue
             if command.address == PathAddress(0xE91B):
                 # Reviewed inline block: JSL $07:F3D1, returning E926.
                 parameters(0)
@@ -2555,12 +2565,14 @@ def verified_map_spawn_installer(rom: bytes, root: PathAddress) -> bool:
 # companion seed. A scene is admitted only with its complete source record,
 # and only where the paired native action stream is implemented.
 INDEXED_SCENES = {
-    # root: (index, action script, record bytes, controller stream is empty)
-    0xD40E: (9, 0x0DC191, '0ed491c10d001000', True),
-    0xD9D6: (3, 0x0DC4F3, 'd6d9f3c40d000000', False),
-    0xB65B: (5, 0x0DBED3, '5bb6d3be0d000000', False),
-    0xD48C: (4, 0x0DBEB4, '8cd4b4be0d000000', False),
-    0xD490: (25, 0x0DBEBB, '90d4bbbe0d000000', False),
+    # root: ((index, action script, record bytes, controller stream is empty), ...)
+    # Several rows may share a root; each pairs it with its own action stream.
+    0xD40E: ((9, 0x0DC191, '0ed491c10d001000', True),),
+    0xD9D6: ((3, 0x0DC4F3, 'd6d9f3c40d000000', False),),
+    0xB65B: ((5, 0x0DBED3, '5bb6d3be0d000000', False),
+             (7, 0x0DBEC2, '5bb6c2be0d000000', False)),
+    0xD48C: ((4, 0x0DBEB4, '8cd4b4be0d000000', False),),
+    0xD490: ((25, 0x0DBEBB, '90d4bbbe0d000000', False),),
 }
 
 
@@ -2570,14 +2582,14 @@ def verified_indexed_scene_installer(rom: bytes, root: PathAddress) -> bool:
     # than admitting every table address as an implemented scene.
     if root.offset not in INDEXED_SCENES:
         return False
-    index, script, record_hex, empty = INDEXED_SCENES[root.offset]
     from extract_intro_controller import authored_scene_controller
-    scene = authored_scene_controller(rom, index)
-    record = 0x06D4C7 + index * 8
-    if (scene.path_root != root.offset or scene.script != script
-            or bool(scene.commands) == empty
-            or rom[record:record + 8] != bytes.fromhex(record_hex)):
-        raise UnsupportedPath(f'unverified indexed scene-{index} installer')
+    for index, script, record_hex, empty in INDEXED_SCENES[root.offset]:
+        scene = authored_scene_controller(rom, index)
+        record = 0x06D4C7 + index * 8
+        if (scene.path_root != root.offset or scene.script != script
+                or bool(scene.commands) == empty
+                or rom[record:record + 8] != bytes.fromhex(record_hex)):
+            raise UnsupportedPath(f'unverified indexed scene-{index} installer')
     return True
 
 

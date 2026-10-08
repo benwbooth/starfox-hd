@@ -408,3 +408,47 @@ fn pilot_advance_and_phase_branches_match_original_for_every_byte() {
         }
     }
 }
+
+#[test]
+fn random_seed_inline_matches_original_from_every_prior_state() {
+    use sf2_game::path_control::PlayerTarget;
+    use sf2_game::path_invocation::InvocationWorld;
+    use sf2_game::path_program::{PathCatalog, Statement};
+    use sf2_game::path_runtime::PathRuntime;
+    use sf2_game::scene_path_world::ScenePathWorld;
+    use sf2_game::{ObjectStore, PathCursor, PathId, RandomState};
+    let bytes = rom();
+    let mut source = Source::new(&bytes, 0);
+    let at = |index| PathCursor {
+        path: PathId::from_catalog_index(0),
+        command_index: index,
+    };
+    for seed in 0..=u8::MAX {
+        let prior = [seed, seed.wrapping_mul(3), !seed, seed ^ 0x6D];
+        for (i, byte) in prior.into_iter().enumerate() {
+            source.bus.write8(0xE0 + i as u32, byte);
+        }
+        source.run(0x09B13D, None, 0, 0x03BD, true);
+        let mut objects = ObjectStore::new();
+        let owner = super::actor(&mut objects);
+        objects.get_mut(owner).unwrap().base.path = Some(at(0));
+        let mut world = ScenePathWorld::new(RandomState::new(prior));
+        let catalog = PathCatalog::new(vec![vec![Statement::SeedRandom {
+            bytes: [0x3A, 0xA7, 0x55, 0x7F],
+            next: at(1),
+        }]])
+        .unwrap();
+        let mut runtime = PathRuntime::default();
+        let mut borrowed = world
+            .path_world(&objects, owner, PlayerTarget::Primary)
+            .unwrap();
+        let _ = runtime.enter_program(&catalog, &mut objects, owner, &mut borrowed, 1);
+        for (i, byte) in world.random.bytes().into_iter().enumerate() {
+            assert_eq!(
+                source.bus.read8(0xE0 + i as u32),
+                byte,
+                "seed {seed} byte {i}"
+            );
+        }
+    }
+}

@@ -12,6 +12,8 @@ const AUTHORED_SCENE_COUNT: u8 = 30;
 const SCENE_NINE: u8 = 9;
 const SCENE_THREE: u8 = 3;
 const SCENE_FIVE: u8 = 5;
+const SCENE_SEVEN: u8 = 7;
+const SCENE_SEVEN_COMPANION_SEED: u16 = 0;
 const SCENE_FOUR: u8 = 4;
 const SCENE_TWENTY_FIVE: u8 = 25;
 const SCENE_FIVE_COMPANION_SEED: u16 = 0;
@@ -100,6 +102,12 @@ pub fn install(
             super::authored_paths::SCENE_FIVE,
             AuthoredSceneAction::Scene5,
             SCENE_FIVE_COMPANION_SEED,
+        ),
+        // Scene seven runs scene five's path with its own action stream.
+        SCENE_SEVEN => (
+            super::authored_paths::SCENE_FIVE,
+            AuthoredSceneAction::Scene7,
+            SCENE_SEVEN_COMPANION_SEED,
         ),
         SCENE_FOUR => (
             super::authored_paths::SCENE_FOUR,

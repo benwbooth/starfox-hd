@@ -33,6 +33,8 @@ pub enum FixedViewCommand {
     /// `$7F:C069`: chase the view's three angle words toward the owner's
     /// rotation bytes widened into their high bytes (`CopyRotation`'s target).
     ChaseRotation,
+    /// Inline `$44:BD8C`: set the view's FULL yaw word (both bytes).
+    SetYawWord(u16),
     /// `$07:F52B`: ease the view's FULL yaw word a quarter of the way to
     /// 0xC000 (three-quarter turn), using two arithmetic halvings.
     EaseYawTowardThreeQuarterTurn,

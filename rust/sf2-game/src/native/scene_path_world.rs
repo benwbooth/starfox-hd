@@ -240,6 +240,8 @@ pub struct ScenePathWorld {
     pub published_camera_projection: Option<i16>,
     /// Campaign/attract phase byte (1BE0); absent until its owner publishes it.
     pub campaign_phase: Option<u8>,
+    /// Shared scene-progress flag (1E66), published by scene actions.
+    pub scene_progress_flag: Option<u8>,
     /// Last selected free-flight clipping plane (7024E0). Rejected planes
     /// clear the player's height but preserve this scene publication.
     pub surface_clipping_plane_height: Option<i16>,
@@ -435,6 +437,7 @@ impl ScenePathWorld {
             environment_plane_height: None,
             published_camera_projection: None,
             campaign_phase: None,
+            scene_progress_flag: None,
             surface_clipping_plane_height: None,
             player_surface_support: None,
             player_surface_height: None,

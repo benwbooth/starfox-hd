@@ -6,10 +6,11 @@ use sf2_game::cinematic_exit::CinematicSignals;
 use sf2_game::player_action::{AuthoredSceneAction, PlayerAction};
 
 const SLOT: u32 = 64;
-const ACTIONS: [AuthoredSceneAction; 5] = [
+const ACTIONS: [AuthoredSceneAction; 6] = [
     AuthoredSceneAction::Scene3,
     AuthoredSceneAction::Scene4,
     AuthoredSceneAction::Scene5,
+    AuthoredSceneAction::Scene7,
     AuthoredSceneAction::Scene9,
     AuthoredSceneAction::Scene25,
 ];
@@ -38,6 +39,17 @@ fn original_scene_actions_match_every_elapsed_word_pause_state_and_retained_flag
                     skip_ready: elapsed & 8 != 0,
                 };
                 f.world.cinematic_signals = Some(signals);
+                // Phase bytes cover zero, the compare operand, the sign boundary
+                // of the wrapped difference and its neighbours.
+                let phase =
+                    [0u8, 1, 2, 0x80, 0x81, 0xFF, 0x7F, 0x82][usize::from(elapsed >> 5) & 7];
+                f.world.campaign_phase = Some(phase);
+                source.bus.write8(WRAM + 0x1BE0, phase);
+                f.world.scene_progress_flag = Some(elapsed as u8 ^ 0x3C);
+                source.bus.write8(WRAM + 0x1E66, elapsed as u8 ^ 0x3C);
+                f.world.audio.take_music_control();
+                source.bus.write8(WRAM + 0x1CDA, 201);
+                source.bus.write8(WRAM + 0x1CD9, 231);
                 let corrected = elapsed & 16 != 0;
                 f.records()
                     .camera_dispatch

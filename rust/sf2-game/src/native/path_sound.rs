@@ -24,6 +24,8 @@ pub enum MusicControlRequest {
     EncounterProgressTransition,
     /// Authored control 3, encounter-completion sentinel ($06:9FDC).
     EncounterProgressComplete,
+    /// Authored control 10, scene seven's phase-gated request ($0D:CBFC).
+    PhaseGatedSceneControl,
 }
 
 /// Identity classification of the currently selected sound listener. The

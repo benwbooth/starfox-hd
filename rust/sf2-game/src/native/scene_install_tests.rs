@@ -122,6 +122,20 @@ fn scene_five_installs_its_path_action_and_zero_companion_seed() {
 }
 
 #[test]
+fn scene_seven_runs_scene_fives_path_with_its_own_action() {
+    let mut f = fixture(3, SCENE_SEVEN, 0);
+    let created = f.install().unwrap().unwrap();
+    assert_eq!(
+        f.objects.get(created).unwrap().base.path,
+        Some(super::super::authored_paths::SCENE_FIVE)
+    );
+    assert_eq!(
+        f.action().action,
+        Some(PlayerAction::Scene(AuthoredSceneAction::Scene7))
+    );
+}
+
+#[test]
 fn scene_nine_installs_follow_path_actor_and_resets_both_counters() {
     let mut f = fixture(3, SCENE_NINE, 0);
     let created = f.install().unwrap().unwrap();
@@ -168,7 +182,7 @@ fn restore_selector_substitutes_saved_scene_without_retesting_sentinels() {
 
 #[test]
 fn unsupported_scenes_fault_after_allocation_without_touching_the_action() {
-    for selection in [0, 6, 7, 29, 30, 200] {
+    for selection in [0, 6, 8, 29, 30, 200] {
         let mut f = fixture(3, selection, 0);
         let Err(SceneInstallError::UnsupportedScene { actor, .. }) = f.install() else {
             panic!("selection {selection} must fault");

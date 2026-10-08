@@ -29,6 +29,7 @@ pub(super) fn action_address(action: Option<PlayerAction>) -> u16 {
             AuthoredSceneAction::Scene3 => 0xC4F3,
             AuthoredSceneAction::Scene4 => 0xBEB4,
             AuthoredSceneAction::Scene5 => 0xBED3,
+            AuthoredSceneAction::Scene7 => 0xBEC2,
             AuthoredSceneAction::Scene9 => 0xC191,
             AuthoredSceneAction::Scene25 => 0xBEBB,
         },
@@ -161,6 +162,8 @@ impl Fixture {
             (0x1E59, self.world.projectile_trigger.unwrap().activation),
             (0x1E0D, self.world.player_service_flags.unwrap().bits()),
             (0x1936, if pressed { 0x40 } else { 0 }),
+            (0x1E66, self.world.scene_progress_flag.unwrap()),
+            (0x1BE0, self.world.campaign_phase.unwrap()),
             (0x1CDA, 201),
             (0x1CD9, 231),
             (
@@ -239,6 +242,7 @@ impl Fixture {
             ),
             (0x1E59, self.world.projectile_trigger.unwrap().activation),
             (0x1E0D, self.world.player_service_flags.unwrap().bits()),
+            (0x1E66, self.world.scene_progress_flag.unwrap()),
             (
                 VIEW + 0x21,
                 0xE7 | u8::from(view.capture_position) * 8 | u8::from(view.capture_rotation) * 16,
@@ -265,6 +269,7 @@ impl Fixture {
                     MusicControlRequest::EncounterExit => 2,
                     MusicControlRequest::EncounterProgressTransition => 7,
                     MusicControlRequest::EncounterProgressComplete => 3,
+                    MusicControlRequest::PhaseGatedSceneControl => 10,
                 };
                 assert_eq!(source.bus.read8(WRAM + 0x1CDA), value);
                 assert_eq!(source.bus.read8(WRAM + 0x1CD9), 0);
@@ -304,6 +309,8 @@ impl Fixture {
         self.world.scene_transition.as_mut().unwrap().phase_word = value;
         self.world.player_view_options_enabled = Some(true);
         self.world.audio.take_music_control();
+        self.world.scene_progress_flag = Some(value as u8 ^ 0x5A);
+        self.world.campaign_phase = Some((value >> 3) as u8);
         self.world.projectile_trigger.as_mut().unwrap().activation = 0;
         self.world.player_service_flags = Some(PlayerServiceFlags::from_bits(value as u8));
         self.world.palette.as_mut().unwrap().saved_colors.fill(123);

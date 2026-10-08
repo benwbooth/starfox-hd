@@ -372,6 +372,16 @@ _PATH_INLINE_BLOCKS: dict[int, tuple[bytes, tuple[int, ...]]] = {
         bytes.fromhex("ade01bc9011007c220a977b86b42c220a97eb86b"),
         (0xB877, 0xB87E),
     ),
+    # Indexed scene twenty-eight seeds the four shared random bytes; scene
+    # twenty-four sets the fixed view's full yaw word to a half turn.
+    0xB13C: (
+        bytes.fromhex("a93a85e0a9a785e1a95585e2a97f85e3c220a953b16b"),
+        (0xB153,),
+    ),
+    0xBD8C: (
+        bytes.fromhex("a03f03c220a90080991400e220c220a9a0bd6b"),
+        (0xBDA0,),
+    ),
     # $07:F52B eases the camera's fine yaw toward the three-quarter turn;
     # $07:F3D1 advances the six-entry pilot selector. Both end in RTL.
     0xB7E7: (bytes.fromhex("222bf507c220a9f2b76b"), (0xB7F2,)),

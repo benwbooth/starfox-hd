@@ -96,6 +96,7 @@ impl Fixture {
             FixedViewCommand::CopyRotation => (0x7FC005, 0x7FCABE),
             FixedViewCommand::CopyRotationFromView => (0x7FC0BF, 0x7FCAE8),
             FixedViewCommand::ChaseRotation => (0x7FC069, 0x7FCABE),
+            FixedViewCommand::SetYawWord(_) => (0x09BD8D, 0x09BD9F),
             FixedViewCommand::EaseYawTowardThreeQuarterTurn => (0x07F52B, 0x07F54D),
             FixedViewCommand::AimTracking { pitch_shift, chase } => {
                 source.bus.write8(0x1003, pitch_shift);
@@ -192,10 +193,11 @@ fn exit_view_copy_and_tracking_aim_match_original_including_aliases_and_wrapped_
             }
             .write_to(actor);
         }
-        let command = match case % 7 {
+        let command = match case % 8 {
             0 => FixedViewCommand::CopyPosition,
             5 => FixedViewCommand::CopyRotationFromView,
             6 => FixedViewCommand::ChaseRotation,
+            7 => FixedViewCommand::SetYawWord(0x8000),
             1 => FixedViewCommand::CopyRotation,
             4 => FixedViewCommand::ChasePosition,
             mode => FixedViewCommand::AimTracking {

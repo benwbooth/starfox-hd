@@ -113,6 +113,17 @@ running; scheduled work is not a guarantee of a completion date.
 
 ### Current execution checkpoint — 2026-10-07
 
+- Added indexed scene seven (scene five's path with its own action stream:
+  projection-correction off at 0, phase-gated authored control 10 at 153,
+  scene-progress flag 1E66 at 208). Matches the original for every elapsed
+  word, both pause states and eight phase-byte values at the sign boundary.
+  Also verified two inline path blocks against the original instructions
+  (random-state seed for scene 28, view yaw word for scene 24). The other
+  unported scene rows need services that reach into HUD meters (`$07:AF5B`),
+  campaign stage globals (1D7A/1D7B/1657/192E) and several camera/HUD
+  routines (`$07:F2EE`, `$07:F6D0`, `$07:F7BA`, `$06:F896`, `$06:A597`,
+  `$06:FA8F`); they are the next backlog and are tracked here, not stubbed.
+
 - Closed indexed scenes four and twenty-five, completing the five authored
   scenes whose actions were already implemented (3, 4, 5, 9, 25). Scene four
   stores encounter variant 4 and enters scene twenty-five's path, so the two

@@ -828,6 +828,8 @@ pub enum Statement {
     IfProtectionOverride { taken: PathCursor, next: PathCursor },
     /// `$07:F3D1`: step the active pilot through the six craft, wrapping.
     AdvanceActivePilot { next: PathCursor },
+    /// Replace all four shared random bytes (`$E0..$E3`) with literals.
+    SeedRandom { bytes: [u8; 4], next: PathCursor },
     /// Immediate store to the encounter variant byte (1C06).
     StoreEncounterVariant { value: u8, next: PathCursor },
     /// Carry a variable through the direct-page scratch byte ($0002) between
@@ -2252,6 +2254,11 @@ impl PathRuntime {
                 *slot = Some(campaign);
                 world.campaign = Some(campaign);
                 objects.get_mut(owner).expect("validated variant store").base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
+            Statement::SeedRandom { bytes, next } => {
+                *world.random = RandomState::new(bytes);
+                objects.get_mut(owner).expect("validated random seeder").base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
             Statement::AdvanceActivePilot { next } => {

@@ -27,6 +27,11 @@ const SCENE_THREE_EXIT_TIME: u16 = 180;
 const SCENE_FOUR_EXIT_TIME: u16 = 144;
 const SCENE_FIVE_EXIT_TIME: u16 = 227;
 const SCENE_TWENTY_FIVE_EXIT_TIME: u16 = 124;
+const SCENE_SEVEN_CONTROL_TIME: u16 = 153;
+const SCENE_SEVEN_PROGRESS_TIME: u16 = 208;
+/// Authored control 10 is requested only while the campaign phase byte's
+/// difference from one is negative (a sign test, as in the source).
+const SCENE_SEVEN_PHASE_OPERAND: u8 = 1;
 pub const SCENE_PALETTE_COLORS: usize = 128;
 
 /// Source-complete entries of the indexed scene/controller table. The scene
@@ -40,6 +45,9 @@ pub enum AuthoredSceneAction {
     Scene4,
     /// Record 5, `$0D:BED3`: disable projection correction, then exit at 227.
     Scene5,
+    /// Record 7, `$0D:BEC2`: disable projection correction, request phase-gated
+    /// control 10 at 153, publish the scene-progress flag at 208.
+    Scene7,
     /// Record 9, `$0D:C191`: a non-null, empty action that still advances time.
     Scene9,
     /// Record 25, `$0D:BEBB`: request the next scene at update 124.
@@ -164,6 +172,10 @@ enum ActionService {
     InstallRetreatCamera,
     RequestSceneExit,
     DisableProjectionCorrection,
+    /// `$0D:C845`: publish the shared scene-progress flag (1E66).
+    PublishSceneProgress,
+    /// `$0D:CBFC`: authored control 10 when the phase difference is negative.
+    RequestPhaseGatedControl,
 }
 
 // Preserve the source order, including Stop before the earlier-time events.
@@ -197,17 +209,42 @@ const RETREAT_SERVICES: [(ActionTiming, ActionService); 6] = [
 ];
 
 const SCENE_THREE_SERVICES: [(ActionTiming, ActionService); 1] = [(
-    ActionTiming::At(SCENE_THREE_EXIT_TIME), ActionService::RequestSceneExit,
+    ActionTiming::At(SCENE_THREE_EXIT_TIME),
+    ActionService::RequestSceneExit,
 )];
 const SCENE_FOUR_SERVICES: [(ActionTiming, ActionService); 1] = [(
-    ActionTiming::At(SCENE_FOUR_EXIT_TIME), ActionService::RequestSceneExit,
+    ActionTiming::At(SCENE_FOUR_EXIT_TIME),
+    ActionService::RequestSceneExit,
 )];
 const SCENE_FIVE_SERVICES: [(ActionTiming, ActionService); 2] = [
-    (ActionTiming::At(0), ActionService::DisableProjectionCorrection),
-    (ActionTiming::At(SCENE_FIVE_EXIT_TIME), ActionService::RequestSceneExit),
+    (
+        ActionTiming::At(0),
+        ActionService::DisableProjectionCorrection,
+    ),
+    (
+        ActionTiming::At(SCENE_FIVE_EXIT_TIME),
+        ActionService::RequestSceneExit,
+    ),
+];
+// Source order is retained: the 153 request precedes the 208 publication in
+// the stream even though it is earlier in time.
+const SCENE_SEVEN_SERVICES: [(ActionTiming, ActionService); 3] = [
+    (
+        ActionTiming::At(0),
+        ActionService::DisableProjectionCorrection,
+    ),
+    (
+        ActionTiming::At(SCENE_SEVEN_PROGRESS_TIME),
+        ActionService::PublishSceneProgress,
+    ),
+    (
+        ActionTiming::At(SCENE_SEVEN_CONTROL_TIME),
+        ActionService::RequestPhaseGatedControl,
+    ),
 ];
 const SCENE_TWENTY_FIVE_SERVICES: [(ActionTiming, ActionService); 1] = [(
-    ActionTiming::At(SCENE_TWENTY_FIVE_EXIT_TIME), ActionService::RequestSceneExit,
+    ActionTiming::At(SCENE_TWENTY_FIVE_EXIT_TIME),
+    ActionService::RequestSceneExit,
 )];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,6 +260,7 @@ pub enum PlayerActionError {
     MissingSceneTransition,
     MissingCinematicSignals,
     MissingCameraDispatch(ObjectId),
+    MissingCampaignPhase,
 }
 
 impl From<WorldInputError> for PlayerActionError {
@@ -267,6 +305,7 @@ pub fn advance(
             AuthoredSceneAction::Scene3 => &SCENE_THREE_SERVICES,
             AuthoredSceneAction::Scene4 => &SCENE_FOUR_SERVICES,
             AuthoredSceneAction::Scene5 => &SCENE_FIVE_SERVICES,
+            AuthoredSceneAction::Scene7 => &SCENE_SEVEN_SERVICES,
             AuthoredSceneAction::Scene9 => &[],
             AuthoredSceneAction::Scene25 => &SCENE_TWENTY_FIVE_SERVICES,
         },
@@ -348,17 +387,32 @@ pub fn advance(
                 AuxiliaryCameraTask::Initialize(OrbitStyle::Retreat),
             )
             .map_err(PlayerActionError::Camera)?,
-            ActionService::RequestSceneExit => world
-                .cinematic_signals
-                .as_mut()
-                .ok_or(PlayerActionError::MissingCinematicSignals)?
-                .exit_requested = true,
-            ActionService::DisableProjectionCorrection => world
-                .player_mut(objects, owner)?
-                .camera_dispatch
-                .as_mut()
-                .ok_or(PlayerActionError::MissingCameraDispatch(owner))?
-                .projection_correction_disabled = true,
+            ActionService::RequestSceneExit => {
+                world
+                    .cinematic_signals
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingCinematicSignals)?
+                    .exit_requested = true
+            }
+            ActionService::PublishSceneProgress => world.scene_progress_flag = Some(1),
+            ActionService::RequestPhaseGatedControl => {
+                let phase = world
+                    .campaign_phase
+                    .ok_or(PlayerActionError::MissingCampaignPhase)?;
+                if phase.wrapping_sub(SCENE_SEVEN_PHASE_OPERAND) & 0x80 != 0 {
+                    world.audio.request_music_control(
+                        super::path_sound::MusicControlRequest::PhaseGatedSceneControl,
+                    );
+                }
+            }
+            ActionService::DisableProjectionCorrection => {
+                world
+                    .player_mut(objects, owner)?
+                    .camera_dispatch
+                    .as_mut()
+                    .ok_or(PlayerActionError::MissingCameraDispatch(owner))?
+                    .projection_correction_disabled = true
+            }
         }
     }
     // A stop service clears the stored time, not this visit's decision time.

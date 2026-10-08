@@ -79,6 +79,12 @@ impl PathRuntime {
                 actor.base.yaw = super::super::Angle::from_units((angles.yaw >> FINE_ANGLE_SHIFT) as u8);
                 actor.base.roll = super::super::Angle::from_units((angles.roll >> FINE_ANGLE_SHIFT) as u8);
             }
+            FixedViewCommand::SetYawWord(word) => {
+                let camera = objects.get_mut(view).expect("validated view");
+                let mut angles = FixedViewAngles::capture(camera);
+                angles.yaw = word;
+                angles.write_to(camera);
+            }
             FixedViewCommand::ChaseRotation => {
                 use super::super::path_fields::chase_word;
                 let source = objects.get(owner).expect("validated view source");
