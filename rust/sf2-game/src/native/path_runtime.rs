@@ -17,6 +17,9 @@ pub struct ActorPathState {
     /// A source initializer strategy precedes ordinary path entry once.
     /// This is assigned-behavior state, not an age or first-contact flag.
     pub needs_path_initialization: bool,
+    /// `$7F:7E00` publishes health 10 and attack 10 before the shared
+    /// one-time prefix; ordinary path spawns enter that prefix directly.
+    pub default_combat_on_entry: bool,
     pub animation: super::path_appearance::AnimationChannels,
     /// Retained motion phase word (source extension 1CE2). Some paths use its
     /// low byte as a phase counter; player motion also uses it as an angle.
@@ -202,6 +205,12 @@ impl PathRuntime {
         }
         self.validate_terminal_command()?;
         let actor = actor_mut(objects, owner)?;
+        if actor.extension.path_state.default_combat_on_entry {
+            const DEFAULT_COMBAT_VALUE: u8 = 10;
+            actor.base.hit_points = DEFAULT_COMBAT_VALUE;
+            actor.base.attack_power = DEFAULT_COMBAT_VALUE;
+            actor.extension.path_state.default_combat_on_entry = false;
+        }
         actor.base.behavior = Behavior::FollowPath;
         actor.base.contacts.exclusion_groups = actor
             .base

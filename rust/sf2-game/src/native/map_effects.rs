@@ -49,11 +49,31 @@ pub enum MapEffect {
     Presentation(PresentationByte, u8),
     /// `$03:DD6F`: display mode 02, fade progress (F4) clear, scene style 02.
     ResetSceneDisplay,
+    /// `$03:9692`: the current actor's path (byte 2B).
+    InstallPath(super::PathCursor),
+    /// `$03:9A87` at 2D/2E: the current actor's health or attack.
+    ActorHitPoints(u8),
+    ActorAttackPower(u8),
+}
+
+/// How a map-spawned path actor enters its path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathEntry {
+    /// `$7F:7E1E`: the shared one-time path prefix.
+    Plain,
+    /// `$7F:7E00`: health and attack 10, then the shared prefix.
+    DefaultCombat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapSpawn {
     Actor(MapActorSpawn),
+    /// A path actor; its path is installed by the following opcode 8C.
+    PathActor {
+        shape: super::ShapeId,
+        position: super::Vector3,
+        entry: PathEntry,
+    },
 }
 
 /// Presentation state written by maps for the display and loader owners.
@@ -82,8 +102,9 @@ pub enum MapHostError {
     MissingDisplayReadiness,
     MissingLoaderReadiness,
     UnsupportedCondition(MapCondition),
-    /// An effect that changes the map itself, applied by `MapScene` instead.
-    MapOwned,
+    MissingCurrentActor(ObjectId),
+    /// An actor effect reached without a current actor.
+    ActorEffectWithoutActor,
 }
 
 /// The scene world as seen by map records. Continuations are returned to
@@ -150,6 +171,9 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
                 PresentationByte::TitleLayout => presentation.title_layout = Some(value),
                 PresentationByte::PlayerCountLatch => presentation.player_count_latch = Some(value),
             },
+            MapEffect::InstallPath(_) | MapEffect::ActorHitPoints(_) | MapEffect::ActorAttackPower(_) => {
+                return Err(MapHostError::ActorEffectWithoutActor);
+            }
             MapEffect::ResetSceneDisplay => {
                 const RESET_SCENE_STYLE: u8 = 2;
                 presentation.display_mode = Some(DisplayModeRequest::Scene);
@@ -160,17 +184,50 @@ impl SceneMapHost<MapEffect, MapSpawn> for MapWorld<'_> {
         Ok(())
     }
 
-    fn apply_to_current(&mut self, _: ObjectId, effect: &MapEffect) -> Result<(), Self::Error> {
-        self.apply(effect)
+    fn apply_to_current(&mut self, actor: ObjectId, effect: &MapEffect) -> Result<(), Self::Error> {
+        let object = self
+            .objects
+            .get_mut(actor)
+            .ok_or(MapHostError::MissingCurrentActor(actor))?;
+        match *effect {
+            MapEffect::InstallPath(path) => object.base.path = Some(path),
+            MapEffect::ActorHitPoints(value) => object.base.hit_points = value,
+            MapEffect::ActorAttackPower(value) => object.base.attack_power = value,
+            _ => return self.apply(effect),
+        }
+        Ok(())
     }
 
     fn spawn(&mut self, specification: &MapSpawn) -> Result<Option<ObjectId>, Self::Error> {
-        let MapSpawn::Actor(spawn) = *specification;
         let defaults = self
             .world
             .spawn_defaults()
             .ok_or(MapHostError::MissingSpawnDefaults)?;
-        Ok(allocate_map_actor(self.objects, defaults, spawn))
+        Ok(match *specification {
+            MapSpawn::Actor(spawn) => allocate_map_actor(self.objects, defaults, spawn),
+            MapSpawn::PathActor { shape, position, entry } => {
+                // The native kind is a label; path actors are classified as
+                // enemies until a reviewed path proves otherwise.
+                let spawn = MapActorSpawn {
+                    kind: super::ObjectKind::Enemy,
+                    shape,
+                    behavior: super::Behavior::FollowPath,
+                    position,
+                };
+                let created = allocate_map_actor(self.objects, defaults, spawn);
+                if let Some(id) = created {
+                    let state = &mut self
+                        .objects
+                        .get_mut(id)
+                        .expect("fresh map actor")
+                        .extension
+                        .path_state;
+                    state.needs_path_initialization = true;
+                    state.default_combat_on_entry = entry == PathEntry::DefaultCombat;
+                }
+                created
+            }
+        })
     }
 }
 

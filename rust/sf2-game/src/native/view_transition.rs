@@ -143,6 +143,7 @@ pub enum ViewSaveError {
 pub struct ViewBaseSnapshot {
     base: ObjectBase,
     needs_path_initialization: bool,
+    default_combat_on_entry: bool,
     script_parameter: u8,
     weapon_selection: u8,
     friend_health_slot: u8,
@@ -160,6 +161,7 @@ impl ViewBaseSnapshot {
         // about whether it belongs to the saved base or live extension.
         let ActorPathState {
             needs_path_initialization,
+            default_combat_on_entry,
             animation: _,
             motion_phase: _,
             motion_delta: _,
@@ -179,6 +181,7 @@ impl ViewBaseSnapshot {
         Self {
             base: view.base.clone(),
             needs_path_initialization: *needs_path_initialization,
+            default_combat_on_entry: *default_combat_on_entry,
             script_parameter: *script_parameter,
             weapon_selection: *weapon_selection,
             friend_health_slot: *friend_health_slot,
@@ -195,6 +198,7 @@ impl ViewBaseSnapshot {
         view.base = self.base.clone();
         let path = &mut view.extension.path_state;
         path.needs_path_initialization = self.needs_path_initialization;
+        path.default_combat_on_entry = self.default_combat_on_entry;
         path.script_parameter = self.script_parameter;
         path.weapon_selection = self.weapon_selection;
         path.friend_health_slot = self.friend_health_slot;
