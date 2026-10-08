@@ -49,6 +49,16 @@ pub enum PlacementCommand {
         coordinate: PlacementCoordinate,
         source: super::path_fields::WordOperand,
     },
+    /// The coordinate gains the operand (wrapping).
+    Add {
+        coordinate: PlacementCoordinate,
+        source: super::path_fields::WordOperand,
+    },
+    /// The byte field gains the coordinate's low byte (wrapping).
+    AddLowByteTo {
+        coordinate: PlacementCoordinate,
+        destination: ByteField,
+    },
 }
 
 impl PlacementCoordinates {
@@ -60,7 +70,9 @@ impl PlacementCoordinates {
     ) -> Result<(), PlacementCoordinate> {
         let coordinate = match command {
             PlacementCommand::Import { coordinate, .. }
-            | PlacementCommand::Export { coordinate, .. } => coordinate,
+            | PlacementCommand::Export { coordinate, .. }
+            | PlacementCommand::Add { coordinate, .. }
+            | PlacementCommand::AddLowByteTo { coordinate, .. } => coordinate,
         };
         let value = match coordinate {
             PlacementCoordinate::Primary => &mut self.primary,
@@ -75,6 +87,14 @@ impl PlacementCoordinates {
                 if coordinate == PlacementCoordinate::Primary {
                     self.shape = None;
                 }
+            }
+            PlacementCommand::Add { source, .. } => {
+                let current = value.ok_or(coordinate)?;
+                *value = Some(current.wrapping_add(source.read(actor) as i16));
+            }
+            PlacementCommand::AddLowByteTo { destination, .. } => {
+                let low = value.ok_or(coordinate)? as u8;
+                destination.write(actor, destination.read(actor).wrapping_add(low));
             }
         }
         Ok(())

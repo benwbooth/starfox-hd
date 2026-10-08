@@ -195,15 +195,16 @@ MAP_PLACED_PATHS = (
     0x1466, 0x146F, 0x1496, 0x149A, 0x14F5, 0x1542, 0x1556, 0x15C4,
     0x1618, 0x1684, 0x1725, 0x180D, 0x1820, 0x18A5, 0x1913, 0x1966,
     0x19BA, 0x19F5, 0x1A52, 0x1AFF, 0x22AA, 0x2651, 0x295E, 0x2961,
-    0x2D26, 0x2E2D, 0x2E52, 0x2EDD, 0x2F0B, 0x3089, 0x37AE, 0x37B6,
-    0x3982, 0x3A3A, 0x3A72, 0x3AF9, 0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8,
-    0x3C4E, 0x3F35, 0x3F85, 0x3FC1, 0x419B, 0x4368, 0x4370, 0x4397,
-    0x439F, 0x45F6, 0x45FB, 0x460E, 0x468C, 0x479F, 0x4C16, 0x4E26,
-    0x4F06, 0x4F72, 0x4FA5, 0x5097, 0x520D, 0x58B9, 0x5C8F, 0x5EF6,
-    0x60F1, 0x66EA, 0x6A15, 0x6C01, 0x6F65, 0x6F75, 0x72BB, 0x737F,
-    0x7382, 0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04, 0x7E25, 0x7E27,
-    0x7E29, 0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68, 0x7E7C, 0x7E8E,
-    0x7F00, 0x7F12, 0x7F36, 0x7F8E, 0x7FA8, 0x7FCE,
+    0x2D26, 0x2E2D, 0x2E52, 0x2EDD, 0x2F0B, 0x3089, 0x360A, 0x37AE,
+    0x37B6, 0x3982, 0x39A8, 0x39AA, 0x3A3A, 0x3A72, 0x3AF9, 0x3B93,
+    0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8, 0x3C4E, 0x3D02, 0x3F35, 0x3F85,
+    0x3FC1, 0x419B, 0x4368, 0x4370, 0x4397, 0x439F, 0x45F6, 0x45FB,
+    0x460E, 0x468C, 0x479F, 0x4839, 0x4C16, 0x4E26, 0x4F06, 0x4F72,
+    0x4FA5, 0x5097, 0x520D, 0x5385, 0x53A8, 0x5742, 0x58B9, 0x5C8F,
+    0x5EF6, 0x60F1, 0x66EA, 0x6A15, 0x6C01, 0x6F65, 0x6F75, 0x72BB,
+    0x737F, 0x7382, 0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04, 0x7E25,
+    0x7E27, 0x7E29, 0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68, 0x7E7C,
+    0x7E8E, 0x7F00, 0x7F12, 0x7F36, 0x7F8E, 0x7FA8, 0x7FCE, 0xA552,
 )
 ROOTS = ROOTS + tuple((f"MAP_PLACED_{offset:04X}", PathAddress(offset)) for offset in MAP_PLACED_PATHS)
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
@@ -1360,12 +1361,13 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
             target = "Secondary" if packed_parameter & 0x80 else "Primary"
             cue_ = f"AuthoredCue::new({cue}, {packed_parameter & 0x7F}, PlayerTarget::{target})"
             statement = f"Statement::Sound {{ cue: {cue_}, next: {next_cursor()} }}"
-        elif name in ("QueueSelectedMarkerClass1", "QueueSelectedMarkerClass2",
+        elif name in ("QueueSelectedMarkerClass1", "QueueSelectedMarkerClass2", "QueueSelectedMarkerClass3",
                        "QueueFixedMarker1400", "QueueFixedMarker0320"):
             cue, = parameters(1)
             mode = {
                 "QueueSelectedMarkerClass1": "DistanceBands(PathSoundClass::DistanceOnly)",
                 "QueueSelectedMarkerClass2": "DistanceBands(PathSoundClass::Positioned)",
+                "QueueSelectedMarkerClass3": "DistanceBands(PathSoundClass::ForwardPositioned)",
                 "QueueFixedMarker1400": "RangeLimited(MarkerRange::Wide)",
                 "QueueFixedMarker0320": "RangeLimited(MarkerRange::Near)",
             }[name]
@@ -1389,8 +1391,10 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
             low, high = parameters(2)
             path = PathAddress(low | (high << 8))
             if path not in indices:
-                raise UnsupportedPath(f"cancel target lacks catalog identity at {command.address.label()}")
-            statement = f"Statement::Control(ControlCommand::Cancel {{ path: {cursor(path)}, next: {next_cursor()} }})"
+                # No native trigger can name a path outside the catalog.
+                statement = f"Statement::Control(ControlCommand::CancelUncataloged {{ next: {next_cursor()} }})"
+            else:
+                statement = f"Statement::Control(ControlCommand::Cancel {{ path: {cursor(path)}, next: {next_cursor()} }})"
         elif name == "FreeObjectAuxiliaryAndResetD742":
             parameters(0)
             statement = f"Statement::Control(ControlCommand::Clear {{ next: {next_cursor()} }})"
@@ -2181,6 +2185,12 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                 statement = f'Statement::SetHealthDisplayLabel {{ label: "{label[:-1].decode("ascii")}", next: {next_cursor()} }}'
                 statements.append(statement)
                 continue
+            if (low | high << 8) in (0xD767, 0xD769) and command.address not in (PathAddress(0xB053), PathAddress(0xB061)):
+                coordinate = "Primary" if (low | high << 8) == 0xD767 else "Depth"
+                value = value_low | value_high << 8
+                command_text = f"super::path_scene_state::PlacementCommand::Export {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, source: WordOperand::Literal({value}) }}"
+                statements.append(f"Statement::Placement {{ command: {command_text}, next: {next_cursor()} }}")
+                continue
             if command.address not in (PathAddress(0xB053), PathAddress(0xB061)) or (low | high << 8) != 0xD767:
                 raise UnsupportedPath(f"unreviewed external word store at {command.address.label()}")
             height = int.from_bytes(bytes((value_low, value_high)), "little", signed=True)
@@ -2280,6 +2290,28 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
             if address != 0xD7D3:
                 raise UnsupportedPath(f"unported shared word addition {address:04X} at {command.address.label()}")
             statement = f"Statement::AddSceneHeightOffset {{ destination: {word_field(variable)}, next: {next_cursor()} }}"
+        elif name == "AddExternalByteToVariableByte":
+            # $7F:B849: the variable byte gains the external byte.
+            variable, low, high = parameters(3)
+            address = low | (high << 8)
+            if address in (0xD767, 0xD769):
+                coordinate = "Primary" if address == 0xD767 else "Depth"
+                command_text = f"super::path_scene_state::PlacementCommand::AddLowByteTo {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, destination: {byte_field(variable)} }}"
+                statement = f"Statement::Placement {{ command: {command_text}, next: {next_cursor()} }}"
+            elif address in (0xD764, 0xD765):
+                argument = "Primary" if address == 0xD764 else "Companion"
+                statement = f"Statement::SpawnParameter {{ argument: super::path_spawn::SpawnArgument::{argument}, command: super::path_spawn::SpawnParameterCommand::AddTo({byte_field(variable)}), next: {next_cursor()} }}"
+            else:
+                raise UnsupportedPath(f"unported shared byte addition {address:04X} at {command.address.label()}")
+        elif name == "AddVariableWordToExternalWord":
+            # $7F:B8AE: the external word gains the variable word.
+            low, high, variable = parameters(3)
+            address = low | (high << 8)
+            if address not in (0xD767, 0xD769):
+                raise UnsupportedPath(f"unported shared word addition {address:04X} at {command.address.label()}")
+            coordinate = "Primary" if address == 0xD767 else "Depth"
+            command_text = f"super::path_scene_state::PlacementCommand::Add {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, source: WordOperand::Actor({word_field(variable)}) }}"
+            statement = f"Statement::Placement {{ command: {command_text}, next: {next_cursor()} }}"
         elif name == "AddVariableByteToExternalByte":
             low, high, variable = parameters(3)
             address = low | (high << 8)
@@ -2865,9 +2897,12 @@ const fn cursor(path: u16, command_index: u16) -> PathCursor {
     source += f"\npub const LOWERED_SUBROUTINE_COUNT: usize = {len(subroutines)};"
     source += f"\npub const LOWERED_COMMAND_COUNT: usize = {len(unique_statements)};"
     source += f"\npub const LOWERED_SOURCE_COMMAND_COUNT: usize = {len(source_addresses)};"
-    source += "\npub fn catalog() -> PathCatalog {\nPathCatalog::new(vec!["
-    source += "vec![" + ",\n".join(unique_statements[address] for address in addresses) + "]"
-    source += "]).expect(\"generated catalog indices fit native cursors\")\n}\n"
+    # A static table keeps the catalog off the stack (debug builds would
+    # otherwise build the whole array as a temporary).
+    source += f"\nstatic STATEMENTS: [Statement; {len(addresses)}] = ["
+    source += ",\n".join(unique_statements[address] for address in addresses) + "];"
+    source += "\npub fn catalog() -> PathCatalog {\nPathCatalog::new(vec![STATEMENTS.to_vec()])"
+    source += ".expect(\"generated catalog indices fit native cursors\")\n}\n"
     return subprocess.run(
         ["rustfmt", "--edition", "2021", "--emit", "stdout"],
         input=source, text=True, capture_output=True, check=True,

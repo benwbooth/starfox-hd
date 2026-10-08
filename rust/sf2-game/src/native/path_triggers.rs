@@ -41,7 +41,7 @@ pub struct Trigger {
 
 impl Trigger {
     /// Timed registration stores the authored duration plus one, as a byte.
-    pub fn timed(path: PathCursor, kind: TriggerKind, duration: u8) -> Self {
+    pub const fn timed(path: PathCursor, kind: TriggerKind, duration: u8) -> Self {
         Self {
             path,
             kind,

@@ -367,6 +367,21 @@ impl PathRuntime {
             .map_err(PathRuntimeError::Triggers)
     }
 
+    /// Read the owner's trigger list without changing it.
+    pub fn inspect_triggers(
+        &mut self,
+        objects: &mut ObjectStore,
+        owner: ObjectId,
+    ) -> Result<(), PathRuntimeError> {
+        actor_mut(objects, owner)?
+            .extension
+            .path_state
+            .triggers
+            .entries(&self.resources, owner)
+            .map(|_| ())
+            .map_err(PathRuntimeError::Triggers)
+    }
+
     pub fn clear_triggers(
         &mut self,
         objects: &mut ObjectStore,

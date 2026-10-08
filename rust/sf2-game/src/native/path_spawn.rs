@@ -76,6 +76,8 @@ pub enum SpawnParameterCommand {
     CopyTo(super::path_fields::ByteField),
     Assign(super::path_fields::ByteOperand),
     Increment,
+    /// The field gains the mailbox byte (wrapping).
+    AddTo(super::path_fields::ByteField),
 }
 
 impl SpawnState {

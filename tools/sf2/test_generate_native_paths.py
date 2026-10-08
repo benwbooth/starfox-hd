@@ -42,9 +42,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 271;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 281;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 13832;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 14889;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -1122,7 +1122,8 @@ class NativePathGenerationTests(unittest.TestCase):
         # Importing a placement word reads the typed primary coordinate; a
         # shape or pointer published through D767 faults natively instead.
         self.assertIn('PlacementCoordinate::Primary', self.lower_record('7b0e0b')[0])
-        for record in ['fc67d70000', '7ca30800', '7b0415', '800615']:
+        self.assertIn('WordOperand::Literal(0)', self.lower_record('fc67d70000')[0])
+        for record in ['7ca30800', '7b0415', '800615']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
@@ -3136,8 +3137,9 @@ class NativePathGenerationTests(unittest.TestCase):
     def test_cancel_uses_existing_identity_without_claiming_unknown_targets_and_clear_is_separate(self):
         self.assertIn("ControlCommand::Cancel { path: cursor(0, 0), next: cursor(0, 1) }",
             self.lower_record("4b 36 f5")[0])
-        with self.assertRaisesRegex(UnsupportedPath, "cancel target lacks catalog identity"):
-            self.lower_record("4b 00 00")
+        # A target outside the catalog cannot be held by any native trigger.
+        self.assertEqual(self.lower_record("4b 00 00")[0],
+            "Statement::Control(ControlCommand::CancelUncataloged { next: cursor(0, 1) })")
         self.assertEqual(self.lower_record("00 7b")[0], "Statement::Control(ControlCommand::Clear { next: cursor(0, 1) })")
 
     def test_variable_copy_and_add_decode_destination_first_and_width_conversion(self):

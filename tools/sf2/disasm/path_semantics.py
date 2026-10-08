@@ -271,6 +271,7 @@ PATH_SEMANTICS = (
     PathSemanticSpec(0x107, "QueueFixedMarker1400", 0x7FA50A, None, "sf2_handler"),
     PathSemanticSpec(0x109, "QueueFixedMarker0320", 0x7FA510, None, "sf2_handler"),
     PathSemanticSpec(0x10A, "QueueSelectedMarkerPair", 0x7FA424, None, "sf2_handler"),
+    PathSemanticSpec(0x10B, "QueueSelectedMarkerClass3", 0x7FA49A, None, "sf2_handler"),
     PathSemanticSpec(0x10E, "FaceMother", 0x7F8B18, None, "sf2_handler"),
     PathSemanticSpec(0x10F, "FaceSelectedImmediate", 0x7F872C, None, "sf2_handler"),
     PathSemanticSpec(0x110, "ChasePlayerTowardObject", 0x7FB376, None, "sf2_handler"),

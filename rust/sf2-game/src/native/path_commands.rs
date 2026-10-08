@@ -63,6 +63,11 @@ pub enum ControlCommand {
         path: PathCursor,
         next: PathCursor,
     },
+    /// CANCEL naming a path outside the native catalog: no native trigger
+    /// can hold it, so only the trigger list's integrity is checked.
+    CancelUncataloged {
+        next: PathCursor,
+    },
     Clear {
         next: PathCursor,
     },
@@ -669,6 +674,10 @@ impl PathRuntime {
             }
             ControlCommand::Cancel { path, next } => {
                 self.cancel_trigger(objects, owner, path)?;
+                next
+            }
+            ControlCommand::CancelUncataloged { next } => {
+                self.inspect_triggers(objects, owner)?;
                 next
             }
             ControlCommand::Clear { next } => {
