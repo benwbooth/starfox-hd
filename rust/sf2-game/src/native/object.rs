@@ -443,6 +443,8 @@ pub enum Behavior {
     SurfaceEffect(super::player_surface_effect::SurfaceEffectPhase),
     /// Common death sprite/companion strategy ($03:A279/$03:A30B).
     Destruction(super::common_destruction::EffectPhase),
+    /// The defeated scene player's blast actor (`$06:80C1`).
+    DefeatBlast(super::player_death::DefeatBlastPhase),
     EnemyFlight,
     Projectile,
     Effect,

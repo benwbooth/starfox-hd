@@ -1868,6 +1868,11 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                     )
                     .map_err(SceneError::Path)
             }
+            Behavior::DefeatBlast(_) => {
+                super::player_death::step_defeat_blast(self.objects, self.world.primary_player, owner)
+                    .map_err(SceneError::PlayerDeath)?;
+                Ok(owner)
+            }
             Behavior::ImpactBurst(_) => {
                 super::path_effect::step(self.objects.get_mut(owner).expect("live impact actor"))
                     .expect("validated impact behavior");

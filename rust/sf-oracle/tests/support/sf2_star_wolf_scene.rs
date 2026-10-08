@@ -316,9 +316,9 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     let mut matched = 0;
     // The scene's action clears the gate at its update 110; the player then
     // leaves for its flight strategy in the same visit and duels the rival
-    // until it is shot down in epoch 1052; its death routine ($06:F3A4)
-    // keeps it flying with the defeat action.
-    for epoch in 0..1053u32 {
+    // until it is shot down in epoch 1052; its death routines ($06:F3A4,
+    // then $06:F512 each frame) run the defeat action, fall and explode.
+    for epoch in 0..1136u32 {
         let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW];
         watched.extend(RESEEDS);
         m.watch_cpu_execution(&watched);
@@ -429,14 +429,16 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
         matched = epoch + 1;
     }
     eprintln!("star wolf interception matched for {matched} epochs");
-    assert_eq!(matched, 1053);
-    // The defeated player's per-frame death routine ($06:F512) is the
-    // frontier: it faults rather than falling back to common destruction.
-    let error = runner
-        .run_epoch(&catalog, EntropyRefresh::AfterPass)
-        .expect_err("the defeated scene player's death routine is not ported");
-    assert!(
-        format!("{error:?}").contains("UnportedDeathHandler(DefeatedScenePlayer)"),
-        "{error:?}"
+    assert_eq!(matched, 1136);
+    // The defeat action requested the scene transition ($0D:C97A); the stage
+    // loop then tears the scene down on the next frame, which is the
+    // frontier: the native stage loop is not composed yet.
+    assert_eq!(
+        runner.world.scene_transition.unwrap().phase_word,
+        word(&m, 0x1B78),
+        "scene transition request"
     );
+    assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
+    assert!(m.tick_until_cpu_execution(0, EPOCH, 120).unwrap());
+    assert_eq!(retail_list(&m), vec![POOL, POOL + STRIDE], "retail tore the scene down");
 }

@@ -101,6 +101,22 @@ impl PlayerTargetControl {
         range: i16,
         rates: [u8; 3],
     ) {
+        self.configure_origin(owner, position, range, TARGET_AXIS_MODE, TARGET_CONTROL);
+        self.set_axis_rates(rates);
+        self.set_axis_limits(CONFIGURED_LIMITS);
+        self.refresh_owned_origin(owner, position);
+    }
+
+    /// `$07:B79F`: clear the offset flag, then, unless configuration is
+    /// locked, aim at the owner's position with the given range and modes.
+    pub fn configure_origin(
+        &mut self,
+        owner: ObjectId,
+        position: Vector3,
+        range: i16,
+        axis_mode: u8,
+        control: u8,
+    ) {
         self.offset_enabled = false;
         if !self.configuration_locked {
             self.mode = OBJECT_ORIGIN_MODE;
@@ -109,12 +125,23 @@ impl PlayerTargetControl {
             self.range = range;
             self.positive_range = if range < 0 { 1 } else { range as u16 };
             self.owner = Some(owner);
-            self.axis_mode = TARGET_AXIS_MODE;
-            self.control = TARGET_CONTROL;
-            self.axis_rates = rates;
-            self.axis_limits = CONFIGURED_LIMITS;
+            self.axis_mode = axis_mode;
+            self.control = control;
         }
-        self.refresh_owned_origin(owner, position);
+    }
+
+    /// `$07:B89B`, skipped while configuration is locked.
+    pub fn set_axis_rates(&mut self, rates: [u8; 3]) {
+        if !self.configuration_locked {
+            self.axis_rates = rates;
+        }
+    }
+
+    /// `$07:B861`, skipped while configuration is locked.
+    pub fn set_axis_limits(&mut self, limits: [u8; 3]) {
+        if !self.configuration_locked {
+            self.axis_limits = limits;
+        }
     }
 
     pub fn lock_for_linked_mode(&mut self, linked_mode: bool) {
