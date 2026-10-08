@@ -235,7 +235,7 @@ impl Fixture {
                 &mut n.world,
                 &self.runtime.resources,
                 n.owner,
-                79,
+                Some(79),
             )
             .unwrap();
         } else {

@@ -5,7 +5,7 @@
 //! is initialized (after the stage loop's own setup, before any scene frame);
 //! afterwards both engines run independently.
 use super::attract_scene_tests::{
-    byte, compare, compare_initialized_player, retail_list, vector, word, Callbacks, EPOCH,
+    byte, compare, compare_initialized_player, compare_player_records, retail_list, vector, word, Callbacks, EPOCH,
     INITIALIZER, INITIALIZER_RETURN, POOL, RANDOM_DRAW, RANDOM_RETURN, REFRESH, RESEEDS, STRIDE,
 };
 use sf2_game::scene_runner::EntropyRefresh;
@@ -68,6 +68,7 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
     world.scene.encounter_layout = Some(byte(m, 0x1BA5));
     world.scene.node_presentation_variant = Some(byte(m, 0x1E09));
     world.scene.gsu_text_active = Some(byte(m, 0xD757));
+    world.scene.map_region = Some(byte(m, 0xDB5B));
     world.campaign_phase = Some(byte(m, 0x1BE0));
     world.reflect_all_contacts = Some(byte(m, 0x1AA6) & 0x02 != 0);
     world.cinematic_signals = Some(sf2_game::cinematic_exit::CinematicSignals {
@@ -176,6 +177,45 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
     world.interception_active = Some(word(m, 0x1B8A) & 0x20 != 0);
     world.interception_music_ready = Some(byte(m, 0x1DDE) != 0);
     world.encounter_timer_steps = Some(word(m, 0x1C0A));
+    world.handoff.as_mut().unwrap().player_flags = byte(m, 0x1D74);
+    world.node_exit = sf2_game::player_node_exit::NodeExitState {
+        presentation_flags: Some(byte(m, 0x1E08)),
+        completion_code: Some(byte(m, 0x1E17)),
+    };
+    world.player_service_flags =
+        Some(sf2_game::player_action::PlayerServiceFlags::from_bits(byte(m, 0x1E0D)));
+    world.scene.player_view_control = Some(byte(m, 0x1DE0));
+    world.scene.player_walker_form = Some(byte(m, 0x1DCE) != 0);
+    world.player_view_options_enabled = Some(byte(m, 0x1DE1) & 0x80 != 0);
+    world.surface_mode = Some(sf2_game::collision_surface::SurfaceMode { flags: byte(m, 0x1B4D) });
+    world.player_input_settings = Some(sf2_game::player_input::PlayerInputSettings {
+        flight_style: byte(m, 0x1DCF),
+        button_layout: byte(m, 0x1DD0),
+    });
+    // The script-owned boss bar (D773/D775); its label (D777) starts unset.
+    assert_eq!(word(m, 0xD777), 0, "health display label at stage start");
+    world.health_display = Some(sf2_game::path_scene_state::EncounterHealthDisplay {
+        current: byte(m, 0xD773),
+        maximum: byte(m, 0xD775),
+        label: None,
+    });
+    // Campaign equipment publications (1DD2..1DD4).
+    world.active_consumables = Some(sf2_game::player_visit::PublishedConsumables {
+        packed_count: byte(m, 0x1DD2),
+        kind: byte(m, 0x1DD3),
+    });
+    world.scene.active_weapon_level = Some(byte(m, 0x1DD4));
+    // The scene cue the campaign last published ($1CE1/2): routing bit 80.
+    let route = byte(m, 0x1CE2);
+    world.audio.resume_retained_scene_cue(Some(sf2_game::path_sound::AuthoredCue::new(
+        byte(m, 0x1CE1),
+        route & 0x7F,
+        if route & 0x80 == 0 {
+            sf2_game::path_control::PlayerTarget::Primary
+        } else {
+            sf2_game::path_control::PlayerTarget::Secondary
+        },
+    )));
     world.map_records = Some(sf2_game::map_streaming::MapRecordStore::new());
     world.map_regions = Some(Default::default());
     world.region_groups = Some(sf2_game::map_streaming::RegionGroups {
@@ -228,6 +268,8 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     world.primary_player = Some(player);
     world.fixed_players[0] = Some(view);
     world.excluded_actor = Some(idle);
+    // The same reserved actor (14D6) is the flight services' motion/aim proxy.
+    world.weapons.as_mut().unwrap().fallback = Some(idle);
     let mut runner = SceneRunner::new(objects, world, Callbacks);
     runner.schedule = StrategySchedule::resume(runner.world.strategy_clock);
     assert_eq!(word(&m, 0x14D6), POOL + STRIDE);
@@ -269,7 +311,10 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     runner.prepare_frame(&catalog).unwrap();
     compare(&m, &runner, view, 0);
     let mut matched = 0;
-    for epoch in 0..600u32 {
+    // The scene's action clears the gate at its update 110; the player then
+    // leaves for its flight strategy in the same visit and duels the rival
+    // until it is shot down in epoch 1052.
+    for epoch in 0..1052u32 {
         let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW];
         watched.extend(RESEEDS);
         m.watch_cpu_execution(&watched);
@@ -291,18 +336,42 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
                 _ => {}
             }
         }
-        // The scene's wait ends when the action gate clears ($06:84EF): the
-        // player then leaves the scene for its flight strategy, whose
-        // composition is not ported yet. Stop at that hand-over.
-        if word(&m, POOL + 0x19) != 0x84A2 {
-            break;
-        }
+        let strategy = word(&m, POOL + 0x19);
         let random_before = runner.world.random.bytes();
         runner
             .run_epoch(&catalog, EntropyRefresh::BeforeDraws(&refreshes))
             .and_then(|()| runner.finish_frame(&catalog))
             .and_then(|()| runner.prepare_frame(&catalog))
-            .unwrap_or_else(|error| panic!("epoch {epoch}: {error:?}"));
+            .unwrap_or_else(|error| {
+                let actors: Vec<String> = runner
+                    .objects
+                    .active_ids()
+                    .iter()
+                    .map(|&id| {
+                        let a = runner.objects.get(id).unwrap();
+                        format!(
+                            "{}:{:?}@{:?} {:?} parent {:?} next {:?} pos {:?} rot {:?}",
+                            id.index(),
+                            a.base.shape,
+                            a.base.path,
+                            a.base.behavior,
+                            a.base.attachment,
+                            a.base.attachment_next,
+                            a.base.position,
+                            [a.base.pitch, a.base.yaw, a.base.roll]
+                        )
+                    })
+                    .collect();
+                let retail: Vec<String> = retail_list(&m)
+                    .iter()
+                    .map(|&b| {
+                        let words: Vec<String> =
+                            (0..0x30u16).step_by(2).map(|o| format!("{:04X}", word(&m, b + o))).collect();
+                        format!("{b:04X}: {}", words.join(" "))
+                    })
+                    .collect();
+                panic!("epoch {epoch}: {error:?}\nnative actors {actors:#?}\nretail {retail:#?}")
+            });
         let retail_random = [byte(&m, 0xE0), byte(&m, 0xE1), byte(&m, 0xE2), byte(&m, 0xE3)];
         if runner.world.random.bytes() != retail_random {
             // Diagnose: how many draws each side made from the shared start.
@@ -331,9 +400,25 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
             );
         }
         compare(&m, &runner, view, epoch);
+        compare_player_records(
+            &m,
+            &runner,
+            player,
+            idle,
+            &format!("epoch {epoch} (retail strategy {strategy:04X})"),
+            true,
+        );
         matched = epoch + 1;
     }
     eprintln!("star wolf interception matched for {matched} epochs");
-    // The scene's action stream clears the gate at its update 110.
-    assert!(matched >= 110, "matched only {matched} epochs");
+    assert_eq!(matched, 1052);
+    // The player's registered death routine ($06:F3A4) is the frontier: it
+    // faults rather than falling back to common destruction.
+    let error = runner
+        .run_epoch(&catalog, EntropyRefresh::AfterPass)
+        .expect_err("the scene player's death routine is not ported");
+    assert!(
+        format!("{error:?}").contains("UnportedDeathHandler(ScenePlayer)"),
+        "{error:?}"
+    );
 }

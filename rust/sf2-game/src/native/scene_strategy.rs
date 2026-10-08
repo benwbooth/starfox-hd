@@ -94,7 +94,7 @@ pub struct SceneExecution {
     pub positional: PositionalAudio,
     pub controls: SceneStrategyControls,
     pub map_counts: Option<MapDeathCounts>,
-    faulted: bool,
+    pub(super) faulted: bool,
     retire_immediately: bool,
 }
 
@@ -151,6 +151,9 @@ pub enum SceneError<E> {
     PlayerPostMotion(super::player_post_motion::PostMotionError),
     PlayerActionWait(super::player_action_wait::ActionWaitError),
     PlayerSceneEntry(super::player_scene_entry::SceneEntryError),
+    PlayerStrategy(super::player_strategy::PlayerStrategyError),
+    /// A registered death routine that is not ported yet (`$06:F3A4`).
+    UnportedDeathHandler(super::actor_auxiliary::DeathHandler),
     PlayerSceneInit(super::player_scene_init::SceneInitError),
     PlayerSurfaceEffect(super::player_surface_effect::SurfaceEffectError),
     PlayerSurface(super::player_surface::SurfaceError),
@@ -1647,7 +1650,7 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
     pub fn advance_player_post_motion(
         &mut self,
         owner: ObjectId,
-        damage_particle_number: u8,
+        damage_particle_number: Option<u8>,
     ) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
@@ -1669,7 +1672,7 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
     pub fn advance_player_frame_effects(
         &mut self,
         owner: ObjectId,
-        damage_particle_number: u8,
+        damage_particle_number: Option<u8>,
     ) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
@@ -1692,7 +1695,7 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
     pub fn advance_player_frame_publication(
         &mut self,
         owner: ObjectId,
-        damage_particle_number: u8,
+        damage_particle_number: Option<u8>,
     ) -> Result<(), SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
@@ -1728,7 +1731,7 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
     pub fn update_player_appearance(
         &mut self,
         owner: ObjectId,
-        child_number: u8,
+        child_number: Option<u8>,
     ) -> Result<Option<ObjectId>, SceneError<C::Error>> {
         if self.execution.faulted {
             return Err(SceneError::Faulted);
@@ -1905,10 +1908,22 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                 Ok(owner)
             }
             Behavior::PlayerSceneEntry(_) => {
-                super::player_scene_entry::step(
+                let outcome = super::player_scene_entry::step(
                     self.objects, self.world, &mut self.execution.paths.runtime.resources,
                     &mut self.execution.positional, owner,
                 ).map_err(SceneError::PlayerSceneEntry)?;
+                if outcome == Some(super::player_scene_entry::EntryOutcome::GateClosed) {
+                    // `$06:8525..8625`, ending in `JMP $9C27` in the same visit.
+                    super::player_scene_entry::enter_flight(
+                        self.objects, self.world, &mut self.execution.paths.runtime.resources,
+                        owner,
+                    ).map_err(SceneError::PlayerSceneEntry)?;
+                    self.advance_player_strategy(owner)?;
+                }
+                Ok(owner)
+            }
+            Behavior::PlayerFlight if self.world.player(self.objects, owner).is_ok() => {
+                self.advance_player_strategy(owner)?;
                 Ok(owner)
             }
             Behavior::Destruction(phase) => {
@@ -2114,6 +2129,23 @@ impl<C: SceneCallbacks> DestructionHost for SceneActors<'_, C> {
         (self.objects, &mut self.world.proxies)
     }
     fn run_death_override(&mut self, owner: ObjectId) -> Result<Option<ObjectId>, Self::Error> {
+        // `$03:A055`: a registered type-12 routine replaces common death.
+        let registered = self
+            .objects
+            .get(owner)
+            .ok_or(SceneError::MissingActor(owner))?
+            .extension
+            .auxiliary
+            .find(
+                &self.execution.paths.runtime.resources,
+                owner,
+                super::actor_auxiliary::AuxiliaryKind::DeathHandler,
+            )
+            .map_err(SceneError::Auxiliary)?;
+        if let Some(super::actor_auxiliary::AuxiliaryRecord::DeathHandler(handler)) = registered {
+            self.execution.faulted = true;
+            return Err(SceneError::UnportedDeathHandler(handler));
+        }
         C::death_override(self, owner)
             .map(|result| {
                 result.map(|result| {

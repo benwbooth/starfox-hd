@@ -56,6 +56,14 @@ pub struct PlayerModeSelection {
     /// (6B9B). The status service clears bit 40 when its cue is reached.
     /// That gate does not suppress already-pending transformation work.
     pub cue_control: u8,
+    /// Flight-form flags (6A72) other than bit 10, which the contact record
+    /// owns. The flight phase sets 80 on every visit; transformation
+    /// completion (`$06:E117..E157`) tests 20 and 80, then clears 20.
+    pub form_control: u8,
+    /// Configured flight phase (6B7B): the low byte of the configuration
+    /// record installed when a scene hands the player to flight. The action
+    /// service `$0D:C946` reselects it; no reader uses the high byte.
+    pub configured_phase: u8,
 }
 
 impl PlayerModeSelection {

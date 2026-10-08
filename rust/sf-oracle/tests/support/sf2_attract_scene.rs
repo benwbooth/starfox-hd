@@ -303,41 +303,93 @@ fn run_scene(
 /// scenes.
 type Poses = ((Vector3, [Angle; 3]), Vector3);
 
-/// The initializer's records, decoded from the retail allocation.
-pub(super) fn compare_initialized_player(
+/// Decode the retail player allocation with the shared reader and compare
+/// every typed player record and the storage payload. With `display_owned`
+/// the records the per-frame display services own are excluded: target
+/// selection/lock/control ($07:AA8C, $07:A326) and the contact feedback
+/// countdown ($07:B548). Those frame services are not ported yet.
+pub(super) fn compare_player_records(
     m: &RetailMachine,
     runner: &SceneRunner<Callbacks>,
     player: ObjectId,
     idle: ObjectId,
+    context: &str,
+    display_owned: bool,
 ) {
     let mut source = Source::new(&super::rom(), 0);
     for offset in 0..0x20000u32 {
         source.bus.write8(WRAM + offset, m.peek8(RETAIL + offset));
     }
     let slot = u32::from(word(m, POOL + 0x2B));
-    let reader = Reader { source: &source, slot, other: idle };
+    // Live actors correspond in list order (the fixed view is not listed).
+    let view = runner.world.fixed_players[0];
+    let actors: Vec<(u16, ObjectId)> = retail_list(m)
+        .into_iter()
+        .zip(runner.objects.active_ids().iter().copied().filter(|&id| Some(id) != view))
+        .collect();
+    let reader = Reader { source: &source, slot, other: idle, actors: &actors };
     let native = runner.world.player(&runner.objects, player).unwrap();
     let mut retail = reader.records();
     // The shared reader fixes this record to its own test convention; it
     // is not decoded from the allocation.
     retail.carried = native.carried;
-    if native != &retail {
-        let (n, r) = (format!("{native:#?}"), format!("{retail:#?}"));
-        let diff: Vec<String> = n
-            .lines()
-            .zip(r.lines())
-            .enumerate()
-            .filter(|(_, (a, b))| a != b)
-            .map(|(i, (a, b))| format!("line {i}: native {a} retail {b}"))
-            .collect();
-        panic!("initialized player records differ:\n{}", diff.join("\n"));
+    if display_owned {
+        retail.target_control = native.target_control;
+        retail.target_selection = native.target_selection;
+        retail.target_lock = native.target_lock;
+        if let (Some(retail), Some(native)) = (retail.contact.as_mut(), native.contact) {
+            retail.hit.feedback_duration = native.hit.feedback_duration;
+            retail.hit.feedback_flags = native.hit.feedback_flags;
+        }
     }
-    assert_eq!(
-        sf2_game::player_storage::get(&runner.objects, &runner.execution.paths.runtime.resources, player)
-            .unwrap(),
-        &reader.storage(),
-        "initialized player storage"
-    );
+    if native != &retail {
+        let mut diff = Vec::new();
+        macro_rules! fields {
+            ($($field:ident),* $(,)?) => {
+                $(if native.$field != retail.$field {
+                    diff.push(format!(
+                        "{}: native {:?} retail {:?}",
+                        stringify!($field),
+                        native.$field,
+                        retail.$field
+                    ));
+                })*
+            };
+        }
+        fields!(
+            contact, protection, auxiliary, charge, rapid_aim, rapid_rejection_consumes_queue,
+            action, saved_scene_selection, mission, palette_effects, consumable, target_control,
+            target_selection, target_lock, reticle_display, visit, status, appearance,
+            injected_input, roll, pose, steering, vertical, throttle, ambient,
+            flight_displacement, surface, speed, motion, boundary, occupancy, mode_selection,
+            view_distance, camera_angles, camera_tracking, camera_position, camera_ground,
+            camera_surface, camera_auxiliary, camera_dispatch, yaw_motion, occupancy_exempt,
+            equipment, score, particles, controlled_flags, carried,
+        );
+        panic!("{context}: player records differ:\n{}", diff.join("\n"));
+    }
+    let native = *sf2_game::player_storage::get(
+        &runner.objects,
+        &runner.execution.paths.runtime.resources,
+        player,
+    )
+    .unwrap();
+    let mut retail = reader.storage();
+    if display_owned {
+        // The shield display consumer acknowledges the pending bit 80, and
+        // the displayed shield only steps again once it is acknowledged.
+        retail.retained_shield = native.retained_shield;
+    }
+    assert_eq!(native, retail, "{context}: player storage");
+}
+
+pub(super) fn compare_initialized_player(
+    m: &RetailMachine,
+    runner: &SceneRunner<Callbacks>,
+    player: ObjectId,
+    idle: ObjectId,
+) {
+    compare_player_records(m, runner, player, idle, "initialized player", false);
     let actor = runner.objects.get(player).unwrap();
     assert_eq!(actor.base.hit_points, byte(m, POOL + 0x2D));
     assert_eq!(actor.base.attack_power, byte(m, POOL + 0x2E));

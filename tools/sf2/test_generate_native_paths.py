@@ -44,7 +44,7 @@ class NativePathGenerationTests(unittest.TestCase):
         source = generate_reviewed_catalog(self.rom)
         self.assertIn('LOWERED_ROOT_COUNT: usize = 289;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 16465;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 16501;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -3544,7 +3544,11 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn("use super::path_spawn::IndependentSpawn;", generated)
             self.assertIn("use super::{ObjectKind, ShapeId};", generated)
             self.assertNotIn("ChildSpawn", generated)
-        self.assertIn("path: None", self.lower_record("5d 98 bd 00 00 a1 a3")[0])
+        # Every spawn handler stores its path operand unconditionally: zero
+        # is the program at 44:0000, which sorts first in the closed graph.
+        statements = self.lower_record("5d 98 bd 00 00 a1 a3")
+        spawn = next(statement for statement in statements if "SpawnIndependent" in statement)
+        self.assertIn("path: Some(cursor(0, 0))", spawn)
         for record in ["5d 00 00 00 00 01 01", "5d 99 bd 00 00 01 01", "5d 9c bc 00 00 01 01"]:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
@@ -3577,8 +3581,10 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("iterations: 3", mapped[0xF5A5])
         self.assertIn("channel: AnimationChannel::Color, amount: 1, period: 2", mapped[0xF5A7])
 
-    def test_spawn_null_path_is_absent_and_unknown_shapes_or_native_kinds_are_rejected(self):
-        self.assertIn("path: None", self.lower_record("f5 98 bd 00 00 01 01 00 00 00 00 00 00 00")[0])
+    def test_spawn_zero_path_runs_offset_zero_and_unknown_shapes_or_native_kinds_are_rejected(self):
+        statements = self.lower_record("f5 98 bd 00 00 01 01 00 00 00 00 00 00 00")
+        spawn = next(statement for statement in statements if "ChildSpawn" in statement)
+        self.assertIn("path: Some(cursor(0, 0))", spawn)
         for shape in [0, 0xBD99, 0xFBB8, 0xFFFF]:
             with self.assertRaisesRegex(UnsupportedPath, "not a catalog header"):
                 spawn_shape(shape)
@@ -3623,7 +3629,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn(PathAddress(0xF592), found)  # child's final END
         self.assertEqual(len(found), 23)
 
-    def test_spawn_graph_deduplicates_recursive_children_and_skips_null_paths(self):
+    def test_spawn_graph_deduplicates_recursive_children_and_follows_the_zero_path(self):
         for opcode, record in (
             (0xF5, "f5 34 12 36 f5 01 02 00 00 00 00 00 00 00"),
             (0x33, "33 34 12 36 f5 01 02 03 04 05 00 00 00 00 00 00 00"),
@@ -3636,9 +3642,14 @@ class NativePathGenerationTests(unittest.TestCase):
                     program[3:5] = target.to_bytes(2, "little")
                     changed[0x4F536:0x4F536 + len(program)] = program
                     commands = graph(PathExtractor(bytes(changed)), PathAddress(0xF536))
-                    self.assertEqual(len(commands), 2)
-                    self.assertEqual(commands[0].opcode, opcode)
-                    self.assertEqual(commands[1].opcode, 0x0F)
+                    by_address = {command.address: command for command in commands}
+                    self.assertEqual(by_address[PathAddress(0xF536)].opcode, opcode)
+                    self.assertEqual(by_address[PathAddress(0xF536 + len(program) - 1)].opcode, 0x0F)
+                    if target:
+                        self.assertEqual(len(commands), 2)
+                    else:
+                        self.assertIn(PathAddress(0), by_address)
+                        self.assertEqual(len(commands), 2 + len(graph(PathExtractor(bytes(changed)), PathAddress(0))))
 
     def test_child_parameter_decoder_rejects_other_handlers_and_malformed_records(self):
         extractor = PathExtractor(self.rom)

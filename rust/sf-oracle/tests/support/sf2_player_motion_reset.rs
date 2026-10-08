@@ -52,6 +52,8 @@ pub(super) struct Reader<'a> {
     pub(super) source: &'a Source,
     pub(super) slot: u32,
     pub(super) other: ObjectId,
+    /// Further retail actor addresses with their native identities.
+    pub(super) actors: &'a [(u16, ObjectId)],
 }
 
 impl Reader<'_> {
@@ -72,6 +74,11 @@ impl Reader<'_> {
         match self.word(field) {
             0 => None,
             OTHER => Some(self.other),
+            value if self.actors.iter().any(|&(address, _)| address == value) => self
+                .actors
+                .iter()
+                .find(|&&(address, _)| address == value)
+                .map(|&(_, id)| id),
             value => panic!("unexpected original actor identity {value:04X} at {field:04X}"),
         }
     }
@@ -135,6 +142,7 @@ impl Reader<'_> {
                     (0xBEC2, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene7)),
                     (0xBEDF, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene6)),
                     (0xBEBB, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene25)),
+                    (0xBDF9, 0x0D) => Some(PlayerAction::Scene(sf2_game::player_action::AuthoredSceneAction::Scene29)),
                     value => panic!("unexpected retained action {value:?}"),
                 },
                 elapsed: self.word(0x6C16),
@@ -288,6 +296,8 @@ impl Reader<'_> {
                 transition_control: self.byte(0x6BEC),
                 surface_control: self.byte(0x6B64),
                 cue_control: self.byte(0x6B9B),
+                form_control: self.byte(0x6A72) & !0x10,
+                configured_phase: self.byte(0x6B7B),
             }),
             view_distance: Some(PlayerViewDistance {
                 distance: self.word(0x6B67) as i16,
@@ -446,6 +456,7 @@ fn partial_motion_reset_and_complete_entry_preparation_match_original_every_fiel
                 source: &source,
                 slot,
                 other,
+                actors: &[],
             };
             *player_storage::get_mut(&objects, &mut runtime.resources, owner).unwrap() =
                 reader.storage();
@@ -476,6 +487,7 @@ fn partial_motion_reset_and_complete_entry_preparation_match_original_every_fiel
                     source: &source,
                     slot,
                     other,
+                    actors: &[],
                 };
                 assert_eq!(
                     world.player(&objects, owner).unwrap(),
@@ -512,6 +524,7 @@ fn partial_motion_reset_and_complete_entry_preparation_match_original_every_fiel
                 source: &source,
                 slot,
                 other,
+                actors: &[],
             };
             *player_storage::get_mut(&objects, &mut runtime.resources, owner).unwrap() =
                 reader.storage();
@@ -589,6 +602,7 @@ fn partial_motion_reset_and_complete_entry_preparation_match_original_every_fiel
                     source: &source,
                     slot,
                     other,
+                    actors: &[],
                 };
                 assert_eq!(world.player(&objects, owner).unwrap(), &reader.records());
                 assert_eq!(

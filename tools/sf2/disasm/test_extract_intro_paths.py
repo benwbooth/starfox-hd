@@ -114,13 +114,24 @@ class IntroPathTraceTests(unittest.TestCase):
         trace = self.write_trace(
             "frame=1 objects=BC9C,7F7E53,0,0,0,0,0,0,64017 draws=\n"
         )
+        # Every opcode the intro installs is reviewed now; withdraw one
+        # reviewed opcode to show that decoding alone does not pass the gate.
+        import extract_intro_paths
+        withdrawn = {opcode: spec for opcode, spec in extract_intro_paths.PATH_SEMANTIC_BY_OPCODE.items()
+                     if opcode != 0x145}
         output = StringIO()
         with patch("sys.argv", ["extract_intro_paths.py", str(trace), "--summary",
-                                "--require-reviewed-semantics"]):
+                                "--require-reviewed-semantics"]), \
+                patch.object(extract_intro_paths, "PATH_SEMANTIC_BY_OPCODE", withdrawn):
             with redirect_stdout(output):
                 self.assertEqual(main(), 1)
         self.assertIn("missing_observed=0", output.getvalue())
         self.assertIn("UNREVIEWED_SEMANTIC opcode=145", output.getvalue())
+        output = StringIO()
+        with patch("sys.argv", ["extract_intro_paths.py", str(trace), "--summary",
+                                "--require-reviewed-semantics"]):
+            with redirect_stdout(output):
+                self.assertEqual(main(), 0)
 
     def test_child_spawn_path_is_reachable(self):
         commands, failures = decode(DEFAULT_ROM, [0xFCF9])

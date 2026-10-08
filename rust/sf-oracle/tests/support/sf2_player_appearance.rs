@@ -196,7 +196,7 @@ fn update(source: &mut Source, native: &mut Native, child_number: u8) -> Option<
         &mut native.objects,
         &mut native.world,
         native.owner,
-        child_number,
+        Some(child_number),
     )
     .unwrap();
     compare(source, native);
@@ -334,7 +334,7 @@ fn original_damage_particle_gates_cover_every_control_byte_and_preserve_allocati
                 &mut native.objects,
                 &native.world,
                 native.owner,
-                value,
+                Some(value),
             )
             .unwrap();
             compare(&source, &native);
@@ -418,7 +418,7 @@ fn original_retained_damage_children_exceed_five_and_full_pool_fault_precedes_fl
     source.bus.write8(0, 254);
     source.run(0x06AA1A, Some(0x008032), 0, OWNER, true);
     assert_eq!(
-        player_appearance::update(&mut native.objects, &mut native.world, native.owner, 254),
+        player_appearance::update(&mut native.objects, &mut native.world, native.owner, Some(254)),
         Err(AppearanceError::ObjectPoolExhausted)
     );
     compare(&source, &native);

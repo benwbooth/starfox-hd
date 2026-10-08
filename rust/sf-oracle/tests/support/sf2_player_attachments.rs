@@ -165,7 +165,7 @@ fn original_full_effects_recovery_and_new_children_publish_in_one_continuous_vis
                 &mut native.objects,
                 &mut native.world,
                 native.owner,
-                79,
+                Some(79),
             )
             .unwrap();
             poses::compare(&source.bus, &native.objects);

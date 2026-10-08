@@ -114,6 +114,7 @@ fn run_case(count: usize, selection: u8, saved: u8, seed: u16, entry: Entry) {
                 );
                 Ok(created)
             }
+            Ok(EntryOutcome::GateClosed) => panic!("the action gate is open in this fixture"),
             Err(SceneEntryError::Install(error)) => Err(error),
             Err(error) => panic!("{error:?}"),
         }
@@ -257,7 +258,7 @@ fn closed_gate_entry_marks_the_fixed_view_before_its_unported_exit() {
         source.run(0x06846C, Some(0x068525), 0, OWNER, true);
         assert_eq!(
             player_scene_entry::begin(&mut native.objects, &mut native.world, native.owner),
-            Err(SceneEntryError::UnportedEntryExit)
+            Ok(EntryOutcome::GateClosed)
         );
         assert_eq!(source.bus.read8(0x033F + 0x21), prior | 0x20);
         let motion = native.objects.get(view).unwrap().extension.path_state.motion;

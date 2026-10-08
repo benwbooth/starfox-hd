@@ -101,7 +101,7 @@ pub fn advance(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
     owner: ObjectId,
-    damage_particle_number: u8,
+    damage_particle_number: Option<u8>,
 ) -> Result<(), FrameEffectsError> {
     player_appearance::update(objects, world, owner, damage_particle_number)
         .map_err(FrameEffectsError::Appearance)?;
@@ -133,7 +133,7 @@ pub fn advance_with_attachments(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
     owner: ObjectId,
-    damage_particle_number: u8,
+    damage_particle_number: Option<u8>,
 ) -> Result<(), FrameEffectsError> {
     advance(objects, world, owner, damage_particle_number)?;
     player_attachments::publish(objects, world, owner).map_err(FrameEffectsError::Attachments)

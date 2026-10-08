@@ -190,6 +190,9 @@ ROOTS = (
 )
 # Paths named only by map records (opcode 90's path word, or 8C). Each is admitted
 # through a decoded map record that names it (verified_map_spawn_installer).
+# Reviewed null-mother child retirements of the map-placed rival (44:00BC).
+STAR_WOLF_RIVAL_RETIREMENTS = {PathAddress(0x01B3): 10, PathAddress(0x01B5): 11}
+
 MAP_PLACED_PATHS = (
     0x00BC, 0x0502, 0x0691, 0x0A0F, 0x0A11, 0x0BD7, 0x0BDA, 0x0C34,
     0x0C3A, 0x0C40, 0x0D28, 0x0D69, 0x0DDA, 0x0DE8, 0x0E52, 0x0E54,
@@ -1049,20 +1052,18 @@ def graph(extractor: PathExtractor, root: PathAddress) -> list[PathCommand]:
         found[address] = command
         pending.extend(command.successors)
         # Spawned actors run independent paths: these are dependencies, not
-        # control-flow successors of the parent. Follow them to closure before
+        # control-flow successors of the parent. Every spawn handler stores
+        # its operand unconditionally, so offset zero is the path at 44:0000. Follow them to closure before
         # lowering or assigning the catalog's globally shared cursor identity.
         if command.opcode in (0x033, 0x0F5):
             child_path = child_spawn_parameters(command).path
-            if child_path.offset:
-                pending.append(child_path)
+            pending.append(child_path)
         elif command.opcode == 0x05D:
             child_path = independent_spawn_parameters(command).path
-            if child_path.offset:
-                pending.append(child_path)
+            pending.append(child_path)
         elif command.opcode == 0x031:
             child_path = offset_spawn_parameters(command).path
-            if child_path.offset:
-                pending.append(child_path)
+            pending.append(child_path)
     return [found[address] for address in sorted(found)]
 
 
@@ -1564,7 +1565,7 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
         elif name in ("SpawnChild", "SpawnChildAlias"):
             spawn = child_spawn_parameters(command)
             shape, kind = spawn_shape(spawn.shape, spawn.path)
-            path = f"Some({cursor(spawn.path)})" if spawn.path.offset else "None"
+            path = f"Some({cursor(spawn.path)})"
             x, y, z = spawn.position
             pitch, yaw, roll = spawn.rotation
             position = f"Vector3 {{ x: {x}, y: {y}, z: {z} }}"
@@ -1602,14 +1603,14 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
         elif name == "QuickSpawn":
             spawn = independent_spawn_parameters(command)
             shape, kind = spawn_shape(spawn.shape, spawn.path)
-            path = f"Some({cursor(spawn.path)})" if spawn.path.offset else "None"
+            path = f"Some({cursor(spawn.path)})"
             spawn_ = f"IndependentSpawn {{ shape: ShapeId::from_catalog_index({shape}), path: {path}, hit_points: {spawn.hit_points}, attack_power: {spawn.attack_power} }}"
             statement = f"Statement::SpawnIndependent {{ kind: {kind}, parameters: {spawn_}, next: {next_cursor()} }}"
         elif name == "SpawnObject":
             spawn = offset_spawn_parameters(command)
             child_path = spawn.path
             shape, kind = spawn_shape(spawn.actor.shape, child_path)
-            path = f"Some({cursor(child_path)})" if child_path.offset else "None"
+            path = f"Some({cursor(child_path)})"
             pitch, yaw, roll = spawn.rotation
             # The rotation service sign-extends only the low byte of each
             # authored word. High-byte changes must not alter native position.
@@ -1816,7 +1817,17 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                     if number != 20:
                         raise UnsupportedPath("unreviewed optional part-controller child retirement")
                     operation = "RetireOptionalChild"
-                policy = (f", allow_absent_parent: {str(command.address in (PathAddress(0xCF3D), PathAddress(0xD5F4))).lower()}"
+                if name == "RemoveChild" and command.address in STAR_WOLF_RIVAL_RETIREMENTS:
+                    # Map-placed rival (44:00BC): until it spawns its own
+                    # parts it has neither the owner flag nor a mother, so
+                    # the in-range branch looks up children 10/11 from the
+                    # null pointer. Direct-page word $29 is zero there
+                    # (observed in retail), so the search finds nothing and
+                    # only direct-page byte $25 is marked; nothing reads it.
+                    if number != STAR_WOLF_RIVAL_RETIREMENTS[command.address]:
+                        raise UnsupportedPath("unreviewed optional rival child retirement")
+                    operation = "RetireOptionalChild"
+                policy = (f", allow_absent_parent: {str(command.address in (PathAddress(0xCF3D), PathAddress(0xD5F4), *STAR_WOLF_RIVAL_RETIREMENTS)).lower()}"
                           if operation == "RetireOptionalChild" else "")
                 command_ = f"RelationshipCommand::{operation} {{ number: {number}{policy} }}"
             statement = f"Statement::Relationship {{ command: {command_}, next: {next_cursor()} }}"

@@ -68,6 +68,7 @@ impl Fixture {
             source: &source,
             slot,
             other,
+            actors: &[],
         };
         *player_storage::get_mut(&objects, &mut runtime.resources, owner).unwrap() =
             reader.storage();
@@ -176,6 +177,7 @@ impl Fixture {
             source: &self.source,
             slot: self.slot,
             other: self.other,
+            actors: &[],
         };
         assert_eq!(
             self.world.player(&self.objects, self.owner).unwrap(),
@@ -273,6 +275,7 @@ fn entry_tail_matches_original_every_action_clock_and_preserves_silenced_audio_i
             source: &f.source,
             slot: f.slot,
             other: f.other,
+            actors: &[],
         }
         .records();
         f.source.bus.write8(0x1D74, counter as u8);

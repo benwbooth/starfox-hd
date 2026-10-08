@@ -118,7 +118,7 @@ fn advance(source: &mut Source, native: &mut Native, number: u8, fatal: Option<F
         Some(SLOT as u16),
     );
     assert_eq!(
-        player_frame_effects::advance(&mut native.objects, &mut native.world, native.owner, number),
+        player_frame_effects::advance(&mut native.objects, &mut native.world, native.owner, Some(number)),
         fatal.map_or(Ok(()), Err)
     );
     compare(source, native, before);
@@ -391,7 +391,7 @@ fn original_protection_birth_player_countdown_real_path_spin_flicker_and_retirem
                         &mut native.objects,
                         &mut native.world,
                         native.owner,
-                        71,
+                        Some(71),
                     )
                     .unwrap();
                     let base = u32::from(address(Some(child)));

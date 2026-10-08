@@ -313,7 +313,7 @@ fn post_motion_missing_late_input_retains_prefix_and_scene_fault_prevents_replay
         statement_budget: 10,
     };
     assert_eq!(
-        scene.advance_player_post_motion(owner, 71),
+        scene.advance_player_post_motion(owner, Some(71)),
         Err(SceneError::PlayerPostMotion(
             PostMotionError::MissingInterceptionGate
         ))
@@ -323,7 +323,7 @@ fn post_motion_missing_late_input_retains_prefix_and_scene_fault_prevents_replay
     assert_eq!(r.motion.unwrap().previous_position, position);
     scene.world.interception_active = Some(false);
     assert_eq!(
-        scene.advance_player_post_motion(owner, 71),
+        scene.advance_player_post_motion(owner, Some(71)),
         Err(SceneError::Faulted)
     );
     assert_eq!(

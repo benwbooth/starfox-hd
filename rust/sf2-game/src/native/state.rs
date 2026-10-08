@@ -55,6 +55,12 @@ impl AudioState {
         self.queue(SoundEvent::Authored(cue));
     }
 
+    /// Resume from an observed $1CE1 without publishing it again: a world
+    /// restored mid-campaign retains the cue a scene last published.
+    pub fn resume_retained_scene_cue(&mut self, cue: Option<super::path_sound::AuthoredCue>) {
+        self.retained_scene_cue = cue;
+    }
+
     pub const fn retained_scene_cue(&self) -> Option<super::path_sound::AuthoredCue> {
         self.retained_scene_cue
     }

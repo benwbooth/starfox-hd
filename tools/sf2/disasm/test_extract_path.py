@@ -265,10 +265,14 @@ class RetailPathExtractionTests(unittest.TestCase):
         # carry-off handler ($7F:BAEE; test_path_movement_static.py), plus
         # scene cue 149 used by the independently indexed scene-nine root, and the
         # view-rotation copy 151 used by the independently indexed scene-five root.
-        reviewed_without_retail_use = {0x118, 0x13D, 0x13F, 0x143, 0x145, 0x146, 0x149, 0x151, 0x168}
-        self.assertEqual(len(PATH_SEMANTICS), 288)
-        self.assertEqual(len({spec.opcode for spec in PATH_SEMANTICS}), 288)
-        self.assertEqual(len({spec.rust_name for spec in PATH_SEMANTICS}), 288)
+        # Marker class 3 (10B), shape-scaled values (CB), latch set/test
+        # (D5/D7) and player-part contact (172) are installed only by
+        # map-placed paths, which the map records name rather than this table.
+        reviewed_without_retail_use = {0x118, 0x13D, 0x13F, 0x143, 0x145, 0x146, 0x149, 0x151, 0x168,
+                                       0x10B, 0xCB, 0xD5, 0xD7, 0x172}
+        self.assertEqual(len(PATH_SEMANTICS), 293)
+        self.assertEqual(len({spec.opcode for spec in PATH_SEMANTICS}), 293)
+        self.assertEqual(len({spec.rust_name for spec in PATH_SEMANTICS}), 293)
         for spec in PATH_SEMANTICS:
             self.assertEqual(
                 self.extractor.handler_entry(spec.opcode).handler_address,

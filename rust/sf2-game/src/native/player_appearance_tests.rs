@@ -61,7 +61,7 @@ fn low_shield_arbitration_survives_surface_until_recovery_then_republishes_whole
             .motion
             .carry_selected_player = true;
         world.strategy_clock = clock;
-        update(&mut objects, &mut world, owner, 71).unwrap();
+        update(&mut objects, &mut world, owner, Some(71)).unwrap();
         world.player_carry_mode = None;
         update_surface_depth(&objects, &mut world, owner).unwrap();
         objects.get_mut(owner).unwrap().extension.depth_offset = 0xFEDC;
@@ -87,7 +87,7 @@ fn low_shield_arbitration_survives_surface_until_recovery_then_republishes_whole
             .unwrap()
             .hit
             .reserve_shield = 13;
-        update(&mut objects, &mut world, owner, 71).unwrap();
+        update(&mut objects, &mut world, owner, Some(71)).unwrap();
         assert_eq!(
             world
                 .player(&objects, owner)
@@ -121,7 +121,7 @@ fn healthy_visits_preserve_unrelated_bits_but_clear_entire_low_shield_override()
         let record = world.player_mut(&objects, owner).unwrap();
         record.appearance.as_mut().unwrap().depth_control = control;
         record.visit.as_mut().unwrap().pilot_code = control;
-        assert_eq!(update(&mut objects, &mut world, owner, 0), Ok(None));
+        assert_eq!(update(&mut objects, &mut world, owner, Some(0)), Ok(None));
         assert_eq!(
             world
                 .player(&objects, owner)
@@ -180,7 +180,7 @@ fn particle_gates_do_not_borrow_later_inputs_or_consume_randomness() {
         world.spawn_defaults = None;
         let random = world.random;
         assert_eq!(
-            emit_damage_particle(&mut objects, &world, owner, 29),
+            emit_damage_particle(&mut objects, &world, owner, Some(29)),
             Ok(None)
         );
         assert_eq!(objects.len(), 1);
@@ -209,7 +209,7 @@ fn damage_particles_are_fresh_numbered_siblings_with_deferred_real_path_initiali
     let parent = objects.get(owner).unwrap().clone();
     let mut children = Vec::new();
     for _ in 0..9 {
-        let child = emit_damage_particle(&mut objects, &world, owner, 253)
+        let child = emit_damage_particle(&mut objects, &world, owner, Some(253))
             .unwrap()
             .unwrap();
         let actor = objects.get(child).unwrap();
@@ -277,7 +277,7 @@ fn missing_contact_and_full_pool_retain_material_but_not_a_new_appearance_write(
             world.player_mut(&objects, owner).unwrap().contact = None;
         }
         assert_eq!(
-            update(&mut objects, &mut world, owner, 0),
+            update(&mut objects, &mut world, owner, Some(0)),
             Err(if full {
                 AppearanceError::ObjectPoolExhausted
             } else {
@@ -368,7 +368,7 @@ fn all_scene_appearance_services_latch_errors_and_refuse_replay() {
             statement_budget: 1,
         };
         let result = match operation {
-            0 => host.update_player_appearance(owner, 0).map(|_| ()),
+            0 => host.update_player_appearance(owner, Some(0)).map(|_| ()),
             1 => host.update_player_surface_depth(owner),
             _ => host.publish_player_depth(owner),
         };
@@ -380,7 +380,7 @@ fn all_scene_appearance_services_latch_errors_and_refuse_replay() {
         );
         assert!(host.execution.is_faulted());
         assert_eq!(
-            host.update_player_appearance(owner, 0),
+            host.update_player_appearance(owner, Some(0)),
             Err(SceneError::Faulted)
         );
         assert_eq!(

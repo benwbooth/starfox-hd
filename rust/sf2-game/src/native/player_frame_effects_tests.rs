@@ -125,7 +125,7 @@ fn action_gate_skips_protection_but_contacts_only_skip_birth_and_not_countdown()
     world.action_gate = Some(ActionGate { code: 7 });
     world.contacts_enabled = None;
     world.player_mut(&objects, owner).unwrap().protection = None;
-    advance(&mut objects, &mut world, owner, 42).unwrap();
+    advance(&mut objects, &mut world, owner, Some(42)).unwrap();
     world.action_gate = Some(ActionGate { code: 0 });
     world.contacts_enabled = Some(false);
     for control in 0..=255u8 {
@@ -133,7 +133,7 @@ fn action_gate_skips_protection_but_contacts_only_skip_birth_and_not_countdown()
             world.strategy_clock = clock;
             world.player_mut(&objects, owner).unwrap().protection =
                 Some(DeflectionProtection::from_control(control));
-            advance(&mut objects, &mut world, owner, 42).unwrap();
+            advance(&mut objects, &mut world, owner, Some(42)).unwrap();
             assert_eq!(
                 world
                     .player(&objects, owner)
@@ -165,7 +165,7 @@ fn appearance_precedes_damage_and_recovery_and_can_remain_low_for_one_visit() {
         .hit
         .reserve_shield = 12;
     world.shield_recovery.as_mut().unwrap().amount = 10;
-    advance(&mut objects, &mut world, owner, 99).unwrap();
+    advance(&mut objects, &mut world, owner, Some(99)).unwrap();
     let record = world.player(&objects, owner).unwrap();
     assert_eq!(record.contact.unwrap().hit.reserve_shield, 22);
     assert_eq!(record.appearance.unwrap().depth_control, 0x83);
@@ -176,7 +176,7 @@ fn appearance_precedes_damage_and_recovery_and_can_remain_low_for_one_visit() {
     assert_eq!(objects.get(first).unwrap().base.child_number, 18);
     let next = objects.get(first).unwrap().base.attachment_next.unwrap();
     assert_eq!(objects.get(next).unwrap().base.child_number, 24);
-    advance(&mut objects, &mut world, owner, 99).unwrap();
+    advance(&mut objects, &mut world, owner, Some(99)).unwrap();
     assert_eq!(
         world
             .player(&objects, owner)
@@ -197,7 +197,7 @@ fn damage_death_still_runs_protection_depth_and_healing_without_resurrection() {
     record.contact.as_mut().unwrap().hit.reserve_shield = 0;
     record.particles.as_mut().unwrap().flags = 0x20;
     world.shield_recovery.as_mut().unwrap().amount = 30;
-    advance(&mut objects, &mut world, owner, 88).unwrap();
+    advance(&mut objects, &mut world, owner, Some(88)).unwrap();
     assert_eq!(objects.get(owner).unwrap().base.hit_points, 0);
     assert_eq!(
         world
@@ -246,7 +246,7 @@ fn fatal_protection_keeps_appearance_but_precedes_countdown_depth_and_request_co
             .unwrap();
     }
     assert_eq!(
-        advance(&mut objects, &mut world, owner, 77),
+        advance(&mut objects, &mut world, owner, Some(77)),
         Err(FrameEffectsError::ObjectPoolExhausted)
     );
     let record = world.player(&objects, owner).unwrap();
@@ -257,7 +257,7 @@ fn fatal_protection_keeps_appearance_but_precedes_countdown_depth_and_request_co
     assert_eq!(world.shield_recovery.unwrap().amount, 10);
     world.action_gate.as_mut().unwrap().code = 1;
     assert_eq!(
-        advance(&mut objects, &mut world, owner, 77),
+        advance(&mut objects, &mut world, owner, Some(77)),
         Err(FrameEffectsError::Recovery(
             RecoveryError::ObjectPoolExhausted
         ))
@@ -298,7 +298,7 @@ fn composed_attachment_failure_keeps_effects_and_latches_scene_fault() {
         statement_budget: 256,
     };
     assert_eq!(
-        host.advance_player_frame_publication(owner, 77),
+        host.advance_player_frame_publication(owner, Some(77)),
         Err(SceneError::PlayerFrameEffects(
             FrameEffectsError::Attachments(PlayerAttachmentError::MissingGround(owner))
         ))
@@ -318,7 +318,7 @@ fn composed_attachment_failure_keeps_effects_and_latches_scene_fault() {
         0
     );
     assert_eq!(
-        host.advance_player_frame_publication(owner, 77),
+        host.advance_player_frame_publication(owner, Some(77)),
         Err(SceneError::Faulted)
     );
 }
@@ -366,7 +366,7 @@ fn scene_failure_keeps_completed_prefix_and_cannot_be_reentered() {
         statement_budget: 256,
     };
     assert_eq!(
-        host.advance_player_frame_effects(owner, 71),
+        host.advance_player_frame_effects(owner, Some(71)),
         Err(SceneError::PlayerFrameEffects(FrameEffectsError::World(
             WorldInputError::MissingActionGate
         )))
@@ -383,7 +383,7 @@ fn scene_failure_keeps_completed_prefix_and_cannot_be_reentered() {
     );
     let before = host.objects.clone();
     assert_eq!(
-        host.advance_player_frame_effects(owner, 71),
+        host.advance_player_frame_effects(owner, Some(71)),
         Err(SceneError::Faulted)
     );
     assert_eq!(*host.objects, before);

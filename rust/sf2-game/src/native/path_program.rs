@@ -464,6 +464,10 @@ pub struct ScenePathInputs {
     /// Shared player-view control byte ($1DE0). Menu and flight services
     /// update separate bits; the exit path reads the complete published byte.
     pub player_view_control: Option<u8>,
+    /// Walker-form view selector ($1DCE): zero in flight phases, one in the
+    /// Walker phase. The stage loop's view-option handler ($03:C068) tests
+    /// the byte for zero when it rewrites the view control byte.
+    pub player_walker_form: Option<bool>,
     /// Shared location word ($1BB5). Authored path imports read its low byte,
     /// while mission progress compares the complete word with Astropolis.
     pub encounter_location: Option<u16>,
@@ -14910,8 +14914,8 @@ mod tests {
         let catalog = authored_paths::catalog();
         assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 289);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 16406);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 16465);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 16442);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 16501);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

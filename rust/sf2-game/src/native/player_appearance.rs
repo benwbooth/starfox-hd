@@ -41,6 +41,7 @@ pub enum AppearanceError {
     MissingVisit(ObjectId),
     MissingCarryMode,
     MissingSpawnDefaults,
+    MissingParticleNumber,
     ObjectPoolExhausted,
 }
 impl From<WorldInputError> for AppearanceError {
@@ -55,13 +56,15 @@ impl From<RelationshipError> for AppearanceError {
 }
 
 /// Complete damage-particle installer ($07:CFB1..D047). Its number is an
-/// inherited caller input; it is neither a random sample nor a fixed slot.
-/// Allocation does not execute the authored path or consume randomness.
+/// inherited caller input (direct-page $00, the frame loop's render-paced
+/// countdown); it is neither a random sample nor a fixed slot. An absent
+/// number faults only when an admitted allocation needs it. Allocation does
+/// not execute the authored path or consume randomness.
 pub fn emit_damage_particle(
     objects: &mut ObjectStore,
     world: &ScenePathWorld,
     owner: ObjectId,
-    child_number: u8,
+    child_number: Option<u8>,
 ) -> Result<Option<ObjectId>, AppearanceError> {
     let actor = objects
         .get(owner)
@@ -89,6 +92,7 @@ pub fn emit_damage_particle(
     if objects.len() == OBJECT_CAPACITY {
         return Err(AppearanceError::ObjectPoolExhausted);
     }
+    let child_number = child_number.ok_or(AppearanceError::MissingParticleNumber)?;
     let defaults = world
         .spawn_defaults()
         .ok_or(AppearanceError::MissingSpawnDefaults)?;
@@ -119,7 +123,7 @@ pub fn update(
     objects: &mut ObjectStore,
     world: &mut ScenePathWorld,
     owner: ObjectId,
-    child_number: u8,
+    child_number: Option<u8>,
 ) -> Result<Option<ObjectId>, AppearanceError> {
     let pilot = world
         .player(objects, owner)?

@@ -234,7 +234,7 @@ pub fn advance(
     world: &mut ScenePathWorld,
     resources: &ProgramResources<ProgramData>,
     owner: ObjectId,
-    damage_particle_number: u8,
+    damage_particle_number: Option<u8>,
 ) -> Result<(), PostMotionError> {
     prepare(objects, world, resources, owner)?;
     player_frame_effects::advance_with_attachments(objects, world, owner, damage_particle_number)

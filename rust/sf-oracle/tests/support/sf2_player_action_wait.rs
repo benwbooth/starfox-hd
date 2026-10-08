@@ -336,7 +336,7 @@ fn original_resetting_action_wait_reprepares_motion_and_runs_live_action_then_pr
 fn original_scene_wait_clears_entry_mode_and_runs_action_tail_or_faults_closed_gate() {
     use sf2_game::path_program::{ActionGate, ProjectileTrigger};
     use sf2_game::player_action::{PlayerServiceFlags, ScenePalette};
-    use sf2_game::player_scene_entry::{self, SceneEntryError, SceneEntryPhase};
+    use sf2_game::player_scene_entry::{self, SceneEntryPhase};
     use sf2_game::view_transition::ViewTransitionMode;
 
     let image = rom();
@@ -417,10 +417,10 @@ fn original_scene_wait_clears_entry_mode_and_runs_action_tail_or_faults_closed_g
                         player_scene_entry::wait(&mut f.objects, &mut f.world, &mut f.runtime.resources, f.owner);
                     if gate == 0 {
                         f.source.run(0x0684A2, Some(0x0684EF), 0, OWNER, true);
-                        assert_eq!(result, Err(SceneEntryError::UnportedWaitExit));
+                        assert_eq!(result, Ok(true));
                     } else {
                         f.source.run(0x0684A2, None, 0, OWNER, true);
-                        result.unwrap();
+                        assert!(!result.unwrap());
                         f.compare();
                         let actual = f.world.processed_player_input.unwrap();
                         assert_eq!(f.source.bus.read16(0x1936), actual.pressed.bits());

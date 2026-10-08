@@ -204,6 +204,11 @@ pub struct ScenePathWorld {
     pub map_presentation: super::map_effects::MapPresentation,
     pub strategy_clock: u16,
     pub scene: ScenePathInputs,
+    /// Direct-page $00 during the strategy epoch: the frame loop's countdown
+    /// (`$03:80AC`/`$03:8102`) that interrupt handlers decrement while the
+    /// GSU renders. Render-paced like the entropy refresh, so the frame owner
+    /// supplies it; the damage-particle installer reads it as a number.
+    pub frame_pacing: Option<u8>,
     /// Live indexed scene request (1D73), separate from the map and action gate.
     pub scene_selection: Option<u8>,
     pub primary_player: Option<ObjectId>,
@@ -462,6 +467,7 @@ impl ScenePathWorld {
             map_presentation: Default::default(),
             strategy_clock: 0,
             scene: ScenePathInputs::default(),
+            frame_pacing: None,
             primary_player: None,
             secondary_player: None,
             stage_layout: None,
