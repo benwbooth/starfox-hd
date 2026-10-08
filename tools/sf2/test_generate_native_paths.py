@@ -42,9 +42,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 161;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 203;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 8059;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 8705;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -592,6 +592,22 @@ class NativePathGenerationTests(unittest.TestCase):
         for record in ['7b a3 79', '80 a3 79', '7a a1 78', '7a a1 7a']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
+
+    def test_map_placed_paths_are_admitted_only_through_a_decoded_map_record(self):
+        from generate_native_paths import MAP_PLACED_PATHS, map_record_paths, verified_map_spawn_installer
+        placed = map_record_paths(self.rom)
+        self.assertTrue(set(MAP_PLACED_PATHS) <= placed)
+        root = PathAddress(0x1966)
+        self.assertTrue(verified_map_spawn_installer(self.rom, root))
+        # Retarget the only record that places this path: admission fails.
+        record = bytes.fromhex('90') + bytes(9) + (0x1966).to_bytes(2, 'little')
+        hits = [i for i in range(0x28000, 0x30000) if self.rom[i] == 0x90 and self.rom[i + 10:i + 12] == record[10:]]
+        self.assertTrue(hits)
+        changed = bytearray(self.rom)
+        for hit in hits:
+            changed[hit + 10:hit + 12] = (0x1965).to_bytes(2, 'little')
+        with self.assertRaises(UnsupportedPath):
+            verified_map_spawn_installer(bytes(changed), root)
 
     def test_map_spawned_core_defender_closes_head_gate_beam_and_progress_publication(self):
         from generate_native_paths import verified_map_spawn_installer

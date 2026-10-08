@@ -14616,10 +14616,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 161);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 203);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 8000);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 8059);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 8646);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 8705);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {

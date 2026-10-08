@@ -9,6 +9,7 @@ entire generation, rather than inserting placeholders or truncating a graph.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -187,6 +188,17 @@ ROOTS = (
     ("RAPID_IMPACT_PROJECTILE", PathAddress(0xE973)),
     ("ALTERNATE_RAPID_IMPACT_PROJECTILE", PathAddress(0xEB1A)),
 )
+# Paths named only by map records (opcode 90's path word, or 8C). Each is admitted
+# through a decoded map record that names it (verified_map_spawn_installer).
+MAP_PLACED_PATHS = (
+    0x0BD7, 0x0BDA, 0x0C34, 0x0C3A, 0x0C40, 0x0D28, 0x0D69, 0x1466,
+    0x146F, 0x1496, 0x149A, 0x14F5, 0x1618, 0x1684, 0x180D, 0x1820,
+    0x1966, 0x2F0B, 0x3A72, 0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8, 0x3C4E,
+    0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04, 0x7E25, 0x7E27,
+    0x7E29, 0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68, 0x7F00, 0x7F12,
+    0x7F36, 0x7F8E, 0x7FA8,
+)
+ROOTS = ROOTS + tuple((f"MAP_PLACED_{offset:04X}", PathAddress(offset)) for offset in MAP_PLACED_PATHS)
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
 # Complete callable graphs, not independently scheduled actor roots. Each
 # entry is bound to a direct call or callback registration/redirection reachable
@@ -2580,10 +2592,35 @@ def lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, in
     return indices[root], statements
 
 
+_MAP_RECORD_PATHS: dict[bytes, frozenset[int]] = {}
+
+
+def map_record_paths(rom: bytes) -> frozenset[int]:
+    """Paths placed by opcode-90 records or installed by opcode 8C."""
+    key = hashlib.sha256(rom).digest()
+    if key not in _MAP_RECORD_PATHS:
+        from generate_native_maps import graph as map_graph
+        extractor = MapExtractor(rom)
+        paths = set()
+        for root in extractor.discover_roots():
+            order, _ = map_graph(extractor, root.address)
+            for address in order:
+                if extractor.byte(address) == 0x90:
+                    paths.add(extractor.word(address, 10))
+                elif extractor.byte(address) == 0x8C:
+                    paths.add(extractor.word(address, 1))
+        _MAP_RECORD_PATHS[key] = frozenset(paths)
+    return _MAP_RECORD_PATHS[key]
+
+
 def verified_map_spawn_installer(rom: bytes, root: PathAddress) -> bool:
     # Map-created path actors are not discovered by the path initializer's
     # immediate stores. Admit this independent entry only through its exact
     # decoded map spawn commands, including mesh, position and heading.
+    if root.offset in MAP_PLACED_PATHS:
+        if root.offset not in map_record_paths(rom):
+            raise UnsupportedPath(f"no decoded map record places path {root.label()}")
+        return True
     if root != PathAddress(0x5E68):
         return False
     expected = {
