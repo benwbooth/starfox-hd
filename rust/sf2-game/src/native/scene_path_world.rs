@@ -368,6 +368,7 @@ pub struct ScenePathWorld {
     pub guidance: Option<GuidanceHistory>,
     pub pickup_history: Option<PickupHistory>,
     pub slot_words: Option<super::path_program::PathSlotWords>,
+    pub scratch_bytes: Option<super::path_countdown::PathScratchBytes>,
     pub difficulty_tallies: Option<super::path_program::DifficultyTallies>,
     pub active_node_flags: Option<ActiveNodeFlags>,
 }
@@ -531,6 +532,7 @@ impl ScenePathWorld {
             guidance: None,
             pickup_history: None,
             slot_words: None,
+            scratch_bytes: None,
             difficulty_tallies: None,
             active_node_flags: None,
         }
@@ -788,6 +790,7 @@ impl InvocationWorld for ScenePathWorld {
             guidance: self.guidance.as_mut(),
             pickup_history: self.pickup_history.as_mut(),
             slot_words: self.slot_words.as_mut(),
+            scratch_bytes: self.scratch_bytes.as_mut(),
             difficulty_tallies: self.difficulty_tallies.as_mut(),
             active_node_flags: self.active_node_flags.as_mut(),
             weapons: self.weapons.as_mut(),

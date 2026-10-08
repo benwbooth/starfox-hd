@@ -266,6 +266,7 @@ pub struct PathWorld<'a> {
     pub guidance: Option<&'a mut GuidanceHistory>,
     pub pickup_history: Option<&'a mut PickupHistory>,
     pub slot_words: Option<&'a mut PathSlotWords>,
+    pub scratch_bytes: Option<&'a mut super::path_countdown::PathScratchBytes>,
     pub difficulty_tallies: Option<&'a mut DifficultyTallies>,
     /// Full shared button-layout byte (1DD0), not flight inversion (1DCF).
     pub button_layout: Option<u8>,
@@ -376,6 +377,7 @@ impl PathWorld<'_> {
             guidance: None,
             pickup_history: None,
             slot_words: None,
+            scratch_bytes: None,
             difficulty_tallies: None,
             button_layout: None,
             selected_occupancy_exempt: None,
@@ -1253,6 +1255,12 @@ pub enum Statement {
         value: i8,
         next: PathCursor,
     },
+    /// A path-only shared byte (see `ScratchCell`).
+    ScratchByte {
+        cell: super::path_countdown::ScratchCell,
+        command: super::path_countdown::CountdownCommand,
+        next: PathCursor,
+    },
     /// D7E1 + tally (tally 0..=2).
     IncrementDifficultyTally {
         tally: u8,
@@ -1508,6 +1516,7 @@ pub enum ProgramError {
     MissingSelectedAuxiliary,
     MissingSelectedShield,
     MissingSlotWords,
+    MissingScratchBytes,
     MissingDifficultyTallies,
     MissingShapeHeader(super::ShapeId),
     MissingPlacedShape,
@@ -2860,6 +2869,16 @@ impl PathRuntime {
                 actor.base.path = Some(next);
                 Ok(ControlStep::Continue)
             }
+            Statement::ScratchByte { cell, command, next } => {
+                let scratch = world
+                    .scratch_bytes
+                    .as_deref_mut()
+                    .ok_or(ProgramError::MissingScratchBytes)?;
+                let actor = objects.get_mut(owner).expect("validated scratch owner");
+                scratch.apply(cell, actor, command);
+                actor.base.path = Some(next);
+                Ok(ControlStep::Continue)
+            }
             Statement::Countdown { command, next } => {
                 let countdown = world
                     .countdown
@@ -3567,6 +3586,7 @@ mod tests {
             guidance: None,
             pickup_history: None,
             slot_words: None,
+            scratch_bytes: None,
             difficulty_tallies: None,
             button_layout: None,
             selected_occupancy_exempt: None,
@@ -10760,6 +10780,7 @@ mod tests {
                 guidance: None,
                 pickup_history: None,
                 slot_words: None,
+                scratch_bytes: None,
                 difficulty_tallies: None,
                 button_layout: None,
                 selected_occupancy_exempt: None,
@@ -14828,10 +14849,10 @@ mod tests {
         objects.get_mut(owner).unwrap().base.path = Some(authored_paths::ALTERNATE_EXHAUST);
         objects.get_mut(owner).unwrap().base.velocity.x = 7;
         let catalog = authored_paths::catalog();
-        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 254);
+        assert_eq!(authored_paths::LOWERED_ROOT_COUNT, 271);
         assert_eq!(authored_paths::LOWERED_SUBROUTINE_COUNT, 9);
-        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 11883);
-        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 11942);
+        assert_eq!(authored_paths::LOWERED_COMMAND_COUNT, 13773);
+        assert_eq!(authored_paths::LOWERED_SOURCE_COMMAND_COUNT, 13832);
         // Source DO 3 executes ADDCOL three times; NEXT only yields on its
         // first two decrements. The final pass reaches END without movement.
         for (invocation, color) in [1, 0, 1].into_iter().enumerate() {
@@ -15009,6 +15030,7 @@ mod tests {
                 guidance: None,
                 pickup_history: None,
                 slot_words: None,
+                scratch_bytes: None,
                 difficulty_tallies: None,
                 button_layout: None,
                 selected_occupancy_exempt: None,
@@ -15183,6 +15205,7 @@ mod tests {
                         guidance: None,
                         pickup_history: None,
                         slot_words: None,
+                        scratch_bytes: None,
                         difficulty_tallies: None,
                         button_layout: None,
                         selected_occupancy_exempt: None,

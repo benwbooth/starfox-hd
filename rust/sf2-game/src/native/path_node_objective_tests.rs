@@ -555,7 +555,8 @@ fn node_exit_publishes_once_and_its_detached_service_disables_only_the_nearest_s
     let spawn = locate(&catalog, |s| {
         matches!(s, Statement::SpawnChild { parameters, .. }
         if parameters.shape == ShapeId::EMPTY && parameters.number == 5
-        && parameters.hit_points == 100 && parameters.attack_power == 0)
+        && parameters.hit_points == 100 && parameters.attack_power == 0
+        && parameters.position == super::super::Vector3::default())
     });
     let Statement::SpawnChild { parameters, .. } = catalog.statement(spawn).unwrap() else {
         unreachable!()

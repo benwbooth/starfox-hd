@@ -42,9 +42,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bytes.fromhex(''.join(c.raw_hex for c in commands))).hexdigest(), digest)
             self.assertEqual(len(lower_graph(extractor, root, 0)[1]), count)
         source = generate_reviewed_catalog(self.rom)
-        self.assertIn('LOWERED_ROOT_COUNT: usize = 254;', source)
+        self.assertIn('LOWERED_ROOT_COUNT: usize = 271;', source)
         self.assertIn('LOWERED_SUBROUTINE_COUNT: usize = 9;', source)
-        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 11942;', source)
+        self.assertIn('LOWERED_SOURCE_COMMAND_COUNT: usize = 13832;', source)
         for _, _, _, callsite in SUBROUTINES:
             for delta in [0, 1, 2]:
                 changed = bytearray(self.rom)
@@ -400,9 +400,9 @@ class NativePathGenerationTests(unittest.TestCase):
                 self.assertIn(f'PlacementCommand::{operation}', statement)
                 self.assertIn(f'PlacementCoordinate::{coordinate}', statement)
                 self.assertIn(f'WordField::Position(Axis::{axis})', statement)
+            # Every word field moves the complete placement word.
             for record in [f'{opcode} 0c 0d', f'{opcode} 10 0b', f'{opcode} 0e 0d']:
-                with self.assertRaises(UnsupportedPath):
-                    self.lower_record(record)
+                self.assertIn('Statement::Placement', self.lower_record(record)[0])
 
     def test_scripted_exit_view_and_anchor_have_complete_source_bound_installers(self):
         extractor = PathExtractor(self.rom)
@@ -589,7 +589,8 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn('RestoreByte', statements[5])
         self.assertEqual(statements[6], 'Statement::Control(ControlCommand::Return)')
         self.assertIn('CoordinationField::TransitionReady', self.lower_record('fb d5 d7 01')[0])
-        for record in ['7b a3 79', '80 a3 79', '7a a1 78', '7a a1 7a']:
+        self.assertIn('ScratchCell::D7D6', self.lower_record('7a a1 7a')[0])
+        for record in ['7b a3 79', '80 a3 79', '7a a1 78']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
@@ -1118,7 +1119,10 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn(f'IncludeSelectedParticleFlags {{ mask: {mask}', self.lower_record(f'0016{mask:02x}')[0])
         # D767 has unrelated typed-pointer/shape consumers too; this is NOT
         # authorization for a shared numeric scratch-memory implementation.
-        for record in ['fc67d70000', '7b0e0b', '7ca30800', '7b0415', '800615']:
+        # Importing a placement word reads the typed primary coordinate; a
+        # shape or pointer published through D767 faults natively instead.
+        self.assertIn('PlacementCoordinate::Primary', self.lower_record('7b0e0b')[0])
+        for record in ['fc67d70000', '7ca30800', '7b0415', '800615']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
@@ -1229,7 +1233,9 @@ class NativePathGenerationTests(unittest.TestCase):
                                   ('7f a9 08', 'Assign(ByteOperand::Actor(ByteField::Part))')]:
             self.assertIn(f'SpawnParameterCommand::{operation}', self.lower_record(record)[0])
         self.assertIn('SceneByte::MapRegion', self.lower_record('79 a9 5b db')[0])
-        for record in ['79 a9 85 1e', '7d a9 5b db', '7a a9 0a', '7b a3 08', '7b a3 09']:
+        # D766 is a path-only hand-off byte, not a spawn-argument mailbox.
+        self.assertIn('ScratchCell::D766', self.lower_record('7a a9 0a')[0])
+        for record in ['79 a9 85 1e', '7d a9 5b db', '7b a3 08', '7b a3 09']:
             with self.assertRaises(UnsupportedPath):
                 self.lower_record(record)
 
@@ -1271,9 +1277,9 @@ class NativePathGenerationTests(unittest.TestCase):
             self.assertIn('PlacementCoordinate::Primary', statement)
             self.assertIn(f'PlacementCommand::{operation}', statement)
             self.assertIn(f'WordField::{field}', statement)
-        for record in ['7b a3 0b', '80 92 0b']:
-            with self.assertRaises(UnsupportedPath):
-                self.lower_record(record)
+        # Every word field exchanges the complete placement word.
+        for record, operation in [('7b a3 0b', 'Import'), ('80 92 0b', 'Export')]:
+            self.assertIn(f'PlacementCommand::{operation}', self.lower_record(record)[0])
         # A shape handed to a child through D767 is a typed shape, not a word.
         self.assertEqual(self.lower_record('80 04 0b')[0], 'Statement::ExportShapeToPlacement { next: cursor(0, 1) }')
         self.assertEqual(self.lower_record('7b 04 0b')[0], 'Statement::ImportPlacedShape { next: cursor(0, 1) }')
@@ -3804,7 +3810,7 @@ class NativePathGenerationTests(unittest.TestCase):
             "Statement::ImportActiveNodeFlags { destination: WordField::ScriptValue, next: cursor(0, 1) }")
         self.assertIn("destination: WordField::MotionPhase", self.lower_record("7b a1 9a")[0])
         for index in range(256):
-            if index not in (0x32, 0x34, 0x36, 0x43, 0x7D, 0x7F, 0x81, 0x83, 0x90, 0x92, 0x94, 0x9A):
+            if index not in (0x0B, 0x0D, 0x32, 0x34, 0x36, 0x43, 0x7D, 0x7F, 0x81, 0x83, 0x90, 0x92, 0x94, 0x9A):
                 with self.assertRaisesRegex(UnsupportedPath, "unported shared word"):
                     self.lower_record(f"7b a3 {index:02x}")
         with self.assertRaisesRegex(UnsupportedPath, "unported word operand 04"):
@@ -3823,7 +3829,7 @@ class NativePathGenerationTests(unittest.TestCase):
         self.assertIn("Statement::ImportButtonLayout", self.lower_record("79 a1 d0 1d")[0])
         self.assertIn("GuidanceCommand::CopyTo(WordField::MotionScriptOverlap)", self.lower_record("7b a2 36")[0])
         for index in range(256):
-            if index not in (0x0B, 0x32, 0x34, 0x36, 0x43, 0x7D, 0x7F, 0x81, 0x83, 0x9A):
+            if index not in (0x0B, 0x0D, 0x32, 0x34, 0x36, 0x43, 0x7D, 0x7F, 0x81, 0x83, 0x9A):
                 with self.assertRaises(UnsupportedPath):
                     self.lower_record(f"80 a3 {index:02x}")
         for record in ["7b a4 36", "80 a4 36", "7a a3 36", "7f a3 36", "7c a3 92 d7", "7d a1 d0 1d", "7c a3 d0 1d", "fb d0 1d 01"]:

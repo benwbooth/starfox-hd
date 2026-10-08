@@ -191,17 +191,19 @@ ROOTS = (
 # through a decoded map record that names it (verified_map_spawn_installer).
 MAP_PLACED_PATHS = (
     0x0A0F, 0x0A11, 0x0BD7, 0x0BDA, 0x0C34, 0x0C3A, 0x0C40, 0x0D28,
-    0x0D69, 0x0F2C, 0x1466, 0x146F, 0x1496, 0x149A, 0x14F5, 0x1542,
-    0x1556, 0x15C4, 0x1618, 0x1684, 0x1725, 0x180D, 0x1820, 0x18A5,
-    0x1913, 0x1966, 0x19BA, 0x19F5, 0x1A52, 0x22AA, 0x2651, 0x2D26,
-    0x2E52, 0x2EDD, 0x2F0B, 0x3089, 0x3982, 0x3A3A, 0x3A72, 0x3AF9,
-    0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8, 0x3C4E, 0x3F35, 0x3F85, 0x3FC1,
-    0x4368, 0x4370, 0x4397, 0x439F, 0x45F6, 0x45FB, 0x460E, 0x468C,
-    0x479F, 0x4C16, 0x4E26, 0x4F06, 0x4F72, 0x4FA5, 0x5097, 0x520D,
-    0x58B9, 0x5C8F, 0x5EF6, 0x6C01, 0x6F65, 0x6F75, 0x737F, 0x7382,
-    0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04, 0x7E25, 0x7E27, 0x7E29,
-    0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68, 0x7E7C, 0x7E8E, 0x7F00,
-    0x7F12, 0x7F36, 0x7F8E, 0x7FA8, 0x7FCE,
+    0x0D69, 0x0DDA, 0x0DE8, 0x0E52, 0x0E54, 0x0E56, 0x0F2C, 0x1369,
+    0x1466, 0x146F, 0x1496, 0x149A, 0x14F5, 0x1542, 0x1556, 0x15C4,
+    0x1618, 0x1684, 0x1725, 0x180D, 0x1820, 0x18A5, 0x1913, 0x1966,
+    0x19BA, 0x19F5, 0x1A52, 0x1AFF, 0x22AA, 0x2651, 0x295E, 0x2961,
+    0x2D26, 0x2E2D, 0x2E52, 0x2EDD, 0x2F0B, 0x3089, 0x37AE, 0x37B6,
+    0x3982, 0x3A3A, 0x3A72, 0x3AF9, 0x3BDA, 0x3BDE, 0x3BE4, 0x3BE8,
+    0x3C4E, 0x3F35, 0x3F85, 0x3FC1, 0x419B, 0x4368, 0x4370, 0x4397,
+    0x439F, 0x45F6, 0x45FB, 0x460E, 0x468C, 0x479F, 0x4C16, 0x4E26,
+    0x4F06, 0x4F72, 0x4FA5, 0x5097, 0x520D, 0x58B9, 0x5C8F, 0x5EF6,
+    0x60F1, 0x66EA, 0x6A15, 0x6C01, 0x6F65, 0x6F75, 0x72BB, 0x737F,
+    0x7382, 0x7D10, 0x7D17, 0x7D1E, 0x7D4A, 0x7E04, 0x7E25, 0x7E27,
+    0x7E29, 0x7E2B, 0x7E2D, 0x7E2F, 0x7E31, 0x7E68, 0x7E7C, 0x7E8E,
+    0x7F00, 0x7F12, 0x7F36, 0x7F8E, 0x7FA8, 0x7FCE,
 )
 ROOTS = ROOTS + tuple((f"MAP_PLACED_{offset:04X}", PathAddress(offset)) for offset in MAP_PLACED_PATHS)
 SEMANTICS = {entry.opcode: entry for entry in PATH_SEMANTICS}
@@ -2093,10 +2095,9 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                 # The shape word handed to a child through D767.
                 statement = (f"Statement::ExportShapeToPlacement {{ next: {next_cursor()} }}" if name.startswith("Export")
                              else f"Statement::ImportPlacedShape {{ next: {next_cursor()} }}")
-            elif ((variable, index) in ((0x0C, 0x0B), (0x10, 0x0D))
-                  or (name, variable, index) in (("ExportWordIndexed", 0xA3, 0x0B),
-                                                 ("ExportWordIndexed", 0x39, 0x0B),
-                                                 ("ImportWordIndexed", 0x92, 0x0B))):
+            elif index in (0x0B, 0x0D):
+                # D767/D769: placement words exchanged between paths and their
+                # children; every word field moves the complete word.
                 coordinate = "Primary" if index == 0x0B else "Depth"
                 operation = (f"Import {{ coordinate: super::path_scene_state::PlacementCoordinate::{coordinate}, destination: {word_field(variable)} }}"
                              if name.startswith("Import") else
@@ -2463,7 +2464,8 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                 statement = f"Statement::ImportCampaignByte {{ source: CampaignByte::{source}, destination: {byte_field(variable)}, next: {next_cursor()} }}"
                 statements.append(statement)
                 continue
-            if address != 0xD786:
+            scratch = {0xD766: "D766", 0xD77C: "D77C", 0xD79C: "D79C", 0xD7D2: "D7D2", 0xD7D6: "D7D6"}
+            if address != 0xD786 and address not in scratch:
                 raise UnsupportedPath(f"unported shared byte {address:04X} at {command.address.label()}")
             if name.startswith("Import"):
                 operation = f"CopyTo({byte_field(variable)})"
@@ -2473,7 +2475,10 @@ def _lower_graph(extractor: PathExtractor, root: PathAddress, path_index: int, i
                 operation = f"Assign(ByteOperand::Literal({value}))"
             else:
                 operation = "Increment" if name == "IncrementExternalByte" else "Decrement"
-            statement = f"Statement::Countdown {{ command: CountdownCommand::{operation}, next: {next_cursor()} }}"
+            if address in scratch:
+                statement = f"Statement::ScratchByte {{ cell: super::path_countdown::ScratchCell::{scratch[address]}, command: CountdownCommand::{operation}, next: {next_cursor()} }}"
+            else:
+                statement = f"Statement::Countdown {{ command: CountdownCommand::{operation}, next: {next_cursor()} }}"
         elif name in ("AddIndexedByteAndAdvanceFrame", "AddIndexedSignedByteAndAdvanceFrame"):
             low, high, bank, selector, destination, period = parameters(6)
             wide = name == "AddIndexedSignedByteAndAdvanceFrame"

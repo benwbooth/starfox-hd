@@ -30,6 +30,38 @@ impl PathCountdown {
     }
 }
 
+/// Path-only shared bytes: authored paths store, count and hand values
+/// through them, and no 65816 service reads them. Each cell is named by
+/// its source byte because no wider meaning is shared by its users.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScratchCell {
+    /// D766.
+    D766,
+    /// D77C.
+    D77C,
+    /// D79C.
+    D79C,
+    /// D7D2: an attacker quota in some families, a hand-off in others.
+    D7D2,
+    /// D7D6.
+    D7D6,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PathScratchBytes {
+    cells: [PathCountdown; 5],
+}
+
+impl PathScratchBytes {
+    pub fn apply(&mut self, cell: ScratchCell, actor: &mut Object, command: CountdownCommand) {
+        self.cells[cell as usize].apply(actor, command);
+    }
+
+    pub fn get(&self, cell: ScratchCell) -> u8 {
+        self.cells[cell as usize].remaining
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
