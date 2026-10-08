@@ -115,12 +115,45 @@ fn run_scene(
     };
     assert_eq!(retail_list(m), vec![POOL, POOL + STRIDE]);
 
+    // The first scene reads the boot state; later scenes continue the
+    // previous scene's world, as the source's RAM does. The stage hand-over
+    // precedes the scene-player prologue map, whose spawn branch reads the
+    // single-player policy it publishes.
+    let mut world = match carried {
+        Some(world) => world,
+        None => sf2_game::attract_stage::boot_world(),
+    };
+    sf2_game::attract_stage::hand_over(&mut world).unwrap();
+    let map_catalog = sf2_game::authored_maps::catalog().unwrap();
+    // Display and loader readiness are presentation inputs (not ported);
+    // the retail attract passes both waits in its first map visit.
+    let mut presentation = sf2_game::map_effects::MapPresentation {
+        display_ready: Some(true),
+        load_table_idle: Some(true),
+        ..Default::default()
+    };
+
     // The map spawns the scene player into an empty list; the excluded
     // proxy follows it. The fixed view lives outside the source pool, so it
     // is listed last natively and never scheduled.
     let mut objects = ObjectStore::new();
-    let defaults = ObjectSpawnDefaults { group: 0xFF, run_when_paused: false };
-    let player = sf2_game::attract_stage::spawn_scene_player(&mut objects, defaults).unwrap();
+    let mut prologue = sf2_game::scene_map::SceneMap::new(
+        &map_catalog,
+        sf2_game::authored_maps::SCENE_PLAYER_PROLOGUE,
+    )
+    .unwrap();
+    let report = sf2_game::map_effects::visit(
+        &mut prologue,
+        &map_catalog,
+        &mut objects,
+        &mut world,
+        &mut presentation,
+        64,
+    )
+    .unwrap();
+    assert_eq!(report.stop, sf2_game::scene_map::MapStop::Stopped);
+    let player = prologue.current_object().unwrap();
+    assert_eq!(objects.active_ids(), &[player]);
     assert_eq!(vector(m, POOL), objects.get(player).unwrap().base.position);
     let idle = sf2_game::attract_stage::excluded_proxy(carried_poses.as_ref().map(|poses| poses.1));
     let idle = objects.allocate_after(Some(player), idle).unwrap();
@@ -135,16 +168,8 @@ fn run_scene(
     }
     let view = objects.allocate_after(Some(idle), view).unwrap();
     assert_eq!(objects.active_ids(), &[player, idle, view]);
-
-    // The first scene reads the boot state; later scenes continue the
-    // previous scene's world, as the source's RAM does.
-    let mut world = match carried {
-        Some(world) => world,
-        None => sf2_game::attract_stage::boot_world(),
-    };
     world.primary_player = Some(player);
     world.fixed_players[0] = Some(view);
-
     let mut runner = SceneRunner::new(objects, world, Callbacks);
     runner.schedule = StrategySchedule::resume(runner.world.strategy_clock);
     // The strategy pass skips the shared excluded actor (14D6).
@@ -161,6 +186,7 @@ fn run_scene(
         &mut runner.world,
         &mut runner.execution.paths.runtime,
         player,
+        sf2_game::hit_response::HitSide::Primary,
     )
     .unwrap();
     // Compare as the original initializer returns, before other services.
@@ -170,9 +196,23 @@ fn run_scene(
     assert_eq!(byte(m, 0x1D73), selection);
     let world = &mut runner.world;
     {
-        // Native stage hand-over and the map's scene selection.
-        sf2_game::attract_stage::hand_over(world).unwrap();
-        sf2_game::attract_stage::select_scene(world, selection).unwrap();
+        // The scene's map runs after the initializer's pass, up to its park.
+        let root = match selection {
+            6 => sf2_game::authored_maps::ATTRACT_SCENE_SIX,
+            _ => sf2_game::authored_maps::ATTRACT_SCENE_SEVEN,
+        };
+        let mut scene_map = sf2_game::scene_map::SceneMap::new(&map_catalog, root).unwrap();
+        let report = sf2_game::map_effects::visit(
+            &mut scene_map,
+            &map_catalog,
+            &mut runner.objects,
+            world,
+            &mut presentation,
+            64,
+        )
+        .unwrap();
+        assert_eq!(report.stop, sf2_game::scene_map::MapStop::Yielded(0x1388));
+        assert!(scene_map.saved_continuation().is_some());
         sf2_game::attract_stage::start_frame_loop(world);
         let mode = world.view_transition_mode.unwrap();
         let group = world.spawn_defaults.unwrap().group;
@@ -194,6 +234,7 @@ fn run_scene(
     runner.schedule = StrategySchedule::resume(clock);
     runner.prepare_frame(&catalog).unwrap();
     compare(m, &runner, view, 0);
+
     let mut ended = None;
     for epoch in 0..2000u32 {
         // The retail epoch runs first so its render-timed entropy refresh can

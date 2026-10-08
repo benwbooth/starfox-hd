@@ -1,14 +1,13 @@
-//! Attract-loop scene start: the stage hand-over's scene-visible stores and
-//! the attract map records that select the scene (`$05:FBE7`, `$05:8035`).
+//! Attract-loop scene start: the boot world and the stage hand-over's
+//! scene-visible stores. The map records themselves (`$05:8003`, `$05:FBE7`,
+//! `$05:8035`) are in the generated map catalog (`authored_maps.rs`).
 //! Only stores consumed by the scene services are modeled here; presentation
 //! (scene loads, display mode, music) belongs to its own owners.
 
-use super::path_program::ActionGate;
-use super::scene_map::{self, MapActorSpawn};
-use super::scene_path_world::ScenePathWorld;
 use super::path_scene_state::EncounterHandoff;
+use super::scene_path_world::ScenePathWorld;
 use super::view_transition::{FixedViewAngles, ViewTransitionMode};
-use super::{Behavior, Object, ObjectId, ObjectKind, ObjectSpawnDefaults, ObjectStore, ShapeId, Vector3};
+use super::{Behavior, Object, ObjectKind, ObjectSpawnDefaults, ShapeId, Vector3};
 
 /// Shared mode word (1B84): `$03:83C1` sets bit 0010, `$03:83C7` clears 0100.
 const STAGE_MODE_SET: u16 = 0x0010;
@@ -20,17 +19,6 @@ const NO_SELECTED_REGION: u8 = u8::MAX;
 /// `$03:8A68`: the scene frame loop reseeds the generator before its first
 /// epoch, after the map has selected the scene.
 const SCENE_LOOP_SEED: [u8; 4] = [0x3A, 0xA7, 0x55, 0x7F];
-/// Map records `5C 01 721D00` / `5C 00 741D00`.
-const SCENE_GATE: u8 = 1;
-const SCENE_HANDOFF_FLAGS: u8 = 0;
-
-/// Map record `$05:8003` (opcode 86): the scene player, strategy `$06:82F9`.
-const SCENE_PLAYER_SPAWN: MapActorSpawn = MapActorSpawn {
-    kind: ObjectKind::Player,
-    shape: ShapeId::EMPTY,
-    behavior: Behavior::PlayerSceneInit,
-    position: Vector3 { x: 400, y: -150, z: 0 },
-};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttractStageError {
@@ -53,32 +41,11 @@ pub fn hand_over(world: &mut ScenePathWorld) -> Result<(), AttractStageError> {
     Ok(())
 }
 
-/// The scene-selecting map records after the scene player is initialized.
-pub fn select_scene(world: &mut ScenePathWorld, selection: u8) -> Result<(), AttractStageError> {
-    world
-        .handoff
-        .as_mut()
-        .ok_or(AttractStageError::MissingHandoff)?
-        .player_flags = SCENE_HANDOFF_FLAGS;
-    world.action_gate = Some(ActionGate { code: SCENE_GATE });
-    world.scene_selection = Some(selection);
-    Ok(())
-}
-
 /// The scene frame loop's start (`$03:8A62`), before its first epoch.
 pub fn start_frame_loop(world: &mut ScenePathWorld) {
     world.random.reseed(SCENE_LOOP_SEED);
 }
 
-/// The scene-player spawn record. Its inline continuation (`$05:8011`)
-/// spawns a second player only without the single-player policy (1AA6 bit
-/// 02), which the attract loop always publishes.
-pub fn spawn_scene_player(
-    objects: &mut ObjectStore,
-    defaults: ObjectSpawnDefaults,
-) -> Option<ObjectId> {
-    scene_map::allocate_map_actor(objects, defaults, SCENE_PLAYER_SPAWN)
-}
 
 /// The scene-six stage start (`$03:BF71..BF91`) returns the fixed view to
 /// the origin with zero angles, including their fractions. Scene seven's
@@ -130,6 +97,8 @@ pub fn boot_world() -> ScenePathWorld {
     world.engine_sound_control = Some(super::player_engine_sound::EngineSoundControl::from_bits(0));
     world.linked_effect_activity = Some(Default::default());
     world.camera_tracking = Some(Default::default());
+    world.render_environment.ambient_control =
+        Some(super::player_surface_render::AmbientParticleControl::from_bits(0));
     world
 }
 

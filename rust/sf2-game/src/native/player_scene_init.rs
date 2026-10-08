@@ -1,6 +1,7 @@
 //! Scene-player initializer (`$06:82F9..832B`, with `$06:832C..8361`): the
 //! strategy a map installs for the player of an indexed scene. Its first
 //! visit formats the player and installs the scene entry at `$06:845C`.
+//! The secondary-side entry (`$06:82ED`) differs only in the hit side.
 
 use super::actor_auxiliary::{AuxiliaryError, AuxiliaryRecord, DeathHandler};
 use super::hit_response::HitSide;
@@ -40,11 +41,12 @@ pub fn initialize(
     world: &mut ScenePathWorld,
     runtime: &mut PathRuntime,
     owner: ObjectId,
+    side: HitSide,
 ) -> Result<(), SceneInitError> {
     let actor = objects
         .get_mut(owner)
         .ok_or(WorldInputError::MissingActor(owner))?;
-    actor.base.contacts.hit_side = HitSide::Primary;
+    actor.base.contacts.hit_side = side;
     actor.base.contacts.run_when_paused = true;
     world.scene.player_configuration = Some(SCENE_PLAYER_CONFIGURATION);
     let actor = objects.get_mut(owner).expect("validated scene player");

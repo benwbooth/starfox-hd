@@ -1898,9 +1898,9 @@ impl<C: SceneCallbacks> SceneActors<'_, C> {
                 ).map_err(SceneError::PlayerActionWait)?;
                 Ok(owner)
             }
-            Behavior::PlayerSceneInit => {
+            Behavior::PlayerSceneInit(side) => {
                 super::player_scene_init::initialize(
-                    self.objects, self.world, &mut self.execution.paths.runtime, owner,
+                    self.objects, self.world, &mut self.execution.paths.runtime, owner, side,
                 ).map_err(SceneError::PlayerSceneInit)?;
                 Ok(owner)
             }
