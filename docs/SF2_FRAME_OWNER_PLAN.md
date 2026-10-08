@@ -59,6 +59,27 @@ Findings that shaped it:
   (`$05:FBE7`, `$05:8035`, ...), and the scene-player initializer `$06:82F9`
   (entry at `$06:845C` is ported as `SceneEntryPhase::ClearLaunchCounts`).
 
+## Attract loop status (2026-10-08, later)
+
+The attract loop (scene 6 at map `$05:FBE7`, scene 7 at `$05:8035`,
+repeating) now runs entirely natively: `attract_stage.rs` provides the boot
+world, the map's scene-player spawn (`$05:8003`), the stage hand-over stores,
+the scene selection records, the frame-loop reseed (`$03:8A62`) and the
+scene-six view reset (`$03:BF71`); `player_scene_init.rs` ports the
+initializer `$06:82F9`. The oracle runs 6 → 7 → 6 from the native boot
+world, carrying the world between scenes, and matches every epoch. Not yet
+native: the scene loaders' palette and artwork uploads (load `0x8D` =
+`$03:C80B`, load `0x03` = `$03:C7B3`, uploaded during the first frames), the
+bank-0B sprite/script system whose script ends scene 7 (`INC $1BE4` at
+`$0B:E293`, polled by `$03:C2B0`), and the title stage machine (`$03:BC82`
+dispatch on 1B76). Shipping still plays the recorded intro video
+(`sf-render/src/sf2_intro.rs`); replacing it needs those presentation pieces
+plus a 3D render path for the intro mode.
+
+Note: the hand-built `intro_*.rs` OpeningScene reconstructs this same scene
+six (its ignored retail test fails at update 101 on entropy timing, which the
+draw-indexed `EntropyRefresh` input resolves). It is not used by shipping.
+
 ## Smallest coherent first slice
 
 Run one installed scene end to end on the shared scheduler, with a live
