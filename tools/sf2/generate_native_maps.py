@@ -39,6 +39,16 @@ ROOTS = (
     ("SCENE_PLAYER_PROLOGUE", MapAddress(5, 0x0003)),
     ("ATTRACT_SCENE_SIX", MapAddress(5, 0x7BE7)),
     ("ATTRACT_SCENE_SEVEN", MapAddress(5, 0x0035)),
+    # Scene launchers installed by the stage table ($03:BA5D..BD90): each
+    # loads its scene, publishes the scene selection (1D73) and parks.
+    ("SCENE_EIGHT_LAUNCHER", MapAddress(5, 0x00A7)),
+    # Scene four: encounter variant 4 (1C06), then scene twenty-five.
+    ("SCENE_FOUR_LAUNCHER", MapAddress(5, 0x7C2E)),
+    ("SCENE_FIVE_LAUNCHER", MapAddress(5, 0x7C83)),
+    ("SCENE_THREE_LAUNCHER", MapAddress(5, 0x7CBD)),
+    ("SCENE_ONE_LAUNCHER", MapAddress(5, 0x7CF7)),
+    ("SCENE_ONE_ALTERNATE_LAUNCHER", MapAddress(5, 0x7D31)),
+    ("SCENE_TWENTY_EIGHT_LAUNCHER", MapAddress(5, 0x7D6B)),
 )
 
 PHASE_HOLD = 0x1388

@@ -813,4 +813,43 @@ mod tests {
             MapPlacement { x: Some(256), y: Some(-140), z: Some(20), heading: Some(0x40) }
         );
     }
+
+    #[test]
+    fn scene_launchers_load_select_and_park_at_their_phase_gate() {
+        use super::super::scene_map::{MapStop, SceneMap};
+        use super::super::{attract_stage, authored_maps};
+        let catalog = authored_maps::catalog().unwrap();
+        for (root, load, selection) in [
+            (authored_maps::SCENE_EIGHT_LAUNCHER, 0x1B, 8),
+            (authored_maps::SCENE_FOUR_LAUNCHER, 0x57, 25),
+            (authored_maps::SCENE_FIVE_LAUNCHER, 0x99, 5),
+            (authored_maps::SCENE_THREE_LAUNCHER, 0xAB, 3),
+            (authored_maps::SCENE_ONE_LAUNCHER, 0xAB, 1),
+            (authored_maps::SCENE_ONE_ALTERNATE_LAUNCHER, 0x8D, 1),
+            (authored_maps::SCENE_TWENTY_EIGHT_LAUNCHER, 0x8D, 28),
+        ] {
+            let mut objects = ObjectStore::new();
+            let mut world = attract_stage::boot_world();
+            world.campaign = Some(super::super::path_program::CampaignPathInputs {
+                difficulty: super::super::Difficulty::Normal,
+                encounter_variant: 0,
+                secondary_variant: 0,
+            });
+            let mut presentation = MapPresentation {
+                display_ready: Some(true),
+                load_table_idle: Some(true),
+                ..Default::default()
+            };
+            let mut map = SceneMap::new(&catalog, root).unwrap();
+            let report = visit(&mut map, &catalog, &mut objects, &mut world, None, &mut presentation, 64)
+                .unwrap();
+            assert_eq!(report.stop, MapStop::Yielded(0x1388));
+            assert_eq!(presentation.scene_load, Some(load));
+            assert_eq!(world.scene_selection, Some(selection));
+            assert!(map.saved_continuation().is_some());
+            if root == authored_maps::SCENE_FOUR_LAUNCHER {
+                assert_eq!(world.campaign.unwrap().encounter_variant, 4);
+            }
+        }
+    }
 }
