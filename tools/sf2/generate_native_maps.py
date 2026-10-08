@@ -54,6 +54,12 @@ ROOTS = (
     ("SCENE_TWENTY_FIVE_LAUNCHER", MapAddress(5, 0x7DAC)),
     ("SCENE_TWENTY_EIGHT_CHAINED_LAUNCHER", MapAddress(5, 0x7DFC)),
     ("SCENE_TWENTY_SIX_LAUNCHER", MapAddress(5, 0x7E36)),
+    # World mission maps, installed through the encounter-location table at
+    # $03:BA17 (location 2 Macbeth, 4 Meteor, 5 Fortuna; their audio records
+    # $08A/$0B2/$0C3 identify the worlds).
+    ("MACBETH_MISSION", MapAddress(5, 0x2213)),
+    ("METEOR_MISSION", MapAddress(5, 0x3D99)),
+    ("FORTUNA_MISSION", MapAddress(5, 0x489E)),
 )
 
 PHASE_HOLD = 0x1388

@@ -346,7 +346,11 @@ fn five_part_shape_selection_is_bounded_and_does_not_reset_other_actor_state() {
     let source = authored_paths::catalog();
     let shapes = (0..authored_paths::LOWERED_COMMAND_COUNT as u16)
         .find_map(|i| match source.statement(at(i)).unwrap() {
-            Statement::SelectShape { shapes, .. } if shapes.len() == 5 => Some(shapes),
+            Statement::SelectShape { shapes, .. }
+                if shapes.len() == 5 && shapes[0] == ShapeId::from_catalog_index(390) =>
+            {
+                Some(shapes)
+            }
             _ => None,
         })
         .unwrap();
