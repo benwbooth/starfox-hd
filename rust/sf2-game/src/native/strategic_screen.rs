@@ -320,6 +320,9 @@ pub struct MapCampaign {
     pub start_cursor: u16,
     /// DA59: bases remaining.
     pub bases_left: u16,
+    /// D9B6..D9B9: the last new place's position and spawn target, which
+    /// the next placement inherits where it sets fewer.
+    pub placement: [u8; 4],
 }
 
 /// Campaign words the screen reads, and the few it writes back.

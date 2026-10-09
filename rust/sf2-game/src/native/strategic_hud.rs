@@ -164,6 +164,14 @@ fn cycle(counter: &mut [u8; 4], step: u16) -> Option<u16> {
     Some(offset)
 }
 
+/// `$04:ABE3`: the planet's three colours (EFE7+0x80) from `row`.
+pub(super) fn planet_colours(hud: &mut MapHud, row: usize) {
+    for k in 0..3 {
+        let at = usize::from(0xEFE7u16 + 0x80 - PALETTE_BASE) + 2 * k;
+        hud.palette[at..at + 2].copy_from_slice(&PLANET_COLOURS[row + k].to_le_bytes());
+    }
+}
+
 /// `$04:AB07`.
 fn cycles(hud: &mut MapHud, screen: &mut MapScreen, map: &StrategicMap, links: &ScreenLinks) -> Result<(), ScreenError> {
     if links.mode & 0x0040 != 0 {
@@ -210,11 +218,7 @@ fn cycles(hud: &mut MapHud, screen: &mut MapScreen, map: &StrategicMap, links: &
             None
         };
         if let Some(row) = row {
-            // $04:ABE3: three colours at EFE7+0x80.
-            for k in 0..3 {
-                let at = usize::from(0xEFE7u16 + 0x80 - PALETTE_BASE) + 2 * k;
-                hud.palette[at..at + 2].copy_from_slice(&PLANET_COLOURS[row + k].to_le_bytes());
-            }
+            planet_colours(hud, row);
         }
     }
     Ok(())

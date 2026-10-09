@@ -61,6 +61,7 @@ pub mod draw;
 pub mod lighting;
 #[cfg(feature = "oracle-data")]
 pub mod map;
+pub mod map_layers;
 pub mod map_sprites;
 pub mod messages;
 #[cfg(feature = "oracle-data")]

@@ -120,9 +120,16 @@ a mutated-state differential against the original routine). Not ported and
 faulting when reached: Select's script ending (`$06:A325`), the end-of-game
 services (`$04:D377` entries past the first), the two-player Start.
 
-Next: the map program (`$04:AE4F`: map entry, new-game setup, the events
-that start scripts), the map HUD dispatch (`$04:A3ED`), the map interrupt
-frame order (`$7F:03C2`), then hosting map and stage visits in `Game`.
+The map program's visit (`strategic_visit.rs`: the director `$04:B9A3`,
+the sprite pass `$04:8301`, the HUD service `$04:A3ED`, the radio and
+message box `$0B:9F87`/`$0B:8234`, and the interrupt's frame order) and its
+entry (`strategic_entry.rs`: `$04:DCBC` with the campaign setup `$04:DEA9`,
+the terrain grid and palette decompressed by `$01:D9FF`) match retail
+(`sf2_strategic_visit.rs`, `sf2_strategic_entry.rs`, `sf2_strategic_radio.rs`,
+`sf2_message_box.rs`). Not ported and faulting when reached: the return from
+a stage (1B86 bit 2, 1B88 bit 4: `$04:E05E`, `$04:B2F2`), the exits
+(`$04:AEE4` on 1B74, with the closing iris, director state 0x10), then
+hosting the map visit in `Game` in place of the scripted strategic map.
 
 ## Smallest coherent first slice
 

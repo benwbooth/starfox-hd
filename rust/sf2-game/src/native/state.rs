@@ -351,6 +351,25 @@ impl RandomState {
         accumulator
     }
 
+    /// `$7F:7BD4` run with a sixteen-bit accumulator: the same chain over
+    /// overlapping words, which reads and writes `tail`, the byte after the
+    /// generator (DP E4). Returns the accumulator (the word E0..E1).
+    pub fn next_word(&mut self, tail: &mut u8) -> u16 {
+        let mut bytes = [self.bytes[0], self.bytes[1], self.bytes[2], self.bytes[3], *tail];
+        let word = |bytes: &[u8; 5], at: usize| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
+        let mut value = word(&bytes, 0);
+        let mut no_borrow = false;
+        for (operand, store) in [(1, 1), (2, 2), (3, 3), (0, 0)] {
+            let subtrahend = u32::from(word(&bytes, operand)) + u32::from(!no_borrow);
+            no_borrow = u32::from(value) >= subtrahend;
+            value = (u32::from(value).wrapping_sub(subtrahend)) as u16;
+            bytes[store..store + 2].copy_from_slice(&value.to_le_bytes());
+        }
+        self.bytes = [bytes[0], bytes[1], bytes[2], bytes[3]];
+        *tail = bytes[4];
+        value
+    }
+
     fn step(&mut self) -> u8 {
         fn subtract_with_borrow(left: u8, right: u8, no_borrow: bool) -> (u8, bool) {
             let borrow = u16::from(!no_borrow);

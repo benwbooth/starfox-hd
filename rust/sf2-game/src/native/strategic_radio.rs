@@ -117,6 +117,9 @@ const SCRIPT_PLACE_INFO: u16 = 0xA609;
 const SCRIPT_UNIT_INFO: u16 = 0xA630;
 const SCRIPT_RADIO: u16 = 0xA642;
 const SCRIPT_SKIP: u16 = 0xA6BB;
+const SCRIPT_TUTORIAL: u16 = 0xA732;
+/// `$0B:A07B`: the message box's base tile word.
+const BOX_BASE: u16 = 0x00D7;
 /// `$0B:FB8D`: alert bits and their message, progress, timer and style.
 const ALERTS: [(u16, u8, u8, u8, u8); 14] = [
     (0x0001, 0x6F, 0x00, 0x00, 0x04),
@@ -705,6 +708,47 @@ impl Radio<'_> {
         self.radio.page_frames = 0;
         self.sprites.flare_frame = 0;
         Flow::WaitAt(arg + 1)
+    }
+
+    /// `$0B:9F4C`: the map entry's reset of the radio and the message box
+    /// (the box's tiles are presentation).
+    pub fn reset(&mut self) {
+        self.radio.panel = 0;
+        self.links.text_state[0] = 0;
+        self.radio.choice = 0;
+        self.message_box.row = 0;
+        self.sprites.highlight_kind = 0;
+        // $0B:9FC1: the tutorial map and a held box keep the box busy.
+        let held = self.links.scene.stage_results & 0x0080 != 0 || self.map.globals.speed_flags & 0x0100 != 0;
+        self.message_box.busy = if held { 0xFFFF } else { 0 };
+        // $0B:A05A.
+        self.radio.box_base = BOX_BASE;
+        // $0B:9FDD.
+        self.sprites.flare_style = 0;
+        self.radio.opened_from = 0;
+        self.radio.tick = 0;
+        self.sprites.flare_frame = 0;
+        self.message_box.open = 0;
+        self.message_box.row = 0;
+        self.message_box.progress = 0;
+        self.message_box.style = 0;
+        self.sprites.ring_animation = 0;
+        self.sprites.effect_origin = self.radio.box_base | 0xC700;
+        self.message_box.duration = 0x0021;
+        self.links.message = 0;
+        if self.message_box.busy != 0 {
+            self.message_box.duration = 0x007F;
+        }
+        // $0B:A046.
+        self.radio.accept = 0;
+        self.sprites.burst_frames = (0, 0);
+        self.radio.radio_event = 0;
+        self.message_box.message = 0;
+        self.clear_radio();
+        // $0B:9FB2: the tutorial map's script.
+        if self.links.scene.stage_results & 0x0080 != 0 {
+            self.links.message = SCRIPT_TUTORIAL;
+        }
     }
 
     /// `$0B:A029`: the radio and the map's pending events are cleared.

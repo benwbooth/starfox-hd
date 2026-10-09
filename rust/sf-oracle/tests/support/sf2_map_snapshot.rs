@@ -130,6 +130,7 @@ pub(crate) fn screen(s: &Snapshot) -> MapScreen {
             wave_escorts: s.word(0xDA41),
             start_cursor: s.word(0xDA3F),
             bases_left: s.word(0xDA59),
+            placement: [s.byte(0xD9B6), s.byte(0xD9B7), s.byte(0xD9B8), s.byte(0xD9B9)],
         },
     }
 }

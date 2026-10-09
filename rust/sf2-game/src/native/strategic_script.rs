@@ -5,7 +5,7 @@
 //! script on, or waits.
 
 use super::strategic_screen::{bearing, near8, rotate, Frame, ScreenError, ScriptSubject};
-use super::strategic_sim::{byte_at, word_at, PlaceId, UnitId, PLACE_CAPACITY, PROGRAMS, TERRAIN_ROW};
+use super::strategic_sim::{byte_at, word_at, PlaceId, StrategicMap, UnitId, PLACE_CAPACITY, PROGRAMS, TERRAIN_ROW};
 
 /// `$04:CD6E`: each script's offset (indexed by DA7F), then the step
 /// lists: handler addresses, ending in 0001.
@@ -110,6 +110,46 @@ fn table_word(table: &[u8], index: usize, site: u32) -> Result<u16, ScreenError>
 
 fn set_low(word: &mut u16, byte: u8) {
     *word = (*word & 0xFF00) | u16::from(byte);
+}
+
+/// `$04:E560`: the difficulty's first wave.
+pub(super) fn wave_start(difficulty: u16) -> Result<u16, ScreenError> {
+    table_word(&WAVES, usize::from(difficulty.wrapping_mul(2)), 0x04E567)
+}
+
+/// `$04:E4DA`: a place from the free list, linked first, at `at` (its
+/// position and its units' spawn target) with its kind and menu row.
+pub(super) fn new_place(
+    map: &mut StrategicMap,
+    at: [u8; 4],
+    kind: u8,
+    menu: u8,
+    difficulty: u16,
+) -> Result<PlaceId, ScreenError> {
+    let id = map.place_free.ok_or(ScreenError::PlacePoolExhausted)?;
+    let index = usize::from(id.0);
+    if index >= PLACE_CAPACITY {
+        return Err(ScreenError::MissingPlace(0x04E4E1));
+    }
+    map.place_free = map.places[index].next;
+    let head = map.place_head;
+    map.places[index].next = head;
+    map.places[index].prev = None;
+    map.place_head = Some(id);
+    if let Some(next) = head {
+        map.places[usize::from(next.0)].prev = Some(id);
+    }
+    let place = &mut map.places[index];
+    set_low(&mut place.x, at[0]);
+    set_low(&mut place.cell_x, at[0] >> 3);
+    set_low(&mut place.y, at[1]);
+    set_low(&mut place.cell_y, at[1] >> 3);
+    set_low(&mut place.spawn_target_x, at[2]);
+    set_low(&mut place.spawn_target_y, at[3]);
+    set_low(&mut place.info, (difficulty as u8) << 1);
+    place.kind = u16::from(kind);
+    place.menu_index = u16::from(menu);
+    Ok(id)
 }
 
 fn set_high(word: &mut u16, byte: u8) {
@@ -809,34 +849,12 @@ impl Frame<'_> {
         }
     }
 
-    /// `$04:E4DA`: a place from the free list, first in the list, set at
-    /// `placement` (position, spawn target).
+    /// The wave places (`$04:E5B9`): the placement bytes D9B6..D9B9, then
+    /// `$04:E4DA`.
     fn new_place(&mut self, placement: &[u8]) -> Result<PlaceId, ScreenError> {
-        let id = self.map.place_free.ok_or(ScreenError::PlacePoolExhausted)?;
-        let index = usize::from(id.0);
-        if index >= PLACE_CAPACITY {
-            return Err(ScreenError::MissingPlace(0x04E4E1));
-        }
-        self.map.place_free = self.map.places[index].next;
-        let head = self.map.place_head;
-        self.map.places[index].next = head;
-        self.map.places[index].prev = None;
-        self.map.place_head = Some(id);
-        if let Some(next) = head {
-            self.map.places[usize::from(next.0)].prev = Some(id);
-        }
-        let difficulty = self.links.difficulty as u8;
-        let place = &mut self.map.places[index];
-        set_low(&mut place.x, placement[0]);
-        set_low(&mut place.cell_x, placement[0] >> 3);
-        set_low(&mut place.y, placement[1]);
-        set_low(&mut place.cell_y, placement[1] >> 3);
-        set_low(&mut place.spawn_target_x, placement[2]);
-        set_low(&mut place.spawn_target_y, placement[3]);
-        set_low(&mut place.info, difficulty << 1);
-        place.kind = u16::from(WAVE_PLACE_KIND);
-        place.menu_index = u16::from(WAVE_PLACE_MENU);
-        Ok(id)
+        let at = [placement[0], placement[1], placement[2], placement[3]];
+        self.screen.campaign.placement = at;
+        new_place(self.map, at, WAVE_PLACE_KIND, WAVE_PLACE_MENU, self.links.difficulty)
     }
 
     /// `$04:E64E`: the wave place's escort sets out from the next start.

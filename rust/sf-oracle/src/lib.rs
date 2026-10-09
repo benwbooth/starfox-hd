@@ -97,6 +97,11 @@ pub struct SnesBus {
     gsu_first_ce37_pc_trace: Option<Vec<u32>>,
     gsu_first_ce37_register_trace: Option<Vec<String>>,
     gsu_first_d9ff_register_trace: Option<Vec<String>>,
+    /// DMA channel registers ($4300-$437F) and the WRAM port address
+    /// ($2181-$2183). Only transfers into the WRAM port ($2180) run;
+    /// transfers to video ports are presentation and are dropped.
+    dma: [u8; 0x80],
+    wram_port: u32,
 }
 
 impl SnesBus {
@@ -131,7 +136,65 @@ impl SnesBus {
             gsu_first_ce37_pc_trace: None,
             gsu_first_ce37_register_trace: None,
             gsu_first_d9ff_register_trace: None,
+            dma: [0; 0x80],
+            wram_port: 0,
         }
+    }
+
+    /// The DMA and WRAM port registers, in the system banks.
+    fn system_write(&mut self, addr: u32, v: u8) -> bool {
+        let bank = (addr >> 16) & 0xFF;
+        if !(bank <= 0x3F || (0x80..=0xBF).contains(&bank)) {
+            return false;
+        }
+        match addr & 0xFFFF {
+            0x2180 => {
+                self.wram[(self.wram_port & 0x1_FFFF) as usize] = v;
+                self.wram_port = (self.wram_port + 1) & 0x1_FFFF;
+            }
+            0x2181 => self.wram_port = (self.wram_port & 0x1_FF00) | u32::from(v),
+            0x2182 => self.wram_port = (self.wram_port & 0x1_00FF) | (u32::from(v) << 8),
+            0x2183 => self.wram_port = (self.wram_port & 0xFFFF) | (u32::from(v & 1) << 16),
+            offset @ 0x4300..=0x437F => self.dma[usize::from((offset - 0x4300) as u16)] = v,
+            0x420B => {
+                for channel in 0..8 {
+                    if v & (1 << channel) != 0 {
+                        self.run_dma(channel);
+                    }
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// One general-purpose DMA channel, A bus to B bus, into the WRAM port.
+    fn run_dma(&mut self, channel: usize) {
+        let regs: [u8; 8] = self.dma[channel * 0x10..channel * 0x10 + 8].try_into().unwrap();
+        let (control, port) = (regs[0], regs[1]);
+        if control & 0x87 != 0 || port != 0x80 {
+            return;
+        }
+        let bank = u32::from(regs[4]);
+        let mut source = u16::from_le_bytes([regs[2], regs[3]]);
+        let count = match u16::from_le_bytes([regs[5], regs[6]]) {
+            0 => 0x1_0000u32,
+            n => u32::from(n),
+        };
+        for _ in 0..count {
+            let byte = self.read8((bank << 16) | u32::from(source));
+            self.system_write(0x002180, byte);
+            match control & 0x18 {
+                0x00 => source = source.wrapping_add(1),
+                0x10 => source = source.wrapping_sub(1),
+                _ => {}
+            }
+        }
+        let end = source.to_le_bytes();
+        self.dma[channel * 0x10 + 2] = end[0];
+        self.dma[channel * 0x10 + 3] = end[1];
+        self.dma[channel * 0x10 + 5] = 0;
+        self.dma[channel * 0x10 + 6] = 0;
     }
 
     /// Attach a GSU that shares this bus's cartridge ROM. After this, CPU stores
@@ -582,6 +645,9 @@ impl SnesBus {
         }
     }
     pub fn write8(&mut self, addr: u32, v: u8) {
+        if self.system_write(addr, v) {
+            return;
+        }
         if Self::is_math_reg(addr) {
             match addr & 0xFFFF {
                 0x4202 => self.mpy_a = v,

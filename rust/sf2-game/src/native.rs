@@ -133,6 +133,7 @@ pub mod stage_controller;
 pub mod presentation_director;
 pub mod stage_launch;
 pub mod stage_setup;
+pub mod strategic_entry;
 pub mod strategic_hud;
 pub mod strategic_radio;
 pub mod strategic_sim;

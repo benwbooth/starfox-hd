@@ -2,6 +2,7 @@
 and tables the native port embeds."""
 import hashlib
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -58,6 +59,30 @@ PINS = (
     ("word wrap", 0x01ED91, 0x01EE48, "14a2065f14741d750ed2d631c823212f8c774544f41715bceeb1f33c39dac88c"),
     ("text height", 0x01EF10, 0x01EF48, "9564c4f9c9d81344ec73526587f4592c945e5e218d61fea1b07a825b55ece201"),
     ("message pointers", 0x00AEB3, 0x00B063, "27a757528b59cad379bfb0ab711b9793256feaa046c04f30071a0cc7b3c1722a"),
+    # strategic_entry.rs: the map entry and the campaign setup.
+    ("map program head", 0x04AE4F, 0x04AE92, "f17520126b53670467453cf061cfb8e092cb5fd74f80f4cbf68a479ab5eac264"),
+    ("map entry", 0x04DCBC, 0x04DE71, "906021f7fdd272b0f7c75b74d3612c4ab301ff8cfb6461bd9e51235b20ae4fe4"),
+    ("ship placement", 0x04DE71, 0x04DEA9, "def81952ffe87acceec3efdb6ada99772b1b43bdaa5c0fa46e9b8b1b89ddbec6"),
+    ("campaign setup", 0x04DEA9, 0x04E079, "696cc3df43a91960ce7e6e6142adb9acdf2af0dae60f44a1c3e318452e6c0795"),
+    ("campaign tables", 0x04E079, 0x04E082, "0460d40d441e91316ce41edc28c1e42a986f64589a64a8388534eac9e7a94284"),
+    ("pool and place setup", 0x04E0DC, 0x04E245, "a04f16332007ae57d3216df9868c3ccaf6c78b2d0a5463d23cfff5a7e1dd60e5"),
+    ("planet setup", 0x04E30C, 0x04E3B9, "cf4bda2967fe0f521b72654cb059e2845f43e48b3c49cf1eaa7a414139c0bb73"),
+    ("new place", 0x04E4DA, 0x04E571, "f12d5e1328b7b4e7bb9c95cc9ab8c5b4eb25601c714ab45fbe7101605fc56500"),
+    ("station setup", 0x04E73B, 0x04E7CD, "659ffd4ad96f5786acb4d2f5172610f9edeebf326fcc81d6c90f488d2b9aedf9"),
+    ("base setup", 0x04E88E, 0x04E920, "d5d175d29369d741779773a576b59434377ba05c627427bbed932c335b9f7daf"),
+    ("escort numbers", 0x04EE29, 0x04EE2C, "9c87f6be6cf25fabbb27e2be33c3afbb0f9e1316d9ff4130e8ddc0d66d0eb44f"),
+    ("marked places", 0x04EF1E, 0x04EF36, "977f87fe8900a9f28e4618324fe1e221c9528b11849e29d1f2c95a227998f4d1"),
+    ("map layers", 0x04EA8C, 0x04EAF6, "57a68ecdc17d935f5b48b265b2aeb2030c2e3bda76caf4cce1936c19f3d902b3"),
+    ("terrain grid", 0x04EB80, 0x04EC1A, "540ea7d71cb084f63bbd1d853d907049077f22365615aa5512978de0b3aaa891"),
+    ("palette shadow", 0x04EC76, 0x04ED33, "9f622e1f9cf90213b2b48b06350ef80f38b22fcde897f1c56a671e1b25237374"),
+    ("sprite buffer setup", 0x048001, 0x048059, "5f71fed5d69aeca86595832c6f5b13be787192e41341766ed015a08b1eadd8ec"),
+    ("sprite buffer fill", 0x049D3C, 0x049D79, "fbb37fe498f8c2bf9714c47d5276d9c377b1e9af794703413bf4266bc788cbff"),
+    ("sprite high table", 0x04A109, 0x04A12E, "8846766a2cf128e8091577b4221c647319b9509bb6cb979c85192826730ad874"),
+    ("radio reset", 0x0B9F4C, 0x0B9F87, "902be6b577e7590b6d574383577369ada1edc95f086bbd5b4d59465b1453e7a2"),
+    ("radio reset helpers", 0x0B9FB2, 0x0BA029, "1fa0f861414af4e80ef14102441160c28026d0d813882900d36f974627a86d55"),
+    ("box base", 0x0BA05A, 0x0BA084, "e6c3cda81664be28f762c1245af2054d80dbd0beddf7b5482d317520ccfc81d3"),
+    ("generator", 0x7F7BD4, 0x7F7BE8, "5cd430174268f0283a09e1ce2fbb887a1fe9e0fdf9fc7d0826f3d9114cde0880"),
+    ("decompressor", 0x01D9FF, 0x01DBDD, "3e340f6a14720ba017492ed38b3ca6cfe9f052f9a999ccfb5e46a7bb162b4eec"),
 )
 
 # Rust byte tables and the ROM ranges they copy.
@@ -78,6 +103,16 @@ TABLES = (
     ("strategic_radio.rs", "PLACE_MESSAGES", 0x0BFBE3),
     ("strategic_radio.rs", "STYLE_TOP", 0x0B85D2),
     ("strategic_radio.rs", "STYLE_CUES", 0x0B85CA),
+    ("strategic_entry.rs", "MARKS", 0x04E079),
+    ("strategic_entry.rs", "FLEETS", 0x04E07C),
+    ("strategic_entry.rs", "ENEMIES", 0x04E07F),
+    ("strategic_entry.rs", "ESCORT_NUMBERS", 0x04EE29),
+    ("strategic_entry.rs", "SCHEDULE_STARTS", 0x04E04C),
+    ("strategic_entry.rs", "MISSILES", 0x04E052),
+    ("strategic_entry.rs", "PLANET_TALLIES", 0x04E3B6),
+    ("strategic_entry.rs", "MARKED_PLACES", 0x04EF1E),
+    ("strategic_entry.rs", "SATELLITE_WAITS", 0x04E7C7),
+    ("strategic_entry.rs", "MARKER_HEADER", 0x04EE52),
 )
 
 
@@ -135,6 +170,16 @@ class StrategicScreenStaticTests(unittest.TestCase):
         self.assertEqual(b"".join(p.to_bytes(2, "little") for p in pointers), span(0x00AEB3, 0x00B063, self.rom))
         self.assertEqual(bytes(table("MESSAGES", r"0x([0-9A-Fa-f]{2})")), span(0x009168, 0x00AEB3, self.rom))
         self.assertEqual(bytes(table("FONT", r"0x([0-9A-Fa-f]{2})")), span(0x0DE1FB, 0x0DE472, self.rom))
+
+    def test_map_layers_are_the_decompressed_streams(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import extract_map_layers
+
+        text = (NATIVE.parents[2] / "sf2-data/src/map_layers.rs").read_text()
+        for name, data in (("MAP_TERRAIN", extract_map_layers.terrain(self.rom)), ("MAP_PALETTE", extract_map_layers.palette(self.rom))):
+            with self.subTest(name):
+                body = re.search(r"%s: \[u8; [^\]]+\] = \[(.*?)\];" % name, text, re.S).group(1)
+                self.assertEqual(bytes(int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{2})", body)), data)
 
     def test_dispatch_tables(self):
         def words(address, count):
