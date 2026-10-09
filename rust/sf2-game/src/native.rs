@@ -134,6 +134,8 @@ pub mod presentation_director;
 pub mod stage_launch;
 pub mod stage_setup;
 pub mod strategic_sim;
+pub mod strategic_screen;
+mod strategic_script;
 pub mod strategic_service;
 pub mod stage_announcer;
 pub mod player_scene_init;

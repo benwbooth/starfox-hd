@@ -109,6 +109,21 @@ Path to a shipping stage (replacing the recorded Leon duel in `game.rs`):
 4. The HUD service `$04:8301` (mostly drawing) and the bank-0B sprite system
    for in-stage presentation.
 
+## Strategic map status (2026-10-08)
+
+The map's real-time simulation (`$7F:537D`, `strategic_sim.rs`) and the map
+screen's frame (`$04:B5DA`, `strategic_screen.rs`) with its scripted set
+pieces (`$04:CD47`: warp, satellite capture, interceptor falls, enemy waves
+and guard markers, `strategic_script.rs`) match retail per call
+(`sf-oracle/tests/sf2_strategic_sim.rs`, `sf2_strategic_screen.rs`, each with
+a mutated-state differential against the original routine). Not ported and
+faulting when reached: Select's script ending (`$06:A325`), the end-of-game
+services (`$04:D377` entries past the first), the two-player Start.
+
+Next: the map program (`$04:AE4F`: map entry, new-game setup, the events
+that start scripts), the map HUD dispatch (`$04:A3ED`), the map interrupt
+frame order (`$7F:03C2`), then hosting map and stage visits in `Game`.
+
 ## Smallest coherent first slice
 
 Run one installed scene end to end on the shared scheduler, with a live

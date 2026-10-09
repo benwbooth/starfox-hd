@@ -32,18 +32,27 @@ pub struct MapPlace {
     pub prev: Option<PlaceId>,
     /// +04: the place's kind.
     pub kind: u16,
+    /// +06/+08: the map screen's menu position and info line, which the
+    /// simulation never reads.
+    pub menu_index: u16,
+    pub info: u16,
     /// +0C/+0E: map position (words; the low bytes are the coordinates).
     pub x: u16,
     pub y: u16,
     /// +10/+12: where its units head when spawned.
     pub spawn_target_x: u16,
     pub spawn_target_y: u16,
+    /// +14/+16: the position's terrain cell (set when a wave places it).
+    pub cell_x: u16,
+    pub cell_y: u16,
     /// +18/+1A: the spawn program's position (`$7F:6C10`) and repeats.
     pub program: u16,
     pub program_repeats: u16,
     /// +1C/+1E: flags and status.
     pub flags: u16,
     pub status: u16,
+    /// +20: the map screen's marker word.
+    pub marker: u16,
     /// +22: units arrived here.
     pub arrivals: u16,
     /// +24: the heading its last departing unit took.
@@ -54,6 +63,9 @@ pub struct MapPlace {
     /// +2A/+2C: a target position its departing units adopt.
     pub target_x: u16,
     pub target_y: u16,
+    /// +2E/+30: the wave's route bytes.
+    pub route_x: u16,
+    pub route_y: u16,
     /// +32/+34: the threat warning's kind and countdown.
     pub warning: u16,
     pub warning_countdown: u16,
@@ -293,10 +305,10 @@ impl StrategicMap {
     fn place_mut(&mut self, id: Option<PlaceId>, site: u32) -> Result<&mut MapPlace, SimError> {
         id.map(|id| &mut self.places[usize::from(id.0)]).ok_or(SimError::MissingPlace(site))
     }
-    fn unit(&self, id: UnitId) -> &MapUnit {
+    pub(crate) fn unit(&self, id: UnitId) -> &MapUnit {
         &self.units[usize::from(id.0)]
     }
-    fn unit_mut(&mut self, id: UnitId) -> &mut MapUnit {
+    pub(crate) fn unit_mut(&mut self, id: UnitId) -> &mut MapUnit {
         &mut self.units[usize::from(id.0)]
     }
 
@@ -520,7 +532,7 @@ impl StrategicMap {
     }
 
     /// `$7F:5920`: whether the unit is within its radius of its target.
-    fn reached_target(&self, id: UnitId) -> bool {
+    pub(crate) fn reached_target(&self, id: UnitId) -> bool {
         let unit = self.unit(id);
         within((u16::from(unit.x), u16::from(unit.y)), (unit.target_x, unit.target_y), unit.radius)
     }
@@ -554,7 +566,7 @@ impl StrategicMap {
     }
 
     /// `$7F:698F`: face the target, then recompute the velocity.
-    fn aim(&mut self, id: UnitId) {
+    pub(crate) fn aim(&mut self, id: UnitId) {
         let heading = self.heading_to_target(id);
         self.unit_mut(id).heading = heading;
         self.update_velocity(id);
@@ -920,106 +932,216 @@ impl StrategicMap {
         let mut cursor = self.unit_head;
         while let Some(id) = cursor {
             let next = self.unit(id).next;
-            let unit = *self.unit(id);
-            if unit.flags & 0x8740 == 0 {
-                match unit.behavior & 0x00FF {
-                    0 => {}
-                    // $7F:5B67.
-                    1 => {
-                        if self.behavior_timer(id) {
-                            if self.unit(id).flags & UNIT_FIGHTER == 0 {
-                                self.launch(id, links, inputs)?;
-                            } else {
-                                self.unit_mut(id).turn_rate = 0x0200;
-                                self.time_turn(id);
-                                let unit = self.unit_mut(id);
-                                unit.speed = 0x0200;
-                                unit.motion = 7;
-                            }
-                        }
-                    }
-                    // $7F:5B8A.
-                    2 => {
-                        if unit.timer == 0 {
-                            self.launch(id, links, inputs)?;
-                        }
-                    }
-                    // $7F:5ADC.
-                    3 => {
-                        if self.reached_target(id) {
-                            let unit = self.unit_mut(id);
-                            unit.motion = 0;
-                            unit.sprite = 0x23;
-                            unit.frame = 0;
-                            unit.behavior = 4;
-                            unit.timer = 0x10;
-                            unit.animation_timer = 0x10;
-                        }
-                    }
-                    // $7F:5B03.
-                    4 => {
-                        let unit = self.unit_mut(id);
-                        unit.timer = unit.timer.wrapping_sub(1);
-                        if unit.timer == 0 {
-                            unit.flags &= !UNIT_HIDDEN;
-                            unit.behavior = 7;
-                            self.globals.launches_pending = self.globals.launches_pending.wrapping_sub(1);
-                        }
-                    }
-                    // $7F:5B1F.
-                    5 => {
-                        if self.reached_target(id) {
-                            let unit = self.unit_mut(id);
-                            unit.flags |= UNIT_HIDDEN;
-                            unit.motion = 0;
-                            unit.sprite = 0x26;
-                            unit.frame = 0;
-                            unit.behavior = 6;
-                            unit.timer = 0x32;
-                            unit.animation_timer = 0x32;
-                            output.cues.push(0x008B);
-                        }
-                    }
-                    // $7F:5B56.
-                    6 => {
-                        let unit = self.unit_mut(id);
-                        unit.timer = unit.timer.wrapping_sub(1);
-                        if unit.timer == 0 {
-                            self.destroy(id, links)?;
-                            self.globals.launches_pending = self.globals.launches_pending.wrapping_sub(1);
-                        }
-                    }
-                    // $7F:5BC1.
-                    7 => {
-                        if unit.flags & UNIT_GROUNDED != 0 {
-                            self.strike_planet(id, links)?;
-                        } else if unit.flags2 & 0x0100 != 0 {
-                            self.run_program(id, inputs, links)?;
-                        } else if unit.flags & UNIT_MISSILE != 0 {
-                            self.missile_flight(id, links, inputs)?;
-                        }
-                    }
-                    // $7F:5BE0.
-                    8 => self.strike_planet(id, links)?,
-                    // $7F:5CB3.
-                    9 => {
-                        if unit.timer == 0 {
-                            self.burn_out(id);
-                            if links.scene_events & 0x0010 == 0 {
-                                self.unit_mut(id).behavior = 0x11;
-                            } else {
-                                self.globals.map_events |= 0x0008;
-                                self.damage_planet(id, links);
-                                self.destroy(id, links)?;
-                            }
-                        }
-                    }
-                    other => return Err(SimError::Unported(0x7F5AB5 + u32::from(other) * 2)),
-                }
+            if self.unit(id).flags & 0x8740 == 0 {
+                self.behave(id, links, inputs, output)?;
             }
             cursor = next;
         }
         Ok(())
+    }
+
+    /// `$7F:66A6`: one unit's behavior (`$7F:5AB5` table).
+    pub(crate) fn behave(
+        &mut self,
+        id: UnitId,
+        links: &mut SceneLinks,
+        inputs: StrategicInputs<'_>,
+        output: &mut TickOutput,
+    ) -> Result<(), SimError> {
+        let unit = *self.unit(id);
+        match unit.behavior & 0x00FF {
+            0 => {}
+            // $7F:5B67.
+            1 => {
+                if self.behavior_timer(id) {
+                    if self.unit(id).flags & UNIT_FIGHTER == 0 {
+                        self.launch(id, links, inputs)?;
+                    } else {
+                        self.unit_mut(id).turn_rate = 0x0200;
+                        self.time_turn(id);
+                        let unit = self.unit_mut(id);
+                        unit.speed = 0x0200;
+                        unit.motion = 7;
+                    }
+                }
+            }
+            // $7F:5B8A.
+            2 => {
+                if unit.timer == 0 {
+                    self.launch(id, links, inputs)?;
+                }
+            }
+            // $7F:5ADC.
+            3 => {
+                if self.reached_target(id) {
+                    let unit = self.unit_mut(id);
+                    unit.motion = 0;
+                    unit.sprite = 0x23;
+                    unit.frame = 0;
+                    unit.behavior = 4;
+                    unit.timer = 0x10;
+                    unit.animation_timer = 0x10;
+                }
+            }
+            // $7F:5B03.
+            4 => {
+                let unit = self.unit_mut(id);
+                unit.timer = unit.timer.wrapping_sub(1);
+                if unit.timer == 0 {
+                    unit.flags &= !UNIT_HIDDEN;
+                    unit.behavior = 7;
+                    self.globals.launches_pending = self.globals.launches_pending.wrapping_sub(1);
+                }
+            }
+            // $7F:5B1F.
+            5 => {
+                if self.reached_target(id) {
+                    let unit = self.unit_mut(id);
+                    unit.flags |= UNIT_HIDDEN;
+                    unit.motion = 0;
+                    unit.sprite = 0x26;
+                    unit.frame = 0;
+                    unit.behavior = 6;
+                    unit.timer = 0x32;
+                    unit.animation_timer = 0x32;
+                    output.cues.push(0x008B);
+                }
+            }
+            // $7F:5B56.
+            6 => {
+                let unit = self.unit_mut(id);
+                unit.timer = unit.timer.wrapping_sub(1);
+                if unit.timer == 0 {
+                    self.destroy(id, links)?;
+                    self.globals.launches_pending = self.globals.launches_pending.wrapping_sub(1);
+                }
+            }
+            // $7F:5BC1.
+            7 => {
+                if unit.flags & UNIT_GROUNDED != 0 {
+                    self.strike_planet(id, links)?;
+                } else if unit.flags2 & 0x0100 != 0 {
+                    self.run_program(id, inputs, links)?;
+                } else if unit.flags & UNIT_MISSILE != 0 {
+                    self.missile_flight(id, links, inputs)?;
+                }
+            }
+            // $7F:5BE0.
+            8 => self.strike_planet(id, links)?,
+            // $7F:5CB3.
+            9 => {
+                if unit.timer == 0 {
+                    self.burn_out(id);
+                    if links.scene_events & 0x0010 == 0 {
+                        self.unit_mut(id).behavior = 0x11;
+                    } else {
+                        self.globals.map_events |= 0x0008;
+                        self.damage_planet(id, links);
+                        self.destroy(id, links)?;
+                    }
+                }
+            }
+            // $7F:5C4E: the unit reaches the satellite and stays.
+            0x0A => {
+                if self.reached_target(id) {
+                    self.dock_at_satellite(id, links)?;
+                }
+            }
+            // $7F:5CB2.
+            0x0B => {}
+            // $7F:5CD6/$7F:5D02: an explosion starts.
+            0x0C => self.explode(id, 0x1C, 0x3F),
+            0x0D => self.explode(id, 0x22, 0x4B),
+            // $7F:5D2E.
+            0x0E => {
+                if self.behavior_timer(id) {
+                    self.free_unit(id);
+                    self.globals.satellite_flags &= !0x0080;
+                    self.globals.stored_target = 0;
+                }
+            }
+            // $7F:5D45: the diving fighter.
+            0x0F => {
+                if links.scene_events & 0x0010 != 0 {
+                    return self.crash(id, links);
+                }
+                if self.behavior_timer(id) {
+                    let unit = self.unit_mut(id);
+                    unit.timer = 0x0C;
+                    unit.animation_timer = 0x0C;
+                    unit.sprite = 0x15;
+                    unit.frame = 0;
+                    unit.flags |= UNIT_HIDDEN;
+                }
+            }
+            // $7F:5D72.
+            0x10 => {
+                if links.scene_events & 0x0010 != 0 {
+                    return self.crash(id, links);
+                }
+                if self.behavior_timer(id) {
+                    self.damage_planet(id, links);
+                    self.burn_out(id);
+                }
+            }
+            // $7F:5D87.
+            0x11 => {
+                if links.scene_events & 0x0010 != 0 {
+                    return self.destroy(id, links);
+                }
+                self.behavior_timer(id);
+            }
+            // $7F:5D9E.
+            0x12 => self.destroy(id, links)?,
+            other => return Err(SimError::Unported(0x7F5AB5 + u32::from(other) * 2)),
+        }
+        Ok(())
+    }
+
+    /// `$7F:5C53`: the unit joins the satellite; the satellite guards.
+    fn dock_at_satellite(&mut self, id: UnitId, links: &mut SceneLinks) -> Result<(), SimError> {
+        let satellite = self.globals.satellite.ok_or(SimError::MissingSatellite)?;
+        let anchor = *self.unit(satellite);
+        let unit = self.unit_mut(id);
+        unit.x_fraction = (unit.x_fraction & 0x00FF) | (anchor.x_fraction & 0xFF00);
+        unit.x = anchor.x;
+        unit.y_fraction = (unit.y_fraction & 0x00FF) | (anchor.y_fraction & 0xFF00);
+        unit.y = anchor.y;
+        self.globals.satellite_guarding = 2;
+        self.unit_mut(satellite).flags2 |= 0x2000;
+        self.globals.satellite_flags |= 0x0400;
+        let unit = self.unit_mut(id);
+        unit.behavior = 0x0B;
+        unit.motion = 0;
+        self.globals.map_events |= 0x0100;
+        if links.stage_results & 0x0010 == 0 {
+            self.globals.satellite_flags |= 0x0200;
+        }
+        if self.globals.satellite_flags & 0x0008 != 0 {
+            self.globals.satellite_flags &= !0x0008;
+            let target = self.globals.satellite_target.ok_or(SimError::MissingUnit(0x7F5CA5))?;
+            self.unit_mut(target).flags &= !UNIT_TARGETED;
+        }
+        Ok(())
+    }
+
+    /// `$7F:5CD6`/`$7F:5D02`.
+    fn explode(&mut self, id: UnitId, sprite: u16, frames: u16) {
+        let unit = self.unit_mut(id);
+        unit.sprite = sprite;
+        unit.frame = 0;
+        unit.motion = 0;
+        unit.flags |= 0x6000;
+        unit.timer = frames;
+        unit.animation_timer = frames;
+        unit.behavior = 0x0E;
+    }
+
+    /// `$7F:5D93`: during a stage the diving fighter hits at once.
+    fn crash(&mut self, id: UnitId, links: &mut SceneLinks) -> Result<(), SimError> {
+        self.damage_planet(id, links);
+        self.globals.map_events |= 0x0008;
+        self.destroy(id, links)
     }
 
     /// `$7F:5B90`: leave on the origin's course and count the launch.
@@ -1230,7 +1352,7 @@ impl StrategicMap {
     }
 
     /// `$7F:64B1`.
-    fn check_meeting(&mut self, id: UnitId, links: &mut SceneLinks, inputs: StrategicInputs<'_>) -> Result<(), SimError> {
+    pub(crate) fn check_meeting(&mut self, id: UnitId, links: &mut SceneLinks, inputs: StrategicInputs<'_>) -> Result<(), SimError> {
         let unit = *self.unit(id);
         if unit.flags & 0x3000 != 0 {
             return Ok(());
@@ -1375,7 +1497,7 @@ impl StrategicMap {
     }
 
     /// `$7F:5DA3`: a fighter dives at the planet.
-    fn dive(&mut self, id: UnitId) {
+    pub(crate) fn dive(&mut self, id: UnitId) {
         let unit = self.unit_mut(id);
         unit.flags |= UNIT_TARGETED;
         unit.flags2 |= 0x0004;
@@ -1422,7 +1544,7 @@ impl StrategicMap {
     }
 
     /// `$7F:6141`: take the free list's first record and link it first.
-    fn allocate_unit(&mut self) -> Result<UnitId, SimError> {
+    pub(crate) fn allocate_unit(&mut self) -> Result<UnitId, SimError> {
         let id = self.unit_free.ok_or(SimError::UnitPoolExhausted)?;
         self.unit_free = self.unit(id).next;
         let head = self.unit_head;
@@ -1513,7 +1635,7 @@ impl StrategicMap {
     }
 
     /// `$7F:63E8`: kind and slot data from the pattern row `index`.
-    fn assign_pattern(&mut self, id: UnitId, index: u16) -> Result<(), SimError> {
+    pub(crate) fn assign_pattern(&mut self, id: UnitId, index: u16) -> Result<(), SimError> {
         let kind = byte_at(&PATTERN_KINDS, usize::from(index), 0x7F63FB)?;
         let unit = self.unit_mut(id);
         unit.kind = (unit.kind & 0xFF00) | u16::from(kind);
@@ -1556,7 +1678,7 @@ impl StrategicMap {
     }
 
     /// `$7F:6181`: remove a unit, releasing its slot and counters.
-    fn destroy(&mut self, id: UnitId, links: &mut SceneLinks) -> Result<(), SimError> {
+    pub(crate) fn destroy(&mut self, id: UnitId, links: &mut SceneLinks) -> Result<(), SimError> {
         let _ = links;
         let unit = *self.unit(id);
         if unit.flags & UNIT_FIGHTER != 0 {
@@ -1597,7 +1719,7 @@ impl StrategicMap {
     }
 
     /// `$7F:6213`: unlink the unit and push it on the free list.
-    fn free_unit(&mut self, id: UnitId) {
+    pub(crate) fn free_unit(&mut self, id: UnitId) {
         let unit = self.unit_mut(id);
         unit.flags = 0;
         unit.flags2 = 0;
@@ -1627,74 +1749,80 @@ impl StrategicMap {
     fn advance_motion(&mut self) -> Result<(), SimError> {
         let mut cursor = self.unit_head;
         while let Some(id) = cursor {
-            match self.unit(id).motion {
-                0 => {}
-                // $7F:6713.
-                1 => self.integrate(id),
-                // $7F:681E.
-                2 => {
-                    self.update_velocity(id);
-                    self.integrate(id);
-                }
-                // $7F:6818.
-                3 => {
-                    self.aim(id);
-                    self.integrate(id);
-                }
-                // $7F:6716.
-                4 => {
-                    let unit = self.unit_mut(id);
-                    unit.heading = unit.heading.wrapping_add(unit.turn_rate);
-                    self.update_velocity(id);
-                    self.integrate(id);
-                }
-                // $7F:6742.
-                5 => {
-                    let unit = self.unit_mut(id);
-                    if unit.flags2 & 0x0020 == 0 {
-                        unit.heading = unit.heading.wrapping_add(unit.turn_rate);
-                    } else {
-                        unit.heading = unit.heading.wrapping_sub(unit.turn_rate);
-                    }
-                    if unit.heading == 0 {
-                        unit.flags2 ^= 0x0020;
-                    }
-                    self.update_velocity(id);
-                    self.integrate(id);
-                }
-                // $7F:6770.
-                6 => {
-                    let unit = self.unit_mut(id);
-                    unit.turn_rate = unit.turn_rate.wrapping_add(0x0080);
-                    unit.heading = unit.heading.wrapping_add(unit.turn_rate);
-                    self.integrate_plain(id);
-                }
-                // $7F:6787.
-                7 => {
-                    let unit = self.unit_mut(id);
-                    if unit.timer != 0 {
-                        unit.timer -= 1;
-                        unit.heading = unit.heading.wrapping_add(unit.turn_rate);
-                    }
-                    self.update_velocity(id);
-                    self.integrate(id);
-                }
-                // $7F:67F8.
-                8 => {
-                    let unit = self.unit_mut(id);
-                    unit.heading = unit.heading.wrapping_add(unit.turn_bias);
-                    unit.turn_countdown = unit.turn_countdown.wrapping_sub(1);
-                    if unit.turn_countdown == 0 {
-                        self.plan_turn(id);
-                        self.unit_mut(id).motion = 7;
-                    } else {
-                        self.update_velocity(id);
-                        self.integrate(id);
-                    }
-                }
-                other => return Err(SimError::Unported(0x7F6700 + u32::from(other) * 2)),
-            }
+            self.move_unit(id)?;
             cursor = self.unit(id).next;
+        }
+        Ok(())
+    }
+
+    /// `$7F:66B2`: one unit's motion (`$7F:6700` table).
+    pub(crate) fn move_unit(&mut self, id: UnitId) -> Result<(), SimError> {
+        match self.unit(id).motion {
+            0 => {}
+            // $7F:6713.
+            1 => self.integrate(id),
+            // $7F:681E.
+            2 => {
+                self.update_velocity(id);
+                self.integrate(id);
+            }
+            // $7F:6818.
+            3 => {
+                self.aim(id);
+                self.integrate(id);
+            }
+            // $7F:6716.
+            4 => {
+                let unit = self.unit_mut(id);
+                unit.heading = unit.heading.wrapping_add(unit.turn_rate);
+                self.update_velocity(id);
+                self.integrate(id);
+            }
+            // $7F:6742.
+            5 => {
+                let unit = self.unit_mut(id);
+                if unit.flags2 & 0x0020 == 0 {
+                    unit.heading = unit.heading.wrapping_add(unit.turn_rate);
+                } else {
+                    unit.heading = unit.heading.wrapping_sub(unit.turn_rate);
+                }
+                if unit.heading == 0 {
+                    unit.flags2 ^= 0x0020;
+                }
+                self.update_velocity(id);
+                self.integrate(id);
+            }
+            // $7F:6770.
+            6 => {
+                let unit = self.unit_mut(id);
+                unit.turn_rate = unit.turn_rate.wrapping_add(0x0080);
+                unit.heading = unit.heading.wrapping_add(unit.turn_rate);
+                self.integrate_plain(id);
+            }
+            // $7F:6787.
+            7 => {
+                let unit = self.unit_mut(id);
+                if unit.timer != 0 {
+                    unit.timer -= 1;
+                    unit.heading = unit.heading.wrapping_add(unit.turn_rate);
+                }
+                self.update_velocity(id);
+                self.integrate(id);
+            }
+            // $7F:67F8.
+            8 => {
+                let unit = self.unit_mut(id);
+                unit.heading = unit.heading.wrapping_add(unit.turn_bias);
+                unit.turn_countdown = unit.turn_countdown.wrapping_sub(1);
+                if unit.turn_countdown == 0 {
+                    self.plan_turn(id);
+                    self.unit_mut(id).motion = 7;
+                } else {
+                    self.update_velocity(id);
+                    self.integrate(id);
+                }
+            }
+            other => return Err(SimError::Unported(0x7F6700 + u32::from(other) * 2)),
         }
         Ok(())
     }
@@ -1715,7 +1843,7 @@ impl StrategicMap {
     }
 
     /// `$7F:6830`: integrate the velocity, keeping the position on the map.
-    fn integrate(&mut self, id: UnitId) {
+    pub(crate) fn integrate(&mut self, id: UnitId) {
         if self.globals.speed_flags & FAST_FORWARD == 0 {
             return self.integrate_plain(id);
         }
@@ -1810,11 +1938,11 @@ fn serial_divide(dividend: u32, divisor: u16, carry_in: bool) -> (u32, u16) {
     (register, accumulator)
 }
 
-fn byte_at(table: &[u8], index: usize, site: u32) -> Result<u8, SimError> {
+pub(crate) fn byte_at(table: &[u8], index: usize, site: u32) -> Result<u8, SimError> {
     table.get(index).copied().ok_or(SimError::TableOverrun(site))
 }
 
-fn word_at(table: &[u8], index: usize, site: u32) -> Result<u16, SimError> {
+pub(crate) fn word_at(table: &[u8], index: usize, site: u32) -> Result<u16, SimError> {
     Ok(u16::from(byte_at(table, index, site)?) | (u16::from(byte_at(table, index + 1, site)?) << 8))
 }
 
@@ -1842,7 +1970,7 @@ const SPEEDS: [u8; 0x18] = [
     0xDC, 0x00, 0xFA, 0x00, 0x2C, 0x01, 0x68, 0x01,
 ];
 /// `$7F:6C10`: the places' first program offsets (words) and the rows.
-const PROGRAMS: [u8; 0x6B] = [
+pub(crate) const PROGRAMS: [u8; 0x6B] = [
     0x1A, 0x00, 0x1A, 0x00, 0x27, 0x00, 0x27, 0x00, 0x27, 0x00, 0x27, 0x00, 0x34, 0x00, 0x34, 0x00,
     0x34, 0x00, 0x34, 0x00, 0x34, 0x00, 0x34, 0x00, 0x34, 0x00, 0x02, 0x01, 0x00, 0x01, 0x01, 0x03,
     0x02, 0xD0, 0x02, 0x01, 0xFF, 0x03, 0x00, 0x02, 0x01, 0x00, 0x01, 0x01, 0x03, 0x02, 0x38, 0x04,

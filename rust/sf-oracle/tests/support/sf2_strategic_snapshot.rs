@@ -60,20 +60,27 @@ impl Snapshot {
             next: self.place_id(w(0x00)),
             prev: self.place_id(w(0x02)),
             kind: w(0x04),
+            menu_index: w(0x06),
+            info: w(0x08),
             x: w(0x0C),
             y: w(0x0E),
             spawn_target_x: w(0x10),
             spawn_target_y: w(0x12),
+            cell_x: w(0x14),
+            cell_y: w(0x16),
             program: w(0x18),
             program_repeats: w(0x1A),
             flags: w(0x1C),
             status: w(0x1E),
+            marker: w(0x20),
             arrivals: w(0x22),
             heading: w(0x24),
             spawned_unit: self.unit_id(w(0x26)),
             held_unit: self.unit_id(w(0x28)),
             target_x: w(0x2A),
             target_y: w(0x2C),
+            route_x: w(0x2E),
+            route_y: w(0x30),
             warning: w(0x32),
             warning_countdown: w(0x34),
             state: w(0x36),
@@ -212,6 +219,7 @@ impl Snapshot {
 
 
 /// The records and words where two maps differ, for failure messages.
+#[allow(dead_code)]
 pub(crate) fn map_differences(native: &StrategicMap, retail: &StrategicMap) -> Vec<String> {
     let mut out = Vec::new();
     for index in 0..PLACE_CAPACITY {
