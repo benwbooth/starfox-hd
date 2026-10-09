@@ -90,6 +90,7 @@ impl MapVisit {
         self.links.hud_mode = 2;
         self.hud_inputs.layout = 5;
         self.links.scene.stage_results &= !0x0010;
+        self.launch.options &= !0x0004;
         self.map.globals.hold |= 0x003F;
         self.links.display_flags = (self.links.display_flags & !0x0002) | 0x0100 | 0x0200 | 0x0400 | 0x0080 | 0x0004;
         self.links.presentation_flags |= 0x0008;
@@ -169,6 +170,7 @@ impl MapVisit {
         }
         self.links.scene.scene_events = 0;
         self.links.scene.campaign_events = 0;
+        self.launch.options = 0;
         self.map.globals.encounter_request = 0;
         if results & (RESULTS_TUTORIAL | RESULTS_NEW) != 0 {
             self.new_campaign(inputs)?;
@@ -190,6 +192,7 @@ impl MapVisit {
         globals.slot_used = [0; 16];
         globals.slot_pattern = [0; 16];
         globals.slot_word = [0; 16];
+        self.launch.location_ranks = [0; 6];
         globals.spawn_pattern = inputs.seed & 0x007F;
         globals.escort_pattern = inputs.seed & 0x000F;
         // $7F:058C with a sixteen-bit accumulator: the random word steps.

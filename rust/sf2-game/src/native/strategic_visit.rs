@@ -11,6 +11,7 @@
 //! effects are presentation and are not modeled here.
 
 use super::strategic_director::{self, MapDirector};
+use super::strategic_exit::MapLaunch;
 use super::strategic_screen::{self, MapPad, MapScreen, ScreenError, ScreenLinks, ScreenOutput};
 use super::strategic_sim::{StrategicInputs, StrategicMap, TickOutput};
 use super::strategic_hud::{self, HudInputs, HudOutput, MapHud};
@@ -57,6 +58,8 @@ pub struct MapVisit {
     pub radio_inputs: RadioInputs,
     /// The last interrupt's pad.
     pub pad: MapPad,
+    /// The mode and stage-launch words the exits write.
+    pub launch: MapLaunch,
     pub timers: FrameTimers,
     /// The shared generator (`$7F:7BD4`).
     pub rng: RandomState,
@@ -152,7 +155,7 @@ impl MapVisit {
 
     /// `$7F:0412`'s tail (`$7F:0516`): the frame timers, then the random
     /// word (`$7F:058C` with an eight-bit accumulator).
-    fn display_frame(&mut self) {
+    pub(super) fn display_frame(&mut self) {
         // $7F:0424..0444: after the OAM upload the map refills the entries
         // with E8 (`$7F:0A2E`, a fixed-source transfer of `$04:9C65`).
         if self.links.display_flags & 0x0001 == 0 {

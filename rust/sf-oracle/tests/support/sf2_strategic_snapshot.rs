@@ -69,6 +69,7 @@ impl Snapshot {
             kind: w(0x04),
             menu_index: w(0x06),
             info: w(0x08),
+            stage: w(0x0A),
             x: w(0x0C),
             y: w(0x0E),
             spawn_target_x: w(0x10),

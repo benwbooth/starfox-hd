@@ -83,6 +83,19 @@ PINS = (
     ("box base", 0x0BA05A, 0x0BA084, "e6c3cda81664be28f762c1245af2054d80dbd0beddf7b5482d317520ccfc81d3"),
     ("generator", 0x7F7BD4, 0x7F7BE8, "5cd430174268f0283a09e1ce2fbb887a1fe9e0fdf9fc7d0826f3d9114cde0880"),
     ("decompressor", 0x01D9FF, 0x01DBDD, "3e340f6a14720ba017492ed38b3ca6cfe9f052f9a999ccfb5e46a7bb162b4eec"),
+    # strategic_exit.rs: the exits, their launch words and the fade.
+    ("exit dispatch", 0x04AEC7, 0x04AEF0, "2b83f2ebd06adc575b01bd70020ef96c5e857b67b5198f4655c2e0d4c14c6734"),
+    ("exits", 0x04AEF0, 0x04B121, "2d641cc7cc3ec817ec73ba27c71505cc8c319ff4ea70909d7b063913ad6b0238"),
+    ("exit fade and epilogue", 0x04B121, 0x04B1C0, "fd35075b83b15ce974a2eee2cca2cbfd6b38674e790c1ca2113e54f82756606b"),
+    ("encounter reset", 0x04B1C0, 0x04B1FC, "3b9bb313002e5424a2ad33367422b9d7b54e33f8353d1525bf4501b8307f3929"),
+    ("place launch", 0x04B1FC, 0x04B23B, "208939e1f36d05a3dd2381ec6328d7316d112163f0897a506a502f02afad2df7"),
+    ("unit launch", 0x04B259, 0x04B2B1, "aaf7ab866788b52081897a9d6bc8a81d49816373dc448ed6bac947cf22f7f846"),
+    ("fade loops", 0x03DFA0, 0x03E085, "0b05f499608fd7d5fecdf765a67aa27a66bdd14cc387a3bece6a1061420c7399"),
+    ("director requests", 0x0B8C52, 0x0B8C5C, "0bf688be641a68d92c9abd2def0a17e8a711b1cef35909a1e7b816d3e97fd58e"),
+    ("director request", 0x0B8CC1, 0x0B8CE6, "e2a1110e749391b211d415285ce56aa7c3acb2ed28ea8d668a490fe181c9d72d"),
+    ("closing iris head", 0x0B9626, 0x0B963B, "85379a00bfa301d23b51498bbcdb7012b6a9ce7b85331238e8de5b487223ffac"),
+    ("sound port silence", 0x7F0F50, 0x7F0F5D, "4e1ba9ce2dc72f377543fc7685f55c58bd874d3661b44b4c31561ce516cfd9ec"),
+    ("frame interrupt", 0x7F0249, 0x7F02A1, "9cf11c896e7b11d2385e22a9771ce1e627c3c0754159bde3172fdf1b9fafd801"),
 )
 
 # Rust byte tables and the ROM ranges they copy.
@@ -113,6 +126,8 @@ TABLES = (
     ("strategic_entry.rs", "MARKED_PLACES", 0x04EF1E),
     ("strategic_entry.rs", "SATELLITE_WAITS", 0x04E7C7),
     ("strategic_entry.rs", "MARKER_HEADER", 0x04EE52),
+    ("strategic_exit.rs", "LOCATION_RANKS", 0x00B0E6),
+    ("strategic_exit.rs", "BONUSES", 0x06FCF1),
 )
 
 

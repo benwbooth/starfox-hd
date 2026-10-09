@@ -359,3 +359,24 @@ pub(crate) fn message_box(s: &Snapshot) -> sf2_game::strategic_radio::MessageBox
 pub(crate) fn radio_inputs(s: &Snapshot) -> sf2_game::strategic_radio::RadioInputs {
     sf2_game::strategic_radio::RadioInputs { portrait: s.word(0x1E70), held: s.word(0x1292) }
 }
+
+pub(crate) fn launch(s: &Snapshot) -> sf2_game::strategic_exit::MapLaunch {
+    sf2_game::strategic_exit::MapLaunch {
+        mode: s.word(0x1B68),
+        next_mode: s.word(0x1B6A),
+        scene: s.byte(0x1B76),
+        options: s.word(0x1B96),
+        encounter_slot: s.word(0x1BA7),
+        encounter_heading: s.byte(0x1BA9),
+        slot_word: s.word(0xD79F),
+        rank: s.byte(0xD7A1),
+        place_stage: s.byte(0xD7F6),
+        bonus: s.word(0xD7D3),
+        encounter_flags: [s.byte(0xD79A), s.byte(0xD79B), s.byte(0xD7D5), s.byte(0xD79C)],
+        tallies: std::array::from_fn(|k| s.word(0xD786 + 2 * k as u16)),
+        hits: s.word(0xCF33),
+        ship_view: (s.word(0x1DE4), s.word(0x1DE8), s.byte(0x1DEA)),
+        unit_view: (s.word(0x1DF3), s.word(0x1DF5)),
+        location_ranks: std::array::from_fn(|k| s.byte(0xD794 + k as u16)),
+    }
+}

@@ -11,6 +11,8 @@ mod map_snapshot;
 
 use map_snapshot::*;
 use sf2_game::strategic_entry::EntryInputs;
+use sf2_game::strategic_exit::ExitInputs;
+use sf2_game::strategic_screen::MapPad;
 use sf2_game::strategic_screen::ScreenOutput;
 use sf2_game::strategic_sim::{PLACE_CAPACITY, UNIT_CAPACITY};
 use sf2_game::strategic_visit::MapVisit;
@@ -33,6 +35,7 @@ fn visit(s: &Snapshot) -> MapVisit {
         message_box: message_box(s),
         radio_inputs: radio_inputs(s),
         pad: pad(s),
+        launch: launch(s),
         timers: sf2_game::strategic_visit::FrameTimers {
             ticks: s.byte(0xEFD0),
             countdowns: [s.byte(0xEFCD), s.byte(0xEFCE), s.byte(0xEFCF)],
@@ -42,6 +45,14 @@ fn visit(s: &Snapshot) -> MapVisit {
         upload: s.word(0xDA77),
         terrain: s.terrain.clone(),
     }
+}
+
+/// The parts of two debug renderings that differ, for failure messages.
+fn differences<T: std::fmt::Debug>(native: &T, retail: &T) -> String {
+    let (a, b) = (format!("{native:?}"), format!("{retail:?}"));
+    let a: Vec<&str> = a.split(", ").collect();
+    let b: Vec<&str> = b.split(", ").collect();
+    a.iter().zip(&b).filter(|(x, y)| x != y).map(|(x, y)| format!("native {x} retail {y}")).collect::<Vec<_>>().join("; ")
 }
 
 fn compare(native: &MapVisit, expected: &MapVisit, context: &str) {
@@ -60,15 +71,16 @@ fn compare(native: &MapVisit, expected: &MapVisit, context: &str) {
     assert_eq!(native.timers, expected.timers, "{context}: timers");
     assert_eq!(native.rng.bytes(), expected.rng.bytes(), "{context}: generator");
     assert_eq!(native.director, expected.director, "{context}: director");
-    assert_eq!(native.screen, expected.screen, "{context}: screen");
-    assert_eq!(native.links, expected.links, "{context}: links");
+    assert!(native.screen == expected.screen, "{context}: screen {}", differences(&native.screen, &expected.screen));
+    assert!(native.links == expected.links, "{context}: links {}", differences(&native.links, &expected.links));
     assert_eq!(native.upload, expected.upload, "{context}: upload");
-    assert_eq!(native.sprites, expected.sprites, "{context}: sprites");
+    assert!(native.sprites == expected.sprites, "{context}: sprites {}", differences(&native.sprites, &expected.sprites));
     assert_eq!(native.sprite_inputs, expected.sprite_inputs, "{context}: sprite inputs");
     assert_eq!(native.hud, expected.hud, "{context}: hud");
     assert_eq!(native.hud_inputs, expected.hud_inputs, "{context}: hud inputs");
     assert_eq!(native.radio, expected.radio, "{context}: radio");
     assert_eq!(native.message_box, expected.message_box, "{context}: message box");
+    assert!(native.launch == expected.launch, "{context}: launch {}", differences(&native.launch, &expected.launch));
     assert!(native.terrain == expected.terrain, "{context}: terrain");
 }
 
@@ -222,5 +234,195 @@ fn campaign_setup_matches_the_original_on_mutated_retail_states() {
         }
     }
     eprintln!("compared {compared} mutated campaign setups; native faults {faulted:?}");
+    assert!(compared > 0);
+}
+
+const EXIT_DISPATCH: u32 = 0x04AEE1;
+const EPILOGUE_RETURN: u32 = 0x04B1BF;
+
+/// Each exit of a campaign driven by `schedule`, up to `frames`: retail's
+/// state at the exit's dispatch and when the map program returns, with the
+/// sprite passes its fade ran.
+fn compare_exits(schedule: &dyn Fn(u64) -> u16, frames: u64) -> u32 {
+    let mut m = RetailMachine::new(rom());
+    let mut exits = 0;
+    while m.video_frame() < frames {
+        let pad = schedule(m.video_frame());
+        if !m.tick_until_cpu_execution(pad, EXIT_DISPATCH, 1).unwrap() || m.peek8(0x7E1B74) == 0 {
+            continue;
+        }
+        let before = Snapshot::take(&m);
+        let mut passes = 0u16;
+        loop {
+            let pad = schedule(m.video_frame());
+            match m.tick_until_cpu_execution_any(pad, &[SPRITE_PASS, EPILOGUE_RETURN], 1).unwrap() {
+                Some(SPRITE_PASS) => passes += 1,
+                Some(_) => break,
+                None => assert!(m.video_frame() < frames + 2000, "exit {exits}: the map never left"),
+            }
+        }
+        let after = Snapshot::take(&m);
+        let context = format!("exit {exits} (1B74 {:02X})", before.byte(0x1B74));
+        let mut native = visit(&before);
+        let inputs = ExitInputs {
+            dark_after: passes,
+            pad: MapPad { held: after.word(0x1C1F), pressed: after.word(0x1C21) },
+            generator_tail: before.byte(0x00E4),
+        };
+        let mut output = ScreenOutput::default();
+        native.leave(inputs, &mut output).unwrap_or_else(|error| panic!("{context}: {error:x?}"));
+        compare(&native, &visit(&after), &context);
+        assert_eq!(output.cues, queued_cues(&before, &after), "{context}: cues");
+        eprintln!("{context}: matched after {passes} fade passes");
+        exits += 1;
+    }
+    exits
+}
+
+#[test]
+fn map_exits_match_retail_through_a_campaign_driven_by_taps() {
+    let frames: u64 = std::env::var("SF2_EXIT_FRAMES").map(|v| v.parse().unwrap()).unwrap_or(25_000);
+    let schedule = |frame: u64| match frame % 32 {
+        0..=3 => START,
+        8..=9 => A,
+        16..=19 => B,
+        24..=27 if frame % 256 < 128 => RIGHT,
+        24..=27 => DOWN,
+        _ => 0,
+    };
+    let exits = compare_exits(&schedule, frames);
+    eprintln!("map exits matched {exits}");
+    assert!(exits >= 2);
+}
+
+#[test]
+fn map_exit_for_the_star_wolf_interception_matches_retail() {
+    // The Star Wolf oracle's route: Leon intercepts the ship.
+    let schedule = |frame: u64| match frame {
+        600..4600 if (frame - 600) % 200 < 6 => START,
+        4660..4701 => RIGHT,
+        4701..4721 => UP,
+        4721..4727 => B,
+        _ => 0,
+    };
+    let exits = compare_exits(&schedule, 7_000);
+    assert!(exits >= 2, "the interception's exit was not reached");
+}
+
+/// The exits by 1B74 (`$04:AEE4`).
+const EXITS: [u32; 5] = [0x04AF56, 0x04AF9A, 0x04AF74, 0x04AF1B, 0x04AEF0];
+
+/// Run the original exit for 1B74 on the oracle bus, stopped where it
+/// fades (`$04:B121` and `$04:B14D` return).
+fn run_exit(s: &Snapshot) -> Snapshot {
+    let mut rom = rom();
+    for address in [0xB121usize, 0xB14D] {
+        rom[0x20000 + address - 0x8000] = 0x6B;
+    }
+    let runtime = rom[0x10000..0x17E00].to_vec();
+    let mut bus = sf_oracle::SnesBus::new(rom);
+    for (offset, byte) in runtime.into_iter().enumerate() {
+        bus.write8(0x7F0000 + offset as u32, byte);
+    }
+    for (offset, &byte) in s.low.iter().enumerate() {
+        bus.write8(0x7E0000 + offset as u32, byte);
+    }
+    let entry = sf_oracle::Entry { p: 0x20, dbr: 0x7E, ..Default::default() };
+    let exit = sf_oracle::call(&mut bus, EXITS[usize::from(s.byte(0x1B74)) - 1], &entry);
+    assert!(exit.returned, "the original exit did not return");
+    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone(), gsu: s.gsu.clone() }
+}
+
+fn list(s: &Snapshot, head: u16) -> Vec<u16> {
+    let mut out = Vec::new();
+    let mut pointer = s.word(head);
+    while pointer != 0 && out.len() < 32 {
+        out.push(pointer);
+        pointer = s.word(pointer);
+    }
+    out
+}
+
+fn toggle(s: &mut Snapshot, address: u16, bit: u16) {
+    let value = s.word(address) ^ bit;
+    set_word(s, address, value);
+}
+
+#[test]
+fn map_exits_match_the_original_on_mutated_retail_states() {
+    let schedule = |frame: u64| match frame {
+        600..4600 if (frame - 600) % 200 < 6 => START,
+        4660..4701 => RIGHT,
+        4701..4721 => UP,
+        _ if frame >= 4721 && frame % 64 < 4 => B,
+        _ => 0,
+    };
+    let mut m = RetailMachine::new(rom());
+    let mut snapshots = Vec::new();
+    while snapshots.len() < 6 && m.video_frame() < 9_000 {
+        if m.tick_until_cpu_execution(schedule(m.video_frame()), PROGRAM, 1).unwrap() && m.video_frame() > 4_000 {
+            snapshots.push(Snapshot::take(&m));
+            m.tick_video_frames(0, 150).unwrap();
+        }
+    }
+    assert!(snapshots.len() >= 3);
+    let cases: u32 = std::env::var("SF2_EXIT_FUZZ").map(|v| v.parse().unwrap()).unwrap_or(120);
+    let mut rng = Lcg(0x04AE_E4AA);
+    let (mut compared, mut faulted) = (0, std::collections::BTreeMap::new());
+    for (index, snapshot) in snapshots.iter().enumerate() {
+        for case in 0..cases {
+            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone(), gsu: snapshot.gsu.clone() };
+            let places = list(&state, 0xDB67);
+            let units = list(&state, 0xE0A3);
+            state.low[0x1B74] = 1 + rng.below(5) as u8;
+            state.low[0x1B75] = 0;
+            if rng.below(4) == 0 {
+                toggle(&mut state, 0x1B86, 0x0020);
+            }
+            toggle(&mut state, 0x1B88, if rng.below(2) == 0 { 0x0004 } else { 0 });
+            set_word(&mut state, 0xD7F2, rng.below(3) as u16);
+            state.low[0x00E4] = rng.below(0x100) as u8;
+            for k in 0..6u16 {
+                state.low[usize::from(0xD794 + k)] = if rng.below(2) == 0 { 0 } else { rng.below(0x40) as u8 };
+            }
+            if !places.is_empty() {
+                set_word(&mut state, 0xDA6B, rng.pick(&places));
+                let place = rng.pick(&places);
+                set_word(&mut state, 0xDB07, place);
+                set_word(&mut state, place + 0x04, rng.below(0x0B) as u16);
+                set_word(&mut state, place + 0x0A, rng.below(0x100) as u16);
+                toggle(&mut state, place + 0x1E, 0x0002);
+            }
+            if !units.is_empty() {
+                let unit = rng.pick(&units);
+                set_word(&mut state, 0xE097, unit);
+                let flags = rng.pick(&[0x8000u16, 0x0040, 0x0080, 0x0800, 0x0008, 0x0000]);
+                let old = state.word(unit + 0x2E);
+                set_word(&mut state, unit + 0x2E, (old & !0x88C8) | flags);
+                toggle(&mut state, unit + 0x30, 0x0002);
+                set_word(&mut state, unit + 0x3A, rng.below(16) as u16);
+                if flags == 0x0040 && !places.is_empty() {
+                    set_word(&mut state, unit + 0x12, rng.pick(&places));
+                }
+            }
+            toggle(&mut state, 0xE087, if rng.below(2) == 0 { 0x0400 } else { 0 });
+            state.low[0x1BB6] = 0;
+            state.low[0x1BA8] = 0;
+            let mut native = visit(&state);
+            let mut inputs = ExitInputs { generator_tail: state.byte(0x00E4), ..Default::default() };
+            let mut output = ScreenOutput::default();
+            if let Err(error) = native.exit_words(&mut inputs, &mut output) {
+                *faulted.entry(format!("{error:x?}")).or_insert(0) += 1;
+                continue;
+            }
+            let after = run_exit(&state);
+            let context = format!("snapshot {index} case {case} (exit {})", state.byte(0x1B74));
+            compare(&native, &visit(&after), &context);
+            assert_eq!(inputs.generator_tail, after.byte(0x00E4), "{context}: generator tail");
+            assert_eq!(output.cues, queued_cues(&state, &after), "{context}: cues");
+            compared += 1;
+        }
+    }
+    eprintln!("compared {compared} mutated exits; native faults {faulted:?}");
     assert!(compared > 0);
 }

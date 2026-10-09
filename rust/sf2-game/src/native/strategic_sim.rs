@@ -36,6 +36,8 @@ pub struct MapPlace {
     /// simulation never reads.
     pub menu_index: u16,
     pub info: u16,
+    /// +0A: the stage word a launch to it passes on (D7F6).
+    pub stage: u16,
     /// +0C/+0E: map position (words; the low bytes are the coordinates).
     pub x: u16,
     pub y: u16,

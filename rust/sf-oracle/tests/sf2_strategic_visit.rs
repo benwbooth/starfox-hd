@@ -30,6 +30,7 @@ fn visit(s: &Snapshot) -> MapVisit {
         message_box: message_box(s),
         radio_inputs: radio_inputs(s),
         pad: pad(s),
+        launch: launch(s),
         timers: sf2_game::strategic_visit::FrameTimers {
             ticks: s.byte(0xEFD0),
             countdowns: [s.byte(0xEFCD), s.byte(0xEFCE), s.byte(0xEFCF)],
@@ -121,6 +122,7 @@ fn compare_visit(schedule: &dyn Fn(u64) -> u16, program_frames: u32) -> u32 {
         assert_eq!(native.hud, expected.hud, "{context}: hud");
         assert_eq!(native.radio, expected.radio, "{context}: radio");
         assert_eq!(native.message_box, expected.message_box, "{context}: message box");
+        assert_eq!(native.launch, expected.launch, "{context}: launch");
 
         assert_eq!(output.cues, queued_cues(&before, &after), "{context}: cues");
         scripts.insert(expected.links.message);
