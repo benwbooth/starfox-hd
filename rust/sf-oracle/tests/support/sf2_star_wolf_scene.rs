@@ -444,8 +444,9 @@ fn star_wolf_interception_launches_natively_like_the_retail_machine() {
     assert_eq!((byte(&m, 0x1AA5), byte(&m, 0xD7D8)), (0, 0), "cleared bytes");
 }
 
-#[test]
-fn star_wolf_interception_runs_natively_like_the_retail_machine() {
+/// Runs the interception from the mission launch with `pad` held from the
+/// launch on; returns the epoch at which the stage loop left.
+fn run_star_wolf(pad: u16) -> (u32, Option<u32>) {
     let mut m = RetailMachine::new(super::rom());
     // From retail's state at the mission launch, the launch ($03:B90E) and
     // the stage loop's scene setup ($03:8325) run natively.
@@ -466,9 +467,9 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     assert_eq!(stage_map, sf2_game::authored_maps::STAR_WOLF_INTERCEPTION);
     const FLIGHT_LAYOUT_SELECTOR: u8 = 0;
     sf2_game::stage_setup::begin_scene(&mut world, FLIGHT_LAYOUT_SELECTOR).unwrap();
-    assert!(m.tick_until_cpu_execution(0, STAGE_LOOP, 200).unwrap());
+    assert!(m.tick_until_cpu_execution(pad, STAGE_LOOP, 200).unwrap());
     assert_eq!(byte(&m, 0x1AA5), FLIGHT_LAYOUT_SELECTOR);
-    assert!(m.tick_until_cpu_execution(0, INITIALIZER, 600).unwrap());
+    assert!(m.tick_until_cpu_execution(pad, INITIALIZER, 600).unwrap());
     compare_setup(&m, &world);
     let map_catalog = sf2_game::authored_maps::catalog().unwrap();
     let mut presentation = sf2_game::map_effects::MapPresentation {
@@ -522,7 +523,7 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
         sf2_game::hit_response::HitSide::Primary,
     )
     .unwrap();
-    assert!(m.tick_until_cpu_execution(0, INITIALIZER_RETURN, 1).unwrap());
+    assert!(m.tick_until_cpu_execution(pad, INITIALIZER_RETURN, 1).unwrap());
     compare_initialized_player(&m, &runner, player, idle);
 
     // The interception map runs after the initializer's pass, to its park.
@@ -545,7 +546,7 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     runner.world.map_presentation = presentation;
     sf2_game::attract_stage::start_frame_loop(&mut runner.world);
     let catalog = sf2_game::authored_paths::catalog();
-    assert!(m.tick_until_cpu_execution(0, EPOCH, 60).unwrap());
+    assert!(m.tick_until_cpu_execution(pad, EPOCH, 60).unwrap());
     let clock = runner.world.strategy_clock;
     runner.schedule = StrategySchedule::resume(clock);
     // The stage loop's first frame ($03:C182): blank hold, director, frame.
@@ -560,16 +561,24 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     // until it is shot down in epoch 1052; its death routines ($06:F3A4,
     // then $06:F512 each frame) run the defeat action, fall and explode.
     let mut left = None;
-    for epoch in 0..1300u32 {
+    let epoch_limit: u32 = std::env::var("SF2_EPOCHS").map(|v| v.parse().unwrap()).unwrap_or(1600);
+    for epoch in 0..epoch_limit {
+        // The display-sampled pads (1292/1296, 1294/1298) this frame reads.
+        for (pad_index, (held, pressed)) in [(0x1292u16, 0x1296u16), (0x1294, 0x1298)].into_iter().enumerate() {
+            runner.world.controller_inputs[pad_index] = Some(sf2_game::InputState {
+                held: sf2_game::Buttons::from_bits(word(&m, held)),
+                pressed: sf2_game::Buttons::from_bits(word(&m, pressed)),
+            });
+        }
         let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW, STAGE_TEARDOWN, FADE_SERVICE, BLANK_HOLD, STAGE_CONTROLLER, DIRECTOR];
         watched.extend(RESEEDS);
         m.watch_cpu_execution(&watched);
-        assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
+        assert!(m.tick_until_cpu_execution(pad, EPOCH + 1, 60).unwrap());
         // Direct-page $00 is the frame loop's render-paced countdown; record
         // it where the source reads it as a child number.
         let mut pacing = None;
         loop {
-            match m.tick_until_cpu_execution_any(0, &[EPOCH, PACING_READS[0], PACING_READS[1]], 120).unwrap() {
+            match m.tick_until_cpu_execution_any(pad, &[EPOCH, PACING_READS[0], PACING_READS[1]], 120).unwrap() {
                 Some(EPOCH) => break,
                 Some(_) => {
                     let value = byte(&m, 0x0000);
@@ -719,9 +728,24 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
         matched = epoch + 1;
     }
     eprintln!("star wolf interception matched for {matched} epochs, left the stage at {left:?}");
+    if left.is_some() {
+        assert!(m.tick_until_cpu_execution(pad, EPOCH + 1, 60).unwrap());
+        assert_eq!(retail_list(&m), vec![POOL, POOL + STRIDE], "retail tore the scene down");
+    }
+    (matched, left)
+}
+
+#[test]
+fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     // The defeat (phase 2, $03:C61F) fades the scene out ($03:E0FC) and
     // leaves the stage loop for stage kind 3; the scene is then torn down.
-    assert_eq!(left, Some(matched));
-    assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
-    assert_eq!(retail_list(&m), vec![POOL, POOL + STRIDE], "retail tore the scene down");
+    assert_eq!(run_star_wolf(0), (1136, Some(1136)));
+}
+
+#[test]
+fn star_wolf_interception_holding_fire_runs_natively_like_the_retail_machine() {
+    // Holding B from the launch on: the player fires throughout, with the
+    // pads read as the display samples them, and is shot down later.
+    const B: u16 = 0x8000;
+    assert_eq!(run_star_wolf(B), (1502, Some(1502)));
 }
