@@ -250,6 +250,19 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
         horizontal: Some(byte(m, 0x1E30)),
         vertical: Some(byte(m, 0x1E31)),
     };
+    // The strategic map, which keeps moving during the stage ($7F:539C).
+    let snapshot = super::strategic_snapshot::Snapshot::take(m);
+    world.stage_message = Some(retail_stage_message(m));
+    world.strategic = Some(sf2_game::strategic_service::StrategicWorld {
+        map: snapshot.map(),
+        service: word(m, 0x1C08),
+        player: (byte(m, 0xDAF3), byte(m, 0xDAF6)),
+        batch_bonus: word(m, 0xDA3B),
+        satellite_timing: word(m, 0x1BA3),
+        satellite_busy: word(m, 0xE089),
+        campaign_flags: word(m, 0x1B8A) & 0x0090,
+        terrain: snapshot.terrain.clone(),
+    });
     // The impact classifier's pair suppression (D746); its material byte is
     // direct-page scratch the classifier writes before every import.
     world.impact = Some(sf2_game::path_impact::ImpactState { material: 0, pair_suppressed: byte(m, 0xD746) != 0 });
@@ -295,6 +308,7 @@ fn retail_stage(m: &RetailMachine) -> sf2_game::stage_controller::StageControl {
         alternate_exit: transition & 0x04 != 0,
         phase_countdown: word(m, 0x1B7C),
         phase_continuation: word(m, 0x1B7A),
+        kind: word(m, 0x1B68),
         next_stage: word(m, 0x1B6A),
         result_flags: word(m, 0x1B86),
         hud_mode: byte(m, 0xD810),
@@ -331,6 +345,15 @@ fn retail_director(m: &RetailMachine) -> sf2_game::presentation_director::Presen
         },
         hud_lane_request: word(m, 0x1FD2),
         window: Default::default(),
+    }
+}
+
+/// The announcer's presentation words (F566, F55E, F560).
+fn retail_stage_message(m: &RetailMachine) -> sf2_game::stage_announcer::StageMessage {
+    sf2_game::stage_announcer::StageMessage {
+        voice: word(m, 0xF566),
+        progress: word(m, 0xF55E),
+        timer: word(m, 0xF560),
     }
 }
 
@@ -394,6 +417,13 @@ fn compare_stage(m: &RetailMachine, runner: &SceneRunner<Callbacks>, epoch: u32)
         Some(sf2_game::path_score::PlayerScore::from_parts(word(m, 0xD816), byte(m, 0xD818))),
         "epoch {epoch}: published score"
     );
+    let strategic = super::strategic_snapshot::Snapshot::take(m);
+    let differences =
+        super::strategic_snapshot::map_differences(&world.strategic.as_ref().unwrap().map, &strategic.map());
+    assert!(differences.is_empty(), "epoch {epoch}: strategic map\n{}", differences.join("\n"));
+    assert_eq!(world.interception_active, Some(word(m, 0x1B8A) & 0x0020 != 0), "epoch {epoch}: interception");
+    assert_eq!(world.stage_message, Some(retail_stage_message(m)), "epoch {epoch}: stage message");
+    assert_eq!(world.radio_event.unwrap().number, word(m, 0x1E84), "epoch {epoch}: radio event");
     let gate = world.scene_gate_flags.unwrap();
     let signals = world.cinematic_signals.unwrap();
     let stage = world.stage.unwrap().signals;
@@ -572,9 +602,12 @@ fn run_star_wolf(schedule: impl Fn(u32) -> u16) -> (u32, Option<u32>) {
     // until it is shot down in epoch 1052; its death routines ($06:F3A4,
     // then $06:F512 each frame) run the defeat action, fall and explode.
     let mut left = None;
-    let epoch_limit: u32 = std::env::var("SF2_EPOCHS").map(|v| v.parse().unwrap()).unwrap_or(1600);
+    let epoch_limit: u32 = std::env::var("SF2_EPOCHS").map(|v| v.parse().unwrap()).unwrap_or(1800);
     for epoch in 0..epoch_limit {
         let pad = schedule(epoch);
+        if let Ok(address) = std::env::var("SF2_WRITE_WATCH") {
+            m.arm_wram_write_watch(u32::from_str_radix(&address, 16).unwrap());
+        }
         // The display-sampled pads (1292/1296, 1294/1298) this frame reads.
         for (pad_index, (held, pressed)) in [(0x1292u16, 0x1296u16), (0x1294, 0x1298)].into_iter().enumerate() {
             runner.world.controller_inputs[pad_index] = Some(sf2_game::InputState {
@@ -616,6 +649,12 @@ fn run_star_wolf(schedule: impl Fn(u32) -> u16) -> (u32, Option<u32>) {
             }
         }
         runner.world.frame_pacing = pacing;
+        if std::env::var("SF2_WRITE_WATCH").is_ok() {
+            let hits = m.take_wram_write_watch();
+            if !hits.is_empty() {
+                eprintln!("WRITES {epoch}: {:06X?}", hits);
+            }
+        }
         let hits = m.take_cpu_execution_watch_hits();
         // Consumer draws, and where each render-timed refresh fell among them:
         // the render interrupt can land inside a draw's routine ($7F:7BD4).
@@ -814,4 +853,15 @@ fn star_wolf_interception_charging_runs_natively_like_the_retail_machine() {
     const B: u16 = 0x8000;
     const HOLD: u32 = 30;
     assert_eq!(run_star_wolf(|epoch| if epoch % (HOLD + 2) < HOLD { B } else { 0 }), (1101, Some(1101)));
+}
+
+#[test]
+fn star_wolf_interception_with_a_planet_strike_runs_natively_like_the_retail_machine() {
+    // Shorter charges: the player survives longer, a strategic-map missile
+    // reaches Corneria during the stage (frame 1610, $7F:537D through the
+    // radar-region service) and the announcer's report is shown and
+    // cleared by its radio path.
+    const B: u16 = 0x8000;
+    const HOLD: u32 = 10;
+    assert_eq!(run_star_wolf(|epoch| if epoch % (HOLD + 2) < HOLD { B } else { 0 }), (1740, Some(1740)));
 }

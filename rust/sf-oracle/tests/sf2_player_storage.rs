@@ -2,6 +2,9 @@
 //! prefix and target initialization/selection. Storage stops before the distinct
 //! view-selection tail ($06:82B7); targeting runs its separate full routines.
 
+#[path = "support/sf2_strategic_snapshot.rs"]
+mod strategic_snapshot;
+
 #[path = "support/sf2_player_input.rs"]
 mod input_tests;
 

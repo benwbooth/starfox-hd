@@ -161,11 +161,6 @@ pub struct StrategicGlobals {
     /// D9F9 (word read, byte written) and D9FB: spawn pattern cursors.
     pub spawn_pattern: u16,
     pub escort_pattern: u16,
-    /// D984..D98A: the fast-forward's scaled velocity.
-    pub fast_vx_fraction: u16,
-    pub fast_vx: u8,
-    pub fast_vy_fraction: u16,
-    pub fast_vy: u8,
     /// DB33: map events for the presentation.
     pub map_events: u16,
     /// DB3B: the last spawned unit's variant bit.
@@ -1728,10 +1723,8 @@ impl StrategicMap {
         let unit = *self.unit(id);
         let (vx_fraction, vx) = scale_fast(unit.vx_fraction, unit.vx);
         let (vy_fraction, vy) = scale_fast(unit.vy_fraction, unit.vy);
-        self.globals.fast_vx_fraction = vx_fraction;
-        self.globals.fast_vx = vx;
-        self.globals.fast_vy_fraction = vy_fraction;
-        self.globals.fast_vy = vy;
+        // The scaled velocity also passes through D984..D98A, scratch words
+        // the HUD reuses; nothing reads them back here.
         let unit = self.unit_mut(id);
         step_axis(&mut unit.x_fraction, &mut unit.x, vx_fraction, vx, 0x0C, 0xF4);
         step_axis(&mut unit.y_fraction, &mut unit.y, vy_fraction, vy, 0x10, 0xAC);

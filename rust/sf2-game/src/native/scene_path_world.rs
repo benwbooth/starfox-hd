@@ -389,6 +389,10 @@ pub struct ScenePathWorld {
     pub scene_display: Option<super::scene_display::SceneDisplay>,
     /// The bank-0B presentation director (1FBE..1FC9, F53E, F5CC, 1FD2).
     pub director: Option<super::presentation_director::PresentationDirector>,
+    /// The strategic map, advanced in stages by the radar-region service.
+    pub strategic: Option<super::strategic_service::StrategicWorld>,
+    /// The stage announcer's presentation words (F566, F55E, F560).
+    pub stage_message: Option<super::stage_announcer::StageMessage>,
     pub path_latches: Option<PathLatches>,
     pub sound_bank_request: Option<SoundBankRequest>,
     pub encounter_signals: Option<EncounterSignals>,
@@ -564,6 +568,8 @@ impl ScenePathWorld {
             stage: None,
             scene_display: None,
             director: None,
+            strategic: None,
+            stage_message: None,
             path_latches: None,
             sound_bank_request: None,
             encounter_signals: None,

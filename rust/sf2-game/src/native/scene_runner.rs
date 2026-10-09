@@ -22,6 +22,8 @@ const STATEMENT_BUDGET: usize = 256;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SceneRunError<E> {
     HudTarget(super::hud_target::HudTargetError),
+    Strategic(super::strategic_service::ServiceError),
+    Announcer(super::stage_announcer::AnnouncerError),
     RenderView(super::render_view::RenderViewError),
     Scene(SceneError<E>),
     Schedule(ScheduleError<SceneError<E>>),
@@ -119,6 +121,8 @@ impl<C: SceneCallbacks> SceneRunner<C> {
         // `$03:D87D`: the hit-feedback countdown and the screen effect.
         super::hud_target::advance_screen_effects(host.objects, host.world)
             .map_err(SceneRunError::HudTarget)?;
+        // `$04:FCC8`: the display service's map-event announcer.
+        super::stage_announcer::advance(host.world).map_err(SceneRunError::Announcer)?;
         host.advance_player_palette()?;
         frame_background::publish(host.objects, host.world, &mut host.execution.paths.runtime)
             .map_err(SceneRunError::Background)?;
@@ -133,6 +137,8 @@ impl<C: SceneCallbacks> SceneRunner<C> {
         host.position_and_retain_primary_target()?;
         super::hud_target::reset_candidate(host.objects, host.world)
             .map_err(SceneRunError::HudTarget)?;
+        // `$7F:539C`: the strategic map's simulation on blink frames.
+        super::strategic_service::advance(host.world).map_err(SceneRunError::Strategic)?;
         self.dispatch_map()?;
         Ok(())
     }

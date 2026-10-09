@@ -95,7 +95,8 @@ pub struct StageControl {
     /// 1B7C/1B7A: the timed phase's countdown and the phase it continues to.
     pub phase_countdown: u16,
     pub phase_continuation: u16,
-    /// 1B6A: the stage kind for the stage loop's next pass.
+    /// 1B68/1B6A: the stage kind running and the next pass's kind.
+    pub kind: u16,
     pub next_stage: u16,
     /// 1B86: the stage's result flags, read by the campaign owner.
     pub result_flags: u16,

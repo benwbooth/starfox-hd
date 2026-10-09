@@ -33,6 +33,7 @@ pub fn hand_over(world: &mut ScenePathWorld) -> Result<(), AttractStageError> {
     world.reflect_all_contacts = Some(true);
     world.cinematic_signals = Some(Default::default());
     world.reticle_inhibited = Some(false);
+    world.scene_gate_flags = Some(Default::default());
     let mode = world
         .view_transition_mode
         .as_mut()
@@ -80,6 +81,7 @@ pub fn boot_world() -> ScenePathWorld {
     world.campaign_phase = Some(0);
     world.cinematic_signals = Some(Default::default());
     world.reticle_inhibited = Some(false);
+    world.scene_gate_flags = Some(Default::default());
     world.reflect_all_contacts = Some(true);
     world.palette = Some(super::player_action::ScenePalette {
         colors: [0; super::player_action::SCENE_PALETTE_COLORS],
@@ -112,6 +114,9 @@ pub fn boot_world() -> ScenePathWorld {
         horizontal: Some(0),
         vertical: Some(0),
     };
+    // No stage has been launched: the stage display mode (1CB8 bit 08) and
+    // the stage's other words are clear.
+    world.stage = Some(Default::default());
     if world.map_records.is_none() {
         world.map_records = Some(super::map_streaming::MapRecordStore::new());
     }

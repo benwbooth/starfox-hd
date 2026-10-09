@@ -74,6 +74,8 @@ pub use native::presentation_director;
 pub use native::stage_launch;
 pub use native::stage_setup;
 pub use native::strategic_sim;
+pub use native::strategic_service;
+pub use native::stage_announcer;
 pub use native::player_scene_init;
 pub use native::attract_stage;
 pub use native::authored_maps;
