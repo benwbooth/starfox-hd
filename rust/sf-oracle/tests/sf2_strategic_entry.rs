@@ -84,17 +84,8 @@ fn compare(native: &MapVisit, expected: &MapVisit, context: &str) {
     assert!(native.terrain == expected.terrain, "{context}: terrain");
 }
 
-#[test]
-fn map_entry_matches_retail_through_a_campaign_driven_by_taps() {
-    let frames: u64 = std::env::var("SF2_ENTRY_FRAMES").map(|v| v.parse().unwrap()).unwrap_or(40_000);
-    let schedule = |frame: u64| match frame % 32 {
-        0..=3 => START,
-        8..=9 => A,
-        16..=19 => B,
-        24..=27 if frame % 256 < 128 => RIGHT,
-        24..=27 => DOWN,
-        _ => 0,
-    };
+/// Each map entry of a campaign driven by `schedule`, up to `frames`.
+fn compare_entries(schedule: &dyn Fn(u64) -> u16, frames: u64) -> u32 {
     let mut m = RetailMachine::new(rom());
     let mut entries = 0;
     while m.video_frame() < frames {
@@ -137,8 +128,38 @@ fn map_entry_matches_retail_through_a_campaign_driven_by_taps() {
         eprintln!("{context}: matched");
         entries += 1;
     }
+    entries
+}
+
+#[test]
+fn map_entry_matches_retail_through_a_campaign_driven_by_taps() {
+    let frames: u64 = std::env::var("SF2_ENTRY_FRAMES").map(|v| v.parse().unwrap()).unwrap_or(40_000);
+    let schedule = |frame: u64| match frame % 32 {
+        0..=3 => START,
+        8..=9 => A,
+        16..=19 => B,
+        24..=27 if frame % 256 < 128 => RIGHT,
+        24..=27 => DOWN,
+        _ => 0,
+    };
+    let entries = compare_entries(&schedule, frames);
     eprintln!("map entry matched {entries} entries");
     assert!(entries >= 3);
+}
+
+#[test]
+fn map_entry_back_from_the_star_wolf_stage_matches_retail() {
+    // The Star Wolf route; Start through the stage's end and its results.
+    let schedule = |frame: u64| match frame {
+        600..4600 if (frame - 600) % 200 < 6 => START,
+        4660..4701 => RIGHT,
+        4701..4721 => UP,
+        4721..4727 => B,
+        _ if frame > 9000 && frame % 64 < 4 => START,
+        _ => 0,
+    };
+    let entries = compare_entries(&schedule, 12_000);
+    assert!(entries >= 3, "the return from the stage was not reached");
 }
 
 /// Run the original campaign setup on the oracle bus from this state.
@@ -202,7 +223,9 @@ fn campaign_setup_matches_the_original_on_mutated_retail_states() {
     for (index, snapshot) in snapshots.iter().enumerate() {
         for case in 0..cases {
             let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone(), gsu: snapshot.gsu.clone() };
-            let results = rng.pick(&[0x0080u16, 0x0001, 0x0000, 0x0040, 0x0081, 0x0101, 0x0002]);
+            // Bit 2 (back from a stage) waits on the sound processor in the
+            // original; the retail return from the Star Wolf stage covers it.
+            let results = rng.pick(&[0x0080u16, 0x0001, 0x0000, 0x0040, 0x0081, 0x0101]);
             set_word(&mut state, 0x1B86, results | (rng.below(2) as u16) << 8);
             set_word(&mut state, 0xD7F2, rng.below(3) as u16);
             set_word(&mut state, 0x1BA3, 2 * rng.below(3) as u16);
@@ -424,5 +447,107 @@ fn map_exits_match_the_original_on_mutated_retail_states() {
         }
     }
     eprintln!("compared {compared} mutated exits; native faults {faulted:?}");
+    assert!(compared > 0);
+}
+
+/// Run the original stage results (`$04:B2F2`) on the oracle bus.
+fn run_results(s: &Snapshot) -> Snapshot {
+    let rom = rom();
+    let runtime = rom[0x10000..0x17E00].to_vec();
+    let mut bus = sf_oracle::SnesBus::new(rom);
+    for (offset, byte) in runtime.into_iter().enumerate() {
+        bus.write8(0x7F0000 + offset as u32, byte);
+    }
+    for (offset, &byte) in s.low.iter().enumerate() {
+        bus.write8(0x7E0000 + offset as u32, byte);
+    }
+    let entry = sf_oracle::Entry { p: 0x20, dbr: 0x7E, ..Default::default() };
+    let exit = sf_oracle::call_near(&mut bus, 0x04B2F2, &entry);
+    assert!(exit.returned, "the original stage results did not return");
+    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone(), gsu: s.gsu.clone() }
+}
+
+#[test]
+fn stage_results_match_the_original_on_mutated_retail_states() {
+    let schedule = |frame: u64| match frame {
+        600..4600 if (frame - 600) % 200 < 6 => START,
+        4660..4701 => RIGHT,
+        4701..4721 => UP,
+        _ if frame >= 4721 && frame % 64 < 4 => B,
+        _ => 0,
+    };
+    let mut m = RetailMachine::new(rom());
+    let mut snapshots = Vec::new();
+    while snapshots.len() < 5 && m.video_frame() < 8_000 {
+        if m.tick_until_cpu_execution(schedule(m.video_frame()), PROGRAM, 1).unwrap() && m.video_frame() > 4_000 {
+            snapshots.push(Snapshot::take(&m));
+            m.tick_video_frames(0, 150).unwrap();
+        }
+    }
+    assert!(snapshots.len() >= 3);
+    let cases: u32 = std::env::var("SF2_RESULTS_FUZZ").map(|v| v.parse().unwrap()).unwrap_or(150);
+    let mut rng = Lcg(0x04B2_F2AA);
+    let (mut compared, mut faulted) = (0, std::collections::BTreeMap::new());
+    for (index, snapshot) in snapshots.iter().enumerate() {
+        for case in 0..cases {
+            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone(), gsu: snapshot.gsu.clone() };
+            let places = list(&state, 0xDB67);
+            let units = list(&state, 0xE0A3);
+            let mut events = 0x0010u16;
+            for bit in [0x0002u16, 0x0004, 0x0800, 0x0200, 0x4000, 0x0020, 0x2000] {
+                if rng.below(3) == 0 {
+                    events |= bit;
+                }
+            }
+            set_word(&mut state, 0x1B88, events);
+            let mut campaign = state.word(0x1B8A) & !0x00B2;
+            for bit in [0x0002u16, 0x0020, 0x0080, 0x0010] {
+                if rng.below(4) == 0 {
+                    campaign |= bit;
+                }
+            }
+            set_word(&mut state, 0x1B8A, campaign);
+            set_word(&mut state, 0xDA7D, rng.pick(&[0u16, 2, 4, 6, 8, 0x0A]));
+            set_word(&mut state, 0xD79D, rng.pick(&[0u16, 1, 0xFFFE, 5]));
+            set_word(&mut state, 0xD7F4, rng.below(8) as u16);
+            set_word(&mut state, 0x1BB5, rng.below(11) as u16);
+            set_word(&mut state, 0x1BA5, rng.below(0x40) as u16);
+            state.low[0xD7A1] = rng.below(0x100) as u8;
+            set_word(&mut state, 0xD79F, rng.next() as u16);
+            set_word(&mut state, 0x1BA7, rng.below(16) as u16);
+            set_word(&mut state, 0xD7F6, rng.next() as u16);
+            set_word(&mut state, 0xDA29, rng.pick(&[1u16, 2, 5]));
+            toggle(&mut state, 0xE087, rng.pick(&[0x0008u16, 0x1000, 0x0000]));
+            set_word(&mut state, 0xE093, rng.below(2) as u16);
+            if !places.is_empty() {
+                let place = rng.pick(&places);
+                set_word(&mut state, 0xDB07, place);
+                toggle(&mut state, place + 0x1C, rng.pick(&[0x0004u16, 0x0080, 0x0800, 0x0000]));
+                set_word(&mut state, place + 0x36, rng.below(3) as u16);
+            }
+            if !units.is_empty() {
+                let unit = rng.pick(&units);
+                set_word(&mut state, 0xE097, unit);
+                let flags = rng.pick(&[0x0800u16, 0x0020, 0x0080, 0x0008, 0x0000]);
+                let old = state.word(unit + 0x2E);
+                set_word(&mut state, unit + 0x2E, (old & !0x08A8) | flags | 0x2002);
+                if !places.is_empty() {
+                    set_word(&mut state, unit + 0x12, rng.pick(&places));
+                }
+            }
+            let mut native = visit(&state);
+            let mut output = ScreenOutput::default();
+            if let Err(error) = native.stage_results(&mut output) {
+                *faulted.entry(format!("{error:x?}")).or_insert(0) += 1;
+                continue;
+            }
+            let after = run_results(&state);
+            let context = format!("snapshot {index} case {case} (DA7D {:X})", state.word(0xDA7D));
+            compare(&native, &visit(&after), &context);
+            assert_eq!(output.cues, queued_cues(&state, &after), "{context}: cues");
+            compared += 1;
+        }
+    }
+    eprintln!("compared {compared} mutated stage results; native faults {faulted:?}");
     assert!(compared > 0);
 }

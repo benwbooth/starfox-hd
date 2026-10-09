@@ -4,8 +4,8 @@
 //! decompresses, the sprite buffer and the radio's reset.
 //!
 //! The entry's code copies, video uploads, window effects and music are
-//! presentation and are not modeled. A return from a stage (1B86 bit 2,
-//! 1B88 bit 4) is not ported yet and faults.
+//! presentation and are not modeled. Back from a stage (1B86 bit 2, then
+//! 1B88 bit 4), the stage's results (`$04:B2F2`) update the campaign.
 
 use sf2_data::map_layers::{MAP_PALETTE, MAP_TERRAIN};
 
@@ -35,6 +35,8 @@ const RESULTS_TUTORIAL: u16 = 0x0080;
 const RESULTS_NEW: u16 = 0x0001;
 /// 1B88 bit 4: back from a stage.
 const EVENTS_FROM_STAGE: u16 = 0x0010;
+/// The cue `$7F:6E09` queues for a stage's results.
+const CUE_RESULTS: u16 = 0x006F;
 
 /// `$04:E079`/`E07C`/`E07F`: by difficulty, the marks, fleets and enemies.
 const MARKS: [u8; 3] = [0x02, 0x03, 0x06];
@@ -117,11 +119,10 @@ impl MapVisit {
             self.links.display_flags |= 0x0400;
         }
         self.links.mode |= 0x0010;
-        if self.links.scene.scene_events & EVENTS_FROM_STAGE != 0 {
-            return Err(ScreenError::Unported(0x04DE00).into());
-        }
-        // $0B:8C17 and the presentation's countdown.
-        self.links.presentation_countdown = 0x000A;
+        let from_stage = self.links.scene.scene_events & EVENTS_FROM_STAGE != 0;
+        // $0B:8C17, then back from a stage `$0B:8C52` (director state 0x0F,
+        // whose parameter is the countdown).
+        self.links.presentation_countdown = if from_stage { 0x0002 } else { 0x000A };
         self.links.presentation_flags |= 0x0002;
         self.load_layers();
         // $04:8001 (`$04:9D3C`, `$04:A109`): the sprite buffer's low table
@@ -134,6 +135,14 @@ impl MapVisit {
             entry.copy_from_slice(&pattern);
         }
         high.fill(0);
+        if from_stage {
+            self.stage_results(output)?;
+        }
+        // $04:DE3F.
+        if self.links.scene.scene_events & EVENTS_FROM_STAGE != 0 {
+            self.links.scene.scene_events &= !EVENTS_FROM_STAGE;
+            output.cues.push(CUE_RESULTS);
+        }
         // $0B:9F4C.
         Radio {
             radio: &mut self.radio,
@@ -166,7 +175,10 @@ impl MapVisit {
         }
         self.links.scene.stage_results |= RESULTS_SET_UP;
         if results & RESULTS_FROM_STAGE != 0 {
-            return Err(ScreenError::Unported(0x04E05E).into());
+            // $04:E05E: back from a stage (`$03:E312` reloads the pilots'
+            // voices into the sound processor).
+            self.links.scene.scene_events |= EVENTS_FROM_STAGE;
+            return Ok(());
         }
         self.links.scene.scene_events = 0;
         self.links.scene.campaign_events = 0;
@@ -564,4 +576,222 @@ impl MapVisit {
             planet_colours(&mut self.hud, if percent >= 0x50 { 3 } else { 0 });
         }
     }
+
+    /// `$04:B2F2`: a stage's results, by how the map left (DA7D).
+    pub fn stage_results(&mut self, output: &mut ScreenOutput) -> Result<(), VisitError> {
+        self.screen.interface &= !0x0024;
+        self.screen.hover &= !0x0019;
+        self.links.scene.scene_events &= !0x0020;
+        self.links.scene.campaign_events &= !0x0010;
+        self.director.aftermath = 0x0068;
+        self.director.dialog_hold = 1;
+        self.links.scene.campaign_events |= 0x0200;
+        output.cues.push(CUE_RESULTS);
+        let events = self.links.scene.scene_events;
+        if self.links.scene.campaign_events & 0x0002 == 0 && events & 0x0800 == 0 && events & 0x0004 != 0 {
+            // The met unit resumes what it was doing.
+            let id = self.map.globals.met_unit.ok_or(ScreenError::MissingUnit(0x04B34F))?;
+            let unit = self.map.unit_mut(id);
+            unit.behavior = unit.saved_behavior;
+            unit.motion = unit.saved_motion;
+        }
+        self.links.scene.scene_events &= !0x0004;
+        let globals = &mut self.map.globals;
+        if globals.satellite_flags & 0x0008 != 0 && globals.satellite_guarding != 0 && globals.satellite_flags & 0x1000 != 0 {
+            globals.satellite_flags &= !0x1000;
+            if self.links.scene.scene_events & 0x0002 != 0 {
+                globals.satellite_flags &= !0x0008;
+            }
+        }
+        if self.links.scene.campaign_events & 0x0002 != 0 {
+            // $04:B3DF.
+            self.links.scene.campaign_events &= !0x0002;
+            self.director.aftermath_next = 0x0042;
+            return Ok(());
+        }
+        if self.links.scene.scene_events & 0x0800 != 0 {
+            // $04:B3C5: the final stage; DA95 and DA96 are stored as words.
+            self.links.scene.scene_events &= !0x0800;
+            self.screen.arrival_x = 0x80;
+            self.screen.arrival_y = 0x60;
+            set_pulse_low(&mut self.screen.pulses[0].x, 0);
+            self.director.aftermath_next = 0x0042;
+            return Ok(());
+        }
+        if self.links.scene.scene_events & 0x0002 != 0 {
+            self.links.stage_flags &= !0x0003;
+        }
+        match self.links.arrival_word {
+            0 => self.place_results()?,
+            2 => self.home_results()?,
+            4 | 8 => self.unit_results()?,
+            6 => {
+                let id = self.map.globals.met_unit.ok_or(ScreenError::MissingUnit(0x04B4F7))?;
+                self.map.unit_mut(id).flags &= !0x0002;
+                self.unit_results()?;
+            }
+            0x0A => {
+                let id = self.map.globals.met_unit.ok_or(ScreenError::MissingUnit(0x04B4D7))?;
+                self.release_home(id)?;
+                self.director.aftermath_next = 0x0018;
+            }
+            _ => return Err(ScreenError::Unported(0x04B3B4).into()),
+        }
+        // $04:B3B7: DA95 and DA96 are stored as words, so the arrival takes
+        // the ship's position and the first pulse's low byte its heading's.
+        self.screen.arrival_x = (self.screen.ship.x >> 8) as u8;
+        self.screen.arrival_y = (self.screen.ship.y >> 8) as u8;
+        set_pulse_low(&mut self.screen.pulses[0].x, self.screen.ship.heading as u8);
+        Ok(())
+    }
+
+    /// `$04:B3FD`: back from a place.
+    fn place_results(&mut self) -> Result<(), VisitError> {
+        let id = self.screen.ship.destination.ok_or(ScreenError::MissingPlace(0x04B3FD))?;
+        if self.map.places[usize::from(id.0)].flags & 0x0004 != 0 {
+            return self.home_results();
+        }
+        self.map.places[usize::from(id.0)].flags &= !0x0080;
+        // $04:B23B.
+        let place = &mut self.map.places[usize::from(id.0)];
+        place.info = self.links.launch_layout;
+        place.stage = self.launch.place_stage;
+        let rank = self.launch.rank;
+        self.set_location_rank(self.links.launch_location, rank)?;
+        self.director.aftermath_next = 0x0018;
+        if self.links.scene.scene_events & 0x0002 != 0 {
+            // $04:B42C: the place is cleared.
+            let place = &mut self.map.places[usize::from(id.0)];
+            place.flags |= 0x1000;
+            place.marker = 0;
+            if place.state != 0 {
+                place.flags &= !0x0800;
+                place.state = 1;
+            }
+            place.info = 0x000F;
+            let campaign = &mut self.screen.campaign;
+            campaign.markers_placed = campaign.markers_placed.wrapping_sub(1);
+            let tally = &mut self.director.tally;
+            tally.marks_left = tally.marks_left.wrapping_sub(1);
+            tally.enemies_left = tally.enemies_left.wrapping_sub(1);
+            tally.marks_cleared = tally.marks_cleared.wrapping_add(1);
+            if tally.enemies_left == 1 {
+                self.map.globals.speed_flags |= 0x4000;
+            }
+            self.director.aftermath_next = 0x0014;
+        }
+        Ok(())
+    }
+
+    /// `$04:B474`: back from a unit's home place.
+    fn home_results(&mut self) -> Result<(), VisitError> {
+        self.launch.encounter_flags[1] = 0;
+        self.links.scene.scene_events &= !0x0004;
+        if self.links.scene.scene_events & 0x0002 != 0 {
+            self.director.aftermath_next = 0x001C;
+            return Ok(());
+        }
+        let id = self.map.globals.met_unit.ok_or(ScreenError::MissingUnit(0x04B490))?;
+        self.release_home(id)?;
+        self.director.aftermath_next = 0x0020;
+        Ok(())
+    }
+
+    /// The met unit's home is open again and the unit no longer engaged.
+    fn release_home(&mut self, id: UnitId) -> Result<(), VisitError> {
+        let home = self.map.unit(id).home.ok_or(ScreenError::MissingPlace(0x04B493))?;
+        self.map.places[usize::from(home.0)].flags &= !0x0080;
+        self.map.unit_mut(id).flags &= !0x2000;
+        Ok(())
+    }
+
+    /// `$04:B503`: back from an encounter with a unit.
+    fn unit_results(&mut self) -> Result<(), VisitError> {
+        let id = self.map.globals.met_unit.ok_or(ScreenError::MissingUnit(0x04B503))?;
+        self.map.unit_mut(id).flags &= !0x2000;
+        // $04:B2B1: the encounter slot keeps the stage's rank and word.
+        let slot = usize::from(self.launch.encounter_slot);
+        let globals = &mut self.map.globals;
+        *globals.slot_pattern.get_mut(slot).ok_or(ScreenError::TableOverrun(0x04B2BB))? = self.launch.rank;
+        let result = self.links.mission_result;
+        let rank = self.links.mission_rank;
+        let strength = if self.links.scene.campaign_events & 0x0020 != 0 && result != 0x0001 && result != 0xFFFE {
+            rank.wrapping_sub(1)
+        } else {
+            rank
+        };
+        *globals.slot_word.get_mut(slot).ok_or(ScreenError::TableOverrun(0x04B2EC))? = self.launch.slot_word;
+        self.map.unit_mut(id).strength = strength;
+        let unit = *self.map.unit(id);
+        let events = self.links.scene.scene_events;
+        if events & 0x0002 == 0 {
+            // $04:B588.
+            if events & 0x0200 != 0 {
+                self.links.scene.scene_events &= !0x4200;
+                self.director.aftermath_next = 0x0032;
+            } else if events & 0x4000 != 0 {
+                self.links.scene.scene_events &= !0x4000;
+                self.links.mission_extra = 1;
+                self.director.aftermath_next = 0x0028;
+                self.screen.ship.x = u16::from_le_bytes([(unit.x_fraction >> 8) as u8, unit.x]);
+                self.screen.ship.y = u16::from_le_bytes([(unit.y_fraction >> 8) as u8, unit.y]);
+            } else if self.links.scene.campaign_events & 0x0080 == 0 {
+                self.director.aftermath_next = 0x002C;
+            } else {
+                self.director.aftermath_next = 0x003A;
+            }
+            return Ok(());
+        }
+        if unit.flags & 0x0800 != 0 {
+            let base = self.map.globals.base.ok_or(ScreenError::MissingPlace(0x04B54A))?;
+            self.map.places[usize::from(base.0)].state = 0;
+            if self.map.globals.satellite_guarding != 0 {
+                self.map.globals.satellite_flags |= 0x0800;
+            }
+        } else if unit.flags & 0x0020 != 0 {
+            self.links.scene.scene_events &= !0x0200;
+            let tally = &mut self.director.tally;
+            tally.other_cleared = tally.other_cleared.wrapping_add(1);
+            tally.other_total = tally.other_total.wrapping_add(1);
+        } else if unit.flags & 0x0080 != 0 {
+        } else if unit.flags & 0x0008 != 0 {
+            if self.links.scene.campaign_events & 0x0080 != 0 {
+                self.map.globals.speed_flags |= 0x8000;
+            } else {
+                let home = unit.home.ok_or(ScreenError::MissingPlace(0x04B56F))?;
+                self.map.places[usize::from(home.0)].flags &= !0x8000;
+            }
+        } else {
+            let tally = &mut self.director.tally;
+            tally.bases_cleared = tally.bases_cleared.wrapping_add(1);
+            tally.bases_total = tally.bases_total.wrapping_add(1);
+        }
+        self.links.scene.scene_events &= !0x0004;
+        self.director.aftermath_next = 0x0024;
+        Ok(())
+    }
+}
+
+impl MapVisit {
+    /// `$04:B253`: D794 indexed by the location; past the six ranks it
+    /// writes the encounter words that follow.
+    fn set_location_rank(&mut self, location: u16, rank: u8) -> Result<(), ScreenError> {
+        match location {
+            0..=5 => self.launch.location_ranks[usize::from(location)] = rank,
+            6 => self.launch.encounter_flags[0] = rank,
+            7 => self.launch.encounter_flags[1] = rank,
+            8 => self.launch.encounter_flags[3] = rank,
+            9 => set_low(&mut self.links.mission_result, rank),
+            10 => self.links.mission_result = (self.links.mission_result & 0x00FF) | (u16::from(rank) << 8),
+            _ => return Err(ScreenError::TableOverrun(0x04B253)),
+        }
+        // D79D is the stage's result word, which the scene reads too.
+        self.links.scene.encounter_result = self.links.mission_result;
+        Ok(())
+    }
+}
+
+/// The low byte of a pulse's 24-bit position.
+fn set_pulse_low(value: &mut u32, byte: u8) {
+    *value = (*value & 0x00FF_FF00) | u32::from(byte);
 }

@@ -33,7 +33,7 @@ pub struct MapLaunch {
     /// word (+0A).
     pub slot_word: u16,
     pub rank: u8,
-    pub place_stage: u8,
+    pub place_stage: u16,
     /// D7D3: the encounter's bonus word.
     pub bonus: u16,
     /// D79A, D79B, D7D5 and D79C: encounter flags.
@@ -262,7 +262,7 @@ impl MapVisit {
         let place = self.map.places[usize::from(id.0)];
         set_low(&mut self.links.launch_location, place.kind as u8);
         set_low(&mut self.links.launch_layout, place.info as u8);
-        self.launch.place_stage = place.stage as u8;
+        set_low(&mut self.launch.place_stage, place.stage as u8);
         let mut rank = self.location_rank(self.links.launch_location)?;
         if rank == 0 {
             let at = (self.links.launch_location as u8)

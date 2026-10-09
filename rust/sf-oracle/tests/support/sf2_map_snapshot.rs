@@ -240,6 +240,8 @@ pub(crate) fn director(s: &Snapshot) -> MapDirector {
             fleets_cleared: s.word(0xDA3D),
             other_cleared: s.word(0xDA49),
             bases_cleared: s.word(0xDA4F),
+            other_total: s.word(0xDA4B),
+            bases_total: s.word(0xDA51),
         },
     }
 }
@@ -370,7 +372,7 @@ pub(crate) fn launch(s: &Snapshot) -> sf2_game::strategic_exit::MapLaunch {
         encounter_heading: s.byte(0x1BA9),
         slot_word: s.word(0xD79F),
         rank: s.byte(0xD7A1),
-        place_stage: s.byte(0xD7F6),
+        place_stage: s.word(0xD7F6),
         bonus: s.word(0xD7D3),
         encounter_flags: [s.byte(0xD79A), s.byte(0xD79B), s.byte(0xD7D5), s.byte(0xD79C)],
         tallies: std::array::from_fn(|k| s.word(0xD786 + 2 * k as u16)),

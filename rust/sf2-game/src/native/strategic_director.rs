@@ -77,6 +77,10 @@ pub struct MapTally {
     pub fleets_cleared: u16,
     pub other_cleared: u16,
     pub bases_cleared: u16,
+    /// DA4B and DA51: the other units and the bases a stage has cleared,
+    /// counted with DA49 and DA4F.
+    pub other_total: u16,
+    pub bases_total: u16,
 }
 
 // D7FA bits.

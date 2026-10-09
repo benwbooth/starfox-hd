@@ -96,6 +96,13 @@ PINS = (
     ("closing iris head", 0x0B9626, 0x0B963B, "85379a00bfa301d23b51498bbcdb7012b6a9ce7b85331238e8de5b487223ffac"),
     ("sound port silence", 0x7F0F50, 0x7F0F5D, "4e1ba9ce2dc72f377543fc7685f55c58bd874d3661b44b4c31561ce516cfd9ec"),
     ("frame interrupt", 0x7F0249, 0x7F02A1, "9cf11c896e7b11d2385e22a9771ce1e627c3c0754159bde3172fdf1b9fafd801"),
+    # strategic_entry.rs: back from a stage.
+    ("stage results", 0x04B2F2, 0x04B3FD, "9c55a8dd25aa2eb915bedb0ed213dd659aadcf3f81c070750eacb7ad83936d3e"),
+    ("place results", 0x04B3FD, 0x04B474, "57471a2079597bf9be557c5741a6602525fae0b9abb40efa2486ff5095edf4b6"),
+    ("home and unit results", 0x04B474, 0x04B5DA, "7d6fc2b6eb0d398c955cc4133d711e4b0b2f840108bbab502377ac1f68a37632"),
+    ("place stage save", 0x04B23B, 0x04B259, "2a36a1fab17c67eeda11e403c4d34ecb3625a4bd3c654e7f1c4a117a6c73fb08"),
+    ("slot stage save", 0x04B2B1, 0x04B2F2, "c7b199965b870bd5fcd312ededd02ac8baf34f6cece531ec67408f32609f26ea"),
+    ("stage return setup", 0x04E05E, 0x04E070, "dd3bba5c899e18d2d6499a8655d1122d35091133952c7a0a0b85d6155d790892"),
 )
 
 # Rust byte tables and the ROM ranges they copy.
