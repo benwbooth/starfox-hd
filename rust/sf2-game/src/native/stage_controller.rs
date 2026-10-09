@@ -105,6 +105,8 @@ pub struct StageControl {
     pub clock_stopped: bool,
     /// 1C0E: event bits raised by actor services and cleared on exit.
     pub event_word: u16,
+    /// The mission launch's stage-level publications.
+    pub launch: super::stage_launch::StageLaunchState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

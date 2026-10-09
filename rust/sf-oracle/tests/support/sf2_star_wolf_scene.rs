@@ -49,7 +49,7 @@ const UP: u16 = 0x0800;
 
 /// Title, attract and pilot selection by Start presses; then the map cursor
 /// to the cyan planet's lane and B. Leon intercepts the ship on the way.
-fn navigate(m: &mut RetailMachine) {
+fn navigate_to_launch(m: &mut RetailMachine) {
     m.tick_video_frames(0, 600).unwrap();
     for _ in 0..20 {
         m.tick_video_frames(START, 6).unwrap();
@@ -61,6 +61,10 @@ fn navigate(m: &mut RetailMachine) {
     m.tick_video_frames(B, 6).unwrap();
     assert!(m.tick_until_cpu_execution(0, MISSION_LAUNCH, 2000).unwrap(), "no encounter launched");
     assert_eq!((byte(m, 0x1BB5), byte(m, 0x1BA5)), (7, 0x0A), "not the Star Wolf interception");
+}
+
+fn navigate(m: &mut RetailMachine) {
+    navigate_to_launch(m);
     assert!(m.tick_until_cpu_execution(0, STAGE_LOOP, 200).unwrap());
     assert!(m.tick_until_cpu_execution(0, INITIALIZER, 600).unwrap());
 }
@@ -240,9 +244,6 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
         horizontal: Some(byte(m, 0x1E30)),
         vertical: Some(byte(m, 0x1E31)),
     };
-    world.stage = Some(retail_stage(m));
-    world.scene_display = Some(retail_display(m));
-    world.director = Some(retail_director(m));
     world.map_records = Some(sf2_game::map_streaming::MapRecordStore::new());
     world.map_regions = Some(Default::default());
     world.region_groups = Some(sf2_game::map_streaming::RegionGroups {
@@ -290,6 +291,17 @@ fn retail_stage(m: &RetailMachine) -> sf2_game::stage_controller::StageControl {
         hud_mode: byte(m, 0xD810),
         clock_stopped: byte(m, 0xF532) != 0,
         event_word: word(m, 0x1C0E),
+        launch: sf2_game::stage_launch::StageLaunchState {
+            hud_mode: byte(m, 0x1B9E),
+            hud_layout: byte(m, 0x1BA2),
+            presentation_parameter: word(m, 0x1C6E),
+            stage_interrupt: byte(m, 0x1CB8) & 0x08 != 0,
+            stage_transition: transition & 0x02 != 0,
+            mission_number: byte(m, 0x1BB7),
+            location_class: byte(m, 0x1BB8),
+            scene_number: word(m, 0x1B6E),
+            elapsed_at_launch: word(m, 0xDA5D),
+        },
     }
 }
 
@@ -386,11 +398,40 @@ fn compare_stage(m: &RetailMachine, runner: &SceneRunner<Callbacks>, epoch: u32)
     assert_eq!(cinematic, word(m, 0x1B96), "epoch {epoch}: cinematic word");
 }
 
+/// The mission launch ($03:B90E) from retail's state at the launch, against
+/// retail's state when the stage loop starts.
+#[test]
+fn star_wolf_interception_launches_natively_like_the_retail_machine() {
+    let mut m = RetailMachine::new(super::rom());
+    navigate_to_launch(&mut m);
+    let mut world = stage_world(&m);
+    world.stage = Some(retail_stage(&m));
+    world.director = Some(retail_director(&m));
+    let mission = sf2_game::stage_launch::MissionLaunch {
+        location: word(&m, 0x1BB5),
+        layout: byte(&m, 0x1BA5),
+        campaign_flags: word(&m, 0x1B8A),
+    };
+    let map = sf2_game::stage_launch::launch(&mut world, mission).unwrap();
+    assert!(m.tick_until_cpu_execution(0, STAGE_LOOP, 200).unwrap());
+    assert_eq!(map, sf2_game::authored_maps::STAR_WOLF_INTERCEPTION);
+    assert_eq!((byte(&m, 0x192E), word(&m, 0x1657)), (0x05, 0x6995), "frame map");
+    assert_eq!(world.stage.unwrap(), retail_stage(&m), "stage control");
+    assert_eq!(world.director.unwrap(), retail_director(&m), "presentation director");
+    assert_eq!(world.view_transition_mode.unwrap().flags, word(&m, 0x1B84), "mode word");
+    assert_eq!(world.scene_display_flags, Some(word(&m, 0x1B9C)), "display flags");
+    assert_eq!(world.scene_events.unwrap().bits, word(&m, 0x1B88), "scene events");
+    assert_eq!((byte(&m, 0x1AA5), byte(&m, 0xD7D8)), (0, 0), "cleared bytes");
+}
+
 #[test]
 fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     let mut m = RetailMachine::new(super::rom());
     navigate(&mut m);
     let mut world = stage_world(&m);
+    world.stage = Some(retail_stage(&m));
+    world.scene_display = Some(retail_display(&m));
+    world.director = Some(retail_director(&m));
     let map_catalog = sf2_game::authored_maps::catalog().unwrap();
     let mut presentation = sf2_game::map_effects::MapPresentation {
         display_ready: Some(true),

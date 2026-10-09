@@ -112,6 +112,12 @@ pub fn request(world: &mut ScenePathWorld, state: u8, hold: bool) -> Result<(), 
     Ok(())
 }
 
+/// `$0B:8C17`: drop any request.
+pub fn clear_request(world: &mut ScenePathWorld) -> Result<(), DirectorError> {
+    director(world)?.request = 0;
+    Ok(())
+}
+
 /// `$0B:8C21`: one director frame.
 pub fn advance(world: &mut ScenePathWorld, stage_kind: u16) -> Result<(), DirectorError> {
     let director = world.director.as_mut().ok_or(DirectorError::MissingDirector)?;
