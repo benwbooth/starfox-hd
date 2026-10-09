@@ -80,6 +80,35 @@ Note: the hand-built `intro_*.rs` OpeningScene reconstructs this same scene
 six (its ignored retail test fails at update 101 on entropy timing, which the
 draw-indexed `EntropyRefresh` input resolves). It is not used by shipping.
 
+## Star Wolf interception status (2026-10-08, latest)
+
+The Star Wolf interception (location 7, layout 0A) runs natively against
+the retail machine from the scene player's initializer until the stage loop
+leaves after the player is shot down: every actor and player record, the
+frame's display services (`render_view.rs`, `hud_target.rs`), the flight
+stage controller with its clocks and exit fade (`stage_controller.rs`,
+`$03:C500..C79D`, `$7F:5F39`, `$03:E0FC`), the render-time fade and blank
+hold, and the bank-0B presentation director's stage-start iris
+(`presentation_director.rs`). The oracle replays the controller, fade and
+director visits in retail order because the fade runs per completed render.
+
+Still compared with masks: the HUD service's buffer parity (1B9C bit 01),
+the HUD lane (record 1FD2, run by `$04:93AC` -> `$0B:A842`) after it starts,
+and the retained-shield acknowledgement of the HUD gauge (`$04:95CB`).
+
+Path to a shipping stage (replacing the recorded Leon duel in `game.rs`):
+1. Mission launch `$03:B90E` (location table `$03:BA17`, map `$05:E995` for
+   location 7) and the stage loop prologue `$03:BE74` up to the first frame.
+2. Stage-start inputs from the campaign: nearly all seeds are zero, campaign
+   values (pilot, shield, score, equipment, input settings) or encounter
+   values written before launch (D744, D766, D77C/D, D7A1, D7D2, D7F4, 1D74,
+   1DE0, 1E08/9); their producers are on the strategic map.
+3. `Game` hosts a `SceneRunner` for the visit: live pad input, camera from the
+   fixed view, render objects from the runner's store, HUD inputs from the
+   world, and the stage exit (`StageVisit::Leave`) mapped to the campaign.
+4. The HUD service `$04:8301` (mostly drawing) and the bank-0B sprite system
+   for in-stage presentation.
+
 ## Smallest coherent first slice
 
 Run one installed scene end to end on the shared scheduler, with a live
