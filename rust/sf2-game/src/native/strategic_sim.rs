@@ -342,7 +342,7 @@ impl StrategicMap {
 
     // ---- places ($7F:55FE) ----
 
-    fn advance_places(&mut self, links: &mut SceneLinks, inputs: StrategicInputs<'_>) -> Result<(), SimError> {
+    pub(crate) fn advance_places(&mut self, links: &mut SceneLinks, inputs: StrategicInputs<'_>) -> Result<(), SimError> {
         let mut cursor = self.place_head;
         while let Some(id) = cursor {
             let place = self.places[usize::from(id.0)];
@@ -436,7 +436,7 @@ impl StrategicMap {
 
     // ---- units, first pass ($7F:5693) ----
 
-    fn advance_units(&mut self, links: &mut SceneLinks, inputs: StrategicInputs<'_>) -> Result<(), SimError> {
+    pub(crate) fn advance_units(&mut self, links: &mut SceneLinks, inputs: StrategicInputs<'_>) -> Result<(), SimError> {
         if self.globals.pass_holds & 0x0001 != 0 {
             return Ok(());
         }

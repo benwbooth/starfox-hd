@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from extract_map import DEFAULT_ROM
+import cpu65816
 from test_strategic_sim_static import span
 
 NATIVE = Path(__file__).resolve().parents[3] / "rust/sf2-game/src/native"
@@ -34,6 +35,17 @@ PINS = (
     ("missile salvo", 0x04E7CD, 0x04E88E, "3ad674723ac344ea16e54ee21fc8e216154f8ec8294743eb50207c68cc04b0c5"),
     ("schedule", 0x04EF74, 0x04F002, "7096f0155e61b6aae2944b7bba9969e39448c6fc886ee1473b3cee66c3663731"),
     ("threat rescan", 0x7F5856, 0x7F58A6, "7fdb4b68cad4913860d794441adb210e15ffced929c273359e6627fbcb1488d1"),
+    # strategic_sprites.rs, strategic_hud.rs and strategic_visit.rs.
+    ("sprite pass head", 0x048301, 0x0483B3, "37397c2367c8e9b3d2414eeaf61c314758f16e2253934901c17ed8abc5369380"),
+    ("sprite pass map mode", 0x0487A9, 0x049389, "a6861ae5ed0649750f247d17fd02dc074710df1c915f4bb2d12817b5a750db55"),
+    ("shield gauge", 0x0495DA, 0x049664, "27c6f510af73b644bddbc2672f2697a54ce69e2288074e21c55d5a4480ca95fd"),
+    ("sprite composers", 0x049EDE, 0x04A357, "eb30c6622f5aea1b12bcbb99fbedf33a7cf62146f8e2f1f7169e434229863494"),
+    ("size bit tables", 0x04A3B6, 0x04A3ED, "94cff4c1308de4759bb2259dc564246ccaad8adefad5b6858fefcd5b196c1246"),
+    ("effects and animated sprites", 0x04F431, 0x04F932, "a42101ac6cc9c88279a98f3aa7764549b4595c0cc3fa070f1dfe5e91c7f551fc"),
+    ("hud layout service", 0x04A3ED, 0x04A501, "b6871cadd99c670987a61d91430bff6f6827b05a154779931a83a4f58dca7a84"),
+    ("palette cycles", 0x04AB07, 0x04AC5B, "cc16c13e2a7b19c36005948929dfa0545cc6486bce631ded7814df6766d46e0b"),
+    ("planet drain", 0x7F5FA0, 0x7F600A, "cb428eea5ecb36fc4a57936205e7b6e47c19e77c6a0db4d2af296c7161354457"),
+    ("frame timers and random word", 0x7F0516, 0x7F05A0, "9f71a34ed0c85ce19c93172604d6e9497f7078f72019b984c0e423ba75b2f48c"),
 )
 
 # Rust byte tables and the ROM ranges they copy.
@@ -74,6 +86,17 @@ class StrategicScreenStaticTests(unittest.TestCase):
             with self.subTest(name):
                 data = rust_bytes(file, name)
                 self.assertEqual(data, span(start, start + len(data), self.rom))
+
+    def test_sprite_catalog_copies_the_rom(self):
+        path = NATIVE.parents[2] / "sf2-data/src/map_sprites.rs"
+        body = re.search(r"MAP_SPRITES: \[u8; [^\]]+\] = \[(.*?)\];", path.read_text(), re.S).group(1)
+        data = bytes(int(v, 16) for v in re.findall(r"0x([0-9A-Fa-f]{2})", body))
+        start = cpu65816.cpu_to_file(0x18AF24)
+        catalog = self.rom[start : start + 0x50DC]
+        self.assertEqual(data, catalog)
+        self.assertEqual(
+            hashlib.sha256(catalog).hexdigest(), "2cafc506fca19528a8737ff3a0011b85cca6a89c5564c4a868dbd3681fd886e6"
+        )
 
     def test_dispatch_tables(self):
         def words(address, count):

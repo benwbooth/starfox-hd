@@ -55,9 +55,9 @@ pub struct MapDirector {
     /// D9C2/D9C4: the final-stage choice and whether it is open.
     pub choice: u16,
     pub choosing: u16,
-    /// E08B and E08D: the satellite sortie's timer and escort.
+    /// E08B: the satellite sortie's timer (its escort, E08D, is in the
+    /// screen links).
     pub sortie_timer: u16,
-    pub sortie_escort: Option<UnitId>,
     /// D9B2: the missile salvo's remaining index.
     pub salvo_index: u16,
     pub tally: MapTally,
@@ -1694,7 +1694,7 @@ impl Step<'_, '_> {
                 globals.satellite_flags |= 0x0080;
                 self.frame.map.globals.satellite_hold += 1;
                 self.cue(0x008B);
-                let escort = self.d.sortie_escort.ok_or(ScreenError::MissingUnit(0x04CBF1))?;
+                let escort = self.frame.links.sortie_escort.ok_or(ScreenError::MissingUnit(0x04CBF1))?;
                 if self.frame.map.globals.satellite_guarding != 0 {
                     let satellite = self.frame.map.globals.satellite.ok_or(ScreenError::MissingUnit(0x04CBF9))?;
                     let mut scene = self.frame.links.scene;
@@ -1754,7 +1754,7 @@ impl Step<'_, '_> {
         self.frame.map.globals.campaign_flags |= 0x0010;
         self.frame.map.globals.stored_target = 8;
         let id = self.frame.map.allocate_unit()?;
-        self.d.sortie_escort = Some(id);
+        self.frame.links.sortie_escort = Some(id);
         let satellite = self.frame.map.globals.satellite.ok_or(ScreenError::MissingUnit(0x04CB91))?;
         let anchor = *self.frame.map.unit(satellite);
         let (target_x, target_y) = if self.frame.map.globals.satellite_guarding != 0 {
@@ -1856,13 +1856,11 @@ impl Step<'_, '_> {
 
     /// `$04:DB13`.
     fn clear_first_mark(&mut self) {
-        self.frame.screen.campaign.guards_left = 1;
         let mut next = self.frame.map.place_head;
         while let Some(id) = next {
             let place = self.frame.map.places[usize::from(id.0)];
             if place.flags & 0x0001 != 0 && place.flags & 0x0004 == 0 && place.flags & 0x1000 == 0 {
                 self.clear_mark(id);
-                self.frame.screen.campaign.guards_left = 0;
                 return;
             }
             next = place.next;
@@ -1871,14 +1869,12 @@ impl Step<'_, '_> {
 
     /// `$04:DB44`.
     fn clear_first_fleet(&mut self) -> Result<(), ScreenError> {
-        self.frame.screen.campaign.guards_left = 1;
         let mut next = self.frame.map.place_head;
         while let Some(id) = next {
             let place = self.frame.map.places[usize::from(id.0)];
             if place.flags & 0x0004 != 0 {
                 let unit = place.held_unit.ok_or(ScreenError::MissingUnit(0x04DB5D))?;
                 self.clear_fleet(id, unit)?;
-                self.frame.screen.campaign.guards_left = 0;
                 return Ok(());
             }
             next = place.next;
@@ -1888,7 +1884,6 @@ impl Step<'_, '_> {
 
     /// `$04:DB6F`/`$04:DBB2`: the first unit outside `mask` is destroyed.
     fn destroy_first(&mut self, mask: u16, cue: u16) -> Result<(), ScreenError> {
-        self.frame.screen.campaign.guards_left = 1;
         let Some(head) = self.frame.map.unit_head else {
             return Ok(());
         };
@@ -1903,7 +1898,6 @@ impl Step<'_, '_> {
                 let mut scene = self.frame.links.scene;
                 self.frame.map.destroy(id, &mut scene)?;
                 self.frame.links.scene = scene;
-                self.frame.screen.campaign.guards_left = 0;
                 break;
             }
             next = unit.next;

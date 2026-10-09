@@ -268,8 +268,9 @@ pub struct MapScreen {
     /// 1C12: the planet warnings given; 1C10 the last one.
     pub planet_warnings: u16,
     pub planet_warning: u8,
-    /// F4EC..F4EE: the critical warning's flash.
-    pub warning_flash: [u8; 3],
+    /// F4EC..F4EF: the planet palette flash's countdown, its reload and its
+    /// palette offset word.
+    pub warning_flash: [u8; 4],
     /// 1CE5: the travel sound's mode.
     pub travel_sound: u8,
     /// DA81, DA83, DA85: the running script's position in `$04:CD6E`,
@@ -306,12 +307,10 @@ impl Default for ScriptSubject {
 /// The campaign's wave and marker bookkeeping that the scripts advance.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct MapCampaign {
-    /// D99A: markers left to place; DAEB the marker kind cursor; 1BCA and
-    /// 1BCC the guard placement's count and kind; DA2F markers placed.
+    /// D99A: markers left to place; DAEB the marker kind cursor; DA2F
+    /// markers placed. (1BCA/1BCC are scratch words several services share.)
     pub marker_count: u16,
     pub marker_cursor: u16,
-    pub guards_left: u16,
-    pub guard_kind: u16,
     pub markers_placed: u16,
     /// DB51: the wave cursor; D98F the wave's remaining ships (low byte);
     /// DA41 the escorts' running number; DA3F the start position cursor.
@@ -333,8 +332,9 @@ pub struct ScreenLinks {
     pub service: u16,
     /// 1B84 (read).
     pub mode: u16,
-    /// DB47: the planet's health.
+    /// DB47: the planet's health; DB49 its damage in percent.
     pub planet_health: u16,
+    pub planet_damage_percent: u16,
     /// 1E14/1E15: the two pilots.
     pub pilots: [u8; 2],
     /// DB4D and E07B: the planet and the station places; DB63 the unit a
@@ -342,6 +342,8 @@ pub struct ScreenLinks {
     pub planet_place: Option<PlaceId>,
     pub station_place: Option<PlaceId>,
     pub pursuit_unit: Option<UnitId>,
+    /// E08D: the satellite's sortie escort.
+    pub sortie_escort: Option<UnitId>,
     /// DB5D/DB5F: the place and unit the warp scripts move.
     pub warp_place: Option<PlaceId>,
     pub warp_unit: Option<UnitId>,
@@ -382,6 +384,8 @@ pub struct ScreenLinks {
     pub random: u16,
     /// 1C06/1C07: the missile kinds' offsets.
     pub missile_kinds: [u8; 2],
+    /// 1B9E: the HUD service's mode (2 on the map).
+    pub hud_mode: u8,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -994,7 +998,8 @@ impl Frame<'_> {
         let warning = match self.screen.planet_warnings {
             0 if health < PLANET_DAMAGED => Some(2),
             1 if health < PLANET_CRITICAL => {
-                self.screen.warning_flash = [4, 4, 0];
+                // Two word stores.
+                self.screen.warning_flash[..3].copy_from_slice(&[4, 4, 0]);
                 Some(3)
             }
             _ => None,
@@ -1036,13 +1041,108 @@ impl Frame<'_> {
         self.cue(u16::from(cue));
     }
 
-    /// `$04:D377`: the end-of-game services, by D7FC; only the empty first
-    /// entry is ported.
+    /// `$04:D377`: while a campaign sequence holds the map (1B94), the
+    /// screen drives the units it involves (by D7FC).
     fn final_services(&mut self) -> Result<(), ScreenError> {
         match self.map.globals.stored_target {
             0 => Ok(()),
+            // $04:D3CB: the met unit.
+            2 => {
+                let id = self.map.globals.met_unit.ok_or(ScreenError::MissingUnit(0x04D3CB))?;
+                self.move_unit(id)
+            }
+            // $04:D3D3: the places, then the fighters.
+            4 => {
+                let mut scene = self.links.scene;
+                let terrain = self.terrain;
+                let inputs = StrategicInputs { terrain, ..self.sim_inputs() };
+                self.map.advance_places(&mut scene, inputs)?;
+                self.links.scene = scene;
+                self.each_unit(0x0020, |frame, id| frame.move_unit(id))
+            }
+            // $04:D3A4: the units' first pass, then the carriers' behaviors
+            // and the motion of carriers and active units.
+            6 => {
+                let mut scene = self.links.scene;
+                let terrain = self.terrain;
+                let inputs = StrategicInputs { terrain, ..self.sim_inputs() };
+                self.map.advance_units(&mut scene, inputs)?;
+                self.links.scene = scene;
+                let mut next = self.map.unit_head;
+                while let Some(id) = next {
+                    next = self.map.unit(id).next;
+                    if self.map.unit(id).flags & 0x0010 != 0 {
+                        self.behave_unit(id)?;
+                    }
+                    if self.map.unit(id).flags & 0x0050 != 0 {
+                        self.map.move_unit(id)?;
+                    }
+                }
+                Ok(())
+            }
+            // $04:D405: the satellite's escort closes on its target.
+            8 => {
+                let id = self.links.sortie_escort.ok_or(ScreenError::MissingUnit(0x04D405))?;
+                self.move_unit(id)?;
+                let (x, y) = if self.map.globals.satellite_guarding != 0 {
+                    let place = *self.place(self.map.globals.guarded_place, 0x04CC5B)?;
+                    (place.x as u8, place.y as u8)
+                } else {
+                    let target = self.map.globals.satellite_target.ok_or(ScreenError::MissingUnit(0x04CC6C))?;
+                    let unit = self.map.unit(target);
+                    (unit.x, unit.y)
+                };
+                let unit = self.map.unit_mut(id);
+                unit.target_x = (unit.target_x & 0xFF00) | u16::from(x);
+                unit.target_y = (unit.target_y & 0xFF00) | u16::from(y);
+                let unit = *self.map.unit(id);
+                if near8((unit.target_x as u8, unit.target_y as u8), (unit.x, unit.y), unit.radius as u8) {
+                    self.map.globals.satellite_flags |= 0x0040;
+                }
+                Ok(())
+            }
+            // $04:D38D: the missiles.
+            0x0A => self.each_unit(0x0080, |frame, id| frame.move_unit(id)),
+            // $04:D3EE: the interceptors.
+            0x0C => self.each_unit(0x0008, |frame, id| frame.move_unit(id)),
             other => Err(ScreenError::Unported(0x04D37E + u32::from(other))),
         }
+    }
+
+    /// The units with any of `flags`, each through `run`; the next unit is
+    /// taken before the call.
+    fn each_unit(
+        &mut self,
+        flags: u16,
+        mut run: impl FnMut(&mut Self, UnitId) -> Result<(), ScreenError>,
+    ) -> Result<(), ScreenError> {
+        let mut next = self.map.unit_head;
+        while let Some(id) = next {
+            next = self.map.unit(id).next;
+            if self.map.unit(id).flags & flags != 0 {
+                run(self, id)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// `$7F:66A6`: one unit's behavior.
+    fn behave_unit(&mut self, id: UnitId) -> Result<(), ScreenError> {
+        let mut scene = self.links.scene;
+        let mut tick = TickOutput::default();
+        let terrain = self.terrain;
+        let inputs = StrategicInputs { terrain, ..self.sim_inputs() };
+        self.map.behave(id, &mut scene, inputs, &mut tick)?;
+        self.links.scene = scene;
+        self.output.cues.extend(tick.cues);
+        Ok(())
+    }
+
+    /// `$7F:66BB`: one unit's behavior and motion.
+    fn move_unit(&mut self, id: UnitId) -> Result<(), ScreenError> {
+        self.behave_unit(id)?;
+        self.map.move_unit(id)?;
+        Ok(())
     }
 
     /// `$04:CC7E`: the place menu steps through the listed places.

@@ -1,216 +1,21 @@
-//! The strategic map screen's frame (`$04:B5DA`) against the retail
-//! machine, one call at a time: retail's state when each call begins is
-//! decoded, the native frame runs on it, and the result is compared with
-//! retail's state when the call returns. A second test runs the original
-//! routine on mutated retail states.
+//! The strategic map screen's frame (`$04:B5DA`) and the map program's
+//! frame (`$04:B9A3`) against the retail machine, one call at a time:
+//! retail's state when each call begins is decoded, the native frame runs on
+//! it, and the result is compared with retail's state when the call
+//! returns. Further tests run the original routines on mutated retail
+//! states.
 
 #[path = "support/sf2_strategic_snapshot.rs"]
 mod strategic_snapshot;
+#[path = "support/sf2_map_snapshot.rs"]
+mod map_snapshot;
 
-use sf2_game::strategic_director::{self, MapDirector, MapTally};
-use sf2_game::strategic_screen::{
-    self, MapCampaign, MapPad, MapScreen, MapShip, MapWingmate, PlaceInfo, Pulse, ScreenLinks, ScreenOutput,
-    ScriptSubject, ShipFrame,
-};
+use map_snapshot::*;
+use sf2_game::strategic_director;
+use sf2_game::strategic_screen::{self, ScreenOutput};
 use sf2_game::strategic_sim::{StrategicMap, PLACE_CAPACITY, UNIT_CAPACITY};
 use sf_oracle::RetailMachine;
 use strategic_snapshot::{Snapshot, TERRAIN};
-
-const FRAME: u32 = 0x04B5DA;
-const FRAME_RETURN: u32 = 0x04B5FA;
-const START: u16 = 0x1000;
-const B: u16 = 0x8000;
-const X: u16 = 0x0040;
-const RIGHT: u16 = 0x0100;
-const LEFT: u16 = 0x0200;
-const DOWN: u16 = 0x0400;
-const UP: u16 = 0x0800;
-/// The cue ring (`$7F:6E09`) and its write index.
-const CUE_RING: u16 = 0x1CF6;
-const CUE_INDEX: u16 = 0x1D16;
-/// The ship frames' table (`$04:D6DB`) and its bases.
-const FRAME_TABLE: u16 = 0x6A61;
-
-fn rom() -> Vec<u8> {
-    std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Star Fox 2 (USA, Europe).sfc"))
-        .expect("user-owned SF2 ROM required")
-}
-
-fn navigate_to_map(m: &mut RetailMachine) {
-    m.tick_video_frames(0, 600).unwrap();
-    for _ in 0..20 {
-        m.tick_video_frames(START, 6).unwrap();
-        m.tick_video_frames(0, 194).unwrap();
-    }
-    m.tick_video_frames(0, 60).unwrap();
-}
-
-fn pulse(s: &Snapshot, base: u16) -> Pulse {
-    let triple = |a: u16| u32::from(s.word(a)) | u32::from(s.byte(a + 2)) << 16;
-    Pulse { x: triple(base), y: triple(base + 3), dx: triple(base + 6), dy: triple(base + 9), flags: s.word(base + 12) }
-}
-
-fn screen(s: &Snapshot) -> MapScreen {
-    MapScreen {
-        cursor_x: s.byte(0xDA91),
-        cursor_y: s.byte(0xDA92),
-        cursor_velocity_x: s.word(0xD978),
-        cursor_velocity_y: s.word(0xD97A),
-        cursor_speed: s.word(0xD97C),
-        interface: s.word(0xDA8B),
-        hover: s.word(0xDA8D),
-        countdown: s.word(0xDA8F),
-        selected_x: s.byte(0xDA93),
-        selected_y: s.byte(0xDA94),
-        arrival_x: s.byte(0xDA95),
-        arrival_y: s.byte(0xDA96),
-        pulses: std::array::from_fn(|k| pulse(s, 0xDA97 + 14 * k as u16)),
-        clock_frames: s.word(0xDA5F),
-        elapsed_steps: s.word(0xDA5B),
-        threat_cue_timer: s.word(0xDA75),
-        select_state: s.word(0xDA1B),
-        script: s.word(0xDA7F),
-        menu_choice: s.word(0xDAE7),
-        menu_home: s.word(0xDAE9),
-        menu_confirm: s.word(0xDAEF),
-        menu_place: s.place_id(s.word(0xDAED)),
-        ship: MapShip {
-            x: s.word(0xDAF2),
-            y: s.word(0xDAF5),
-            heading: s.word(0xDAF7),
-            sector: s.word(0xDB09),
-            speed: s.word(0xDAFB),
-            step_x: s.word(0xDAFD),
-            step_y: s.word(0xDAFF),
-            travel: s.word(0xDB01),
-            destination: s.place_id(s.word(0xDB07)),
-            span_x: s.byte(0xDB0D),
-            span_y: s.byte(0xDB0E),
-            error: s.byte(0xDB0F),
-            target_x: s.byte(0xDB11),
-            target_y: s.byte(0xDB12),
-            target_pad: s.byte(0xDB13),
-            x_pad: s.byte(0xDAF4),
-            flight_steps: s.word(0xDB03),
-            flight_countdown: s.word(0xDB05),
-        },
-        wingmate: MapWingmate {
-            x: s.word(0xDB14),
-            y: s.word(0xDB17),
-            heading: s.word(0xDB19),
-            speed: s.word(0xDB1B),
-            velocity_x: s.word(0xDB1D),
-            velocity_y: s.word(0xDB1F),
-            sector: s.word(0xDB21),
-            flags: s.word(0xDB23),
-        },
-        info: PlaceInfo {
-            shown: s.word(0xDB2D),
-            number: s.word(0xDB2F),
-            detail: s.word(0xDB31),
-            x: s.word(0xDB3D),
-            y: s.word(0xDB3F),
-            kind: s.word(0xDB57),
-        },
-        hovered_place: s.place_id(s.word(0xDB55)),
-        ordered_place: s.place_id(s.word(0xDB53)),
-        hovered_unit: s.unit_id(s.word(0xE09F)),
-        planet_warnings: s.word(0x1C12),
-        planet_warning: s.byte(0x1C10),
-        warning_flash: [s.byte(0xF4EC), s.byte(0xF4ED), s.byte(0xF4EE)],
-        travel_sound: s.byte(0x1CE5),
-        script_offset: s.word(0xDA81),
-        script_subject: subject(s, s.word(0xDA83)),
-        script_countdown: s.word(0xDA85),
-        saved_ship: (s.word(0xDA87), s.word(0xDA89)),
-        warp_target: [s.byte(0xDB25), s.byte(0xDB26), s.byte(0xDB27)],
-        warp_spare: s.byte(0xDB28),
-        saved_player: (s.word(0xD99C), s.word(0xD99E)),
-        saved_motion: s.word(0xE0A1),
-        campaign: MapCampaign {
-            marker_count: s.word(0xD99A),
-            marker_cursor: s.word(0xDAEB),
-            guards_left: s.word(0x1BCA),
-            guard_kind: s.word(0x1BCC),
-            markers_placed: s.word(0xDA2F),
-            wave_cursor: s.word(0xDB51),
-            wave_ships: s.word(0xD98F),
-            wave_escorts: s.word(0xDA41),
-            start_cursor: s.word(0xDA3F),
-            bases_left: s.word(0xDA59),
-        },
-    }
-}
-
-/// DA83 holds a unit pointer or, after the guard placement, an index.
-fn subject(s: &Snapshot, word: u16) -> ScriptSubject {
-    let offset = word.wrapping_sub(strategic_snapshot::UNITS);
-    if offset % strategic_snapshot::UNIT_SIZE == 0 && usize::from(offset / strategic_snapshot::UNIT_SIZE) < UNIT_CAPACITY {
-        s.unit_id(word).map_or(ScriptSubject::Value(word), ScriptSubject::Unit)
-    } else {
-        ScriptSubject::Value(word)
-    }
-}
-
-fn links(s: &Snapshot) -> ScreenLinks {
-    ScreenLinks {
-        scene: s.links(),
-        service: s.word(0x1C08),
-        mode: s.word(0x1B84),
-        warp_place: s.place_id(s.word(0xDB5D)),
-        warp_unit: s.unit_id(s.word(0xDB5F)),
-        difficulty: s.word(0xD7F2),
-        batch_bonus: s.word(0xDA3B),
-        satellite_timing: s.word(0x1BA3),
-        display_flags: s.word(0x1B9C),
-        stage_flags: s.word(0xD7F8),
-        presentation_countdown: s.word(0x1C6E),
-        presentation_flags: s.word(0x1C67),
-        message: s.word(0xF582),
-        text_state: [s.word(0xF576), s.word(0xF578)],
-        pilot_shields: [s.byte(0x1DD1), s.byte(0x1DD5), s.byte(0x1DD7), s.byte(0x1DDB)],
-        launch_location: s.word(0x1BB5),
-        launch_layout: s.word(0x1BA5),
-        mission_result: s.word(0xD79D),
-        mission_rank: s.word(0xD7F4),
-        mission_extra: s.word(0x1BF2),
-        random: s.word(0x1C00),
-        missile_kinds: [s.byte(0x1C06), s.byte(0x1C07)],
-        planet_health: s.word(0xDB47),
-        pilots: [s.byte(0x1E14), s.byte(0x1E15)],
-        planet_place: s.place_id(s.word(0xDB4D)),
-        station_place: s.place_id(s.word(0xE07B)),
-        pursuit_unit: s.unit_id(s.word(0xDB63)),
-        menu_pad: [s.word(0x1C1F), s.word(0x1C21)],
-        arrival_word: s.word(0xDA7D),
-        final_stage: s.word(0xDB29),
-        timeline: s.word(0xD9FD),
-    }
-}
-
-fn pad(s: &Snapshot) -> MapPad {
-    MapPad { held: s.word(0x1292), pressed: s.word(0x1296) }
-}
-
-/// The cue words retail queued between two snapshots.
-fn queued_cues(before: &Snapshot, after: &Snapshot) -> Vec<u16> {
-    let mut index = before.byte(CUE_INDEX);
-    let end = after.byte(CUE_INDEX);
-    let mut cues = Vec::new();
-    while index != end {
-        cues.push(after.word(CUE_RING + u16::from(index)));
-        index = index.wrapping_add(2) & 0x1F;
-    }
-    cues
-}
-
-/// `$04:D6BD`'s frame pointer for a native frame choice.
-fn frame_pointer(s: &Snapshot, frame: ShipFrame) -> u16 {
-    let offset = u16::from(frame.sector) + 0x10 * u16::from(frame.pilot) + s.word(0xD9CE);
-    let entry = u16::from(s.byte(FRAME_TABLE.wrapping_add(offset)));
-    (entry << 5).wrapping_add(s.word(0xD9C8))
-}
-
 /// Runs the native frame on `before` and checks it against `after`.
 /// `Err` carries a native fault; mismatches panic with `context`.
 fn compare(before: &Snapshot, after: &Snapshot, context: &str) -> Result<(), strategic_screen::ScreenError> {
@@ -558,46 +363,6 @@ fn map_screen_matches_the_original_on_mutated_retail_states() {
 
 // ---- the map program's frame ($04:B9A3) ----
 
-const PROGRAM: u32 = 0x04B9A3;
-const PROGRAM_RETURN: u32 = 0x04AEAB;
-
-fn director(s: &Snapshot) -> MapDirector {
-    MapDirector {
-        aftermath: s.word(0xDA0D),
-        aftermath_next: s.word(0xDA0F),
-        dialog_hold: s.word(0xDA1D),
-        message_wait: s.word(0xDA13),
-        exit_state: s.word(0xDA21),
-        timeline_next: s.word(0xD9FF),
-        timeline_delay: s.word(0xDA05),
-        schedule_cursor: s.word(0xDA01),
-        schedule_steps: s.word(0xDA03),
-        handshake: s.word(0xD7FA),
-        recapture: s.word(0xDA15),
-        ambush: s.word(0xDA17),
-        clearing: s.word(0xDA19),
-        alert: s.word(0xDA07),
-        alert_timer: s.word(0xDA0B),
-        threat_delay: s.word(0xDA6D),
-        pending_alerts: s.word(0xDB37),
-        saved_hold: s.word(0x1B8E),
-        choice: s.word(0xD9C2),
-        choosing: s.word(0xD9C4),
-        sortie_timer: s.word(0xE08B),
-        sortie_escort: s.unit_id(s.word(0xE08D)),
-        salvo_index: s.word(0xD9B2),
-        tally: MapTally {
-            goal: s.word(0xDA25),
-            enemies_left: s.word(0xDA29),
-            marks_left: s.word(0xDA2D),
-            marks_cleared: s.word(0xDA33),
-            fleets: s.word(0xDA37),
-            fleets_cleared: s.word(0xDA3D),
-            other_cleared: s.word(0xDA49),
-            bases_cleared: s.word(0xDA4F),
-        },
-    }
-}
 
 /// Runs the native program frame on `before` and checks it against `after`.
 fn compare_program(before: &Snapshot, after: &Snapshot, context: &str) -> Result<(), strategic_screen::ScreenError> {

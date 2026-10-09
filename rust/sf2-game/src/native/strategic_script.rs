@@ -593,19 +593,18 @@ impl Frame<'_> {
         let count = self.markers_for_difficulty()?;
         self.screen.campaign.marker_count = count;
         self.map.globals.launches_pending = count;
-        self.screen.campaign.guards_left = count;
+        let mut guards_left = count;
         let mut kind_index = self.screen.campaign.marker_cursor;
         'kinds: loop {
             self.screen.script_subject = ScriptSubject::Value(kind_index);
             let kind = u16::from(table_byte(&MARKER_KINDS, usize::from(kind_index), 0x04CEAE)?);
-            self.screen.campaign.guard_kind = kind;
             let mut next = self.map.place_head;
             while let Some(id) = next {
                 let place = self.map.places[usize::from(id.0)];
                 if place.flags & 0x0001 != 0 && place.kind == kind {
                     self.post_guard(Some(id))?;
-                    self.screen.campaign.guards_left = self.screen.campaign.guards_left.wrapping_sub(1);
-                    if self.screen.campaign.guards_left == 0 {
+                    guards_left = guards_left.wrapping_sub(1);
+                    if guards_left == 0 {
                         break 'kinds;
                     }
                     kind_index = kind_index.wrapping_add(1);
