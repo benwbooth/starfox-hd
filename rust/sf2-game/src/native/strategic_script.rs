@@ -551,7 +551,7 @@ impl Frame<'_> {
     }
 
     /// `$04:D49A`/`$04:D4AB`: the unit burns out.
-    fn burn(&mut self, id: UnitId, sprite: u16, frames: u16) {
+    pub(super) fn burn(&mut self, id: UnitId, sprite: u16, frames: u16) {
         let unit = self.map.unit_mut(id);
         unit.sprite = sprite;
         unit.timer = frames;
@@ -603,7 +603,7 @@ impl Frame<'_> {
             while let Some(id) = next {
                 let place = self.map.places[usize::from(id.0)];
                 if place.flags & 0x0001 != 0 && place.kind == kind {
-                    self.post_guard(id)?;
+                    self.post_guard(Some(id))?;
                     self.screen.campaign.guards_left = self.screen.campaign.guards_left.wrapping_sub(1);
                     if self.screen.campaign.guards_left == 0 {
                         break 'kinds;
@@ -622,10 +622,16 @@ impl Frame<'_> {
 
     /// `$04:E430`: a guard leaves the station for the place, or, in the
     /// alternate interception, for the player's surroundings.
-    fn post_guard(&mut self, place_id: PlaceId) -> Result<(), ScreenError> {
+    /// The place is read only on the station path; the alternate path is
+    /// also entered with no place in hand (`$04:C589`).
+    pub(super) fn post_guard(&mut self, place_id: Option<PlaceId>) -> Result<(), ScreenError> {
         let id = self.new_unit()?;
-        let place = self.map.places[usize::from(place_id.0)];
         let alternate = self.links.scene.campaign_events & 0x0080 != 0;
+        let place = match place_id {
+            Some(place_id) => self.map.places[usize::from(place_id.0)],
+            None if alternate => Default::default(),
+            None => return Err(ScreenError::MissingPlace(0x04E44D)),
+        };
         let base = self.map.globals.base;
         let (player_x, player_y) = self.screen.saved_player;
         let unit = self.map.unit_mut(id);
@@ -662,7 +668,7 @@ impl Frame<'_> {
     }
 
     /// `$7F:6136`: a unit from the pool, counted.
-    fn new_unit(&mut self) -> Result<UnitId, ScreenError> {
+    pub(super) fn new_unit(&mut self) -> Result<UnitId, ScreenError> {
         let id = self.map.allocate_unit()?;
         self.map.globals.unit_count = self.map.globals.unit_count.wrapping_add(1);
         Ok(id)
@@ -758,7 +764,7 @@ impl Frame<'_> {
 
     /// `$04:E571`: the next wave of the list arrives: its places and an
     /// escort for each.
-    fn launch_wave(&mut self) -> Result<(), ScreenError> {
+    pub(super) fn launch_wave(&mut self) -> Result<(), ScreenError> {
         let cursor = self.screen.campaign.wave_cursor;
         let wave = table_word(&WAVES, usize::from(cursor), 0x04E577)?;
         if wave == 0 {

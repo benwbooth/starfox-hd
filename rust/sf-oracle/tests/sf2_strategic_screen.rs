@@ -7,6 +7,7 @@
 #[path = "support/sf2_strategic_snapshot.rs"]
 mod strategic_snapshot;
 
+use sf2_game::strategic_director::{self, MapDirector, MapTally};
 use sf2_game::strategic_screen::{
     self, MapCampaign, MapPad, MapScreen, MapShip, MapWingmate, PlaceInfo, Pulse, ScreenLinks, ScreenOutput,
     ScriptSubject, ShipFrame,
@@ -123,6 +124,7 @@ fn screen(s: &Snapshot) -> MapScreen {
         script_countdown: s.word(0xDA85),
         saved_ship: (s.word(0xDA87), s.word(0xDA89)),
         warp_target: [s.byte(0xDB25), s.byte(0xDB26), s.byte(0xDB27)],
+        warp_spare: s.byte(0xDB28),
         saved_player: (s.word(0xD99C), s.word(0xD99E)),
         saved_motion: s.word(0xE0A1),
         campaign: MapCampaign {
@@ -160,18 +162,29 @@ fn links(s: &Snapshot) -> ScreenLinks {
         difficulty: s.word(0xD7F2),
         batch_bonus: s.word(0xDA3B),
         satellite_timing: s.word(0x1BA3),
-        satellite_busy: s.word(0xE089),
         display_flags: s.word(0x1B9C),
         stage_flags: s.word(0xD7F8),
+        presentation_countdown: s.word(0x1C6E),
+        presentation_flags: s.word(0x1C67),
+        message: s.word(0xF582),
+        text_state: [s.word(0xF576), s.word(0xF578)],
+        pilot_shields: [s.byte(0x1DD1), s.byte(0x1DD5), s.byte(0x1DD7), s.byte(0x1DDB)],
+        launch_location: s.word(0x1BB5),
+        launch_layout: s.word(0x1BA5),
+        mission_result: s.word(0xD79D),
+        mission_rank: s.word(0xD7F4),
+        mission_extra: s.word(0x1BF2),
+        random: s.word(0x1C00),
+        missile_kinds: [s.byte(0x1C06), s.byte(0x1C07)],
         planet_health: s.word(0xDB47),
         pilots: [s.byte(0x1E14), s.byte(0x1E15)],
         planet_place: s.place_id(s.word(0xDB4D)),
         station_place: s.place_id(s.word(0xE07B)),
         pursuit_unit: s.unit_id(s.word(0xDB63)),
-        speed_marks: [s.word(0x1C1F), s.word(0x1C21)],
+        menu_pad: [s.word(0x1C1F), s.word(0x1C21)],
         arrival_word: s.word(0xDA7D),
         final_stage: s.word(0xDB29),
-        two_player_request: s.word(0xD9FD),
+        timeline: s.word(0xD9FD),
     }
 }
 
@@ -540,5 +553,323 @@ fn map_screen_matches_the_original_on_mutated_retail_states() {
         }
     }
     eprintln!("compared {compared} mutated frames; native faults {faulted:?}");
+    assert!(compared > 0);
+}
+
+// ---- the map program's frame ($04:B9A3) ----
+
+const PROGRAM: u32 = 0x04B9A3;
+const PROGRAM_RETURN: u32 = 0x04AEAB;
+
+fn director(s: &Snapshot) -> MapDirector {
+    MapDirector {
+        aftermath: s.word(0xDA0D),
+        aftermath_next: s.word(0xDA0F),
+        dialog_hold: s.word(0xDA1D),
+        message_wait: s.word(0xDA13),
+        exit_state: s.word(0xDA21),
+        timeline_next: s.word(0xD9FF),
+        timeline_delay: s.word(0xDA05),
+        schedule_cursor: s.word(0xDA01),
+        schedule_steps: s.word(0xDA03),
+        handshake: s.word(0xD7FA),
+        recapture: s.word(0xDA15),
+        ambush: s.word(0xDA17),
+        clearing: s.word(0xDA19),
+        alert: s.word(0xDA07),
+        alert_timer: s.word(0xDA0B),
+        threat_delay: s.word(0xDA6D),
+        pending_alerts: s.word(0xDB37),
+        saved_hold: s.word(0x1B8E),
+        choice: s.word(0xD9C2),
+        choosing: s.word(0xD9C4),
+        sortie_timer: s.word(0xE08B),
+        sortie_escort: s.unit_id(s.word(0xE08D)),
+        salvo_index: s.word(0xD9B2),
+        tally: MapTally {
+            goal: s.word(0xDA25),
+            enemies_left: s.word(0xDA29),
+            marks_left: s.word(0xDA2D),
+            marks_cleared: s.word(0xDA33),
+            fleets: s.word(0xDA37),
+            fleets_cleared: s.word(0xDA3D),
+            other_cleared: s.word(0xDA49),
+            bases_cleared: s.word(0xDA4F),
+        },
+    }
+}
+
+/// Runs the native program frame on `before` and checks it against `after`.
+fn compare_program(before: &Snapshot, after: &Snapshot, context: &str) -> Result<(), strategic_screen::ScreenError> {
+    let mut native = director(before);
+    let mut native_screen = screen(before);
+    let mut map = before.map();
+    let mut native_links = links(before);
+    let mut output = ScreenOutput::default();
+    strategic_director::step(&mut native, &mut native_screen, &mut map, &mut native_links, &before.terrain, &mut output)?;
+    let expected_map: StrategicMap = after.map();
+    for index in 0..PLACE_CAPACITY {
+        assert_eq!(map.places[index], expected_map.places[index], "{context}: place {index}");
+    }
+    for index in 0..UNIT_CAPACITY {
+        assert_eq!(map.units[index], expected_map.units[index], "{context}: unit {index}");
+    }
+    assert_eq!(map.globals, expected_map.globals, "{context}: globals");
+    assert_eq!(
+        (map.place_head, map.place_free, map.unit_head, map.unit_free),
+        (expected_map.place_head, expected_map.place_free, expected_map.unit_head, expected_map.unit_free),
+        "{context}: list heads"
+    );
+    assert_eq!(native, director(after), "{context}: director");
+    assert_eq!(native_screen, screen(after), "{context}: screen");
+    assert_eq!(native_links, links(after), "{context}: links");
+    assert_eq!(output.cues, queued_cues(before, after), "{context}: cues");
+    match output.radio {
+        Some(voice) => assert_eq!((after.byte(0x1CDA), after.byte(0x1CD9)), (voice, 0), "{context}: radio"),
+        None => assert_eq!(
+            (after.byte(0x1CDA), after.byte(0x1CD9)),
+            (before.byte(0x1CDA), before.byte(0x1CD9)),
+            "{context}: radio"
+        ),
+    }
+    if let Some(frame) = output.ship_frame {
+        let pointer = frame_pointer(before, frame);
+        assert_eq!((after.word(0x1C17), after.word(0x1C19)), (pointer, pointer.wrapping_add(0x200)), "{context}: ship frame");
+    }
+    Ok(())
+}
+
+/// Runs up to `calls` retail program frames under `schedule`; returns how
+/// many the native frame reproduced before the first fault. Calls that an
+/// interrupt's screen frame lands inside are skipped.
+fn compare_program_calls(schedule: fn(u32) -> u16, calls: u32) -> (u32, u32) {
+    let mut m = RetailMachine::new(rom());
+    navigate_to_map(&mut m);
+    let (mut matched, mut skipped) = (0, 0);
+    for call in 0..calls {
+        let pad = schedule(call);
+        let mut reached = false;
+        for _ in 0..300 {
+            if m.tick_until_cpu_execution(pad, PROGRAM, 90).unwrap() {
+                reached = true;
+                break;
+            }
+            for button in [START, B] {
+                m.tick_video_frames(button, 4).unwrap();
+                m.tick_video_frames(0, 30).unwrap();
+            }
+        }
+        if !reached {
+            eprintln!("call {call}: the map program stopped running (mode {:04X})", m.peek16(0x7E1B68));
+            break;
+        }
+        let before = Snapshot::take(&m);
+        m.watch_cpu_execution(&[FRAME, 0x7F537D]);
+        assert!(m.tick_until_cpu_execution(pad, PROGRAM_RETURN, 60).unwrap());
+        let interrupted = !m.take_cpu_execution_watch_hits().is_empty();
+        m.watch_cpu_execution(&[]);
+        let after = Snapshot::take(&m);
+        if interrupted {
+            skipped += 1;
+            matched = call + 1;
+            continue;
+        }
+        if let Err(error) = compare_program(&before, &after, &format!("call {call}")) {
+            eprintln!(
+                "call {call}: native program faulted: {error:x?} (aftermath {:04X}, timeline {:04X})",
+                before.word(0xDA0D),
+                before.word(0xD9FD)
+            );
+            break;
+        }
+        matched = call + 1;
+    }
+    eprintln!("map program matched {matched} frames ({skipped} interrupted, skipped)");
+    (matched, skipped)
+}
+
+#[test]
+fn map_program_matches_retail_through_a_campaign_driven_by_taps() {
+    let calls: u32 = std::env::var("SF2_PROGRAM_CALLS").map(|v| v.parse().unwrap()).unwrap_or(3000);
+    let schedule = |call: u32| match call % 16 {
+        0 => START,
+        8 => B,
+        _ if call % 160 < 24 => [RIGHT, DOWN, LEFT, UP][(call / 160 % 4) as usize],
+        _ => 0,
+    };
+    let (matched, _) = compare_program_calls(schedule, calls);
+    assert_eq!(matched, calls);
+}
+
+#[test]
+fn map_program_matches_retail_while_the_cursor_wanders() {
+    // The wandering ship never stops the enemy: the campaign is lost.
+    let calls: u32 = std::env::var("SF2_PROGRAM_CALLS").map(|v| v.parse().unwrap()).unwrap_or(1556);
+    let (matched, _) = compare_program_calls(wander, calls);
+    assert_eq!(matched, calls.min(1556));
+}
+
+fn mutate_program(s: &mut Snapshot, rng: &mut Lcg) {
+    let places = list(s, 0xDB67);
+    let units = list(s, 0xE0A3);
+    for _ in 0..1 + rng.below(4) {
+        match rng.below(12) {
+            0 => {
+                set_word(s, 0xDA0D, 2 * rng.below(0x35) as u16);
+                set_word(s, 0xDA0F, 2 * rng.below(0x35) as u16);
+            }
+            1 => {
+                set_word(s, 0xD9FD, 2 * rng.below(0x24) as u16);
+                set_word(s, 0xD9FF, 2 * rng.below(0x24) as u16);
+                set_word(s, 0xDA05, rng.below(3) as u16);
+            }
+            2 => toggle(s, 0xD7FA, 1 << rng.below(12)),
+            3 => toggle(s, 0xD7F8, 1 << rng.below(11)),
+            4 => match rng.below(5) {
+                0 => set_word(s, 0xDA15, 2 * rng.below(6) as u16),
+                1 => set_word(s, 0xDA17, 2 * rng.below(4) as u16),
+                2 => set_word(s, 0xDA19, 2 * rng.below(10) as u16),
+                3 => set_word(s, 0xDA21, 2 * rng.below(3) as u16),
+                _ => set_word(s, 0xDB29, 2 * rng.below(10) as u16),
+            },
+            5 => {
+                set_word(s, 0xDA69, rng.below(8) as u16);
+                if !places.is_empty() {
+                    set_word(s, 0xDA6B, rng.pick(&places));
+                }
+                set_word(s, 0xDA6D, rng.below(2) as u16);
+            }
+            6 => {
+                set_word(s, 0xE089, rng.below(5) as u16);
+                toggle(s, 0xE087, rng.pick(&[0x0008u16, 0x0040, 0x0080, 0x0800]));
+                set_word(s, 0xE093, rng.below(2) as u16);
+                set_word(s, 0xE08B, rng.below(3) as u16);
+                if !units.is_empty() {
+                    set_word(s, 0xE08D, rng.pick(&units));
+                }
+            }
+            7 => match rng.below(6) {
+                0 => set_word(s, 0xDA7F, rng.below(2) as u16 * 4),
+                1 => set_word(s, 0xDA13, rng.below(2) as u16),
+                2 => set_word(s, 0xDA11, rng.below(3) as u16),
+                3 => set_word(s, 0xDA1D, rng.below(4) as u16),
+                4 => set_word(s, 0xDA07, 2 * rng.below(5) as u16),
+                _ => set_word(s, 0xDA0B, rng.below(3) as u16),
+            },
+            8 => match rng.below(8) {
+                0 => set_word(s, 0xDA2F, rng.below(3) as u16),
+                1 => set_word(s, 0xDA3B, rng.below(3) as u16),
+                2 => set_word(s, 0xDA43, rng.below(3) as u16),
+                3 => set_word(s, 0xDA45, rng.below(2) as u16),
+                4 => set_word(s, 0xDA57, rng.below(2) as u16),
+                5 => set_word(s, 0xDA29, rng.below(3) as u16),
+                6 => set_word(s, 0xDA2D, rng.below(2) as u16),
+                _ => set_word(s, 0xD9B0, rng.below(2) as u16),
+            },
+            9 => match rng.below(6) {
+                0 => toggle(s, 0x1B94, 1 << rng.below(9)),
+                1 => toggle(s, 0x1B8A, rng.pick(&[0x0004u16, 0x0008, 0x0020, 0x0040, 0x0080, 0x0200])),
+                2 => toggle(s, 0x1B86, rng.pick(&[0x0001u16, 0x0100, 0x1000])),
+                3 => toggle(s, 0x1B92, rng.pick(&[0x1000u16, 0x4000, 0x8000])),
+                4 => set_word(s, 0xD79D, rng.pick(&[0u16, 1, 2, 0xFFFF])),
+                _ => set_word(s, 0xD7F4, rng.below(3) as u16),
+            },
+            10 => {
+                if !units.is_empty() {
+                    set_word(s, 0xE097, rng.pick(&units));
+                    set_word(s, 0xE099, rng.pick(&units));
+                    let unit = rng.pick(&units);
+                    toggle(s, unit + 0x30, 0x0400);
+                }
+                set_word(s, 0x1C21, rng.pick(&[0u16, 0x8000, 0x0040, 0x0800, 0x0400]));
+            }
+            _ => match rng.below(4) {
+                0 => set_word(s, 0x1C6E, rng.below(3) as u16),
+                1 => set_word(s, 0xD7F2, rng.below(3) as u16),
+                2 => set_word(s, 0xDA5B, rng.below(0x40) as u16),
+                _ => set_word(s, 0xDA01, rng.pick(&[0u16, 4, 8, 0x1A, 0x22, 0x50, 0x58])),
+            },
+        }
+    }
+}
+
+/// Run the original program frame on the oracle bus from this state.
+fn run_original_program(s: &Snapshot) -> Snapshot {
+    let rom = rom();
+    let runtime = rom[0x10000..0x17E00].to_vec();
+    let mut bus = sf_oracle::SnesBus::new(rom);
+    for (offset, byte) in runtime.into_iter().enumerate() {
+        bus.write8(0x7F0000 + offset as u32, byte);
+    }
+    for (offset, &byte) in s.low.iter().enumerate() {
+        bus.write8(0x7E0000 + offset as u32, byte);
+    }
+    for (offset, &byte) in s.terrain.iter().enumerate() {
+        bus.write8(TERRAIN + offset as u32, byte);
+    }
+    let entry = sf_oracle::Entry { dbr: 0x7E, p: 0x20, ..Default::default() };
+    let exit = sf_oracle::call_near(&mut bus, PROGRAM, &entry);
+    assert!(exit.returned, "the original program frame did not return");
+    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone() }
+}
+
+#[test]
+fn map_program_matches_the_original_on_mutated_retail_states() {
+    let mut m = RetailMachine::new(rom());
+    navigate_to_map(&mut m);
+    let mut snapshots = Vec::new();
+    for call in 0..3000u32 {
+        let pad = match call % 16 {
+            0 => START,
+            8 => B,
+            _ => 0,
+        };
+        let mut reached = false;
+        for _ in 0..300 {
+            if m.tick_until_cpu_execution(pad, PROGRAM, 90).unwrap() {
+                reached = true;
+                break;
+            }
+            for button in [START, B] {
+                m.tick_video_frames(button, 4).unwrap();
+                m.tick_video_frames(0, 30).unwrap();
+            }
+        }
+        if !reached {
+            break;
+        }
+        if call % 100 == 0 {
+            snapshots.push(Snapshot::take(&m));
+        }
+    }
+    assert!(snapshots.len() > 10);
+    let cases: u32 = std::env::var("SF2_PROGRAM_FUZZ").map(|v| v.parse().unwrap()).unwrap_or(60);
+    let mut rng = Lcg(0x04B9_A3D1);
+    let (mut compared, mut faulted) = (0, std::collections::BTreeMap::new());
+    for (index, snapshot) in snapshots.iter().enumerate() {
+        for case in 0..cases {
+            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone() };
+            mutate_program(&mut state, &mut rng);
+            let mut probe = director(&state);
+            let mut probe_screen = screen(&state);
+            let mut map = state.map();
+            let mut probe_links = links(&state);
+            if let Err(error) = strategic_director::step(
+                &mut probe,
+                &mut probe_screen,
+                &mut map,
+                &mut probe_links,
+                &state.terrain,
+                &mut ScreenOutput::default(),
+            ) {
+                *faulted.entry(format!("{error:x?}")).or_insert(0) += 1;
+                continue;
+            }
+            let after = run_original_program(&state);
+            compare_program(&state, &after, &format!("snapshot {index} case {case}")).unwrap();
+            compared += 1;
+        }
+    }
+    eprintln!("compared {compared} mutated program frames; native faults {faulted:?}");
     assert!(compared > 0);
 }

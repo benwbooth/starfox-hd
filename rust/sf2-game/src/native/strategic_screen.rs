@@ -122,7 +122,7 @@ const COUNTDOWN_PULSE: u16 = 0x0C;
 const PULSE_MASK: u16 = 0xFDFF;
 const SERVICE_MASK: u16 = 0x000F;
 /// The two-player Start's request (D9FD).
-const TWO_PLAYER_REQUEST: u16 = 0x16;
+const TWO_PLAYER_TIMELINE: u16 = 0x16;
 const SELECT_SCRIPT: u16 = 0x26;
 
 // `$7F:6E09` cues.
@@ -279,8 +279,10 @@ pub struct MapScreen {
     pub script_countdown: u16,
     /// DA87/DA89: the ship's position kept across the warp's spin.
     pub saved_ship: (u16, u16),
-    /// DB25..DB27: the warp's target and the byte after it.
+    /// DB25..DB27: the warp's target and the byte after it; DB28 the byte
+    /// after that (DB27/DB28 are also the final choice's countdown word).
     pub warp_target: [u8; 3],
+    pub warp_spare: u8,
     /// D99C/D99E: the player's position words kept for the interceptors.
     pub saved_player: (u16, u16),
     /// E0A1: a unit's motion kept across a script's fast-forward.
@@ -343,21 +345,43 @@ pub struct ScreenLinks {
     /// DB5D/DB5F: the place and unit the warp scripts move.
     pub warp_place: Option<PlaceId>,
     pub warp_unit: Option<UnitId>,
-    /// 1C1F/1C21, cleared when the speed toggles.
-    pub speed_marks: [u16; 2],
-    /// DA7D, DB29 and D9FD, written on arrival and by the two-player Start.
+    /// 1C1F/1C21: the map's pad copies for its dialogs (held, pressed),
+    /// cleared when the speed toggles.
+    pub menu_pad: [u16; 2],
+    /// DA7D and DB29, written on arrival; D9FD the campaign timeline's
+    /// state (the two-player Start requests state 16).
     pub arrival_word: u16,
     pub final_stage: u16,
-    pub two_player_request: u16,
-    /// D7F2, DA3B, 1BA3, E089: the simulation's inputs.
+    pub timeline: u16,
+    /// D7F2, DA3B, 1BA3: the simulation's inputs (E089 is the simulation's
+    /// satellite hold).
     pub difficulty: u16,
     pub batch_bonus: u16,
     pub satellite_timing: u16,
-    pub satellite_busy: u16,
     /// 1B9C: the display flags (the markers set bit 0080).
     pub display_flags: u16,
     /// D7F8: the campaign's stage flags (bit 0100: bases remain).
     pub stage_flags: u16,
+    /// 1C6E: the presentation countdown the stage start leaves; 1C67 the
+    /// presentation flags (bit 0002 cleared when it runs out).
+    pub presentation_countdown: u16,
+    pub presentation_flags: u16,
+    /// F582: the message the map's text box shows; EF576/EF578 its state.
+    pub message: u16,
+    pub text_state: [u16; 2],
+    /// 1DD1/1DD5/1DD7/1DDB: the pilots' shields (current, full) as bytes.
+    pub pilot_shields: [u8; 4],
+    /// 1BB5/1BA5: the next mission's location and layout.
+    pub launch_location: u16,
+    pub launch_layout: u16,
+    /// D79D, D7F4, 1BF2: the last mission's result words.
+    pub mission_result: u16,
+    pub mission_rank: u16,
+    pub mission_extra: u16,
+    /// 1C00: the frame's random word.
+    pub random: u16,
+    /// 1C06/1C07: the missile kinds' offsets.
+    pub missile_kinds: [u8; 2],
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -455,7 +479,7 @@ impl Frame<'_> {
             player: ((self.screen.ship.x >> 8) as u8, (self.screen.ship.y >> 8) as u8),
             batch_bonus: self.links.batch_bonus,
             satellite_timing: self.links.satellite_timing,
-            satellite_busy: self.links.satellite_busy,
+            satellite_busy: self.map.globals.satellite_hold,
             terrain: self.terrain,
         }
     }
@@ -512,7 +536,7 @@ impl Frame<'_> {
         }
         self.warnings();
         if self.map.globals.speed_flags & SPEED_TOGGLED != 0 {
-            self.links.speed_marks = [0, 0];
+            self.links.menu_pad = [0, 0];
             self.map.globals.speed_flags &= !SPEED_TOGGLED;
             self.screen.interface &= !UI_FAST;
         }
@@ -525,7 +549,7 @@ impl Frame<'_> {
         if self.links.scene.stage_results & RESULT_TWO_PLAYER != 0 {
             if hold & (HOLD_TWO_PLAYER_A | HOLD_TWO_PLAYER_B) == 0 && self.pad.pressed & PAD_START != 0 {
                 self.cue(CUE_TWO_PLAYER);
-                self.links.two_player_request = TWO_PLAYER_REQUEST;
+                self.links.timeline = TWO_PLAYER_TIMELINE;
             }
             return Ok(());
         }
@@ -1050,14 +1074,7 @@ impl Frame<'_> {
                 if let Some(id) = self.menu_place() {
                     self.screen.menu_place = Some(id);
                     self.cue(CUE_HOVER);
-                    // $04:CD31: two word stores, the second over the first's
-                    // high byte.
-                    let place = self.map.places[usize::from(id.0)];
-                    self.screen.info.number = place.menu_index;
-                    self.screen.selected_x = place.x as u8;
-                    self.screen.selected_y = place.y as u8;
-                    self.screen.arrival_x = (place.y >> 8) as u8;
-                    return Ok(());
+                    return self.show_menu_place();
                 }
             }
             return Err(ScreenError::EmptyMenu);
@@ -1073,8 +1090,19 @@ impl Frame<'_> {
         self.screen.interface |= UI_MENU_CLOSED;
     }
 
+    /// `$04:CD31`: the menu's place in the info panel; two word stores, the
+    /// second over the first's high byte.
+    pub(super) fn show_menu_place(&mut self) -> Result<(), ScreenError> {
+        let place = *self.place(self.screen.menu_place, 0x04CD31)?;
+        self.screen.info.number = place.menu_index;
+        self.screen.selected_x = place.x as u8;
+        self.screen.selected_y = place.y as u8;
+        self.screen.arrival_x = (place.y >> 8) as u8;
+        Ok(())
+    }
+
     /// `$04:CD09`: the listed place at the menu's choice.
-    fn menu_place(&self) -> Option<PlaceId> {
+    pub(super) fn menu_place(&self) -> Option<PlaceId> {
         let mut next = self.map.place_head;
         while let Some(id) = next {
             let place = &self.map.places[usize::from(id.0)];

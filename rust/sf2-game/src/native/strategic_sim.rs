@@ -557,7 +557,7 @@ impl StrategicMap {
 
     /// `$7F:590A`: set speed, steer at the target, and publish the heading
     /// to the home place.
-    fn set_course(&mut self, id: UnitId, speed: u16) -> Result<(), SimError> {
+    pub(crate) fn set_course(&mut self, id: UnitId, speed: u16) -> Result<(), SimError> {
         self.unit_mut(id).speed = speed;
         self.aim(id);
         let heading = self.unit(id).heading;
@@ -1224,7 +1224,7 @@ impl StrategicMap {
     }
 
     /// `$7F:5F0D`: raise the planet-hit event and add the unit's damage.
-    fn damage_planet(&mut self, id: UnitId, links: &mut SceneLinks) {
+    pub(crate) fn damage_planet(&mut self, id: UnitId, links: &mut SceneLinks) {
         let unit = *self.unit(id);
         links.event_word |= if unit.flags & UNIT_FIGHTER == 0 { 0x0004 } else { 0x0008 };
         let damage = u16::from(unit.count as u8) * u16::from(unit.strength as u8);
@@ -1648,7 +1648,7 @@ impl StrategicMap {
     }
 
     /// `$7F:6433`: claim an encounter slot for the unit.
-    fn place_in_slot(&mut self, id: UnitId, entry: PatternEntry) -> Result<(), SimError> {
+    pub(crate) fn place_in_slot(&mut self, id: UnitId, entry: PatternEntry) -> Result<(), SimError> {
         let slot = self.claim_slot()?;
         let unit = self.unit_mut(id);
         unit.encounter_slot = (unit.encounter_slot & 0xFF00) | u16::from(slot);
@@ -1868,10 +1868,10 @@ impl StrategicMap {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct PatternEntry {
-    pattern: u8,
-    word: u8,
-    strength: u8,
+pub(crate) struct PatternEntry {
+    pub(crate) pattern: u8,
+    pub(crate) word: u8,
+    pub(crate) strength: u8,
 }
 
 /// `$7F:6229`: the velocity's whole part and high fraction byte as a word.
@@ -2006,15 +2006,15 @@ const SPAWN_SEQUENCE: [u8; 0x80] = [
     0x07, 0x00, 0x0F, 0x0D, 0x0A, 0x04, 0x06, 0x0E, 0x07, 0x03, 0x0C, 0x06, 0x02, 0x05, 0x01, 0x08,
 ];
 /// `$00:B0F8`/`$00:B118`/`$00:B138`: carriers' encounter data by kind.
-const CARRIER_PATTERN: [u8; 0x20] = [
+pub(crate) const CARRIER_PATTERN: [u8; 0x20] = [
     0x03, 0x03, 0x03, 0x03, 0x21, 0x31, 0x04, 0x04, 0x21, 0x31, 0x21, 0x22, 0x05, 0x05, 0x31, 0x22,
     0x04, 0x23, 0x21, 0x21, 0x21, 0x41, 0x22, 0x21, 0x21, 0x41, 0x31, 0x21, 0x01, 0x01, 0x01, 0x01,
 ];
-const CARRIER_WORD: [u8; 0x20] = [
+pub(crate) const CARRIER_WORD: [u8; 0x20] = [
     0x01, 0x02, 0x0A, 0x06, 0x03, 0x0A, 0x01, 0x02, 0x0A, 0x0A, 0x06, 0x01, 0x01, 0x02, 0x03, 0x0A,
     0x05, 0x01, 0x0C, 0x03, 0x04, 0x04, 0x0A, 0x0C, 0x09, 0x09, 0x0B, 0x0B, 0x12, 0x11, 0x13, 0x14,
 ];
-const CARRIER_STRENGTH: [u8; 0x20] = [
+pub(crate) const CARRIER_STRENGTH: [u8; 0x20] = [
     0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x00, 0x07, 0x06, 0x01, 0x01, 0x02, 0x00, 0x00, 0x02, 0x02,
     0x00, 0x05, 0x01, 0x06, 0x07, 0x07, 0x06, 0x02, 0x08, 0x08, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
 ];

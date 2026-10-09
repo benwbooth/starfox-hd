@@ -134,6 +134,7 @@ pub mod presentation_director;
 pub mod stage_launch;
 pub mod stage_setup;
 pub mod strategic_sim;
+pub mod strategic_director;
 pub mod strategic_screen;
 mod strategic_script;
 pub mod strategic_service;

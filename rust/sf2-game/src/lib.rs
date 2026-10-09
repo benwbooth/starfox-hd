@@ -74,6 +74,7 @@ pub use native::presentation_director;
 pub use native::stage_launch;
 pub use native::stage_setup;
 pub use native::strategic_sim;
+pub use native::strategic_director;
 pub use native::strategic_screen;
 pub use native::strategic_service;
 pub use native::stage_announcer;
