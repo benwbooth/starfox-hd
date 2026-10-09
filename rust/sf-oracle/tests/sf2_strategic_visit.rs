@@ -26,6 +26,10 @@ fn visit(s: &Snapshot) -> MapVisit {
         sprite_inputs: sprite_inputs(s),
         hud: hud(s),
         hud_inputs: hud_inputs(s),
+        radio: radio(s),
+        message_box: message_box(s),
+        radio_inputs: radio_inputs(s),
+        pad: pad(s),
         timers: sf2_game::strategic_visit::FrameTimers {
             ticks: s.byte(0xEFD0),
             countdowns: [s.byte(0xEFCD), s.byte(0xEFCE), s.byte(0xEFCF)],
@@ -58,6 +62,8 @@ fn compare_visit(schedule: &dyn Fn(u64) -> u16, program_frames: u32) -> u32 {
     assert!(m.tick_until_cpu_execution(0, PROGRAM, 600).unwrap(), "no map program");
     let mut before = Snapshot::take(&m);
     let mut matched = 0;
+    let mut scripts = std::collections::BTreeSet::new();
+    let mut messages = std::collections::BTreeSet::new();
     for frame in 0..program_frames {
         let watch = std::env::var("SF2_VISIT_WATCH").ok().map(|v| u32::from_str_radix(&v, 16).unwrap());
         if let Some(address) = watch {
@@ -113,20 +119,24 @@ fn compare_visit(schedule: &dyn Fn(u64) -> u16, program_frames: u32) -> u32 {
         assert_eq!(native.upload, expected.upload, "{context}: upload");
         assert_eq!(native.sprites, expected.sprites, "{context}: sprites");
         assert_eq!(native.hud, expected.hud, "{context}: hud");
+        assert_eq!(native.radio, expected.radio, "{context}: radio");
+        assert_eq!(native.message_box, expected.message_box, "{context}: message box");
 
         assert_eq!(output.cues, queued_cues(&before, &after), "{context}: cues");
+        scripts.insert(expected.links.message);
+        messages.insert(expected.message_box.message);
         matched = frame + 1;
         before = after;
     }
-    eprintln!("map visit matched {matched} program frames");
+    eprintln!("map visit matched {matched} program frames; scripts {scripts:04X?}; messages {messages:04X?}");
     matched
 }
 
 #[test]
 fn map_visit_matches_retail_through_a_campaign_driven_by_taps() {
-    // The taps let the planet fall at program frame 492, where the map's
-    // radio service (`$0B:9F87`, not yet ported) clears the map events.
-    let frames: u32 = std::env::var("SF2_VISIT_FRAMES").map(|v| v.parse().unwrap()).unwrap_or(492);
+    // The taps let the planet fall at program frame 492; the radio tells of
+    // it and the map program leaves after frame 531.
+    let frames: u32 = std::env::var("SF2_VISIT_FRAMES").map(|v| v.parse().unwrap()).unwrap_or(531);
     let schedule = |frame: u64| match frame % 32 {
         0..=3 => START,
         16..=19 => B,
@@ -135,4 +145,23 @@ fn map_visit_matches_retail_through_a_campaign_driven_by_taps() {
         _ => 0,
     };
     assert_eq!(compare_visit(&schedule, frames), frames);
+}
+
+#[test]
+fn map_visit_matches_retail_with_the_radio_answered() {
+    // A answers the radio and opens the boxes the cursor rests on.
+    let frames: u32 = std::env::var("SF2_VISIT_FRAMES_A").map(|v| v.parse().unwrap()).unwrap_or(2000);
+    // The cursor creeps across the map and rests between steps, so the
+    // boxes for the places it passes open; START and A now and then.
+    let schedule = |frame: u64| {
+        let step = frame / 40;
+        match frame % 40 {
+            0..=5 => [RIGHT, DOWN, RIGHT, UP, LEFT, DOWN, LEFT, UP][(step / 6 % 8) as usize],
+            20..=23 if step % 16 == 0 => START,
+            20..=23 if step % 16 == 8 => A,
+            _ => 0,
+        }
+    };
+    let matched = compare_visit(&schedule, frames);
+    assert!(matched > 0);
 }

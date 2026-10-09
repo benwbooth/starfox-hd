@@ -46,6 +46,18 @@ PINS = (
     ("palette cycles", 0x04AB07, 0x04AC5B, "cc16c13e2a7b19c36005948929dfa0545cc6486bce631ded7814df6766d46e0b"),
     ("planet drain", 0x7F5FA0, 0x7F600A, "cb428eea5ecb36fc4a57936205e7b6e47c19e77c6a0db4d2af296c7161354457"),
     ("frame timers and random word", 0x7F0516, 0x7F05A0, "9f71a34ed0c85ce19c93172604d6e9497f7078f72019b984c0e423ba75b2f48c"),
+    # strategic_radio.rs: the CPU side, the GSU message box step and the
+    # text engine's measure.
+    ("map radio call", 0x04E99B, 0x04E9AF, "6a9f73dbf659b85a8218420bb344b88fb79752b4db5f2d6bdf954fd7f62d12cc"),
+    ("radio entry", 0x0B9F87, 0x0B9FB2, "f37f70a4322425fe4d6f6cd351a2204046e11d2042b81e655dd0146e1607c096"),
+    ("radio services and script machine", 0x0BA029, 0x0BA609, "01bef960af57ea33d2c7208985f5cafb04814413586d1509b574d1fddd301dfe"),
+    ("radio alerts", 0x0BFB8D, 0x0BFBE3, "1c9942a043890e0f6ec062de20d6644aec4b72210fa378592c67522ecb8793cb"),
+    ("place messages", 0x0BFBE3, 0x0BFBEF, "1c23d1786e2c8ee9c9bb84a920124105770a61013cd0f9754e10d80fdef40517"),
+    ("box styles", 0x0B85CA, 0x0B85DA, "0c9ec6321e72907229e676da651417365a877beb78a83814f1755b989e7efc38"),
+    ("message box step", 0x0B8234, 0x0B84D0, "33532aca7d725aab3ceddb64d2704428e0bed89f49a46b3814505a1dd5f77ca9"),
+    ("word wrap", 0x01ED91, 0x01EE48, "14a2065f14741d750ed2d631c823212f8c774544f41715bceeb1f33c39dac88c"),
+    ("text height", 0x01EF10, 0x01EF48, "9564c4f9c9d81344ec73526587f4592c945e5e218d61fea1b07a825b55ece201"),
+    ("message pointers", 0x00AEB3, 0x00B063, "27a757528b59cad379bfb0ab711b9793256feaa046c04f30071a0cc7b3c1722a"),
 )
 
 # Rust byte tables and the ROM ranges they copy.
@@ -62,6 +74,10 @@ TABLES = (
     ("strategic_director.rs", "SALVO_COLUMNS", 0x04E88A),
     ("strategic_director.rs", "MISSILE_KIND_OFFSETS", 0x04C36A),
     ("strategic_director.rs", "SATELLITE_ALERTS", 0x04C32B),
+    ("strategic_radio.rs", "SCRIPTS", 0x0BA609),
+    ("strategic_radio.rs", "PLACE_MESSAGES", 0x0BFBE3),
+    ("strategic_radio.rs", "STYLE_TOP", 0x0B85D2),
+    ("strategic_radio.rs", "STYLE_CUES", 0x0B85CA),
 )
 
 
@@ -97,6 +113,28 @@ class StrategicScreenStaticTests(unittest.TestCase):
         self.assertEqual(
             hashlib.sha256(catalog).hexdigest(), "2cafc506fca19528a8737ff3a0011b85cca6a89c5564c4a868dbd3681fd886e6"
         )
+
+    def test_radio_alerts_copy_the_rom(self):
+        text = (NATIVE / "strategic_radio.rs").read_text()
+        body = re.search(r"const ALERTS: \[[^\]]+\] = \[(.*?)\];", text, re.S).group(1)
+        rows = re.findall(r"\((0x[0-9A-F]+), (0x[0-9A-F]+), (0x[0-9A-F]+), (0x[0-9A-F]+), (0x[0-9A-F]+)\)", body)
+        data = b"".join(
+            int(bit, 16).to_bytes(2, "little") + bytes(int(v, 16) for v in rest) for bit, *rest in rows
+        )
+        # Fourteen entries, then the zero bit that ends the table.
+        self.assertEqual(data + b"\0\0", span(0x0BFB8D, 0x0BFBE3, self.rom))
+
+    def test_messages_and_font_copy_the_rom(self):
+        text = (NATIVE.parents[2] / "sf2-data/src/messages.rs").read_text()
+
+        def table(name, pattern):
+            body = re.search(r"%s: \[u(?:8|16); [^\]]+\] = \[(.*?)\];" % name, text, re.S).group(1)
+            return [int(v, 16) for v in re.findall(pattern, body)]
+
+        pointers = table("MESSAGE_POINTERS", r"0x([0-9A-Fa-f]{4})")
+        self.assertEqual(b"".join(p.to_bytes(2, "little") for p in pointers), span(0x00AEB3, 0x00B063, self.rom))
+        self.assertEqual(bytes(table("MESSAGES", r"0x([0-9A-Fa-f]{2})")), span(0x009168, 0x00AEB3, self.rom))
+        self.assertEqual(bytes(table("FONT", r"0x([0-9A-Fa-f]{2})")), span(0x0DE1FB, 0x0DE472, self.rom))
 
     def test_dispatch_tables(self):
         def words(address, count):

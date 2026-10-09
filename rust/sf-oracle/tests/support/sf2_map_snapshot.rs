@@ -14,6 +14,7 @@ pub(crate) const FRAME_RETURN: u32 = 0x04B5FA;
 pub(crate) const START: u16 = 0x1000;
 pub(crate) const B: u16 = 0x8000;
 pub(crate) const X: u16 = 0x0040;
+pub(crate) const A: u16 = 0x0080;
 pub(crate) const RIGHT: u16 = 0x0100;
 pub(crate) const LEFT: u16 = 0x0200;
 pub(crate) const DOWN: u16 = 0x0400;
@@ -312,4 +313,48 @@ pub(crate) fn hud_inputs(s: &Snapshot) -> sf2_game::strategic_hud::HudInputs {
         score: s.word(0xD816),
         lives: s.byte(0x1DD2),
     }
+}
+
+pub(crate) fn radio(s: &Snapshot) -> sf2_game::strategic_radio::MapRadio {
+    sf2_game::strategic_radio::MapRadio {
+        opened_from: s.word(0xF594),
+        page_frames: s.word(0xF584),
+        accept: s.word(0xF56A),
+        shown_place: s.word(0xF59A),
+        box_base: s.word(0xF572),
+        choice: s.word(0xF574),
+        panel: s.word(0xF556),
+        radio_event: s.word(0x1E84),
+        radio: sf2_game::stage_announcer::StageMessage {
+            voice: s.word(0xF566),
+            progress: s.word(0xF55E),
+            timer: s.word(0xF560),
+        },
+        tick: s.word(0x1E60),
+        cleared_word: s.word(0xDB39),
+        layers: s.byte(0x1C51),
+    }
+}
+
+pub(crate) fn message_box(s: &Snapshot) -> sf2_game::strategic_radio::MessageBox {
+    let w = |a: usize| s.gsu_word(a);
+    sf2_game::strategic_radio::MessageBox {
+        busy: w(0x37C),
+        size: w(0x36C),
+        style: w(0x378),
+        open: w(0x37A),
+        left_pilot: w(0x382),
+        right_pilot: w(0x386),
+        message: w(0x388),
+        progress: w(0x38A),
+        duration: w(0x390),
+        remaining: w(0x380),
+        row: w(0x38E),
+        portrait: w(0x392),
+        height: w(0x356),
+    }
+}
+
+pub(crate) fn radio_inputs(s: &Snapshot) -> sf2_game::strategic_radio::RadioInputs {
+    sf2_game::strategic_radio::RadioInputs { portrait: s.word(0x1E70), held: s.word(0x1292) }
 }

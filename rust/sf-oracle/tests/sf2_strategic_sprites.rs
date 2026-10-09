@@ -122,7 +122,7 @@ fn run_original(s: &Snapshot) -> Snapshot {
     }
     let exit = sf_oracle::call(&mut bus, SPRITE_PASS, &sf_oracle::Entry::default());
     assert!(exit.returned, "the original sprite pass did not return");
-    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone() }
+    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone(), gsu: s.gsu.clone() }
 }
 
 struct Lcg(u32);
@@ -263,7 +263,7 @@ fn map_sprite_pass_matches_the_original_on_mutated_retail_states() {
     let (mut compared, mut faulted) = (0, std::collections::BTreeMap::new());
     for (index, snapshot) in snapshots.iter().enumerate() {
         for case in 0..cases {
-            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone() };
+            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone(), gsu: snapshot.gsu.clone() };
             mutate(&mut state, &mut rng);
             let mut probe = sprites(&state);
             let mut map = state.map();

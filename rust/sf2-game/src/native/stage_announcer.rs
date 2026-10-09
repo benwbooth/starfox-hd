@@ -57,19 +57,29 @@ pub fn advance(world: &mut ScenePathWorld) -> Result<(), AnnouncerError> {
     if world.radio_event.ok_or(AnnouncerError::MissingRadioEvent)?.number != 0 {
         return Ok(());
     }
+    let health = stage.planet.health;
     let events = &mut world.strategic.as_mut().ok_or(AnnouncerError::MissingStrategicMap)?.map.globals.map_events;
+    if let Some((message, announcement)) = announce(events, health) {
+        world.radio_event.as_mut().ok_or(AnnouncerError::MissingRadioEvent)?.number = message;
+        world.stage_message = Some(announcement);
+    }
+    Ok(())
+}
+
+/// `$7F:7784..77B9`: with no message showing, claim the first pending map
+/// event; every event bit before it is cleared too. Returns the message
+/// and its presentation words.
+pub fn announce(events: &mut u16, planet_health: u16) -> Option<(u16, StageMessage)> {
     for (bit, message, voice) in EVENTS {
         let pending = *events & bit != 0;
         *events &= !bit;
         if !pending {
             continue;
         }
-        let message = if message != 0 { u16::from(message) } else { planet_report(stage.planet.health) };
-        world.radio_event.as_mut().ok_or(AnnouncerError::MissingRadioEvent)?.number = message;
-        world.stage_message = Some(StageMessage { voice: u16::from(voice), progress: 0, timer: 0 });
-        return Ok(());
+        let message = if message != 0 { u16::from(message) } else { planet_report(planet_health) };
+        return Some((message, StageMessage { voice: u16::from(voice), progress: 0, timer: 0 }));
     }
-    Ok(())
+    None
 }
 
 /// `$7F:77BD`: the report's wording by the planet's health.

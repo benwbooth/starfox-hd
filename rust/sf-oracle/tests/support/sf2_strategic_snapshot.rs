@@ -12,11 +12,14 @@ pub(crate) const UNITS: u16 = 0xE0A7;
 pub(crate) const UNIT_SIZE: u16 = 0x52;
 pub(crate) const TERRAIN: u32 = 0x7FD400;
 pub(crate) const TERRAIN_BYTES: u32 = 0x400;
+pub(crate) const GSU_BYTES: usize = 0x400;
 
 /// Bytes of retail work RAM, captured at one instant.
 pub(crate) struct Snapshot {
     pub(crate) low: Vec<u8>,
     pub(crate) terrain: Vec<u8>,
+    /// GSU RAM `$70:0000..0400` (the message box's words).
+    pub(crate) gsu: Vec<u8>,
 }
 
 impl Snapshot {
@@ -24,10 +27,14 @@ impl Snapshot {
         Self {
             low: (0..0x10000u32).map(|a| m.peek8(0x7E0000 + a)).collect(),
             terrain: (0..TERRAIN_BYTES).map(|a| m.peek8(TERRAIN + a)).collect(),
+            gsu: (0..GSU_BYTES).map(|a| m.peek_gsu_ram(a)).collect(),
         }
     }
     pub(crate) fn byte(&self, address: u16) -> u8 {
         self.low[usize::from(address)]
+    }
+    pub(crate) fn gsu_word(&self, address: usize) -> u16 {
+        u16::from(self.gsu[address]) | (u16::from(self.gsu[address + 1]) << 8)
     }
     pub(crate) fn word(&self, address: u16) -> u16 {
         u16::from(self.byte(address)) | (u16::from(self.byte(address.wrapping_add(1))) << 8)

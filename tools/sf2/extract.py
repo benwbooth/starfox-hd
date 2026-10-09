@@ -19,6 +19,7 @@ import extract_colors
 import extract_lighting
 import extract_map
 import extract_map_sprites
+import extract_messages
 import extract_palettes
 import extract_path
 import extract_shapes
@@ -43,6 +44,7 @@ def main() -> int:
     extract_textures.extract(d)
     extract_map.extract(d)
     extract_map_sprites.extract(d)
+    extract_messages.extract(d)
     extract_path.extract(d)
     print("done.")
     return 0

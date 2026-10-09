@@ -306,6 +306,7 @@ impl Snapshot {
         Snapshot {
             low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(),
             terrain: self.terrain.clone(),
+            gsu: self.gsu.clone(),
         }
     }
 }
@@ -319,7 +320,7 @@ fn strategic_simulation_matches_the_original_on_mutated_retail_states() {
     let (mut compared, mut faulted) = (0, std::collections::BTreeMap::new());
     for (index, snapshot) in snapshots.iter().enumerate() {
         for case in 0..cases {
-            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone() };
+            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone(), gsu: snapshot.gsu.clone() };
             state.mutate(&mut rng);
             let mut map = state.map();
             let mut links = state.links();

@@ -14,6 +14,7 @@ use super::strategic_director::{self, MapDirector};
 use super::strategic_screen::{self, MapPad, MapScreen, ScreenError, ScreenLinks, ScreenOutput};
 use super::strategic_sim::{StrategicInputs, StrategicMap, TickOutput};
 use super::strategic_hud::{self, HudInputs, HudOutput, MapHud};
+use super::strategic_radio::{self, MapRadio, MessageBox, Radio, RadioInputs};
 use super::strategic_sprites::{self, MapSprites, SpriteInputs};
 use super::RandomState;
 
@@ -51,6 +52,11 @@ pub struct MapVisit {
     pub sprite_inputs: SpriteInputs,
     pub hud: MapHud,
     pub hud_inputs: HudInputs,
+    pub radio: MapRadio,
+    pub message_box: MessageBox,
+    pub radio_inputs: RadioInputs,
+    /// The last interrupt's pad.
+    pub pad: MapPad,
     pub timers: FrameTimers,
     /// The shared generator (`$7F:7BD4`).
     pub rng: RandomState,
@@ -97,13 +103,36 @@ impl MapVisit {
             &self.terrain,
             output,
         )?;
+        // $04:E969 -> $0B:9F87: the radio and the message box, unless the
+        // scene holds them (1B88 bit 10).
+        if self.links.scene.scene_events & 0x0400 == 0 {
+            self.radio(output)?;
+        }
+        // The GSU's picture (`$7F:532A`) and its message box step.
+        strategic_radio::picture(&mut self.message_box)?;
         self.map.globals.speed_flags &= !PICTURE_HOLD;
         Ok(())
+    }
+
+    fn radio(&mut self, output: &mut ScreenOutput) -> Result<(), ScreenError> {
+        Radio {
+            radio: &mut self.radio,
+            message_box: &mut self.message_box,
+            sprites: &mut self.sprites,
+            screen: &mut self.screen,
+            director: &mut self.director,
+            map: &mut self.map,
+            links: &mut self.links,
+            inputs: RadioInputs { held: self.pad.held, ..self.radio_inputs },
+            output,
+        }
+        .run()
     }
 
     /// `$7F:0249`: one frame interrupt. `pad` is the frame's pad (1292
     /// held, 1296 newly pressed).
     pub fn interrupt(&mut self, pad: MapPad, output: &mut ScreenOutput) -> Result<(), VisitError> {
+        self.pad = pad;
         if self.map.globals.speed_flags & PICTURE_HOLD == 0 {
             // $7F:02A1: the next slice of the picture.
             if self.map.globals.speed_flags & PICTURE_DONE == 0 {
@@ -156,7 +185,7 @@ impl MapVisit {
             &self.director,
             &mut self.map,
             &mut self.links,
-            self.sprite_inputs,
+            SpriteInputs { panel_enabled: self.radio.panel, ..self.sprite_inputs },
             output,
         )?;
         let phase = self.sprites.phases[0];

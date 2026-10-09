@@ -310,7 +310,7 @@ fn run_original(s: &Snapshot) -> Snapshot {
     }
     let exit = sf_oracle::call(&mut bus, FRAME, &sf_oracle::Entry::default());
     assert!(exit.returned, "the original frame did not return");
-    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone() }
+    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone(), gsu: s.gsu.clone() }
 }
 
 #[test]
@@ -334,7 +334,7 @@ fn map_screen_matches_the_original_on_mutated_retail_states() {
     let (mut compared, mut faulted) = (0, std::collections::BTreeMap::new());
     for (index, snapshot) in snapshots.iter().enumerate() {
         for case in 0..cases {
-            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone() };
+            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone(), gsu: snapshot.gsu.clone() };
             mutate(&mut state, &mut rng, &steps);
             let mut probe = screen(&state);
             let mut map = state.map();
@@ -575,7 +575,7 @@ fn run_original_program(s: &Snapshot) -> Snapshot {
     let entry = sf_oracle::Entry { dbr: 0x7E, p: 0x20, ..Default::default() };
     let exit = sf_oracle::call_near(&mut bus, PROGRAM, &entry);
     assert!(exit.returned, "the original program frame did not return");
-    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone() }
+    Snapshot { low: (0..0x10000u32).map(|a| bus.read8(0x7E0000 + a)).collect(), terrain: s.terrain.clone(), gsu: s.gsu.clone() }
 }
 
 #[test]
@@ -613,7 +613,7 @@ fn map_program_matches_the_original_on_mutated_retail_states() {
     let (mut compared, mut faulted) = (0, std::collections::BTreeMap::new());
     for (index, snapshot) in snapshots.iter().enumerate() {
         for case in 0..cases {
-            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone() };
+            let mut state = Snapshot { low: snapshot.low.clone(), terrain: snapshot.terrain.clone(), gsu: snapshot.gsu.clone() };
             mutate_program(&mut state, &mut rng);
             let mut probe = director(&state);
             let mut probe_screen = screen(&state);
