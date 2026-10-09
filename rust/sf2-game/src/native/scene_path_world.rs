@@ -387,6 +387,8 @@ pub struct ScenePathWorld {
     pub stage: Option<super::stage_controller::StageControl>,
     /// The scene fade and blank hold (F3/F4, 18BB, the band publications).
     pub scene_display: Option<super::scene_display::SceneDisplay>,
+    /// The bank-0B presentation director (1FBE..1FC9, F53E, F5CC, 1FD2).
+    pub director: Option<super::presentation_director::PresentationDirector>,
     pub path_latches: Option<PathLatches>,
     pub sound_bank_request: Option<SoundBankRequest>,
     pub encounter_signals: Option<EncounterSignals>,
@@ -561,6 +563,7 @@ impl ScenePathWorld {
             scene_transition: None,
             stage: None,
             scene_display: None,
+            director: None,
             path_latches: None,
             sound_bank_request: None,
             encounter_signals: None,

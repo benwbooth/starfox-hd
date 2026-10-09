@@ -27,6 +27,12 @@ const FADE_SERVICE: u32 = 0x7F0E79;
 const BLANK_HOLD: u32 = 0x03DD81;
 /// The flight stage controller ($03:C500), after each scene frame.
 const STAGE_CONTROLLER: u32 = 0x03C500;
+/// The bank-0B presentation director's frame ($0B:8C21), before the frame.
+const DIRECTOR: u32 = 0x0B8C21;
+/// The flight stage kind (1B68), dispatched by $03:C193.
+const FLIGHT_STAGE: u16 = 1;
+/// The first frame on which retail's HUD service runs the HUD lane.
+const HUD_LANE_START: u32 = 113;
 const START: u16 = 0x1000;
 /// The strategy pass's per-actor dispatch calls ($7F:3596), diagnostics only.
 const ACTOR_VISITS: [u32; 2] = [0x7F3526, 0x7F3572];
@@ -236,6 +242,7 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
     };
     world.stage = Some(retail_stage(m));
     world.scene_display = Some(retail_display(m));
+    world.director = Some(retail_director(m));
     world.map_records = Some(sf2_game::map_streaming::MapRecordStore::new());
     world.map_regions = Some(Default::default());
     world.region_groups = Some(sf2_game::map_streaming::RegionGroups {
@@ -286,6 +293,26 @@ fn retail_stage(m: &RetailMachine) -> sf2_game::stage_controller::StageControl {
     }
 }
 
+/// The bank-0B presentation director's record (1FBE..1FC9) and its flags.
+fn retail_director(m: &RetailMachine) -> sf2_game::presentation_director::PresentationDirector {
+    sf2_game::presentation_director::PresentationDirector {
+        request: word(m, 0x1FBE),
+        state: word(m, 0x1FC0),
+        step: word(m, 0x1FC2),
+        timer: word(m, 0x1FC4),
+        elapsed: word(m, 0x1FC6),
+        completion: word(m, 0x1FC8),
+        frame_counter: word(m, 0xF5CC),
+        hud_shown: match word(m, 0xF53E) {
+            0 => false,
+            1 => true,
+            other => panic!("HUD shown word {other:04X}"),
+        },
+        hud_lane_request: word(m, 0x1FD2),
+        window: Default::default(),
+    }
+}
+
 /// The scene fade (F3/F4), blank hold (18BB), paced interval (1C59/A) and
 /// the three band publications (7F007C/7E/80).
 fn retail_display(m: &RetailMachine) -> sf2_game::scene_display::SceneDisplay {
@@ -328,13 +355,18 @@ fn compare_stage(m: &RetailMachine, runner: &SceneRunner<Callbacks>, epoch: u32)
         "epoch {epoch}: display flags"
     );
     assert_eq!(world.scene_events.unwrap().bits, word(m, 0x1B88), "epoch {epoch}: scene events");
-    // Bit 0020 holds the stage for the bank-0B presentation scripts, which
-    // set and clear it ($0B:8CB0, $0B:8E56); that system is not ported yet.
-    const SCRIPT_HOLD: u16 = 0x0020;
+    assert_eq!(world.view_transition_mode.unwrap().flags, word(m, 0x1B84), "epoch {epoch}: mode word");
+    // The HUD lane (1FD2) is run by the HUD service ($04:93AC), not ported
+    // yet; only its stage-start request is compared, on the first frames.
+    let mut retail = retail_director(m);
+    let native = world.director.unwrap();
+    if epoch >= HUD_LANE_START {
+        retail.hud_lane_request = native.hud_lane_request;
+    }
     assert_eq!(
-        world.view_transition_mode.unwrap().flags & !SCRIPT_HOLD,
-        word(m, 0x1B84) & !SCRIPT_HOLD,
-        "epoch {epoch}: mode word"
+        sf2_game::presentation_director::PresentationDirector { window: Default::default(), ..native },
+        retail,
+        "epoch {epoch}: presentation director"
     );
     assert_eq!(
         world.published_score,
@@ -437,7 +469,10 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     assert!(m.tick_until_cpu_execution(0, EPOCH, 60).unwrap());
     let clock = runner.world.strategy_clock;
     runner.schedule = StrategySchedule::resume(clock);
+    // The stage loop's first frame ($03:C182): blank hold, director, frame.
+    assert_eq!(word(&m, 0x1B68), FLIGHT_STAGE);
     sf2_game::stage_controller::begin_frame(&mut runner.world).unwrap();
+    sf2_game::presentation_director::advance(&mut runner.world, FLIGHT_STAGE).unwrap();
     runner.prepare_frame(&catalog).unwrap();
     compare(&m, &runner, view, 0);
     let mut matched = 0;
@@ -447,7 +482,7 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     // then $06:F512 each frame) run the defeat action, fall and explode.
     let mut left = None;
     for epoch in 0..1300u32 {
-        let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW, STAGE_TEARDOWN, FADE_SERVICE, BLANK_HOLD, STAGE_CONTROLLER];
+        let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW, STAGE_TEARDOWN, FADE_SERVICE, BLANK_HOLD, STAGE_CONTROLLER, DIRECTOR];
         watched.extend(RESEEDS);
         m.watch_cpu_execution(&watched);
         assert!(m.tick_until_cpu_execution(0, EPOCH + 1, 60).unwrap());
@@ -506,6 +541,8 @@ fn star_wolf_interception_runs_natively_like_the_retail_machine() {
                     }
                     FADE_SERVICE => sf2_game::stage_controller::visit_fade(&mut runner.world).unwrap(),
                     BLANK_HOLD => sf2_game::stage_controller::advance_blank_hold(&mut runner.world).unwrap(),
+                    DIRECTOR => sf2_game::presentation_director::advance(&mut runner.world, FLIGHT_STAGE)
+                        .unwrap_or_else(|error| panic!("epoch {epoch}: director {error:?}")),
                     _ => {}
                 }
             }
