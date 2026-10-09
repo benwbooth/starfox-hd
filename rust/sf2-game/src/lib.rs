@@ -72,6 +72,7 @@ pub use native::hud_target;
 pub use native::stage_controller;
 pub use native::presentation_director;
 pub use native::stage_launch;
+pub use native::stage_setup;
 pub use native::player_scene_init;
 pub use native::attract_stage;
 pub use native::authored_maps;

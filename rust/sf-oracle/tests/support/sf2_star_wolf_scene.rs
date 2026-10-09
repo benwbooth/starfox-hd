@@ -400,6 +400,26 @@ fn compare_stage(m: &RetailMachine, runner: &SceneRunner<Callbacks>, epoch: u32)
 
 /// The mission launch ($03:B90E) from retail's state at the launch, against
 /// retail's state when the stage loop starts.
+/// The stage's scene setup against retail when the scene player is first
+/// visited ($03:A55D -> $06:82F9), before any scene frame.
+fn compare_setup(m: &RetailMachine, world: &ScenePathWorld) {
+    assert_eq!(world.stage.unwrap(), retail_stage(m), "setup: stage control");
+    assert_eq!(world.director.unwrap(), retail_director(m), "setup: presentation director");
+    assert_eq!(world.view_transition_mode.unwrap().flags, word(m, 0x1B84), "setup: mode word");
+    assert_eq!(world.scene_display_flags, Some(word(m, 0x1B9C)), "setup: display flags");
+    assert_eq!(world.scene_events.unwrap().bits, word(m, 0x1B88), "setup: scene events");
+    assert_eq!(world.encounter_timer_steps, Some(word(m, 0x1C0A)), "setup: clock steps");
+    assert_eq!(world.stage_layout, Some(word(m, 0x1916)), "setup: layout");
+    assert_eq!(world.reflect_all_contacts, Some(byte(m, 0x1AA6) & 0x02 != 0), "setup: single player");
+    assert_eq!(world.strategy_clock, u16::from(byte(m, 0xC4)), "setup: strategy clock");
+    assert_eq!(world.camera_projection_base, Some(word(m, 0x1E44) as i16), "setup: projection base");
+    assert_eq!(world.handoff.unwrap().player_flags, byte(m, 0x1D74), "setup: handoff flags");
+    assert_eq!(world.health_display.unwrap().maximum, byte(m, 0xD775), "setup: health display");
+    let groups = world.region_groups.unwrap();
+    assert_eq!((groups.current, groups.previous), (byte(m, 0x190E), byte(m, 0x190F)), "setup: region groups");
+    assert_eq!(world.scene_gate_flags.unwrap().hud_ready, word(m, 0x1B96) & 0x04 != 0, "setup: HUD ready");
+}
+
 #[test]
 fn star_wolf_interception_launches_natively_like_the_retail_machine() {
     let mut m = RetailMachine::new(super::rom());
@@ -427,11 +447,29 @@ fn star_wolf_interception_launches_natively_like_the_retail_machine() {
 #[test]
 fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     let mut m = RetailMachine::new(super::rom());
-    navigate(&mut m);
+    // From retail's state at the mission launch, the launch ($03:B90E) and
+    // the stage loop's scene setup ($03:8325) run natively.
+    navigate_to_launch(&mut m);
     let mut world = stage_world(&m);
     world.stage = Some(retail_stage(&m));
-    world.scene_display = Some(retail_display(&m));
     world.director = Some(retail_director(&m));
+    world.scene_display = Some(sf2_game::stage_setup::dark_display(
+        byte(&m, 0x18BB),
+        (byte(&m, 0x1C59), byte(&m, 0x1C5A)),
+    ));
+    let mission = sf2_game::stage_launch::MissionLaunch {
+        location: word(&m, 0x1BB5),
+        layout: byte(&m, 0x1BA5),
+        campaign_flags: word(&m, 0x1B8A),
+    };
+    let stage_map = sf2_game::stage_launch::launch(&mut world, mission).unwrap();
+    assert_eq!(stage_map, sf2_game::authored_maps::STAR_WOLF_INTERCEPTION);
+    const FLIGHT_LAYOUT_SELECTOR: u8 = 0;
+    sf2_game::stage_setup::begin_scene(&mut world, FLIGHT_LAYOUT_SELECTOR).unwrap();
+    assert!(m.tick_until_cpu_execution(0, STAGE_LOOP, 200).unwrap());
+    assert_eq!(byte(&m, 0x1AA5), FLIGHT_LAYOUT_SELECTOR);
+    assert!(m.tick_until_cpu_execution(0, INITIALIZER, 600).unwrap());
+    compare_setup(&m, &world);
     let map_catalog = sf2_game::authored_maps::catalog().unwrap();
     let mut presentation = sf2_game::map_effects::MapPresentation {
         display_ready: Some(true),
