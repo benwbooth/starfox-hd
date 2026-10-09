@@ -132,12 +132,27 @@ pub struct RandomState {
     /// Pending render-timed entropy refreshes (`$7F:058F`, one extra draw
     /// each), due before the consumer draws with these zero-based indices.
     refreshes: [u16; MAX_PENDING_REFRESHES],
+    /// For each pending refresh, the instructions of its draw's routine
+    /// (`$7F:7BD4`) completed before the render interrupt ran the refresh;
+    /// `None` when it ran between draws.
+    interruptions: [Option<u8>; MAX_PENDING_REFRESHES],
     pending_refreshes: u8,
     scheduled_draws: u16,
 }
 
+/// Where a render-timed refresh fell among the frame's consumer events: before
+/// the draw (or reseed) with this zero-based index, or inside that draw's
+/// routine after `interrupted_after` of its instructions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RefreshPoint {
+    pub draw: u16,
+    pub interrupted_after: Option<u8>,
+}
+
 /// A long frame can span more than one render-timed refresh.
 pub const MAX_PENDING_REFRESHES: usize = 4;
+/// `$7F:7BD4`'s instructions before its return.
+const ROUTINE_STORES: u8 = 10;
 
 /// An ordered source of gameplay random draws. Scene scheduling may advance
 /// the shared generator between draws without assigning those values to an actor.
@@ -207,6 +222,7 @@ impl RandomState {
         Self {
             bytes,
             refreshes: [0; MAX_PENDING_REFRESHES],
+            interruptions: [None; MAX_PENDING_REFRESHES],
             pending_refreshes: 0,
             scheduled_draws: 0,
         }
@@ -215,7 +231,10 @@ impl RandomState {
     /// Replace the generator bytes. A reseed is a scheduled event like a
     /// draw: a refresh due at this event index happens first.
     pub fn reseed(&mut self, bytes: [u8; 4]) {
-        self.apply_due_refreshes();
+        // A reseed is not the draw routine; a refresh due here runs whole.
+        if self.apply_due_refreshes().is_some() {
+            self.step();
+        }
         self.bytes = bytes;
     }
 
@@ -223,11 +242,29 @@ impl RandomState {
     /// its zero-based index (ascending, counted from this call), or at
     /// `finish_refreshes` if fewer events occur. Returns false if too many.
     pub fn schedule_refreshes(&mut self, draws: &[u16]) -> bool {
-        if draws.len() > MAX_PENDING_REFRESHES || draws.windows(2).any(|pair| pair[0] > pair[1]) {
+        if draws.len() > MAX_PENDING_REFRESHES {
             return false;
         }
-        self.refreshes[..draws.len()].copy_from_slice(draws);
-        self.pending_refreshes = draws.len() as u8;
+        let mut points = [RefreshPoint { draw: 0, interrupted_after: None }; MAX_PENDING_REFRESHES];
+        for (point, &draw) in points.iter_mut().zip(draws) {
+            point.draw = draw;
+        }
+        self.schedule_refresh_points(&points[..draws.len()])
+    }
+
+    /// Like `schedule_refreshes`, with refreshes that may interrupt a draw.
+    pub fn schedule_refresh_points(&mut self, points: &[RefreshPoint]) -> bool {
+        if points.len() > MAX_PENDING_REFRESHES
+            || points.windows(2).any(|pair| pair[0].draw > pair[1].draw)
+            || points.iter().any(|point| point.interrupted_after.is_some_and(|after| after > ROUTINE_STORES))
+        {
+            return false;
+        }
+        for (index, point) in points.iter().enumerate() {
+            self.refreshes[index] = point.draw;
+            self.interruptions[index] = point.interrupted_after;
+        }
+        self.pending_refreshes = points.len() as u8;
         self.scheduled_draws = 0;
         true
     }
@@ -241,6 +278,7 @@ impl RandomState {
 
     fn pop_refresh(&mut self) {
         self.refreshes.copy_within(1.., 0);
+        self.interruptions.copy_within(1.., 0);
         self.pending_refreshes -= 1;
     }
 
@@ -249,19 +287,68 @@ impl RandomState {
     }
 
     pub fn next_byte(&mut self) -> u8 {
-        self.apply_due_refreshes();
-        self.step()
+        match self.apply_due_refreshes() {
+            Some(completed) => self.step_interrupted(completed),
+            None => self.step(),
+        }
     }
 
     /// Refreshes due before this event (a draw or a reseed), then count it.
-    fn apply_due_refreshes(&mut self) {
+    /// Returns where a refresh interrupts this event's draw, if one does.
+    fn apply_due_refreshes(&mut self) -> Option<u8> {
+        let mut interruption = None;
         while self.pending_refreshes != 0 && self.refreshes[0] == self.scheduled_draws {
+            let within = self.interruptions[0];
             self.pop_refresh();
-            self.step();
+            match within {
+                None => {
+                    self.step();
+                }
+                Some(completed) => {
+                    interruption = Some(completed);
+                    break;
+                }
+            }
         }
         if self.pending_refreshes != 0 {
             self.scheduled_draws += 1;
         }
+        interruption
+    }
+
+    /// `$7F:7BD4` with the render interrupt's refresh draw after `completed`
+    /// of its ten steps: load the first byte, clear the borrow, then subtract
+    /// and store in turn for the second, third, fourth and first bytes.
+    /// The interrupted draw keeps its accumulator and carry but reads and
+    /// writes the generator bytes the refresh changed.
+    fn step_interrupted(&mut self, completed: u8) -> u8 {
+        const OPERANDS: [usize; 4] = [1, 2, 3, 0];
+        let mut accumulator = 0u8;
+        let mut no_borrow = false;
+        for index in 0..ROUTINE_STORES {
+            if index == completed {
+                self.step();
+            }
+            match index {
+                0 => accumulator = self.bytes[0],
+                1 => no_borrow = false,
+                _ => {
+                    let operand = OPERANDS[usize::from((index - 2) / 2)];
+                    if index % 2 == 0 {
+                        let borrow = u16::from(!no_borrow);
+                        let subtrahend = u16::from(self.bytes[operand]) + borrow;
+                        no_borrow = u16::from(accumulator) >= subtrahend;
+                        accumulator = accumulator.wrapping_sub(self.bytes[operand]).wrapping_sub(borrow as u8);
+                    } else {
+                        self.bytes[operand] = accumulator;
+                    }
+                }
+            }
+        }
+        if completed == ROUTINE_STORES {
+            self.step();
+        }
+        accumulator
     }
 
     fn step(&mut self) -> u8 {
@@ -3212,5 +3299,55 @@ mod tests {
         objectives.record_wolf_defeated();
         assert_eq!(objectives.wolf_blockade, WolfBlockadeStatus::Defeated);
         assert_eq!(objectives.astropolis, AstropolisStatus::Vulnerable);
+    }
+}
+
+#[cfg(test)]
+mod interrupted_draw_tests {
+    use super::*;
+
+    #[test]
+    fn a_refresh_at_either_end_of_a_draw_is_a_whole_draw_before_or_after_it() {
+        for seed in [[0x3A, 0xA7, 0x55, 0x7F], [0, 0, 0, 0], [0xFF, 0x01, 0x80, 0x7F]] {
+            let mut before = RandomState::new(seed);
+            before.step();
+            let expected_before = before.step();
+            let mut interrupted = RandomState::new(seed);
+            assert_eq!(interrupted.step_interrupted(0), expected_before);
+            assert_eq!(interrupted.bytes(), before.bytes());
+
+            let mut after = RandomState::new(seed);
+            let expected_after = after.step();
+            after.step();
+            let mut interrupted = RandomState::new(seed);
+            assert_eq!(interrupted.step_interrupted(ROUTINE_STORES), expected_after);
+            assert_eq!(interrupted.bytes(), after.bytes());
+        }
+    }
+
+    #[test]
+    fn a_refresh_inside_a_draw_changes_the_bytes_it_has_not_read_yet() {
+        let seed = [0x3A, 0xA7, 0x55, 0x7F];
+        let mut plain = RandomState::new(seed);
+        plain.step();
+        plain.step();
+        for completed in 1..ROUTINE_STORES {
+            let mut state = RandomState::new(seed);
+            state.step_interrupted(completed);
+            assert_ne!(state.bytes(), plain.bytes(), "interrupted after {completed}");
+        }
+    }
+
+    #[test]
+    fn scheduled_interruptions_apply_to_the_named_draw_only() {
+        let seed = [0x12, 0x34, 0x56, 0x78];
+        let mut expected = RandomState::new(seed);
+        let first = expected.step();
+        let second = expected.step_interrupted(4);
+        let third = expected.step();
+        let mut state = RandomState::new(seed);
+        assert!(state.schedule_refresh_points(&[RefreshPoint { draw: 1, interrupted_after: Some(4) }]));
+        assert_eq!([state.next_byte(), state.next_byte(), state.next_byte()], [first, second, third]);
+        assert!(!state.schedule_refresh_points(&[RefreshPoint { draw: 0, interrupted_after: Some(11) }]));
     }
 }

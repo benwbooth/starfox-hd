@@ -147,7 +147,7 @@ pub use native::{
     ObjectLifetimeId, ObjectSpawnDefaults, ObjectStore, PathCursor, PathId, Pilot, PilotCraftClass,
     PilotCraftProfile, PilotSelectionCursor, PilotSelectionPhase, PilotSelectionState,
     PlanetObjectiveStatus, PlayerBlasterState, PlayerCraftForm, PlayerCraftTransformation,
-    PlayerCraftTransformationDirection, PlayerDamageState, PlayerWalkerState, RandomSource, RandomState,
+    PlayerCraftTransformationDirection, PlayerDamageState, PlayerWalkerState, RandomSource, RandomState, RefreshPoint,
     RecurringAttacker, RecurringAttackerStatus, RecurringAttackersState, RenderFlags, RenderObject,
     ResultsChoice, ResultsPhase, ResultsState, Roster, Rotation, ShapeId, SoundEvent,
     SpatialDistance, SpatialLoop, SpatialSound, StereoPosition, StrategicMapActor,

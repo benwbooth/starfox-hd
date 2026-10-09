@@ -51,6 +51,8 @@ impl<E> From<SceneError<E>> for SceneRunError<E> {
 pub enum EntropyRefresh<'a> {
     /// Before the pass's consumer draws with these zero-based indices.
     BeforeDraws(&'a [u16]),
+    /// At these points among the pass's draws, possibly inside a draw.
+    Points(&'a [super::RefreshPoint]),
     /// One refresh after the pass.
     AfterPass,
 }
@@ -175,10 +177,13 @@ impl<C: SceneCallbacks> SceneRunner<C> {
         let mut host = self.host(catalog);
         host.begin_strategy_epoch(&mut schedule)
             .map_err(SceneRunError::Schedule)?;
-        if let EntropyRefresh::BeforeDraws(draws) = refresh {
-            if !host.world.random.schedule_refreshes(draws) {
-                return Err(SceneRunError::InvalidRefreshSchedule);
-            }
+        let scheduled = match refresh {
+            EntropyRefresh::BeforeDraws(draws) => host.world.random.schedule_refreshes(draws),
+            EntropyRefresh::Points(points) => host.world.random.schedule_refresh_points(points),
+            EntropyRefresh::AfterPass => true,
+        };
+        if !scheduled {
+            return Err(SceneRunError::InvalidRefreshSchedule);
         }
         let mut visits = ListenerRefresh { host };
         // No render work is pending natively: the overlapping half yields at
@@ -192,7 +197,7 @@ impl<C: SceneCallbacks> SceneRunner<C> {
         // A refresh after the last draw (or after the pass) happens now.
         let random = &mut visits.host.world.random;
         match refresh {
-            EntropyRefresh::BeforeDraws(_) => random.finish_refreshes(),
+            EntropyRefresh::BeforeDraws(_) | EntropyRefresh::Points(_) => random.finish_refreshes(),
             EntropyRefresh::AfterPass => {
                 random.next_byte();
             }

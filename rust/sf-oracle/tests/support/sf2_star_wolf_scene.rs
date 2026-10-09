@@ -43,6 +43,12 @@ const RADIO_PANEL_DRAW: u32 = 0x0ACD92;
 /// The source's reads of direct-page $00 as a child number: the scene
 /// player's smoke child ($06:F3BF) and the damage particle ($07:D017).
 const PACING_READS: [u32; 2] = [0x06F3BF, 0x07D017];
+/// The generator routine's instructions ($7F:7BD4..7BE7): its first is the
+/// draw (RANDOM_DRAW) and its last the return (RANDOM_RETURN).
+const RANDOM_ROUTINE: [u32; 11] =
+    [0x7F7BD4, 0x7F7BD6, 0x7F7BD7, 0x7F7BD9, 0x7F7BDB, 0x7F7BDD, 0x7F7BDF, 0x7F7BE1, 0x7F7BE3, 0x7F7BE5, 0x7F7BE7];
+/// The player's input preparation reads the sampled pads ($06:948F/9499).
+const INPUT_READS: [u32; 2] = [0x06948F, 0x069499];
 const B: u16 = 0x8000;
 const RIGHT: u16 = 0x0100;
 const UP: u16 = 0x0800;
@@ -244,6 +250,9 @@ fn stage_world(m: &RetailMachine) -> ScenePathWorld {
         horizontal: Some(byte(m, 0x1E30)),
         vertical: Some(byte(m, 0x1E31)),
     };
+    // The impact classifier's pair suppression (D746); its material byte is
+    // direct-page scratch the classifier writes before every import.
+    world.impact = Some(sf2_game::path_impact::ImpactState { material: 0, pair_suppressed: byte(m, 0xD746) != 0 });
     world.map_records = Some(sf2_game::map_streaming::MapRecordStore::new());
     world.map_regions = Some(Default::default());
     world.region_groups = Some(sf2_game::map_streaming::RegionGroups {
@@ -444,9 +453,11 @@ fn star_wolf_interception_launches_natively_like_the_retail_machine() {
     assert_eq!((byte(&m, 0x1AA5), byte(&m, 0xD7D8)), (0, 0), "cleared bytes");
 }
 
-/// Runs the interception from the mission launch with `pad` held from the
-/// launch on; returns the epoch at which the stage loop left.
-fn run_star_wolf(pad: u16) -> (u32, Option<u32>) {
+/// Runs the interception from the mission launch with the pad `schedule`
+/// gives each scene frame; returns the frames matched and when the stage
+/// loop left.
+fn run_star_wolf(schedule: impl Fn(u32) -> u16) -> (u32, Option<u32>) {
+    let pad = schedule(0);
     let mut m = RetailMachine::new(super::rom());
     // From retail's state at the mission launch, the launch ($03:B90E) and
     // the stage loop's scene setup ($03:8325) run natively.
@@ -563,6 +574,7 @@ fn run_star_wolf(pad: u16) -> (u32, Option<u32>) {
     let mut left = None;
     let epoch_limit: u32 = std::env::var("SF2_EPOCHS").map(|v| v.parse().unwrap()).unwrap_or(1600);
     for epoch in 0..epoch_limit {
+        let pad = schedule(epoch);
         // The display-sampled pads (1292/1296, 1294/1298) this frame reads.
         for (pad_index, (held, pressed)) in [(0x1292u16, 0x1296u16), (0x1294, 0x1298)].into_iter().enumerate() {
             runner.world.controller_inputs[pad_index] = Some(sf2_game::InputState {
@@ -570,7 +582,11 @@ fn run_star_wolf(pad: u16) -> (u32, Option<u32>) {
                 pressed: sf2_game::Buttons::from_bits(word(&m, pressed)),
             });
         }
-        let mut watched = vec![REFRESH, RANDOM_DRAW, RANDOM_RETURN, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW, STAGE_TEARDOWN, FADE_SERVICE, BLANK_HOLD, STAGE_CONTROLLER, DIRECTOR];
+        let mut watched = vec![REFRESH, ACTOR_VISITS[0], ACTOR_VISITS[1], RADIO_PANEL_DRAW, STAGE_TEARDOWN, FADE_SERVICE, BLANK_HOLD, STAGE_CONTROLLER, DIRECTOR];
+        watched.extend(RANDOM_ROUTINE);
+        if let Ok(extra) = std::env::var("SF2_WATCH_EXTRA") {
+            watched.extend(extra.split(',').map(|a| u32::from_str_radix(a, 16).unwrap()));
+        }
         watched.extend(RESEEDS);
         m.watch_cpu_execution(&watched);
         assert!(m.tick_until_cpu_execution(pad, EPOCH + 1, 60).unwrap());
@@ -578,8 +594,19 @@ fn run_star_wolf(pad: u16) -> (u32, Option<u32>) {
         // it where the source reads it as a child number.
         let mut pacing = None;
         loop {
-            match m.tick_until_cpu_execution_any(pad, &[EPOCH, PACING_READS[0], PACING_READS[1]], 120).unwrap() {
+            let marks = [EPOCH, PACING_READS[0], PACING_READS[1], INPUT_READS[0], INPUT_READS[1]];
+            match m.tick_until_cpu_execution_any(pad, &marks, 120).unwrap() {
                 Some(EPOCH) => break,
+                // The player's input preparation reads the sampled pads here;
+                // the display may resample them while the frame runs.
+                Some(read) if INPUT_READS.contains(&read) => {
+                    let (index, held, pressed) =
+                        if read == INPUT_READS[0] { (0, 0x1292, 0x1296) } else { (1, 0x1294, 0x1298) };
+                    runner.world.controller_inputs[index] = Some(sf2_game::InputState {
+                        held: sf2_game::Buttons::from_bits(word(&m, held)),
+                        pressed: sf2_game::Buttons::from_bits(word(&m, pressed)),
+                    });
+                }
                 Some(_) => {
                     let value = byte(&m, 0x0000);
                     assert!(pacing.is_none_or(|seen| seen == value), "epoch {epoch}: pacing changed");
@@ -590,25 +617,52 @@ fn run_star_wolf(pad: u16) -> (u32, Option<u32>) {
         }
         runner.world.frame_pacing = pacing;
         let hits = m.take_cpu_execution_watch_hits();
+        // Consumer draws, and where each render-timed refresh fell among them:
+        // the render interrupt can land inside a draw's routine ($7F:7BD4).
         let mut draws = 0u16;
-        let mut refreshes = Vec::new();
-        let mut in_refresh = false;
+        let mut points = Vec::new();
+        let mut refresh_drawing = false;
+        let mut consumer_progress: Option<u8> = None;
         for &hit in &hits {
             match hit {
                 REFRESH | RADIO_PANEL_DRAW => {
-                    refreshes.push(draws);
-                    in_refresh = true;
+                    points.push(sf2_game::RefreshPoint {
+                        draw: if consumer_progress.is_some() { draws - 1 } else { draws },
+                        interrupted_after: consumer_progress,
+                    });
+                    refresh_drawing = true;
                 }
-                RANDOM_DRAW if in_refresh => in_refresh = false,
-                RANDOM_DRAW => draws += 1,
+                RANDOM_DRAW if refresh_drawing => {}
+                RANDOM_DRAW => {
+                    draws += 1;
+                    consumer_progress = Some(1);
+                }
+                RANDOM_RETURN if refresh_drawing => {
+                    refresh_drawing = false;
+                    // A draw interrupted just before its return resumes with
+                    // that same return, which the watch records once.
+                    if consumer_progress == Some(RANDOM_ROUTINE.len() as u8 - 1) {
+                        consumer_progress = None;
+                    }
+                }
+                RANDOM_RETURN => consumer_progress = None,
+                hit if RANDOM_ROUTINE.contains(&hit) => {
+                    if !refresh_drawing {
+                        consumer_progress = consumer_progress.map(|done| done + 1);
+                    }
+                }
                 hit if RESEEDS.contains(&hit) => draws += 1,
                 _ => {}
             }
         }
+        let refreshes: Vec<u16> = points.iter().map(|point| point.draw).collect();
+        if std::env::var("SF2_TRACE_HITS").ok().and_then(|v| v.parse::<u32>().ok()) == Some(epoch) {
+            eprintln!("HITS {epoch}: {:06X?} refreshes {refreshes:?} draws {draws}", hits);
+        }
         let strategy = word(&m, POOL + 0x19);
         let random_before = runner.world.random.bytes();
         let frame = runner
-            .run_epoch(&catalog, EntropyRefresh::BeforeDraws(&refreshes))
+            .run_epoch(&catalog, EntropyRefresh::Points(&points))
             .and_then(|()| runner.finish_frame(&catalog));
         // The stage controller runs after the frame ($03:C193); the next
         // frame begins with the blank hold and the render-time fade.
@@ -727,7 +781,10 @@ fn run_star_wolf(pad: u16) -> (u32, Option<u32>) {
         );
         matched = epoch + 1;
     }
-    eprintln!("star wolf interception matched for {matched} epochs, left the stage at {left:?}");
+    eprintln!(
+        "star wolf interception matched for {matched} epochs, left the stage at {left:?} for stage kind {}",
+        runner.world.stage.unwrap().next_stage
+    );
     if left.is_some() {
         assert!(m.tick_until_cpu_execution(pad, EPOCH + 1, 60).unwrap());
         assert_eq!(retail_list(&m), vec![POOL, POOL + STRIDE], "retail tore the scene down");
@@ -739,7 +796,7 @@ fn run_star_wolf(pad: u16) -> (u32, Option<u32>) {
 fn star_wolf_interception_runs_natively_like_the_retail_machine() {
     // The defeat (phase 2, $03:C61F) fades the scene out ($03:E0FC) and
     // leaves the stage loop for stage kind 3; the scene is then torn down.
-    assert_eq!(run_star_wolf(0), (1136, Some(1136)));
+    assert_eq!(run_star_wolf(|_| 0), (1136, Some(1136)));
 }
 
 #[test]
@@ -747,5 +804,14 @@ fn star_wolf_interception_holding_fire_runs_natively_like_the_retail_machine() {
     // Holding B from the launch on: the player fires throughout, with the
     // pads read as the display samples them, and is shot down later.
     const B: u16 = 0x8000;
-    assert_eq!(run_star_wolf(B), (1502, Some(1502)));
+    assert_eq!(run_star_wolf(|_| B), (1502, Some(1502)));
+}
+
+#[test]
+fn star_wolf_interception_charging_runs_natively_like_the_retail_machine() {
+    // Charged shots: B held for 30 frames, released for 2. A render
+    // interrupt lands inside a generator draw on the way (frame 566).
+    const B: u16 = 0x8000;
+    const HOLD: u32 = 30;
+    assert_eq!(run_star_wolf(|epoch| if epoch % (HOLD + 2) < HOLD { B } else { 0 }), (1101, Some(1101)));
 }

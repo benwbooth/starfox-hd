@@ -415,7 +415,16 @@ pub(super) fn compare(m: &RetailMachine, runner: &SceneRunner<Callbacks>, view: 
     }
     for (&id, &base) in native.iter().zip(&retail) {
         let actor = runner.objects.get(id).unwrap();
-        let context = format!("epoch {epoch} actor {} retail {base:04X}", id.index());
+        let context = format!(
+            "epoch {epoch} actor {} retail {base:04X} ({:?} {:?} @{:?}; retail shape {:04X} path {:04X} strategy {:04X})",
+            id.index(),
+            actor.base.shape,
+            actor.base.behavior,
+            actor.base.path,
+            word(m, base + 4),
+            word(m, base + 0x2B),
+            word(m, base + 0x19)
+        );
         if Some(id) == runner.execution.controls.excluded_actor {
             // The source poses this proxy for cue markers ($07:B8CA); the
             // native markers are typed values, so its pose is not modeled.
