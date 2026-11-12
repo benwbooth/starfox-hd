@@ -12,3 +12,4 @@ __pycache__/
 .cursor/skip-porting-loop
 .opencode/
 oracle-256.ini
+/target/
