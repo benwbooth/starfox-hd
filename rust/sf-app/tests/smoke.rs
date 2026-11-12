@@ -213,6 +213,8 @@ fn sf2_autoplay_reaches_strategic_map_and_renders_native_ui() {
         .current_dir(&root)
         .arg("--sf2")
         .env("SF_AUTOPLAY", "1")
+        // The autopilot flies the scripted campaign route.
+        .env("SF2_SCRIPTED_MAP", "1")
         .env("SF_FAST_FORWARD", "1")
         .env("SF_HIDDEN", "1")
         .env("SF_MAX_TICKS", EXPECTED_TICKS)
@@ -279,6 +281,8 @@ fn sf2_autoplay_launches_opening_sortie_and_renders_native_mission() {
         .current_dir(&root)
         .arg("--sf2")
         .env("SF_AUTOPLAY", "1")
+        // The autopilot flies the scripted campaign route.
+        .env("SF2_SCRIPTED_MAP", "1")
         .env("SF_FAST_FORWARD", "1")
         .env("SF_HIDDEN", "1")
         .env("SF_MAX_TICKS", EXPECTED_TICKS)
@@ -394,6 +398,8 @@ fn sf2_active_laser_respects_the_native_render_boundary() {
         .current_dir(&root)
         .arg("--sf2")
         .env("SF_AUTOPLAY", "1")
+        // The autopilot flies the scripted campaign route.
+        .env("SF2_SCRIPTED_MAP", "1")
         .env("SF_FAST_FORWARD", "1")
         .env("SF_HIDDEN", "1")
         .env("SF_MAX_TICKS", EXPECTED_TICKS)

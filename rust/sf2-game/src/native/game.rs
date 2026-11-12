@@ -5704,7 +5704,11 @@ impl Game {
                 CARRIER_ROTATING_DOOR_COUNT],
             carrier_reactor_coupling: None,
             carrier_panels: [None; CARRIER_REACTOR_PANEL_SLOT_COUNT],
-            ported_strategic_map: false,
+            // The scripted route stays the default for the unit tests that
+            // exercise it, and SF2_SCRIPTED_MAP=1 selects it (the app's
+            // autopilot flies it).
+            ported_strategic_map: !cfg!(test)
+                && std::env::var_os("SF2_SCRIPTED_MAP").is_none_or(|value| value != "1"),
             campaign_map: None,
             campaign_map_fault: None,
         }
@@ -23762,15 +23766,19 @@ impl Game {
             self.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
             return self.begin_campaign_sortie();
         }
-        // The units' categories (1BB5 below the planets), read from the
-        // launches of driven retail campaigns: 6 the fighter squads, 7 the
-        // interceptors (layout 0A Star Wolf), 8 the battle carriers, 9 the
-        // missiles. Each starts the game's stage of that kind.
+        // Read from the launches of driven retail campaigns: units by
+        // category (6 the fighter squads, 7 the interceptors with layout
+        // 0A Star Wolf, 8 the missiles, 9 layout 1C the Mirage Dragon, 0B
+        // the battle carrier pursuing from the enemy base) and the enemy
+        // base's place (0A, Astropolis).
         let step = match (request.location, request.layout) {
             (6, _) => CampaignRouteStep::FighterIntercept,
             (7, 0x0A) => CampaignRouteStep::LeonDuel,
             (7, _) => CampaignRouteStep::FighterIntercept,
-            (8, _) => {
+            (8, _) => CampaignRouteStep::MissileInterception,
+            (9, _) => CampaignRouteStep::MirageDragon,
+            (0x0A, _) => CampaignRouteStep::AstropolisAssault,
+            (0x0B, _) => {
                 let visit = if self.state.campaign.objectives.first_carrier
                     == CarrierObjectiveStatus::Destroyed
                 {
@@ -23780,8 +23788,6 @@ impl Game {
                 };
                 return self.begin_carrier_assault(visit);
             }
-            (9, _) => CampaignRouteStep::MissileInterception,
-            (0x0B, _) => CampaignRouteStep::AstropolisAssault,
             _ => {
                 self.return_to_ported_map(StageOutcome::default());
                 return Ok(());
@@ -23829,9 +23835,9 @@ impl Game {
                 (6, _) => StrategicMapActorKind::EnemyFormation,
                 (7, 5) => StrategicMapActorKind::RivalFighter,
                 (7, _) => StrategicMapActorKind::AttackingFighter,
-                (8, _) => StrategicMapActorKind::EnemyCarrier,
-                (9, _) => StrategicMapActorKind::Missile,
-                (0x0B, _) => StrategicMapActorKind::PatrolShip,
+                (8, _) => StrategicMapActorKind::Missile,
+                (9, _) => StrategicMapActorKind::UnknownSignal,
+                (0x0B, _) => StrategicMapActorKind::EnemyCarrier,
                 _ => return None,
             };
             Some(StrategicMapActor::new(
