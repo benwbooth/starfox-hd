@@ -67,6 +67,7 @@ mod sf2_mission_overlay;
 mod sf2_opening_overview;
 mod sf2_pilot_selection;
 mod sf2_results;
+pub mod sf2_map_objects;
 mod sf2_strategic_map;
 mod sf2_strategic_map_escalated;
 mod sf2_strategic_map_post_carrier;

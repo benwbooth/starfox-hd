@@ -18,6 +18,9 @@ use super::RandomState;
 /// 1B88 bits: back from a stage (0010) and its objective met (0002).
 const EVENTS_FROM_STAGE: u16 = 0x0010;
 const EVENTS_CLEARED: u16 = 0x0002;
+/// OAM (128 entries and the high table), then CGRAM.
+const OAM_BYTES: usize = 0x220;
+pub const SPRITE_LAYER_BYTES: usize = OAM_BYTES + 0x200;
 /// 1B86 bit 0080: the tutorial map.
 const RESULTS_TUTORIAL: u16 = 0x0080;
 /// 1B84 bit 0080, set by the front end before the first entry.
@@ -182,6 +185,21 @@ impl CampaignMap {
             cursor = unit.next;
         }
         units
+    }
+
+    /// The sprite list (OAM) and the palette (CGRAM) the map screen shows,
+    /// while the map runs.
+    pub fn sprite_layer(&self) -> Option<[u8; SPRITE_LAYER_BYTES]> {
+        if self.away {
+            return None;
+        }
+        let mut layer = [0u8; SPRITE_LAYER_BYTES];
+        let oam = &self.visit.sprites.oam;
+        let palette = &self.visit.hud.palette;
+        let (left, right) = layer.split_at_mut(OAM_BYTES);
+        left.copy_from_slice(oam.get(..OAM_BYTES)?);
+        right.copy_from_slice(palette.get(..SPRITE_LAYER_BYTES - OAM_BYTES)?);
+        Some(layer)
     }
 
     /// The cursor's place on the map.

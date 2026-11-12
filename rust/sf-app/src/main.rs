@@ -599,6 +599,7 @@ fn to_sf2_frame_inputs(game: &sf2_game::Game) -> Sf2FrameInputs {
             .strategic_map
             .actors
             .map(|actor| actor.map(to_sf2_strategic_actor)),
+        strategic_objects: game.campaign_map().and_then(|map| map.sprite_layer()),
     }
 }
 

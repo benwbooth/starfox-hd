@@ -789,6 +789,8 @@ pub struct Ui {
     sf2_strategic_map_post_carrier: TextureId,
     sf2_strategic_map_post_leon: TextureId,
     sf2_strategic_map_post_mirage: TextureId,
+    /// The ported map's sprite layer, redrawn each frame.
+    sf2_map_objects: TextureId,
 
     // Screen mapping state for the current frame.
     scale: f32,
@@ -1163,6 +1165,11 @@ impl Ui {
             crate::sf2_strategic_map_post_mirage::HEIGHT as u32,
             &sf2_strategic_map_post_mirage_rgba,
         );
+        let sf2_map_objects = gpu.create_texture_rgba(
+            crate::sf2_map_objects::WIDTH as u32,
+            crate::sf2_map_objects::HEIGHT as u32,
+            &vec![0; crate::sf2_map_objects::WIDTH * crate::sf2_map_objects::HEIGHT * 4],
+        );
         Ui {
             base_dir: base_dir.to_path_buf(),
             frame: 0,
@@ -1240,6 +1247,7 @@ impl Ui {
             sf2_strategic_map_post_carrier,
             sf2_strategic_map_post_leon,
             sf2_strategic_map_post_mirage,
+            sf2_map_objects,
             scale: 3.0,
             ox: 0,
             scr_w: 800,
@@ -2030,7 +2038,22 @@ impl Ui {
             SF2_REFERENCE_WIDTH,
             SF2_REFERENCE_HEIGHT,
         );
-        self.render_sf2_strategic_actors(gpu, inputs);
+        if let Some(objects) = inputs.strategic_objects {
+            let (oam, cgram) = objects.split_at(crate::sf2_map_objects::OAM_BYTES);
+            let rgba =
+                crate::sf2_map_objects::rasterize(oam, cgram, crate::sf2_map_objects::Layer::MapArea);
+            gpu.update_texture(self.sf2_map_objects, &rgba);
+            self.textured_quad_source_frame(
+                gpu,
+                self.sf2_map_objects,
+                0,
+                0,
+                SF2_REFERENCE_WIDTH,
+                SF2_REFERENCE_HEIGHT,
+            );
+        } else {
+            self.render_sf2_strategic_actors(gpu, inputs);
+        }
         self.render_sf2_strategic_counters(gpu, inputs);
         self.render_sf2_strategic_sprites(gpu, inputs);
     }
