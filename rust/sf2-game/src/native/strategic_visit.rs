@@ -11,7 +11,9 @@
 //! effects are presentation and are not modeled here.
 
 use super::strategic_director::{self, MapDirector};
+use super::presentation_director::PresentationDirector;
 use super::strategic_exit::MapLaunch;
+use super::strategic_presentation;
 use super::strategic_screen::{self, MapPad, MapScreen, ScreenError, ScreenLinks, ScreenOutput};
 use super::strategic_sim::{StrategicInputs, StrategicMap, TickOutput};
 use super::strategic_hud::{self, HudInputs, HudOutput, MapHud};
@@ -43,7 +45,7 @@ pub struct FrameTimers {
     pub long_countdown: u16,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MapVisit {
     pub screen: MapScreen,
     pub director: MapDirector,
@@ -60,6 +62,8 @@ pub struct MapVisit {
     pub pad: MapPad,
     /// The mode and stage-launch words the exits write.
     pub launch: MapLaunch,
+    /// The presentation director's record (1FBE..1FC9, F5CC, F53E).
+    pub presentation: PresentationDirector,
     pub timers: FrameTimers,
     /// The shared generator (`$7F:7BD4`).
     pub rng: RandomState,
@@ -179,9 +183,10 @@ impl MapVisit {
         self.links.random = (self.links.random & 0xFF00) | u16::from(random);
     }
 
-    /// `$7F:03C2`'s modeled services: the sprite pass, the screen frame,
-    /// then the tick.
+    /// `$7F:03C2`'s modeled services: the presentation director, the
+    /// sprite pass, the HUD service, the screen frame, then the tick.
     fn services(&mut self, pad: MapPad, output: &mut ScreenOutput) -> Result<(), VisitError> {
+        strategic_presentation::advance(&mut self.presentation, &mut self.director, &mut self.links, &mut self.radio.layers)?;
         strategic_sprites::pass(
             &mut self.sprites,
             &mut self.screen,

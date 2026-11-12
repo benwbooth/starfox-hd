@@ -14,7 +14,7 @@ use super::scene_path_world::ScenePathWorld;
 /// 1B84 bit 0020: the stage waits for the director.
 const MODE_HELD: u16 = 0x0020;
 /// The record's state word: bit 8000 marks a started request.
-const STARTED: u16 = 0x8000;
+pub(super) const STARTED: u16 = 0x8000;
 const STAGE_START_IRIS: u16 = 3;
 /// Step flags: bit 80 with class 0 (one-shot), 1 (terminal) or 2 (until
 /// the handler signals completion through record word 0A).
@@ -142,10 +142,27 @@ pub fn advance(world: &mut ScenePathWorld, stage_kind: u16) -> Result<(), Direct
 
 /// `$0B:AC85`: run the current step's handler, then advance it.
 fn run_step(world: &mut ScenePathWorld, steps: &[(u8, Handler)], stage_kind: u16) -> Result<(), DirectorError> {
-    let director = world.director.as_mut().ok_or(DirectorError::MissingDirector)?;
+    let mut director = *world.director.as_ref().ok_or(DirectorError::MissingDirector)?;
+    let result = step_list(&mut director, steps, |handler, director| {
+        *world.director.as_mut().ok_or(DirectorError::MissingDirector)? = *director;
+        run_handler(world, handler, stage_kind)?;
+        *director = *world.director.as_ref().ok_or(DirectorError::MissingDirector)?;
+        Ok(())
+    });
+    *world.director.as_mut().ok_or(DirectorError::MissingDirector)? = director;
+    result
+}
+
+/// `$0B:AC85` over any step list: `handler` runs the current step's handler
+/// on the record, then the step advances by its flags.
+pub(super) fn step_list<H: Copy, E>(
+    director: &mut PresentationDirector,
+    steps: &[(u8, H)],
+    mut handler: impl FnMut(H, &mut PresentationDirector) -> Result<(), E>,
+) -> Result<(), E> {
     director.completion = 0;
     let step = usize::from(director.step);
-    let Some(&(flags, handler)) = steps.get(step) else {
+    let Some(&(flags, current)) = steps.get(step) else {
         // A zero flag byte ends the list ($0B:ACC2 -> $0B:AC78).
         director.request = 0;
         director.state = 0;
@@ -153,8 +170,7 @@ fn run_step(world: &mut ScenePathWorld, steps: &[(u8, Handler)], stage_kind: u16
         return Ok(());
     };
     let next = steps.get(step + 1).map_or(0, |&(flags, _)| flags & TIMER_MASK);
-    run_handler(world, handler, stage_kind)?;
-    let director = world.director.as_mut().ok_or(DirectorError::MissingDirector)?;
+    handler(current, director)?;
     if flags & FLAGGED == 0 {
         if director.timer != 0 {
             director.timer -= 1;

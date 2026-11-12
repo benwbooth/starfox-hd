@@ -4,6 +4,7 @@ use super::campaign_major_objectives::{
     TITANIA_FINAL_SWITCH_COUNT, TITANIA_FINAL_SWITCH_TO_RETURN_RETAIL_FRAMES,
     TITANIA_RETURN_TO_MAP_RETAIL_FRAMES, TITANIA_SURFACE_SWITCH_COUNT,
 };
+use super::campaign_map::{CampaignMap, MapHandoff, NewCampaign, StageOutcome, StageRequest};
 use super::campaign_world_assignments::CampaignWorld;
 use super::input::{Button, Buttons};
 use super::object::{
@@ -59,6 +60,8 @@ use super::state::{
     FORTUNA_SURFACE_SWITCH_COUNT, RECURRING_ATTACKER_COUNT, STRATEGIC_MAP_ACTOR_CAPACITY,
     VENOM_SURFACE_SWITCH_COUNT,
 };
+use super::strategic_screen::MapPad;
+use super::strategic_visit::VisitError;
 #[path = "astropolis_entry.rs"]
 mod astropolis_entry;
 #[path = "capital_continuation.rs"]
@@ -5506,6 +5509,8 @@ pub enum Error {
     ObjectCapacityReached,
     MissingProjectileSource,
     MissingCatalogShape(ShapeId),
+    /// The ported strategic map reached a path it does not model.
+    StrategicMap(VisitError),
 }
 
 pub struct Game {
@@ -5592,6 +5597,12 @@ pub struct Game {
         [[Option<ObjectId>; CARRIER_ROTATING_DOOR_LEAF_COUNT]; CARRIER_ROTATING_DOOR_COUNT],
     carrier_reactor_coupling: Option<ObjectId>,
     carrier_panels: [Option<ObjectId>; CARRIER_REACTOR_PANEL_SLOT_COUNT],
+    /// Whether new campaigns run the ported strategic map.
+    ported_strategic_map: bool,
+    /// The ported strategic map, carried across the campaign.
+    campaign_map: Option<Box<CampaignMap>>,
+    /// A fault the ported map hit where no error could be returned.
+    campaign_map_fault: Option<VisitError>,
 }
 
 impl Game {
@@ -5693,7 +5704,21 @@ impl Game {
                 CARRIER_ROTATING_DOOR_COUNT],
             carrier_reactor_coupling: None,
             carrier_panels: [None; CARRIER_REACTOR_PANEL_SLOT_COUNT],
+            ported_strategic_map: false,
+            campaign_map: None,
+            campaign_map_fault: None,
         }
+    }
+
+    /// Run new campaigns on the ported strategic map instead of the
+    /// scripted route.
+    pub fn set_ported_strategic_map(&mut self, enabled: bool) {
+        self.ported_strategic_map = enabled;
+    }
+
+    /// The ported strategic map of the running campaign, if any.
+    pub fn campaign_map(&self) -> Option<&CampaignMap> {
+        self.campaign_map.as_deref()
     }
 
     pub fn new_with_progress(progress: super::state::CampaignProgress) -> Self {
@@ -5933,6 +5958,9 @@ impl Game {
 
         self.update_corneria_defense();
         self.update_mode()?;
+        if let Some(fault) = self.campaign_map_fault.take() {
+            return Err(Error::StrategicMap(fault));
+        }
         self.update_objects();
         self.update_spatial_listener();
         self.resolve_mission_collisions();
@@ -6007,7 +6035,13 @@ impl Game {
                 }
             }
             GameMode::Briefing => {
-                if self.confirm_pressed() || self.state.mode_frame >= BRIEFING_PRESENTATION_TICKS {
+                if (self.confirm_pressed() || self.state.mode_frame >= BRIEFING_PRESENTATION_TICKS)
+                    && self.ported_strategic_map
+                {
+                    self.begin_ported_campaign()?;
+                } else if self.confirm_pressed()
+                    || self.state.mode_frame >= BRIEFING_PRESENTATION_TICKS
+                {
                     self.state.strategic_map.phase = StrategicMapPhase::OpeningOverview;
                     self.state.strategic_map.opening = StrategicOpeningState::default();
                     self.state.campaign.elapsed_frames = 0;
@@ -6019,6 +6053,7 @@ impl Game {
                     self.enter_mode(GameMode::StrategicMap);
                 }
             }
+            GameMode::StrategicMap if self.campaign_map.is_some() => self.update_ported_map()?,
             GameMode::StrategicMap => {
                 self.state.strategic_map.marker_phase =
                     (self.state.strategic_map.marker_phase + 1) % MAP_MARKER_PHASE_COUNT;
@@ -6314,6 +6349,17 @@ impl Game {
                 self.state.pilot_selection.phase = PilotSelectionPhase::Launching;
                 self.state.mode_frame = 0;
             }
+            PilotSelectionPhase::Launching
+                if self.state.mode_frame >= PILOT_LAUNCH_TICKS && self.campaign_map.is_some() =>
+            {
+                let pilots = self.state.roster.selected;
+                if let Some(map) = self.campaign_map.as_mut() {
+                    if let Err(error) = map.begin_campaign(pilots) {
+                        self.campaign_map_fault = Some(error);
+                    }
+                }
+                self.enter_mode(GameMode::StrategicMap);
+            }
             PilotSelectionPhase::Launching if self.state.mode_frame >= PILOT_LAUNCH_TICKS => {
                 self.state.strategic_map.phase =
                     StrategicMapPhase::Tutorial(StrategicMapTutorialPage::Movement);
@@ -6541,21 +6587,8 @@ impl Game {
         }
     }
 
-    fn begin_opening_sortie(&mut self) -> Result<(), Error> {
-        if let Some(primary_id) = self.state.mission.primary_player {
-            if let Some(primary) = self.state.objects.get_mut(primary_id) {
-                primary.base.position = OPENING_PRIMARY_POSITION;
-                primary.base.velocity = Vector3::default();
-                primary.base.flags.visible = false;
-                primary.base.flags.collision_disabled = true;
-            }
-            self.start_sortie(
-                MissionVisit::OpeningEngagement,
-                primary_id,
-                self.state.mission.wingmate,
-            );
-            return Ok(());
-        }
+    /// The chosen pilots' craft, placed for the opening sortie.
+    fn allocate_campaign_craft(&mut self) -> Result<(ObjectId, ObjectId), Error> {
         let primary_pilot = self.primary_pilot();
         let wingmate_pilot = self.state.roster.selected[1].unwrap_or(DEFAULT_WINGMATE_PILOT);
         let mut primary = Object::new(ObjectKind::Player, ShapeId::EMPTY, Behavior::PlayerFlight);
@@ -6587,7 +6620,25 @@ impl Game {
         if let Some(primary) = self.state.objects.get_mut(primary_id) {
             primary.base.linked_object = Some(wingmate_id);
         }
+        Ok((primary_id, wingmate_id))
+    }
 
+    fn begin_opening_sortie(&mut self) -> Result<(), Error> {
+        if let Some(primary_id) = self.state.mission.primary_player {
+            if let Some(primary) = self.state.objects.get_mut(primary_id) {
+                primary.base.position = OPENING_PRIMARY_POSITION;
+                primary.base.velocity = Vector3::default();
+                primary.base.flags.visible = false;
+                primary.base.flags.collision_disabled = true;
+            }
+            self.start_sortie(
+                MissionVisit::OpeningEngagement,
+                primary_id,
+                self.state.mission.wingmate,
+            );
+            return Ok(());
+        }
+        let (primary_id, wingmate_id) = self.allocate_campaign_craft()?;
         self.start_sortie(
             MissionVisit::OpeningEngagement,
             primary_id,
@@ -7480,13 +7531,34 @@ impl Game {
     }
 
     fn promote_reserve_pilot(&mut self) {
+        if !self.promote_reserve_craft() {
+            self.campaign_map = None;
+            return;
+        }
+        if self.campaign_map.is_some() {
+            self.return_to_ported_map(StageOutcome::default());
+            return;
+        }
+        self.state.strategic_map.selected_encounter = None;
+        self.state.strategic_map.destination = self.state.strategic_map.player_map_position;
+        self.state.strategic_map.travel_ticks_remaining = 0;
+        self.state.strategic_map.travel_total_ticks = 0;
+        self.state.strategic_map.phase = StrategicMapPhase::Planning;
+        self.state.camera = Camera::default();
+        self.enter_mode(GameMode::StrategicMap);
+    }
+
+    /// The reserve pilot's craft becomes the primary.
+    /// The reserve pilot's craft becomes the primary; without one the game
+    /// returns to the title and this is false.
+    fn promote_reserve_craft(&mut self) -> bool {
         let Some(reserve_pilot) = self.state.roster.selected[1] else {
             self.enter_mode(GameMode::Title);
-            return;
+            return false;
         };
         let Some(reserve_craft) = self.state.mission.wingmate else {
             self.enter_mode(GameMode::Title);
-            return;
+            return false;
         };
 
         if let Some(destroyed_craft) = self.state.mission.primary_player {
@@ -7510,13 +7582,7 @@ impl Game {
         self.state.mission.wingmate = None;
         self.state.mission.player_damage = PlayerDamageState::Ready;
         self.state.strategic_map.primary_player = Some(reserve_craft);
-        self.state.strategic_map.selected_encounter = None;
-        self.state.strategic_map.destination = self.state.strategic_map.player_map_position;
-        self.state.strategic_map.travel_ticks_remaining = 0;
-        self.state.strategic_map.travel_total_ticks = 0;
-        self.state.strategic_map.phase = StrategicMapPhase::Planning;
-        self.state.camera = Camera::default();
-        self.enter_mode(GameMode::StrategicMap);
+        true
     }
 
     fn update_opening_mission(&mut self) -> Result<(), Error> {
@@ -13705,6 +13771,20 @@ impl Game {
     fn finish_sortie(&mut self) {
         let completed_visit = self.state.mission.visit;
         self.clear_sortie_runtime();
+        if self.campaign_map.is_some() {
+            self.record_completed_objective(completed_visit);
+            self.state.campaign.objectives.refresh_final_access();
+            self.return_to_ported_map(StageOutcome {
+                cleared: true,
+                mission_result: 0,
+            });
+            return;
+        }
+        self.record_completed_objective(completed_visit);
+        self.finish_scripted_sortie(completed_visit);
+    }
+
+    fn record_completed_objective(&mut self, completed_visit: MissionVisit) {
         match completed_visit {
             MissionVisit::MissileInterception => {
                 self.state.campaign.objectives.missiles = StrategicThreatCount::NONE;
@@ -13774,6 +13854,9 @@ impl Game {
             | MissionVisit::WolfBlockade
             | MissionVisit::AstropolisAssault => {}
         }
+    }
+
+    fn finish_scripted_sortie(&mut self, completed_visit: MissionVisit) {
         self.state.campaign.route_step = self.state.campaign.route_step.after_completion();
         self.state.campaign.objectives.refresh_final_access();
         match self.state.campaign.route_step {
@@ -23574,6 +23657,196 @@ impl Default for Game {
     }
 }
 
+/// The ported strategic map's hosting: a new campaign's map, its frames
+/// with the player's pad, and the stages its exits launch.
+impl Game {
+    /// Retail frames per game tick.
+    const MAP_FRAMES_PER_TICK: u32 = RETAIL_PRESENTATION_FRAMES_PER_TICK;
+
+    fn begin_ported_campaign(&mut self) -> Result<(), Error> {
+        // The front end's timing seeds retail's words; the port draws them
+        // from the campaign's generator.
+        let frame = self.state.frame;
+        let mut generator = [0u8; 4];
+        for byte in &mut generator {
+            *byte = self.state.random.next_byte();
+        }
+        let seed =
+            (frame as u16).wrapping_mul(0x9E37) ^ u16::from_le_bytes([generator[0], generator[1]]);
+        let campaign = NewCampaign {
+            difficulty: match self.state.campaign.difficulty {
+                Difficulty::Normal => 0,
+                Difficulty::Hard => 1,
+                Difficulty::Expert => 2,
+            },
+            seed,
+            random: seed.wrapping_add(4),
+            missile_kinds: [4, 0],
+            generator,
+            generator_tail: generator[2],
+            tallies: [0; 3],
+        };
+        let map = CampaignMap::new_campaign(campaign).map_err(Error::StrategicMap)?;
+        self.campaign_map = Some(Box::new(map));
+        self.state.campaign.elapsed_frames = 0;
+        self.enter_mode(GameMode::StrategicMap);
+        self.project_ported_map();
+        Ok(())
+    }
+
+    /// One game tick of the ported map: its retail frames with the held
+    /// pad, newly pressed buttons in the first.
+    fn update_ported_map(&mut self) -> Result<(), Error> {
+        let held = self.state.input.held.bits();
+        let pressed = self.state.input.pressed.bits();
+        for frame in 0..Self::MAP_FRAMES_PER_TICK {
+            let pad = MapPad {
+                held,
+                pressed: if frame == 0 { pressed } else { 0 },
+            };
+            let Some(map) = self.campaign_map.as_mut() else {
+                return Ok(());
+            };
+            let handoff = map.frame(pad).map_err(Error::StrategicMap)?;
+            if let Some(handoff) = handoff {
+                self.project_ported_map();
+                return self.ported_handoff(handoff);
+            }
+        }
+        self.state.campaign.elapsed_frames = self.state.campaign.elapsed_frames.wrapping_add(1);
+        self.project_ported_map();
+        Ok(())
+    }
+
+    fn ported_handoff(&mut self, handoff: MapHandoff) -> Result<(), Error> {
+        match handoff {
+            MapHandoff::PilotSelection => {
+                self.begin_pilot_selection();
+                Ok(())
+            }
+            MapHandoff::Stage(request) => self.launch_ported_stage(request),
+            MapHandoff::Scene(0x14) => {
+                // The planet fell.
+                self.campaign_map = None;
+                self.enter_mode(GameMode::GameOver);
+                Ok(())
+            }
+            MapHandoff::Scene(_) => {
+                // The final stage and the threats' scenes are not hosted
+                // yet: the map resumes as if the scene ended unresolved.
+                self.return_to_ported_map(StageOutcome::default());
+                Ok(())
+            }
+        }
+    }
+
+    /// The game's stage for the map's launch (location 1BB5, layout 1BA5).
+    fn launch_ported_stage(&mut self, request: StageRequest) -> Result<(), Error> {
+        if self.state.mission.primary_player.is_none() {
+            let (primary, wingmate) = self.allocate_campaign_craft()?;
+            self.state.mission.primary_player = Some(primary);
+            self.state.mission.wingmate = Some(wingmate);
+            self.state.strategic_map.primary_player = Some(primary);
+        }
+        let encounter = match request.location {
+            0 => Some(StrategicEncounter::VenomBase),
+            1 => Some(StrategicEncounter::TitaniaBase),
+            2 => Some(StrategicEncounter::MacbethBase),
+            3 => Some(StrategicEncounter::EladardBase),
+            4 => Some(StrategicEncounter::MeteorBase),
+            5 => Some(StrategicEncounter::FortunaBase),
+            _ => None,
+        };
+        if let Some(encounter) = encounter {
+            self.state.strategic_map.selected_encounter = Some(encounter);
+            self.state.campaign.route_step = CampaignRouteStep::StrategicPressure;
+            return self.begin_campaign_sortie();
+        }
+        // The units' categories (1BB5 below the planets), read from the
+        // launches of driven retail campaigns: 6 the fighter squads, 7 the
+        // interceptors (layout 0A Star Wolf), 8 the battle carriers, 9 the
+        // missiles. Each starts the game's stage of that kind.
+        let step = match (request.location, request.layout) {
+            (6, _) => CampaignRouteStep::FighterIntercept,
+            (7, 0x0A) => CampaignRouteStep::LeonDuel,
+            (7, _) => CampaignRouteStep::FighterIntercept,
+            (8, _) => {
+                let visit = if self.state.campaign.objectives.first_carrier
+                    == CarrierObjectiveStatus::Destroyed
+                {
+                    MissionVisit::SecondBattleCarrier
+                } else {
+                    MissionVisit::FirstBattleCarrier
+                };
+                return self.begin_carrier_assault(visit);
+            }
+            (9, _) => CampaignRouteStep::MissileInterception,
+            (0x0B, _) => CampaignRouteStep::AstropolisAssault,
+            _ => {
+                self.return_to_ported_map(StageOutcome::default());
+                return Ok(());
+            }
+        };
+        self.state.campaign.route_step = step;
+        self.begin_campaign_sortie()
+    }
+
+    /// Back to the ported map after a stage.
+    fn return_to_ported_map(&mut self, outcome: StageOutcome) {
+        let Some(map) = self.campaign_map.as_mut() else {
+            return;
+        };
+        if let Err(error) = map.return_from_stage(outcome) {
+            self.campaign_map_fault = Some(error);
+        }
+        self.state.camera = Camera::default();
+        self.enter_mode(GameMode::StrategicMap);
+        self.project_ported_map();
+    }
+
+    /// The map's ship and cursor in the game's map state, for the
+    /// renderer.
+    fn project_ported_map(&mut self) {
+        let Some(map) = self.campaign_map.as_ref() else {
+            return;
+        };
+        let (x, y) = map.ship();
+        let (cx, cy) = map.cursor();
+        let units = map.units();
+        let strategic = &mut self.state.strategic_map;
+        strategic.player_map_position = MapPoint {
+            x: i16::from(x),
+            y: i16::from(y),
+        };
+        strategic.destination = MapPoint {
+            x: i16::from(cx),
+            y: i16::from(cy),
+        };
+        strategic.phase = StrategicMapPhase::Planning;
+        strategic.actors = [None; STRATEGIC_MAP_ACTOR_CAPACITY];
+        let shown = units.iter().filter_map(|unit| {
+            let kind = match (unit.category, unit.variant) {
+                (6, _) => StrategicMapActorKind::EnemyFormation,
+                (7, 5) => StrategicMapActorKind::RivalFighter,
+                (7, _) => StrategicMapActorKind::AttackingFighter,
+                (8, _) => StrategicMapActorKind::EnemyCarrier,
+                (9, _) => StrategicMapActorKind::Missile,
+                (0x0B, _) => StrategicMapActorKind::PatrolShip,
+                _ => return None,
+            };
+            Some(StrategicMapActor::new(
+                kind,
+                StrategicMapAppearance::OpeningAssault,
+                i16::from(unit.x),
+                i16::from(unit.y),
+            ))
+        });
+        for (slot, actor) in strategic.actors.iter_mut().zip(shown) {
+            *slot = Some(actor);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -24995,6 +25268,86 @@ mod tests {
             game.state().campaign.objectives.second_carrier,
             CarrierObjectiveStatus::Operational
         );
+    }
+
+    #[test]
+    fn ported_map_runs_the_tutorial_pilot_selection_and_launches_a_stage() {
+        let mut game = Game::new();
+        game.set_ported_strategic_map(true);
+        game.state.mode = GameMode::Briefing;
+        game.state.mode_frame = 0;
+        let mut modes = vec![game.mode()];
+        let mut campaign_tick = None;
+        let mut launched = None;
+        for tick in 0..30000u32 {
+            let pad = match game.mode() {
+                GameMode::StrategicMap if campaign_tick.is_none() => {
+                    if tick % 50 < 2 {
+                        Button::Start as u16
+                    } else {
+                        0
+                    }
+                }
+                GameMode::StrategicMap => {
+                    let since = tick - campaign_tick.unwrap();
+                    if since % 100 == 0 {
+                        let map = game.campaign_map().unwrap();
+                        eprintln!(
+                            "tick {since}: ship {:?} cursor {:?} aftermath {:x?} interface {:x}",
+                            map.ship(),
+                            map.cursor(),
+                            map.visit.director.aftermath,
+                            map.visit.screen.interface
+                        );
+                    }
+                    match since {
+                        0..300 if since % 50 < 2 => Button::Start as u16,
+                        300..310 => Button::Right as u16,
+                        310..315 => Button::Up as u16,
+                        315..317 => Button::B as u16,
+                        _ => 0,
+                    }
+                }
+                GameMode::PilotSelection => {
+                    if tick % 20 < 1 {
+                        Button::B as u16
+                    } else {
+                        0
+                    }
+                }
+                _ => 0,
+            };
+            if let Err(error) = game.tick(pad) {
+                let map = game.campaign_map().unwrap();
+                panic!("{error:?} at tick {tick} in {:?}: location {:x} layout {:x} visit {:?} primary {:?}",
+                    game.mode(), map.visit.links.launch_location, map.visit.links.launch_layout,
+                    game.state.mission.visit, game.state.mission.primary_player);
+            }
+            if *modes.last().unwrap() != game.mode() {
+                if *modes.last().unwrap() == GameMode::PilotSelection
+                    && game.mode() == GameMode::StrategicMap
+                {
+                    campaign_tick = Some(tick);
+                }
+                modes.push(game.mode());
+            }
+            if game.mode() == GameMode::Mission && launched.is_none() {
+                launched = Some(game.state.mission.visit);
+            }
+            if launched.is_some() && game.mode() == GameMode::StrategicMap {
+                break;
+            }
+        }
+        for _ in 0..200 {
+            game.tick(0).unwrap();
+        }
+        eprintln!("modes {modes:?} launched {launched:?}");
+        let map = game
+            .campaign_map()
+            .expect("the ported map hosts the campaign");
+        eprintln!("ship {:?} launch {:x?}", map.ship(), map.visit.launch);
+        assert!(modes.contains(&GameMode::PilotSelection));
+        assert!(launched.is_some(), "no stage launched");
     }
 
     #[test]

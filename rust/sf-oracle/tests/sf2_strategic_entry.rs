@@ -36,6 +36,7 @@ fn visit(s: &Snapshot) -> MapVisit {
         radio_inputs: radio_inputs(s),
         pad: pad(s),
         launch: launch(s),
+        presentation: presentation(s),
         timers: sf2_game::strategic_visit::FrameTimers {
             ticks: s.byte(0xEFD0),
             countdowns: [s.byte(0xEFCD), s.byte(0xEFCE), s.byte(0xEFCF)],
@@ -81,6 +82,8 @@ fn compare(native: &MapVisit, expected: &MapVisit, context: &str) {
     assert_eq!(native.radio, expected.radio, "{context}: radio");
     assert_eq!(native.message_box, expected.message_box, "{context}: message box");
     assert!(native.launch == expected.launch, "{context}: launch {}", differences(&native.launch, &expected.launch));
+    let record = sf2_game::presentation_director::PresentationDirector { window: Default::default(), ..native.presentation };
+    assert_eq!(record, expected.presentation, "{context}: presentation");
     assert!(native.terrain == expected.terrain, "{context}: terrain");
 }
 
@@ -550,4 +553,116 @@ fn stage_results_match_the_original_on_mutated_retail_states() {
     }
     eprintln!("compared {compared} mutated stage results; native faults {faulted:?}");
     assert!(compared > 0);
+}
+
+/// Retail's next program frame, or its exit, with the pads each service
+/// frame read on the way.
+enum Next {
+    Frame(Vec<MapPad>),
+    Exit(Vec<MapPad>),
+}
+
+fn next_step(m: &mut RetailMachine, schedule: &dyn Fn(u64) -> u16) -> Next {
+    let mut pads = Vec::new();
+    loop {
+        let pad = schedule(m.video_frame());
+        match m.tick_until_cpu_execution_any(pad, &[FRAME, PROGRAM, EXIT_DISPATCH], 1).unwrap() {
+            Some(FRAME) => pads.push(MapPad { held: m.peek16(0x7E1292), pressed: m.peek16(0x7E1296) }),
+            Some(PROGRAM) => return Next::Frame(pads),
+            Some(_) if m.peek8(0x7E1B74) != 0 => return Next::Exit(pads),
+            _ => {}
+        }
+    }
+}
+
+/// Each visit of a campaign driven by `schedule`: the native map is seeded
+/// from retail as the entry starts, then enters, runs every program frame
+/// and its service frames, and leaves on its own, compared with retail at
+/// every program frame and after the exit.
+fn compare_campaign(schedule: &dyn Fn(u64) -> u16, frames: u64) -> (u32, u32) {
+    let mut m = RetailMachine::new(rom());
+    let (mut visits, mut program_frames) = (0, 0);
+    while m.video_frame() < frames {
+        if !m.tick_until_cpu_execution(schedule(m.video_frame()), ENTRY, 1).unwrap() {
+            continue;
+        }
+        let before = Snapshot::take(&m);
+        let mut native = visit(&before);
+        let inputs = EntryInputs {
+            seed: before.word(0x1C02),
+            tallies: [before.byte(0xD7E1), before.byte(0xD7E2), before.byte(0xD7E3)],
+            generator_tail: before.byte(0x00E4),
+        };
+        let mut output = ScreenOutput::default();
+        native.enter(inputs, &mut output).unwrap_or_else(|error| panic!("visit {visits}: entry {error:x?}"));
+        loop {
+            match next_step(&mut m, schedule) {
+                Next::Frame(pads) => {
+                    let context = format!("visit {visits} program frame {program_frames}");
+                    if program_frames_due(&mut native, &pads, &context) {
+                        native.begin_program_frame();
+                    }
+                    let after = Snapshot::take(&m);
+                    compare(&native, &visit(&after), &context);
+                    program_frames += 1;
+                    native.program_frame(&mut output).unwrap_or_else(|error| panic!("{context}: {error:x?}"));
+                }
+                Next::Exit(pads) => {
+                    let context = format!("visit {visits} exit");
+                    let _ = program_frames_due(&mut native, &pads, &context);
+                    assert!(native.exit_due(), "{context}: retail left, the native map did not");
+                    let at_exit = Snapshot::take(&m);
+                    compare(&native, &visit(&at_exit), &context);
+                    let mut passes = 0u16;
+                    loop {
+                        match m.tick_until_cpu_execution_any(schedule(m.video_frame()), &[SPRITE_PASS, EPILOGUE_RETURN], 1).unwrap() {
+                            Some(SPRITE_PASS) => passes += 1,
+                            Some(_) => break,
+                            None => {}
+                        }
+                    }
+                    let after = Snapshot::take(&m);
+                    let inputs = ExitInputs {
+                        dark_after: passes,
+                        pad: MapPad { held: after.word(0x1C1F), pressed: after.word(0x1C21) },
+                        // DP E4 is the window routines' scratch too, which the
+                        // presentation director runs during the visit.
+                        generator_tail: at_exit.byte(0x00E4),
+                    };
+                    native.leave(inputs, &mut output).unwrap_or_else(|error| panic!("{context}: {error:x?}"));
+                    compare(&native, &visit(&after), &format!("{context}: after"));
+                    break;
+                }
+            }
+        }
+        eprintln!("visit {visits}: matched through {program_frames} program frames");
+        visits += 1;
+    }
+    (visits, program_frames)
+}
+
+/// The service frames between two program frames; whether the picture
+/// finished.
+fn program_frames_due(native: &mut MapVisit, pads: &[MapPad], context: &str) -> bool {
+    let mut output = ScreenOutput::default();
+    for &pad in pads {
+        native.interrupt(pad, &mut output).unwrap_or_else(|error| panic!("{context}: {error:x?}"));
+    }
+    native.program_frame_due()
+}
+
+#[test]
+fn map_campaign_runs_natively_from_each_entry_through_its_exit() {
+    let frames: u64 = std::env::var("SF2_CAMPAIGN_FRAMES").map(|v| v.parse().unwrap()).unwrap_or(12_000);
+    let schedule = |frame: u64| match frame {
+        600..4600 if (frame - 600) % 200 < 6 => START,
+        4660..4701 => RIGHT,
+        4701..4721 => UP,
+        4721..4727 => B,
+        _ if frame > 9000 && frame % 64 < 4 => START,
+        _ => 0,
+    };
+    let (visits, program_frames) = compare_campaign(&schedule, frames);
+    eprintln!("map campaign matched {visits} visits, {program_frames} program frames");
+    assert!(visits >= 3);
 }

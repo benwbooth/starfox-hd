@@ -382,3 +382,19 @@ pub(crate) fn launch(s: &Snapshot) -> sf2_game::strategic_exit::MapLaunch {
         location_ranks: std::array::from_fn(|k| s.byte(0xD794 + k as u16)),
     }
 }
+
+/// The presentation director's record; its window command is presentation.
+pub(crate) fn presentation(s: &Snapshot) -> sf2_game::presentation_director::PresentationDirector {
+    sf2_game::presentation_director::PresentationDirector {
+        request: s.word(0x1FBE),
+        state: s.word(0x1FC0),
+        step: s.word(0x1FC2),
+        timer: s.word(0x1FC4),
+        elapsed: s.word(0x1FC6),
+        completion: s.word(0x1FC8),
+        frame_counter: s.word(0xF5CC),
+        hud_shown: s.word(0xF53E) != 0,
+        hud_lane_request: s.word(0x1FD2),
+        window: Default::default(),
+    }
+}

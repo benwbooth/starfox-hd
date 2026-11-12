@@ -12,6 +12,7 @@
 
 use super::strategic_screen::{MapPad, ScreenError, ScreenOutput};
 use super::strategic_sim::{byte_at, word_at};
+use super::strategic_presentation;
 use super::strategic_sprites::{self, SpriteInputs};
 use super::strategic_visit::{MapVisit, VisitError};
 
@@ -315,6 +316,8 @@ impl MapVisit {
     /// director dims the layers and the sprite pass runs, until the
     /// countdown ends or the screen is dark.
     fn close_iris(&mut self, inputs: ExitInputs, output: &mut ScreenOutput) -> Result<(), VisitError> {
+        strategic_presentation::clear(&mut self.presentation);
+        strategic_presentation::request(&mut self.presentation, 0x10);
         self.links.presentation_countdown = FADE_FRAMES;
         self.links.presentation_flags |= 0x0004;
         let mut frames = 0;
@@ -323,10 +326,7 @@ impl MapVisit {
             if self.links.presentation_countdown == 0 {
                 break;
             }
-            // $0B:9626: director state 0x10.
-            if self.links.scene.scene_events & 0x0400 == 0 {
-                self.radio.layers = 0x16;
-            }
+            strategic_presentation::advance(&mut self.presentation, &mut self.director, &mut self.links, &mut self.radio.layers)?;
             strategic_sprites::pass(
                 &mut self.sprites,
                 &mut self.screen,

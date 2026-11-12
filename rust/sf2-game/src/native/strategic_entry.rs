@@ -10,6 +10,7 @@
 use sf2_data::map_layers::{MAP_PALETTE, MAP_TERRAIN};
 
 use super::strategic_hud::planet_colours;
+use super::strategic_presentation;
 use super::strategic_radio::{Radio, RadioInputs};
 use super::strategic_screen::{Frame, MapPad, ScreenError, ScreenOutput, ScriptSubject};
 use super::strategic_script::new_place;
@@ -122,6 +123,10 @@ impl MapVisit {
         let from_stage = self.links.scene.scene_events & EVENTS_FROM_STAGE != 0;
         // $0B:8C17, then back from a stage `$0B:8C52` (director state 0x0F,
         // whose parameter is the countdown).
+        strategic_presentation::clear(&mut self.presentation);
+        if from_stage {
+            strategic_presentation::request(&mut self.presentation, 0x0F);
+        }
         self.links.presentation_countdown = if from_stage { 0x0002 } else { 0x000A };
         self.links.presentation_flags |= 0x0002;
         self.load_layers();
