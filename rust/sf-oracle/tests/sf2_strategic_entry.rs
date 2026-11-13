@@ -564,7 +564,9 @@ enum Next {
 
 fn next_step(m: &mut RetailMachine, schedule: &dyn Fn(u64) -> u16) -> Next {
     let mut pads = Vec::new();
+    let start = m.video_frame();
     loop {
+        assert!(m.video_frame() < start + 20_000, "no program frame or exit in 20000 frames");
         let pad = schedule(m.video_frame());
         match m.tick_until_cpu_execution_any(pad, &[FRAME, PROGRAM, EXIT_DISPATCH], 1).unwrap() {
             Some(FRAME) => pads.push(MapPad { held: m.peek16(0x7E1292), pressed: m.peek16(0x7E1296) }),
@@ -606,6 +608,11 @@ fn compare_campaign(schedule: &dyn Fn(u64) -> u16, frames: u64) -> (u32, u32) {
                     compare(&native, &visit(&after), &context);
                     program_frames += 1;
                     native.program_frame(&mut output).unwrap_or_else(|error| panic!("{context}: {error:x?}"));
+                    // A visit still running at the end of the schedule is
+                    // compared up to there.
+                    if m.video_frame() >= frames {
+                        break;
+                    }
                 }
                 Next::Exit(pads) => {
                     let context = format!("visit {visits} exit");
