@@ -20,7 +20,9 @@ const EVENTS_FROM_STAGE: u16 = 0x0010;
 const EVENTS_CLEARED: u16 = 0x0002;
 /// OAM (128 entries and the high table), then CGRAM.
 const OAM_BYTES: usize = 0x220;
-pub const SPRITE_LAYER_BYTES: usize = OAM_BYTES + 0x200;
+const CGRAM_BYTES: usize = 0x200;
+/// OAM, CGRAM, then each craft's frame set and sector.
+pub const SPRITE_LAYER_BYTES: usize = OAM_BYTES + CGRAM_BYTES + 4;
 /// 1B86 bit 0080: the tutorial map.
 const RESULTS_TUTORIAL: u16 = 0x0080;
 /// 1B84 bit 0080, set by the front end before the first entry.
@@ -198,7 +200,18 @@ impl CampaignMap {
         let palette = &self.visit.hud.palette;
         let (left, right) = layer.split_at_mut(OAM_BYTES);
         left.copy_from_slice(oam.get(..OAM_BYTES)?);
-        right.copy_from_slice(palette.get(..SPRITE_LAYER_BYTES - OAM_BYTES)?);
+        let (palette_bytes, craft) = right.split_at_mut(CGRAM_BYTES);
+        palette_bytes.copy_from_slice(palette.get(..CGRAM_BYTES)?);
+        // The crafts' frames (`$04:D68B`), whose tiles are streamed: the
+        // pilot's frame set and the sector of each craft's course.
+        let links = &self.visit.links;
+        let screen = &self.visit.screen;
+        craft.copy_from_slice(&[
+            (links.pilots[0] >> 1) & 3,
+            screen.ship.sector as u8,
+            (links.pilots[1] >> 1) & 3,
+            screen.wingmate.sector as u8,
+        ]);
         Some(layer)
     }
 
@@ -230,6 +243,9 @@ impl CampaignMap {
         if self.away {
             return Ok(None);
         }
+        // Each frame's cues and frames are the caller's to read before the
+        // next.
+        self.output = ScreenOutput::default();
         if self.program_pending {
             self.program_pending = false;
             self.visit.program_frame(&mut self.output)?;

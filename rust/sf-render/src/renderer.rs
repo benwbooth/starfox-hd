@@ -356,9 +356,10 @@ pub struct Sf2FrameInputs {
     pub strategic_player: Sf2MapPoint,
     pub strategic_destination: Sf2MapPoint,
     pub strategic_actors: [Option<Sf2StrategicActor>; SF2_STRATEGIC_MAP_ACTOR_CAPACITY],
-    /// The ported map's sprite list (OAM) and palette (CGRAM), when the
-    /// campaign runs on it: its sprite layer replaces the actors.
-    pub strategic_objects: Option<[u8; crate::sf2_map_objects::OAM_BYTES + crate::sf2_map_objects::CGRAM_BYTES]>,
+    /// The ported map's sprite list (OAM), palette (CGRAM) and the crafts'
+    /// frames, when the campaign runs on it: its sprite layer replaces the
+    /// actors and the craft.
+    pub strategic_objects: Option<[u8; crate::sf2_map_objects::LAYER_BYTES]>,
 }
 
 // BGS.ASM flag (src/game/bgs.h).

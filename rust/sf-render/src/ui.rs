@@ -2039,9 +2039,15 @@ impl Ui {
             SF2_REFERENCE_HEIGHT,
         );
         if let Some(objects) = inputs.strategic_objects {
-            let (oam, cgram) = objects.split_at(crate::sf2_map_objects::OAM_BYTES);
-            let rgba =
-                crate::sf2_map_objects::rasterize(oam, cgram, crate::sf2_map_objects::Layer::MapArea);
+            let (oam, rest) = objects.split_at(crate::sf2_map_objects::OAM_BYTES);
+            let (cgram, crafts) = rest.split_at(crate::sf2_map_objects::CGRAM_BYTES);
+            let tiles = crate::sf2_map_objects::characters(crafts.try_into().ok());
+            let rgba = crate::sf2_map_objects::rasterize(
+                oam,
+                cgram,
+                &tiles,
+                crate::sf2_map_objects::Layer::MapArea,
+            );
             gpu.update_texture(self.sf2_map_objects, &rgba);
             self.textured_quad_source_frame(
                 gpu,
@@ -2684,7 +2690,8 @@ impl Ui {
             }
         }
 
-        if inputs.primary_pilot.is_none() {
+        // The ported map's sprite layer draws the craft and its markers.
+        if inputs.primary_pilot.is_none() || inputs.strategic_objects.is_some() {
             return;
         }
         let craft_left = i32::from(inputs.strategic_player.x);
