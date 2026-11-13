@@ -87,6 +87,11 @@ pub struct StageOutcome {
     pub cleared: bool,
     /// 1BAD: the stage's result word.
     pub mission_result: u16,
+    /// The ship's and the wingmate's shields at the stage's end (1DD1,
+    /// 1DD7); `None` keeps the map's.
+    pub shields: Option<[u8; 2]>,
+    /// D816: the campaign's score.
+    pub score: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,7 +165,24 @@ impl CampaignMap {
             *events &= !EVENTS_CLEARED;
         }
         self.visit.links.mission_result = outcome.mission_result;
+        if let Some([ship, wingmate]) = outcome.shields {
+            self.visit.links.pilot_shields[0] = ship;
+            self.visit.links.pilot_shields[2] = wingmate;
+        }
+        self.visit.hud_inputs.score = outcome.score;
         self.enter()
+    }
+
+    /// The crafts' shields as the map keeps them: the ship's and the
+    /// wingmate's current shield.
+    pub fn shields(&self) -> [u8; 2] {
+        let shields = self.visit.links.pilot_shields;
+        [shields[0], shields[2]]
+    }
+
+    /// Corneria's damage in percent (DB49).
+    pub fn corneria_damage_percent(&self) -> u8 {
+        self.visit.links.planet_damage_percent.min(100) as u8
     }
 
     /// The ship's place on the map, in map pixels.

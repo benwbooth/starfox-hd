@@ -13780,7 +13780,7 @@ impl Game {
             self.state.campaign.objectives.refresh_final_access();
             self.return_to_ported_map(StageOutcome {
                 cleared: true,
-                mission_result: 0,
+                ..StageOutcome::default()
             });
             return;
         }
@@ -23752,6 +23752,17 @@ impl Game {
             self.state.mission.wingmate = Some(wingmate);
             self.state.strategic_map.primary_player = Some(primary);
         }
+        self.begin_ported_stage(request)?;
+        // The crafts start the stage with the shields the map kept.
+        if self.state.mode == GameMode::Mission {
+            if let Some([ship, wingmate]) = self.campaign_map.as_ref().map(|map| map.shields()) {
+                self.set_campaign_craft_shields(ship, wingmate);
+            }
+        }
+        Ok(())
+    }
+
+    fn begin_ported_stage(&mut self, request: StageRequest) -> Result<(), Error> {
         let encounter = match request.location {
             0 => Some(StrategicEncounter::VenomBase),
             1 => Some(StrategicEncounter::TitaniaBase),
@@ -23797,8 +23808,14 @@ impl Game {
         self.begin_campaign_sortie()
     }
 
-    /// Back to the ported map after a stage.
-    fn return_to_ported_map(&mut self, outcome: StageOutcome) {
+    /// Back to the ported map after a stage, with the crafts' shields and
+    /// the score it ended with.
+    fn return_to_ported_map(&mut self, mut outcome: StageOutcome) {
+        let shield = |id: Option<ObjectId>| id.and_then(|id| self.state.objects.get(id)).map(|craft| craft.base.hit_points);
+        if let (Some(ship), wingmate) = (shield(self.state.mission.primary_player), shield(self.state.mission.wingmate)) {
+            outcome.shields = Some([ship, wingmate.unwrap_or(0)]);
+        }
+        outcome.score = self.state.mission.score.min(u32::from(u16::MAX)) as u16;
         let Some(map) = self.campaign_map.as_mut() else {
             return;
         };
@@ -23819,6 +23836,7 @@ impl Game {
         let (x, y) = map.ship();
         let (cx, cy) = map.cursor();
         let units = map.units();
+        self.state.campaign.corneria_damage_percent = map.corneria_damage_percent();
         let strategic = &mut self.state.strategic_map;
         strategic.player_map_position = MapPoint {
             x: i16::from(x),
@@ -25352,6 +25370,7 @@ mod tests {
             .campaign_map()
             .expect("the ported map hosts the campaign");
         eprintln!("ship {:?} launch {:x?}", map.ship(), map.visit.launch);
+        eprintln!("map shields {:?} score {}", map.shields(), map.visit.hud_inputs.score);
         assert!(modes.contains(&GameMode::PilotSelection));
         assert!(launched.is_some(), "no stage launched");
     }
